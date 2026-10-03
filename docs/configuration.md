@@ -7554,10 +7554,14 @@ agents:
   recurring task on that cadence whether or not anything happened; one without
   it is woken by its events alone.
 - **`on`** is what else wakes it: `landings` (a run that landed its change),
-  `stoppages` (a run that stopped with its work item back in somebody's hands),
-  and `admissions` (work created in the tracker). The first two are read from the
-  run records by when each run ended, and admissions from the tracker's item
-  export by when each item was created.
+  `stoppages` (every developer run ending `failed`, `timed_out`, or `cancelled`,
+  or leaving its work item waiting on a decision), and `admissions` (work created
+  in the tracker). Stoppages include runs that end during checks or without a
+  durable blocker, and runs a developer or reviewer escalates for the development
+  manager to decide. Each carries its work item, run, and recorded reason;
+  a record giving no reason says so. A run still in progress is not a stoppage.
+  The first two are read from the run records by when each run ended, and
+  admissions from the tracker's item export by when each item was created.
 
 **A burst wakes an instance once.** Each instance keeps a cursor per stream —
 the run records and the tracker — under the state root, at

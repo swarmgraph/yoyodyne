@@ -4,10 +4,10 @@ package cli
 // the harness already reads them.
 //
 // Two streams, one position each. The run records say when a run landed its
-// change and when one stopped with its work item back in somebody's hands, read
-// by when each run ended as the read model reads it for throughput. The tracker
-// says when work was admitted, read from the export the tracker writes of every
-// item it holds, by the moment each was created.
+// change and when one failed, timed out, was cancelled, or stopped for a
+// decision, read by when each run ended as the read model reads it for
+// throughput. The tracker says when work was admitted, read from the export the
+// tracker writes of every item it holds, by the moment each was created.
 //
 // The tracker's interactions log — the export the freshness measurement reads —
 // is not where admissions are read from, although the design names it: the
@@ -101,12 +101,16 @@ func runEvents(store *runstate.Store, after, until time.Time) ([]orchestrator.Pa
 		}
 		event := orchestrator.PassEvent{Stream: runstate.PassStreamRuns, At: ended, Subject: state.WorkItemID}
 		switch outcome := state.Outcome(); {
+		case state.Escalated():
+			event.Class = config.TriggerStoppages
+			event.Detail = runDetail(state, "stopped: "+strings.TrimSpace(state.EscalationReason()))
 		case outcome == runstate.OutcomeSucceeded && state.Integration != nil:
 			event.Class = config.TriggerLandings
 			event.Detail = runDetail(state, "landed")
-		case outcome == runstate.OutcomeStopped:
+		case outcome == runstate.OutcomeStopped || outcome == runstate.OutcomeFailed ||
+			outcome == runstate.OutcomeTimedOut || outcome == runstate.OutcomeCancelled:
 			event.Class = config.TriggerStoppages
-			event.Detail = runDetail(state, "stopped: "+strings.TrimSpace(state.Blocker))
+			event.Detail = runDetail(state, "stopped: "+state.Reason())
 		default:
 			continue
 		}

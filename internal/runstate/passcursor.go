@@ -51,7 +51,7 @@ const PassCursorSchemaVersion = 1
 // position nothing ever moves.
 const (
 	// PassStreamRuns is the run records: a run that landed its change, and a
-	// run that stopped with its work item back in somebody's hands.
+	// run that failed, timed out, was cancelled, or stopped for a decision.
 	PassStreamRuns = "runs"
 	// PassStreamTracker is the tracker: work admitted to the backlog.
 	PassStreamTracker = "tracker"
