@@ -139,13 +139,12 @@ type chatOutput struct {
 	// Writes are the documents this turn wrote and PendingWrites is everything
 	// still awaiting a decision once the message is over, kept apart for the
 	// reason the proposals above are. Nothing was written to the repository for
-	// either list: a document reaches it when an approval names it and not before.
+	// either list. Delegated writes already carried out are reported in Written.
 	Writes        []chat.PendingWrite `json:"writes,omitempty"`
 	PendingWrites []chat.PendingWrite `json:"pending_writes,omitempty"`
+	Written       []chat.WriteOutcome `json:"written_documents,omitempty"`
 	// WriteDecisions are what the message decided about documents the
-	// conversation was waiting on. Unlike the lists above these already happened:
-	// an approved document is in the repository, with the operator's approval
-	// recorded in its frontmatter.
+	// conversation was waiting on. Unlike the lists above these already happened.
 	WriteDecisions []chat.WriteOutcome `json:"write_decisions,omitempty"`
 	Error          string              `json:"error,omitempty"`
 }
@@ -361,6 +360,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			// was written for either, and a script that will approve one next has
 			// to be able to name it.
 			Writes:             reply.Writes,
+			Written:            reply.Written,
 			PendingWrites:      session.Writes(),
 			Admitted:           reply.Admitted,
 			Concerns:           reply.Concerns,
@@ -394,6 +394,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	printChatEvaluation(stdout, reply.Evaluation, reply.EvaluationProblem)
 	printChatExchanges(stdout, role, reply.Exchanges)
 	printChatAdmitted(stdout, reply.Admitted)
+	printChatWriteDecisions(stdout, reply.Written)
 	printChatReports(stdout, theme, role, reply.Reports, reply.ReportProblem, session.RenderReply)
 	// Everything unanswered and everything undecided is listed rather than only
 	// what this turn raised or proposed: an answer or a decision arrives as its
@@ -1293,6 +1294,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		// it travels with the failure for the reason the concerns do: nothing was
 		// written, and a document nobody can name has to be written out again.
 		output.Writes = reply.Writes
+		output.Written = reply.Written
 		// A turn that failed may still have changed the tracker before it did, so
 		// what it changed is reported with the failure rather than lost behind it.
 		// The same is true of anything it reported: the report is already
@@ -1334,6 +1336,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	printChatEvaluation(stdout, output.Evaluation, output.EvaluationProblem)
 	printChatExchanges(stdout, role, output.Exchanges)
 	printChatAdmitted(stdout, output.Admitted)
+	printChatWriteDecisions(stdout, output.Written)
 	printChatReports(stdout, theme, role, output.Reports, output.ReportProblem, render)
 	printChatConcerns(stdout, theme, role, output.Concerns)
 	printChatProposals(stdout, role, output.Proposals)
@@ -1363,8 +1366,8 @@ func printChatHeader(writer io.Writer, role domain.AgentRole, evidence chat.Evid
 	fmt.Fprintln(writer, "It manages the work tracker itself: it can read, create, attribute to a goal,")
 	fmt.Fprintln(writer, "update, reparent, reprioritize, link, unlink, close, and retire items, and every")
 	fmt.Fprintln(writer, "change it makes is reported to you here. It has no files, commands, or network.")
-	fmt.Fprintln(writer, "The brief and the goals are its documents to write: it hands you one to read and")
-	fmt.Fprintln(writer, "approve, and the harness files it with your approval recorded in it. A design")
+	fmt.Fprintln(writer, "Product documents are its to write: consistent changes naming their directing")
+	fmt.Fprintln(writer, "item proceed under its authority; other writes await your approval. A design")
 	fmt.Fprintln(writer, "or a decision record is the architect's, and it proposes a change there instead.")
 	fmt.Fprintln(writer, "It may also propose work items; one is created only when you approve it by name,")
 	fmt.Fprintln(writer, "and every one of them names a goal your goals state, checked rather than taken.")
@@ -1614,9 +1617,18 @@ func printChatProposals(writer io.Writer, role domain.AgentRole, proposals []cha
 
 // printChatWrites reports the documents awaiting the operator's decision, and
 // says how to make one. Nothing was written for any of them: the document is in
-// the conversation's record and the repository is untouched until an approval
-// names it, which is why the identifier is printed rather than the position.
+// the conversation's record. The identifier names the document a later decision
+// or delegated retry carries out, rather than its position in this list.
 func printChatWrites(writer io.Writer, role domain.AgentRole, writes []chat.PendingWrite) {
+	var awaiting []chat.PendingWrite
+	for _, write := range writes {
+		if write.Delegated {
+			fmt.Fprintf(writer, "\n[%s] %s awaits a retry by the harness under the owning role's delegated authority; no operator approval is needed.\n", write.ID, write.Write.Describe())
+		} else {
+			awaiting = append(awaiting, write)
+		}
+	}
+	writes = awaiting
 	if len(writes) == 0 {
 		return
 	}

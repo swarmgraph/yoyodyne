@@ -224,6 +224,9 @@ type Draft struct {
 	Body string
 	// Reason is why this artifact is being recorded, kept as the first revision.
 	Reason string
+	// Intent records whether the creation carries existing intent or changes it.
+	// See rewording.go for the record a delegated creation requires.
+	Intent Intent
 }
 
 // Amendment is a bounded change to an artifact that already exists. Every field
@@ -268,6 +271,7 @@ func (s Store) Create(role domain.AgentRole, draft Draft, now time.Time) (Artifa
 			By:     role,
 			At:     now.UTC(),
 			Reason: strings.TrimSpace(draft.Reason),
+			Intent: draft.Intent,
 		}},
 	}
 	if err := created.Validate(); err != nil {

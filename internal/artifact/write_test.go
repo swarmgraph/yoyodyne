@@ -24,6 +24,29 @@ func aWrite() Write {
 	}
 }
 
+func TestIntentSurvivesTheTypedWriteAndItsStoreConversions(t *testing.T) {
+	t.Parallel()
+	writes, err := DecodeWrites(`{"documents":[{"action":"create","id":"operating-rules","kind":"rules","title":"Operating rules","directory":"docs/product","body":"## Rules\n\n- Notes are append-only.","reason":"yoyodyne-ifd.433.19 - records rules already directed","intent":"consistent"}]}`)
+	if err != nil || len(writes) != 1 {
+		t.Fatalf("DecodeWrites() = %#v, %v", writes, err)
+	}
+	write := writes[0]
+	if write.Intent != IntentConsistent || write.Draft().Intent != IntentConsistent || write.Amendment().Intent != IntentConsistent {
+		t.Fatalf("typed write lost its intent: %#v", write)
+	}
+	store := generatedStore(t.TempDir())
+	if delegated, err := store.DelegatedWrite(domain.RoleProductManager, write); err != nil || !delegated {
+		t.Fatalf("DelegatedWrite() = %v, %v", delegated, err)
+	}
+	if delegated, err := store.DelegatedWrite(domain.RoleArchitect, write); delegated || !errors.Is(err, ErrUnauthorized) {
+		t.Fatalf("an architect claimed product authority: %v, %v", delegated, err)
+	}
+	invalid := `{"documents":[{"action":"revise","id":"operating-rules","body":"Rules.","reason":"because","intent":"cosmetic"}]}`
+	if _, err := DecodeWrites(invalid); err == nil || !strings.Contains(err.Error(), `intent "cosmetic"`) {
+		t.Fatalf("an unknown intent was accepted: %v", err)
+	}
+}
+
 func TestExtractWritesTakesADocumentOnlyFromTheBlock(t *testing.T) {
 	t.Parallel()
 
@@ -344,6 +367,11 @@ func TestTheWriteContractStatesTheBoundsItIsHeldTo(t *testing.T) {
 		t.Fatalf("Filing() error = %v", err)
 	}
 	intent := WriteContract(domain.RoleProductManager, product)
+	for _, required := range []string{`"intent":"consistent"`, `"intent":"fundamental"`, "creation or revision", "without asking the operator", "work item that directed it"} {
+		if !strings.Contains(intent, required) {
+			t.Fatalf("the product manager's contract does not state %q: %s", required, intent)
+		}
+	}
 	if !strings.Contains(intent, `"kind":"brief","title":"one line","supports":["upstream-artifact-id"],"directory":"`+config.DefaultSpecifications+`"`) {
 		t.Fatalf("the product manager's example does not file a brief in %s: %s", config.DefaultSpecifications, intent)
 	}

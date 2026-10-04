@@ -72,18 +72,29 @@ checks.
 fundamental intent if the goals would afterwards admit work they refused before,
 or refuse work they admitted; that is yours to approve. Anything else is a
 consistent rewording or a decision the goals already delegate, and it is the
-Lead Product Manager's to make. Which one a change is, is said on the amendment
+Lead Product Manager's to make. Which one a change is, is said on the revision
 itself: one the Lead Product Manager records as `intent: consistent`, with a
 reason that opens with the work item that directed it —
 `yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager` — leaves
-the goals document approved, leaves admissions against its goals exactly as they
-were, and is listed by [`yoyo stale`](#what-a-change-upstream-leaves-stale) as a
+any document in the product's specification home approved, leaves admissions
+against its goals exactly as they were, and is listed by
+[`yoyo stale`](#what-a-change-upstream-leaves-stale) as a
 rewording rather than an amendment. One recorded as `intent: fundamental`, and
 one that does not say which it is, reads as amended-since and puts admissions
 back to you, as every amendment did before: the default is yours, and it takes
 the Lead Product Manager's recorded claim to move off it. The
 [configuration guide](configuration.md#approving-a-document) says what else the
 record has to carry for the claim to count.
+
+A document created to record intent already given — operating rules the operator
+already directed, for example — may carry the same mark on its `created`
+revision. Recorded by the Lead Product Manager as `intent: consistent`, with a
+reason opening with the directing work item and saying what existing intent it
+records, it starts approved under that reason. `yoyo artifact list` and `show`
+name the Lead Product Manager's record rather than asking you to approve it or
+attributing an approval to you. A fundamental or unmarked creation still needs
+the approval your configuration requires. A later fundamental or unmarked
+amendment reads as amended-since, just as it does after your recorded approval.
 
 What is
 asked of you is your configuration's to say: `approvals.brief` and
@@ -198,7 +209,14 @@ content was rarely the part that went wrong — the transcription was.
 
 So a document is written the way work is proposed. Ask the Lead Product Manager
 for the goals or the architect for a design, and what comes back is prose you
-read plus a typed action carrying the document. Nothing is written yet. You are
+read plus a typed action carrying the document. A consistent creation or revision
+the Lead Product Manager records with its directing-item reason is written under
+that role's delegated authority, without an operator decision or an approval
+attributed to you. The action carries `"intent":"consistent"`; a creation's
+reason says what existing intent it records, such as rules you already gave.
+The harness reports what it wrote and its path, and `--json` carries the result
+as `written_documents`. Fundamental and unmarked writes still wait for you, as
+does a consistent mark whose reason names no directing item. For those, you are
 shown what would happen and the document itself, and asked:
 
 ```

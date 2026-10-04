@@ -164,9 +164,9 @@ type Revision struct {
 	By     domain.AgentRole `yaml:"by" json:"by"`
 	At     time.Time        `yaml:"at" json:"at"`
 	Reason string           `yaml:"reason" json:"reason"`
-	// Intent is what the role that made an amendment says it did to what the
-	// document intends, and it is empty where the role said nothing. It is
-	// recorded only on an amendment. See rewording.go for what it decides.
+	// Intent is what the role that made a creation or amendment says it did to
+	// what the document intends, and it is empty where the role said nothing.
+	// See rewording.go for what it decides.
 	Intent Intent `yaml:"intent,omitempty" json:"intent,omitempty"`
 }
 
@@ -301,8 +301,8 @@ func (r Revision) Validate() error {
 	switch {
 	case r.Intent != "" && !r.Intent.Valid():
 		problems = append(problems, fmt.Errorf("intent %q must be %q or %q, or left out", r.Intent, IntentConsistent, IntentFundamental))
-	case r.Intent != "" && r.Action != ActionAmended:
-		problems = append(problems, fmt.Errorf("intent is recorded on an amendment, and this revision is %q", r.Action))
+	case r.Intent != "" && r.Action != ActionAmended && r.Action != ActionCreated:
+		problems = append(problems, fmt.Errorf("intent is recorded on a creation or amendment, and this revision is %q", r.Action))
 	}
 	// Whether the role that made this revision owns the artifact needs the kind,
 	// which one revision does not carry, so that half is checked by the artifact

@@ -94,9 +94,9 @@ func TestOnlyARewordingRecordedAsConsistentLeavesTheGoalsApproved(t *testing.T) 
 
 // A rewording keeps the approval standing only on the record that makes it the
 // Lead Product Manager's delegated decision. The same label recorded under
-// another role, or on a document that is not the goals, is the operator's again,
-// and says why.
-func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverTheGoals(t *testing.T) {
+// another role, or on a document the Lead Product Manager does not own, is the
+// operator's again, and says why.
+func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverProductDocuments(t *testing.T) {
 	t.Parallel()
 
 	consistent := Revision{Action: ActionAmended, By: domain.RoleProductManager, At: moment(),
@@ -111,9 +111,13 @@ func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverTheGoals(t *testing
 	if delegated, why := goals.Rewording(byArchitect); delegated || !strings.Contains(why, "Lead Product Manager") {
 		t.Fatalf("a rewording by the architect: %v, %q", delegated, why)
 	}
-	brief := Artifact{ID: "brief", Kind: KindBrief}
-	if delegated, why := brief.Rewording(consistent); delegated || !strings.Contains(why, "brief") {
-		t.Fatalf("a rewording of the brief: %v, %q", delegated, why)
+	for _, kind := range Kinds() {
+		document := Artifact{Kind: kind}
+		owner, _ := Owner(kind)
+		delegated, why := document.Rewording(consistent)
+		if want := owner == domain.RoleProductManager; delegated != want {
+			t.Fatalf("a rewording of %s: %v, %q; want delegated %v", kind, delegated, why, want)
+		}
 	}
 	for _, reason := range []string{"reworded for yoyodyne-ifd.437.11", "", "rename: the Lead PM"} {
 		unnamed := consistent
@@ -124,9 +128,9 @@ func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverTheGoals(t *testing
 	}
 }
 
-// Intent is said of an amendment, in one of two words. Anything else is a
-// record that means nothing and is refused rather than read as either.
-func TestIntentIsRecordedOnlyOnAnAmendmentAndInOneOfTwoWords(t *testing.T) {
+// Intent is said of a creation or amendment, in one of two words. Anything else
+// is a record that means nothing and is refused rather than read as either.
+func TestIntentIsRecordedOnlyOnACreationOrAmendmentAndInOneOfTwoWords(t *testing.T) {
 	t.Parallel()
 
 	valid := Revision{Action: ActionAmended, By: domain.RoleProductManager, At: moment(), Reason: "x", Intent: IntentFundamental}
@@ -135,13 +139,137 @@ func TestIntentIsRecordedOnlyOnAnAmendmentAndInOneOfTwoWords(t *testing.T) {
 	}
 	onCreation := valid
 	onCreation.Action = ActionCreated
-	if err := onCreation.Validate(); err == nil || !strings.Contains(err.Error(), "intent is recorded on an amendment") {
+	if err := onCreation.Validate(); err != nil {
 		t.Fatalf("intent on a creation: error = %v", err)
+	}
+	for _, action := range []Action{ActionIdentified, ActionSuperseded, ActionRetired} {
+		invalid := valid
+		invalid.Action = action
+		if err := invalid.Validate(); err == nil || !strings.Contains(err.Error(), "intent is recorded on a creation or amendment") {
+			t.Fatalf("intent on %s: error = %v", action, err)
+		}
 	}
 	unknown := valid
 	unknown.Intent = "cosmetic"
 	if err := unknown.Validate(); err == nil || !strings.Contains(err.Error(), `intent "cosmetic"`) {
 		t.Fatalf("an unknown intent: error = %v", err)
+	}
+}
+
+func TestEveryProductDocumentKeepsApprovalThroughOnlyConsistentRevisions(t *testing.T) {
+	t.Parallel()
+
+	for _, kind := range Owned(domain.RoleProductManager) {
+		for _, intent := range []Intent{IntentConsistent, IntentFundamental, ""} {
+			t.Run(string(kind)+"/"+string(intent), func(t *testing.T) {
+				t.Parallel()
+				store := newStore(t)
+				id := "product-document"
+				if _, err := store.Create(domain.RoleProductManager, Draft{
+					ID: id, Kind: kind, Title: "Product document", Directory: productHome,
+					Body: "The product manager records the intent.", Reason: "recorded",
+				}, moment()); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := store.Approve(id, "approved in conversation", moment().Add(time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+				body := "The Lead Product Manager records the intent."
+				if _, err := store.Amend(domain.RoleProductManager, id, Amendment{
+					Body: &body, Intent: intent, Reason: "yoyodyne-ifd.433.19 - the owning role is named consistently",
+				}, moment().Add(2*time.Hour)); err != nil {
+					t.Fatal(err)
+				}
+				set, err := store.Load()
+				if err != nil || len(set.Problems) != 0 {
+					t.Fatalf("Load() error = %v, problems = %v", err, set.Problems)
+				}
+				recorded, found := set.Find(id)
+				want := ApprovalAmended
+				if intent == IntentConsistent {
+					want = ApprovalApproved
+				}
+				if !found || recorded.ApprovalState() != want {
+					t.Fatalf("found %v, state %q; want %q", found, recorded.ApprovalState(), want)
+				}
+			})
+		}
+	}
+}
+
+func TestRulesRecordingExistingIntentStartApprovedUnderTheirCreationReason(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name   string
+		intent Intent
+		reason string
+	}{
+		{"consistent", IntentConsistent, "yoyodyne-ifd.433.17 - records rules the operator already gave"},
+		{"fundamental", IntentFundamental, "yoyodyne-ifd.433.17 - adds new intent"},
+		{"unmarked", "", "yoyodyne-ifd.433.17 - records rules"},
+		{"no directing item", IntentConsistent, "records rules the operator already gave"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			store := newStore(t)
+			created, err := store.Create(domain.RoleProductManager, Draft{
+				ID: "operating-rules", Kind: KindRules, Title: "Operating rules", Directory: productHome,
+				Body: "## Rules\n\n- Notes are append-only.", Reason: testCase.reason, Intent: testCase.intent,
+			}, moment())
+			if err != nil {
+				t.Fatal(err)
+			}
+			set, err := store.Load()
+			if err != nil || len(set.Problems) != 0 {
+				t.Fatalf("Load() error = %v, problems = %v", err, set.Problems)
+			}
+			reloaded, found := set.Find(created.ID)
+			if !found {
+				t.Fatal("the created rules document was not loaded")
+			}
+			for _, recorded := range []Artifact{created, reloaded} {
+				if len(recorded.Approvals) != 0 || recorded.Revisions[0].Intent != testCase.intent || recorded.Revisions[0].Reason != testCase.reason {
+					t.Fatalf("creation lost its reason or invented an operator approval: %#v", recorded)
+				}
+				want := ApprovalUnapproved
+				if testCase.name == "consistent" {
+					want = ApprovalApproved
+				}
+				if recorded.ApprovalState() != want {
+					t.Fatalf("state %q; want %q", recorded.ApprovalState(), want)
+				}
+			}
+			if testCase.name != "consistent" {
+				return
+			}
+			// Delegation does not erase a later change of fundamental intent.
+			bodies := []string{
+				"## Rules\n\n- Work item notes are append-only.",
+				"## Rules\n\n- Work item notes may be replaced.",
+				"## Rules\n\n- The notes of a work item may be replaced.",
+			}
+			for index, intent := range []Intent{IntentConsistent, IntentFundamental, IntentConsistent} {
+				body := bodies[index]
+				amended, err := store.Amend(domain.RoleProductManager, created.ID, Amendment{
+					Body: &body, Intent: intent, Reason: "yoyodyne-ifd.433.19 - rules revised",
+				}, moment().Add(time.Duration(index+1)*time.Hour))
+				if err != nil {
+					t.Fatal(err)
+				}
+				want := ApprovalApproved
+				if index > 0 {
+					want = ApprovalAmended
+				}
+				if amended.ApprovalState() != want {
+					t.Fatalf("revision %d: state %q; want %q", index+1, amended.ApprovalState(), want)
+				}
+			}
+			approved, err := store.Approve(created.ID, "operator approved the new intent", moment().Add(4*time.Hour))
+			if err != nil || approved.ApprovalState() != ApprovalApproved || len(approved.Approvals) != 1 {
+				t.Fatalf("Approve() = %#v, %v", approved, err)
+			}
+		})
 	}
 }
 

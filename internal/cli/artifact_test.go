@@ -622,3 +622,75 @@ func TestAnApprovedGoalsDocumentNamesTheRewordingsItStandsThrough(t *testing.T) 
 		}
 	}
 }
+
+func TestRulesRecordingExistingIntentAreListedAndShownWithoutOperatorApproval(t *testing.T) {
+	t.Parallel()
+
+	for _, intent := range []artifact.Intent{artifact.IntentConsistent, artifact.IntentFundamental, ""} {
+		t.Run(string(intent), func(t *testing.T) {
+			t.Parallel()
+			configPath := writeConfig(t, validConfig)
+			resolved, err := loadConfiguration(configPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store := artifactStore(filepath.Dir(configPath), resolved.Config.Product)
+			reason := "yoyodyne-ifd.433.17 - records rules the operator already gave"
+			if _, err := store.Create(domain.RoleProductManager, artifact.Draft{
+				ID: "operating-rules", Kind: artifact.KindRules, Title: "Operating rules",
+				Directory: resolved.Config.Product.Specifications, Body: "## Rules\n\n- Notes are append-only.",
+				Reason: reason, Intent: intent,
+			}, time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)); err != nil {
+				t.Fatal(err)
+			}
+			for _, command := range [][]string{{"list"}, {"show", "operating-rules"}} {
+				args := append([]string{"artifact"}, command...)
+				args = append(args, "--config", configPath)
+				stdout, stderr, code := runCLI(t, args...)
+				if code != 0 {
+					t.Fatalf("%v code = %d, stderr = %q", command, code, stderr)
+				}
+				if intent == artifact.IntentConsistent {
+					for _, want := range []string{"approved as it stands", "recorded by the Lead Product Manager", "as consistent with intent", reason} {
+						if !strings.Contains(stdout, want) {
+							t.Fatalf("%v output = %q, want %q", command, stdout, want)
+						}
+					}
+					if strings.Contains(stdout, "yours to approve") || strings.Contains(stdout, "given by the operator") {
+						t.Fatalf("delegated creation was put to or attributed to the operator: %q", stdout)
+					}
+				} else if !strings.Contains(stdout, "yours to approve") {
+					t.Fatalf("%v output = %q; want an operator approval for %q", command, stdout, intent)
+				}
+				stdout, stderr, code = runCLI(t, append(args, "--json")...)
+				if code != 0 {
+					t.Fatalf("%v --json code = %d, stderr = %q", command, code, stderr)
+				}
+				var output artifactOutput
+				if err := json.Unmarshal([]byte(stdout), &output); err != nil {
+					t.Fatal(err)
+				}
+				approval := output.Approvals["operating-rules"]
+				if intent == artifact.IntentConsistent {
+					if approval.State != artifact.ApprovalApproved || approval.Approval != nil || approval.DelegatedCreation == nil || approval.DelegatedCreation.Reason != reason {
+						t.Fatalf("delegated approval = %#v", approval)
+					}
+				} else if approval.State != artifact.ApprovalUnapproved || approval.DelegatedCreation != nil {
+					t.Fatalf("unapproved creation = %#v", approval)
+				}
+			}
+			if intent == artifact.IntentConsistent {
+				body := "## Rules\n\n- Notes may be replaced."
+				if _, err := store.Amend(domain.RoleProductManager, "operating-rules", artifact.Amendment{
+					Body: &body, Intent: artifact.IntentFundamental, Reason: "yoyodyne-ifd.433.19 - new intent",
+				}, time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)); err != nil {
+					t.Fatal(err)
+				}
+				stdout, stderr, code := runCLI(t, "artifact", "show", "operating-rules", "--config", configPath)
+				if code != 0 || !strings.Contains(stdout, "approved and amended since") || !strings.Contains(stdout, reason) {
+					t.Fatalf("fundamental revision: code %d, output %q, stderr %q", code, stdout, stderr)
+				}
+			}
+		})
+	}
+}

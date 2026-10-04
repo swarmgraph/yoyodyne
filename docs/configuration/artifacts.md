@@ -343,7 +343,7 @@ The document itself, unchanged by any of the above.
 | `title` | One line naming what the document is. |
 | `supports` | The artifacts upstream of this one, by id: the goal a design serves, the brief a goal serves. Optional — the brief is the root and supports nothing. |
 | `status` | `draft` (written, not yet active), `active` (what the product currently intends), `superseded` (replaced by a later artifact), or `retired` (stopped applying, not replaced). |
-| `revisions` | Append-only: what changed (`created`, `amended`, `superseded`, `retired`), the role it was recorded under, when, and why. At least the creation is required, and the role must be the one that [owns the kind](#who-may-change-an-artifact). An amendment may also say what it did to the document's intent — `intent: consistent` or `intent: fundamental` — which on the goals decides [whether your approval stands through it](#approving-a-document). |
+| `revisions` | Append-only: what changed (`created`, `amended`, `superseded`, `retired`), the role it was recorded under, when, and why. At least the creation is required, and the role must be the one that [owns the kind](#who-may-change-an-artifact). A creation or amendment may also say what it did to the document's intent — `intent: consistent` or `intent: fundamental` — which across the product home decides [whether it needs your approval](#approving-a-document). |
 | `approvals` | Append-only, and optional: [your approval of the document](#approving-a-document), each entry naming the revision it was given for. |
 
 Everything below the frontmatter is the document, and nothing about it is
@@ -377,7 +377,8 @@ yoyo artifact show v1-goals         # one artifact, its revisions, and your appr
 
 There is no `yoyo artifact create` or `amend`, unlike the invariant commands: an
 artifact's content is written by the role that owns it — by hand, or from its
-conversation as a typed write you approve, which the harness files with the
+conversation as a typed write, which the harness files under delegated authority
+for a qualifying consistent-intent mark or after your approval, with the
 frontmatter generated ([writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation)). What the harness owns is refusing a
 document whose identity is missing, malformed, or claimed by something else,
@@ -468,7 +469,7 @@ v1-goals [goals, active] V1 goals
             as it now reads is not what was approved
 ```
 
-**A rewording of the goals that is consistent with what you approved is not an
+**A rewording in the product home that is consistent with what you approved is not an
 amendment you are asked about.** The test is what the goals admit: a change is of
 fundamental intent if the goals would afterwards admit work they refused
 before, or refuse work they admitted, and that is yours; anything else is a
@@ -485,19 +486,28 @@ revisions:
       intent: consistent
 ```
 
-An amendment of a goals document recorded by the Lead Product Manager as
-`intent: consistent`, with a reason that opens with the work item that directed
-it, leaves the document approved: work naming its goals is admitted exactly as
-before, `yoyo artifact show` says the approval stands through that many
+An amendment of any document in the product's specification home recorded by
+the Lead Product Manager as `intent: consistent`, with a reason that opens with
+the work item that directed it, leaves the document approved: work naming its
+goals is admitted exactly as before, `yoyo artifact show` says the approval stands through that many
 rewordings, and [`yoyo stale`](../artifacts.md#what-a-change-upstream-leaves-stale)
 lists it as a rewording rather than an amendment. Every other amendment is still
 yours — one recorded as `intent: fundamental`, one that says nothing, and one
 labelled consistent whose record is short of the rest: recorded by another role,
-against a document other than the goals, or with no item named. The last of
-those is said on `show` with what it is missing, so the label does not read as
-ignored. What is checked is the shape of the identifier the reason opens with and
+against a document the Lead Product Manager does not own, or with no item named.
+The last of those is said on `show` with what it is missing, so the label does
+not read as ignored. What is checked is the shape of the identifier the reason opens with and
 not that the tracker holds it; the reason is the record you follow to the
 decision.
+
+A `created` revision may carry the same mark when it records existing intent,
+such as rules the operator already gave. With `intent: consistent`, recorded by
+the Lead Product Manager and a reason opening with the directing work item,
+the document starts approved under that reason. `artifact list` and `show` name
+that record instead of asking for your approval; `--json` carries it as
+`delegated_creation`, with no operator `approval` invented. A creation marked
+fundamental or left unmarked still needs the configured approval, and a later
+fundamental or unmarked amendment counts against a delegated creation's approval.
 
 **Your `approvals` configuration decides what is asked of you.** `approvals.brief`
 and `approvals.goals` are `human` by default and `approvals.designs` is
@@ -852,8 +862,9 @@ it — proposals against the brief and the goals are carried into the Lead Produ
 Manager's conversation, and proposals against the designs, the specifications,
 and the decision records are carried into the architect's, each told in so many
 words that it cannot decide one. An owner may write its own documents, which is
-how an approved change is made: it writes the revision as a typed action, you
-approve it, and the harness performs the write — see [writing a document from a
+how an approved change is made: it writes the revision as a typed action. The
+harness performs a qualifying consistent revision under the Lead Product
+Manager's delegated authority or awaits your approval — see [writing a document from a
 conversation](../artifacts.md#writing-a-document-from-a-conversation). What no
 owner can do is decide the proposal from there. Both owners can now be
 asked directly: `yoyo agent chat architect` is where the argument about a design

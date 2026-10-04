@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
@@ -848,6 +849,29 @@ Here is the goals document as we agreed it.
 {"documents":[{"action":"create","id":"v2-goals","kind":"goals","title":"What v2 is for","directory":"docs/product","body":"# Goals\n\nRun development nearly autonomously.","reason":"drafted with the operator"}]}
 ` + "```" + `
 `
+
+func TestConsistentRulesWrittenInConversationAreListedAsApproved(t *testing.T) {
+	t.Parallel()
+	configPath := writeConfig(t, validConfig)
+	provider := &recordingChatBackend{result: backendapi.RunResult{
+		SessionID: "session-1", FinalText: "The rules are recorded.\n\n" + artifact.WriteFence + `
+{"documents":[{"action":"create","id":"operating-rules","kind":"rules","title":"Operating rules","directory":"docs/product","body":"## Rules\n\n- Notes are append-only.","intent":"consistent","reason":"yoyodyne-ifd.433.19 - records rules the operator already gave"}]}
+` + "```\n",
+	}}
+	session := openTestDocumentSession(t, t.TempDir(), filepath.Dir(configPath), provider, nil)
+	var written, problems bytes.Buffer
+	if code := runChatMessage(context.Background(), session, domain.RoleProductManager, "Record the operating rules.", false, &written, &problems); code != 0 ||
+		len(session.Writes()) != 0 || !strings.Contains(written.String(), "delegated authority, consistent with intent") ||
+		strings.Contains(written.String(), "your approval recorded") {
+		t.Fatalf("conversation write: code %d, stdout %q, stderr %q", code, written.String(), problems.String())
+	}
+	stdout, stderr, code := runCLI(t, "artifact", "list", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "approved as it stands") ||
+		!strings.Contains(stdout, "recorded by the Lead Product Manager") ||
+		strings.Contains(stdout, "yours to approve") || strings.Contains(stdout, "given by the operator") {
+		t.Fatalf("rules listing: code %d, stdout %q, stderr %q", code, stdout, stderr)
+	}
+}
 
 // openTestDocumentSession is openTestChatSession with an artifact store behind
 // it, over a repository the caller owns so a test can look at what was written.

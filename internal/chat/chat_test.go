@@ -88,11 +88,10 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	for _, required := range []string{
 		"Your role is read-only",
 		"they may not make them",
-		// The brief and the goals are the product manager's to draft and nobody's
-		// to file without the operator, and a persona that says otherwise does not
-		// change it.
-		"nobody's to file without the operator",
-		"Nothing reaches the repository unapproved",
+		// A persona cannot remove the directing-item requirement or the operator's
+		// approval of writes outside the delegated consistent-intent path.
+		"other writes await the operator's approval",
+		"record the consistent-intent mark and directing-item reason",
 	} {
 		if !strings.Contains(prompt, required) {
 			t.Fatalf("system prompt lost contract text %q", required)

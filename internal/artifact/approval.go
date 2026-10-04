@@ -20,9 +20,9 @@ package artifact
 // the approved one. A revision that only gave its goals identifiers is not one
 // of those (see identity.go), because it changed nothing the operator was asked
 // to agree to. The one judgement in it is the owning role's, recorded on the
-// amendment itself: a rewording of the goals the Lead Product Manager records as
-// consistent with intent is delegated, and the approval stands through it (see
-// rewording.go).
+// revision itself: a change to a product document the Lead Product Manager
+// records as consistent with intent is delegated, and the approval stands
+// through it (see rewording.go).
 //
 // # What this deliberately does not do
 //
@@ -131,8 +131,8 @@ type ApprovalState string
 const (
 	// ApprovalUnapproved records no approval at all.
 	ApprovalUnapproved ApprovalState = "unapproved"
-	// ApprovalApproved is approved as it stands: the last revision recorded is the
-	// one the operator approved.
+	// ApprovalApproved is approved as it stands, under the operator's recorded
+	// approval or the Lead Product Manager's delegated authority.
 	ApprovalApproved ApprovalState = "approved"
 	// ApprovalAmended was approved and has been amended since. The approval still
 	// stands for what it was given for, and the document as it now reads is not
@@ -160,19 +160,30 @@ func (a Artifact) LatestApproval() (Approval, bool) {
 // put every admission under the document back to the operator over a change to
 // nothing they were asked about.
 //
-// Nor does a rewording the Lead Product Manager recorded as consistent with
+// Nor does a change the Lead Product Manager recorded as consistent with
 // intent (see rewording.go). The goals admit and refuse the same work after it
 // as before, which is what the operator approved, and reading it as
 // amended-since would put every admission under the document back to the
-// operator over a decision the operator's ruling of 2026-09-26 delegated.
+// operator over a decision the operator's ruling of 2026-09-26 delegated. A
+// creation recorded that way is approved under that delegation from the start.
 func (a Artifact) ApprovalState() ApprovalState {
-	if _, approved := a.LatestApproval(); !approved {
+	if _, approved := a.approvedRevision(); !approved {
 		return ApprovalUnapproved
 	}
 	if a.RevisionsSinceApproval() == 0 {
 		return ApprovalApproved
 	}
 	return ApprovalAmended
+}
+
+// approvedRevision is the revision the document's approval rests on: either the
+// operator's recorded approval or a creation recording already directed intent.
+func (a Artifact) approvedRevision() (int, bool) {
+	if latest, approved := a.LatestApproval(); approved {
+		return latest.Revision, true
+	}
+	_, delegated := a.DelegatedCreation()
+	return 0, delegated
 }
 
 // RevisionsSinceApproval counts the revisions recorded after the approved one
@@ -183,12 +194,12 @@ func (a Artifact) ApprovalState() ApprovalState {
 // and for one that was never approved, because in neither case is there an
 // approval something has drifted from.
 func (a Artifact) RevisionsSinceApproval() int {
-	latest, approved := a.LatestApproval()
+	latest, approved := a.approvedRevision()
 	if !approved {
 		return 0
 	}
 	count := 0
-	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
+	for index := latest + 1; index < len(a.Revisions); index++ {
 		revision := a.Revisions[index]
 		if delegated, _ := a.Rewording(revision); revision.Action != ActionIdentified && !delegated {
 			count++
@@ -202,12 +213,12 @@ func (a Artifact) RevisionsSinceApproval() int {
 // approval without asking again, which a surface names so the approval
 // standing through them is visible rather than silent.
 func (a Artifact) RewordingsSinceApproval() []Revision {
-	latest, approved := a.LatestApproval()
+	latest, approved := a.approvedRevision()
 	if !approved {
 		return nil
 	}
 	var rewordings []Revision
-	for index := latest.Revision + 1; index < len(a.Revisions); index++ {
+	for index := latest + 1; index < len(a.Revisions); index++ {
 		if delegated, _ := a.Rewording(a.Revisions[index]); delegated {
 			rewordings = append(rewordings, a.Revisions[index])
 		}

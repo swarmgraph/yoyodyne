@@ -79,6 +79,9 @@ type artifactApproval struct {
 	Mode     string `json:"mode,omitempty"`
 	// Approval is the most recent one recorded, absent when there is none.
 	Approval *artifact.Approval `json:"approval,omitempty"`
+	// DelegatedCreation is the reason an existing-intent document starts approved
+	// without an approval attributed to the operator.
+	DelegatedCreation *artifact.Revision `json:"delegated_creation,omitempty"`
 	// RevisionsSinceApproval is how far the document has moved since, and is zero
 	// unless the state is amended.
 	RevisionsSinceApproval int `json:"revisions_since_approval,omitempty"`
@@ -424,14 +427,22 @@ func artifactSupports(recorded artifact.Artifact) string {
 func renderArtifactApproval(recorded artifact.Artifact, policy artifact.Policy) string {
 	setting, mode, governed := policy.SettingFor(recorded)
 	latest, approved := recorded.LatestApproval()
+	given := ""
+	approvedRevision := 0
 	if approved {
-		given := fmt.Sprintf("given by the %s %s, for revision %d",
+		approvedRevision = latest.Revision
+		given = fmt.Sprintf("given by the %s %s, for revision %d",
 			latest.By, latest.At.UTC().Format(time.RFC3339), latest.Revision)
+	} else if creation, delegated := recorded.DelegatedCreation(); delegated {
+		given = fmt.Sprintf("recorded by the %s %s as consistent with intent, for revision 0: %s",
+			creation.By.Title(), creation.At.UTC().Format(time.RFC3339), creation.Reason)
+	}
+	if given != "" {
 		if recorded.ApprovalState() == artifact.ApprovalApproved {
 			return "approved as it stands, " + given + rewordedSince(recorded)
 		}
 		return fmt.Sprintf("approved and amended since — %s, and %s recorded after it, so the document as it now reads is not what was approved%s%s",
-			given, laterRevisions(recorded.RevisionsSinceApproval()), rewordedSince(recorded), undelegated(recorded, latest.Revision))
+			given, laterRevisions(recorded.RevisionsSinceApproval()), rewordedSince(recorded), undelegated(recorded, approvedRevision))
 	}
 	switch {
 	case policy.RequiresFor(recorded):
@@ -498,6 +509,8 @@ func artifactApprovals(artifacts []artifact.Artifact, policy artifact.Policy) ma
 		}
 		if latest, approved := recorded.LatestApproval(); approved {
 			reported.Approval = &latest
+		} else if creation, delegated := recorded.DelegatedCreation(); delegated {
+			reported.DelegatedCreation = &creation
 		}
 		approvals[recorded.ID] = reported
 	}
@@ -529,11 +542,13 @@ is append-only, and losing it would leave a document nobody could correct.
 Your approval of one of these documents is recorded in the same frontmatter,
 against the revision it was given for, so a document amended after you approved
 it reads as approved-and-amended-since rather than as approved. The exception is
-a rewording of the goals the Lead Product Manager records as consistent with
-intent -- intent: consistent on the amendment, with a reason opening with the
-work item that directed it -- because the goals then admit and refuse the same
-work they did, and that change is delegated rather than yours; an amendment
-recorded as fundamental, or one that does not say, is still put to you.
+a change to any document in the product home the Lead Product Manager records
+as consistent with intent -- intent: consistent on the creation or amendment,
+with a reason opening with the work item that directed it -- because the goals then admit and refuse the same
+work they did, and that change is delegated rather than yours. A creation marked
+that way starts approved under its recorded reason, without an approval
+attributed to you; an amendment recorded as fundamental, or one that does not
+say, is still put to you.
 
 What needs your approval is your configuration's to say: approvals.brief and
 approvals.goals default to human, approvals.designs to automatic, and a decision record is the

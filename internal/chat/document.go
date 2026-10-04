@@ -1,7 +1,7 @@
 package chat
 
-// A document an owning role wrote, put to the operator, and written by the
-// harness under that role's authority.
+// A document an owning role wrote, written by the harness under delegated
+// authority or after the operator approved it.
 //
 // The path a drafted document took to the repository used to leave the harness
 // entirely: fenced Markdown in a reply, a "yes" in prose, and then a person or
@@ -14,16 +14,17 @@ package chat
 // emits a typed action carrying what it decided; the harness refuses what the
 // role may not write before the operator is asked anything; what survives is
 // recorded, durably, so an approval arriving in a later process still names
-// something; the operator approves it; and only then does the harness write —
-// through the store's own Authorize, under the role's authority, with the
-// frontmatter generated and the operator's approval recorded against the
-// revision the write produced.
+// something. A qualifying consistent change proceeds under delegated authority;
+// otherwise the operator approves it. The harness writes through the store's own
+// Authorize, under the role's authority, with generated frontmatter and any
+// operator approval recorded against the revision the write produced.
 //
 // What the role never gets is a way past its own boundary. It cannot write a
-// kind it does not own, cannot file a document anywhere but the home that kind
-// is filed in, and cannot write anything at all without the operator. A role that owns no
-// document is refused before any of this, and proposing a change to the owner
-// remains its only move.
+// kind it does not own, and cannot file a document anywhere but the home that kind
+// is filed in. A consistent change the Lead Product Manager records proceeds
+// under that role's delegated authority; every other write awaits the operator.
+// A role that owns no document is refused before any of this, and proposing a
+// change to the owner remains its only move.
 
 import (
 	"context"
@@ -51,6 +52,9 @@ type Documents interface {
 	// role's authority over the document it names, and whether the directory is
 	// the one its kind is filed in.
 	CheckWrite(role domain.AgentRole, write artifact.Write) error
+	// DelegatedWrite applies the store's ownership and consistent-intent rules
+	// to determine whether the write needs an operator decision.
+	DelegatedWrite(role domain.AgentRole, write artifact.Write) (bool, error)
 	// Filing is where each kind this role owns is filed, which is what the role
 	// has to be told before it can name a directory — and it is per role rather
 	// than a list of every home, because an example naming the wrong one steers
@@ -68,9 +72,9 @@ type Documents interface {
 	Checkout() string
 }
 
-// PendingWrite is one document awaiting the operator's decision, together with
-// the turn it was written in, so a document that reaches the repository traces
-// back to the conversation that produced it.
+// PendingWrite is one document awaiting a write or an operator decision,
+// together with the turn it was written in, so a document that reaches the
+// repository traces back to the conversation that produced it.
 type PendingWrite struct {
 	// ID identifies the write within its conversation as document-turn.position,
 	// so an operator can name one and the record says which turn wrote it. It is
@@ -81,22 +85,25 @@ type PendingWrite struct {
 	ConversationID string         `json:"conversation_id"`
 	Turn           int            `json:"turn"`
 	Write          artifact.Write `json:"write"`
+	Delegated      bool           `json:"delegated,omitempty"`
 }
 
-// writeRecord is one written document and whether the operator has finished
-// with it.
+// writeRecord is one drafted document and whether its write or decision ended.
 type writeRecord struct {
 	pending PendingWrite
 	decided bool
 }
 
-// WriteOutcome is what became of one document the operator decided. It is what
-// a decision made outside a conversation is reported by, where there is no
-// prompt to print underneath.
+// WriteOutcome is what became of one document, under delegated authority or an
+// operator decision. It also reports writes outside an interactive conversation,
+// where there is no prompt to print underneath.
 type WriteOutcome struct {
 	WriteID  string `json:"write_id"`
 	Artifact string `json:"artifact"`
 	Approved bool   `json:"approved"`
+	// Delegated says the owning role's consistent-intent record authorized the
+	// write; no operator decision or approval is attributed to it.
+	Delegated bool `json:"delegated,omitempty"`
 	// Path is where the document landed, empty on a decline and on an approval
 	// the store would not carry out.
 	Path string `json:"path,omitempty"`
@@ -130,6 +137,10 @@ func (o WriteOutcome) Render() string {
 	case !o.Approved:
 		return fmt.Sprintf("[%s] declined: %s\n", o.WriteID, o.Artifact) + indent("because: "+o.Reason)
 	case o.Undecided:
+		if o.Delegated {
+			return fmt.Sprintf("[%s] not written: %s\n", o.WriteID, o.Artifact) +
+				indent(o.Problem) + indent("the harness must retry the delegated write; no operator approval is needed")
+		}
 		return fmt.Sprintf("[%s] not written: %s\n", o.WriteID, o.Artifact) +
 			indent(o.Problem) +
 			indent("it is still awaiting a decision; approve it again once whatever refused it answers, or decline it")
@@ -143,6 +154,9 @@ func (o WriteOutcome) Render() string {
 	case o.Problem != "":
 		return fmt.Sprintf("[%s] wrote %s to %s\n", o.WriteID, o.Artifact, o.Path) +
 			indent("the record is incomplete: "+o.Problem) +
+			indent(o.PendingCommit)
+	case o.Delegated:
+		return fmt.Sprintf("[%s] wrote %s to %s under the owning role's delegated authority, consistent with intent\n", o.WriteID, o.Artifact, o.Path) +
 			indent(o.PendingCommit)
 	default:
 		return fmt.Sprintf("[%s] wrote %s to %s, with your approval recorded in it\n", o.WriteID, o.Artifact, o.Path) +
@@ -187,8 +201,8 @@ func (s *Session) artifactFiling() []artifact.KindHome {
 	return filing
 }
 
-// Writes returns the documents from this conversation the operator has not
-// decided on yet.
+// Writes returns the documents from this conversation still awaiting a write or
+// an operator decision.
 func (s *Session) Writes() []PendingWrite {
 	pending := make([]PendingWrite, 0, len(s.writes))
 	for _, record := range s.writes {
@@ -229,36 +243,60 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 }
 
 // recordWrites gives each document an identity within the conversation and makes
-// it durable before the operator is asked about it. A document that lived only
+// it durable before writing it or asking the operator. A document that lived only
 // in the process that wrote it was undecidable the moment that process exited,
 // which for a single message is immediately — and the operator's approval then
 // arrived at a conversation that had never heard of what they were approving,
 // which is the failure that put the transcription back in a person's hands.
-func (s *Session) recordWrites(writes []artifact.Write) ([]PendingWrite, error) {
+func (s *Session) recordWrites(writes []artifact.Write) ([]PendingWrite, []WriteOutcome, error) {
 	pending := make([]PendingWrite, 0, len(writes))
 	for index, write := range writes {
+		delegated, err := s.options.Documents.DelegatedWrite(s.state.Role, write)
+		if err != nil {
+			return pending, nil, err
+		}
 		record := &writeRecord{pending: PendingWrite{
 			ID:             fmt.Sprintf("document-%d.%d", s.state.Turns, index+1),
 			ConversationID: s.state.ConversationID,
 			Turn:           s.state.Turns,
 			Write:          write,
+			Delegated:      delegated,
 		}}
 		if err := s.emit(execution.EventDocumentDrafted, record.pending.recordedSummary()); err != nil {
-			return pending, fmt.Errorf("record a written document: %w", err)
+			return pending, nil, fmt.Errorf("record a written document: %w", err)
 		}
 		s.writes = append(s.writes, record)
 		pending = append(pending, record.pending)
 	}
 	if len(pending) > 0 {
 		if err := s.record(); err != nil {
-			return pending, err
+			return pending, nil, err
 		}
 	}
-	return pending, nil
+	var waiting []PendingWrite
+	var written []WriteOutcome
+	for _, document := range pending {
+		if !document.Delegated {
+			waiting = append(waiting, document)
+			continue
+		}
+		outcome, err := s.ApproveWrite(document.ID)
+		written = append(written, outcome)
+		if err != nil {
+			return waiting, written, errors.Join(err, s.record())
+		}
+	}
+	if len(written) > 0 {
+		if err := s.record(); err != nil {
+			return waiting, written, err
+		}
+	}
+	return waiting, written, nil
 }
 
-// ApproveWrite writes the document the operator approved, under the authority of
-// the role that wrote it, and records their approval in the document itself.
+// ApproveWrite performs a recorded write under the authority of the role that
+// wrote it. A delegated write needs no operator decision and records no operator
+// approval; every other call records the operator's approval in the document.
 //
 // The order is what makes the record honest. The approval is emitted before
 // anything is written, so a write that failed still shows the operator decided;
@@ -272,14 +310,30 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		return WriteOutcome{}, err
 	}
 	write := record.pending.Write
-	outcome := WriteOutcome{WriteID: record.pending.ID, Artifact: strings.TrimSpace(write.ID), Approved: true}
+	outcome := WriteOutcome{WriteID: record.pending.ID, Artifact: strings.TrimSpace(write.ID), Approved: true, Delegated: record.pending.Delegated}
 	if s.options.Documents == nil {
 		outcome.Problem = "no artifact store is configured; the document cannot be written"
 		outcome.Undecided = true
 		return outcome, errors.New(outcome.Problem)
 	}
-	if err := s.emit(execution.EventDocumentApproved, record.pending.recordedSummary()); err != nil {
-		return outcome, fmt.Errorf("record document approval: %w", err)
+	if outcome.Delegated {
+		delegated, err := s.options.Documents.DelegatedWrite(s.state.Role, write)
+		if err != nil || !delegated {
+			outcome.Problem = "the write no longer qualifies as a consistent change under the owning role's authority"
+			if err != nil {
+				outcome.Problem = err.Error()
+			}
+			if errors.Is(err, artifact.ErrUnauthorized) || err == nil {
+				record.decided = true
+			} else {
+				outcome.Undecided = true
+			}
+			return outcome, errors.New(outcome.Problem)
+		}
+	} else {
+		if err := s.emit(execution.EventDocumentApproved, record.pending.recordedSummary()); err != nil {
+			return outcome, fmt.Errorf("record document approval: %w", err)
+		}
 	}
 	now := s.options.clock().Now()
 	var written artifact.Artifact
@@ -301,7 +355,11 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		// happens if the document changed hands between the two.
 		if errors.Is(err, artifact.ErrUnauthorized) {
 			record.decided = true
-			s.notice("the operator approved document %s, and the harness refused it: %v", record.pending.ID, err)
+			if outcome.Delegated {
+				s.notice("the harness refused delegated document %s: %v", record.pending.ID, err)
+			} else {
+				s.notice("the operator approved document %s, and the harness refused it: %v", record.pending.ID, err)
+			}
 			return outcome, fmt.Errorf("write document %s: %w", strings.TrimSpace(write.ID), err)
 		}
 		// Anything else is the store failing rather than answering, so nothing was
@@ -314,17 +372,27 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 	record.decided = true
 	outcome.Path = written.Path
 	outcome.PendingCommit = artifact.PendingCommit(s.options.Documents.Checkout(), written.Path)
-	s.notice("the operator approved document %s, and the harness wrote %s to %s under the %s's authority",
-		record.pending.ID, written.ID, written.Path, s.state.Role)
+	if outcome.Delegated {
+		s.notice("the harness wrote document %s to %s under the %s's delegated authority, consistent with intent: %s",
+			record.pending.ID, written.Path, s.state.Role, write.Reason)
+	} else {
+		s.notice("the operator approved document %s, and the harness wrote %s to %s under the %s's authority",
+			record.pending.ID, written.ID, written.Path, s.state.Role)
+	}
 	if err := s.emit(execution.EventDocumentWritten, map[string]any{
-		"write_id": record.pending.ID,
-		"turn":     record.pending.Turn,
-		"artifact": written.ID,
-		"kind":     string(written.Kind),
-		"path":     written.Path,
-		"action":   string(write.Action),
+		"write_id":  record.pending.ID,
+		"turn":      record.pending.Turn,
+		"artifact":  written.ID,
+		"kind":      string(written.Kind),
+		"path":      written.Path,
+		"action":    string(write.Action),
+		"intent":    string(write.Intent),
+		"delegated": outcome.Delegated,
 	}); err != nil {
 		return outcome, fmt.Errorf("record written document %s: %w", written.ID, err)
+	}
+	if outcome.Delegated {
+		return outcome, nil
 	}
 	// The operator's approval goes into the document's own frontmatter, against
 	// the revision this write just recorded. It is the last step because it is the
@@ -473,10 +541,18 @@ func (s *Session) decideWrites(ctx context.Context, writes []PendingWrite, scree
 	// it always was.
 	var out io.Writer = screen
 	fmt.Fprint(out, s.theme.Proposal(fmt.Sprintf(
-		"The %s wrote %d document(s). Nothing is written to the repository unless you approve it.\n\n",
+		"The %s wrote %d document(s). Delegated writes proceed under that role's authority; the others await your approval.\n\n",
 		RoleTitle(s.state.Role), len(writes))))
 	for _, pending := range writes {
 		if s.isWriteDecided(pending.ID) {
+			continue
+		}
+		if pending.Delegated {
+			outcome, err := s.ApproveWrite(pending.ID)
+			fmt.Fprint(out, outcome.Render())
+			if err := errors.Join(err, s.record()); err != nil {
+				return err
+			}
 			continue
 		}
 		fmt.Fprint(out, s.theme.Proposal(pending.Render(s.theme)))
@@ -572,6 +648,8 @@ func (p PendingWrite) recordedSummary() map[string]any {
 		"title":     strings.TrimSpace(p.Write.Title),
 		"directory": strings.TrimSpace(p.Write.Directory),
 		"reason":    strings.TrimSpace(p.Write.Reason),
+		"intent":    string(p.Write.Intent),
+		"delegated": p.Delegated,
 		"bytes":     len(strings.TrimSpace(p.Write.Body)),
 	}
 }
@@ -592,6 +670,8 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Directory: strings.TrimSpace(p.Write.Directory),
 		Body:      strings.TrimSpace(p.Write.Body),
 		Reason:    strings.TrimSpace(p.Write.Reason),
+		Intent:    string(p.Write.Intent),
+		Delegated: p.Delegated,
 	}
 }
 
@@ -604,6 +684,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 		ID:             recorded.ID,
 		ConversationID: conversationID,
 		Turn:           recorded.Turn,
+		Delegated:      recorded.Delegated,
 		Write: artifact.Write{
 			Action:    artifact.WriteAction(recorded.Action),
 			ID:        recorded.Artifact,
@@ -613,6 +694,7 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 			Directory: recorded.Directory,
 			Body:      recorded.Body,
 			Reason:    recorded.Reason,
+			Intent:    artifact.Intent(recorded.Intent),
 		},
 	}
 }

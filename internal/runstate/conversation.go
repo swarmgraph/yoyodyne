@@ -268,9 +268,9 @@ type Conversation struct {
 	// undecided: the answer is an event in the log, and a concern leaves this
 	// list the moment it is answered.
 	PendingConcerns []PendingConcern `json:"pending_concerns,omitempty"`
-	// PendingWrites are the documents an owning role wrote that the operator has
-	// not decided about yet. They are durable for the reason the proposals above
-	// are, and the reason is the same one sharpened again: a document written by
+	// PendingWrites are the documents an owning role wrote that still await a
+	// write or an operator decision. They are durable for the reason the proposals
+	// above are, and the reason is the same one sharpened again: a document written by
 	// one `--message` invocation is approved by another, and a process that could
 	// not read back what was written had nothing for the approval to name — so
 	// the drafted document went back to being something a person transcribed by
@@ -462,6 +462,10 @@ type PendingWrite struct {
 	Directory string   `json:"directory,omitempty"`
 	Body      string   `json:"body"`
 	Reason    string   `json:"reason"`
+	Intent    string   `json:"intent,omitempty"`
+	// Delegated records the harness's decision that the write proceeds under the
+	// owning role's authority. The artifact store checks it again before writing.
+	Delegated bool `json:"delegated,omitempty"`
 }
 
 // MaxPendingWrites bounds the undecided documents one conversation carries, and

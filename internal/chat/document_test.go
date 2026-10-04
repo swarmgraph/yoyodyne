@@ -2,6 +2,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -29,6 +31,123 @@ func documentReply(action, id, kind, directory, body string) string {
 	}
 	block += `,"body":"` + body + `","reason":"drafted with the operator"}]}`
 	return "Here is the document.\n\n" + artifact.WriteFence + "\n" + block + "\n```\n"
+}
+
+func markedDocumentReply(t *testing.T, write artifact.Write) string {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{"documents": []artifact.Write{write}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return "Here is the document.\n\n" + artifact.WriteFence + "\n" + string(payload) + "\n```\n"
+}
+
+func TestConsistentRulesAreWrittenFromAConversationWithoutAnOperatorDecision(t *testing.T) {
+	t.Parallel()
+	for _, action := range []artifact.WriteAction{artifact.WriteCreate, artifact.WriteRevise} {
+		for _, testCase := range []struct {
+			name      string
+			intent    artifact.Intent
+			reason    string
+			delegated bool
+		}{
+			{"consistent", artifact.IntentConsistent, "yoyodyne-ifd.433.19 - records rules the operator already gave", true},
+			{"fundamental", artifact.IntentFundamental, "yoyodyne-ifd.433.19 - changes the rules", false},
+			{"unmarked", "", "yoyodyne-ifd.433.19 - records the rules", false},
+			{"no directing item", artifact.IntentConsistent, "records rules the operator already gave", false},
+		} {
+			t.Run(string(action)+"/"+testCase.name, func(t *testing.T) {
+				t.Parallel()
+				write := artifact.Write{
+					Action: action, ID: "operating-rules", Body: "## Rules\n\n- Work item notes are append-only.",
+					Intent: testCase.intent, Reason: testCase.reason,
+				}
+				if action == artifact.WriteCreate {
+					write.Kind, write.Title, write.Directory = artifact.KindRules, "Operating rules", "docs/product"
+				}
+				provider := &fakeBackend{results: []backendapi.RunResult{{
+					SessionID: "session-1", ResolvedModel: "claude-opus-5", FinalText: markedDocumentReply(t, write),
+				}}}
+				options, repository := documentOptions(t, provider)
+				root := t.TempDir()
+				options.Store = newTestStore(t, root)
+				store := options.Documents.(artifact.Store)
+				path := filepath.Join(repository, "docs/product/operating-rules.md")
+				var before []byte
+				if action == artifact.WriteRevise {
+					if _, err := store.Create(domain.RoleProductManager, artifact.Draft{
+						ID: write.ID, Kind: artifact.KindRules, Title: "Operating rules", Directory: "docs/product",
+						Body: "## Rules\n\n- Notes are append-only.", Intent: artifact.IntentConsistent,
+						Reason: "yoyodyne-ifd.433.17 - records rules the operator already gave",
+					}, fixedClock{}.Now()); err != nil {
+						t.Fatal(err)
+					}
+					var err error
+					before, err = os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+				}
+				session := openTestSession(t, options)
+				reply, err := session.Send(context.Background(), "Record the operating rules.")
+				if err != nil {
+					t.Fatalf("Send() error = %v", err)
+				}
+				if testCase.delegated {
+					if len(reply.Writes) != 0 || len(session.Writes()) != 0 || len(reply.Written) != 1 {
+						t.Fatalf("delegated write still awaits a decision: reply %#v, pending %#v", reply, session.Writes())
+					}
+					outcome := reply.Written[0]
+					if !outcome.Delegated || !outcome.Approved || outcome.Approval || outcome.Path == "" || strings.Contains(outcome.Render(), "your approval") {
+						t.Fatalf("delegated outcome = %#v, rendered %q", outcome, outcome.Render())
+					}
+					counted := countEvents(t, root, session)
+					if counted[execution.EventDocumentApproved] != 0 || counted[execution.EventDocumentWritten] != 1 {
+						t.Fatalf("delegated events = %v", counted)
+					}
+				} else {
+					if len(reply.Writes) != 1 || len(reply.Written) != 0 || reply.Writes[0].Delegated {
+						t.Fatalf("write did not await the operator: %#v", reply)
+					}
+					after, err := os.ReadFile(path)
+					if action == artifact.WriteCreate {
+						if !os.IsNotExist(err) {
+							t.Fatalf("unapproved creation reached disk: %v", err)
+						}
+					} else if err != nil || string(after) != string(before) {
+						t.Fatalf("unapproved revision changed the document: %v", err)
+					}
+					// A later process must approve the same mark the role wrote.
+					resumedOptions := options
+					resumedOptions.Store = newTestStore(t, root)
+					resumedOptions.Backend = &fakeBackend{}
+					resumed := openTestSession(t, resumedOptions)
+					if waiting := resumed.Writes(); len(waiting) != 1 || waiting[0].Write.Intent != testCase.intent {
+						t.Fatalf("the intent mark did not survive: %#v", waiting)
+					}
+					outcome, err := resumed.ApproveWrite(reply.Writes[0].ID)
+					if err != nil || !outcome.Approval || outcome.Delegated {
+						t.Fatalf("operator outcome = %#v, %v", outcome, err)
+					}
+				}
+				set, err := store.Load()
+				if err != nil || len(set.Problems) != 0 {
+					t.Fatalf("Load() error = %v, problems = %v", err, set.Problems)
+				}
+				recorded, found := set.Find(write.ID)
+				if !found || recorded.ApprovalState() != artifact.ApprovalApproved {
+					t.Fatalf("rules are not listed as approved: %#v", set)
+				}
+				last := recorded.Revisions[len(recorded.Revisions)-1]
+				if last.Intent != testCase.intent || last.Reason != testCase.reason || last.By != domain.RoleProductManager {
+					t.Fatalf("revision lost the role's claim: %#v", last)
+				}
+				if testCase.delegated && len(recorded.Approvals) != 0 {
+					t.Fatalf("an operator approval was invented: %#v", recorded.Approvals)
+				}
+			})
+		}
+	}
 }
 
 // documentOptions is a conversation with an artifact store behind it, over a

@@ -15,9 +15,10 @@ package artifact
 // amendment already are: as a typed action in a fenced block, carrying what the
 // role decided and nothing about how it is stored. The harness does the rest —
 // it refuses what the role may not write before anything is written, puts the
-// document to the operator, performs the write under the role's own authority
-// through Authorize, generates the frontmatter the contract requires, and
-// records the operator's approval against the revision the write produced.
+// document to the operator unless it qualifies under delegated authority,
+// performs the write under the role's own authority through Authorize, generates
+// the frontmatter the contract requires, and records any operator approval
+// against the revision the write produced.
 //
 // What this is not is a way past ownership. Every write goes through the same
 // Authorize the rest of this package's mutations go through, so the action layer
@@ -119,6 +120,9 @@ type Write struct {
 	// required for the reason every revision's is: a change nobody explained is
 	// one nobody can evaluate later.
 	Reason string `json:"reason"`
+	// Intent is the owning role's claim about what a creation or revision does
+	// to intent. See rewording.go for when that claim is delegated.
+	Intent Intent `json:"intent,omitempty"`
 }
 
 // Validate reports every contract violation in the write at once, so a block
@@ -136,6 +140,9 @@ func (w Write) Validate() error {
 		problems = append(problems, err)
 	}
 	problems = append(problems, w.perActionProblems()...)
+	if w.Intent != "" && !w.Intent.Valid() {
+		problems = append(problems, fmt.Errorf("intent %q must be %q or %q, or left out", w.Intent, IntentConsistent, IntentFundamental))
+	}
 	switch body := strings.TrimSpace(w.Body); {
 	case body == "":
 		problems = append(problems, errors.New("body is required; an artifact is an identity attached to a document, and there is nothing to identify without one"))
@@ -322,6 +329,7 @@ func (w Write) Draft() Draft {
 		Directory: strings.TrimSpace(w.Directory),
 		Body:      strings.TrimSpace(w.Body),
 		Reason:    strings.TrimSpace(w.Reason),
+		Intent:    w.Intent,
 	}
 }
 
@@ -330,7 +338,7 @@ func (w Write) Draft() Draft {
 // mentions neither keeps both rather than replacing them with nothing.
 func (w Write) Amendment() Amendment {
 	body := strings.TrimSpace(w.Body)
-	amendment := Amendment{Body: &body, Reason: strings.TrimSpace(w.Reason)}
+	amendment := Amendment{Body: &body, Reason: strings.TrimSpace(w.Reason), Intent: w.Intent}
 	if title := strings.TrimSpace(w.Title); title != "" {
 		amendment.Title = &title
 	}
@@ -339,6 +347,29 @@ func (w Write) Amendment() Amendment {
 		amendment.Supports = &supports
 	}
 	return amendment
+}
+
+// DelegatedWrite checks whether a typed write records a consistent change under
+// the Lead Product Manager's authority. Revisions use the recorded document's
+// kind, so an action cannot claim ownership by supplying another kind.
+func (s Store) DelegatedWrite(role domain.AgentRole, write Write) (bool, error) {
+	if err := s.CheckWrite(role, write); err != nil {
+		return false, err
+	}
+	document := Artifact{Kind: write.Kind}
+	action := ActionCreated
+	if write.Action == WriteRevise {
+		existing, _, err := s.loadOne(strings.TrimSpace(write.ID))
+		if err != nil {
+			return false, err
+		}
+		document = existing
+		action = ActionAmended
+	}
+	delegated, _ := document.Rewording(Revision{
+		Action: action, By: role, Reason: write.Reason, Intent: write.Intent,
+	})
+	return delegated, nil
 }
 
 // CheckWrite refuses everything about a write that a refusal now would spare
@@ -486,9 +517,13 @@ func WriteContract(role domain.AgentRole, filing []KindHome) string {
 			directories = append(directories, filed.Directory)
 		}
 	}
+	approval := `The operator approves the action before the harness writes it, and the harness records that approval against the revision it produces.`
+	if role == domain.RoleProductManager {
+		approval = `A creation or revision of any document you own in the product home may carry "intent":"consistent" with a reason opening with the work item that directed it. That records a consistent rewording or existing intent, such as rules the operator already gave: the harness writes it under your delegated authority without asking the operator or inventing their approval. A creation recorded that way starts approved under its reason; a revision preserves the approval already standing. A change that would make the goals admit work they refused or refuse work they admitted is fundamental: use "intent":"fundamental". Fundamental and unmarked writes still await the operator's approval, as does a consistent mark without the directing item. Say what existing intent a consistent creation records in its reason.`
+	}
 	return `# Writing a document you own
 
-The documents you own are yours to write, and this is how one reaches the repository. You still have no tools: what you emit is an action, the operator approves it, and the harness performs the write under your authority — it generates the frontmatter, appends the revision saying you made the change, records the operator's approval against that revision, and files the document. Nothing about the transcription is yours to get right, and nothing you write here is placed unless the operator approves it.
+The documents you own are yours to write, and this is how one reaches the repository. You still have no tools: what you emit is an action, and the harness performs the write under your authority — it generates the frontmatter, appends the revision saying you made the change, and files the document. Nothing about the transcription is yours to get right. ` + approval + `
 
 To write one, end your reply with exactly one block of this shape:
 

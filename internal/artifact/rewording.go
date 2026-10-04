@@ -1,6 +1,6 @@
 package artifact
 
-// Which amendments of the goals are the operator's, and which are delegated.
+// Which changes to product documents are the operator's, and which are delegated.
 //
 // The operator's ruling of 2026-09-26: a change to the fundamental goals of the
 // system is the operator's to approve, and anything else that stays consistent with them is
@@ -16,12 +16,13 @@ package artifact
 // yoyodyne-ifd.437.11 — would have routed the whole queue under the autonomy goal
 // to a person for an approval the same ruling calls a bug.
 //
-// Which kind of change an amendment is, is a judgement, and it is the owning
+// Which kind of change a revision is, is a judgement, and it is the owning
 // role's to make and record: nothing here reads two versions of a sentence and
 // decides whether they admit the same work. What is held here is what makes the
 // judgement accountable. A rewording keeps the approval standing only where
-// all of it is on the record: it amends a goals document, it was recorded by the
-// Lead Product Manager, it says it is consistent with intent, and its reason
+// all of it is on the record: it creates or amends a document owned by the
+// Lead Product Manager, it was recorded by that role, it says it is consistent
+// with intent, and its reason
 // opens with the work item that directed it — so a rewording nobody can trace to
 // the decision behind it is not one the approval stands through. Anything short
 // of that, an amendment that says it is fundamental, and one that says nothing
@@ -36,8 +37,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// Intent is what an amendment did to what the document intends, in the terms of
-// the operator's test.
+// Intent is what a creation or amendment did to what the document intends, in
+// the terms of the operator's test.
 type Intent string
 
 const (
@@ -93,20 +94,33 @@ func DirectingItem(reason string) (string, bool) {
 // say what was missing from the record, rather than leaving the label to read as
 // ignored.
 func (a Artifact) Rewording(revision Revision) (bool, string) {
+	owner, owned := Owner(a.Kind)
 	switch {
-	case revision.Action != ActionAmended:
-		return false, fmt.Sprintf("it is %s rather than an amendment", revision.Action)
+	case revision.Action != ActionAmended && revision.Action != ActionCreated:
+		return false, fmt.Sprintf("it is %s rather than a creation or amendment", revision.Action)
 	case revision.Intent == IntentFundamental:
 		return false, "it is recorded as a change of fundamental intent, which is the operator's to approve"
 	case revision.Intent != IntentConsistent:
-		return false, "it does not say whether it is consistent with intent, and an amendment that says nothing is the operator's to approve"
-	case a.Kind != KindGoals:
-		return false, fmt.Sprintf("it amends a %s document, and what is delegated is a rewording of the goals", a.Kind)
+		return false, "it does not say whether it is consistent with intent, and a change that says nothing is the operator's to approve"
+	case !owned || owner != domain.RoleProductManager:
+		return false, fmt.Sprintf("it changes a %s document, which is not owned by the %s", a.Kind, domain.RoleProductManager.Title())
 	case revision.By != domain.RoleProductManager:
-		return false, fmt.Sprintf("it was recorded by the %s, and a consistent rewording of the goals is the %s's to record", revision.By.Title(), domain.RoleProductManager.Title())
+		return false, fmt.Sprintf("it was recorded by the %s, and a consistent change to product intent is the %s's to record", revision.By.Title(), domain.RoleProductManager.Title())
 	}
 	if _, named := DirectingItem(revision.Reason); !named {
 		return false, "its reason does not open with the work item that directed it"
 	}
 	return true, ""
+}
+
+// DelegatedCreation returns the creation that records existing intent under the
+// Lead Product Manager's delegated authority. It supplies the approval's basis
+// without inventing an approval given by the operator.
+func (a Artifact) DelegatedCreation() (Revision, bool) {
+	if len(a.Revisions) == 0 || a.Revisions[0].Action != ActionCreated {
+		return Revision{}, false
+	}
+	creation := a.Revisions[0]
+	delegated, _ := a.Rewording(creation)
+	return creation, delegated
 }
