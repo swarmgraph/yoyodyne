@@ -2179,14 +2179,13 @@ type RepairContinuation struct {
 	// answered before: what this run may still do, and what triage has already
 	// handed the item. See environmental.go.
 	Returned bool `json:"returned,omitempty"`
-	// Stall says this continuation resumed a run the harness had stopped before
-	// anything was returned to its developer: a stall judges nothing, so what the
-	// run is owed is the attempt it was stopped in rather than a repair of a
-	// change nobody complained about. The attempt is therefore not counted
+	// Stall says this continuation resumed the step the harness stopped, without
+	// returning a new failure to its developer. Earlier repair input and the
+	// attempt already charged survive; continuing that attempt is not counted
 	// against the run, and this is what accounts for a record carrying a
 	// continuation with no attempt beside it — which without it reads as a
-	// counter somebody forgot to move. The item's grant is still consumed, so one
-	// decision still buys one continuation and no more.
+	// counter somebody forgot to move. A decided continuation consumes its grant;
+	// a ByHarness continuation grants and consumes none.
 	Stall bool `json:"stall,omitempty"`
 	// CheckStage says a decided repair continued checks the stage bound stopped.
 	// The developer already finished, so this continuation counts no attempt.
@@ -3901,9 +3900,9 @@ func (s State) RepairContinuedSince(decidedAt time.Time) bool {
 	return false
 }
 
-// ContinuedStall reports a run the triage carry-out made live again to carry on
-// an attempt the harness had stopped before anything was returned to its
-// developer. It is what such a run is recognized by afterwards, and it has to
+// ContinuedStall reports a run the carry-out made live again to carry on a step
+// the harness stopped, without charging another developer attempt. It is what
+// such a run is recognized by afterwards, and it has to
 // be the continuation rather than the environmental account of the stoppage:
 // a run that is going again has not stopped, so that account is cleared as the
 // re-entry is written, and the continuation is the half of the record that

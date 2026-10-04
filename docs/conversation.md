@@ -2255,11 +2255,15 @@ after the attempt finished, is continued at that step instead: the entry says
 so, the review is asked again on the change the run has with no developer
 invoked, and the branch is kept — so the worktree does have to hold that change,
 as it does for any repair. A first stall of a stream gone silent does not wait
-on you at all: the harness continues it itself, once, at a watching session's
-next pull, in the same session and at the same step, and closes the entry in
-its own name. What reaches you is a run that stalls again after that, a stall
-inside the repair loop, a provider stopped for running out of its total budget,
-or a continuation the harness refused for the state of the worktree — see
+on you at all, including when it interrupts a repair already underway. After
+the sweep settles it, the harness continues it itself, once, at a watching
+session's next pull with a developer slot free, in the same session and at the
+same step, and closes the entry in its own name. The interrupted repair keeps
+its findings or failing check and the attempt already counted; continuing it
+adds no repair attempt, review round, or grant. What reaches you is a run that
+stalls again after that continuation, including during repair, a provider
+stopped for running out of its total budget, or a continuation the harness
+refused for the state of the worktree — see
 [what a stall is owed](operations.md#when-a-provider-stalls-or-runs-out-of-budget).
 
 **It supersedes the blocker rather than needing you to remember to.** The run

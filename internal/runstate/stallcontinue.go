@@ -41,19 +41,14 @@ func (s State) HandedBack() bool {
 }
 
 // SettledSilentStreamStall reports a run the sweep settled while it was parked
-// on the harness's own stop of a silent provider stream, in its first developer
-// attempt or at its checks or its review after that attempt finished: nothing
-// was ever handed back to its developer, and no repair attempt was spent. A
-// stall inside the repair loop is not this: a failure was returned there, and
-// what it is owed is a repair, which is the development manager's to decide.
+// on the harness's own stop of a silent provider stream. This includes a repair
+// already underway: the stop returned no new failure, so continuing that same
+// attempt preserves its repair input and the budget it already consumed.
 func (s State) SettledSilentStreamStall() bool {
 	if !s.Status.Terminal() || s.Integration != nil || s.IntegrationStop != nil {
 		return false
 	}
 	if s.Environmental == nil || s.Environmental.Cause != CauseProcessVanished || s.Environmental.ProviderStop != ProviderStopStalled {
-		return false
-	}
-	if s.RepairAttempts != 0 || s.HandedBack() {
 		return false
 	}
 	switch s.Phase {
@@ -105,7 +100,7 @@ func (s State) StallStopSays() string {
 	if !s.SettledSilentStreamStall() {
 		return ""
 	}
-	stopped := "the AI session running this run produced no output for longer than the harness allows, so the harness stopped it: nothing was judged and nothing was handed back to the developer"
+	stopped := "the AI session running this run produced no output for longer than the harness allows, so the harness stopped it: the stop judged nothing and preserved the change and any earlier repair input"
 	if readopted := s.ReadoptedSays(); readopted != "" {
 		stopped += "; " + readopted
 	}

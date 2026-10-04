@@ -156,7 +156,7 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 		return result, fmt.Errorf("run %s is recorded as made for %q while its docket entry names %s, so continuing it would carry one item's run on as another's work; nothing was spent", prior.RunID, owner, entry.WorkItemID)
 	}
 	result.SupersededBlocker = prior.Blocker
-	result.ResumesAt = continuedPhase(prior, true)
+	result.ResumesAt = prior.Phase
 	if err := noRunInFlight(c.Runs, entry.WorkItemID); err != nil {
 		return result, err
 	}
@@ -242,7 +242,7 @@ func continuedAfterStall(prior runstate.State, reason string, now time.Time) run
 	continued.Failure = ""
 	continued.Environmental = nil
 	continued.Status = runstate.StatusRunning
-	continued.Phase = continuedPhase(prior, true)
+	continued.Phase = prior.Phase
 	continued.CompletedAt = nil
 	continued.SettledQuietSince = nil
 	continued.UpdatedAt = now

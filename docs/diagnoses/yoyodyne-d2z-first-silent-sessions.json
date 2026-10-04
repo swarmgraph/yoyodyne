@@ -1,0 +1,490 @@
+{
+  "work_item": {
+    "title": "Continue a developer run after its first silent session",
+    "id": "yoyodyne-d2z"
+  },
+  "observed_at": "2026-10-04 03:50:10 PDT",
+  "source_root": "/Users/mbryant/Library/Application Support/Yoyodyne/state/products/yoyodyne",
+  "method": "Read-only excerpts from the live run, event, docket, and watch records, plus the historical code in the builds named by the watch. Narrative times are PDT; copied source fields retain their original UTC values. Run snapshots can advance after a stop, so the append-only docket entry supplies the counters and findings at that stop. The conclusions about an automatic offer are inferences from the recorded state and the code that admits it; the logs do not provide a per-pull list of rejected offers.",
+  "expected_continuation": "After the existing reconciliation grace settles a silent-session stop, a watching yoyo work pull should offer the registered stall continuation through CarryOut and StallContinuer, in the preserved run and developer session. The item is claimed rather than ready, so ordinary backlog selection does not continue it. Watch restart must recover that obligation from the durable run and docket records.",
+  "cause": "The historical SettledSilentStreamStall predicate excluded every run with a repair attempt or returned failure. HarnessContinuesStall therefore returned false, Docketer omitted the automatic-continuation marker, and CarryOut.stallTask offered nothing. The preserved native session and worktree did not satisfy this additional exclusion. Neither named run has an earlier silent stop in the retained docket.",
+  "historical_predicate": [
+    {
+      "revision": "69a33b4f3d30080079c797b35a09d2b42a8b84e9",
+      "path": "internal/runstate/stallcontinue.go",
+      "line": 56,
+      "excerpt": "\tif s.RepairAttempts != 0 || s.HandedBack() {\n\t\treturn false\n\t}"
+    },
+    {
+      "revision": "dd9b4f364b24d8384308ed2afa39caf8f01774ca",
+      "path": "internal/runstate/stallcontinue.go",
+      "line": 56,
+      "excerpt": "\tif s.RepairAttempts != 0 || s.HandedBack() {\n\t\treturn false\n\t}"
+    },
+    {
+      "revision": "eabea0734043d2c64aca47d6cdb03a61add14e11",
+      "path": "internal/runstate/stallcontinue.go",
+      "line": 56,
+      "excerpt": "\tif s.RepairAttempts != 0 || s.HandedBack() {\n\t\treturn false\n\t}"
+    }
+  ],
+  "cases": [
+    {
+      "work_item": {
+        "title": "Reconcile per-item refusals",
+        "id": "yoyodyne-ifd.428.69"
+      },
+      "run_id": "run-704ffce4d88207dfd82f95c2f9e4b0ab",
+      "conclusion": "Automatic continuation was never offered, rather than attempted and refused. The stopped run carried two repair attempts and reviewer findings, so the historical silent-session predicate returned false and its docket entry omitted harness_continues_stall. The watch had restarted at 01:18:43 PDT October 4, before the 01:45:48 PDT silence stop, and the replacement remained active through settlement at 02:23:10 PDT. This was not a run the restart failed to discover; the record made it ineligible.",
+      "timeline": [
+        {
+          "at": "2026-10-04 01:18:43 PDT",
+          "event": "The replacement watch starts before the silence stop.",
+          "watch_lines": [
+            4494,
+            4495
+          ]
+        },
+        {
+          "at": "2026-10-04 01:40:48 PDT",
+          "event": "Last provider output before the silent-session stop.",
+          "event_sequence": 1018
+        },
+        {
+          "at": "2026-10-04 01:45:48 PDT",
+          "event": "The harness stops the silent session, as preserved in the docket environmental detail.",
+          "docket_line": 670
+        },
+        {
+          "at": "2026-10-04 02:01:12 PDT",
+          "event": "The same replacement watch records another pull; it is still active.",
+          "watch_lines": [
+            4501
+          ]
+        },
+        {
+          "at": "2026-10-04 02:23:10 PDT",
+          "event": "Reconciliation dockets the stop without an automatic-continuation marker.",
+          "docket_line": 670
+        },
+        {
+          "at": "2026-10-04 02:35:05 PDT",
+          "event": "A later development-manager repair grant continues the run; this is not an automatic continuation.",
+          "source": "runs/run-704ffce4d88207dfd82f95c2f9e4b0ab.json",
+          "field": "repair_continuations[0]"
+        }
+      ],
+      "evidence": {
+        "run_record": {
+          "source": "runs/run-704ffce4d88207dfd82f95c2f9e4b0ab.json",
+          "fields": {
+            "run_id": "run-704ffce4d88207dfd82f95c2f9e4b0ab",
+            "work_item_id": "yoyodyne-ifd.428.69",
+            "build": "8da2b3d5a604de642c26c29596985c186f5f339b",
+            "provider_session_id": "01a105a1-5025-7853-b417-be7217398cda",
+            "status": "running",
+            "phase": "checking",
+            "updated_at": "2026-10-04T10:49:47.125833Z",
+            "repair_attempts": 4,
+            "review_rounds": 4,
+            "repair_continuations": [
+              {
+                "continued_at": "2026-10-04T09:35:05.453003Z",
+                "granted_attempts": 2
+              }
+            ]
+          },
+          "harness_continuations_observed": 0,
+          "continuation_refusal_observed": false
+        },
+        "settled_stop": {
+          "source": "docket.jsonl",
+          "line": 670,
+          "fields": {
+            "key": "stopped_run:run-704ffce4d88207dfd82f95c2f9e4b0ab",
+            "run_id": "run-704ffce4d88207dfd82f95c2f9e4b0ab",
+            "work_item_id": "yoyodyne-ifd.428.69",
+            "recorded_at": "2026-10-04T09:23:10.438291Z",
+            "stop_class": "provider-idle",
+            "environmental": {
+              "cause": "process-vanished",
+              "detail": "no live process held run run-704ffce4d88207dfd82f95c2f9e4b0ab, no ending was recorded on it, and it last wrote to its record at 2026-10-04T08:45:48Z, when the harness stopped the AI session running it because it produced no output for longer than the harness allows",
+              "settled": true,
+              "account": "a cause outside the work was recorded: process-vanished (the process carrying the run was gone and no ending was ever recorded), and the round delivered a change all the same, so it spent as any round does"
+            },
+            "counters": {
+              "review_rounds": 2,
+              "review_rounds_cap": 4,
+              "repair_attempts": 2,
+              "repair_grant_attempts": 2,
+              "repair_grants": 0,
+              "repair_grants_cap": 1,
+              "granted_rounds": 0,
+              "truncated_grants": 0,
+              "committed_rounds": 0,
+              "reruns": 0,
+              "reruns_cap": 1,
+              "merge_rearms": 0,
+              "merge_rearms_cap": 1,
+              "reruns_carried_out": 0,
+              "crossings": 0,
+              "crossings_bound": 5,
+              "standing": {}
+            },
+            "artifacts": {
+              "branch": "yoyodyne/yoyodyne-ifd-428-69/704ffce4",
+              "worktree_path": "/Users/mbryant/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-428-69-704ffce4",
+              "target_branch": "main",
+              "base_commit": "8da2b3d5a604de642c26c29596985c186f5f339b",
+              "found": {
+                "at": "2026-10-04T09:23:10.424315Z",
+                "branch": "yoyodyne/yoyodyne-ifd-428-69/704ffce4",
+                "worktree_path": "/Users/mbryant/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-428-69-704ffce4",
+                "branch_there": true,
+                "worktree_there": true
+              },
+              "developer_session": "01a105a1-5025-7853-b417-be7217398cda",
+              "pull_request": 1005,
+              "pull_request_url": "https://github.com/swarmgraph/yoyodyne/pull/1005"
+            },
+            "finding_count": 1
+          },
+          "absent_fields": [
+            "harness_continues_stall",
+            "stall_stop"
+          ]
+        },
+        "last_provider_event_before_stop": {
+          "source": "runs/run-704ffce4d88207dfd82f95c2f9e4b0ab.events.jsonl",
+          "line": 1018,
+          "fields": {
+            "sequence": 1018,
+            "timestamp": "2026-10-04T08:40:48.43912Z",
+            "type": "process.output",
+            "source": "codex"
+          }
+        },
+        "next_retained_provider_event": {
+          "source": "runs/run-704ffce4d88207dfd82f95c2f9e4b0ab.events.jsonl",
+          "line": 1019,
+          "fields": {
+            "sequence": 1019,
+            "timestamp": "2026-10-04T09:35:06.779505Z",
+            "type": "process.output",
+            "source": "codex"
+          }
+        },
+        "watch_entries": [
+          {
+            "source": "watch.jsonl",
+            "line": 4494,
+            "fields": {
+              "session_id": "watch-3628b6d2fb5d18b0892c86e080b9bb21",
+              "state": "stopped",
+              "at": "2026-10-04T08:18:43.876615Z",
+              "reason": "a build was deployed over the one this session was started from, and the session is restarting into it; the drain bound of 15m0s ran out with 2 run(s) still going, which were stopped and preserved for the session that comes back: yoyodyne-ifd.428.65, yoyodyne-ifd.428.69",
+              "build": "8da2b3d5a604de642c26c29596985c186f5f339b",
+              "restarting": true,
+              "draining": {
+                "since": "2026-10-04T08:03:06.251569Z",
+                "bound_seconds": 900,
+                "until": "2026-10-04T08:18:06.251569Z",
+                "bound_reached": true
+              }
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4495,
+            "fields": {
+              "session_id": "watch-b45c6d13e4547a17f1f0231a4409232f",
+              "state": "watching",
+              "at": "2026-10-04T08:18:43.914609Z",
+              "reason": "watching the backlog until stopped",
+              "build": "69a33b4f3d30080079c797b35a09d2b42a8b84e9"
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4500,
+            "fields": {
+              "session_id": "watch-b45c6d13e4547a17f1f0231a4409232f",
+              "state": "watching",
+              "at": "2026-10-04T08:45:02.246606Z",
+              "reason": "taking the recurring pass of factory-flow-pm since 2026-10-04T08:45:02Z, fired by its events; the session fires its passes inside its poll, so it pulls nothing more until this pass ends",
+              "build": "69a33b4f3d30080079c797b35a09d2b42a8b84e9"
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4501,
+            "fields": {
+              "session_id": "watch-b45c6d13e4547a17f1f0231a4409232f",
+              "state": "watching",
+              "at": "2026-10-04T09:01:12.938827Z",
+              "reason": "filled 1 of 1 free developer slot, beside 1 run this session already had in flight; a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of 172 admitted, 36 of them ready; 1 developer slot freed since the last poll: run-ee08582dc07ccca38ed9d0c61bd3d222 over yoyodyne-ifd.435.12, this session's run",
+              "build": "69a33b4f3d30080079c797b35a09d2b42a8b84e9"
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4505,
+            "fields": {
+              "session_id": "watch-b45c6d13e4547a17f1f0231a4409232f",
+              "state": "watching",
+              "at": "2026-10-04T09:22:25.374158Z",
+              "reason": "taking the recurring pass of development-manager-sweep since 2026-10-04T09:22:25Z, fired by its schedule; the session fires its passes inside its poll, so it pulls nothing more until this pass ends",
+              "build": "69a33b4f3d30080079c797b35a09d2b42a8b84e9"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "work_item": {
+        "title": "Tracker write visibility",
+        "id": "yoyodyne-ifd.433.25"
+      },
+      "run_id": "run-f2ee2b07fba1fe57364422d4c570f256",
+      "conclusion": "Automatic continuation was never offered, rather than attempted and refused. The stopped run carried three repair attempts, reviewer findings, and a prior decided repair grant, so the historical silent-session predicate returned false and its docket entry omitted harness_continues_stall. The watch restarted at 18:18:47 PDT October 3 between the 17:47:29 PDT silence stop and the 18:21:20 PDT docket entry. Its replacement then recorded this run releasing a slot, so it read the run; restart did not erase it. A consumed earlier repair decision would also suppress a later automatic offer under the old stallTask guard, but that guard was downstream of the predicate that excluded this actual stop.",
+      "timeline": [
+        {
+          "at": "2026-10-03 17:41:45 PDT",
+          "event": "A previously decided repair grant has already continued this run.",
+          "source": "runs/run-f2ee2b07fba1fe57364422d4c570f256.json",
+          "field": "repair_continuations[0]"
+        },
+        {
+          "at": "2026-10-03 17:42:29 PDT",
+          "event": "Last retained provider output.",
+          "event_sequence": 1070
+        },
+        {
+          "at": "2026-10-03 17:47:29 PDT",
+          "event": "The harness stops the silent session, as preserved in the run and docket environmental details.",
+          "docket_line": 661
+        },
+        {
+          "at": "2026-10-03 18:18:47 PDT",
+          "event": "The old watch stops for redeployment and its replacement starts; the drain names a different run as still hosted.",
+          "watch_lines": [
+            4421,
+            4422
+          ]
+        },
+        {
+          "at": "2026-10-03 18:21:20 PDT",
+          "event": "Reconciliation dockets the stop without an automatic-continuation marker.",
+          "docket_line": 661
+        },
+        {
+          "at": "2026-10-03 18:21:36 PDT",
+          "event": "The replacement watch records this run releasing a developer slot.",
+          "watch_lines": [
+            4424
+          ]
+        }
+      ],
+      "evidence": {
+        "run_record": {
+          "source": "runs/run-f2ee2b07fba1fe57364422d4c570f256.json",
+          "fields": {
+            "run_id": "run-f2ee2b07fba1fe57364422d4c570f256",
+            "work_item_id": "yoyodyne-ifd.433.25",
+            "build": "e3d93b7cdde79eaa71d4db31fb005e8f647416a5",
+            "provider_session_id": "01a10372-87ee-7e60-b895-33eea73280fa",
+            "status": "failed",
+            "phase": "developing",
+            "updated_at": "2026-10-04T01:21:20.465983Z",
+            "repair_attempts": 3,
+            "review_rounds": 2,
+            "environmental": {
+              "cause": "process-vanished",
+              "detail": "no live process held run run-f2ee2b07fba1fe57364422d4c570f256, no ending was recorded on it, and it last wrote to its record at 2026-10-04T00:47:29Z, when the harness stopped the AI session running it because it produced no output for longer than the harness allows",
+              "recorded_at": "2026-10-04T01:21:17.826673Z",
+              "provider_stop": "stalled",
+              "settled": true
+            },
+            "repair_continuations": [
+              {
+                "continued_at": "2026-10-04T00:41:45.387196Z",
+                "granted_attempts": 2
+              }
+            ]
+          },
+          "harness_continuations_observed": 0,
+          "continuation_refusal_observed": false
+        },
+        "settled_stop": {
+          "source": "docket.jsonl",
+          "line": 661,
+          "fields": {
+            "key": "stopped_run:run-f2ee2b07fba1fe57364422d4c570f256",
+            "run_id": "run-f2ee2b07fba1fe57364422d4c570f256",
+            "work_item_id": "yoyodyne-ifd.433.25",
+            "recorded_at": "2026-10-04T01:21:20.486493Z",
+            "stop_class": "provider-idle",
+            "environmental": {
+              "cause": "process-vanished",
+              "detail": "no live process held run run-f2ee2b07fba1fe57364422d4c570f256, no ending was recorded on it, and it last wrote to its record at 2026-10-04T00:47:29Z, when the harness stopped the AI session running it because it produced no output for longer than the harness allows",
+              "settled": true,
+              "account": "a cause outside the work was recorded: process-vanished (the process carrying the run was gone and no ending was ever recorded), and the round delivered a change all the same, so it spent as any round does"
+            },
+            "counters": {
+              "review_rounds": 2,
+              "review_rounds_cap": 4,
+              "repair_attempts": 3,
+              "repair_grant_attempts": 2,
+              "repair_grants": 1,
+              "repair_grants_cap": 1,
+              "granted_rounds": 2,
+              "truncated_grants": 0,
+              "committed_rounds": 4,
+              "reruns": 0,
+              "reruns_cap": 1,
+              "merge_rearms": 0,
+              "merge_rearms_cap": 1,
+              "reruns_carried_out": 0,
+              "crossings": 0,
+              "crossings_bound": 5,
+              "standing": {
+                "decided": true,
+                "spends": true,
+                "repair": true
+              }
+            },
+            "artifacts": {
+              "branch": "yoyodyne/yoyodyne-ifd-433-25/f2ee2b07",
+              "worktree_path": "/Users/mbryant/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-433-25-f2ee2b07",
+              "target_branch": "main",
+              "base_commit": "238b5f0de9df2e82821c9e69411831d101c4dc37",
+              "found": {
+                "at": "2026-10-04T01:21:20.474299Z",
+                "branch": "yoyodyne/yoyodyne-ifd-433-25/f2ee2b07",
+                "worktree_path": "/Users/mbryant/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-433-25-f2ee2b07",
+                "branch_there": true,
+                "worktree_there": true
+              },
+              "developer_session": "01a10372-87ee-7e60-b895-33eea73280fa",
+              "pull_request": 993,
+              "pull_request_url": "https://github.com/swarmgraph/yoyodyne/pull/993"
+            },
+            "finding_count": 1
+          },
+          "absent_fields": [
+            "harness_continues_stall",
+            "stall_stop"
+          ]
+        },
+        "last_provider_event_before_stop": {
+          "source": "runs/run-f2ee2b07fba1fe57364422d4c570f256.events.jsonl",
+          "line": 1070,
+          "fields": {
+            "sequence": 1070,
+            "timestamp": "2026-10-04T00:42:29.723129Z",
+            "type": "process.output",
+            "source": "codex"
+          }
+        },
+        "next_retained_provider_event": null,
+        "watch_entries": [
+          {
+            "source": "watch.jsonl",
+            "line": 4416,
+            "fields": {
+              "session_id": "watch-2a3d78727a6954c9e6c2f3cae17592f5",
+              "state": "watching",
+              "at": "2026-10-04T00:43:38.593359Z",
+              "reason": "taking the recurring pass of product-manager-sweep since 2026-10-04T00:43:38Z, fired by its schedule; the session fires its passes inside its poll, so it pulls nothing more until this pass ends",
+              "build": "dd9b4f364b24d8384308ed2afa39caf8f01774ca"
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4417,
+            "fields": {
+              "session_id": "watch-2a3d78727a6954c9e6c2f3cae17592f5",
+              "state": "watching",
+              "at": "2026-10-04T00:51:45.667416Z",
+              "reason": "a build was deployed over the one this session was started from; it restarts into it the moment it hosts no run, and is draining to restart into the build deployed over it since 2026-10-04T00:51:45Z, bounded at 15m0s (until 2026-10-04T01:06:45Z), waiting out 1 run(s) it hosts while still pulling into free seats and firing its recurring tasks",
+              "build": "dd9b4f364b24d8384308ed2afa39caf8f01774ca",
+              "running": 1,
+              "draining": {
+                "since": "2026-10-04T00:51:45.667395Z",
+                "bound_seconds": 900,
+                "until": "2026-10-04T01:06:45.667395Z",
+                "hosting": 1
+              }
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4421,
+            "fields": {
+              "session_id": "watch-2a3d78727a6954c9e6c2f3cae17592f5",
+              "state": "stopped",
+              "at": "2026-10-04T01:18:47.202478Z",
+              "reason": "a build was deployed over the one this session was started from, and the session is restarting into it; the drain bound of 15m0s ran out with 1 run(s) still going, which were stopped and preserved for the session that comes back: yoyodyne-ifd.428.65",
+              "build": "dd9b4f364b24d8384308ed2afa39caf8f01774ca",
+              "restarting": true,
+              "draining": {
+                "since": "2026-10-04T00:51:45.667395Z",
+                "bound_seconds": 900,
+                "until": "2026-10-04T01:06:45.667395Z",
+                "bound_reached": true
+              }
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4422,
+            "fields": {
+              "session_id": "watch-870d54b09ed6ba6ab64c4cd3e0fb1b4b",
+              "state": "watching",
+              "at": "2026-10-04T01:18:47.237809Z",
+              "reason": "watching the backlog until stopped",
+              "build": "eabea0734043d2c64aca47d6cdb03a61add14e11"
+            }
+          },
+          {
+            "source": "watch.jsonl",
+            "line": 4424,
+            "fields": {
+              "session_id": "watch-870d54b09ed6ba6ab64c4cd3e0fb1b4b",
+              "state": "watching",
+              "at": "2026-10-04T01:21:36.201899Z",
+              "reason": "filled 1 of 1 free developer slot, beside 2 runs this session already had in flight; a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of 175 admitted, 38 of them ready; 1 developer slot freed since the last poll: run-f2ee2b07fba1fe57364422d4c570f256 over yoyodyne-ifd.433.25, another process's run",
+              "build": "eabea0734043d2c64aca47d6cdb03a61add14e11"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "source_snapshots": [
+    {
+      "source": "docket.jsonl",
+      "sha256": "6d8aeff90f6a0873943cf233804ae38c9f8188a281fae6a179d672733b08a895"
+    },
+    {
+      "source": "runs/run-704ffce4d88207dfd82f95c2f9e4b0ab.events.jsonl",
+      "sha256": "893075a68b80e23ce0c36e2c6cca29dd66443bbb59f55da74d4fd7263de57b48"
+    },
+    {
+      "source": "runs/run-704ffce4d88207dfd82f95c2f9e4b0ab.json",
+      "sha256": "13d0db73df80204c270bfcbb8e1b3df1a72e826b888b07651217f37000f89d51"
+    },
+    {
+      "source": "runs/run-f2ee2b07fba1fe57364422d4c570f256.events.jsonl",
+      "sha256": "ae44bda087b2b3fcbec19989259bda3c04f6d49ed7d635750ed03200b09c5a76"
+    },
+    {
+      "source": "runs/run-f2ee2b07fba1fe57364422d4c570f256.json",
+      "sha256": "391d7ea443ff031ce91442fdc7553c0c53c92494b3f7f73a1e5b65cda6079730"
+    },
+    {
+      "source": "watch.jsonl",
+      "sha256": "2e6b657817b4e8f82c8321b355a152d746e191a7259e1c3b071f6dee8726e9c1"
+    }
+  ]
+}
