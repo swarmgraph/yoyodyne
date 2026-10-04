@@ -381,12 +381,25 @@ func (Backend) Capabilities() backend.Capabilities {
 // could not be given its sandbox would run under whatever it was started with,
 // or none. testdata/cli-help holds the help this was read from, and
 // conformance_test.go checks every invocation against it.
-func invocationArgs(request backend.RunRequest, sandbox string) []string {
+func invocationArgs(request backend.RunRequest, sandbox string, directories []string) []string {
 	args := []string{"exec", "--sandbox", sandbox}
+	if sandbox == sandboxWorkspaceWrite {
+		// exec resume has no --add-dir option. A config override ahead of resume
+		// applies the same confined roots on every turn and replaces user roots.
+		if directories == nil {
+			directories = []string{}
+		}
+		roots, _ := json.Marshal(directories)
+		args = append(args,
+			"--config", `approval_policy="never"`,
+			"--config", "sandbox_workspace_write.writable_roots="+string(roots),
+			"--config", "sandbox_workspace_write.network_access=false",
+		)
+	}
 	if sandbox == sandboxReadOnly {
 		args = append(args, readOnlyArgs(request.WorkingDirectory)...)
-		args = append(args, "--cd", request.WorkingDirectory)
 	}
+	args = append(args, "--cd", request.WorkingDirectory)
 	// Resuming continues the provider's own session, which is an acceleration
 	// and never the record: what the harness knows about this work is in its own
 	// durable state, and a session the provider has forgotten costs context
@@ -459,7 +472,18 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		request.WorkingDirectory = repository
 		invocation.WorkingDirectory = launch
 	}
-	args := invocationArgs(invocation, sandbox)
+	var directories []string
+	repository := request.RepositoryRoot
+	if repository == "" {
+		repository = request.WorkingDirectory
+	}
+	if sandbox == sandboxWorkspaceWrite {
+		directories, err = execution.PrepareDeveloperDirectories(repository, request.WorkingDirectory, request.RunID)
+		if err != nil {
+			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
+		}
+	}
+	args := invocationArgs(invocation, sandbox, directories)
 
 	timeout := request.Timeout
 	if timeout == 0 {
@@ -503,7 +527,14 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	}
 	environment = execution.WithAgentRole(environment, request.Role)
 	if sandbox == sandboxWorkspaceWrite {
-		environment = execution.WithGoBuildCache(environment, request.WorkingDirectory)
+		environment = execution.WithGoBuildCache(environment, repository)
+		if len(directories) > 0 {
+			for index, entry := range environment {
+				if strings.HasPrefix(entry, "GOCACHE=") {
+					environment[index] = "GOCACHE=" + directories[0]
+				}
+			}
+		}
 	}
 	processResult, err := b.Runner.Run(ctx, execution.Command{
 		Name: b.binary(),

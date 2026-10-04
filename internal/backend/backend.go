@@ -59,10 +59,14 @@ type RunRequest struct {
 	RunID            string
 	Role             domain.AgentRole
 	WorkingDirectory string
-	Prompt           string
-	SystemPrompt     string
-	SessionID        string
-	Model            string
+	// RepositoryRoot is the harness's checkout, independent of the developer's
+	// mutable worktree. Adapters use it to confine cache and scratch grants.
+	// Empty uses WorkingDirectory for standalone invocations.
+	RepositoryRoot string
+	Prompt         string
+	SystemPrompt   string
+	SessionID      string
+	Model          string
 	// Effort is the effort level this invocation asks the provider for, and
 	// empty where the agent configured none, which leaves the provider to resolve
 	// its own. A failover or a version fallback keeps it: the level is the

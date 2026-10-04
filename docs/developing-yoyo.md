@@ -220,16 +220,21 @@ directory under your home. Every command above needs it before it compiles
 anything, so an environment that does not grant writes there fails all four
 checks at setup — `operation not permitted` on a path, and no mention of a cache
 anywhere in the message — which reads as a broken toolchain rather than as a
-directory nobody granted. An agent sandbox is exactly such an environment: it
-grants writes to the worktree, to `.git`, and to `TMPDIR`, and to nothing else.
+directory nobody granted. An agent sandbox is exactly such an environment: a
+writable worktree and `TMPDIR` do not grant a cache under the user's home.
 
 The harness sets `GOCACHE` for every run it makes, at `.git/yoyodyne/go-build`
-in the repository the run works in. That directory is granted, it is outside the
-working tree so it is not untracked content in anybody's checkout, and every
+in the repository the run works in. It is outside the working tree so it is not
+untracked content in anybody's checkout, and every
 worktree of one repository shares it — so a run's own execution probe and the
 checks the harness then applies to its change compile against one cache rather
-than two. `internal/execution/gocache.go` is the whole of it, and it creates
-nothing: it names a path, and the Go command creates its own cache.
+than two. `internal/execution/gocache.go` names that path without creating it.
+For Codex developers, the adapter creates and explicitly admits only that cache
+and the assigned scratch directory through the confined filesystem writer,
+on initial launch and native resume. It sets `GOCACHE` to the resolved path it
+admits; it grants no write to the rest of `.git`. See
+[the environment a check runs in](configuration/runs.md#the-environment-a-check-runs-in)
+for the native sandbox regression and its execution requirements.
 
 Nothing sets it for an environment the harness did not make, so redirect it
 yourself in one:

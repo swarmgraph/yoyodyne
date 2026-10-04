@@ -121,6 +121,7 @@ func invocationsToCheck(t *testing.T) map[string][]string {
 	invocations := make(map[string][]string)
 	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
 		for name, sessionID := range map[string]string{"a fresh session": "", "a resumed session": "session-1"} {
+			repository, worktree := sandboxRepository(t, true)
 			runner := &fakeRunner{results: []execution.ProcessResult{{
 				Status: execution.ProcessSucceeded,
 				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`),
@@ -128,7 +129,8 @@ func invocationsToCheck(t *testing.T) map[string][]string {
 			if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
 				RunID:            testRunID,
 				Role:             role,
-				WorkingDirectory: t.TempDir(),
+				WorkingDirectory: worktree,
+				RepositoryRoot:   repository,
 				Prompt:           "do the work",
 				SystemPrompt:     "the contract",
 				SessionID:        sessionID,

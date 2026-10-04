@@ -328,7 +328,11 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--json", "--skip-git-repo-check", "-"}
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite,
+		"--config", `approval_policy="never"`,
+		"--config", "sandbox_workspace_write.writable_roots=[]",
+		"--config", "sandbox_workspace_write.network_access=false",
+		"--cd", "/worktree", "--json", "--skip-git-repo-check", "-"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -523,7 +527,11 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-test", "-"}
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite,
+		"--config", `approval_policy="never"`,
+		"--config", "sandbox_workspace_write.writable_roots=[]",
+		"--config", "sandbox_workspace_write.network_access=false",
+		"--cd", "/worktree", "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-test", "-"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}

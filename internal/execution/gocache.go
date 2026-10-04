@@ -6,8 +6,9 @@ import (
 	"strings"
 )
 
-// A run's sandbox grants writes to its worktree, to the repository's Git
-// directory, and to its own temporary directory, and to nothing else. The Go
+// A run's sandbox grants writes to its worktree and temporary directory. The
+// provider must also admit the declared cache and scratch paths under Git;
+// Codex gets explicit, confined roots rather than the whole Git directory. The Go
 // toolchain's build cache defaults to none of those -- it is under the user's
 // home -- so the first Go command a run makes dies at setup with "operation not
 // permitted" before it compiles anything. What that reads like is a broken
