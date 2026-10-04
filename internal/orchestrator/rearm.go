@@ -478,6 +478,10 @@ func rearmablePublication(state runstate.State) (runstate.PullRequest, runstate.
 		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf("run %s published nothing, so it has no merge request to repeat", state.RunID)
 	}
 	published := *state.PullRequest
+	if state.CheckFailure != nil && state.CheckFailure.ForgeHeadCommit != "" {
+		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf("pull request %d failed this change's forge checks on %s, so its unchanged revision cannot be re-armed; a repair decided by the development manager continues the preserved change through `yoyo triage repair %s`, with fresh checks and independent review",
+			published.Number, state.CheckFailure.ForgeHeadCommit, state.RunID)
+	}
 	if state.Integration == nil {
 		return runstate.PullRequest{}, runstate.Integration{}, UnrearmablePublicationError{RunID: state.RunID, Number: published.Number, Why: fmt.Sprintf(
 			"run %s recorded no promotion, so pull request %d carries nothing this harness integrated and its merge is not one to repeat", state.RunID, published.Number)}

@@ -355,6 +355,10 @@ type CheckFailure struct {
 	Command  string `json:"command"`
 	ExitCode int    `json:"exit_code"`
 	Output   string `json:"output,omitempty"`
+	// ForgeHeadCommit names the revision a forge check failed on. The forge
+	// reports a conclusion rather than a process exit code, so ExitCode is not
+	// used for this input.
+	ForgeHeadCommit string `json:"forge_head_commit,omitempty"`
 }
 
 // Validate reports every contract violation in the recorded check at once.

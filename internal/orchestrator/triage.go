@@ -2278,7 +2278,7 @@ func docketCheck(failure *runstate.CheckFailure) *triage.Check {
 	if failure == nil {
 		return nil
 	}
-	return &triage.Check{Command: failure.Command, ExitCode: failure.ExitCode, Output: failure.Output}
+	return &triage.Check{Command: failure.Command, ExitCode: failure.ExitCode, Output: failure.Output, ForgeHeadCommit: failure.ForgeHeadCommit}
 }
 
 func docketArtifacts(state runstate.State, found triage.Found) triage.Artifacts {

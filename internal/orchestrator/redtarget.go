@@ -262,7 +262,7 @@ func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, c
 	if ownership.Change != "" {
 		published.Checks = &checks
 		state.PullRequest = &published
-		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+		return r.handBackFailedChange(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail on this change with its head level with %s: %s; so the failure is this change's own rather than %s's, and nothing was filed against %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
 			published.Number, target, ownership.Change, target, target, describe))
 	}
@@ -597,7 +597,9 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 	}
 	switch {
 	case checks.ChangeFails():
-		return handBack(fmt.Sprintf(
+		published.Checks = &checks
+		state.PullRequest = &published
+		return r.handBackFailedChange(ctx, state, fmt.Sprintf(
 			"the items pull request %d waited on for %s's red check are closed, and its checks now fail on this change: %s. The pull request needs its change repaired",
 			published.Number, target, checks.Describe(target)))
 	case checks.BehindBy > 0:

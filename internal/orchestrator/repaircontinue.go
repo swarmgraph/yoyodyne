@@ -388,6 +388,11 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 
 	entry, err := docketedStoppage(c.Docket, runID, "repair")
 	if err != nil {
+		if prior, readErr := c.Runs.Load(runID); readErr == nil {
+			if alternative := oldForgeRepairAlternative(prior); alternative != nil {
+				return RepairContinueResult{}, alternative
+			}
+		}
 		return RepairContinueResult{}, err
 	}
 	result := RepairContinueResult{
@@ -709,6 +714,9 @@ func (c RepairContinuer) carriedOut(workItemID string) (int, error) {
 // and, once it is gone, says so and names the re-run — the same answer the
 // docket gives on the same stoppage, by the same rule.
 func continuableRepair(prior runstate.State, found triage.Found) error {
+	if alternative := oldForgeRepairAlternative(prior); alternative != nil {
+		return alternative
+	}
 	if prior.IntegrationStop != nil {
 		if !triage.IntegrationResumable(&found, false) {
 			err := errors.New(triage.IntegrationGoneSays(prior.RunID, found.Describe()) +
@@ -748,6 +756,17 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	// rather than a repair of a change nobody complained about.
 	if !handedBackRepair(prior) && !continuableStall(prior) && !prior.StoppedAtStageBound() {
 		return fmt.Errorf("run %s recorded no reviewer findings, failing check, refused paths, or replay conflict, and is not a provider the harness stopped with its session preserved, so no failure was ever returned to its developer and there is no attempt to carry on with: %s stopped for something a repair budget does not answer",
+			prior.RunID, prior.RunID)
+	}
+	return nil
+}
+
+// Older handbacks kept the forge reading on the publication alone, sometimes
+// without enough evidence to attribute it to this change. They cannot invent
+// repair input, but must name the recovery the existing record supports.
+func oldForgeRepairAlternative(prior runstate.State) error {
+	if prior.CheckFailure == nil && prior.MergeDrop != nil && prior.PullRequest != nil && prior.PullRequest.Checks != nil && prior.PullRequest.Checks.Red() {
+		return fmt.Errorf("run %s's merge was withdrawn with failing forge checks, but this older record kept no failing check as repair input; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch",
 			prior.RunID, prior.RunID)
 	}
 	return nil
@@ -882,6 +901,18 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	// it would make the next round inherit a classification it has not earned, and
 	// the settle would find the class already decided and give back nothing.
 	continued.Environmental = nil
+	if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" {
+		// The old head's forge reading remains in the repair input and the
+		// superseded blocker above. It must not describe the publication this
+		// attempt will make, or leave that publication looking dropped again.
+		continued.PublishFailure = ""
+		continued.MergeDrop = nil
+		if prior.PullRequest != nil {
+			published := *prior.PullRequest
+			published.Checks = nil
+			continued.PullRequest = &published
+		}
+	}
 	continued.Status = runstate.StatusRunning
 	continued.Phase = continuedPhase(prior, stalled)
 	continued.CompletedAt = nil

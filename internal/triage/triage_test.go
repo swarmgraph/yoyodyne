@@ -41,6 +41,23 @@ func publicationEntry() Entry {
 	}
 }
 
+func TestAForgeFailureOffersRepairAndNeverOffersTheStandingRearm(t *testing.T) {
+	t.Parallel()
+	entry := publicationEntry()
+	entry.Check = &Check{Command: "build", ForgeHeadCommit: "red-head", Output: "build: failure"}
+	entry.Counters.PublicationRearms, entry.Counters.MergeRearmsCap = 1, 2
+	if err := entry.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	rendered := entry.Render()
+	if !strings.Contains(rendered, "A repair continues the preserved change") || !strings.Contains(rendered, "Failing forge check: build (commit red-head)") {
+		t.Fatalf("the forge handback does not name repair:\n%s", rendered)
+	}
+	if strings.Contains(rendered, "merge request may be repeated") || strings.Contains(rendered, "exit 0") {
+		t.Fatalf("the forge failure offers a re-arm or invents an exit code:\n%s", rendered)
+	}
+}
+
 func TestAnEntryIsRefusedWhenItCannotSayWhatStopped(t *testing.T) {
 	t.Parallel()
 

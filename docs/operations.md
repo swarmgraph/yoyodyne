@@ -2797,14 +2797,23 @@ the queue was landing them.
   request 863 a hand step.
 - **Anything else red** — a failing check whose annotations name a file the
   change touches, or a check on a level head found to be the change's as the
-  bullet above says — is handed back. The queued merge is withdrawn and the run is
-  settled as a merge the forge dropped: a blocker on the item naming the failing
-  check and the files, the drop recorded on the run, and the publication on the
-  docket where `yoyo triage rearm` is decided. So is a head level with its target
-  where nothing is wired to file the target's failure. A run whose change was
-  promoted onto the local target first, or whose worktree or branch is gone,
-  cannot be replayed, and is handed back the same way when its head falls
-  behind.
+  bullet above says — is handed back for repair. The harness withdraws the
+  queued merge and records a failing check on the run, naming the forge check,
+  the checked commit, its conclusion, annotations, and the captured job log
+  where available. It keeps the branch, worktree and developer session, but
+  clears the promotion and review credit. The docket says a repair is the way
+  on and offers no re-arm of the unchanged red revision. A repair the
+  development manager grants is carried out by `yoyo triage repair` on that
+  same change and session, under the existing repair budget; fresh configured
+  checks and independent review must pass before it is published again.
+  An older stopped run that kept its failing forge checks only on the
+  publication cannot supply this repair input: the repair refusal names a
+  development-manager-decided re-run, carried out by `yoyo triage rerun`, as
+  the supported alternative.
+  Other red merges keep the dropped-merge recovery below: a head level with
+  its target where nothing is wired to file the target's failure, or a head
+  that fell behind and cannot be replayed because it was promoted onto the
+  local target first or its worktree or branch is gone.
 
 **The forge's account of a red check is carried onto the item.** Whenever the
 sweep withdraws a queued merge over a failing check, or hands one back — to
@@ -2884,7 +2893,9 @@ first: something the base branch required went unmet, the harness does not
 merge past a requirement, and nothing about that publication is confirmed — so
 the item is handed back to you with a blocker rather than closed as integrated,
 which is also what puts it where a bounded re-arm of the dropped merge can be
-decided — once per publication, carried out by `yoyo triage rearm`, after which a
+decided, unless the harness withdrew it over the change's own failing check:
+that is the repair handback above. A re-arm is once per publication, carried
+out by `yoyo triage rearm`, after which a
 further drop of the same publication is recorded as an escalation rather than
 re-armed again. The moment the drop is found out is recorded on the run as well,
 so it is announced in the item's thread as a `warning` rather than waiting for
@@ -4037,9 +4048,12 @@ merge left queued; a reading still awaiting that rerun spends nothing more,
 even at the limit. Withdrawal follows a refusal, an exhausted limit, or a step
 that failed, as [merge recovery](#recovering-interrupted-runs) describes. These are
 the harness's steps, under **Waiting on the harness**, and `yoyo reconcile`
-settles them. A dropped merge already handed back is a separate publication
-entry under **Waiting on the development manager**, for her to decide a repair,
-re-run, or re-arm. If the same run still owes cleanup of a local promotion, its
+settles them. A merge withdrawn over the change's own failing check is a
+stopped-run entry under **Waiting on the development manager**, with the
+forge failure carried for repair; its unchanged revision cannot be re-armed.
+Other dropped merges already handed back are separate publication entries
+under **Waiting on the development manager**, for her to decide a re-run or
+re-arm. If the same run still owes cleanup of a local promotion, its
 `owed-step` entry names only that cleanup, with **the harness** as its mover;
 the dropped-merge decision stays on the publication entry. A superseded
 publication or one handed back for a fresh run asks for nothing and is absent,
