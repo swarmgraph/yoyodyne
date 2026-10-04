@@ -55,6 +55,8 @@ const (
 	// reviewer, whose evidence is the change, holds neither in that sense. It is
 	// granted by the configurable-workflows design's authority-model section.
 	RepositoryList Capability = "repository.list"
+	// LogRead reads bounded, redacted operational records under the state root.
+	LogRead Capability = "log.read"
 	// WorktreeMutate is writing inside the run's own isolated worktree and on its
 	// own branch: creating it, committing what a developer left, removing it once
 	// its work is somewhere else. It never reaches the branch a run promotes into,
@@ -276,6 +278,7 @@ var declared = []Capability{
 	WorkItemMutate,
 	RepositoryRead,
 	RepositoryList,
+	LogRead,
 	WorktreeMutate,
 	TargetBranchMutate,
 	PromotionLease,

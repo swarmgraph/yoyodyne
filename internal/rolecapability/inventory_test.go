@@ -47,6 +47,9 @@ type expression struct {
 }
 
 var expresses = map[string]expression{
+	"conversation.tool-grant": {question: "does the role hold every capability the registered tool requires?", asks: []capability.Capability{capability.LogRead, capability.ReportFile, capability.AmendmentPropose}},
+	"run.tool-grant":          {question: "does the run's role hold its requested report or amendment tool?", asks: []capability.Capability{capability.ReportFile, capability.AmendmentPropose}},
+	"review.tool-grant":       {question: "does the reviewer hold its requested report tool?", asks: []capability.Capability{capability.ReportFile}},
 	"conversation.authority-table": {
 		question: "what does this role's bundle hold?",
 		gap:      "the table carries the contract and the operator-facing title beside the authority; a bundle carries capabilities alone, so what a role is called and what it is sent stay where they are",

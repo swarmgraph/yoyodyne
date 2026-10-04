@@ -19,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 // MaxReviewInputBytes bounds the system contract and evidence handed to a
@@ -651,7 +652,7 @@ func (req Request) subject() map[string]any {
 // vocabulary, the independence rules, and the response format are not
 // negotiable, and nothing configured can remove them.
 func reviewSystemPrompt(scope Scope, persona string) string {
-	contract := reviewContract(scope)
+	contract := reviewContract(scope) + "\n\n" + toolcatalog.Contract(domain.RoleReviewer)
 	trimmed := strings.TrimSpace(persona)
 	if trimmed == "" {
 		return contract

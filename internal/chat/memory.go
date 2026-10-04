@@ -213,7 +213,7 @@ func (s *Session) keepsMemory() bool {
 // A write the log would not take is not made, for the reason a tracker action is
 // not: a memory nobody recorded asking for is not one to keep. That is the one
 // failure returned as an error; a write the store refused is an outcome.
-func (s *Session) performMemoryWrites(ctx context.Context, writes []MemoryWrite) ([]MemoryOutcome, error) {
+func (s *Session) performMemoryWritesWithoutToolAudit(ctx context.Context, writes []MemoryWrite) ([]MemoryOutcome, error) {
 	registry, err := agentcontext.Registry()
 	if err != nil {
 		return nil, fmt.Errorf("build the context actions: %w", err)

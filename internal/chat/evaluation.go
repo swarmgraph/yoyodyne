@@ -48,7 +48,7 @@ func (e *EvaluationError) Unwrap() error { return e.Err }
 // product manager wrote: the citations say what it says it read, and these say
 // what was actually fetched, and a record that could not tell the two apart
 // would not be worth keeping.
-func (s *Session) recordEvaluation(entry evaluation.Entry) (*evaluation.Evaluation, error) {
+func (s *Session) recordEvaluationWithoutToolAudit(entry evaluation.Entry) (*evaluation.Evaluation, error) {
 	if s.options.Evaluations == nil {
 		return nil, fmt.Errorf("no evaluation record is configured for this conversation, so the %s recommendation was not kept", recommendationName(entry))
 	}

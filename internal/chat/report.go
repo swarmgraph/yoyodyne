@@ -105,7 +105,7 @@ var errNoReports = errors.New("no report collection is wired to this conversatio
 // turn: a report is not a blocker for any other role and it is not one here
 // either, so what could not be collected is described to the operator and the
 // conversation carries on.
-func (s *Session) recordReports(entries []report.Entry) ([]report.Report, string) {
+func (s *Session) recordReportsWithoutToolAudit(entries []report.Entry) ([]report.Report, string) {
 	if len(entries) == 0 {
 		return nil, ""
 	}

@@ -49,6 +49,9 @@ type Action[S any] struct {
 	// here, in code, and it is the only place it is declared: nothing a definition
 	// says adds to it and nothing a definition says takes anything away.
 	Capabilities []capability.Capability
+	// Tool marks an action a conversation may request. A nil descriptor leaves
+	// the action available only to its existing runtime.
+	Tool *Tool
 	// Perform is the door. It calls the same function the hard-coded pipeline
 	// calls, with nothing in between, so that a caller reaching a step through the
 	// registry and a caller reaching it directly are reaching one implementation.
@@ -102,6 +105,11 @@ func New[S any](actions ...Action[S]) (Registry[S], error) {
 		if len(candidate.Capabilities) == 0 {
 			problems = append(problems, fmt.Errorf("%q declares no capabilities; every action states what performing it requires", candidate.Name))
 		}
+		if candidate.Tool != nil {
+			if err := candidate.Tool.Validate(candidate.Name, candidate.Capabilities); err != nil {
+				problems = append(problems, err)
+			}
+		}
 		// The two claims that make this a registry of trusted code rather than a
 		// list of names: something to perform, and a statement of what it is a
 		// second door onto.
@@ -111,7 +119,7 @@ func New[S any](actions ...Action[S]) (Registry[S], error) {
 		if candidate.Wraps == "" {
 			problems = append(problems, fmt.Errorf("%q names no function it wraps; an action is a second door onto trusted code and has to say onto what", candidate.Name))
 		}
-		registry.byName[candidate.Name] = candidate
+		registry.byName[candidate.Name] = clone(candidate)
 		registry.names = append(registry.names, candidate.Name)
 	}
 	if len(problems) > 0 {
@@ -131,14 +139,23 @@ func (r Registry[S]) Names() []string {
 // to do about it belongs to whatever was reading the definition.
 func (r Registry[S]) Lookup(name string) (Action[S], bool) {
 	registered, found := r.byName[name]
-	return registered, found
+	return clone(registered), found
 }
 
 // Actions is every registered action, in declaration order.
 func (r Registry[S]) Actions() []Action[S] {
 	registered := make([]Action[S], 0, len(r.names))
 	for _, name := range r.names {
-		registered = append(registered, r.byName[name])
+		registered = append(registered, clone(r.byName[name]))
 	}
 	return registered
+}
+
+func clone[S any](entry Action[S]) Action[S] {
+	entry.Capabilities = slices.Clone(entry.Capabilities)
+	if entry.Tool != nil {
+		descriptor := *entry.Tool
+		entry.Tool = &descriptor
+	}
+	return entry
 }

@@ -70,7 +70,7 @@ func (s *Session) repositoryFraming() repositoryread.Framing {
 // budget that is spent, and a path that names nothing are all things the role
 // has to be told about so it can say it could not read, and none of them is a
 // reason to lose the reply that carried the request.
-func (s *Session) performRepositoryReads(ctx context.Context, requests []repositoryread.Request, rounds *int) ([]repositoryread.Result, string) {
+func (s *Session) performRepositoryReadsWithoutToolAudit(ctx context.Context, requests []repositoryread.Request, rounds *int) ([]repositoryread.Result, string) {
 	if s.options.RepositoryReader == nil {
 		return nil, "no repository read capability is wired to this conversation, so nothing was read"
 	}

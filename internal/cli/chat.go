@@ -19,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/evaluation"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -978,6 +979,7 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// authority to ask is decided in the chat package's table rather than
 		// here, and a reader nobody may ask is never asked.
 		RepositoryReader: conversationRepositoryReader(parts),
+		LogReader:        logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
 		// Where a recorded recommendation about an operator's idea is kept. It is
 		// wired for every role because the authority to record one is decided in
 		// the chat package's table rather than here, and a store nobody may write

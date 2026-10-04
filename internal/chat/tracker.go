@@ -1,7 +1,7 @@
 package chat
 
 // The product manager owns the queue and acts on it directly. It does so
-// through the typed actions below rather than through tools: the harness
+// through the typed harness tools below: the harness
 // validates every argument, runs the operation itself, records what was asked
 // for and what came of it, and tells the operator. What was refused with the
 // tools was arbitrary execution — a filesystem, a shell, a network — and that is
@@ -1421,7 +1421,26 @@ func (s *Session) performTrackerActions(ctx context.Context, actions []TrackerAc
 			outcomes = append(outcomes, outcome)
 			continue
 		}
-		s.applyTrackerAction(ctx, &outcome)
+		_, auditErr := auditTool(ctx, s, s.trackerTool(action.Action), map[string]any{"action": action.Action}, 1, func() (struct{}, error) {
+			s.applyTrackerAction(ctx, &outcome)
+			return struct{}{}, nil
+		}, func(struct{}) (int, bool, error) {
+			if outcome.Failure != "" {
+				return 0, false, errors.New(outcome.Failure)
+			}
+			if s.trackerTool(action.Action) == capability.WorkItemRead {
+				cut := len(outcome.Detail) > 32<<10
+				outcome.Detail = boundText(outcome.Detail, 32<<10)
+				return len(outcome.Detail), cut, nil
+			}
+			return 0, false, nil
+		})
+		if auditErr != nil && strings.Contains(auditErr.Error(), "audit failed") {
+			return nil, auditErr
+		}
+		if auditErr != nil && outcome.Failure == "" {
+			outcome.Failure = auditErr.Error()
+		}
 		if action.Action == actionCreate && outcome.Applied && outcome.WorkItemID != "" {
 			admitted[strings.TrimSpace(action.Title)] = outcome.WorkItemID
 		}

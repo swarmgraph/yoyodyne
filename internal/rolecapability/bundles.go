@@ -33,6 +33,7 @@ func bundles() []Bundle {
 			Owns: "the brief, the goals, and what is admitted to the backlog and in what order",
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
+				capability.ReportFile,
 				capability.WorkItemMutate,
 				capability.RepositoryRead,
 				// The three management roles may name a repository path and have the
@@ -90,6 +91,7 @@ func bundles() []Bundle {
 				// authority is read and survey, and the work it would otherwise file is
 				// proposed to the product manager instead.
 				capability.WorkItemRead,
+				capability.ReportFile,
 				capability.RepositoryRead,
 				capability.RepositoryList,
 				capability.ProviderInvoke,
@@ -105,6 +107,7 @@ func bundles() []Bundle {
 			Owns: "decomposition, dependency structure, and triage of work that has stopped moving",
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
+				capability.ReportFile,
 				capability.WorkItemMutate,
 				capability.RepositoryRead,
 				capability.RepositoryList,
@@ -124,8 +127,10 @@ func bundles() []Bundle {
 				// it: the claim at the start of a run and the close at the end are the
 				// harness's, made around the invocation rather than by it.
 				capability.WorkItemRead,
+				capability.ReportFile,
 				capability.RepositoryRead,
 				capability.WorktreeMutate,
+				capability.AmendmentPropose,
 				// The delivery run pushes this developer's branch and opens or updates its
 				// pull request. The developer contract refuses the developer doing either,
 				// and both hold at once: the harness performs it, the agent does not.
@@ -143,6 +148,7 @@ func bundles() []Bundle {
 			Owns: "no document and no queue; it judges one change inside a run",
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
+				capability.ReportFile,
 				// The reviewer reaches for nothing: it has no tools, and the change, the
 				// item, and the evidence are supplied to it. The read is the harness's, on
 				// the reviewer's behalf, which is what this capability has always meant.
@@ -172,8 +178,10 @@ func bundles() []Bundle {
 			Owns: "one outcome across the line, watched on a schedule: the work admitted inside its own lane, and its lane report",
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
+				capability.ReportFile,
 				capability.RepositoryRead,
 				capability.RepositoryList,
+				capability.LogRead,
 				capability.ReadModelRead,
 				capability.WorkItemAdmit,
 				capability.WorkItemAttribute,
@@ -187,7 +195,6 @@ func bundles() []Bundle {
 				capability.WorkItemReparent,
 				capability.AgentContextMutate,
 				capability.LaneReportWrite,
-				capability.ReportFile,
 				capability.AmendmentPropose,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
@@ -221,12 +228,8 @@ func declaredAhead() []Ahead {
 			Reason:     "the read-model block a pass opens with and the one named query a reply may ask for are their own child of yoyodyne-ifd.430.13; until it lands the program manager is handed no read-model query",
 		},
 		{
-			Capability: capability.ReportFile,
-			Reason:     "reports are read from every role's reply today whatever its bundle holds, so no site asks for this yet; the program manager holds it because its design says so, and making the other roles' reports ask for it is a change to their bundles nobody has ruled on",
-		},
-		{
 			Capability: capability.AmendmentPropose,
-			Reason:     "proposals are read from a developer run's reply today and from no conversation, and no site asks for this yet; the developer's bundle is pinned and does not carry it, and the program manager's proposal block arrives with its pass",
+			Reason:     "proposals are read from a developer run's reply today and from no conversation, and no site asks for this yet; the developer's bundle now names its existing run proposal permission, and the program manager's conversation proposal block arrives in the later speech migration",
 		},
 	}
 }

@@ -277,6 +277,26 @@ answers at its next pass.
 [Talking to the other agents](conversation.md#talking-to-the-other-agents) states
 the table itself.
 
+**Tools are derived from the shipped role grants.** A tool is a registered
+harness action requested through a typed reply block, with its own parameters,
+bounds, scope and audit events. The generated tools section follows the role's
+fixed authority prose and precedes its persona and remit. `yoyo config show`
+reports each agent's tool identifiers alongside its effective configuration
+(`tools` in the JSON report, comments in the YAML display). This is a report,
+not a new configuration key: there is no agent `tools:` narrowing key in this
+slice, and a persona or remit cannot grant anything.
+
+The program manager's `log.read` grant reads this product's pass records, watch
+transitions and scheduler output, docket, named run records, usage-limit log and
+provider-outage record under the state root. Reads require a cursor or a time
+window and a byte cap, return redacted untrusted evidence, and are audited on the
+conversation before evidence is delivered. Tokens, memory, other agents'
+conversation records and arbitrary filesystem paths are refused.
+[The conversation guide](conversation.md#tools-and-the-program-managers-log-reads)
+states the request format and bounds. The supervisor's scheduler output is
+`<state root>/products/<product id>/scheduler.log`, alongside the watch's durable
+transitions; it is read by naming the watch's output rather than a path.
+
 `backend` is `claude-code` or `codex` unless your project declares one of its
 own. Both built-ins serve all six roles. Codex uses worktree-write access for
 developers and native read-only inspection for reviewers and management roles,
