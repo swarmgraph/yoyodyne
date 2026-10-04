@@ -12,6 +12,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -207,13 +208,17 @@ func TestPromotionLeaseHolderProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore() error = %v", err)
 	}
-	if _, err := store.LeasePromotion(context.Background(), "main"); err != nil {
+	lease, err := store.LeasePromotion(context.Background(), "main")
+	if err != nil {
 		t.Fatalf("LeasePromotion() error = %v", err)
 	}
+	// Collection must not release the lease while this process is still alive.
+	runtime.GC()
 	os.Stdout.WriteString("promotion lease held\n")
 	// The parent kills this process; the wait is only a bound on a parent that
 	// never does, so the child cannot outlive the test run.
 	time.Sleep(2 * time.Minute)
+	runtime.KeepAlive(lease)
 }
 
 func TestPromotionLeaseRefusesWhatIsNotALocalBranch(t *testing.T) {
