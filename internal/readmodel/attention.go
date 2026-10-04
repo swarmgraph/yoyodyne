@@ -897,8 +897,9 @@ type attentionWire struct {
 	// each work item beside its title, and absent where that changes nothing.
 	// They are what the dashboard shows; What and Whose stay the derivation, so
 	// a document read back is still held to its fields.
-	SaidWhat  string `json:"said_what,omitempty"`
-	SaidWhose string `json:"said_whose,omitempty"`
+	SaidWhat  string            `json:"said_what,omitempty"`
+	SaidWhose string            `json:"said_whose,omitempty"`
+	SaidText  map[string]string `json:"said_text,omitempty"`
 }
 
 // MarshalJSON writes the fields and, beside them, the two sentences derived
@@ -908,6 +909,7 @@ type attentionWire struct {
 // anywhere but the fields.
 func (a Attention) MarshalJSON() ([]byte, error) {
 	wire := attentionWire{attentionFields: attentionFields(a), Label: a.Label(), What: a.What(), Whose: a.Whose()}
+	wire.SaidText = a.titles.CitedText(attentionFields(a))
 	if said := a.CitedWhat(); said != wire.What {
 		wire.SaidWhat = said
 	}

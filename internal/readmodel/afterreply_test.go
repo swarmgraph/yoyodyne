@@ -38,7 +38,7 @@ func TestARunWaitingOutBackgroundWorkAfterItsReplySaysSoOnTheRunningLine(t *test
 		t.Fatalf("running = %+v, want the wait after the reply said as it stands", standing.Running)
 	}
 	rendered := standing.Render()
-	want := "  yoyodyne-ifd.435.6 — reply written, waiting for background processes: 2m of 5m, 1h00m elapsed, $4.00 so far\n"
+	want := "  title unavailable (yoyodyne-ifd.435.6) — reply written, waiting for background processes: 2m of 5m, 1h00m elapsed, $4.00 so far\n"
 	if !strings.Contains(rendered, want) {
 		t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
 	}

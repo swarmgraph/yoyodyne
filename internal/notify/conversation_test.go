@@ -110,7 +110,7 @@ func TestAdmittedWorkIsSaidByTheRoleThatAdmittedItWithItsGoal(t *testing.T) {
 	if !strings.Contains(message.Body, "Work the harness runs on its own is visible while it runs") {
 		t.Fatalf("body %q does not say what the work is for", message.Body)
 	}
-	if !strings.Contains(message.Body, "Report what conversations do to the backlog") {
+	if !strings.Contains(message.Body, "yoyodyne-ifd.113") {
 		t.Fatalf("body %q does not say what was admitted", message.Body)
 	}
 	// An admission is usually the first thing said about an item, so it is where
@@ -159,18 +159,17 @@ func TestACreationUnderAParentIsDecompositionRatherThanAdmission(t *testing.T) {
 	if strings.Contains(strings.ToLower(message.Body), "above") {
 		t.Fatalf("body %q points at what it was cut out of by where it sits, which is this item's own thread", message.Body)
 	}
-	// The message says it was decomposed and names the piece, in words. It does
-	// not say the parent's identifier: the record holds that identifier and
-	// nothing that names it, so saying it would hand a reader something to
-	// resolve in the one message that is about a piece of work having a name.
-	if !strings.Contains(message.Body, "The voice work under the reporting epic") {
+	// The message carries the new item's reference to the shared resolver.
+	if !strings.Contains(message.Body, "yoyodyne-ifd.68.5") {
 		t.Fatalf("body %q does not say what was cut out", message.Body)
 	}
 	if !strings.Contains(message.Body, "a larger item") {
 		t.Fatalf("body %q does not say what it was cut out of at all", message.Body)
 	}
-	if strings.Contains(message.Body, parent) {
-		t.Fatalf("body %q names the item it was cut out of by its identifier", message.Body)
+	for _, id := range trackerIdentifier.FindAllString(message.Body, -1) {
+		if id == parent {
+			t.Fatalf("body %q names the parent instead of the new item", message.Body)
+		}
 	}
 }
 
@@ -516,17 +515,9 @@ func TestTheFirstThingARoleDoesToHandedWorkIsSaidAsPickingItUp(t *testing.T) {
 	if notification.Speaker.Role != domain.RoleArchitect {
 		t.Fatalf("spoken by %q", notification.Speaker.Key())
 	}
-	// A pickup names no title of its own — the action is a note on an item that
-	// already exists — so the item's own name is what the message says, rather
-	// than a sentence stating the record carried none.
-	if !strings.Contains(message.Body, "Promote the brief to its next revision") {
-		t.Fatalf("body %q does not say what the item taken up is called", message.Body)
-	}
-	// And it says that and not the identifier: the thread this goes into is
-	// headed by the identifier already, so a message repeating it inside would
-	// give a reader the opaque half of the header on every line.
-	if strings.Contains(message.Body, "yoyodyne-ifd.138") {
-		t.Fatalf("body %q names the item by its identifier inside its own thread", message.Body)
+	// The pickup carries the item's id so posting resolves its current fields.
+	if !strings.Contains(message.Body, "yoyodyne-ifd.138") {
+		t.Fatalf("body %q loses the item taken up", message.Body)
 	}
 	if repeated, err := FromConversation(conversation, events, 2); err != nil || !repeated.Silent() {
 		t.Fatalf("a second change said %s (%v), want the pickup said once", repeated.Event.Kind, err)

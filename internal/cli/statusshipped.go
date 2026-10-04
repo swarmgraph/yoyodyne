@@ -43,6 +43,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -95,28 +96,28 @@ func reportShipped(configPath string, count int, jsonOutput bool, stdout, stderr
 	if jsonOutput {
 		return writeJSON(stdout, stderr, shippedOutput{Ledger: ledger})
 	}
-	printShipped(stdout, ledger)
+	printShipped(stdout, ledger, reportTitles(configPath))
 	return 0
 }
 
-// The columns: the item, when it shipped, what it cost across every run, the
-// wall clock from first claim to promotion, how much of that was spent parked,
-// how many runs it took, and the title last because it is the one column with
+// The columns: when it shipped, what it cost across every run, the wall clock
+// from first claim to promotion, how much of that was spent parked, how many
+// runs it took, and the complete item name last because it is the column with
 // no width of its own. One shape for the header, every row, and the total, so
 // the columns cannot drift apart between them; the money column is wide enough
 // for a floor marker.
-const shippedRow = "%-24s %-17s %11s %9s %9s %5s  %s\n"
+const shippedRow = "%-17s %11s %9s %9s %5s  %s\n"
 
 var shippedRule = strings.Repeat("-", 82)
 
 // printShipped renders the ledger in the shape the spend report established:
 // header, a row a line, a rule, a TOTAL row, then what the figures mean.
-func printShipped(writer io.Writer, ledger runstate.ShippedLedger) {
+func printShipped(writer io.Writer, ledger runstate.ShippedLedger, names ...*readmodel.WorkItemTitles) {
 	if ledger.Shipped == 0 {
 		fmt.Fprintln(writer, "the harness has no recorded run that promoted its work, so nothing has shipped")
 		return
 	}
-	fmt.Fprintf(writer, shippedRow, "item", "shipped", "cost", "elapsed", "paused", "runs", "title")
+	fmt.Fprintf(writer, shippedRow, "shipped", "cost", "elapsed", "paused", "runs", "item")
 	var (
 		total          float64
 		elapsed        time.Duration
@@ -125,14 +126,17 @@ func printShipped(writer io.Writer, ledger runstate.ShippedLedger) {
 		elapsedUnknown int
 	)
 	for _, item := range ledger.Items {
+		var titles *readmodel.WorkItemTitles
+		if len(names) > 0 {
+			titles = names[0]
+		}
 		fmt.Fprintf(writer, shippedRow,
-			item.WorkItemID,
 			renderSpendMoment(item.ShippedAt),
 			renderTotal(item.Price.TotalUSD, item.Price.UnknownRuns),
 			renderElapsed(item),
 			renderPaused(item.Paused()),
 			strconv.Itoa(len(item.Price.Runs)),
-			renderShippedTitle(item.Title),
+			titles.Name(item.WorkItemID),
 		)
 		total += item.Price.TotalUSD
 		unpriced += item.Price.UnknownRuns
@@ -151,7 +155,6 @@ func printShipped(writer io.Writer, ledger runstate.ShippedLedger) {
 	// unknown exists to prevent.
 	fmt.Fprintln(writer, strings.TrimRight(fmt.Sprintf(shippedRow,
 		fmt.Sprintf("TOTAL (%d of %d)", len(ledger.Items), ledger.Shipped),
-		"",
 		renderTotal(total, unpriced),
 		renderFloorDuration(elapsed, elapsedUnknown > 0),
 		renderPaused(paused),
@@ -219,17 +222,6 @@ func renderFloorDuration(took time.Duration, floor bool) string {
 		return "≥ " + renderDuration(took)
 	}
 	return renderDuration(took)
-}
-
-// renderShippedTitle is the title column, which says in words that no run
-// recorded one rather than leaving the cell empty: every run written before
-// titles were carried is one of those, and a blank against an old item reads
-// as an item nobody named.
-func renderShippedTitle(title string) string {
-	if trimmed := strings.TrimSpace(title); trimmed != "" {
-		return singleLine(trimmed)
-	}
-	return "(no run recorded the title)"
 }
 
 func reportShippedFailure(stdout, stderr io.Writer, jsonOutput bool, err error) int {

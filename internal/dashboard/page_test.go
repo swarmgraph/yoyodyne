@@ -763,21 +763,21 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// The card: every field under a plain label, the run in the terminal's
 		// words, and a field the item has nothing in saying so.
 		"card": {
-			`<h2 id="card-heading" class="popup-title">Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states</h2>`,
+			`<h2 id="card-heading" class="popup-title">(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)</h2>`,
 			"<dt>Id</dt>", "<dt>Title</dt>", "<dt>Status</dt>", "<dt>Priority</dt>", "<dt>Labels</dt>", "<dt>Parent</dt>", "<dt>Description</dt>", "<dt>Design</dt>", "<dt>Acceptance criteria</dt>", "<dt>Notes</dt>", "<dt>Run</dt>",
-			"<dd>in_progress</dd>", "<dd>P1 (0 is the most urgent, 4 the least)</dd>", "<dd>dashboard</dd>", "<dd>yoyodyne-ifd.141</dd>",
+			"<dd>in_progress</dd>", "<dd>P1 (0 is the most urgent, 4 the least)</dd>", "<dd>dashboard</dd>", "<dd>title unavailable (yoyodyne-ifd.141)</dd>",
 			`<p class="card-run-flight">in flight — developing, 12m elapsed, $3.41 so far</p>`,
 			"branch: yoyodyne/yoyodyne-ifd-141-3/c07d6849",
 			"developer session: 0f2c41ab-7e05-4c3d-9a1b-6e8f0d2a4c71",
 		},
-		"card-loading": {"Reading the work item…", `<h2 id="card-heading" class="popup-title">yoyodyne-ifd.201</h2>`},
+		"card-loading": {"Reading the work item…", `<h2 id="card-heading" class="popup-title">(P2, slack) The heartbeat names the forge when a merge is queued (yoyodyne-ifd.201)</h2>`},
 		"card-missing": {`<p id="card-empty" class="empty">No work item is recorded under yoyodyne-ifd.212`},
 		"card-refused": {"Could not be read: the work item could not be read: bd show failed", "yoyo status yoyodyne-ifd.230 says the same thing at the terminal"},
 		// The grouping: the items behind a figure, by title, each a button that
 		// opens its card, with the pipeline's own word for it beside.
 		"grouping": {
 			`<h2 id="grouping-heading" class="popup-title">Held back (6 items)</h2>`,
-			`<button class="item-open grouping-title" type="button" data-item="yoyodyne-ifd.200">Slack threads carry the item's title</button>`,
+			`<button class="item-open grouping-title" type="button" data-item="yoyodyne-ifd.200">(P2, slack) Slack threads carry the item's title (yoyodyne-ifd.200)</button>`,
 			`<span class="grouping-detail">waiting on yoyodyne-ifd.199</span>`,
 			`data-item="yoyodyne-ifd.219"`,
 		},
@@ -793,7 +793,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			// Each held item says since when, in the reader's zone — the renders are
 			// drawn in UTC — and how long before the reading that was.
 			"held since 2026-09-10 08:00 UTC, 9 days ago; run run-5035c832 stopped on it",
-			`<h2 id="card-heading" class="popup-title">Triage names the phase a run stopped in</h2>`,
+			`<h2 id="card-heading" class="popup-title">(P2, triage) Triage names the phase a run stopped in (yoyodyne-ifd.153)</h2>`,
 			`<p class="card-run-preserved">preserved: stopped, reviewing — work preserved</p>`,
 			"reason: review: the reviewer asked for repair 3 times",
 			`<dd class="card-none">none</dd>`,
@@ -821,7 +821,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"<dd>the architect's — nothing reaches the document until they or the operator decide it</dd>",
 			"<dt>Document</dt>", "<dd>v1-harness-design</dd>", "<dt>Document kind</dt>", "<dd>design</dd>", "<dt>Owner</dt>", "<dd>architect</dd>",
 			"<dt>Proposed by</dt>", "<dd>developer (agent developer)</dd>", "<dt>In run</dt>", "<dd>run-5c1e9b2d7a4f3e8c6b0d1f2a3c4e5b6d</dd>",
-			`<button class="item-open item-id" type="button" data-item="yoyodyne-ifd.210">yoyodyne-ifd.210</button>`,
+			`<button class="item-open item-id" type="button" data-item="yoyodyne-ifd.210">(P1, architecture) Configuration selects sequence and never grants authority (yoyodyne-ifd.210)</button>`,
 			"<dt>Proposed change</dt>", "<dd>The design should say that configuration selects sequence and never grants authority.</dd>",
 			"<dt>Why</dt>", "<dd>The invariant exists and the design does not cite it.</dd>",
 			"<dt>Raised</dt>", "<dd>2026-09-19 11:20:00</dd>", "<dd>amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c</dd>",
@@ -837,12 +837,12 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// A carried item's card: the item and the role.
 		"attention-carried-item": {
 			`<h2 id="card-heading" class="popup-title">work in conversation</h2>`,
-			`<dd>yoyodyne-ifd.188 is admitted for "conversation:product-manager" rather than a developer run</dd>`,
-			`<button class="item-open item-id" type="button" data-item="yoyodyne-ifd.188">yoyodyne-ifd.188</button>`,
+			`<dd>(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188) is admitted for "conversation:product-manager" rather than a developer run</dd>`,
+			`<button class="item-open item-id" type="button" data-item="yoyodyne-ifd.188">(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188)</button>`,
 			"<dt>Executor</dt>", "<dd>conversation:product-manager</dd>", "<dt>Role</dt>", "<dd>product-manager</dd>", "<dd>the Lead Product Manager's</dd>",
 		},
 		// The item's own card, opened from the entry's.
-		"attention-carried-item-card": {`<h2 id="card-heading" class="popup-title">The goals document gains a legibility clause</h2>`, "<dd>Executor: conversation:product-manager.</dd>"},
+		"attention-carried-item-card": {`<h2 id="card-heading" class="popup-title">(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188)</h2>`, "<dd>Executor: conversation:product-manager.</dd>"},
 		// A poll after the card was opened finds the entry settled, and the
 		// list empty; and one that finds the line unreadable says so on both.
 		"attention-settled":    {`<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`, "This entry is no longer waiting: it was settled since the page last read where the harness stands, at 14:15:09."},
@@ -882,8 +882,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	// every grouping: the title and the id of each running item, and each entry
 	// of a grouping, carry the item they open.
 	for _, id := range []string{"yoyodyne-ifd.141.3", "yoyodyne-ifd.201", "yoyodyne-ifd.212", "yoyodyne-ifd.230"} {
-		if strings.Count(page("busy"), `data-item="`+id+`"`) != 2 {
-			t.Errorf("the busy render does not open %s from both its title and its id", id)
+		if strings.Count(page("busy"), `data-item="`+id+`"`) != 1 {
+			t.Errorf("the busy render does not open %s from its complete citation", id)
 		}
 	}
 	for _, key := range []string{"admitted", "held", "startable", "running", "landed:today", "landed:week", "pile:held-decision", "pile:held-carry-out", "pile:directive", "stage:developing", "stage:integrating", "attention", "spend:days"} {
@@ -952,7 +952,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		}
 		card := page(scenario)
 		list := page("attention-run-steps")
-		for _, words := range []string{entry.What(), entry.Whose(), entry.Label()} {
+		what := entry.What()
+		for id, citation := range steps.WorkItemNames {
+			what = strings.ReplaceAll(what, id, citation)
+		}
+		for _, words := range []string{what, entry.Whose(), entry.Label()} {
 			if !strings.Contains(card, words) || !strings.Contains(list, words) {
 				t.Errorf("%s: list and card must both carry %q", entry.ID, words)
 			}

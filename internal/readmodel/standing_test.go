@@ -618,6 +618,11 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 	}
 	sources.Tracker = statusTracker{fakeTracker{
 		byStatus: map[string][]beads.WorkItem{
+			"": {
+				{ID: "yoyodyne-ifd.194", Title: "the four-line status", Status: "open"},
+				{ID: "yoyodyne-ifd.200", Title: "later work", Status: "open"},
+				{ID: "yoyodyne-ifd.201", Title: "waiting work", Status: "blocked"},
+			},
 			"open": {
 				{ID: "yoyodyne-ifd.194", Title: "the four-line status", Status: "open"},
 				{ID: "yoyodyne-ifd.200", Title: "later work", Status: "open"},
@@ -654,17 +659,17 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 	for _, want := range []string{
 		"Running (1 developer run):\n",
 		// The effort level is said beside the model it was asked of.
-		"  yoyodyne-ifd.194 — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far\n",
+		"  (P0) the four-line status (yoyodyne-ifd.194) — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far\n",
 		"Working (1 conversation):\n",
 		"  product-manager — product-manager, on fable at high effort, a turn in flight for 40s after 270 recorded turns\n",
 		"Not startable (2 of 3 admitted items; 1 awaits the development manager's decision):\n",
-		"  yoyodyne-ifd.200 — intake is held, and the operator placed it — the overnight looked wrong; `yoyo release` lifts it\n",
+		"  (P0) later work (yoyodyne-ifd.200) — intake is held, and the operator placed it — the overnight looked wrong; `yoyo release` lifts it\n",
 		// The whole line, because docs/operations.md prints it as the example an
 		// operator reads: a wording change has to break the document and the test
 		// together rather than leaving the two saying different things.
 		// It opens with when the item was held, in the machine's own zone, and how
 		// long ago that was, read from the run's stop.
-		"  yoyodyne-ifd.201 — held since " + localMoment(moment.Add(-24*time.Hour)) + ", 24 hours ago; run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
+		"  (P0) waiting work (yoyodyne-ifd.201) — held since " + localMoment(moment.Add(-24*time.Hour)) + ", 24 hours ago; run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
 		// Only the operator's entry is under the line named for a human; the
 		// development manager's is under a line naming her.
 		"Needs a human (1):\n  intake is held, since 2026-08-30T10:00:00Z: the operator placed it — the overnight looked wrong — the operator's",
@@ -729,7 +734,7 @@ func TestARunResumedAtItsPromotionSaysSoOnTheRunningLine(t *testing.T) {
 		t.Fatalf("running = %+v, want the resumed run marked as resuming its integration", standing.Running)
 	}
 	rendered := standing.Render()
-	want := "  yoyodyne-ifd.309 — " + runstate.ResumingIntegrationSays + ", 3h00m elapsed, $12.50 so far\n"
+	want := "  title unavailable (yoyodyne-ifd.309) — " + runstate.ResumingIntegrationSays + ", 3h00m elapsed, $12.50 so far\n"
 	if !strings.Contains(rendered, want) {
 		t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
 	}
@@ -771,8 +776,8 @@ func TestARunWithNoProcessBehindItIsNamedAsSuchOnTheRunningLine(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"Running (2 developer runs, 1 with no process behind it):\n",
-		"  yoyodyne-ifd.428.34 — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-08-29T16:05:00Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h00m elapsed",
-		"  yoyodyne-ifd.194 — developing, 12m elapsed",
+		"  title unavailable (yoyodyne-ifd.428.34) — no process can be found behind it: no process holds it, and nothing has been written to it since 2026-08-29T16:05:00Z; recorded as checking; `yoyo reconcile` settles it — a parked run once its record has not moved for 30m0s — and `yoyo run yoyodyne-ifd.428.34` continues it before then, 20h00m elapsed",
+		"  title unavailable (yoyodyne-ifd.194) — developing, 12m elapsed",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
@@ -811,7 +816,7 @@ func TestARunInItsChecksSaysWhereTheStageStandsOnTheRunningLine(t *testing.T) {
 		t.Fatalf("running = %+v, want the check stage said as it stands", standing.Running)
 	}
 	rendered := standing.Render()
-	want := "  yoyodyne-ifd.389 — checks: 14m of 30m, on make race, 1h00m elapsed, $4.00 so far\n"
+	want := "  title unavailable (yoyodyne-ifd.389) — checks: 14m of 30m, on make race, 1h00m elapsed, $4.00 so far\n"
 	if !strings.Contains(rendered, want) {
 		t.Fatalf("rendered:\n%s\nmissing: %q", rendered, want)
 	}
@@ -1872,7 +1877,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				trip.Probes = 1
 			}),
 			want: []string{
-				"— the harness's — a probe run of yoyodyne-ifd.410 is in flight; intake reopens if it lands",
+				"— the harness's — a probe run of title unavailable (yoyodyne-ifd.410) is in flight; intake reopens if it lands",
 			},
 		},
 		{
@@ -1919,7 +1924,7 @@ func TestACoveredEpicIsNotStartableWithTheCoveringChildNamed(t *testing.T) {
 	}
 	admitted := []beads.WorkItem{epic, child}
 	sources.Tracker = statusTracker{fakeTracker{
-		byStatus: map[string][]beads.WorkItem{"open": admitted},
+		byStatus: map[string][]beads.WorkItem{"": admitted, "open": admitted},
 		ready:    admitted,
 	}}
 
@@ -1951,7 +1956,8 @@ func TestACoveredEpicIsNotStartableWithTheCoveringChildNamed(t *testing.T) {
 	for _, waiting := range standing.NeedsHuman {
 		t.Fatalf("needs a human = %+v, want a covered epic to ask nothing of anybody", waiting)
 	}
-	if rendered := standing.Render(); !strings.Contains(rendered, epic.ID+" — "+refused.Reason) {
+	want := "(P0) A readable README (yoyodyne-ifd.121) — its execution is covered by 1 unfinished child item(s): (P0) Split it (yoyodyne-ifd.121.2). The children are the work; pulling this beside them would make the same change twice"
+	if rendered := standing.Render(); !strings.Contains(rendered, want) {
 		t.Fatalf("rendered:\n%s\nwant the epic refused with its children named", rendered)
 	}
 }

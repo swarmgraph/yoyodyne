@@ -5,7 +5,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -55,10 +54,10 @@ func TestEveryPostNamesEachWorkItemBesideItsTitle(t *testing.T) {
 	}
 	all := strings.Join(said, "\n---\n")
 	for _, want := range []string{
-		"yoyodyne-ifd.68.12 (Replay a promotion onto the moved target)",
-		"434.9 (Price a resumed session at what it moved by)",
-		"434.3 (Say the provider's reset in local time)",
-		"yoyodyne-ifd.999.1 (unknown to the tracker)",
+		"(P0) Replay a promotion onto the moved target (yoyodyne-ifd.68.12)",
+		"(P0) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)",
+		"(P0) Say the provider's reset in local time (yoyodyne-ifd.434.3)",
+		"title unavailable (yoyodyne-ifd.999.1)",
 	} {
 		if !strings.Contains(all, want) {
 			t.Errorf("posts = %q, want one to carry %q", said, want)
@@ -66,34 +65,43 @@ func TestEveryPostNamesEachWorkItemBesideItsTitle(t *testing.T) {
 	}
 	// Each message is read on its own: the second report is a message of its
 	// own in the thread, and a reader of it alone is owed the title too.
-	if last := said[len(said)-1]; !strings.Contains(last, "434.9 (Price a resumed session at what it moved by)") {
+	if last := said[len(said)-1]; !strings.Contains(last, "(P0) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)") {
 		t.Errorf("last post = %q, want its item titled in it as well", last)
 	}
-	if listing.asked != 1 {
-		t.Errorf("the tracker was listed %d times for one pass, want once", listing.asked)
+	if listing.asked != len(posts.requests) {
+		t.Errorf("the tracker was listed %d times, want once per post", listing.asked)
 	}
 }
 
-// A tracker that cannot be listed costs the titles and nothing else: the
-// message is posted as it was written rather than calling every number unknown,
-// and the tracker is not asked again for every message behind it.
-func TestATrackerThatCannotBeListedPostsTheTextAsWritten(t *testing.T) {
+// An unreadable tracker does not prevent a message, or reuse stale fields.
+func TestAnUnreadableTrackerPostsIdentifiersWithTitlesUnavailable(t *testing.T) {
 	t.Parallel()
-
 	listing := &listedTitles{err: errors.New("bd: database is locked")}
-	now := time.Date(2026, 9, 26, 9, 0, 0, 0, time.UTC)
-	index := &titleIndex{read: listing.read, now: func() time.Time { return now }}
+	index := &titleIndex{read: listing.read}
 	for range 3 {
-		if got := index.cite(context.Background(), "blocked on yoyodyne-ifd.999.1"); got != "blocked on yoyodyne-ifd.999.1" {
-			t.Fatalf("cite() = %q, want the text as written", got)
+		if got := index.cite(context.Background(), "blocked on yoyodyne-ifd.999.1"); got != "blocked on title unavailable (yoyodyne-ifd.999.1)" {
+			t.Fatalf("cite() = %q", got)
 		}
 	}
-	if listing.asked != 1 {
-		t.Errorf("a failing tracker was asked %d times within a minute, want once", listing.asked)
+	if listing.asked != 3 {
+		t.Errorf("tracker reads = %d, want one per message", listing.asked)
 	}
-	now = now.Add(titleIndexLife)
-	index.cite(context.Background(), "yoyodyne-ifd.1")
-	if listing.asked != 2 {
-		t.Errorf("the tracker was asked %d times after the listing expired, want it asked again", listing.asked)
+}
+
+func TestEachPostReadsTheCurrentPriorityLabelsAndTitle(t *testing.T) {
+	t.Parallel()
+	item := beads.WorkItem{ID: "yoyodyne-ifd.1", Title: "Original title", Priority: 2}
+	listing := &listedTitles{items: []beads.WorkItem{item}}
+	index := &titleIndex{read: listing.read}
+	first := index.cite(context.Background(), item.ID)
+	listing.items[0].Priority = 1
+	listing.items[0].Labels = []string{"reliability"}
+	listing.items[0].Title = "Current title"
+	if got := index.cite(context.Background(), first); got != "(P1, reliability) Current title (yoyodyne-ifd.1)" {
+		t.Fatalf("next message = %q, want current tracker fields", got)
+	}
+	listing.err = errors.New("bd: database is locked")
+	if got := index.cite(context.Background(), first); got != "title unavailable (yoyodyne-ifd.1)" {
+		t.Fatalf("unreadable tracker = %q, want no stale fields", got)
 	}
 }

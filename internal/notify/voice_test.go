@@ -769,45 +769,35 @@ func TestSeverityIsSaidInWordsBeforeItIsSaidInDecoration(t *testing.T) {
 // the message is about.
 var trackerIdentifier = regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+\.\d+(?:\.\d+)*\b`)
 
-// A channel is read by people, and an identifier is a name a reader has to go
-// and resolve before they know what a message is about. So every message says
-// the work in the words the record calls it, whatever the persona and whatever
-// the kind, and the identifier stays where identity belongs: the header the
-// thread hangs from.
-func TestAMessageNamesTheWorkInWordsRatherThanByItsIdentifier(t *testing.T) {
+// Every template that names work carries its identifier to the shared
+// resolver. A saved title and a different event's reference cannot replace it.
+func TestEveryTemplateCarriesTheWorkItemToTheSharedResolver(t *testing.T) {
 	const identifier = "yoyodyne-ifd.102.7"
-	const named = "Re-arm the dropped-merge check"
 	topic, err := WorkItem(identifier)
 	if err != nil {
 		t.Fatalf("address a work item: %v", err)
 	}
-	topic = topic.WithTitle(named)
+	topic = topic.WithTitle("A historical title")
 	for _, speaker := range speakers() {
 		for _, kind := range Kinds() {
 			message, err := Render(topic, speaker, fullyRecorded(kind))
 			if err != nil {
 				t.Fatalf("the %s says %s: %v", speaker.Key(), kind, err)
 			}
-			if strings.Contains(message.Body, identifier) {
-				t.Fatalf("the %s says %s as %q, which makes a reader resolve an identifier", speaker.Key(), kind, message.Body)
+			line := voices[speaker.Key()].lines[kind]
+			if (strings.Contains(line, "{item}") || strings.Contains(line, "{title}")) && !strings.Contains(message.Body, identifier) {
+				t.Fatalf("the %s says %s as %q, with no reference for the resolver", speaker.Key(), kind, message.Body)
 			}
-			// The reference the record correlates by is the same identifier said a
-			// second way, and it is no more readable for being in the refs.
-			if strings.Contains(message.Body, fullyRecorded(kind).Refs.WorkItemID) {
-				t.Fatalf("the %s says %s as %q, which names the item by its reference", speaker.Key(), kind, message.Body)
+			if strings.Contains(message.Body, "A historical title") {
+				t.Fatalf("the %s says %s using a historical title: %q", speaker.Key(), kind, message.Body)
 			}
-			// And no other item's identifier either. The event this renders carries
-			// the item a decomposition was cut out of as well as its own, which is
-			// exactly the one a line can reach for without anybody noticing.
-			if found := trackerIdentifier.FindString(message.Body); found != "" {
-				t.Fatalf("the %s says %s as %q, which names an item by the identifier %q", speaker.Key(), kind, message.Body, found)
+			for _, found := range trackerIdentifier.FindAllString(message.Body, -1) {
+				if found != identifier {
+					t.Fatalf("the %s says %s about another item: %q", speaker.Key(), kind, message.Body)
+				}
 			}
-			// The directive a message is about is the same kind of name, and the
-			// four acknowledgment kinds are where a person meets one: they are the
-			// answer to something somebody typed in a thread, so the identifier in
-			// them is the reader being handed a slug for their own sentence.
 			if strings.Contains(message.Body, recordedDirective) {
-				t.Fatalf("the %s says %s as %q, which names the directive by its identifier", speaker.Key(), kind, message.Body)
+				t.Fatalf("the %s says %s naming the directive by its identifier: %q", speaker.Key(), kind, message.Body)
 			}
 		}
 	}
@@ -858,11 +848,8 @@ func TestARecordedDirectiveIsAcknowledgedInASentenceAndNamesNoIdentifier(t *test
 	}
 }
 
-// An item whose record carried no name at all is said as this item rather than
-// as its identifier: the thread it is posted in is already headed by that
-// identifier, so repeating it under the header gives a reader the opaque half
-// of the header again and nothing they did not have.
-func TestAnItemNoRecordNamesIsSaidAsThisItemRatherThanAsItsIdentifier(t *testing.T) {
+// An item with no recorded title still carries its identifier for resolution.
+func TestAnItemWithoutARecordedTitleStillCarriesItsIdentifier(t *testing.T) {
 	const identifier = "yoyodyne-ifd.102.7"
 	topic, err := WorkItem(identifier)
 	if err != nil {
@@ -879,11 +866,11 @@ func TestAnItemNoRecordNamesIsSaidAsThisItemRatherThanAsItsIdentifier(t *testing
 		if err != nil {
 			t.Fatalf("say %s about an item nothing names: %v", kind, err)
 		}
-		if strings.Contains(message.Body, identifier) {
-			t.Fatalf("%s reads as %q, which repeats the identifier its thread is headed by", kind, message.Body)
+		if !strings.Contains(message.Body, identifier) {
+			t.Fatalf("%s reads as %q, which loses the reference the resolver needs", kind, message.Body)
 		}
-		if !strings.Contains(message.Body, "this item") {
-			t.Fatalf("%s reads as %q, which says nothing about which work it is", kind, message.Body)
+		if strings.Contains(message.Body, "this item") {
+			t.Fatalf("%s reads as %q, which substitutes a generic name for the work", kind, message.Body)
 		}
 	}
 }

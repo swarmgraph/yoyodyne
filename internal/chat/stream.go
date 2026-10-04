@@ -65,6 +65,7 @@ type replyStream struct {
 	out   io.Writer
 	theme console.Theme
 	words *readmodel.TextTerms
+	cite  func(string) string
 	// observed keeps line wraps and code fences for the check at the reply's
 	// ending. The stream's line-by-line dressing cannot recognize a wrapped term.
 	observed strings.Builder
@@ -297,6 +298,9 @@ func (r *replyStream) dress(line string) string {
 	}
 	if r.quoted {
 		return line
+	}
+	if r.cite != nil {
+		line = r.cite(line)
 	}
 	return r.theme.Reply(line)
 }

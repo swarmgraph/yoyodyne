@@ -32,6 +32,53 @@ func (f *fakeItemTracker) Show(ctx context.Context, id string) (beads.WorkItem, 
 	return item, nil
 }
 
+type listedItemTracker struct {
+	*fakeItemTracker
+	listing     []beads.WorkItem
+	listErr     error
+	listBounded bool
+}
+
+func (f *listedItemTracker) List(ctx context.Context, _ string) ([]beads.WorkItem, error) {
+	_, f.listBounded = ctx.Deadline()
+	return f.listing, f.listErr
+}
+
+func TestReadWorkItemExpandsReferencesInItsProseWithABoundedListing(t *testing.T) {
+	t.Parallel()
+	primary := fullItem()
+	primary.Description = "Waiting on yoyodyne-ifd.12"
+	tracker := &listedItemTracker{
+		fakeItemTracker: &fakeItemTracker{items: map[string]beads.WorkItem{primary.ID: primary}},
+		listing:         append(titledItems(), primary),
+	}
+	sources := WorkItemSources{Tracker: tracker, Runs: &fakeHistories{}}
+	item, err := ReadWorkItem(context.Background(), sources, primary.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !tracker.listBounded {
+		t.Fatal("the card's reference listing had no deadline")
+	}
+	if got := item.SaidText[primary.Description]; got != "Waiting on (P0) Pause on a provider usage limit (yoyodyne-ifd.12)" {
+		t.Fatalf("shown description = %q", got)
+	}
+	if item.Description != primary.Description {
+		t.Fatal("the author record was changed")
+	}
+	tracker.listErr = context.DeadlineExceeded
+	item, err = ReadWorkItem(context.Background(), sources, primary.ID)
+	if err != nil {
+		t.Fatalf("an unreadable reference listing prevented the card: %v", err)
+	}
+	if got := item.SaidText[primary.Description]; got != "Waiting on title unavailable (yoyodyne-ifd.12)" {
+		t.Fatalf("unreadable reference = %q", got)
+	}
+	if item.Citation != "(P2, dashboard, feature) Work item details are viewable from the dashboard (yoyodyne-ifd.432.1)" {
+		t.Fatalf("the readable primary item's citation = %q", item.Citation)
+	}
+}
+
 // fakeHistories answers History with the summaries the test put in it, and
 // records the query, so a test can hold the reading to asking for one item's
 // latest run and no more.

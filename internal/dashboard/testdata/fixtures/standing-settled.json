@@ -36,5 +36,8 @@
       "title": "Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states"
     }
   ],
-  "startable_items": []
+  "startable_items": [],
+  "work_item_names": {
+    "yoyodyne-ifd.141.3": "(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)"
+  }
 }

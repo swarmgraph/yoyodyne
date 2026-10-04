@@ -11,5 +11,6 @@
   "description": "A thread opened for a work item names it by id only; the title should be beside it.",
   "design": "",
   "acceptance_criteria": "",
-  "notes": "Waiting on yoyodyne-ifd.199."
+  "notes": "Waiting on yoyodyne-ifd.199.",
+  "citation": "(P2, slack) Slack threads carry the item's title (yoyodyne-ifd.200)"
 }

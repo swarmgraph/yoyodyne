@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -81,11 +82,19 @@ func TestAReleasedClaimIsTakenToTheOperatorsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the release could not be said: %v", err)
 	}
-	// The item is named the way every message in its own thread names it — by
-	// its title, under a thread already headed by the identifier — and the run
-	// whose death left the claim is the record the message points at.
-	if !strings.Contains(message.Body, released.WorkItemTitle) || !strings.Contains(message.Body, released.Because) {
+	// The notification supplies the identifier; the outgoing message resolves
+	// it from the tracker, even when the title saved at release is outdated.
+	if !strings.Contains(message.Body, released.WorkItemID) || !strings.Contains(message.Body, released.Because) {
 		t.Fatalf("the message does not name the item and what became of its run:\n%s", message.Body)
+	}
+	listing := &listedTitles{items: []beads.WorkItem{{
+		ID: released.WorkItemID, Title: "Retry recoverable failures", Priority: 1, Labels: []string{"reliability"},
+	}}}
+	index := &titleIndex{read: listing.read}
+	body := index.cite(t.Context(), message.Body)
+	if !strings.Contains(body, "(P1, reliability) Retry recoverable failures (yoyodyne-ifd.264)") ||
+		!strings.Contains(body, released.Because) || strings.Contains(body, released.WorkItemTitle) {
+		t.Fatalf("the outgoing message does not carry the current item and its run:\n%s", body)
 	}
 	if message.Refs.RunID != released.RunID || message.Refs.WorkItemID != released.WorkItemID {
 		t.Fatalf("refs = %+v, want the run that left the claim and the item it was on", message.Refs)

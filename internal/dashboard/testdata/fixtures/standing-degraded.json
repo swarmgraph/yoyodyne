@@ -98,5 +98,10 @@
       "restart_requests": []
     }
   ],
-  "program_managers_problem": "the program managers' restart requests could not be read: open program-managers/restart-requests.jsonl: permission denied"
+  "program_managers_problem": "the program managers' restart requests could not be read: open program-managers/restart-requests.jsonl: permission denied",
+  "work_item_names": {
+    "yoyodyne-ifd.141.3": "(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)",
+    "yoyodyne-ifd.201": "(P2, slack) The heartbeat names the forge when a merge is queued (yoyodyne-ifd.201)",
+    "yoyodyne-ifd.230": "(P2, reconcile) The sweep names the ref it preserved work on (yoyodyne-ifd.230)"
+  }
 }

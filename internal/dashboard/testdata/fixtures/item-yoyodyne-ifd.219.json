@@ -27,5 +27,6 @@
     "completed_at": "2026-09-17T08:30:40Z",
     "cost_usd": 0,
     "unknown_cost": "no priced invocation is recorded for it"
-  }
+  },
+  "citation": "(P2, reconcile) Reconcile prints the branch it caught up (yoyodyne-ifd.219)"
 }

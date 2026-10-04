@@ -55,6 +55,7 @@
         "target_branch": "main"
       },
       "what": "merge of pull request 700 for yoyodyne-ifd.363 is queued; checks failing: build (naming no file); head abc level with main; read 2026-09-19T14:50:00Z",
+      "said_what": "merge of pull request 700 for title unavailable (yoyodyne-ifd.363) is queued; checks failing: build (naming no file); head abc level with main; read 2026-09-19T14:50:00Z",
       "whose": "the harness's — `yoyo reconcile` reads the failed checks and withdraws the merge to update its head, wait for a target fix, or return the change for repair"
     },
     {
@@ -69,6 +70,7 @@
         "cleanup_failure": "remove worktree: directory busy"
       },
       "what": "cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished: remove worktree: directory busy",
+      "said_what": "cleanup of the branch and worktree for (P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222) is not finished: remove worktree: directory busy",
       "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it"
     },
     {
@@ -105,6 +107,7 @@
         "target_branch": "main"
       },
       "what": "cleanup of the branch and worktree for yoyodyne-ifd.435.1 is not finished: remove worktree: directory busy",
+      "said_what": "cleanup of the branch and worktree for title unavailable (yoyodyne-ifd.435.1) is not finished: remove worktree: directory busy",
       "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it"
     },
     {
@@ -129,6 +132,7 @@
         }
       },
       "what": "merge of pull request 732 for yoyodyne-ifd.435.1 was dropped by the forge: build failed",
+      "said_what": "merge of pull request 732 for title unavailable (yoyodyne-ifd.435.1) was dropped by the forge: build failed",
       "whose": "the development manager's — the forge dropped the merge: build failed; she decides a repair, re-run, or re-arm, which the harness carries out; `yoyo reconcile` settles it once the forge records the merge"
     }
   ],
@@ -138,5 +142,11 @@
   },
   "startable": 0,
   "admitted_items": [],
-  "startable_items": []
+  "startable_items": [],
+  "work_item_names": {
+    "yoyodyne-ifd.222": "(P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222)",
+    "yoyodyne-ifd.363": "title unavailable (yoyodyne-ifd.363)",
+    "yoyodyne-ifd.372": "(P2) Checks still running (yoyodyne-ifd.372)",
+    "yoyodyne-ifd.435.1": "title unavailable (yoyodyne-ifd.435.1)"
+  }
 }

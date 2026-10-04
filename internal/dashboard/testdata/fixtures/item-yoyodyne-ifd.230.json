@@ -22,5 +22,6 @@
     "started_at": "2026-09-19T13:10:00Z",
     "elapsed": 3309000000000,
     "cost_usd": 5.1
-  }
+  },
+  "citation": "(P2, reconcile) The sweep names the ref it preserved work on (yoyodyne-ifd.230)"
 }

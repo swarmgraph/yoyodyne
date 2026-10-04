@@ -11,5 +11,6 @@
   "description": "Capability primitives live in trusted Go code; configuration selects among registered actions and never widens an agent's authority.",
   "design": "",
   "acceptance_criteria": "",
-  "notes": "Goal served: the harness's boundaries hold whatever a project's configuration says."
+  "notes": "Goal served: the harness's boundaries hold whatever a project's configuration says.",
+  "citation": "(P1, architecture) Configuration selects sequence and never grants authority (yoyodyne-ifd.210)"
 }

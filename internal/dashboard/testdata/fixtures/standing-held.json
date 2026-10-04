@@ -177,5 +177,12 @@
       "title": "Reconcile prints the branch it caught up"
     }
   ],
-  "startable_items": []
+  "startable_items": [],
+  "work_item_names": {
+    "yoyodyne-ifd.150": "(P1, tracker) A blocked status carries the account of what moved it (yoyodyne-ifd.150)",
+    "yoyodyne-ifd.200": "(P2, slack) Slack threads carry the item's title (yoyodyne-ifd.200)",
+    "yoyodyne-ifd.212": "(P2) Recurring tasks say when a firing was skipped (yoyodyne-ifd.212)",
+    "yoyodyne-ifd.219": "(P2, reconcile) Reconcile prints the branch it caught up (yoyodyne-ifd.219)",
+    "yoyodyne-ifd.230": "(P2, reconcile) The sweep names the ref it preserved work on (yoyodyne-ifd.230)"
+  }
 }

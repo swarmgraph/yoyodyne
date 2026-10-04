@@ -13,9 +13,9 @@
       "timed_out": 0,
       "failed": 0,
       "landed_items": [
-        {"run_id": "run-3b1e7c92d4f04a1b8e6c0d5f2a9b7e13", "work_item_id": "yoyodyne-ifd.439", "title": "A one-shot chat message answers a pending concern and never approves a proposal", "landed_at": "2026-09-19T13:41:00Z"},
-        {"run_id": "run-9d4a2f7be0c14b3d9f8a1c6e5b2d0a77", "work_item_id": "yoyodyne-ifd.440", "title": "The heartbeat says which part of the product is degraded", "landed_at": "2026-09-19T11:58:00Z"},
-        {"run_id": "run-6f0c8e3a1b7d4e2f9a5c3b1d8e7f0a24", "work_item_id": "yoyodyne-ifd.436", "title": "Release notes carry every item's description", "landed_at": "2026-09-19T09:12:00Z"}
+        {"run_id": "run-3b1e7c92d4f04a1b8e6c0d5f2a9b7e13", "work_item_id": "yoyodyne-ifd.439", "citation": "(P2) A one-shot chat message answers a pending concern and never approves a proposal (yoyodyne-ifd.439)", "citation": "(P2) A one-shot chat message answers a pending concern and never approves a proposal (yoyodyne-ifd.439)", "title": "A one-shot chat message answers a pending concern and never approves a proposal", "landed_at": "2026-09-19T13:41:00Z"},
+        {"run_id": "run-9d4a2f7be0c14b3d9f8a1c6e5b2d0a77", "work_item_id": "yoyodyne-ifd.440", "citation": "(P2) The heartbeat says which part of the product is degraded (yoyodyne-ifd.440)", "citation": "(P2) The heartbeat says which part of the product is degraded (yoyodyne-ifd.440)", "title": "The heartbeat says which part of the product is degraded", "landed_at": "2026-09-19T11:58:00Z"},
+        {"run_id": "run-6f0c8e3a1b7d4e2f9a5c3b1d8e7f0a24", "work_item_id": "yoyodyne-ifd.436", "citation": "(P2) Release notes carry every item's description (yoyodyne-ifd.436)", "citation": "(P2) Release notes carry every item's description (yoyodyne-ifd.436)", "title": "Release notes carry every item's description", "landed_at": "2026-09-19T09:12:00Z"}
       ]
     },
     {
@@ -30,10 +30,10 @@
       "timed_out": 1,
       "failed": 2,
       "landed_items": [
-        {"run_id": "run-3b1e7c92d4f04a1b8e6c0d5f2a9b7e13", "work_item_id": "yoyodyne-ifd.439", "title": "A one-shot chat message answers a pending concern and never approves a proposal", "landed_at": "2026-09-19T13:41:00Z"},
-        {"run_id": "run-9d4a2f7be0c14b3d9f8a1c6e5b2d0a77", "work_item_id": "yoyodyne-ifd.440", "title": "The heartbeat says which part of the product is degraded", "landed_at": "2026-09-19T11:58:00Z"},
-        {"run_id": "run-6f0c8e3a1b7d4e2f9a5c3b1d8e7f0a24", "work_item_id": "yoyodyne-ifd.436", "title": "Release notes carry every item's description", "landed_at": "2026-09-19T09:12:00Z"},
-        {"run_id": "run-78dde6c4000000000000000000007bbc", "work_item_id": "yoyodyne-ifd.435", "title": "yoyo start says which parts the supervisor does not yet start", "landed_at": "2026-09-18T21:30:00Z"}
+        {"run_id": "run-3b1e7c92d4f04a1b8e6c0d5f2a9b7e13", "work_item_id": "yoyodyne-ifd.439", "citation": "(P2) A one-shot chat message answers a pending concern and never approves a proposal (yoyodyne-ifd.439)", "citation": "(P2) A one-shot chat message answers a pending concern and never approves a proposal (yoyodyne-ifd.439)", "title": "A one-shot chat message answers a pending concern and never approves a proposal", "landed_at": "2026-09-19T13:41:00Z"},
+        {"run_id": "run-9d4a2f7be0c14b3d9f8a1c6e5b2d0a77", "work_item_id": "yoyodyne-ifd.440", "citation": "(P2) The heartbeat says which part of the product is degraded (yoyodyne-ifd.440)", "citation": "(P2) The heartbeat says which part of the product is degraded (yoyodyne-ifd.440)", "title": "The heartbeat says which part of the product is degraded", "landed_at": "2026-09-19T11:58:00Z"},
+        {"run_id": "run-6f0c8e3a1b7d4e2f9a5c3b1d8e7f0a24", "work_item_id": "yoyodyne-ifd.436", "citation": "(P2) Release notes carry every item's description (yoyodyne-ifd.436)", "citation": "(P2) Release notes carry every item's description (yoyodyne-ifd.436)", "title": "Release notes carry every item's description", "landed_at": "2026-09-19T09:12:00Z"},
+        {"run_id": "run-78dde6c4000000000000000000007bbc", "work_item_id": "yoyodyne-ifd.435", "citation": "(P2) yoyo start says which parts the supervisor does not yet start (yoyodyne-ifd.435)", "title": "yoyo start says which parts the supervisor does not yet start", "landed_at": "2026-09-18T21:30:00Z"}
       ]
     }
   ]

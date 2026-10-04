@@ -9,5 +9,6 @@
   "description": "Parked while the design is reworked.",
   "design": "",
   "acceptance_criteria": "",
-  "notes": "Parked: the design is being reworked."
+  "notes": "Parked: the design is being reworked.",
+  "citation": "(P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222)"
 }

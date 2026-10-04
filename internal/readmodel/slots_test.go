@@ -38,8 +38,8 @@ func TestTheRunningLineNamesThePreferredLabelBesideEachSlot(t *testing.T) {
 	}
 	rendered := standing.Render()
 	for _, want := range []string{
-		"  yoyodyne-ifd.1 — developing, 2h00m elapsed, $1.00 so far, in developer slot 2\n",
-		"  yoyodyne-ifd.2 — developing, 1h00m elapsed, $2.00 so far, in developer slot 1 (prefers the dashboard label)\n",
+		"  title unavailable (yoyodyne-ifd.1) — developing, 2h00m elapsed, $1.00 so far, in developer slot 2\n",
+		"  title unavailable (yoyodyne-ifd.2) — developing, 1h00m elapsed, $2.00 so far, in developer slot 1 (prefers the dashboard label)\n",
 		"  developer slot 3 is free and prefers no label\n",
 	} {
 		if !strings.Contains(rendered, want) {
@@ -133,7 +133,7 @@ func TestARunPausedOnADependencyIsSaidAsPausedAndItsSlotAsFree(t *testing.T) {
 	for _, want := range []string{
 		"Running (1 developer run):\n",
 		"Paused, holding no developer slot (1 developer run):\n",
-		"  yoyodyne-ifd.428.34 — waiting on unfinished work it depends on: yoyodyne-ifd.398, paused 19h00m ago\n",
+		"  title unavailable (yoyodyne-ifd.428.34) — waiting on unfinished work it depends on: title unavailable (yoyodyne-ifd.398), paused 19h00m ago\n",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered:\n%s\nmissing: %q", rendered, want)

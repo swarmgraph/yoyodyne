@@ -14,10 +14,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -69,12 +71,9 @@ func TestATopicOpensOneThreadAndEverythingElseRepliesIntoIt(t *testing.T) {
 	}
 }
 
-// A thread header is read by people, and an identifier on its own is a name
-// they have to go and resolve before they know what the thread is about. So the
-// header names the item and then says what it is called, from what the durable
-// record carried — which is where a title comes from wherever a record has one,
-// and nothing is asked of the tracker.
-func TestAThreadHeaderNamesTheItemAndWhatItIsCalled(t *testing.T) {
+// A title recorded with a notification cannot substitute for the current
+// tracker listing. Without that listing, the header marks its title unavailable.
+func TestAThreadHeaderDoesNotReuseAHistoricalTitle(t *testing.T) {
 	t.Parallel()
 
 	posts := &recordedPosts{}
@@ -89,17 +88,14 @@ func TestAThreadHeaderNamesTheItemAndWhatItIsCalled(t *testing.T) {
 	if len(posts.requests) != 2 {
 		t.Fatalf("posts = %d, want the thread and the milestone in it", len(posts.requests))
 	}
-	want := "*yoyodyne-ifd.68.3 — Slack run-started messages speak as the role that actually selected the run*"
+	want := "*title unavailable (yoyodyne-ifd.68.3)*"
 	if posts.requests[0].Text != want {
 		t.Fatalf("header = %q, want %q", posts.requests[0].Text, want)
 	}
 }
 
-// A sink with nothing to ask heads an untitled topic's thread with the
-// identifier alone, which is exactly what every thread was before titles were
-// carried: a header with a dangling separator would read as a name somebody
-// failed to write.
-func TestAThreadForAnUntitledTopicIsHeadedByTheIdentifierAlone(t *testing.T) {
+// A sink with no listing keeps the identifier and marks its title unavailable.
+func TestAThreadWithoutAListingMarksTheTitleUnavailable(t *testing.T) {
 	t.Parallel()
 
 	posts := &recordedPosts{}
@@ -110,17 +106,14 @@ func TestAThreadForAnUntitledTopicIsHeadedByTheIdentifierAlone(t *testing.T) {
 	if err := sink.pass(context.Background()); err != nil {
 		t.Fatalf("pass() error = %v", err)
 	}
-	if posts.requests[0].Text != "*yoyodyne-ifd.68.3*" {
-		t.Fatalf("header = %q, want the identifier alone", posts.requests[0].Text)
+	if posts.requests[0].Text != "*title unavailable (yoyodyne-ifd.68.3)*" {
+		t.Fatalf("header = %q, want the identifier with its title unavailable", posts.requests[0].Text)
 	}
 }
 
-// An item whose first appearance in the channel is a bookkeeping event — a
-// priority changed, a goal recorded — is mentioned by a record that says what
-// happened without saying what the item is. Every item admitted before the
-// channel existed is one of those, so the tracker is asked rather than the
-// thread being opened on a bare identifier.
-func TestAThreadWhoseRecordCarriedNoTitleIsNamedFromTheTracker(t *testing.T) {
+// The older title-only lookup still runs once when opening a thread, but
+// cannot supply the current priority and labels the header needs.
+func TestATitleOnlyLookupDoesNotReplaceTheCurrentListing(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -137,7 +130,7 @@ func TestAThreadWhoseRecordCarriedNoTitleIsNamedFromTheTracker(t *testing.T) {
 	if err := sink.pass(context.Background()); err != nil {
 		t.Fatalf("pass() error = %v", err)
 	}
-	want := "*yoyodyne-ifd.68.3 — Park the Codex adapter until the provider answers*"
+	want := "*title unavailable (yoyodyne-ifd.68.3)*"
 	if posts.requests[0].Text != want {
 		t.Fatalf("header = %q, want %q", posts.requests[0].Text, want)
 	}
@@ -176,8 +169,8 @@ func TestATrackerThatWillNotSayWhatAnItemIsCalledStillOpensTheThread(t *testing.
 	if len(posts.requests) != 2 {
 		t.Fatalf("posts = %d, want the thread and the milestone in it", len(posts.requests))
 	}
-	if posts.requests[0].Text != "*yoyodyne-ifd.68.3*" {
-		t.Fatalf("header = %q, want the identifier alone", posts.requests[0].Text)
+	if posts.requests[0].Text != "*title unavailable (yoyodyne-ifd.68.3)*" {
+		t.Fatalf("header = %q, want the identifier with its title unavailable", posts.requests[0].Text)
 	}
 	if !strings.Contains(said, "would not say what yoyodyne-ifd.68.3 is called") {
 		t.Fatalf("the sink's log = %q, want it to say why the header carries no title", said)
@@ -658,6 +651,9 @@ func TestThePriorityChangeTheOperatorReadNamesTheWorkAndNothingElse(t *testing.T
 		Cursor:       Cursor{Position: 1},
 		Notification: notification,
 	}}}, posts)
+	sink.citing = &titleIndex{read: func(context.Context) (*readmodel.WorkItemTitles, error) {
+		return readmodel.NewWorkItemTitles([]beads.WorkItem{{ID: item, Title: named, Priority: 2, Labels: []string{"reliability"}}}), nil
+	}}
 	if err := sink.pass(context.Background()); err != nil {
 		t.Fatalf("pass() error = %v", err)
 	}
@@ -666,16 +662,16 @@ func TestThePriorityChangeTheOperatorReadNamesTheWorkAndNothingElse(t *testing.T
 	}
 	header, said := posts.requests[0].Text, posts.requests[1].Text
 
-	// The header is where identity lives, and it is why nothing under it has to
-	// carry an identifier.
+	// Both the header and the message carry the complete current citation.
 	if !strings.Contains(header, item) || !strings.Contains(header, named) {
 		t.Fatalf("header = %q, want the identifier and what the item is called", header)
 	}
 	if !strings.Contains(said, named) {
 		t.Fatalf("the change reads as %q, which does not name the work", said)
 	}
-	if strings.Contains(said, item) {
-		t.Fatalf("the change reads as %q, which repeats the identifier its header carries", said)
+	citation := "(P2, reliability) " + named + " (" + item + ")"
+	if !strings.Contains(header, citation) || !strings.Contains(said, citation) {
+		t.Fatalf("header %q and message %q must both carry %q", header, said, citation)
 	}
 	if strings.Contains(said, chat) {
 		t.Fatalf("the change reads as %q, which trails a conversation identifier nobody reading acts on", said)

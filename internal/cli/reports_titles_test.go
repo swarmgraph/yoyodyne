@@ -43,15 +43,15 @@ func TestTheReportsCommandShowsEveryItemBesideItsTitle(t *testing.T) {
 	writeReports(&out, console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, handled, nil, titles)
 	printed := out.String()
 	for _, want := range []string{
-		"434.9 (Price a resumed session at what it moved by)",
-		"yoyodyne-ifd.999.1 (unknown to the tracker)",
-		"admitted as 434.3 (Say the provider's reset in local time)",
+		"(P0) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)",
+		"title unavailable (yoyodyne-ifd.999.1)",
+		"admitted as (P0) Say the provider's reset in local time (yoyodyne-ifd.434.3)",
 	} {
 		if !strings.Contains(printed, want) {
 			t.Errorf("writeReports() = %q, want it to carry %q", printed, want)
 		}
 	}
-	if got := strings.Count(printed, "Price a resumed session"); got != 1 {
-		t.Errorf("writeReports() = %q, want the item the report titled left bare in its handling, titled %d times", printed, got)
+	if got := strings.Count(printed, "Price a resumed session"); got != 2 {
+		t.Errorf("writeReports() = %q, want the item expanded in the report and its handling, got %d", printed, got)
 	}
 }

@@ -36,6 +36,8 @@ import (
 // state directory, which is the only way a figure nobody may recompute per
 // surface gets a fixture that holds it.
 type ThroughputSources struct {
+	// Items supplies the current tracker fields for the work named by a run.
+	Items Sources
 	// Runs is the durable run state, read for what each recorded run became and
 	// when. A reading without one says so rather than reporting nothing landed,
 	// and says RunsProblem where the caller carries the reason it could not open
@@ -115,6 +117,7 @@ type LandedRun struct {
 	RunID      string    `json:"run_id"`
 	WorkItemID string    `json:"work_item_id"`
 	Title      string    `json:"title,omitempty"`
+	Citation   string    `json:"citation"`
 	LandedAt   time.Time `json:"landed_at"`
 }
 
@@ -161,6 +164,13 @@ func ReadThroughput(ctx context.Context, sources ThroughputSources) Throughput {
 	}
 	for index := range reading.Windows {
 		countEndings(&reading.Windows[index], recorded, now)
+	}
+	titles, _ := ReadWorkItemTitles(ctx, sources.Items)
+	for index := range reading.Windows {
+		for item := range reading.Windows[index].LandedItems {
+			landed := &reading.Windows[index].LandedItems[item]
+			landed.Citation = titles.Name(landed.WorkItemID)
+		}
 	}
 	return reading
 }

@@ -23,5 +23,6 @@
     "elapsed": 189000000000,
     "cost_usd": 0,
     "unknown_cost": "its event log is gone"
-  }
+  },
+  "citation": "(P2, slack) The heartbeat names the forge when a merge is queued (yoyodyne-ifd.201)"
 }

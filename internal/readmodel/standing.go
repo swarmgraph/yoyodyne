@@ -474,6 +474,7 @@ type Refused struct {
 	WorkItemID string `json:"work_item_id"`
 	Title      string `json:"title,omitempty"`
 	Reason     string `json:"reason"`
+	SaidReason string `json:"said_reason,omitempty"`
 	// Kind is which pile the refusal puts the item in, from the queue's own
 	// closed vocabulary. It is carried for the surface that shows where admitted
 	// work accumulates, so that surface counts the piles from the reading that
@@ -502,6 +503,10 @@ type WorkItemRef struct {
 // still has.
 type Standing struct {
 	ObservedAt time.Time `json:"observed_at"`
+	// WorkItemNames is the current tracker citation for the items the page can
+	// open. The page projects these strings rather than assembling names from
+	// the historical titles and labels carried by run records.
+	WorkItemNames map[string]string `json:"work_item_names,omitempty"`
 
 	// Paused is the harness waiting out the provider's usage window, said above
 	// the four lines rather than inside them.
@@ -953,6 +958,34 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// tracker that cannot be listed costs the titles and nothing else: the lines
 	// above are all still true without them.
 	standing.Titles, _ = ReadWorkItemTitles(ctx, sources)
+	standing.WorkItemNames = map[string]string{}
+	name := func(id string) {
+		if id != "" {
+			standing.WorkItemNames[id] = standing.Titles.Name(id)
+		}
+	}
+	for _, run := range standing.Running {
+		name(run.WorkItemID)
+	}
+	for _, run := range standing.CapacityBlocked.Runs {
+		name(run.WorkItemID)
+	}
+	for index, item := range standing.NotStartable {
+		name(item.WorkItemID)
+		standing.NotStartable[index].SaidReason = standing.Titles.Cite(item.Reason)
+	}
+	for _, item := range standing.AdmittedItems {
+		name(item.WorkItemID)
+	}
+	for _, item := range standing.StartableItems {
+		name(item.WorkItemID)
+	}
+	for _, entry := range standing.NeedsHuman {
+		name(entry.WorkItemID)
+		if entry.Amendment != nil {
+			name(entry.Amendment.WorkItemID)
+		}
+	}
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
 		standing.NeedsHuman[index].titles = standing.Titles

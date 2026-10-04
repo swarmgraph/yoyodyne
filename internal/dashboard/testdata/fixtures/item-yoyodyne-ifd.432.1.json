@@ -11,5 +11,7 @@
   "description": "A work item's details render as a pop-up card with the full details; the in-flight item's title and id are clickable; each grouping in the pipeline is clickable and lists its items by title.",
   "design": "",
   "acceptance_criteria": "The card and both pop-ups render from fixtures in every state; every value is escaped under the existing content security policy; a grouping with no items says so.",
-  "notes": "Goal served: the harness's surfaces read clearly."
+  "notes": "Goal served: the harness's surfaces read clearly.",
+  "citation": "(P2, dashboard) Work item details are viewable from the dashboard (yoyodyne-ifd.432.1)",
+  "said_text": {"yoyodyne-ifd.432": "title unavailable (yoyodyne-ifd.432)"}
 }

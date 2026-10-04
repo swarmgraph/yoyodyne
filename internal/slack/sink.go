@@ -339,7 +339,7 @@ func New(options Options) (*Sink, error) {
 		},
 	}
 	if read := sourcesTitles(options.Standing); read != nil {
-		sink.citing = &titleIndex{read: read, now: options.Now}
+		sink.citing = &titleIndex{read: read}
 	}
 	// A sink with somewhere to record a directive steers, and one with the durable
 	// conversation behind it carries what somebody says to the product manager;
@@ -1171,13 +1171,15 @@ func icon(avatar string) (emoji, url string) {
 	return trimmed, ""
 }
 
-// header names a topic the way the message a thread hangs from does: the
-// identifier first, because that is what somebody scanning a channel matches
-// against and what a reply has to quote, and then what the record calls the
-// topic, which is what tells a reader what the thread is for without their
-// resolving anything. A topic whose record carried no title is headed by the
-// identifier alone, exactly as every thread was before titles were carried.
+// header supplies an explicit work item reference for the current tracker
+// reading at posting time. Other topics use the name their record carries.
 func header(topic notify.Topic) string {
+	if topic.Kind == notify.TopicWorkItem {
+		// The post resolves this explicit reference from the current listing.
+		// A historical topic title never substitutes for that reading.
+		var titles *readmodel.WorkItemTitles
+		return titles.Name(topic.ID)
+	}
 	named := label(topic)
 	if topic.Title == "" {
 		return named

@@ -11,5 +11,7 @@
   "description": "Each entry carries its kind, the identifier of the record it is about, whose move it is, and the record itself, whole.",
   "design": "",
   "acceptance_criteria": "",
-  "notes": "Goal served: the harness's surfaces read clearly."
+  "notes": "Goal served: the harness's surfaces read clearly.",
+  "citation": "(P1, dashboard) Needs-a-human entries in the read model carry the thing, not a sentence about it (yoyodyne-ifd.432.5)",
+  "said_text": {"yoyodyne-ifd.432": "title unavailable (yoyodyne-ifd.432)"}
 }

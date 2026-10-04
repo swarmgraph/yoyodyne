@@ -60,7 +60,7 @@ func TestClosedWorkIsTitledFromTheRealListing(t *testing.T) {
 
 	text := "Blocked on " + finished.ID + " until it landed."
 	got := titles.Cite(text)
-	if want := finished.ID + " (" + finished.Title + ")"; !strings.Contains(got, want) {
+	if want := titles.Name(finished.ID); !strings.Contains(got, want) {
 		t.Fatalf("Cite(%q) = %q, want the closed item shown as %q", text, got, want)
 	}
 	if strings.Contains(got, "unknown to the tracker") {

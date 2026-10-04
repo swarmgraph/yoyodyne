@@ -9,11 +9,15 @@ import (
 // RenderReply projects a reply for a person without changing the text kept in
 // the conversation or the structured reply returned to a script.
 func (s *Session) RenderReply(text string) string {
-	return readmodel.ReadTextTerms(s.options.Repository).Render(text)
+	return readmodel.ReadTextTerms(s.options.Repository).Render(s.workItemTitles().Cite(text))
 }
 
 func (s *Session) replyStream(out console.Console) *replyStream {
-	return newReplyStream(out, s.theme, readmodel.ReadTextTerms(s.options.Repository))
+	stream := newReplyStream(out, s.theme, readmodel.ReadTextTerms(s.options.Repository))
+	if stream != nil {
+		stream.cite = s.RenderReply
+	}
+	return stream
 }
 
 // replyWording checks the person-readable parts after the reply's structured

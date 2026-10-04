@@ -12,9 +12,9 @@ package readmodel
 // is summarized by the same derivation `yoyo status <item>` lists it with, so
 // the card and the terminal cannot say different words about one run.
 //
-// It is one item rather than every item because it costs a tracker command,
-// and a page that asks every ten seconds must not ask that of the whole
-// backlog. It is asked for when somebody opens the card and not before.
+// The primary item and the listing used to expand references in its prose are
+// read when somebody opens the card. Polling the standing does not fetch every
+// item's description and notes.
 
 import (
 	"context"
@@ -85,16 +85,18 @@ type WorkItemSources struct {
 type WorkItem struct {
 	ObservedAt time.Time `json:"observed_at"`
 
-	ID                 string   `json:"id"`
-	Title              string   `json:"title"`
-	Status             string   `json:"status"`
-	Priority           int      `json:"priority"`
-	Labels             []string `json:"labels"`
-	Parent             string   `json:"parent"`
-	Description        string   `json:"description"`
-	Design             string   `json:"design"`
-	AcceptanceCriteria string   `json:"acceptance_criteria"`
-	Notes              string   `json:"notes"`
+	ID                 string            `json:"id"`
+	Citation           string            `json:"citation"`
+	Title              string            `json:"title"`
+	Status             string            `json:"status"`
+	Priority           int               `json:"priority"`
+	Labels             []string          `json:"labels"`
+	Parent             string            `json:"parent"`
+	Description        string            `json:"description"`
+	Design             string            `json:"design"`
+	AcceptanceCriteria string            `json:"acceptance_criteria"`
+	Notes              string            `json:"notes"`
+	SaidText           map[string]string `json:"said_text,omitempty"`
 
 	// Run is the run the harness last made for this item — the one in flight
 	// on it, or the one whose change is preserved on it, or simply the latest —
@@ -174,6 +176,7 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 	item := WorkItem{
 		ObservedAt:         now,
 		ID:                 found.ID,
+		Citation:           NewWorkItemTitles([]beads.WorkItem{found}).Name(found.ID),
 		Title:              found.Title,
 		Status:             found.Status,
 		Priority:           found.Priority,
@@ -185,6 +188,21 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 		Notes:              found.Notes,
 	}
 	item.Run, item.RunProblem = readLatestRun(ctx, sources, found.ID, now)
+	titles := NewWorkItemTitles([]beads.WorkItem{found})
+	if listing, ok := sources.Tracker.(interface {
+		List(context.Context, string) ([]beads.WorkItem, error)
+	}); ok {
+		if current, err := ReadWorkItemTitlesFrom(ctx, listing, sources.TrackerTimeout); err == nil {
+			titles = current
+		}
+	}
+	item.SaidText = titles.CitedText(item)
+	if item.Parent != "" {
+		if item.SaidText == nil {
+			item.SaidText = map[string]string{}
+		}
+		item.SaidText[item.Parent] = titles.Name(item.Parent)
+	}
 	return item, nil
 }
 

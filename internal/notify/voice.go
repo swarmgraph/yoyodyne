@@ -1236,7 +1236,7 @@ func (e Event) fields(topic Topic) map[string]string {
 		"effect":     effectOf(detail),
 		"outcome":    outcomeOf(detail),
 		"exchange":   stated(exchangeOf(e.Refs, topic), "an unnamed exchange"),
-		"title":      stated(detail.Title, "a title the record does not carry"),
+		"title":      stated(itemOf(e.Refs, topic, detail), "a title the record does not carry"),
 		"goal":       stated(detail.Goal, "no goal the record names"),
 		// Two things a voice line could want and deliberately has no placeholder
 		// for, both of them identifiers a reader would have to go and resolve.
@@ -1461,35 +1461,20 @@ func stated(value, absence string) string {
 	return absence
 }
 
-// itemOf is what a message calls the work it is about, and it is a name a
-// person reads rather than an identifier they have to go and resolve: the
-// item's title, as the thread's header carries it or as the record the message
-// was read from does.
-//
-// A message in the item's own thread whose record carried no title says "this
-// item" rather than falling back to the identifier. The thread it is in is
-// already headed by that identifier and the item's name, so a message repeating
-// the identifier under that header adds the opaque half of it to every line of
-// the narrative and adds nothing a reader did not have.
-//
-// The identifier survives in one place only: a message about an item that is
-// not the thread's own subject, where nothing else says which item is meant.
-// Nothing addressed that way is rendered today, and leaving the reference
-// unsaid there would be a message about no item at all rather than a tidier one.
+// itemOf carries the identifier to the outgoing surface's shared resolver.
+// Recorded titles cannot supply the current priority and labels. A proposal
+// that has not become a tracker item still uses the title its record carries.
 func itemOf(refs Refs, topic Topic, detail Detail) string {
-	itsOwnThread := topic.Kind == TopicWorkItem
-	if itsOwnThread {
-		if named := strings.TrimSpace(topic.Title); named != "" {
-			return named
-		}
+	if topic.Kind == TopicWorkItem {
+		return topic.ID
+	}
+	if refs.WorkItemID != "" {
+		return refs.WorkItemID
 	}
 	if named := strings.TrimSpace(detail.Title); named != "" {
 		return named
 	}
-	if itsOwnThread {
-		return "this item"
-	}
-	return refs.WorkItemID
+	return "this item"
 }
 
 func exchangeOf(refs Refs, topic Topic) string {

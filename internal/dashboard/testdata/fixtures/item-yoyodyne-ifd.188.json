@@ -11,5 +11,6 @@
   "description": "Carried by the product manager's conversation rather than a developer run.",
   "design": "",
   "acceptance_criteria": "",
-  "notes": "Executor: conversation:product-manager."
+  "notes": "Executor: conversation:product-manager.",
+  "citation": "(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188)"
 }

@@ -62,7 +62,9 @@ func TestACapCrossingReachesTheOperatorWithTheCapTheCountAndTheReason(t *testing
 		t.Fatalf("spoken by %q", notification.Speaker.Key())
 	}
 	for _, want := range []string{
-		"Unmeetable items do not dispatch",
+		// The outgoing surface resolves the identifier from the current tracker
+		// rather than using the title saved with the crossing.
+		"yoyodyne-ifd.143",
 		"review round",
 		"5",
 		"crossing 2 of 5",

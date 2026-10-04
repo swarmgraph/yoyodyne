@@ -71,7 +71,7 @@ func TestStatusListsWhatShippedWithItsPriceAndWallClock(t *testing.T) {
 		"paused",
 		"yoyodyne-ifd.41",
 		"yoyodyne-ifd.2.7",
-		"Resume an interrupted run",
+		"title unavailable (yoyodyne-ifd.2.7)",
 		// Both runs priced together, and the hour parked stated beside the three
 		// hours elapsed rather than netted out of it.
 		"$27.93",
@@ -81,7 +81,7 @@ func TestStatusListsWhatShippedWithItsPriceAndWallClock(t *testing.T) {
 		"≥ $0.00",
 		"≥ $27.93",
 		"TOTAL (2 of 2)",
-		"(no run recorded the title)",
+		"title unavailable (yoyodyne-ifd.41)",
 		"1 run(s) have no surviving record to price",
 	} {
 		if !strings.Contains(stdout, want) {

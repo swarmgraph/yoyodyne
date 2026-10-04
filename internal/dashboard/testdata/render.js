@@ -30,15 +30,18 @@
 // carrying it could not be approved.
 //
 // Usage: node render.js --out <directory>
-//        TZ=UTC node render.js --check
+//        node render.js --check
 // Writes <directory>/<scenario>.html for every scenario below — the document
 // as the page's script left it, with the one page state and the one state per
 // panel the stylesheet would show, the hidden ones dropped, and a pop-up kept
 // only while it is open — and a <directory>/matrix.json saying which state
 // each section and each pop-up reached in each.
 // --check compares every render to ./renders without writing files.
+// All scenarios use UTC, matching the Go test even when called directly.
 
 "use strict";
+
+process.env.TZ = "UTC";
 
 const fs = require("fs");
 const path = require("path");
@@ -678,7 +681,7 @@ async function main() {
         if (scenario.name !== "attention-run-steps" && scenario.name !== cardScenario) continue;
         assert.strictEqual(entry.label, cleanup ? "run not finished" : "merge stuck");
         assert.strictEqual(entry.mover, entry.kind === "publication" ? "development-manager" : "harness");
-        for (const words of [entry.what, entry.whose, entry.label]) {
+        for (const words of [entry.said_what || entry.what, entry.said_whose || entry.whose, entry.label]) {
           assert(rendered.html.includes(escapeText(words)), `${scenario.name} must carry ${words}`);
         }
         if (scenario.name === "attention-run-steps") {
@@ -688,6 +691,35 @@ async function main() {
           assert(rendered.html.includes(`<h2 id="card-heading" class="popup-title">${entry.label}</h2>`));
         }
       }
+    }
+    if (scenario.name === "busy") {
+      const names = fixture("standing-busy").work_item_names;
+      for (const id of ["yoyodyne-ifd.141.3", "yoyodyne-ifd.201", "yoyodyne-ifd.212", "yoyodyne-ifd.230"]) {
+        assert(rendered.html.includes(`data-item="${id}">${escapeText(names[id])}</button>`), "a run must project its current tracker name");
+      }
+      const changed = fixture("standing-busy");
+      changed.running[0].title = "Title saved when the run began";
+      const id = changed.running[0].work_item_id;
+      changed.work_item_names[id] = "(P0, reliability) Current tracker title (" + id + ")";
+      changed.not_startable[0].said_reason = "Waiting on title unavailable (yoyodyne-ifd.999)";
+      const next = await run(Object.assign({}, scenario, { standing: ok(changed), open: [{ grouping: "held" }] }));
+      assert(next.html.includes("(P0, reliability) Current tracker title (" + id + ")"), "the next page must project changed tracker fields");
+      assert(!next.html.includes("Title saved when the run began"), "historical run titles must not replace current names");
+      assert(next.html.includes("Waiting on title unavailable (yoyodyne-ifd.999)"), "role-written item reasons must project the server's expansion");
+    }
+    if (scenario.name === "card") {
+      const item = fixture("item-yoyodyne-ifd.141.3");
+      item.description = "Waiting on yoyodyne-ifd.999";
+      item.said_text[item.description] = "Waiting on title unavailable (yoyodyne-ifd.999)";
+      const next = await run(Object.assign({}, scenario, { items: { "/api/items/yoyodyne-ifd.141.3": ok(item) } }));
+      assert(next.html.includes("Waiting on title unavailable (yoyodyne-ifd.999)"), "card prose must project expanded work item references");
+      assert(!next.html.includes("<dd>Waiting on yoyodyne-ifd.999</dd>"), "raw prose must remain in the API record rather than the rendered card");
+    }
+    if (scenario.name === "grouping") {
+      assert(rendered.html.includes("(P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222)"), "an item without labels must show only its priority");
+    }
+    if (scenario.name === "card-refused") {
+      assert(rendered.html.includes('<h2 id="card-heading" class="popup-title">title unavailable (yoyodyne-ifd.230)</h2>'), "an unreadable item must retain its id and mark its title unavailable");
     }
     const file = path.join(out, scenario.name + ".html");
     if (check) {

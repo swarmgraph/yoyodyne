@@ -12,5 +12,7 @@
   "design": "",
   "acceptance_criteria": "",
   "notes": "",
-  "run_problem": "the runs of this item could not be read: scan recorded: input/output error"
+  "run_problem": "the runs of this item could not be read: scan recorded: input/output error",
+  "citation": "(P3, release) Release notes carry every item's description (yoyodyne-ifd.436.1)",
+  "said_text": {"yoyodyne-ifd.436": "title unavailable (yoyodyne-ifd.436)"}
 }

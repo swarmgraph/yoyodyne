@@ -324,6 +324,7 @@
         "phase": "cleaning_up"
       },
       "what": "cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished",
+      "said_what": "cleanup of the branch and worktree for (P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222) is not finished",
       "whose": "the harness's — `yoyo reconcile` finishes the run's cleanup and records it",
       "label": "run not finished"
     },
@@ -370,6 +371,7 @@
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",
+      "said_what": "(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188) is admitted for \"conversation:product-manager\" rather than a developer run",
       "whose": "the Lead Product Manager's — in conversation; no run will ever be started for it",
       "label": "work in conversation"
     }
@@ -507,5 +509,22 @@
       "report_written_at": "2026-09-19T13:40:00Z",
       "restart_requests": []
     }
-  ]
+  ],
+  "work_item_names": {
+    "yoyodyne-ifd.141.3": "(P1, dashboard) Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states (yoyodyne-ifd.141.3)",
+    "yoyodyne-ifd.141.4": "(P1, dashboard) Dashboard: the standing view under review (yoyodyne-ifd.141.4)",
+    "yoyodyne-ifd.150": "(P1, tracker) A blocked status carries the account of what moved it (yoyodyne-ifd.150)",
+    "yoyodyne-ifd.153": "(P2, triage) Triage names the phase a run stopped in (yoyodyne-ifd.153)",
+    "yoyodyne-ifd.188": "(P2, goals) The goals document gains a legibility clause (yoyodyne-ifd.188)",
+    "yoyodyne-ifd.200": "(P2, slack) Slack threads carry the item's title (yoyodyne-ifd.200)",
+    "yoyodyne-ifd.201": "(P2, slack) The heartbeat names the forge when a merge is queued (yoyodyne-ifd.201)",
+    "yoyodyne-ifd.210": "(P1, architecture) Configuration selects sequence and never grants authority (yoyodyne-ifd.210)",
+    "yoyodyne-ifd.212": "(P2) Recurring tasks say when a firing was skipped (yoyodyne-ifd.212)",
+    "yoyodyne-ifd.219": "(P2, reconcile) Reconcile prints the branch it caught up (yoyodyne-ifd.219)",
+    "yoyodyne-ifd.222": "(P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222)",
+    "yoyodyne-ifd.230": "(P2, reconcile) The sweep names the ref it preserved work on (yoyodyne-ifd.230)",
+    "yoyodyne-ifd.432.1": "(P2, dashboard) Work item details are viewable from the dashboard (yoyodyne-ifd.432.1)",
+    "yoyodyne-ifd.432.5": "(P1, dashboard) Needs-a-human entries in the read model carry the thing, not a sentence about it (yoyodyne-ifd.432.5)",
+    "yoyodyne-ifd.436.1": "(P3, release) Release notes carry every item's description (yoyodyne-ifd.436.1)"
+  }
 }

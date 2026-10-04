@@ -291,7 +291,9 @@ func (r dashboardReader) Throughput(ctx context.Context) (readmodel.Throughput, 
 	if err != nil {
 		return readmodel.Throughput{}, err
 	}
-	return readmodel.ReadThroughput(ctx, throughputSources(stateRoot, productID)), nil
+	sources := throughputSources(stateRoot, productID)
+	sources.Items = standingSources(r.configPath)
+	return readmodel.ReadThroughput(ctx, sources), nil
 }
 
 // Spend is what the harness spent over the last twenty-four hours and the last

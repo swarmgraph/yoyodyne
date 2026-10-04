@@ -27,6 +27,12 @@ func TestHeldItemsSaySinceWhenAndAreListedOldestHoldFirst(t *testing.T) {
 	}
 	sources.Tracker = statusTracker{fakeTracker{
 		byStatus: map[string][]beads.WorkItem{
+			"": {
+				{ID: "yoyodyne-ifd.2", Title: "not offered", Status: "open"},
+				{ID: "yoyodyne-ifd.1", Title: "held two hours", Status: "blocked"},
+				{ID: "yoyodyne-ifd.3", Title: "held nine days", Status: "blocked"},
+				{ID: "yoyodyne-ifd.4", Title: "held three days", Status: "blocked"},
+			},
 			"open": {
 				// An open item the tracker does not offer is refused for something
 				// other than a hold, and keeps its place in the order.
@@ -90,24 +96,24 @@ func TestHeldItemsSaySinceWhenAndAreListedOldestHoldFirst(t *testing.T) {
 	var lines []string
 	for _, id := range []string{"yoyodyne-ifd.3", "yoyodyne-ifd.4", "yoyodyne-ifd.1"} {
 		for _, line := range strings.Split(rendered, "\n") {
-			if strings.HasPrefix(line, "  "+id+" ") {
+			if strings.Contains(line, "("+id+") — held since ") {
 				lines = append(lines, line)
 			}
 		}
 	}
 	for index, want := range []string{
-		"  yoyodyne-ifd.3 — held since " + localMoment(moment.Add(-9*24*time.Hour)) + ", 9 days ago; its stoppage",
-		"  yoyodyne-ifd.4 — held since " + localMoment(moment.Add(-72*time.Hour)) + ", 3 days ago; run run-4 stopped on it",
-		"  yoyodyne-ifd.1 — held since " + localMoment(moment.Add(-2*time.Hour)) + ", 2 hours ago; run run-1 stopped on it",
+		"  (P0) held nine days (yoyodyne-ifd.3) — held since " + localMoment(moment.Add(-9*24*time.Hour)) + ", 9 days ago; its stoppage",
+		"  (P0) held three days (yoyodyne-ifd.4) — held since " + localMoment(moment.Add(-72*time.Hour)) + ", 3 days ago; run run-4 stopped on it",
+		"  (P0) held two hours (yoyodyne-ifd.1) — held since " + localMoment(moment.Add(-2*time.Hour)) + ", 2 hours ago; run run-1 stopped on it",
 	} {
 		if index >= len(lines) || !strings.HasPrefix(lines[index], want) {
 			t.Fatalf("rendered:\n%s\nwant a line opening %q", rendered, want)
 		}
 	}
-	if strings.Index(rendered, "yoyodyne-ifd.3 —") > strings.Index(rendered, "yoyodyne-ifd.4 —") || strings.Index(rendered, "yoyodyne-ifd.4 —") > strings.Index(rendered, "yoyodyne-ifd.1 —") {
+	if strings.Index(rendered, "(yoyodyne-ifd.3) —") > strings.Index(rendered, "(yoyodyne-ifd.4) —") || strings.Index(rendered, "(yoyodyne-ifd.4) —") > strings.Index(rendered, "(yoyodyne-ifd.1) —") {
 		t.Fatalf("rendered:\n%s\nwant the held items oldest hold first", rendered)
 	}
-	if strings.Contains(rendered, "yoyodyne-ifd.2 — held since") {
+	if strings.Contains(rendered, "(yoyodyne-ifd.2) — held since") {
 		t.Fatalf("rendered:\n%s\nan item nothing holds says since when", rendered)
 	}
 

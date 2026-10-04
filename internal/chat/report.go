@@ -554,17 +554,11 @@ func renderCollectedReports(theme console.Theme, reports []report.Report, handle
 }
 
 // workItemTitles is what the tracker calls every item, for a listing a person
-// reads, or nil where this conversation has no tracker or it could not be
-// listed — in which case the listing names items as they were written.
+// reads. The shared reader bounds the listing; an unreadable tracker costs
+// only the item names, which are marked unavailable.
 func (s *Session) workItemTitles() *readmodel.WorkItemTitles {
-	if s.options.Tracker == nil {
-		return nil
-	}
-	items, err := s.options.Tracker.List(context.Background(), "")
-	if err != nil {
-		return nil
-	}
-	return readmodel.NewWorkItemTitles(items)
+	titles, _ := readmodel.ReadWorkItemTitlesFrom(context.Background(), s.options.Tracker, 0)
+	return titles
 }
 
 // buildGauge counts the builds of the reports one listing or one turn shows

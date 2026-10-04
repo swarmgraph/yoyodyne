@@ -374,10 +374,10 @@ func TestASweepSummaryShowsEveryItemBesideItsTitle(t *testing.T) {
 			Summary: "434.9 is still blocked",
 		}, ""),
 	}, nil, defaultRenderedSweeps, titles)
-	if got := strings.Count(rendered, "434.9 (Price a resumed session at what it moved by)"); got != 2 {
+	if got := strings.Count(rendered, "(P0) Price a resumed session at what it moved by (yoyodyne-ifd.434.9)"); got != 2 {
 		t.Errorf("renderSweeps() = %q, want the item titled in each of the two passes, got %d", rendered, got)
 	}
-	if !strings.Contains(rendered, "yoyodyne-ifd.999.1 (unknown to the tracker)") {
+	if !strings.Contains(rendered, "title unavailable (yoyodyne-ifd.999.1)") {
 		t.Errorf("renderSweeps() = %q, want the filed item the tracker does not hold said to be unknown", rendered)
 	}
 }
