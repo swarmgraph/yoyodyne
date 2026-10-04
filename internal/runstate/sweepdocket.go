@@ -67,8 +67,10 @@ func (d DocketDelivery) Says() string {
 	item := d.Oldest.WorkItemID
 	if item == "" {
 		item = "an entry whose work item could not be read"
-	} else if d.Oldest.WorkItemTitle != "" {
-		item = oneline.Fold(d.Oldest.WorkItemTitle, 160) + " (" + item + ")"
+	} else if title := oneline.Fold(d.Oldest.WorkItemTitle, 160); title != "" {
+		item = title + " (" + item + ")"
+	} else {
+		item = "a work item with no recorded title (" + item + ")"
 	}
 	return fmt.Sprintf("%d live docket entry(s) were never delivered on this pass; the oldest is %s, docket entry %s, stopped at %s. The next pass puts these entries ahead of entries already shown.",
 		len(d.Undelivered), item, d.Oldest.Position.Key,
