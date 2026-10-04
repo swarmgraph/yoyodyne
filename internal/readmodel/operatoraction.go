@@ -14,7 +14,7 @@ package readmodel
 // Two of those surfaces working it out separately is the disagreement one read
 // model exists to prevent.
 //
-// Five things make a finding. Two are read from the report pile: a report
+// Several things make a finding. Two are read from the report pile: a report
 // filed at critical severity is one until somebody handles it — critical is the
 // severity that means action, in the reporting contract's own words — and a
 // handling that says the report needs the operator is one until a later
@@ -33,6 +33,11 @@ package readmodel
 // finding per pass, standing while any proposal in it is undecided. It is
 // derived in amendments.go and joins the others at the read model's reading and
 // at the channel's.
+//
+// A repeatedly failing product pass with a validated person-only remedy is
+// another finding. passfailures.go supplies its direct notification from the
+// same reading that keeps its single pass entry on the attention line; the
+// affected pass succeeding clears that entry.
 
 import (
 	"fmt"
@@ -99,7 +104,8 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 	handled := report.Handled(handlings)
 	var actions []OperatorAction
 	for _, reported := range report.ByFiling(reports) {
-		// Sweep-derived findings remain one entry even with a person-only remedy.
+		// Sweep-derived findings remain one status entry even with a person-only
+		// remedy. PassFailureOperatorActions supplies their direct notifications.
 		if reported.PassFailureTask != "" {
 			continue
 		}

@@ -15,38 +15,72 @@ import (
 // handling that can record a person-only remedy. It never closes a finding
 // because its watcher completed a pass or somebody handled its report.
 func ReadPassFailures(sources Sources) ([]Attention, string) {
+	entries, _, problem := readPassFailures(sources)
+	return entries, problem
+}
+
+// PassFailureOperatorActions projects person-only remedies for direct delivery
+// from the same reading that supplies the single pass-failure status entry.
+// Its actions end when the affected pass succeeds, even if clearing its report
+// has not yet been recorded.
+func PassFailureOperatorActions(sources Sources) ([]OperatorAction, string) {
+	_, actions, problem := readPassFailures(sources)
+	return actions, problem
+}
+
+// PassFailureKeyPrefix lets a delivery cursor retain these findings when their
+// sweep log cannot be read, without retaining unrelated findings that ended.
+const PassFailureKeyPrefix = "pass-failure:"
+
+func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 	if sources.Passes == nil {
-		return nil, ""
+		return nil, nil, ""
 	}
 	passes, unreadable, err := sources.Passes.List()
 	if err != nil || len(unreadable) > 0 {
-		return nil, fmt.Sprintf("product pass failures could not be read whole: %v; %d unreadable sweep line(s)", err, len(unreadable))
+		return nil, nil, fmt.Sprintf("product pass failures could not be read whole: %v; %d unreadable sweep line(s)", err, len(unreadable))
 	}
 	var handlings []report.Handling
 	if sources.Reports != nil {
 		handlings, err = sources.Reports.Handlings()
 		if err != nil {
-			return nil, fmt.Sprintf("product pass failure remedies could not be read: %v", err)
+			return nil, nil, fmt.Sprintf("product pass failure remedies could not be read: %v", err)
 		}
 	}
 	handled := report.Handled(handlings)
 	watcher := FactoryFlowAgent(sources.ProgramManagers)
 	var entries []Attention
+	var actions []OperatorAction
 	for _, f := range runstate.PassFailuresOf(passes) {
 		if !f.ClearedAt.IsZero() {
 			continue
 		}
 		id := f.ReportID(f.ProductID)
+		handling := handled[id]
 		var remedy *ownership.PersonOnlyRemedy
-		if h := handled[id]; h.NeedsOperator {
-			remedy = h.PersonOnly
+		if handling.NeedsOperator {
+			remedy = handling.PersonOnly
 		}
 		owner := ownership.ResolvePassFailure(watcher, remedy)
 		failure := FailingTask{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, RaisedAt: f.RaisedAt,
 			LatestAt: f.LatestAt, Problem: f.Problem, ProductPass: true, Ownership: &owner, ReportID: id}
 		entries = append(entries, failingTaskAttention(failure))
+		if owner.Mover == MoverOperator {
+			actions = append(actions, OperatorAction{
+				Key:      PassFailureKeyPrefix + id,
+				Subject:  f.Task,
+				ReportID: id,
+				Needs:    owner.PersonStep,
+				RecordedIn: fmt.Sprintf("the handling of %s recorded in %s, for the product pass %s",
+					id, handling.RunID, f.Task),
+				FoundBy: fmt.Sprintf("the %s, handling the report", handling.Role.Title()),
+				Ends:    fmt.Sprintf("the product pass %s next succeeding clears the finding", f.Task),
+				Since:   handling.RecordedAt,
+			})
+		}
 	}
-	return entries, ""
+	sort.SliceStable(actions, func(i, j int) bool { return actions[i].Since.Before(actions[j].Since) })
+	return entries, actions, ""
 }
 
 func FactoryFlowAgent(instances []ProgramManagerInstance) string {
