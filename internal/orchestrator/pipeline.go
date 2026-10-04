@@ -193,6 +193,7 @@ type ChangeReviewer interface {
 }
 
 type StateStore interface {
+	RetirementRuns
 	// Reserve creates a fresh run and returns the lease that makes this process
 	// its only owner; Adopt takes the same lease over the run already in flight
 	// for an item, reporting runstate.ErrNoRunInFlight when there is none. Every
@@ -696,13 +697,14 @@ func (p Preservation) checkable() bool {
 }
 
 type Outcome struct {
-	RunID        string          `json:"run_id"`
-	WorkItemID   string          `json:"work_item_id"`
-	Status       runstate.Status `json:"status"`
-	Phase        runstate.Phase  `json:"phase,omitempty"`
-	Branch       string          `json:"branch,omitempty"`
-	WorktreePath string          `json:"worktree_path,omitempty"`
-	BaseCommit   string          `json:"base_commit,omitempty"`
+	Retirement   *runstate.RunRetirement `json:"retirement,omitempty"`
+	RunID        string                  `json:"run_id"`
+	WorkItemID   string                  `json:"work_item_id"`
+	Status       runstate.Status         `json:"status"`
+	Phase        runstate.Phase          `json:"phase,omitempty"`
+	Branch       string                  `json:"branch,omitempty"`
+	WorktreePath string                  `json:"worktree_path,omitempty"`
+	BaseCommit   string                  `json:"base_commit,omitempty"`
 	// Preservation is what was actually found of the branch and the worktree
 	// above when this run failed. It is present on a failed run that made either
 	// of them and absent everywhere else, because a run that made neither has
@@ -1711,6 +1713,13 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 // had reached instead of starting a second one against a fresh budget. Its
 // caller holds the run's lease for the whole of it.
 func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string) (Outcome, error) {
+	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(ctx, state)
+	if handled {
+		if retired.Retirement == nil {
+			return Outcome{}, err
+		}
+		return Outcome{Retirement: retired.Retirement, RunID: retired.RunID, WorkItemID: retired.WorkItemID, Status: retired.Status, Phase: retired.Phase, Branch: retired.Branch, WorktreePath: retired.WorktreePath, Summary: retirementReason(retired)}, err
+	}
 	if err := validateClaimedItem(item, state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
 	}

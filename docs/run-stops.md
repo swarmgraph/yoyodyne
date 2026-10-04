@@ -258,6 +258,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/reconcile.go` | `(Reconciler).completeIntegrated` | `status-write` | 1 | Records success after proving integration; cleanup requires that proof. |
 | `internal/orchestrator/reconcile.go` | `(Reconciler).settleStopRequest` | `status-write` | 1 | Cancels an unheld run on its stop request; branch and checkout untouched. |
 | `internal/orchestrator/reconcile.go` | `(Reconciler).saveTerminalFailure` | `status-write` | 1 | Fails an unfinishable interrupted run; already-terminal status retains its account. |
+| `internal/orchestrator/runretirement.go` | `(RunRetirer).Retire` | `status-write` | 1 | Cancels a run whose closed item has a later settled confirmed merge through another run; releases its slot and reservations, preserves its artifacts and history, and notes retirement once without reopening the item. |
 | `internal/orchestrator/redeploydrain.go` | `(*activeRun).pauseForRedeploy` | `call:fail` | 2 | Cancels without resumable state or durable marker; otherwise leaves the run in flight. |
 | `internal/orchestrator/selfcheck.go` | `(*activeRun).gateSelfVerification` | `phase-error` | 1 | Creates missing-verification refusal before checks; shared repairs decide its ending. |
 | `internal/orchestrator/selfcheck.go` | `(*activeRun).blockOnMissingVerification` | `classified-stop` | 2 | Blocks on missing verification after shared repairs, including a failed blocker write. |

@@ -60,6 +60,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -351,6 +352,14 @@ func invalidateForgeApproval(state *runstate.State) {
 // which has nothing to withdraw; its caller has already refused the runs that
 // cannot be replayed.
 func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, result Reconciliation, dropped bool) (Reconciliation, error) {
+	retired, handled, err := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
+	if handled {
+		result := reconciliationOf(retired, ActionRetired)
+		if retired.Retirement != nil {
+			result.Detail = retirementReason(retired)
+		}
+		return result, err
+	}
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
 	describe := published.Checks.Describe(target)
@@ -610,8 +619,11 @@ func updatingQueuedHead(state runstate.State) bool {
 // UpdateContinuation is what the sweep did about one run it put back at its
 // promotion to bring a queued head up to date.
 type UpdateContinuation struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	Retired        bool                 `json:"retired,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
 	// Continued reports the run handed to its pipeline. A run left where it was
 	// says why in Detail and is not a failure.
 	Continued bool     `json:"continued"`
@@ -659,9 +671,18 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			lease.Release()
 			result.Detail = "the run is no longer waiting at its promotion, so it is left as it stands"
 		default:
+			retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
 			lease.Release()
-			result.Continued = true
-			result.Detail = state.IntegrationResumptions[len(state.IntegrationResumptions)-1].Reason
+			switch {
+			case retirementErr != nil:
+				result.Failure = retirementErr.Error()
+			case handled:
+				result.Retired = retired.Retirement != nil
+				result.Detail = retirementReason(retired)
+			default:
+				result.Continued = true
+				result.Detail = state.IntegrationResumptions[len(state.IntegrationResumptions)-1].Reason
+			}
 		}
 		results = append(results, result)
 		if result.Continued {
@@ -676,6 +697,10 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 			outcome, err := r.Continue(ctx, result.WorkItemID, result.RunID)
 			if err == nil || outcome.RunID != "" || outcome.Paused {
 				result.Outcome = &outcome
+				if outcome.Retirement != nil {
+					result.Retired = true
+					result.Detail = outcome.Summary
+				}
 			}
 			if err != nil {
 				result.Failure = err.Error()
@@ -683,6 +708,12 @@ func (r Reconciler) ContinueUpdates(ctx context.Context) ([]UpdateContinuation, 
 		}(&results[index])
 	}
 	wait.Wait()
+	for index := range results {
+		result := &results[index]
+		if result.Continued || result.Retired || result.Failure != "" {
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileRun, result.Failure)
+		}
+	}
 	return results, nil
 }
 

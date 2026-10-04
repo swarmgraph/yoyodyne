@@ -2651,6 +2651,28 @@ still refused. The item is checked for a note already delivered before another
 is appended. If a branch was removed elsewhere, the next sweep confirms its
 absence and clears the saved refusal under the run's lease.
 
+**A run whose item already merged is retired before it is continued.** When
+the item is closed and another run has a later, settled publication with its
+merge confirmed into the same target, reconcile records that merge and the run
+it supersedes on the old run and on the item. The old run ends cancelled,
+releasing its developer slot and the files it held for scheduling. Its branch,
+worktree, developer session, publication record, and execution history are kept;
+retirement does not reopen the item or replay its change. This check also runs
+before withdrawing a queued merge to update its head, before selecting an
+already waiting update, and again when the pipeline takes up the selected run,
+so a merge confirmed between selection and execution ends the old work too.
+Later passes announce nothing more. A retirement note that could not be
+delivered, or whose delivery marker could not be saved, is retried from the run
+record without appending the same note twice.
+
+Closed status alone proves no merge. A closed item with no confirmed later
+publication keeps its run and leaves a finding for the development manager; a
+later publication still being settled keeps the run for the harness to retry.
+An explicitly reopened item follows the existing continuation rules. Queued
+update refusals, like other settlement findings, name their next mover and do
+not fail the reconcile command or the maintenance pass or stop other items
+being settled.
+
 A run it settled into an ending that is not success is reported twice over: what the sweep did with it,
 and — in the same words `yoyo status` uses — what became of the run and what
 remains of its change. Those are different facts, and only the second answers

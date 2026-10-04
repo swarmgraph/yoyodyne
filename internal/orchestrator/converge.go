@@ -366,6 +366,9 @@ func sweepableWorktrees(recorded []runstate.State) []runstate.State {
 	candidates := make([]runstate.State, 0, len(recorded))
 	retired := make([]runstate.State, 0)
 	for _, state := range recorded {
+		if state.Retirement != nil {
+			continue
+		}
 		if state.WorktreePath == "" {
 			continue
 		}
@@ -414,6 +417,9 @@ func settledAt(state runstate.State) time.Time {
 // it past the tail.
 func (r Reconciler) recoveryNeedsArtifacts(ctx context.Context, state runstate.State) (string, func()) {
 	noRelease := func() {}
+	if state.Retirement != nil {
+		return "the run was retired after its item merged; its branch and checkout are preserved", noRelease
+	}
 	if state.ArtifactsRetiredBy != "" {
 		return "", noRelease
 	}
@@ -679,7 +685,7 @@ func (r Reconciler) catchUp(ctx context.Context, targetBranch string) gitworktre
 // record of it are one act rather than a write against a snapshot something else
 // has moved on from.
 func (r Reconciler) sweepBranch(ctx context.Context, recorded runstate.State, released map[string]runstate.ReleasedClaim) (BranchSweep, bool) {
-	if recorded.Outstanding() || recorded.Branch == "" || recorded.TargetBranch == "" {
+	if recorded.Retirement != nil || recorded.Outstanding() || recorded.Branch == "" || recorded.TargetBranch == "" {
 		return BranchSweep{}, false
 	}
 	state, lease, err := r.Store.AdoptRun(ctx, recorded.RunID)
@@ -702,7 +708,7 @@ func (r Reconciler) sweepBranch(ctx context.Context, recorded runstate.State, re
 	// Re-read under the lease, so a run something else settled, retired, or
 	// re-entered in the meantime is never swept from the snapshot this loop
 	// started with.
-	if state.Outstanding() || state.Branch == "" || state.TargetBranch == "" {
+	if state.Retirement != nil || state.Outstanding() || state.Branch == "" || state.TargetBranch == "" {
 		return BranchSweep{}, false
 	}
 	sweep := BranchSweep{

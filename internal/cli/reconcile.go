@@ -335,13 +335,16 @@ func continueUpdateFrom(parts components, stderr io.Writer) func(context.Context
 	}
 }
 
-// printUpdates says what each queued head the sweep brought up to date came to,
-// and reports whether any of them is a failure of the sweep's own.
+// printUpdates says what each continuation came to. Its refusals are per-item
+// findings, so they do not fail a pass that could read and visit the other runs.
 func printUpdates(stdout, stderr io.Writer, updates []orchestrator.UpdateContinuation) bool {
-	failed := false
 	for _, update := range updates {
-		fmt.Fprintf(stdout, "%s (%s): queued head brought up to date onto its target\n", update.RunID, update.WorkItemID)
-		if !update.Continued {
+		what := "queued-head continuation"
+		if update.Retired {
+			what = "run retired after its item merged"
+		}
+		fmt.Fprintf(stdout, "%s (%s): %s\n", update.RunID, update.WorkItemID, what)
+		if update.Retired || !update.Continued {
 			if update.Detail != "" {
 				fmt.Fprintf(stdout, "  %s\n", update.Detail)
 			}
@@ -356,11 +359,11 @@ func printUpdates(stdout, stderr io.Writer, updates []orchestrator.UpdateContinu
 			}
 		}
 		if update.Failure != "" {
-			failed = true
 			fmt.Fprintf(stderr, "  not updated: %s\n", update.Failure)
 		}
+		printReconcileFinding(stdout, stderr, update.Finding, update.FindingProblem)
 	}
-	return failed
+	return false
 }
 
 // continueWaitFrom is the continuation the sweep continues a run with: the
@@ -551,11 +554,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			failed = true
 		}
 	}
-	for _, update := range sweep.Updates {
-		if update.Failure != "" {
-			failed = true
-		}
-	}
+	// Queued-head continuation refusals belong to their items' findings.
 	if jsonOutput {
 		output := reconcileOutput{
 			TrackerExports:   sweep.TrackerExports,

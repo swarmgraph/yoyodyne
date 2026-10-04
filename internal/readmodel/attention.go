@@ -1072,7 +1072,11 @@ func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) st
 	problem := reconcileFindingWhat("", findings)
 	remedy := "the next `yoyo reconcile` retries this item's settlement once the named refusal is resolved"
 	if mover == MoverDevelopmentManager {
-		remedy = "decide how to preserve any branch work outside the target before removing the leftover remote branch; the next `yoyo reconcile` retries the deletion and clears the outstanding publication"
+		if strings.Contains(problem, "closed but has no later confirmed merged publication") {
+			remedy = "decide what becomes of the closed item's preserved run; closed status alone does not authorize retirement or reopening"
+		} else {
+			remedy = "decide how to preserve any branch work outside the target before removing the leftover remote branch; the next `yoyo reconcile` retries the deletion and clears the outstanding publication"
+		}
 	} else if strings.Contains(problem, "delete the merged remote branch") {
 		remedy += "; restore access to the remote so the consumed branch can be removed"
 	} else if strings.Contains(problem, "forge") {
@@ -1083,6 +1087,9 @@ func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) st
 
 func reconcileFindingMover(findings []runstate.ReconcileFinding) Mover {
 	for _, finding := range findings {
+		if !finding.Resolved && strings.Contains(finding.Problem, "closed but has no later confirmed merged publication") {
+			return MoverDevelopmentManager
+		}
 		if !finding.Resolved && strings.Contains(finding.Problem, "delete the merged remote branch") && strings.Contains(finding.Problem, "want the published commit") {
 			return MoverDevelopmentManager
 		}

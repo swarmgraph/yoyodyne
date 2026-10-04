@@ -233,6 +233,9 @@ func reconcileFindingResolved(state runstate.State, step runstate.ReconcileStep)
 	published := state.PullRequest
 	switch step {
 	case runstate.ReconcileRun:
+		if state.Retirement != nil {
+			return state.Retirement.NotedAt != nil
+		}
 		return state.Status.Terminal() && !state.Outstanding() && state.CleanupFailure == "" && state.PublishFailure == "" && (state.Phase == runstate.PhaseComplete || state.SettledQuietSince != nil)
 	case runstate.ReconcileRefresh:
 		return published != nil && (published.Merged || published.Superseded != "" || published.HandedBack != nil || strings.EqualFold(strings.TrimSpace(published.State), "CLOSED"))

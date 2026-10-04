@@ -154,6 +154,9 @@ func (s Supersession) Vehicle() string {
 // to merge it, the decision gave its change to the fresh run, and so its request
 // is as superseded as a dead run's once that fresh run lands.
 func retirablePublication(state runstate.State) bool {
+	if state.Retirement != nil {
+		return false
+	}
 	published := state.PullRequest
 	return state.Status.Terminal() &&
 		published != nil &&

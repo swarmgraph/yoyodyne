@@ -520,6 +520,9 @@ func (r Reconciler) RefreshPublications(ctx context.Context) ([]PublicationRefre
 // every one of those was asked about on every sweep, one forge call at a time,
 // and a pass over 798 recorded publications took more than an hour.
 func unsettledPublication(state runstate.State) bool {
+	if state.Retirement != nil {
+		return false
+	}
 	published := state.PullRequest
 	if published == nil || state.Outstanding() {
 		return false
@@ -738,6 +741,9 @@ func (r Reconciler) FinishPublications(ctx context.Context) ([]PublicationSettle
 // the forge dropped and nobody has made is a person's or triage's, and the
 // refresh above is what turns it into this the day somebody makes it.
 func unfinishedPublication(state runstate.State) bool {
+	if state.Retirement != nil {
+		return false
+	}
 	published := state.PullRequest
 	if published == nil || state.Integration == nil || state.Outstanding() {
 		return false

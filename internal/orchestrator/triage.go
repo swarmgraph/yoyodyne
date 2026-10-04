@@ -1604,6 +1604,9 @@ func unstartedRun(state runstate.State) bool {
 // instead — measured from when the run that made it ended, which is when it
 // became something waiting on the forge.
 func stuckPublication(state runstate.State, now time.Time, stuckMergeAge time.Duration) bool {
+	if state.Retirement != nil {
+		return false
+	}
 	published := state.PullRequest
 	if published == nil {
 		// A promotion whose record holds no request is docketed from the record's
