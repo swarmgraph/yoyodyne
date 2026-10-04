@@ -75,6 +75,7 @@ var structuredStrings = map[string]string{
 	"check_failure.command":                "a command the configuration declares",
 	"check_stage.command":                  "a command the configuration declares",
 	"checks_passed.content":                "a digest the worktree manager computes over the change",
+	"developer_summary.content":            "a digest the worktree manager computes over the change",
 	"checks_passed.commit":                 "the harness commit the record already holds",
 	"checks_passed.commands[]":             "commands the configuration declares",
 	"check_stage_continuations[].command":  "a command the configuration declares",

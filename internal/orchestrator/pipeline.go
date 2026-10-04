@@ -4033,6 +4033,13 @@ func (a *activeRun) developerEffort() string {
 // that succeeded was, and the reissued invocation after it is charged again.
 func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID string) (backend.RunResult, error) {
 	p := a.pipeline
+	// Even a resumed or reissued invocation may change the worktree without
+	// returning an account. Retire the earlier account durably before it runs.
+	a.state.DeveloperSummary = nil
+	a.outcome.Summary = ""
+	if err := p.Store.Save(a.state); err != nil {
+		return backend.RunResult{}, fmt.Errorf("clear the previous developer summary: %w", err)
+	}
 	account := a.account()
 	model := a.developerModel()
 	a.state.ProviderModel = model
@@ -4147,6 +4154,17 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		return fmt.Errorf("summarize developer changes: %w", err)
 	}
 	a.recordChanges(changeSummary)
+	if !providerResult.IsError && strings.TrimSpace(a.outcome.Summary) != "" {
+		content, err := p.Worktrees.ContentIdentity(ctx, a.worktree)
+		if err != nil {
+			return fmt.Errorf("bind the developer summary to its change: %w", err)
+		}
+		a.state.DeveloperSummary = &runstate.DeveloperSummary{
+			Text:    runstate.RecordDeveloperSummary(a.outcome.Summary),
+			Content: content,
+			Attempt: a.state.RepairAttempts,
+		}
+	}
 	// The account of the change is saved as soon as it is taken rather than with
 	// whatever the run does next, because a process that dies here still leaves
 	// somebody able to say what the run had changed.
@@ -7655,6 +7673,10 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	if err != nil {
 		return "", providerEvidence{}, err
 	}
+	developerSummary, err := a.developerSummaryForReview(ctx)
+	if err != nil {
+		return "", providerEvidence{}, err
+	}
 	account := a.account()
 	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
 		RunID:      a.state.RunID,
@@ -7676,11 +7698,12 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 		// judged beside the evidence its author left rather than on the patch
 		// alone. It comes from the durable record for the reason the claim does: a
 		// repair round judges what the run currently holds.
-		Verification: describeVerification(a.state),
-		WorktreePath: a.worktree.Path,
-		Changes:      changes,
-		Repository:   reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
-		Checks:       a.outcome.Checks,
+		Verification:     describeVerification(a.state),
+		DeveloperSummary: developerSummary,
+		WorktreePath:     a.worktree.Path,
+		Changes:          changes,
+		Repository:       reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
+		Checks:           a.outcome.Checks,
 		// What the item's done-conditions quote, so every line of a check's
 		// output carrying one reaches the reviewer beside the check's result.
 		CheckPatterns: review.CriterionPatterns(a.item.Description, a.item.AcceptanceCriteria),
@@ -7774,6 +7797,24 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 		servedCleanly: result.ProcessStatus == execution.ProcessSucceeded &&
 			result.UsageLimit == nil && result.ServerOverload == nil && result.ProviderOutage == nil,
 	}, nil
+}
+
+// developerSummaryForReview supplies only the account of this attempt's exact
+// change. Replaying onto another base or changing a file retires the account
+// just as a new attempt does; the reviewer is told it has no current summary.
+func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, error) {
+	summary := a.state.DeveloperSummary
+	if summary == nil || summary.Attempt != a.state.RepairAttempts {
+		return "", nil
+	}
+	content, err := a.pipeline.Worktrees.ContentIdentity(ctx, a.worktree)
+	if err != nil {
+		return "", fmt.Errorf("identify the change for the developer summary: %w", err)
+	}
+	if summary.Content != content {
+		return "", nil
+	}
+	return summary.Text, nil
 }
 
 func (a *activeRun) clearReviewEvidence() {

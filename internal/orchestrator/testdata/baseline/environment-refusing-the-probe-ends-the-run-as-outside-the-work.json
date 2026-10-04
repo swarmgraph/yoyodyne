@@ -62,6 +62,11 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "developer_summary": {
+      "attempt": 0,
+      "content": "\u003ccontent\u003e",
+      "text": "I cannot run anything in this worktree."
+    },
     "effort_settled": true,
     "environmental": {
       "cause": "sandbox-spawn-failure",

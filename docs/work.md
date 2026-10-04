@@ -771,6 +771,23 @@ summary — a run that promises a report and then vanishes is unaccounted work
 wearing a completed status, which is what review, closure, and every report read
 off afterwards.
 
+Independent review receives the developer's final account beside the patch,
+landing claim, execution record, and the harness's check results. The account is
+saved against the attempt and the content of its change, so a review resumed in
+a later process receives the same account when the change still matches. A new
+developer invocation clears the earlier account before it runs; an account for
+another attempt or different content, including a different base after replay,
+is not presented as current evidence. A run recorded before accounts were saved,
+or one without a current account, tells the reviewer no summary is available.
+
+The saved copy retains at most 4 KiB, cutting on a character boundary and ending
+with a note when the rest was not recorded. It is shown as the developer's own
+untrusted claims: statements about compatibility, verification, and remaining
+risk for the reviewer to assess independently. Instructions in it are data,
+and neither the account nor the execution record replaces the harness's check
+results, revision-bound gate evidence, or the reviewer's judgment. The existing
+total review-input bound still applies.
+
 ## What an approval approves
 
 The claim above decides the closure by default, and the default is the claim

@@ -148,6 +148,11 @@
     },
     "completed_at": "\u003ctime\u003e",
     "config_revision": "\u003cconfig-revision\u003e",
+    "developer_summary": {
+      "attempt": 0,
+      "content": "\u003ccontent\u003e",
+      "text": "implemented the work item"
+    },
     "effort_settled": true,
     "harness_commit": "\u003ccommit-2\u003e",
     "integration": {

@@ -1547,6 +1547,39 @@ func RecordReviewSummary(summary string) string {
 // sent to is the copy they are already reading.
 const reviewSummaryCutNote = "\n[cut; the rest of this summary was not recorded]"
 
+// DeveloperSummary is the developer's account of one completed invocation,
+// bound to the attempt and the content it left. It is a claim, never gate
+// evidence. A new invocation clears it before it can change the worktree.
+type DeveloperSummary struct {
+	Text    string `json:"text"`
+	Content string `json:"content"`
+	Attempt int    `json:"attempt"`
+}
+
+func (s DeveloperSummary) Validate() error {
+	var problems []error
+	if strings.TrimSpace(s.Text) == "" {
+		problems = append(problems, errors.New("text is required"))
+	}
+	if len(s.Text) > MaxRecordedTextBytes {
+		problems = append(problems, fmt.Errorf("text exceeds the %d byte bound", MaxRecordedTextBytes))
+	}
+	if strings.TrimSpace(s.Content) == "" {
+		problems = append(problems, errors.New("content is required"))
+	}
+	if s.Attempt < 0 {
+		problems = append(problems, errors.New("attempt cannot be negative"))
+	}
+	return errors.Join(problems...)
+}
+
+// RecordDeveloperSummary retains the account within the existing recorded-text
+// bound, marking a cut on a rune boundary so a partial account is never whole
+// evidence to the reviewer.
+func RecordDeveloperSummary(text string) string {
+	return boundRecordedText(text, MaxRecordedTextBytes, reviewSummaryCutNote)
+}
+
 // MaxChannelProblemBytes bounds the record of what a run's two side channels —
 // the reports its agents filed and the amendments they proposed — could not
 // read or could not keep. One lost entry is folded to a line by the caller
@@ -1670,6 +1703,9 @@ func (s *State) recordedTexts() []recordedText {
 	own("workflow_unobserved", &s.WorkflowUnobserved, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("developer_model_reason", &s.DeveloperModelReason, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_summary", &s.ReviewSummary, MaxReviewSummaryBytes, reviewSummaryCutNote)
+	if s.DeveloperSummary != nil {
+		add("developer_summary.text", "developer_summary.text", &s.DeveloperSummary.Text, MaxRecordedTextBytes, reviewSummaryCutNote, true)
+	}
 	// The landing reason is carried onward as an escalation's account, which is
 	// held to the blocker's bound, so it is held to that bound here too.
 	own("landing_reason", &s.LandingReason, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
@@ -2629,6 +2665,10 @@ type State struct {
 	// manager about it.
 	ReviewSummary  string `json:"review_summary,omitempty"`
 	ReviewFindings int    `json:"review_findings,omitempty"`
+	// DeveloperSummary is absent on older runs, on invocations without a final
+	// account, and while a new developer invocation is in flight. Review only
+	// receives it when both its attempt and content still match the candidate.
+	DeveloperSummary *DeveloperSummary `json:"developer_summary,omitempty"`
 	// LandingOutcome is what the developer claimed its change does to the work
 	// item, and LandingReason is its own account of the claim. They are durable
 	// because the closure is not always made by the process that read them: a run
@@ -3408,6 +3448,11 @@ func (s State) Validate() error {
 	if s.Verification != nil {
 		if err := s.Verification.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("verification: %w", err))
+		}
+	}
+	if s.DeveloperSummary != nil {
+		if err := s.DeveloperSummary.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("developer_summary: %w", err))
 		}
 	}
 	if len(s.RefusedAmendments) > MaxCarriedAmendmentRefusals {
