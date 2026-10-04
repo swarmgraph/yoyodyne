@@ -501,7 +501,11 @@ type WorkItemRef struct {
 // and one failure standing for all four would lose three answers the caller
 // still has.
 type Standing struct {
-	ObservedAt time.Time `json:"observed_at"`
+	// FactoryProblems is the same raised pass-failure entries the fourth line
+	// carries, projected for the dashboard's factory-problems section.
+	FactoryProblems        []Attention `json:"factory_problems"`
+	FactoryProblemsProblem string      `json:"factory_problems_problem,omitempty"`
+	ObservedAt             time.Time   `json:"observed_at"`
 
 	// Paused is the harness waiting out the provider's usage window, said above
 	// the four lines rather than inside them.
@@ -898,12 +902,23 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		needs = append(needs, configMismatchAttention(mismatch))
 	}
 	needsProblem = joinProblems(needsProblem, mismatchProblem)
-	// A recurring task whose firings keep failing before their first turn is
-	// said here from its second failure in a row: the sweep log records each
-	// one, and the log is somewhere nobody reads until they already know to.
+	// Every product pass is raised after three failed executions. Preserve the
+	// earlier pre-turn signal at two failures without listing a pass twice.
+	standing.FactoryProblems, standing.FactoryProblemsProblem = ReadPassFailures(sources)
+	if standing.FactoryProblems == nil {
+		standing.FactoryProblems = []Attention{}
+	}
+	raised := map[string]bool{}
+	for _, entry := range standing.FactoryProblems {
+		raised[entry.ID] = true
+		needs = append(needs, entry)
+	}
+	needsProblem = joinProblems(needsProblem, standing.FactoryProblemsProblem)
 	failing, failingProblem := ReadFailingTasks(sources)
 	for _, task := range failing {
-		needs = append(needs, failingTaskAttention(task))
+		if !raised[task.Task] {
+			needs = append(needs, failingTaskAttention(task))
+		}
 	}
 	needsProblem = joinProblems(needsProblem, failingProblem)
 	// A pass that reported findings and left no trace of them is the role's

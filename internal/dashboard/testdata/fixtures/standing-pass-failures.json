@@ -1,0 +1,47 @@
+{
+  "observed_at": "2026-09-19T14:05:09Z",
+  "capacity_blocked": {
+    "runs": [],
+    "conversations": []
+  },
+  "running": [],
+  "working": [],
+  "not_startable": [],
+  "admitted": 0,
+  "awaiting_decision": 0,
+  "awaiting_carry_out": 0,
+  "needs_human": [],
+  "reports": {
+    "collected": 0,
+    "unhandled": 0
+  },
+  "startable": 0,
+  "admitted_items": [],
+  "startable_items": [],
+  "factory_problems": [
+    {
+      "kind": "failing-task",
+      "id": "maintenance",
+      "mover": "program-manager",
+      "label": "scheduled task failing",
+      "failing_task": {
+        "task": "maintenance",
+        "role": "",
+        "cause": "",
+        "problem": "reconcile: last error",
+        "failures": 5,
+        "first_at": "2026-10-04T12:00:00Z",
+        "raised_at": "2026-10-04T12:20:00Z",
+        "latest_at": "2026-10-04T12:20:00Z",
+        "report_id": "report-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "ownership": {
+          "watcher": "program-manager",
+          "agent": "factory-flow-pm",
+          "resolver": "development-manager",
+          "mover": "program-manager"
+        },
+        "product_pass": true
+      }
+    }
+  ]
+}

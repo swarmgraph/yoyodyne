@@ -1,0 +1,22 @@
+{
+  "observed_at": "2026-09-19T14:05:09Z",
+  "capacity_blocked": {
+    "runs": [],
+    "conversations": []
+  },
+  "running": [],
+  "working": [],
+  "not_startable": [],
+  "admitted": 0,
+  "awaiting_decision": 0,
+  "awaiting_carry_out": 0,
+  "needs_human": [],
+  "reports": {
+    "collected": 0,
+    "unhandled": 0
+  },
+  "startable": 0,
+  "admitted_items": [],
+  "startable_items": [],
+  "factory_problems_problem": "product pass failures could not be read whole: permission denied"
+}

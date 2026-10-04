@@ -395,6 +395,34 @@ crontab -l | grep -i yoyodyne
 rm ~/.local/yoyodyne/yoyodyne-maintenance.sh ~/.local/yoyodyne/carry-out-queue.sh
 ```
 
+**Three failures in a row tell the roles without anyone reading this log.**
+After a third failed maintenance pass, the harness files one warning in the
+existing report pile. The finding names the pass, how many failures have
+followed one another, when they began in the operator's local time with the
+zone named, and the latest error on one line. The factory-flow program manager
+receives it in her next pass and must answer it in her account and existing
+digest and lane report; the development manager receives it too and owns
+resolving the cause. Where no factory-flow program manager is configured, the
+development manager watches it as well, and the finding says why.
+
+The dashboard's **Factory problems** section and `yoyo status` carry the same
+finding from the shared read model. Further failures raise its count without
+filing another report. Completing the watching role's pass or handling the
+report does not clear it: only a later successful maintenance pass does. The
+harness records the clearing in the report's handling log with the total
+number of consecutive failures. A later run of failures is a new finding.
+This applies to the recurring role passes recorded in the same sweep log too,
+including failures before their first turn and failures during a turn. A
+partial account, a held conversation, or a cadence that never fired does not
+clear an existing finding; missed cadences and provider waits do not count as
+failed executions.
+
+An error does not by itself make the finding the operator's. If the Lead
+Product Manager records a report handling as needing a step only a person can
+take, that handling supplies the exact step and the ownership resolver names
+the operator for it. The factory-flow program manager still watches, and the
+development manager still resolves the cause.
+
 ## Setting up with `yoyo setup`
 
 `yoyo setup` walks a project to an installation that can run work, as
@@ -4955,7 +4983,7 @@ against the answer.
 
 `yoyo dashboard` serves what `yoyo status` reads — the four lines, the
 capacity state carried under them, what the harness is spending, and what
-landed — to a browser on this machine, as one page of seven sections, and keeps
+landed — to a browser on this machine, as one page of eight sections, and keeps
 serving it until you stop it:
 
 ```sh
@@ -5066,7 +5094,7 @@ shape is refused before anything is read.
 
 ### What the page presents
 
-Seven sections, top to bottom, each drawn from the read model and from nothing
+Eight sections, top to bottom, each drawn from the read model and from nothing
 else. Above them, one banner and only one, while it stands: the same sentence
 the terminal prints above the four lines when the harness is paused on the
 provider's usage window, when every role is held by one, or when the provider
@@ -5182,7 +5210,13 @@ slowly or not at all`.
    provider is still refusing, with its model, its refusals, and its reset; and,
    when every role is held at once, a line saying so with the agents, the
    models, the alternates or the lack of them, the refusals, and the reset.
-7. **Program managers** — each [program manager](designs/program-manager.md)
+7. **Factory problems** — repeatedly failing product passes from
+   `standing.factory_problems`, with the pass, its current consecutive failure
+   count, the local time the failures began, the latest error, who watches it,
+   and who resolves its cause. An unreadable sweep or handling log says so in
+   this section. The finding ends when its own pass succeeds, as described
+   [under maintenance](#the-supervisors-maintenance-pass).
+8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),
    by name: its lane; its status as a word in a badge — **blocked**, **stale**,
@@ -5971,8 +6005,11 @@ the same record.
 [The channel](reporting.md#a-recurring-task-failing-before-its-first-turn) says
 it once as a `warning` when it becomes an entry, and once more as `critical`,
 sent to the operators directly as well, once it has stood two hours. It is not
-said again beyond that. The first firing that takes a turn clears the entry and
-ends the messages, and a later run of failures is said as a new one.
+said again beyond that. The first firing that takes a turn ends these pre-turn
+messages. Once three executions have failed, the broader
+[product pass finding](#the-supervisors-maintenance-pass) also stands, with the
+factory-flow program manager watching and the development manager resolving the
+cause; only a successful pass clears that finding.
 
 One turn may report at most twenty findings and five questions, and a whole
 firing holds what its turns come to. A pass that ran past even that says so in

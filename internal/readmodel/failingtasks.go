@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -32,12 +33,15 @@ import (
 // has to be told.
 const FailingTaskThreshold = 2
 
-// FailingTask is one recurring task whose latest firings have all failed
-// before their first turn: which task, the cause of the latest, how many in a
-// row, and since when.
+// FailingTask is a task whose firings have failed repeatedly: which task, the
+// latest cause, how many in a row, and since when. ProductPass marks the broader
+// finding that waits for a successful pass, with its watching and resolving roles.
 type FailingTask struct {
-	Task string           `json:"task"`
-	Role domain.AgentRole `json:"role"`
+	ProductPass bool                   `json:"product_pass,omitempty"`
+	Ownership   *ownership.PassFailure `json:"ownership,omitempty"`
+	ReportID    string                 `json:"report_id,omitempty"`
+	Task        string                 `json:"task"`
+	Role        domain.AgentRole       `json:"role"`
 	// Cause is the latest failed firing's, which is the one standing now.
 	Cause runstate.PreTurnCause `json:"cause"`
 	// Problem is what the latest failed firing's record says stopped it, which
@@ -60,6 +64,9 @@ type FailingTask struct {
 // could not assemble, is the harness's: it composed what it then refused,
 // which is a defect in the harness rather than anything a person configured.
 func (f FailingTask) Mover() Mover {
+	if f.Ownership != nil {
+		return f.Ownership.Mover
+	}
 	if f.Cause == runstate.PreTurnConversationUnopened {
 		return MoverOperator
 	}
@@ -69,6 +76,9 @@ func (f FailingTask) Mover() Mover {
 // Says is the failure as a sentence: the task, what failed, and how many
 // times.
 func (f FailingTask) Says() string {
+	if f.ProductPass {
+		return (runstate.PassFailure{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, Problem: f.Problem}).Says()
+	}
 	return fmt.Sprintf("the recurring task %s has failed before its first turn %d times in a row since %s: %s; latest: %s",
 		f.Task, f.Failures, f.FirstAt.UTC().Format(time.RFC3339), f.Cause.Describe(), singleLine(f.Problem, maxRefusalBytes))
 }

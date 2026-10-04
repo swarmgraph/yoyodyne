@@ -99,6 +99,10 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 	handled := report.Handled(handlings)
 	var actions []OperatorAction
 	for _, reported := range report.ByFiling(reports) {
+		// Sweep-derived findings remain one entry even with a person-only remedy.
+		if reported.PassFailureTask != "" {
+			continue
+		}
 		handling, done := handled[reported.ID]
 		switch {
 		case done && handling.NeedsOperator:

@@ -169,8 +169,10 @@ func (e Entry) Validate() error {
 // attribution the harness supplied for it. The attribution is what makes the
 // pile triageable later without deciding now how it will be filtered.
 type Report struct {
-	SchemaVersion int    `json:"schema_version"`
-	ID            string `json:"id"`
+	// PassFailureTask identifies a harness finding tied to the sweep log.
+	PassFailureTask string `json:"pass_failure_task,omitempty"`
+	SchemaVersion   int    `json:"schema_version"`
+	ID              string `json:"id"`
 	// Role is the contract the reporter worked under and Agent is the configured
 	// agent that filled it. Both are recorded because a project may configure
 	// more than one agent for a role, and "which developer said this" is then a
@@ -243,6 +245,12 @@ func NewID() (string, error) {
 // Validate reports every contract violation in the collected report at once.
 func (r Report) Validate() error {
 	var problems []error
+	if r.PassFailureTask != "" {
+		if r.Role != HarnessReporter {
+			problems = append(problems, errors.New("only the harness files a product pass failure"))
+		}
+		problems = append(problems, domain.ValidateIdentifier("failed pass", r.PassFailureTask))
+	}
 	if r.SchemaVersion != SchemaVersion {
 		problems = append(problems, fmt.Errorf("schema_version must be %d", SchemaVersion))
 	}
@@ -419,7 +427,9 @@ const MaxHandlingReasonBytes = 4 << 10
 // — somebody looked and decided — and the reason says which, in the words of
 // whoever decided it.
 type Handling struct {
-	SchemaVersion int `json:"schema_version"`
+	// PassFailureCleared records the number of failures ended by a successful pass.
+	PassFailureCleared int `json:"pass_failure_cleared,omitempty"`
+	SchemaVersion      int `json:"schema_version"`
 	// ReportID is the report this settles. It is the whole of the key: a report
 	// handled twice is two records and the later one is what is read, which is
 	// the right way round for an append-only log.
@@ -547,6 +557,9 @@ func Covering(requests []Request) ([]string, map[string][]string) {
 // Validate reports every contract violation in the handling at once.
 func (h Handling) Validate() error {
 	var problems []error
+	if h.PassFailureCleared != 0 && (h.PassFailureCleared < 3 || h.Role != HarnessReporter || h.NeedsOperator) {
+		problems = append(problems, errors.New("only the harness records a pass failure clearing, after at least three failures"))
+	}
 	if h.SchemaVersion != HandlingSchemaVersion {
 		problems = append(problems, fmt.Errorf("schema_version must be %d", HandlingSchemaVersion))
 	}

@@ -360,10 +360,10 @@ func printDashboardUsage(writer io.Writer) {
 
 Serves the read model -- the same four lines and capacity state `+"`yoyo status`"+`
 reads, what the harness is spending, and what landed -- to a browser on this
-machine, at a loopback port, until stopped, as a page of seven sections: the
+machine, at a loopback port, until stopped, as a page of eight sections: the
 status band, what the harness is spending, the runs and conversations in
 flight, where admitted work stands in the pipeline, throughput, provider
-capacity, and the program managers. It prints the URL and, beside it,
+capacity, factory problems, and the program managers. It prints the URL and, beside it,
 where the token every request for the read model has to carry as
 `+"`Authorization: Bearer <token>`"+` comes from: with services.dashboard.token at its
 `+"`generated`"+` default, the token itself, once, and a restart makes a new one; with

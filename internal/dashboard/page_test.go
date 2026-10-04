@@ -1,6 +1,6 @@
 package dashboard
 
-// These tests are the evidence for the page: its five sections, each with an
+// These tests are the evidence for the page: its eight sections, each with an
 // empty, a loading, and an error state beside its ready one, rendered from the
 // read model and from nothing else.
 //
@@ -40,10 +40,10 @@ import (
 
 var updateRenders = flag.Bool("update-renders", false, "rewrite the rendered pages under testdata/renders from the fixtures")
 
-// sections are the seven the page carries, by the id each carries in the
+// sections are the eight the page carries, by the id each carries in the
 // shell: the five the design names, the spend box above Running now, and the
-// program managers under Provider capacity.
-var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "managers"}
+// factory problems and program managers under Provider capacity.
+var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
 
 // popups are the three dialogs the page opens over the sections: a grouping —
 // of the pipeline listed by title, or of the attention line listed by what
@@ -77,7 +77,7 @@ func strict(t *testing.T, name string, body []byte, into any) {
 	}
 }
 
-// The shell carries the seven sections, and each of them carries its four states
+// The shell carries the eight sections, and each of them carries its four states
 // with the lines the script fills, so a section the script has not reached yet
 // says it is reading rather than being blank.
 func TestTheShellCarriesEverySectionEachWithItsStates(t *testing.T) {
@@ -577,7 +577,7 @@ func TestARenderWithoutNodeFailsUnlessDeclaredUnavailable(t *testing.T) {
 
 // The page's script draws every section in every state from the fixtures, and
 // what it draws is what the renders under testdata/renders hold. Each of the
-// seven sections reaches each of its four states in at least one scenario, each
+// eight sections reaches each of its four states in at least one scenario, each
 // of the three pop-ups reaches each of its four and is closed in another, the
 // page reaches its own four, and no scenario sets a style or sends the token
 // anywhere but as a bearer to this origin — render.js refuses both.
@@ -663,6 +663,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		return string(body)
 	}
 	for scenario, expectations := range map[string][]string{
+		"pass-failures":            {"Factory problems", "maintenance has failed 5 times", "factory-flow program manager factory-flow-pm", "development manager resolves the cause"},
+		"pass-failures-unreadable": {"product pass failures could not be read whole: permission denied"},
 		"busy": {
 			"Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states",
 			"cost unknown (its event log is gone)",

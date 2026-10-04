@@ -1,4 +1,40 @@
 {
+  "pass-failures": {
+    "page": "ready",
+    "sections": {
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "ready",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed"
+    }
+  },
+  "pass-failures-unreadable": {
+    "page": "ready",
+    "sections": {
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "error",
+      "managers": "empty"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed"
+    }
+  },
   "run-steps": {
     "page": "ready",
     "sections": {
@@ -8,6 +44,7 @@
       "pipeline": "ready",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -25,6 +62,7 @@
       "pipeline": "loading",
       "throughput": "loading",
       "capacity": "loading",
+      "factory": "loading",
       "managers": "loading"
     },
     "popups": {
@@ -42,6 +80,7 @@
       "pipeline": "loading",
       "throughput": "loading",
       "capacity": "loading",
+      "factory": "loading",
       "managers": "loading"
     },
     "popups": {
@@ -59,6 +98,7 @@
       "pipeline": "empty",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -76,6 +116,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -93,6 +134,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -110,6 +152,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -127,6 +170,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -144,6 +188,7 @@
       "pipeline": "error",
       "throughput": "error",
       "capacity": "error",
+      "factory": "empty",
       "managers": "error"
     },
     "popups": {
@@ -161,6 +206,7 @@
       "pipeline": "ready",
       "throughput": "loading",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -178,6 +224,7 @@
       "pipeline": "ready",
       "throughput": "error",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -195,6 +242,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -212,6 +260,7 @@
       "pipeline": "loading",
       "throughput": "loading",
       "capacity": "loading",
+      "factory": "loading",
       "managers": "loading"
     },
     "popups": {
@@ -229,6 +278,7 @@
       "pipeline": "loading",
       "throughput": "loading",
       "capacity": "loading",
+      "factory": "loading",
       "managers": "loading"
     },
     "popups": {
@@ -246,6 +296,7 @@
       "pipeline": "loading",
       "throughput": "loading",
       "capacity": "loading",
+      "factory": "loading",
       "managers": "loading"
     },
     "popups": {
@@ -263,6 +314,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -280,6 +332,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -297,6 +350,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -314,6 +368,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -331,6 +386,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -348,6 +404,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -365,6 +422,7 @@
       "pipeline": "ready",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -382,6 +440,7 @@
       "pipeline": "ready",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -399,6 +458,7 @@
       "pipeline": "ready",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -416,6 +476,7 @@
       "pipeline": "ready",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -433,6 +494,7 @@
       "pipeline": "ready",
       "throughput": "empty",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -450,6 +512,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -467,6 +530,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -484,6 +548,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -501,6 +566,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -518,6 +584,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -535,6 +602,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -552,6 +620,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -569,6 +638,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -586,6 +656,7 @@
       "pipeline": "ready",
       "throughput": "loading",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -603,6 +674,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -620,6 +692,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -637,6 +710,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -654,6 +728,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -671,6 +746,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -688,6 +764,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -705,6 +782,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -722,6 +800,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -739,6 +818,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -756,6 +836,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -773,6 +854,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -790,6 +872,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -807,6 +890,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -824,6 +908,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -841,6 +926,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "empty",
+      "factory": "empty",
       "managers": "empty"
     },
     "popups": {
@@ -858,6 +944,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -875,6 +962,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -892,6 +980,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -909,6 +998,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -926,6 +1016,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -943,6 +1034,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -960,6 +1052,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -977,6 +1070,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
@@ -994,6 +1088,7 @@
       "pipeline": "ready",
       "throughput": "ready",
       "capacity": "ready",
+      "factory": "empty",
       "managers": "ready"
     },
     "popups": {
