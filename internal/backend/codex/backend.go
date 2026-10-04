@@ -313,6 +313,9 @@ func (b Backend) CheckAvailability(ctx context.Context) (backend.Availability, e
 	environment := environmentFor(b.ConfigDir)
 	versionResult, err := b.Runner.Run(ctx, execution.Command{Name: binary, Args: []string{"--version"}, Env: environment, Timeout: versionCheckTimeout}, nil)
 	if err != nil {
+		if availability, unavailable := backend.ExecutableUnavailable(err); unavailable {
+			return availability, nil
+		}
 		if errors.Is(err, exec.ErrNotFound) {
 			return backend.NotFound(binary), nil
 		}
@@ -333,6 +336,9 @@ func (b Backend) CheckAvailability(ctx context.Context) (backend.Availability, e
 
 	loginResult, err := b.Runner.Run(ctx, execution.Command{Name: binary, Args: []string{"login", "status"}, Env: environment, Timeout: 10 * time.Second}, nil)
 	if err != nil {
+		if availability, unavailable := backend.ExecutableUnavailable(err); unavailable {
+			return availability, nil
+		}
 		return availability, fmt.Errorf("check Codex authentication: %w", err)
 	}
 	availability.Authenticated = loginResult.Status == execution.ProcessSucceeded

@@ -34,7 +34,11 @@ func (r *boundaryRunner) Run(_ context.Context, command execution.Command, obser
 func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 	t.Parallel()
 	const provider domain.Backend = "declared-codex"
-	registry, err := backend.NewRegistry(map[domain.Backend]backend.ProviderPlugin{provider: {Adapter: domain.BackendCodex, Binary: "codex-proxy", Roles: []domain.AgentRole{domain.RoleReviewer}, Postures: []backend.Posture{backend.PostureReadOnly}, Dialect: backend.DialectSpec{Rules: []backend.DialectRule{{Answer: backend.AnswerRetrying, Type: "retry"}}}}})
+	binary := filepath.Join(t.TempDir(), "codex-proxy")
+	if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	registry, err := backend.NewRegistry(map[domain.Backend]backend.ProviderPlugin{provider: {Adapter: domain.BackendCodex, Binary: binary, Roles: []domain.AgentRole{domain.RoleReviewer}, Postures: []backend.Posture{backend.PostureReadOnly}, Dialect: backend.DialectSpec{Rules: []backend.DialectRule{{Answer: backend.AnswerRetrying, Type: "retry"}}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +71,7 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 				t.Fatal(err)
 			}
 			command := runner.command
-			if command.Name != "codex-proxy" {
+			if command.Name != binary {
 				t.Fatalf("binary=%q", command.Name)
 			}
 			args := strings.Join(command.Args, "\n")

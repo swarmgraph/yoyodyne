@@ -24,7 +24,7 @@ type Capabilities struct {
 }
 
 // Availability is what a provider's executable said about itself. Installed is
-// false only for an executable that was not there to ask; one that was there and
+// false for an executable that was not found or could not be executed; one that started and
 // did not answer -- it timed out, it was cancelled, it exited nonzero -- is an
 // error from CheckAvailability saying which, and never Installed false. See
 // availability.go for why the two are kept apart.
@@ -35,7 +35,7 @@ type Availability struct {
 	AuthMethod    string `json:"auth_method,omitempty"`
 	APIProvider   string `json:"api_provider,omitempty"`
 	// Missing says what was looked for and where, when Installed is false: the
-	// executable's name and the PATH it was not found on. It is empty whenever
+	// executable's name, discovery failure and setup remedy. It is empty whenever
 	// Installed is true, and for an adapter that does not say.
 	Missing string `json:"missing,omitempty"`
 }

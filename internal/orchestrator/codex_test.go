@@ -116,7 +116,7 @@ func TestARunNamesTheBackendWhoseCLIIsMissing(t *testing.T) {
 	pipeline.Backend = codex.Backend{Runner: &scriptedCodexCLI{absent: true}}
 
 	_, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	if err == nil || !strings.Contains(err.Error(), "codex backend is not installed") {
+	if err == nil || !strings.Contains(err.Error(), "codex backend cannot run in this environment") || !strings.Contains(err.Error(), "codex was not found on PATH") {
 		t.Fatalf("Run() error = %v, want it to name the backend the agents selected", err)
 	}
 	if tracker.Claimed {

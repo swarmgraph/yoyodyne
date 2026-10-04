@@ -277,8 +277,12 @@ from the name — so `role` must be one of `product-manager`, `architect`,
 the table itself.
 
 `backend` is `claude-code` or `codex` unless your project declares one of its
-own — and `codex` only for a `developer` agent, since its sandbox cannot hold
-the tool access every other role requires. A project running a fork, a proxy, or
+own. Both built-ins serve every role under the compiled adapter's tool access
+restrictions. For a CLI outside PATH, including a desktop-bundled Codex, set
+`providers.codex.binary` or `providers.claude-code.binary` to its absolute path;
+[executable setup and precedence](../provider-plugins.md#executable-setup-and-precedence)
+applies to terminal chats, scheduled execution and fallback alike.
+A project running a fork, a proxy, or
 a variant of a provider yoyo already speaks can describe it under a top-level `providers:` key and name it here: which
 compiled adapter launches it, which executable that adapter runs, which roles it
 serves, which kinds of tool access it can hold them to, and how to read what it says

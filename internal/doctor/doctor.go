@@ -839,7 +839,7 @@ func accountProvider(cfg config.Config, registry *backend.Registry, alias string
 // really that provider's says so on the accounts, and is then diagnosed through
 // that provider's own adapter.
 func poolDescriptor(cfg config.Config, registry *backend.Registry) backend.Descriptor {
-	builtIn, _ := backend.BuiltInDescriptor(domain.BackendClaudeCode)
+	builtIn, _ := registry.Lookup(domain.BackendClaudeCode)
 	names := make([]string, 0, len(cfg.Agents))
 	for name := range cfg.Agents {
 		names = append(names, name)
@@ -863,7 +863,7 @@ func (d *diagnosis) checkAccount(ctx context.Context, cfg config.Config, named d
 	check := "account:" + alias
 	membership := cfg.Accounts[alias].Membership()
 	directory := endpoint.Directory
-	login := AccountLoginCommand(descriptor.Adapter, directory)
+	login := AccountLoginCommand(descriptor.Adapter, directory, descriptor.Binary)
 	binary := descriptor.Binary
 	if binary == "" {
 		binary = providerBinary(descriptor.Adapter)
@@ -873,7 +873,7 @@ func (d *diagnosis) checkAccount(ctx context.Context, cfg config.Config, named d
 	// account naming a provider nothing in this build can launch is said to be
 	// exactly that rather than asked with somebody else's executable, which would
 	// report every such account as unauthenticated.
-	provider, built := adapters.For(descriptor, named, d.env.Runner, directory)
+	provider, built := adapters.For(descriptor, named, d.env.Runner, directory, d.lookPath)
 	if !built {
 		return Finding{
 			Check:   check,
@@ -898,12 +898,16 @@ func (d *diagnosis) checkAccount(ctx context.Context, cfg config.Config, named d
 		// and saying it once per alias would bury that under the accounts it
 		// stopped this from answering. What is added here is which account went
 		// unasked.
+		remedy := providerInstallCommand(descriptor.Adapter)
+		if descriptor.Binary != "" {
+			remedy = fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(configPath))
+		}
 		return Finding{
 			Check:   check,
 			Status:  StatusProblem,
 			Summary: fmt.Sprintf("account %q could not be asked, because %s did not run", alias, binary),
-			Detail:  accountHomeDetail(directory),
-			Remedy:  providerInstallCommand(descriptor.Adapter),
+			Detail:  strings.TrimSpace(accountHomeDetail(directory) + " " + availability.Missing),
+			Remedy:  remedy,
 		}
 	case !availability.Authenticated:
 		return Finding{
@@ -939,8 +943,18 @@ func (d *diagnosis) checkAccount(ctx context.Context, cfg config.Config, named d
 // refuses to open on one. An operator who met the same condition twice and was
 // handed two different commands would have to work out which of them was the
 // real one, so there is one command and both read it from here.
-func AccountLoginCommand(adapter domain.Backend, directory string) string {
+// An optional binary selects the configured executable, quoted as one shell
+// argument; omitting it keeps the adapter's ordinary PATH command.
+func AccountLoginCommand(adapter domain.Backend, directory string, binary ...string) string {
 	login := providerLoginCommand(adapter)
+	if len(binary) != 0 && strings.TrimSpace(binary[0]) != "" {
+		switch adapter {
+		case domain.BackendCodex:
+			login = shellQuote(binary[0]) + " login"
+		case domain.BackendClaudeCode:
+			login = shellQuote(binary[0]) + " auth login"
+		}
+	}
 	variable, named := adapters.HomeVariable(adapter)
 	if strings.TrimSpace(directory) == "" || !named {
 		return login
@@ -978,15 +992,6 @@ func (d *diagnosis) checkProvider(ctx context.Context, named domain.Backend, des
 			Remedy: fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(configPath)),
 		}
 	}
-	if _, err := d.lookPath(binary); err != nil {
-		return Finding{
-			Check:   check,
-			Status:  StatusProblem,
-			Summary: fmt.Sprintf("%s is not installed, and it executes every agent that names this backend", binary),
-			Detail:  err.Error(),
-			Remedy:  providerInstallCommand(descriptor.Adapter),
-		}
-	}
 	// The provider is asked about its own authentication through the same adapter
 	// that would run it, so a project that declared a provider is diagnosed by
 	// whatever reads that provider's answers rather than by whatever this
@@ -995,7 +1000,7 @@ func (d *diagnosis) checkProvider(ctx context.Context, named domain.Backend, des
 	// for the day this build grows an adapter with no availability check of its
 	// own, because reporting a provider nothing could ask as healthy is the one
 	// answer that would be worse than saying so.
-	provider, built := adapters.For(descriptor, named, d.env.Runner, "")
+	provider, built := adapters.For(descriptor, named, d.env.Runner, "", d.lookPath)
 	if !built {
 		return Finding{
 			Check:   check,
@@ -1012,10 +1017,19 @@ func (d *diagnosis) checkProvider(ctx context.Context, named domain.Backend, des
 			Status:  StatusProblem,
 			Summary: fmt.Sprintf("%s would not say whether it is authenticated", binary),
 			Detail:  err.Error(),
-			Remedy:  providerLoginCommand(descriptor.Adapter),
+			Remedy:  AccountLoginCommand(descriptor.Adapter, "", descriptor.Binary),
 		}
 	}
-	return providerFinding(check, binary, descriptor.Adapter, availability)
+	finding := providerFinding(check, binary, descriptor.Adapter, availability)
+	if !availability.Installed {
+		finding.Detail = availability.Missing
+		if descriptor.Binary != "" {
+			finding.Remedy = fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(configPath))
+		}
+	} else if !availability.Authenticated {
+		finding.Remedy = AccountLoginCommand(descriptor.Adapter, "", descriptor.Binary)
+	}
+	return finding
 }
 
 func providerFinding(check, binary string, named domain.Backend, availability backend.Availability) Finding {
@@ -1024,7 +1038,7 @@ func providerFinding(check, binary string, named domain.Backend, availability ba
 		return Finding{
 			Check:   check,
 			Status:  StatusProblem,
-			Summary: fmt.Sprintf("%s is on PATH but did not run", binary),
+			Summary: fmt.Sprintf("%s cannot run in this environment", binary),
 			Remedy:  providerInstallCommand(named),
 		}
 	case !availability.Authenticated:
@@ -1168,14 +1182,7 @@ func RepositoryPath(project, repository string) string {
 // An unmapped backend is not defaulted: guessing a binary name would report a
 // provider that does not exist as one that is merely not installed.
 func providerBinary(named domain.Backend) string {
-	switch named {
-	case domain.BackendClaudeCode:
-		return "claude"
-	case domain.BackendCodex:
-		return "codex"
-	default:
-		return ""
-	}
+	return adapters.Binary(backend.Descriptor{Adapter: named})
 }
 
 func providerInstallCommand(named domain.Backend) string {
