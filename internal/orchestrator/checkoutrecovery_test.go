@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"reflect"
 	"strings"
 	"testing"
@@ -10,37 +11,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
-
-type recoveryCheckout struct {
-	*fakeOwnership
-	present       bool
-	branch        bool
-	restores      int
-	restoreErr    error
-	surviveErr    error
-	dirty         bool
-	beforeRestore func()
-}
-
-func (w *recoveryCheckout) Inspect(_ context.Context, tree gitworktree.Worktree) (gitworktree.Inspection, error) {
-	return gitworktree.Inspection{Registered: w.present, Branch: tree.Branch, Dirty: w.dirty}, nil
-}
-
-func (w *recoveryCheckout) Survives(context.Context, gitworktree.Worktree) (gitworktree.Survival, error) {
-	return gitworktree.Survival{WorktreePresent: w.present, BranchExists: w.branch}, w.surviveErr
-}
-
-func (w *recoveryCheckout) RestoreWorktree(_ context.Context, tree gitworktree.Worktree) (gitworktree.Worktree, error) {
-	w.restores++
-	if w.beforeRestore != nil {
-		w.beforeRestore()
-	}
-	if w.restoreErr != nil {
-		return gitworktree.Worktree{}, w.restoreErr
-	}
-	w.present = true
-	return tree, nil
-}
 
 func missingRecoveryState() runstate.State {
 	s := continuableState()
@@ -60,8 +30,8 @@ func TestRepairRestoresTheRecordedRunWithoutResettingItsSpend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
-	w.beforeRestore = func() {
+	w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true}
+	w.BeforeRestore = func() {
 		stopped := h.reload(t)
 		if stopped.ChecksPassed != nil || !stopped.Status.Terminal() || stopped.RepairAttempts != s.RepairAttempts {
 			t.Fatalf("before restoration = %#v; want verification cleared while the run stays stopped and unspent", stopped)
@@ -73,8 +43,8 @@ func TestRepairRestoresTheRecordedRunWithoutResettingItsSpend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Continued || !result.WorktreeRestored || w.restores != 1 || len(h.started) != 1 || h.started[0].runID != s.RunID {
-		t.Fatalf("result = %#v, restores = %d, starts = %#v", result, w.restores, h.started)
+	if !result.Continued || !result.WorktreeRestored || w.Restores != 1 || len(h.started) != 1 || h.started[0].runID != s.RunID {
+		t.Fatalf("result = %#v, restores = %d, starts = %#v", result, w.Restores, h.started)
 	}
 	after := h.reload(t)
 	if after.RunID != s.RunID || after.ProviderSessionID != s.ProviderSessionID || after.ReviewRounds != s.ReviewRounds || after.RepairAttempts != s.RepairAttempts+1 || after.WorktreeRemoved || after.WorktreeSweptAt != nil || after.ChecksPassed != nil {
@@ -93,27 +63,27 @@ func TestRepairRestorationRefusesWithoutSpendingTheContinuation(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
-		change func(*runstate.State, *recoveryCheckout)
+		change func(*runstate.State, *orchestratortest.RecoveryCheckout)
 	}{
-		{"branch missing", func(_ *runstate.State, w *recoveryCheckout) { w.branch = false }},
-		{"path conflict", func(_ *runstate.State, w *recoveryCheckout) {
-			w.restoreErr = errors.New("worktree path already exists")
+		{"branch missing", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) { w.Branch = false }},
+		{"path conflict", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) {
+			w.RestoreErr = errors.New("worktree path already exists")
 		}},
-		{"revision not verifiable", func(_ *runstate.State, w *recoveryCheckout) {
-			w.restoreErr = errors.New("branch is not at the recorded commit")
+		{"revision not verifiable", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) {
+			w.RestoreErr = errors.New("branch is not at the recorded commit")
 		}},
-		{"no recorded commit", func(s *runstate.State, _ *recoveryCheckout) { s.HarnessCommit = "" }},
-		{"captured uncommitted work", func(s *runstate.State, _ *recoveryCheckout) {
+		{"no recorded commit", func(s *runstate.State, _ *orchestratortest.RecoveryCheckout) { s.HarnessCommit = "" }},
+		{"captured uncommitted work", func(s *runstate.State, _ *orchestratortest.RecoveryCheckout) {
 			s.PreservedWorkRef = gitworktree.PreservedWorkRef(s.RunID)
 		}},
-		{"unfinished developer", func(s *runstate.State, _ *recoveryCheckout) { s.Phase = runstate.PhaseDeveloping }},
+		{"unfinished developer", func(s *runstate.State, _ *orchestratortest.RecoveryCheckout) { s.Phase = runstate.PhaseDeveloping }},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := missingRecoveryState()
-			w := &recoveryCheckout{branch: true}
+			w := &orchestratortest.RecoveryCheckout{Branch: true}
 			tc.change(&s, w)
 			h := newContinueHarness(t, s)
-			w.fakeOwnership = h.ownership
+			w.Ownership = h.ownership
 			c := h.continuer()
 			c.Worktrees, c.Remains = w, w
 			result, err := c.Continue(context.Background(), continueRequest())
@@ -136,11 +106,11 @@ func TestRepairRestartAfterCheckoutRestorationUsesTheSameDecisionOnce(t *testing
 	s := missingRecoveryState()
 	s.CheckoutRestorePending = true
 	h := newContinueHarness(t, s)
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true}
+	w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true, Present: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
 	result, err := c.Continue(context.Background(), continueRequest())
-	if err != nil || !result.Continued || w.restores != 0 {
+	if err != nil || !result.Continued || w.Restores != 0 {
 		t.Fatalf("result = %#v, error = %v", result, err)
 	}
 	state := h.reload(t)
@@ -161,7 +131,7 @@ func TestRepairRestartRefusesAPartlyRestoredCheckout(t *testing.T) {
 	s := missingRecoveryState()
 	s.CheckoutRestorePending = true
 	h := newContinueHarness(t, s)
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true, dirty: true}
+	w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true, Present: true, Dirty: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
 	if _, err := c.Continue(context.Background(), continueRequest()); err == nil || !strings.Contains(err.Error(), "unfinished") {
@@ -182,14 +152,14 @@ func TestMissingCheckoutRecoveryWaitsForIntakeAndKeepsCheckStageSpend(t *testing
 	s.ReviewFindings, s.ReviewDecision, s.ReviewSummary = 0, "", ""
 	s.CheckStage = &runstate.CheckStage{StartedAt: s.StartedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true, ElapsedSeconds: 1800}
 	h := newContinueHarness(t, s)
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
+	w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
 	if _, err := h.intake.Hold(runstate.IntakeHolderOperator, "wait", docketedNow); err != nil {
 		t.Fatal(err)
 	}
 	result, err := c.Continue(context.Background(), continueRequest())
-	if err != nil || result.IntakeHeld == nil || w.restores != 0 {
+	if err != nil || result.IntakeHeld == nil || w.Restores != 0 {
 		t.Fatalf("held recovery = %#v, %v", result, err)
 	}
 	if !reflect.DeepEqual(s, h.reload(t)) {

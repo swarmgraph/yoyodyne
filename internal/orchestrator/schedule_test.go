@@ -515,9 +515,9 @@ func (l *landedOnPull) Settle(_ context.Context, entries []backlog.Entry) (Landi
 			continue
 		}
 		l.harness.mu.Lock()
-		for index := range l.harness.items {
-			if l.harness.items[index].ID == entry.ID {
-				l.harness.items[index].Status = "closed"
+		for index := range l.harness.Items {
+			if l.harness.Items[index].ID == entry.ID {
+				l.harness.Items[index].Status = "closed"
 			}
 		}
 		l.harness.mu.Unlock()
@@ -838,7 +838,7 @@ func TestSchedulerLeavesWorkTheTrackerDoesNotReportAsReady(t *testing.T) {
 	blocked := beads.WorkItem{ID: "yoyodyne-blocked", Title: "Blocked", Status: "open", Priority: 0}
 	ready := beads.WorkItem{ID: "yoyodyne-ready", Title: "Ready", Status: "open", Priority: 2}
 	harness := newScheduleHarness(blocked, ready)
-	harness.ready = map[string]bool{ready.ID: true}
+	harness.ReadyItems = map[string]bool{ready.ID: true}
 
 	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
 	if err != nil {
@@ -3538,9 +3538,8 @@ func sameStates(got, want []runstate.WatchState) bool {
 // mutex, because a scheduler starts runs in parallel and they all report back
 // into it.
 type scheduleHarness struct {
-	mu       sync.Mutex
-	items    []beads.WorkItem
-	ready    map[string]bool
+	orchestratortest.ScheduleTracker
+	mu       *sync.Mutex
 	inFlight map[string]runstate.State
 	pausing  map[string][]directive.Directive
 	stale    []staleness.WorkItem
@@ -3733,24 +3732,24 @@ type scheduleHarness struct {
 
 func newScheduleHarness(items ...beads.WorkItem) *scheduleHarness {
 	harness := &scheduleHarness{
-		items:      items,
-		ready:      map[string]bool{},
-		inFlight:   map[string]runstate.State{},
-		pausing:    map[string][]directive.Directive{},
-		selections: map[string]runstate.Selection{},
-		prices:     map[string]float64{},
-		capacity:   1,
-		cooldown:   30 * time.Minute,
-		poll:       time.Minute,
-		drainLimit: 15 * time.Minute,
-		gate:       make(chan struct{}),
-		started:    make(chan struct{}, 1),
+		ScheduleTracker: orchestratortest.ScheduleTracker{Items: items, ReadyItems: map[string]bool{}},
+		inFlight:        map[string]runstate.State{},
+		pausing:         map[string][]directive.Directive{},
+		selections:      map[string]runstate.Selection{},
+		prices:          map[string]float64{},
+		capacity:        1,
+		cooldown:        30 * time.Minute,
+		poll:            time.Minute,
+		drainLimit:      15 * time.Minute,
+		gate:            make(chan struct{}),
+		started:         make(chan struct{}, 1),
 		// The morning the session that provoked the retry died, so a test reading
 		// its own timings reads the ones in the report.
 		now: time.Date(2026, 9, 1, 5, 40, 0, 0, time.UTC),
 	}
+	harness.mu = &harness.ScheduleTracker.Mu
 	for _, item := range items {
-		harness.ready[item.ID] = true
+		harness.ReadyItems[item.ID] = true
 	}
 	harness.run = func(h *scheduleHarness, id string) (Outcome, error) { return h.complete(id), nil }
 	return harness
@@ -4041,9 +4040,9 @@ func (h *scheduleHarness) Price(workItemID string) (runstate.ItemPrice, error) {
 func (h *scheduleHarness) admit(items ...beads.WorkItem) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.items = append(h.items, items...)
+	h.Items = append(h.Items, items...)
 	for _, item := range items {
-		h.ready[item.ID] = true
+		h.ReadyItems[item.ID] = true
 	}
 }
 
@@ -4053,11 +4052,11 @@ func (h *scheduleHarness) admit(items ...beads.WorkItem) {
 func (h *scheduleHarness) block(workItemID, reason string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.ready, workItemID)
-	for index := range h.items {
-		if h.items[index].ID == workItemID {
-			h.items[index].Status = "blocked"
-			h.items[index].Notes = strings.TrimSpace(h.items[index].Notes + "\n" + reason)
+	delete(h.ReadyItems, workItemID)
+	for index := range h.Items {
+		if h.Items[index].ID == workItemID {
+			h.Items[index].Status = "blocked"
+			h.Items[index].Notes = strings.TrimSpace(h.Items[index].Notes + "\n" + reason)
 		}
 	}
 }
@@ -4067,10 +4066,10 @@ func (h *scheduleHarness) block(workItemID, reason string) {
 func (h *scheduleHarness) unblock(workItemID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.ready[workItemID] = true
-	for index := range h.items {
-		if h.items[index].ID == workItemID {
-			h.items[index].Status = "open"
+	h.ReadyItems[workItemID] = true
+	for index := range h.Items {
+		if h.Items[index].ID == workItemID {
+			h.Items[index].Status = "open"
 		}
 	}
 }
@@ -4080,9 +4079,9 @@ func (h *scheduleHarness) unblock(workItemID string) {
 func (h *scheduleHarness) amend(workItemID, description string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	for index := range h.items {
-		if h.items[index].ID == workItemID {
-			h.items[index].Description = description
+	for index := range h.Items {
+		if h.Items[index].ID == workItemID {
+			h.Items[index].Description = description
 		}
 	}
 }
@@ -4236,7 +4235,7 @@ func (h *scheduleHarness) clock() time.Time {
 	return h.now
 }
 
-func (h *scheduleHarness) List(_ context.Context, status string) ([]beads.WorkItem, error) {
+func (h *scheduleHarness) List(ctx context.Context, status string) ([]beads.WorkItem, error) {
 	h.mu.Lock()
 	h.lists++
 	lists, failList := h.lists, h.failList
@@ -4246,27 +4245,7 @@ func (h *scheduleHarness) List(_ context.Context, status string) ([]beads.WorkIt
 			return nil, err
 		}
 	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var matching []beads.WorkItem
-	for _, item := range h.items {
-		if item.Status == status {
-			matching = append(matching, item)
-		}
-	}
-	return matching, nil
-}
-
-func (h *scheduleHarness) Ready(context.Context) ([]beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	var pullable []beads.WorkItem
-	for _, item := range h.items {
-		if h.ready[item.ID] && item.Status == "open" {
-			pullable = append(pullable, item)
-		}
-	}
-	return pullable, nil
+	return h.ScheduleTracker.List(ctx, status)
 }
 
 func (h *scheduleHarness) Incomplete() ([]runstate.State, error) {
@@ -4385,10 +4364,10 @@ func (h *scheduleHarness) complete(workItemID string) Outcome {
 func (h *scheduleHarness) close(workItemID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.ready, workItemID)
-	for index := range h.items {
-		if h.items[index].ID == workItemID {
-			h.items[index].Status = "closed"
+	delete(h.ReadyItems, workItemID)
+	for index := range h.Items {
+		if h.Items[index].ID == workItemID {
+			h.Items[index].Status = "closed"
 		}
 	}
 }
@@ -4401,7 +4380,7 @@ func (h *scheduleHarness) close(workItemID string) {
 func (h *scheduleHarness) retire(workItemID string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	delete(h.ready, workItemID)
+	delete(h.ReadyItems, workItemID)
 }
 
 func (h *scheduleHarness) pullOrder() []string {
@@ -4424,6 +4403,7 @@ func (h *scheduleHarness) selectionFor(workItemID string) runstate.Selection {
 // process — and because two runs sharing one fake would be a data race the
 // harness itself does not have.
 type realScheduleHarness struct {
+	orchestratortest.PipelineTracker
 	*scheduleHarness
 	t            *testing.T
 	repository   string
@@ -4432,9 +4412,6 @@ type realScheduleHarness struct {
 	directives   *runstate.DirectiveStore
 	holds        *runstate.OperatorHoldStore
 	intake       *runstate.IntakeHoldStore
-	// notes is every note a run appended to an item, which a test about what a
-	// run records on its item reads.
-	notes []string
 	// develop is what each run's developer writes into its worktree. The default
 	// gives every item a file of its own, which is the ordinary case; a test
 	// about what happens when two changes collide points them at one path.
@@ -4457,6 +4434,7 @@ func newRealScheduleHarness(t *testing.T, capacity int, ids ...string) *realSche
 		holds:           newOperatorHoldStore(t),
 		intake:          newIntakeHoldStore(t),
 	}
+	harness.PipelineTracker.Queue = &harness.scheduleHarness.ScheduleTracker
 	harness.capacity = capacity
 	harness.develop = func(workItemID, worktree string) error {
 		return os.WriteFile(filepath.Join(worktree, workItemID+".txt"), []byte("implemented\n"), 0o600)
@@ -4509,99 +4487,6 @@ func (h *realScheduleHarness) start(ctx context.Context, workItemID string, sele
 	outcome, err := pipeline.Run(ctx, workItemID)
 	h.retire(workItemID)
 	return outcome, err
-}
-
-// Show, Claim, RecordOutcome, Block, and Complete are the tracker the real
-// pipeline drives. They are the fake harness's items behind its own mutex,
-// because three runs are calling them at once.
-func (h *realScheduleHarness) Show(_ context.Context, id string) (beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for _, item := range h.items {
-		if item.ID == id {
-			return item, nil
-		}
-	}
-	return beads.WorkItem{}, fmt.Errorf("no work item %s", id)
-}
-
-func (h *realScheduleHarness) Claim(_ context.Context, id string) (beads.WorkItem, *beads.StaleBlockClear, error) {
-	item, err := h.setStatus(id, "in_progress")
-	return item, nil, err
-}
-
-func (h *realScheduleHarness) RecordOutcome(_ context.Context, id, notes string) (beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.notes = append(h.notes, notes)
-	return h.itemLocked(id)
-}
-
-// recordedNotes is every note the runs appended to an item, in order.
-func (h *realScheduleHarness) recordedNotes() []string {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return append([]string(nil), h.notes...)
-}
-
-func (h *realScheduleHarness) Block(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	return h.setStatus(id, "blocked")
-}
-
-func (h *realScheduleHarness) Release(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	return h.setStatus(id, "open")
-}
-
-func (h *realScheduleHarness) Complete(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	return h.setStatus(id, "closed")
-}
-
-// Reopen puts the item back in the backlog under the parking it was given, which
-// is the whole of what a later pull reads: an item returned open and unparked is
-// one the very next poll offers again.
-func (h *realScheduleHarness) Reopen(_ context.Context, id, _ string, parking domain.WorkItemParking) (beads.WorkItem, error) {
-	h.mu.Lock()
-	for index := range h.items {
-		if h.items[index].ID == id {
-			h.items[index].Parking = parking
-		}
-	}
-	h.mu.Unlock()
-	return h.setStatus(id, "open")
-}
-
-func (h *realScheduleHarness) AddBlocker(_ context.Context, id, blockerID string) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for index := range h.items {
-		if h.items[index].ID == id {
-			h.items[index].Dependencies = append(h.items[index].Dependencies,
-				beads.Dependency{IssueID: id, ID: blockerID, Type: "blocks"})
-			return nil
-		}
-	}
-	return fmt.Errorf("no work item %s", id)
-}
-
-func (h *realScheduleHarness) setStatus(id, status string) (beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for index := range h.items {
-		if h.items[index].ID == id {
-			h.items[index].Status = status
-			return h.items[index], nil
-		}
-	}
-	return beads.WorkItem{}, fmt.Errorf("no work item %s", id)
-}
-
-func (h *realScheduleHarness) itemLocked(id string) (beads.WorkItem, error) {
-	for _, item := range h.items {
-		if item.ID == id {
-			return item, nil
-		}
-	}
-	return beads.WorkItem{}, fmt.Errorf("no work item %s", id)
 }
 
 // Every stoppage comes back to the scheduler as an error, so a pass that read
@@ -5248,7 +5133,7 @@ func TestSchedulerStartsBlockedWorkNothingIsHoldingAndPassesOverAStoppage(t *tes
 	harness := newScheduleHarness(stopped, released)
 	// Neither is on the tracker's ready list, because that list is computed from
 	// the same status field. That is the whole of what hid them.
-	harness.ready = map[string]bool{}
+	harness.ReadyItems = map[string]bool{}
 	harness.stoppages = haltedWork{runs: []runstate.State{{
 		RunID:        "run-5035c832",
 		WorkItemID:   stopped.ID,
@@ -5336,7 +5221,7 @@ func TestSchedulerHoldsBlockedWorkWhenNothingCanSayWhatIsHoldingIt(t *testing.T)
 	harness := newScheduleHarness(beads.WorkItem{
 		ID: "yoyodyne-ifd.117.1", Title: "Split the configuration reference", Status: "blocked", Priority: 1,
 	})
-	harness.ready = map[string]bool{}
+	harness.ReadyItems = map[string]bool{}
 
 	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
 	if err != nil {
@@ -5654,7 +5539,7 @@ func TestAnItemAmendedUnderASentenceRefusalIsTakenAtTheNextPull(t *testing.T) {
 		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.items[0].Description = "The reading surface for the per-role memory store. The store exists and this reads it as it stands."
+		h.Items[0].Description = "The reading surface for the per-role memory store. The store exists and this reads it as it stands."
 		h.now = h.now.Add(time.Minute)
 		return true
 	}
@@ -5719,8 +5604,8 @@ func TestASentenceThatSurvivesInAnotherFieldIsRefusedNamingThatField(t *testing.
 		}
 		h.mu.Lock()
 		defer h.mu.Unlock()
-		h.items[0].Description = "The reading surface."
-		h.items[0].Design = "Build on the store. It does not start before 282's design lands."
+		h.Items[0].Description = "The reading surface."
+		h.Items[0].Design = "Build on the store. It does not start before 282's design lands."
 		h.now = h.now.Add(time.Minute)
 		return true
 	}

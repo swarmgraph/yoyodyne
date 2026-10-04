@@ -18,7 +18,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
-	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -67,6 +66,7 @@ type startedRun struct {
 // rerunHarness is the durable state a re-run acts on, held together so a test
 // can drive one decision without rebuilding four stores.
 type rerunHarness struct {
+	orchestratortest.RerunServices
 	docket *memoryDocket
 	runs   *runstate.Store
 	intake *runstate.IntakeHoldStore
@@ -74,76 +74,16 @@ type rerunHarness struct {
 	// holds is the operator's pause over everything the harness spends. A re-run
 	// asked for by hand never reads it — the pipeline does — and a carry-out the
 	// harness fires itself does, which is why it is built here beside the rest.
-	holds *runstate.OperatorHoldStore
-	// item is the work item as the tracker has it, which is what says whether a
-	// fresh run may start on it, and itemErr a tracker that could not be asked.
-	item    beads.WorkItem
-	itemErr error
-	// released is each note a released claim carried, and releaseErr a tracker
-	// that refuses the release.
-	released   []string
-	releaseErr error
-	started    []startedRun
+	holds   *runstate.OperatorHoldStore
+	started []startedRun
 	// outcome is what the starter reports, and failure what it returns. A test
 	// that cares about what the action does after a run sets them.
 	outcome Outcome
 	failure error
-	// retirement is what the fake retirer reports, and retired counts the times
-	// it was asked. A harness that leaves it zero is one nothing should retire.
-	retirement gitworktree.Retirement
-	retired    int
-	retireErr  error
-	// closed is what the action asked the forge to close and deleted the remote
-	// branches it asked to have removed, which together are what retiring the
-	// stopped run's publication does.
-	closed    []publish.CloseRequest
-	closeErr  error
-	deleted   []string
-	deleteErr error
 	// capacity is execution.max_concurrent_developers as the action reads it. It
 	// leaves room for a run of something else, so only the sequences that are
 	// about a full harness fill it.
 	capacity int
-}
-
-func (h *rerunHarness) RetirePreserved(context.Context, gitworktree.Worktree, string) (gitworktree.Retirement, error) {
-	h.retired++
-	return h.retirement, h.retireErr
-}
-
-func (h *rerunHarness) DeleteRemoteBranch(_ context.Context, worktree gitworktree.Worktree, _ string) error {
-	if h.deleteErr != nil {
-		return h.deleteErr
-	}
-	h.deleted = append(h.deleted, worktree.Branch)
-	return nil
-}
-
-func (h *rerunHarness) Close(_ context.Context, request publish.CloseRequest) (publish.Closure, error) {
-	if h.closeErr != nil {
-		return publish.Closure{}, h.closeErr
-	}
-	h.closed = append(h.closed, request)
-	return publish.Closure{Closed: true, State: "CLOSED"}, nil
-}
-
-// Show is the tracker's answer about the item, read and never written. A harness
-// leaves the item open; the sequences that are about the item's own state are the
-// ones that move it.
-func (h *rerunHarness) Show(context.Context, string) (beads.WorkItem, error) {
-	return h.item, h.itemErr
-}
-
-// Release is the one write a re-run makes to the item: giving back a claim the
-// stopped run left on it. Each note is kept so a test can read what the item was
-// told, and releaseErr is a tracker that would not take the write.
-func (h *rerunHarness) Release(_ context.Context, _ string, reason string) (beads.WorkItem, error) {
-	if h.releaseErr != nil {
-		return beads.WorkItem{}, h.releaseErr
-	}
-	h.released = append(h.released, reason)
-	h.item.Status = "open"
-	return h.item, nil
 }
 
 func (h *rerunHarness) rerunner() Rerunner {
@@ -215,8 +155,8 @@ func newDocketedHarness(t *testing.T, state runstate.State) *rerunHarness {
 		// The item has been put back to something a run may start on, which is
 		// what a development manager deciding a re-run of a blocked item does
 		// before the harness is asked to carry the decision out.
-		item:     beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "open"},
-		capacity: 2,
+		RerunServices: orchestratortest.RerunServices{Item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "open"}},
+		capacity:      2,
 		outcome: Outcome{
 			RunID:      "run-fedcba9876543210fedcba9876543210",
 			WorkItemID: state.WorkItemID,
@@ -248,7 +188,7 @@ func (h *rerunHarness) integrated() {
 		SourceCommit: strings.Repeat("c", 40),
 		TargetCommit: strings.Repeat("d", 40),
 	}
-	h.retirement = gitworktree.Retirement{
+	h.Retirement = gitworktree.Retirement{
 		Worktree: gitworktree.WorktreeRemoval{Path: "/state/worktrees/task", Removed: true},
 		Branch:   gitworktree.Removal{Branch: "yoyodyne/task/abc", Removed: true},
 	}
@@ -761,7 +701,7 @@ func TestARerunOfAnItemNoRunCanStartOnIsRefusedAndSpendsNothing(t *testing.T) {
 			t.Parallel()
 
 			harness := newRerunHarness(t, stoppedState())
-			harness.item = refusal.item
+			harness.Item = refusal.item
 			_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 			if err == nil || !strings.Contains(err.Error(), refusal.want) {
 				t.Fatalf("Rerun() error = %v, want a refusal naming %q", err, refusal.want)
@@ -776,8 +716,8 @@ func TestARerunOfAnItemNoRunCanStartOnIsRefusedAndSpendsNothing(t *testing.T) {
 			if _, claimed, _ := harness.reruns.Find(triage.Key(triage.ClassStoppedRun, docketedRunID)); claimed {
 				t.Fatalf("a re-run refused on the item's own state spent the stoppage's claim")
 			}
-			if len(harness.released) != 0 {
-				t.Fatalf("released = %q, want a refused re-run to leave the item as it found it", harness.released)
+			if len(harness.Released) != 0 {
+				t.Fatalf("released = %q, want a refused re-run to leave the item as it found it", harness.Released)
 			}
 		})
 	}
@@ -838,7 +778,7 @@ func TestARerunLeavesAClaimALiveRunHolds(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "in_progress"
+	harness.Item.Status = "in_progress"
 	live := runningState("run-00001111222233334444555566667777", docketedItem)
 	if err := harness.runs.Create(live); err != nil {
 		t.Fatalf("Create() error = %v", err)
@@ -847,8 +787,8 @@ func TestARerunLeavesAClaimALiveRunHolds(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), live.RunID) {
 		t.Fatalf("Rerun() error = %v, want a refusal naming the live run %s", err, live.RunID)
 	}
-	if len(harness.released) != 0 {
-		t.Fatalf("released = %q, want a live run's claim left where it is", harness.released)
+	if len(harness.Released) != 0 {
+		t.Fatalf("released = %q, want a live run's claim left where it is", harness.Released)
 	}
 	if len(harness.started) != 0 {
 		t.Fatalf("started = %#v, want nothing started", harness.started)
@@ -880,8 +820,8 @@ func TestSupersedingAStaleClaimAsksAgainWhetherARunHoldsIt(t *testing.T) {
 	if _, err := harness.rerunner().supersedeStaleClaim(context.Background(), entry, prior, triageDecided(runstate.TriageDecisionRerun, docketedRunID)); err == nil || !strings.Contains(err.Error(), live.RunID) {
 		t.Fatalf("supersedeStaleClaim() error = %v, want a refusal naming the live run", err)
 	}
-	if len(harness.released) != 0 {
-		t.Fatalf("released = %q, want a live run's claim left where it is", harness.released)
+	if len(harness.Released) != 0 {
+		t.Fatalf("released = %q, want a live run's claim left where it is", harness.Released)
 	}
 }
 
@@ -891,8 +831,8 @@ func TestARerunWhoseStaleClaimCannotBeGivenBackSpendsNothing(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "in_progress"
-	harness.releaseErr = errors.New("bd update failed")
+	harness.Item.Status = "in_progress"
+	harness.ReleaseErr = errors.New("bd update failed")
 	_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 	if err == nil || !strings.Contains(err.Error(), "bd update failed") || !strings.Contains(err.Error(), "keeps its re-run") {
 		t.Fatalf("Rerun() error = %v, want the failed release named and the re-run kept", err)
@@ -912,15 +852,15 @@ func TestARerunClaimRefusedAfterTheStaleClaimWasReleasedSaysSo(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "in_progress"
+	harness.Item.Status = "in_progress"
 	rerunner := harness.rerunner()
 	rerunner.Reruns = refusingRerunClaims{RerunRecords: harness.reruns, err: errors.New("claimed by another carry-out")}
 	_, err := rerunner.Rerun(context.Background(), rerunRequest())
 	if err == nil || !strings.Contains(err.Error(), "claimed by another carry-out") || !strings.Contains(err.Error(), "had already been released") {
 		t.Fatalf("Rerun() error = %v, want the refused claim named and the release said", err)
 	}
-	if len(harness.released) != 1 {
-		t.Fatalf("released = %q, want the stale claim given back once", harness.released)
+	if len(harness.Released) != 1 {
+		t.Fatalf("released = %q, want the stale claim given back once", harness.Released)
 	}
 	if len(harness.started) != 0 {
 		t.Fatalf("started = %#v, want nothing started", harness.started)
@@ -948,7 +888,7 @@ func TestARerunOfAGatedItemIsRefusedUntilThePersonRecordsTheAct(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Description = humangate.DeclareMarker + " soak-reviewed — the operator has read a week of soak runs and is content to flip\n"
+	harness.Item.Description = humangate.DeclareMarker + " soak-reviewed — the operator has read a week of soak runs and is content to flip\n"
 	_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 	if err == nil {
 		t.Fatal("Rerun() started an item whose gate nobody has passed")
@@ -1008,7 +948,7 @@ func TestARerunIsRefusedWhenTheItemCannotBeRead(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.itemErr = errors.New("bd show failed")
+	harness.ItemErr = errors.New("bd show failed")
 	_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 	if err == nil || !strings.Contains(err.Error(), "bd show failed") {
 		t.Fatalf("Rerun() error = %v, want a refusal naming what could not be read", err)
@@ -1066,8 +1006,8 @@ func TestThePreservedArtifactsAreKeptUntilTheFreshRunIntegratesAndThenRetired(t 
 		if result.Preserved.Disposition != runstate.PreservedKept {
 			t.Fatalf("disposition = %q, want the artifacts kept", result.Preserved.Disposition)
 		}
-		if harness.retired != 0 {
-			t.Fatalf("retirements = %d, want nothing retired before the work landed", harness.retired)
+		if harness.Retired != 0 {
+			t.Fatalf("retirements = %d, want nothing retired before the work landed", harness.Retired)
 		}
 		recorded, found, err := harness.reruns.Find(result.DocketKey)
 		if err != nil || !found {
@@ -1090,8 +1030,8 @@ func TestThePreservedArtifactsAreKeptUntilTheFreshRunIntegratesAndThenRetired(t 
 		if err != nil {
 			t.Fatalf("Rerun() error = %v", err)
 		}
-		if harness.retired != 1 {
-			t.Fatalf("retirements = %d, want the preserved artifacts retired once", harness.retired)
+		if harness.Retired != 1 {
+			t.Fatalf("retirements = %d, want the preserved artifacts retired once", harness.Retired)
 		}
 		if result.Preserved.Disposition != runstate.PreservedRetired || result.Preserved.RetiredAt == nil {
 			t.Fatalf("disposition = %#v, want a dated retirement", result.Preserved)
@@ -1162,8 +1102,8 @@ func TestThePreservedArtifactsAreKeptUntilTheFreshRunIntegratesAndThenRetired(t 
 		if err != nil {
 			t.Fatalf("Rerun() error = %v", err)
 		}
-		if harness.retired != 0 {
-			t.Fatalf("retirements = %d, want nothing removed while another owner holds the run", harness.retired)
+		if harness.Retired != 0 {
+			t.Fatalf("retirements = %d, want nothing removed while another owner holds the run", harness.Retired)
 		}
 		if result.Preserved.Disposition != runstate.PreservedKept {
 			t.Fatalf("disposition = %q, want the artifacts kept", result.Preserved.Disposition)
@@ -1180,10 +1120,10 @@ func TestThePreservedArtifactsAreKeptUntilTheFreshRunIntegratesAndThenRetired(t 
 		harness.integrated()
 		// The worktree went and the branch deletion then failed, which is what a
 		// run with no recorded integration target does to a retirement.
-		harness.retirement = gitworktree.Retirement{
+		harness.Retirement = gitworktree.Retirement{
 			Worktree: gitworktree.WorktreeRemoval{Path: "/state/worktrees/task", Removed: true},
 		}
-		harness.retireErr = errors.New("integration target branch is required")
+		harness.RetireErr = errors.New("integration target branch is required")
 		result, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 		if err != nil {
 			t.Fatalf("Rerun() error = %v, want a retirement problem recorded rather than a failed re-run", err)
@@ -1204,7 +1144,7 @@ func TestThePreservedArtifactsAreKeptUntilTheFreshRunIntegratesAndThenRetired(t 
 
 		harness := newRerunHarness(t, stoppedState())
 		harness.integrated()
-		harness.retirement = gitworktree.Retirement{
+		harness.Retirement = gitworktree.Retirement{
 			Worktree: gitworktree.WorktreeRemoval{Path: "/state/worktrees/task", Removed: true},
 			Branch: gitworktree.Removal{
 				Branch: "yoyodyne/task/abc",
@@ -1783,7 +1723,7 @@ func TestARerunNobodyDecidedIsRefused(t *testing.T) {
 	started := 0
 	rerunner := Rerunner{
 		Docket: docket, Runs: runs, Intake: intake, Reruns: runs.Reruns(), Decisions: runs.Triage(),
-		Items: openWorkItem(docketedItem), Gates: runs, Capacity: 1,
+		Items: orchestratortest.OpenWorkItem(docketedItem), Gates: runs, Capacity: 1,
 		Start: func(context.Context, string, runstate.Selection) (Outcome, error) {
 			started++
 			return Outcome{}, nil
@@ -1824,18 +1764,6 @@ func TestTheRecordedReasonCitesTheDecisionItWasReadFrom(t *testing.T) {
 			t.Fatalf("reason %q is missing %q", result.Reason, want)
 		}
 	}
-}
-
-// openWorkItem is a tracker reporting one item in a state a fresh run may start
-// on, for the sequences whose subject is something other than the item itself.
-type openWorkItem string
-
-func (id openWorkItem) Show(context.Context, string) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: string(id), Status: "open"}, nil
-}
-
-func (id openWorkItem) Release(context.Context, string, string) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: string(id), Status: "open"}, nil
 }
 
 // unwritableRuns reads exactly as the store does, including taking the stopped
@@ -2099,17 +2027,17 @@ func TestARerunClosesThePublicationTheStoppedRunLeftOpen(t *testing.T) {
 	if result.Publication == nil || !result.Publication.Closed || !result.Publication.BranchDeleted {
 		t.Fatalf("publication = %#v, want the request closed and its branch deleted", result.Publication)
 	}
-	if len(harness.closed) != 1 || harness.closed[0].Number != 124 {
-		t.Fatalf("closed = %#v, want the stopped run's pull request 124 closed once", harness.closed)
+	if len(harness.Closed) != 1 || harness.Closed[0].Number != 124 {
+		t.Fatalf("closed = %#v, want the stopped run's pull request 124 closed once", harness.Closed)
 	}
-	comment := harness.closed[0].Comment
+	comment := harness.Closed[0].Comment
 	for _, expected := range []string{"#126", harness.outcome.RunID, docketedRunID, docketedItem} {
 		if !strings.Contains(comment, expected) {
 			t.Errorf("close comment does not name %q:\n%s", expected, comment)
 		}
 	}
-	if len(harness.deleted) != 1 || harness.deleted[0] != "yoyodyne/task/abc" {
-		t.Errorf("deleted remote branches = %v, want the one the closed request published", harness.deleted)
+	if len(harness.Deleted) != 1 || harness.Deleted[0] != "yoyodyne/task/abc" {
+		t.Errorf("deleted remote branches = %v, want the one the closed request published", harness.Deleted)
 	}
 	if result.RecordProblem != "" {
 		t.Errorf("record problem = %q, want none", result.RecordProblem)
@@ -2139,11 +2067,11 @@ func TestARerunLeavesThePublicationOpenWhenTheFreshRunIntegratedNothing(t *testi
 	if _, err := harness.rerunner().Rerun(context.Background(), rerunRequest()); err != nil {
 		t.Fatalf("Rerun() error = %v", err)
 	}
-	if len(harness.closed) != 0 {
-		t.Fatalf("closed = %#v, want nothing closed behind a run that landed nothing", harness.closed)
+	if len(harness.Closed) != 0 {
+		t.Fatalf("closed = %#v, want nothing closed behind a run that landed nothing", harness.Closed)
 	}
-	if len(harness.deleted) != 0 {
-		t.Fatalf("deleted = %v, want the published branch left where it is", harness.deleted)
+	if len(harness.Deleted) != 0 {
+		t.Fatalf("deleted = %v, want the published branch left where it is", harness.Deleted)
 	}
 	kept, err := harness.runs.Load(docketedRunID)
 	if err != nil {
@@ -2186,7 +2114,7 @@ func TestRerunChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
 			t.Fatal(err)
 		}
 		rerunner := harness.rerunner()
-		rerunner.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		rerunner.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
 		result, err := rerunner.Rerun(context.Background(), rerunRequest())
 		if (err == nil) != there || (len(harness.started) > 0) != there {
 			t.Fatalf("Rerun() = %#v, %v, want started %t", result, err, there)

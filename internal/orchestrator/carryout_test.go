@@ -177,7 +177,7 @@ func TestACarryOutRefusedPreFlightSpendsNothingAndSaysWhatWouldClearIt(t *testin
 	harness := newRerunHarness(t, stoppedState())
 	// The item is still blocked by the run that stopped, which is what a fresh run
 	// of it would start from.
-	harness.item.Status = "closed"
+	harness.Item.Status = "closed"
 	carrying := harness.carryOut()
 	carried, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying))
 	if err != nil {
@@ -204,7 +204,7 @@ func TestACarryOutRefusedPreFlightSpendsNothingAndSaysWhatWouldClearIt(t *testin
 	// And the same decision fires once the item is back, on the budget that was
 	// never touched. It is asked past the pacing the refusal put on it, which is
 	// what a later pass reaches on its own.
-	harness.item.Status = "open"
+	harness.Item.Status = "open"
 	carrying = harness.carryOutAt(runstate.TriageCarryOutRetryDelay + time.Minute)
 	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
 		t.Fatalf("Carry() after the item was put back error = %v", err)
@@ -220,7 +220,7 @@ func TestARefusedDecisionIsLeftAloneUntilItsPacingHasPassed(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "closed"
+	harness.Item.Status = "closed"
 	carrying := harness.carryOut()
 	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
@@ -749,7 +749,7 @@ func TestTheDocketCarriesTheGateThatStoppedTheCarryOut(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "closed"
+	harness.Item.Status = "closed"
 	carrying := harness.carryOut()
 	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
@@ -774,7 +774,7 @@ func TestTheDocketCarriesTheGateThatStoppedTheCarryOut(t *testing.T) {
 	}
 	// And it goes once the decision is carried out, because a finding standing over
 	// a run that is happening is the worst thing this could say.
-	harness.item.Status = "open"
+	harness.Item.Status = "open"
 	later := harness.carryOutAt(runstate.TriageCarryOutRetryDelay + time.Minute)
 	if _, _, err := later.Carry(context.Background(), theOneOutstanding(t, later)); err != nil {
 		t.Fatalf("Carry() after the item was put back error = %v", err)
@@ -862,7 +862,7 @@ func TestAPreservedWorktreeSomebodyHasBeenInStopsTheCarryOutAndSaysWhy(t *testin
 
 	harness := newUndecidedHarness(t, continuableState())
 	grantedAgainstTheStoppage(t, harness)
-	harness.ownership.err = errors.New("HEAD is a commit the harness did not make")
+	harness.ownership.Err = errors.New("HEAD is a commit the harness did not make")
 	carrying := harness.carryOut()
 	carried, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying))
 	if err != nil {
@@ -1302,7 +1302,7 @@ func TestASettledEntryWhoseCarryOutAGateStoppedIsAQuestionAgain(t *testing.T) {
 
 	// The harness tries to carry the decision out after it was made, and the
 	// item's own state refuses it.
-	harness.item.Status = "closed"
+	harness.Item.Status = "closed"
 	refusing := harness.carryOutAt(time.Minute)
 	if _, _, err := refusing.Carry(context.Background(), theOneOutstanding(t, refusing)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
@@ -1330,7 +1330,7 @@ func TestASettledEntryWhoseCarryOutAGateStoppedIsAQuestionAgain(t *testing.T) {
 
 	// The item is put back and the decision fires, which clears the finding: the
 	// stoppage is settled again and off the docket.
-	harness.item.Status = "open"
+	harness.Item.Status = "open"
 	firing := harness.carryOutAt(runstate.TriageCarryOutRetryDelay + time.Minute)
 	carried, _, err := firing.Carry(context.Background(), theOneOutstanding(t, firing))
 	if err != nil {
@@ -1386,7 +1386,7 @@ func TestAFindingOlderThanTheDecisionOrTheEntryDoesNotReopenIt(t *testing.T) {
 	harness := newRerunHarness(t, stoppedState())
 	docket := docketerDeciding(nil, harness.docket, harness.runs.Triage(), harness.reruns)
 	entryKey := triage.Key(triage.ClassStoppedRun, docketedRunID)
-	harness.item.Status = "closed"
+	harness.Item.Status = "closed"
 	// Refused at docketedNow, decided (again) a minute later.
 	refusing := harness.carryOut()
 	if _, _, err := refusing.Carry(context.Background(), theOneOutstanding(t, refusing)); err != nil {
@@ -1430,7 +1430,7 @@ func TestTheTypedVerbClearsTheFindingTheCarryOutLeft(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, stoppedState())
-	harness.item.Status = "closed"
+	harness.Item.Status = "closed"
 	refusing := harness.carryOut()
 	if _, _, err := refusing.Carry(context.Background(), theOneOutstanding(t, refusing)); err != nil {
 		t.Fatalf("Carry() error = %v", err)
@@ -1440,7 +1440,7 @@ func TestTheTypedVerbClearsTheFindingTheCarryOutLeft(t *testing.T) {
 	} else if _, found := counters.CarryOutOf(docketedRunID); !found {
 		t.Fatalf("counters = %#v, want the refusal recorded before the verb is typed", counters)
 	}
-	harness.item.Status = "open"
+	harness.Item.Status = "open"
 	result, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
 	if err != nil || !result.Started {
 		t.Fatalf("Rerun() = %#v, %v, want the verb to fire the decision", result, err)

@@ -851,7 +851,7 @@ func TestAnOverdueCheckStageContinuationNamesItsGateAcrossWatcherRestarts(t *tes
 	state.CheckFailure = nil
 	state.CheckStage = &runstate.CheckStage{StartedAt: state.StartedAt, FinishedAt: state.CompletedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true}
 	h := newDocketedHarness(t, state)
-	tracker := &orchestratortest.Tracker{Item: h.item}
+	tracker := &orchestratortest.Tracker{Item: h.Item}
 	clock := &steppingClock{now: state.CompletedAt.Add(runstate.CheckStageContinuationWait - time.Nanosecond)}
 	if _, err := h.intake.Hold(runstate.IntakeHolderOperator, "held for this test", *state.CompletedAt); err != nil {
 		t.Fatal(err)
@@ -860,7 +860,7 @@ func TestAnOverdueCheckStageContinuationNamesItsGateAcrossWatcherRestarts(t *tes
 	build := func() CarryOut {
 		return CarryOut{Docket: h.docket, Decisions: h.runs.Triage(), Reruns: h.reruns, Runs: h.runs,
 			CheckStages: CheckStageContinuer{Docket: h.docket, Runs: h.runs, Intake: h.intake, Items: tracker,
-				Worktrees: &fakeOwnership{}, Capacity: 1, Clock: clock,
+				Worktrees: &orchestratortest.Ownership{}, Capacity: 1, Clock: clock,
 				Load: func() (float64, int, bool) { return 160, 8, true },
 				Start: func(context.Context, string, string) (Outcome, error) {
 					started++

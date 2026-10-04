@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 	"time"
@@ -33,44 +34,6 @@ const (
 // recorded rather than read by the action, which is why the Rearmer carries no
 // cap of its own.
 var rearmCaps = runstate.TriageCaps{ReviewRounds: 4, RepairGrants: 1, Reruns: 1, MergeRearms: 1}
-
-// forgeStub is the forge a re-arm speaks to: what it says about the request now,
-// what it says is unmet, and every merge it was asked for. The requests are kept
-// because the whole of what this action promises is which request it makes.
-type forgeStub struct {
-	observed   publish.PullRequest
-	observeErr error
-	status     string
-	statusErr  error
-	result     publish.MergeResult
-	mergeErr   error
-	requested  []publish.MergeRequest
-}
-
-func (f *forgeStub) State(context.Context, string) (publish.PullRequest, error) {
-	return f.observed, f.observeErr
-}
-
-func (f *forgeStub) MergeState(context.Context, int) (string, error) {
-	return f.status, f.statusErr
-}
-
-func (f *forgeStub) Merge(_ context.Context, request publish.MergeRequest) (publish.MergeResult, error) {
-	f.requested = append(f.requested, request)
-	return f.result, f.mergeErr
-}
-
-// remoteTargetStub is the pre-merge check on the remote target, which a re-arm
-// makes exactly as the original merge did.
-type remoteTargetStub struct {
-	failure  error
-	verified []gitworktree.Integration
-}
-
-func (s *remoteTargetStub) VerifyRemoteTarget(_ context.Context, integration gitworktree.Integration) error {
-	s.verified = append(s.verified, integration)
-	return s.failure
-}
 
 // droppedPublication is a finished run whose promotion landed locally and whose
 // queued merge the forge then dropped: the state settleDroppedMerge leaves and
@@ -142,8 +105,8 @@ type rearmHarness struct {
 	docket    *memoryDocket
 	runs      *runstate.Store
 	leases    *leasedRuns
-	forge     *forgeStub
-	worktrees *remoteTargetStub
+	forge     *orchestratortest.RearmForge
+	worktrees *orchestratortest.RemoteTarget
 	state     runstate.State
 }
 
@@ -205,8 +168,8 @@ func newRearmHarness(t *testing.T) *rearmHarness {
 		docket: docket,
 		runs:   runs,
 		leases: &leasedRuns{Store: runs},
-		forge: &forgeStub{
-			observed: publish.PullRequest{
+		forge: &orchestratortest.RearmForge{
+			Observed: publish.PullRequest{
 				Number:     state.PullRequest.Number,
 				URL:        state.PullRequest.URL,
 				State:      "OPEN",
@@ -214,10 +177,10 @@ func newRearmHarness(t *testing.T) *rearmHarness {
 			},
 			// Nothing is holding the request back any more, which is what a drop
 			// whose cause was transient looks like once it has passed.
-			status: "CLEAN",
-			result: publish.MergeResult{Queued: true},
+			Status: "CLEAN",
+			Result: publish.MergeResult{Queued: true},
 		},
-		worktrees: &remoteTargetStub{},
+		worktrees: &orchestratortest.RemoteTarget{},
 		state:     state,
 	}
 	entry, err := docketerOverStore(docket, runs, rearmConfig()).publicationEntry(state, docketedNow)
@@ -249,10 +212,10 @@ func TestARearmRepeatsTheIdenticalAuthorizedRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Rearm() error = %v", err)
 	}
-	if len(harness.forge.requested) != 1 {
-		t.Fatalf("merge requests = %#v, want the one repeat", harness.forge.requested)
+	if len(harness.forge.Requested) != 1 {
+		t.Fatalf("merge requests = %#v, want the one repeat", harness.forge.Requested)
 	}
-	repeated := harness.forge.requested[0]
+	repeated := harness.forge.Requested[0]
 	want := publish.MergeRequest{
 		Number:     harness.state.PullRequest.Number,
 		HeadCommit: rearmedCommit,
@@ -263,8 +226,8 @@ func TestARearmRepeatsTheIdenticalAuthorizedRequest(t *testing.T) {
 	}
 	// The pre-merge check the original gate ran, made again against the same
 	// promotion rather than a second rendering of the question.
-	if len(harness.worktrees.verified) != 1 || harness.worktrees.verified[0].SourceCommit != rearmedCommit {
-		t.Fatalf("remote target checks = %#v, want the promotion checked once before the merge", harness.worktrees.verified)
+	if len(harness.worktrees.Verified) != 1 || harness.worktrees.Verified[0].SourceCommit != rearmedCommit {
+		t.Fatalf("remote target checks = %#v, want the promotion checked once before the merge", harness.worktrees.Verified)
 	}
 	if !result.Rearmed || !result.Queued || result.Rearms != 1 {
 		t.Fatalf("result = %+v, want one queued re-arm recorded", result)
@@ -299,7 +262,7 @@ func TestARearmRepeatsTheIdenticalAuthorizedRequest(t *testing.T) {
 	// has no worktree to do any of it with.
 	immediate := newRearmHarness(t)
 	immediate.decide(t)
-	immediate.forge.result = publish.MergeResult{}
+	immediate.forge.Result = publish.MergeResult{}
 	merged, err := immediate.rearmer().Rearm(context.Background(),
 		RearmRequest{Run: immediate.state.RunID, Reason: rearmReasoning})
 	if err != nil {
@@ -338,15 +301,15 @@ func TestARearmIsRefusedWhenOnlyAPersonCanSatisfyWhatIsUnmet(t *testing.T) {
 
 			harness := newRearmHarness(t)
 			harness.decide(t)
-			harness.forge.status = status
+			harness.forge.Status = status
 
 			result, err := harness.rearmer().Rearm(context.Background(),
 				RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})
 			if err == nil || !strings.Contains(err.Error(), "only a person can satisfy") {
 				t.Fatalf("Rearm() error = %v, want it refused for what a person has to supply", err)
 			}
-			if result.Rearmed || len(harness.forge.requested) != 0 {
-				t.Fatalf("a refused re-arm asked the forge for %#v", harness.forge.requested)
+			if result.Rearmed || len(harness.forge.Requested) != 0 {
+				t.Fatalf("a refused re-arm asked the forge for %#v", harness.forge.Requested)
 			}
 			// The merge state is read under the promotion lease rather than in front
 			// of it, because the check it gates — the remote target's — is evidence a
@@ -372,15 +335,15 @@ func TestARearmIsRefusedWhenTheForgeCannotSayWhatIsUnmet(t *testing.T) {
 
 	harness := newRearmHarness(t)
 	harness.decide(t)
-	harness.forge.statusErr = errors.New("the forge answered with an error")
+	harness.forge.StatusErr = errors.New("the forge answered with an error")
 
 	_, err := harness.rearmer().Rearm(context.Background(),
 		RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})
 	if err == nil || !strings.Contains(err.Error(), "nothing can say the state of") {
 		t.Fatalf("Rearm() error = %v, want a request nothing can state refused", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a refused re-arm asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a refused re-arm asked the forge for %#v", harness.forge.Requested)
 	}
 }
 
@@ -417,8 +380,8 @@ func TestARearmIsRefusedPastOnePerPublication(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "escalation rather than another re-arm") {
 		t.Fatalf("a second Rearm() error = %v, want it refused past the publication's one", err)
 	}
-	if len(harness.forge.requested) != 1 {
-		t.Fatalf("merge requests = %d, want only the first repeat", len(harness.forge.requested))
+	if len(harness.forge.Requested) != 1 {
+		t.Fatalf("merge requests = %d, want only the first repeat", len(harness.forge.Requested))
 	}
 	// And a second decision is refused where it would be recorded, which is the
 	// other half of the same bound.
@@ -448,8 +411,8 @@ func TestARearmDecisionBelongsToThePublicationItNames(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "no re-arm of publication "+harness.publication()) {
 		t.Fatalf("Rearm() error = %v, want no decision of this publication's found", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a re-arm on another publication's decision asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a re-arm on another publication's decision asked the forge for %#v", harness.forge.Requested)
 	}
 	// And spending one publication's budget leaves every other publication's
 	// untouched, which is the other direction of the same defect.
@@ -473,8 +436,8 @@ func TestARearmIsRefusedWithNoDecisionRecorded(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "triage has recorded no re-arm") {
 		t.Fatalf("Rearm() error = %v, want it refused for want of a decision", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("an undecided re-arm asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("an undecided re-arm asked the forge for %#v", harness.forge.Requested)
 	}
 	// Everything answerable from the harness's own records refuses in front of
 	// both leases, so the ordinary refusal holds up no promotion at all.
@@ -502,8 +465,8 @@ func TestARearmIsRefusedWhereTheStandingDecisionIsNoLongerARearm(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), `is "escalate" rather than a re-arm`) {
 		t.Fatalf("Rearm() error = %v, want it refused on the superseding decision", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a re-arm on a superseded decision asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a re-arm on a superseded decision asked the forge for %#v", harness.forge.Requested)
 	}
 	if left := harness.reload(t); left.PullRequest.MergeRearms != 0 || left.PublishFailure == "" {
 		t.Fatalf("a refused re-arm changed the run's record: %+v", left)
@@ -536,8 +499,8 @@ func TestARearmIsRefusedWhileTheWorkIsStillLive(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "rather than ended") {
 			t.Fatalf("Rearm() error = %v, want a live run's publication refused", err)
 		}
-		if len(harness.forge.requested) != 0 {
-			t.Fatalf("a re-arm against a live run asked the forge for %#v", harness.forge.requested)
+		if len(harness.forge.Requested) != 0 {
+			t.Fatalf("a re-arm against a live run asked the forge for %#v", harness.forge.Requested)
 		}
 	})
 
@@ -564,8 +527,8 @@ func TestARearmIsRefusedWhileTheWorkIsStillLive(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "in flight") {
 			t.Fatalf("Rearm() error = %v, want an item with a live run refused", err)
 		}
-		if len(harness.forge.requested) != 0 {
-			t.Fatalf("a re-arm beside a live run asked the forge for %#v", harness.forge.requested)
+		if len(harness.forge.Requested) != 0 {
+			t.Fatalf("a re-arm beside a live run asked the forge for %#v", harness.forge.Requested)
 		}
 	})
 }
@@ -578,7 +541,7 @@ func TestARearmRecordsItselfBeforeItAsksTheForge(t *testing.T) {
 
 	harness := newRearmHarness(t)
 	harness.decide(t)
-	harness.forge.mergeErr = errors.New("the forge could not be reached")
+	harness.forge.MergeErr = errors.New("the forge could not be reached")
 
 	_, err := harness.rearmer().Rearm(context.Background(),
 		RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})
@@ -598,15 +561,15 @@ func TestARearmIsRefusedWhenTheRemoteTargetNoLongerPasses(t *testing.T) {
 
 	harness := newRearmHarness(t)
 	harness.decide(t)
-	harness.worktrees.failure = fmt.Errorf("%w: main is somewhere else", gitworktree.ErrRemoteTargetDrift)
+	harness.worktrees.Failure = fmt.Errorf("%w: main is somewhere else", gitworktree.ErrRemoteTargetDrift)
 
 	_, err := harness.rearmer().Rearm(context.Background(),
 		RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})
 	if err == nil || !errors.Is(err, gitworktree.ErrRemoteTargetDrift) {
 		t.Fatalf("Rearm() error = %v, want the drifted target refused", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a re-arm over a drifted target asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a re-arm over a drifted target asked the forge for %#v", harness.forge.Requested)
 	}
 	if made := harness.reload(t).PullRequest.MergeRearms; made != 0 {
 		t.Fatalf("a refused re-arm spent %d of the publication's budget", made)
@@ -649,15 +612,15 @@ func TestARearmIsRefusedWhenTheRequestIsNoLongerTheOneAuthorized(t *testing.T) {
 
 			harness := newRearmHarness(t)
 			harness.decide(t)
-			harness.forge.observed = test.observed
+			harness.forge.Observed = test.observed
 
 			_, err := harness.rearmer().Rearm(context.Background(),
 				RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Rearm() error = %v, want %q", err, test.want)
 			}
-			if len(harness.forge.requested) != 0 {
-				t.Fatalf("a refused re-arm asked the forge for %#v", harness.forge.requested)
+			if len(harness.forge.Requested) != 0 {
+				t.Fatalf("a refused re-arm asked the forge for %#v", harness.forge.Requested)
 			}
 		})
 	}

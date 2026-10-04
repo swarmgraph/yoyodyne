@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,53 +14,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
-
-// landingTracker records the landings and closes a sweep makes, and refuses
-// the ones it is told to.
-type landingTracker struct {
-	closed   map[string]string
-	landings map[string][]string
-	refused  map[string]error
-	// unrecordable refuses every landing write on an item, and unclearable
-	// refuses only the write that clears one.
-	unrecordable map[string]error
-	unclearable  map[string]error
-}
-
-func (t *landingTracker) RecordLanding(_ context.Context, id, landing string) (beads.WorkItem, error) {
-	if err := t.unrecordable[id]; err != nil {
-		return beads.WorkItem{}, err
-	}
-	if err := t.unclearable[id]; err != nil && landing == "" {
-		return beads.WorkItem{}, err
-	}
-	if t.landings == nil {
-		t.landings = map[string][]string{}
-	}
-	t.landings[id] = append(t.landings[id], landing)
-	return beads.WorkItem{ID: id, Status: "open", Landing: landing}, nil
-}
-
-func (t *landingTracker) Complete(_ context.Context, id, reason string) (beads.WorkItem, error) {
-	if err := t.refused[id]; err != nil {
-		return beads.WorkItem{}, err
-	}
-	if t.closed == nil {
-		t.closed = map[string]string{}
-	}
-	t.closed[id] = reason
-	return beads.WorkItem{ID: id, Status: "closed"}, nil
-}
-
-// current is what the item carries as its landing after everything the sweep
-// wrote to it, which is what the next pull's queue reads back.
-func (t *landingTracker) current(id string) string {
-	written := t.landings[id]
-	if len(written) == 0 {
-		return ""
-	}
-	return written[len(written)-1]
-}
 
 // landingRepository is a checkout with the recommended artifact layout and one
 // design whose revision log is the one the incident left behind: the
@@ -109,7 +63,7 @@ func architectEntry(id string) backlog.Entry {
 func TestAConversationsItemClosesOnTheRevisionThatOpensWithItsIdentifier(t *testing.T) {
 	t.Parallel()
 
-	tracker := &landingTracker{}
+	tracker := &orchestratortest.LandingTracker{}
 	lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
 	entries := []backlog.Entry{
 		architectEntry("yoyodyne-ifd.330"),
@@ -136,7 +90,7 @@ func TestAConversationsItemClosesOnTheRevisionThatOpensWithItsIdentifier(t *test
 	}
 	// The close carries the whole account: the document, the revision, the
 	// convention it was read by, and the revision's own words.
-	reason := tracker.closed["yoyodyne-ifd.330"]
+	reason := tracker.Closed["yoyodyne-ifd.330"]
 	for _, want := range []string{"Closed by the harness", "architect revision of docs/designs/management-and-supervision.md", "2026-09-07T05:30:00Z", "opens with this item's identifier", "side conversations designed"} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("close reason %q never says %q", reason, want)
@@ -144,13 +98,13 @@ func TestAConversationsItemClosesOnTheRevisionThatOpensWithItsIdentifier(t *test
 	}
 	// The revision was written onto the item before the close, so the item
 	// carries what it was closed on.
-	if got := tracker.current("yoyodyne-ifd.330"); got != "docs/designs/management-and-supervision.md@2026-09-07T05:30:00Z" {
+	if got := tracker.Current("yoyodyne-ifd.330"); got != "docs/designs/management-and-supervision.md@2026-09-07T05:30:00Z" {
 		t.Fatalf("landing recorded on 330 = %q, want the document and the revision's time", got)
 	}
 	// 280 is mentioned and not landed; 330.1 is a developer item however its
 	// revision reads; 250 is the development manager's, who owns no document.
 	for _, id := range []string{"yoyodyne-ifd.280", "yoyodyne-ifd.306", "yoyodyne-ifd.330.1", "yoyodyne-ifd.250"} {
-		if _, closed := tracker.closed[id]; closed {
+		if _, closed := tracker.Closed[id]; closed {
 			t.Fatalf("%s was closed, want it left open", id)
 		}
 	}
@@ -166,7 +120,7 @@ func TestAConversationsItemClosesOnTheRevisionThatOpensWithItsIdentifier(t *test
 func TestALandingSweepReadsNothingItHasNoUseForAndClosesNothingItCannotRead(t *testing.T) {
 	t.Parallel()
 
-	tracker := &landingTracker{}
+	tracker := &orchestratortest.LandingTracker{}
 	unreadable := ConversationLander{Tracker: tracker, Repository: filepath.Join(t.TempDir(), "missing"), Product: landingProduct()}
 	sweep, err := unreadable.Settle(context.Background(), []backlog.Entry{
 		{ID: "yoyodyne-ifd.1", Status: "open"},
@@ -178,8 +132,8 @@ func TestALandingSweepReadsNothingItHasNoUseForAndClosesNothingItCannotRead(t *t
 	if _, err := unreadable.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")}); err == nil {
 		t.Fatal("Settle() over an unreadable repository = nil error, want the reading reported")
 	}
-	if len(tracker.closed) != 0 {
-		t.Fatalf("closed = %v, want nothing closed on a repository nobody could read", tracker.closed)
+	if len(tracker.Closed) != 0 {
+		t.Fatalf("closed = %v, want nothing closed on a repository nobody could read", tracker.Closed)
 	}
 }
 
@@ -192,7 +146,7 @@ func TestALandingSweepReadsNothingItHasNoUseForAndClosesNothingItCannotRead(t *t
 func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 	t.Parallel()
 
-	tracker := &landingTracker{}
+	tracker := &orchestratortest.LandingTracker{}
 	lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
 	first, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
 	if err != nil || len(first.Landed) != 1 {
@@ -202,8 +156,8 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 	// Reopened by hand: the item is back in the queue, open, carrying the
 	// landing the harness wrote on it.
 	reopened := architectEntry("yoyodyne-ifd.330")
-	reopened.Landing = tracker.current("yoyodyne-ifd.330")
-	delete(tracker.closed, "yoyodyne-ifd.330")
+	reopened.Landing = tracker.Current("yoyodyne-ifd.330")
+	delete(tracker.Closed, "yoyodyne-ifd.330")
 	second, err := lander.Settle(context.Background(), []backlog.Entry{reopened})
 	if err != nil {
 		t.Fatalf("Settle() after the reopen error = %v", err)
@@ -214,11 +168,11 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 	if len(second.Reopened) != 1 || second.Reopened[0] != "yoyodyne-ifd.330" {
 		t.Fatalf("reopened = %v, want the item named as one the harness is leaving alone", second.Reopened)
 	}
-	if _, closed := tracker.closed["yoyodyne-ifd.330"]; closed {
+	if _, closed := tracker.Closed["yoyodyne-ifd.330"]; closed {
 		t.Fatal("the reopened item was closed again on the revision it was reopened from")
 	}
-	if len(tracker.landings["yoyodyne-ifd.330"]) != 1 {
-		t.Fatalf("landings written = %v, want nothing written to a reopened item", tracker.landings["yoyodyne-ifd.330"])
+	if len(tracker.Landings["yoyodyne-ifd.330"]) != 1 {
+		t.Fatalf("landings written = %v, want nothing written to a reopened item", tracker.Landings["yoyodyne-ifd.330"])
 	}
 	// A landing the harness cannot read back is still the harness's own mark,
 	// and an item carrying one is left alone rather than closed over it.
@@ -247,7 +201,7 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 	}
 	// The earliest revision that lands the item is the landing where the item
 	// has not been closed on it; here it has, so the one after it is.
-	if got := tracker.current("yoyodyne-ifd.330"); !strings.HasSuffix(got, "@2026-09-12T09:00:00Z") {
+	if got := tracker.Current("yoyodyne-ifd.330"); !strings.HasSuffix(got, "@2026-09-12T09:00:00Z") {
 		t.Fatalf("landing recorded = %q, want the later revision", got)
 	}
 }
@@ -259,7 +213,7 @@ func TestAReopenedItemIsNotClosedAgainOnTheSameRevision(t *testing.T) {
 func TestALandingTheTrackerRefusesToCloseIsReported(t *testing.T) {
 	t.Parallel()
 
-	tracker := &landingTracker{refused: map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")}}
+	tracker := &orchestratortest.LandingTracker{Refused: map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")}}
 	lander := ConversationLander{Tracker: tracker, Repository: landingRepository(t), Product: landingProduct()}
 	sweep, err := lander.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
 	if err != nil {
@@ -273,16 +227,16 @@ func TestALandingTheTrackerRefusesToCloseIsReported(t *testing.T) {
 			t.Fatalf("problem %q never says %q", sweep.Problems[0], want)
 		}
 	}
-	if got := tracker.current("yoyodyne-ifd.330"); got != "" {
+	if got := tracker.Current("yoyodyne-ifd.330"); got != "" {
 		t.Fatalf("landing left on the unclosed item = %q, want it cleared so the next pull retries", got)
 	}
 
 	// A revision that cannot be recorded closes nothing: the close would be one
 	// a reopen could not hold against.
-	unrecordable := &landingTracker{unrecordable: map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")}}
+	unrecordable := &orchestratortest.LandingTracker{Unrecordable: map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")}}
 	sweep, err = ConversationLander{Tracker: unrecordable, Repository: landingRepository(t), Product: landingProduct()}.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
-	if err != nil || len(sweep.Landed) != 0 || len(sweep.Problems) != 1 || len(unrecordable.closed) != 0 {
-		t.Fatalf("Settle() with the record refused = %#v, %v, closed %v; want nothing closed and the refusal named", sweep, err, unrecordable.closed)
+	if err != nil || len(sweep.Landed) != 0 || len(sweep.Problems) != 1 || len(unrecordable.Closed) != 0 {
+		t.Fatalf("Settle() with the record refused = %#v, %v, closed %v; want nothing closed and the refusal named", sweep, err, unrecordable.Closed)
 	}
 	if !strings.Contains(sweep.Problems[0], "could not be recorded on it, so it was not closed") {
 		t.Fatalf("problem %q never says the record was refused", sweep.Problems[0])
@@ -291,9 +245,9 @@ func TestALandingTheTrackerRefusesToCloseIsReported(t *testing.T) {
 	// A record that could be written and not cleared after a refused close is
 	// the one state a later pull reads as a reopen, so it is said with what to
 	// clear.
-	stuck := &landingTracker{
-		refused:     map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")},
-		unclearable: map[string]error{"yoyodyne-ifd.330": errors.New("bd: still locked")},
+	stuck := &orchestratortest.LandingTracker{
+		Refused:     map[string]error{"yoyodyne-ifd.330": errors.New("bd: the store is locked")},
+		Unclearable: map[string]error{"yoyodyne-ifd.330": errors.New("bd: still locked")},
 	}
 	sweep, err = ConversationLander{Tracker: stuck, Repository: landingRepository(t), Product: landingProduct()}.Settle(context.Background(), []backlog.Entry{architectEntry("yoyodyne-ifd.330")})
 	if err != nil || len(sweep.Problems) != 1 {

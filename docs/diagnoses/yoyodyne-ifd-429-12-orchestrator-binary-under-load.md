@@ -198,7 +198,7 @@ table describes.
 
 ## The helper package and the census (yoyodyne-ifd.429.13)
 
-Step 1 above is complete. The shared fakes of other packages' interfaces now
+Step 1 above is complete. The shared and specialized fakes of other packages' interfaces now
 live only in `internal/orchestrator/orchestratortest`:
 
 - `Tracker`, the work tracker
@@ -223,6 +223,27 @@ the in-package copies (yoyodyne-ifd.429.13.6) deletes `inpackagefakes_test.go` a
 the old names working. The shared fixture interfaces in `fakeaccess_test.go`
 remain, with their compile-time checks against the helper package's fakes.
 
+Removing the remaining independent fakes moves the specialized conversation,
+publication, recovery, and scheduler implementations there too:
+
+- The trackers: `ParkingTracker`, `LandingTracker`, `RecordingFiler`,
+  `OpenWorkItem`, `ClaimState`, `ScheduleTracker`, and `PipelineTracker`.
+- The backends: `ReplayBackend` and `LoginProbe`.
+- The forge readings: `RearmForge`, `AnsweringForge`, `BatchingForge`,
+  `NoticingForge`, `RequestChecks`, `TargetChecks`, `JobLogs`, and
+  `RefusingJobLogs`.
+- The worktree readings: `RemoteTarget`, `Ownership`, `ResumeOwnership`,
+  `RecoveryCheckout`, and `Survival`.
+- `RerunServices`, which records a re-run's tracker, forge, and worktree calls.
+
+The claim, scheduler, and re-run fixtures embed these implementations rather
+than implementing the tracker or forge themselves. The scheduler and its
+pipeline tracker still share one mutex over their queue and run state. What
+remains in `orchestrator` is fixture wiring and wrappers that change an answer
+or record a call around a helper fake or a real implementation; none is an
+independent tracker, backend, forge, or worktree fake. Those wrappers may name
+`orchestrator`'s own interfaces, which the helper package cannot import.
+
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than
 429.12, because main had gained tests since. Moving the fakes changed neither
@@ -234,7 +255,8 @@ count: none of the fakes reaches an internal.
 The first addition after that census was `TestEveryTurnOfAFiringIsToldItsPass`
 in `recurring_test.go`. This historical census does not classify it or later
 additions. Removing the in-package fakes adds or removes no tests and changes
-none of their assertions; the counts below still describe the tree of pull
+none of their assertions: all 1,146 current test declarations are preserved.
+The counts below still describe the tree of pull
 request #757.
 
 ### By file

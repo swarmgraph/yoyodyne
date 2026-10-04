@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 	"time"
@@ -779,31 +780,11 @@ func TestAFiringPastTheProbeIntervalIsMadeIntoTheOutage(t *testing.T) {
 	}
 }
 
-// noticingForge is the harness's forge reading as a test drives it: a fixed set
-// of requests held open for nothing, and a record of what it was told had
-// already been reported.
-type noticingForge struct {
-	notices  []runstate.ForgeNotice
-	reported []map[int]bool
-	err      error
-}
-
-func (f *noticingForge) Notice(_ context.Context, reported map[int]bool) ([]runstate.ForgeNotice, error) {
-	f.reported = append(f.reported, reported)
-	var fresh []runstate.ForgeNotice
-	for _, notice := range f.notices {
-		if !reported[notice.Number] {
-			fresh = append(fresh, notice)
-		}
-	}
-	return fresh, f.err
-}
-
 // twoHeldOpen is the forge the work item describes, as the trigger sees it:
 // one request whose item is closed, one whose branch main already carries; the
 // live third is not a notice at all, which is the reading's own silence.
-func twoHeldOpen() *noticingForge {
-	return &noticingForge{notices: []runstate.ForgeNotice{
+func twoHeldOpen() *orchestratortest.NoticingForge {
+	return &orchestratortest.NoticingForge{Notices: []runstate.ForgeNotice{
 		{Number: 445, URL: "https://forge.invalid/pull/445", HeadBranch: "yoyodyne/yoyodyne-ifd-283/aaaaaaaa", BaseBranch: "main", WorkItemID: "yoyodyne-ifd.283", ItemClosed: true},
 		{Number: 460, URL: "https://forge.invalid/pull/460", HeadBranch: "yoyodyne/yoyodyne-ifd-300/bbbbbbbb", BaseBranch: "main", WorkItemID: "yoyodyne-ifd.300", Contained: true},
 	}}
@@ -871,8 +852,8 @@ func TestTheForgeIsReadOnThePassAndEachRequestIsReportedOnce(t *testing.T) {
 	if len(second.Fired) != 1 || second.Fired[0].Findings != 0 {
 		t.Fatalf("fired = %+v, want a second pass over the same forge to report nothing again", second.Fired)
 	}
-	if len(forge.reported) != 2 || !forge.reported[1][445] || !forge.reported[1][460] {
-		t.Errorf("reported = %+v, want the second pass told which requests the first already reported", forge.reported)
+	if len(forge.Reported) != 2 || !forge.Reported[1][445] || !forge.Reported[1][460] {
+		t.Errorf("reported = %+v, want the second pass told which requests the first already reported", forge.Reported)
 	}
 	recorded, _, err = store.List()
 	if err != nil {
@@ -901,8 +882,8 @@ func TestOnlyTheDevelopmentManagersPassReadsTheForge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Fire() error = %v", err)
 	}
-	if len(fired.Fired) != 1 || fired.Fired[0].Findings != 0 || len(forge.reported) != 0 {
-		t.Fatalf("fired = %+v (forge read %d times), want the forge left alone", fired.Fired, len(forge.reported))
+	if len(fired.Fired) != 1 || fired.Fired[0].Findings != 0 || len(forge.Reported) != 0 {
+		t.Fatalf("fired = %+v (forge read %d times), want the forge left alone", fired.Fired, len(forge.Reported))
 	}
 }
 
@@ -942,7 +923,7 @@ func TestAForgeThatCouldNotBeReadIsSaidAndCostsNothingElse(t *testing.T) {
 	t.Parallel()
 
 	store := sweepStore(t)
-	forge := &noticingForge{err: errors.New("gh: not logged in")}
+	forge := &orchestratortest.NoticingForge{Err: errors.New("gh: not logged in")}
 	role := &wokenRole{answers: []scriptedTurn{{result: complete("nothing")}}}
 	trigger := Trigger{Tasks: hourlyTask("sweep"), Claims: store, Reports: store, Roles: role, Forge: forge, Clock: recurringClock{}}
 

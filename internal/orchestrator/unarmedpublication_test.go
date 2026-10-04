@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 	"time"
@@ -12,19 +13,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
-
-// checksStub is the forge's reading of a request's checks, which gates arming a
-// request nothing ever asked the forge to merge.
-type checksStub struct {
-	reading publish.CheckReading
-	err     error
-	asked   int
-}
-
-func (c *checksStub) Checks(context.Context, int, string) (publish.CheckReading, error) {
-	c.asked++
-	return c.reading, c.err
-}
 
 // unarmedPublicationRun is a finished, approved run whose promotion holds its pull
 // request and whose record says nothing ever asked the forge to merge it: no
@@ -47,7 +35,7 @@ func unarmedPublicationRun() runstate.State {
 // newUnarmedHarness records one unarmed publication and builds the docket over
 // it the way every sweep does, rather than writing the entry by hand: the docket
 // finding it is half of what is under test.
-func newUnarmedHarness(t *testing.T) (*rearmHarness, *checksStub, DocketBuild) {
+func newUnarmedHarness(t *testing.T) (*rearmHarness, *orchestratortest.RequestChecks, DocketBuild) {
 	t.Helper()
 	root := t.TempDir()
 	runs, err := runstate.NewStore(root, "yoyodyne")
@@ -73,15 +61,15 @@ func newUnarmedHarness(t *testing.T) (*rearmHarness, *checksStub, DocketBuild) {
 		docket: docket,
 		runs:   runs,
 		leases: &leasedRuns{Store: runs},
-		forge: &forgeStub{
-			observed: publish.PullRequest{Number: state.PullRequest.Number, URL: state.PullRequest.URL, State: "OPEN", HeadCommit: rearmedCommit},
-			status:   "CLEAN",
-			result:   publish.MergeResult{Queued: true},
+		forge: &orchestratortest.RearmForge{
+			Observed: publish.PullRequest{Number: state.PullRequest.Number, URL: state.PullRequest.URL, State: "OPEN", HeadCommit: rearmedCommit},
+			Status:   "CLEAN",
+			Result:   publish.MergeResult{Queued: true},
 		},
-		worktrees: &remoteTargetStub{},
+		worktrees: &orchestratortest.RemoteTarget{},
 		state:     state,
 	}
-	checks := &checksStub{reading: publish.CheckReading{HeadCommit: rearmedCommit, Passing: 4}}
+	checks := &orchestratortest.RequestChecks{Reading: publish.CheckReading{HeadCommit: rearmedCommit, Passing: 4}}
 	return harness, checks, build
 }
 
@@ -119,11 +107,11 @@ func TestAPublicationNothingAskedTheForgeToMergeIsDocketedAndArmedByTheHarness(t
 		t.Fatalf("Rearm() error = %v", err)
 	}
 	want := publish.MergeRequest{Number: 92, HeadCommit: rearmedCommit, Method: mergeMethod}
-	if len(harness.forge.requested) != 1 || harness.forge.requested[0] != want {
-		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.requested, want)
+	if len(harness.forge.Requested) != 1 || harness.forge.Requested[0] != want {
+		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.Requested, want)
 	}
-	if checks.asked != 1 || len(harness.worktrees.verified) != 1 || len(harness.leases.promoted) != 1 {
-		t.Fatalf("checks read %d, remote target verified %d, leases %v; want each once before the merge", checks.asked, len(harness.worktrees.verified), harness.leases.promoted)
+	if checks.Asked != 1 || len(harness.worktrees.Verified) != 1 || len(harness.leases.promoted) != 1 {
+		t.Fatalf("checks read %d, remote target verified %d, leases %v; want each once before the merge", checks.Asked, len(harness.worktrees.Verified), harness.leases.promoted)
 	}
 	if !result.FirstArm || !result.Rearmed || result.Method != string(mergeMethod) {
 		t.Fatalf("result = %+v, want a first arming by the run's own method", result)
@@ -159,14 +147,14 @@ func TestArmingAnUnaskedPublicationIsRefusedAtTheLandingGates(t *testing.T) {
 			t.Parallel()
 
 			harness, checks, _ := newUnarmedHarness(t)
-			checks.reading = test.reading
+			checks.Reading = test.reading
 			harness.decide(t)
 			_, err := harness.armer(checks).Rearm(context.Background(), RearmRequest{Run: harness.state.RunID, Reason: rearmReasoning})
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Rearm() error = %v, want it refused naming %q", err, test.want)
 			}
-			if len(harness.forge.requested) != 0 {
-				t.Fatalf("a refused arming asked the forge for %#v", harness.forge.requested)
+			if len(harness.forge.Requested) != 0 {
+				t.Fatalf("a refused arming asked the forge for %#v", harness.forge.Requested)
 			}
 			if left := harness.reload(t); left.PullRequest.MergeRearms != 0 || !left.PublicationUnarmed() {
 				t.Fatalf("a refused arming changed the record: %+v", left.PullRequest)
@@ -181,8 +169,8 @@ func TestArmingAnUnaskedPublicationIsRefusedAtTheLandingGates(t *testing.T) {
 		!strings.Contains(err.Error(), "armed only on a reading of them") {
 		t.Fatalf("Rearm() without a checks reading error = %v, want it refused", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("an unchecked arming asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("an unchecked arming asked the forge for %#v", harness.forge.Requested)
 	}
 }
 
@@ -203,13 +191,13 @@ func TestTheWatchHandsAnUnaskedPublicationBackForAFreshRun(t *testing.T) {
 	}
 	recordRerunDecision(t, armed.runs, armed.state.WorkItemID, armed.state.RunID)
 	rerun := &rerunHarness{
-		docket:   armed.docket,
-		runs:     armed.runs,
-		intake:   intake,
-		reruns:   armed.runs.Reruns(),
-		item:     beads.WorkItem{ID: armed.state.WorkItemID, Title: armed.state.WorkItemTitle, Status: "open"},
-		capacity: 2,
-		outcome:  Outcome{RunID: "run-fedcba9876543210fedcba9876543210", WorkItemID: armed.state.WorkItemID, Status: runstate.StatusSucceeded},
+		docket:        armed.docket,
+		runs:          armed.runs,
+		intake:        intake,
+		reruns:        armed.runs.Reruns(),
+		RerunServices: orchestratortest.RerunServices{Item: beads.WorkItem{ID: armed.state.WorkItemID, Title: armed.state.WorkItemTitle, Status: "open"}},
+		capacity:      2,
+		outcome:       Outcome{RunID: "run-fedcba9876543210fedcba9876543210", WorkItemID: armed.state.WorkItemID, Status: runstate.StatusSucceeded},
 	}
 	watch := CarryOut{
 		Docket:    armed.docket,
@@ -309,8 +297,8 @@ func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
 	watch := harness.carryOut(checks)
 
 	held, err := watch.CarryRearms(context.Background(), true)
-	if err != nil || len(held) != 1 || held[0].Carried || held[0].Gate != runstate.TriageGateIntakeHold || len(harness.forge.requested) != 0 {
-		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing asked of the forge and the hold named", held, err, harness.forge.requested)
+	if err != nil || len(held) != 1 || held[0].Carried || held[0].Gate != runstate.TriageGateIntakeHold || len(harness.forge.Requested) != 0 {
+		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing asked of the forge and the hold named", held, err, harness.forge.Requested)
 	}
 
 	carried, err := watch.CarryRearms(context.Background(), false)
@@ -321,16 +309,16 @@ func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
 		t.Fatalf("carried = %+v, want the one re-arm carried out", carried)
 	}
 	want := publish.MergeRequest{Number: 92, HeadCommit: rearmedCommit, Method: mergeMethod}
-	if len(harness.forge.requested) != 1 || harness.forge.requested[0] != want {
-		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.requested, want)
+	if len(harness.forge.Requested) != 1 || harness.forge.Requested[0] != want {
+		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.Requested, want)
 	}
 	if armed := harness.reload(t); !armed.PullRequest.MergeQueued || armed.PullRequest.MergeRearms != 1 {
 		t.Fatalf("recorded publication = %+v, want the merge queued and the decision spent", armed.PullRequest)
 	}
 
 	again, err := watch.CarryRearms(context.Background(), false)
-	if err != nil || len(again) != 0 || len(harness.forge.requested) != 1 {
-		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.requested)
+	if err != nil || len(again) != 0 || len(harness.forge.Requested) != 1 {
+		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.Requested)
 	}
 }
 
@@ -341,7 +329,7 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 	t.Parallel()
 
 	harness, checks, _ := newUnarmedHarness(t)
-	checks.reading = publish.CheckReading{HeadCommit: rearmedCommit, BehindBy: 2}
+	checks.Reading = publish.CheckReading{HeadCommit: rearmedCommit, BehindBy: 2}
 	harness.decide(t)
 	watch := harness.carryOut(checks)
 
@@ -352,8 +340,8 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 	if len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "head-behind-target gate") {
 		t.Fatalf("carried = %+v, want the arming refused naming the gate", carried)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a refused arming asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a refused arming asked the forge for %#v", harness.forge.Requested)
 	}
 	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
 	if err != nil {
@@ -363,8 +351,8 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 	if !found || finding.Decision != runstate.TriageDecisionRearm || !strings.Contains(finding.Refusal, "head-behind-target gate") {
 		t.Fatalf("finding = %+v (found %v), want the refusal on the item's triage record", finding, found)
 	}
-	if again, _ := watch.CarryRearms(context.Background(), false); len(again) != 0 || checks.asked != 1 {
-		t.Fatalf("the next pull attempted %+v (checks read %d times); want the refusal left to cool", again, checks.asked)
+	if again, _ := watch.CarryRearms(context.Background(), false); len(again) != 0 || checks.Asked != 1 {
+		t.Fatalf("the next pull attempted %+v (checks read %d times); want the refusal left to cool", again, checks.Asked)
 	}
 }
 
@@ -383,13 +371,13 @@ func TestARerunClosesTheHandedBackPublicationOnceTheFreshRunLands(t *testing.T) 
 	}
 	recordRerunDecision(t, armed.runs, armed.state.WorkItemID, armed.state.RunID)
 	rerun := &rerunHarness{
-		docket:   armed.docket,
-		runs:     armed.runs,
-		intake:   intake,
-		reruns:   armed.runs.Reruns(),
-		item:     beads.WorkItem{ID: armed.state.WorkItemID, Title: armed.state.WorkItemTitle, Status: "open"},
-		capacity: 2,
-		outcome:  Outcome{RunID: "run-fedcba9876543210fedcba9876543210", WorkItemID: armed.state.WorkItemID, Status: runstate.StatusSucceeded},
+		docket:        armed.docket,
+		runs:          armed.runs,
+		intake:        intake,
+		reruns:        armed.runs.Reruns(),
+		RerunServices: orchestratortest.RerunServices{Item: beads.WorkItem{ID: armed.state.WorkItemID, Title: armed.state.WorkItemTitle, Status: "open"}},
+		capacity:      2,
+		outcome:       Outcome{RunID: "run-fedcba9876543210fedcba9876543210", WorkItemID: armed.state.WorkItemID, Status: runstate.StatusSucceeded},
 	}
 	rerun.integrated()
 	rerun.merged(445)
@@ -398,11 +386,11 @@ func TestARerunClosesTheHandedBackPublicationOnceTheFreshRunLands(t *testing.T) 
 	if err != nil {
 		t.Fatalf("Rerun() error = %v", err)
 	}
-	if len(rerun.closed) != 1 || rerun.closed[0].Number != armed.state.PullRequest.Number {
-		t.Fatalf("closed = %#v, want the handed-back request %d closed once", rerun.closed, armed.state.PullRequest.Number)
+	if len(rerun.Closed) != 1 || rerun.Closed[0].Number != armed.state.PullRequest.Number {
+		t.Fatalf("closed = %#v, want the handed-back request %d closed once", rerun.Closed, armed.state.PullRequest.Number)
 	}
-	if !strings.Contains(rerun.closed[0].Comment, "#445") || !strings.Contains(rerun.closed[0].Comment, "handed back for a fresh run") {
-		t.Errorf("close comment = %q, want the fresh run's pull request named and the hand-back said", rerun.closed[0].Comment)
+	if !strings.Contains(rerun.Closed[0].Comment, "#445") || !strings.Contains(rerun.Closed[0].Comment, "handed back for a fresh run") {
+		t.Errorf("close comment = %q, want the fresh run's pull request named and the hand-back said", rerun.Closed[0].Comment)
 	}
 	if result.Publication == nil || !result.Publication.Closed {
 		t.Errorf("publication = %#v, want the close reported", result.Publication)
