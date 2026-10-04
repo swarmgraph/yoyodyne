@@ -35,8 +35,11 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 		t.Skipf("native resume requires an installed Codex CLI: %v", err)
 	}
 	home := t.TempDir()
-	oldRepository, oldWorktree := sandboxRepository(t, true)
-	newRepository, newWorktree := sandboxRepository(t, true)
+	// Codex 0.159.2's macOS sandbox rejects double quotes in writable roots
+	// while compiling its Seatbelt profile. Keep those in the argument-encoding
+	// tests; native execution exercises supported paths, including spaces.
+	oldRepository, oldWorktree := sandboxRepositoryNamed(t, true, "repository with spaces")
+	newRepository, newWorktree := sandboxRepositoryNamed(t, true, "repository with spaces")
 	oldPaths := nativeProbeDirectories(t, oldRepository, oldWorktree)
 	newPaths := nativeProbeDirectories(t, newRepository, newWorktree)
 	outside := t.TempDir()

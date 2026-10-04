@@ -18,7 +18,12 @@ import (
 // and quotes exercise the TOML value the CLI actually receives.
 func sandboxRepository(t *testing.T, linked bool) (repository, worktree string) {
 	t.Helper()
-	repository = filepath.Join(t.TempDir(), `repository with "quotes"`)
+	return sandboxRepositoryNamed(t, linked, `repository with "quotes"`)
+}
+
+func sandboxRepositoryNamed(t *testing.T, linked bool, name string) (repository, worktree string) {
+	t.Helper()
+	repository = filepath.Join(t.TempDir(), name)
 	git := filepath.Join(repository, ".git")
 	if err := os.MkdirAll(git, 0o755); err != nil {
 		t.Fatal(err)

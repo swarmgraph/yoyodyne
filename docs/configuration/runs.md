@@ -235,6 +235,16 @@ request the current run's directory policy; argument and CLI-help checks alone
 do not prove that native resume replaces a saved session's permissions or cwd.
 Read-only roles receive no developer directory grants.
 
+Codex CLI 0.159.2 on macOS cannot execute this policy when a writable root
+contains a double quote: its generated Seatbelt profile fails to compile with
+`sandbox-exec: unbound variable`. Encoding the path correctly in the adapter's
+configuration argument does not fix the CLI's profile generation. Such paths
+require a CLI fix; the adapter does not rename them, grant a broader parent, or
+disable the sandbox. Argument tests retain quoted paths, while the native
+regression uses paths with spaces and no double quotes. The CLI's
+[Seatbelt profile generator](https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/sandboxing/src/seatbelt.rs#L536-L564)
+is where those protected-path expressions are constructed.
+
 The following regression launches the real CLI with a local scripted Responses
 server, saves a native session, resumes it with different cache, scratch, and
 worktree paths, and resumes that same session under reviewer restrictions.
