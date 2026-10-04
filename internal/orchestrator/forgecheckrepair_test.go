@@ -146,6 +146,14 @@ func TestAnOlderForgeCheckHandbackNamesTheSupportedRepairAlternative(t *testing.
 		triageDecided(runstate.TriageDecisionRepair, older.RunID), continueGrantRounds, docketedNow, continueCaps); err != nil {
 		t.Fatal(err)
 	}
+	carrying := CarryOut{
+		Docket: fixture.docket, Decisions: fixture.store.Triage(), Reruns: fixture.store.Reruns(),
+		Runs: fixture.store, Repairer: continuer, Clock: fixedClock{at: older.UpdatedAt},
+	}
+	carried, _, err := carrying.Carry(ctx, theOneOutstanding(t, carrying))
+	if err != nil || carried.Carried || !strings.Contains(carried.Problem, "yoyo triage rerun "+older.RunID) {
+		t.Fatalf("older repair carry-out = %#v, %v; want a refusal naming the supported re-run", carried, err)
+	}
 	_, err = continuer.Continue(ctx, RepairContinueRequest{Run: older.RunID})
 	if err == nil || !strings.Contains(err.Error(), "supported alternative") || !strings.Contains(err.Error(), "yoyo triage rerun "+older.RunID) {
 		t.Fatalf("older repair refusal = %v; want the supported alternative named", err)
@@ -169,5 +177,33 @@ func TestAnOlderForgeCheckHandbackNamesTheSupportedRepairAlternative(t *testing.
 	unchanged, err := fixture.store.Load(older.RunID)
 	if err != nil || unchanged.GrantedRepairAttempts() != 0 || unchanged.Blocker != older.Blocker {
 		t.Fatal("a refused repair changed the stopped run or spent its grant")
+	}
+}
+
+func TestAForgeCheckHandbackRecoversAWithdrawnMergeAndKeepsClosedItemsClosed(t *testing.T) {
+	t.Parallel()
+	for _, closed := range []bool{false, true} {
+		t.Run(map[bool]string{false: "withdrawn before settlement", true: "item already closed"}[closed], func(t *testing.T) {
+			fixture, forge, original := queuedOnProtectedTarget(t)
+			forge.reading = redOnTheChange()
+			if closed {
+				fixture.tracker.(*orchestratortest.Tracker).Item.Status = "closed"
+			} else {
+				forge.DropQueuedMerge()
+			}
+			if _, err := fixture.sweep(t, forge, false).Reconcile(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			stopped, err := fixture.store.Load(original.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stopped.CheckFailure == nil || stopped.CheckFailure.ForgeHeadCommit != original.PullRequest.HeadCommit || stopped.Integration != nil || stopped.PullRequest.MergeQueued {
+				t.Fatal("the handback lost its repair input or retained publication credit")
+			}
+			if closed && fixture.tracker.Record().Item.Status != "closed" {
+				t.Fatal("settling the forge failure reopened a closed item")
+			}
+		})
 	}
 }

@@ -222,7 +222,7 @@ type Finding struct {
 	Line     int    `json:"line,omitempty"`
 }
 
-// Check is the deterministic check that was failing when the work stopped, with
+// Check is the local or forge check that failed when the work stopped, with
 // the bounded output the run captured of it.
 type Check struct {
 	Command         string `json:"command"`

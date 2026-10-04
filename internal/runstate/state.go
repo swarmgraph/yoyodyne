@@ -346,7 +346,7 @@ func DescribePause(cause, kind string) string {
 // be able to fill either with output that is mostly unrelated to the failure.
 const MaxCheckOutputBytes = 8 << 10
 
-// CheckFailure is the deterministic check a repair attempt was handed back. It
+// CheckFailure is the local or forge check a repair attempt was handed back. It
 // is durable for the same reason the findings are: an attempt interrupted
 // before it ran has to be reissued with exactly the input it was given, and a
 // run that spends its attempts has to name what still fails. The output is the
@@ -366,6 +366,9 @@ func (c CheckFailure) Validate() error {
 	var problems []error
 	if strings.TrimSpace(c.Command) == "" {
 		problems = append(problems, errors.New("command is required"))
+	}
+	if c.ForgeHeadCommit != "" && !commitPattern.MatchString(c.ForgeHeadCommit) {
+		problems = append(problems, errors.New("forge_head_commit must be a full commit id"))
 	}
 	if len(c.Output) > MaxCheckOutputBytes {
 		problems = append(problems, fmt.Errorf("output is %d bytes, which exceeds the %d byte bound", len(c.Output), MaxCheckOutputBytes))
@@ -2731,7 +2734,7 @@ type State struct {
 	// across repairs and across runs, and a counter reset by the next attempt
 	// would answer a different question every time it was read.
 	ReviewRounds int `json:"review_rounds,omitempty"`
-	// CheckFailure carries the failing deterministic check a repair attempt was
+	// CheckFailure carries the failing local or forge check a repair attempt was
 	// handed. It and ReviewFindingDetails are the two kinds of repair input, and
 	// at most one of them describes the current attempt: the checks are re-run
 	// after every attempt, so recording a failing check clears findings that

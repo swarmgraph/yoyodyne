@@ -388,9 +388,12 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 
 	entry, err := docketedStoppage(c.Docket, runID, "repair")
 	if err != nil {
-		if prior, readErr := c.Runs.Load(runID); readErr == nil {
-			if alternative := oldForgeRepairAlternative(prior); alternative != nil {
-				return RepairContinueResult{}, alternative
+		var missing NoDocketedStoppageError
+		if errors.As(err, &missing) {
+			if prior, readErr := c.Runs.Load(runID); readErr == nil {
+				if alternative := oldForgeRepairAlternative(prior); alternative != nil {
+					return RepairContinueResult{}, alternative
+				}
 			}
 		}
 		return RepairContinueResult{}, err
