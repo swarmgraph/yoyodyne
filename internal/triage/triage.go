@@ -1158,8 +1158,8 @@ type Entry struct {
 	// of it are not yet spent. Validate holds it to an entry that says so.
 	HarnessContinuesChecks bool `json:"harness_continues_checks,omitempty"`
 	// StallStop is the run's own account of a stoppage made by the harness
-	// stopping a provider stream that had gone silent, in its first developer
-	// attempt or at its checks or review after it: that nothing was judged,
+	// stopping a provider stream that had gone silent, including in a repair
+	// already underway: that the stop judged nothing,
 	// whether the stall began in a session a re-adoption resumed, and what
 	// happens to it next — the harness's own continuation, or the development
 	// manager's decision once that is spent. It is the sentence the channel says

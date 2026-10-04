@@ -2070,11 +2070,11 @@ harness itself ended is the one that does stop it, and it stops it in exactly th
 class above: a count killed by the load is the same machine-too-busy death as an
 add killed by it, refused as a cause outside the work and charged nothing.
 
-**The run is left in flight for half an hour, and then it is settled.** Nothing
-in the harness continues a stopped run on its own — the scheduler chooses from
-what the tracker calls ready, and a claimed item is not — so a stop nobody typed
-`yoyo run` for used to leave a run that read as running for good, with no live
-process behind it and no ending ever recorded. Each one held a developer slot,
+**The run is left in flight for half an hour, and then it is settled.** Before
+automatic continuation, the scheduler chose only what the tracker called ready,
+and a claimed item was not. A stop nobody typed `yoyo run` for therefore left a
+run that read as running for good, with no live process behind it and no ending
+ever recorded. Each one held a developer slot,
 the in-flight guard refused every item beside it as a race, the claim audit left
 it alone as a wait, `yoyo reconcile` reported it resumable on every pass, and the
 development manager's repair-continue about it was refused for want of a
@@ -2088,9 +2088,10 @@ free. Inside the half hour the sweep still reports the run resumable and says
 when the grace ends.
 
 **What the settled stoppage is owed is the attempt it was stopped in, and the
-docket entry says so.** A stall judges nothing: no reviewer saw the change, no
-check ran, and nothing was returned to the developer — so the entry the
-development manager reads carries the fact that decides between her two verbs.
+docket entry says so.** A silent session itself judges nothing. When a first
+developer attempt goes silent before any check or review, nothing has been
+returned to the developer, so the entry the development manager reads carries
+the fact that decides between her two verbs.
 It names the developer session the run stalled in, says the session is preserved
 with whatever that attempt had written still in the worktree, and prints
 `yoyo triage repair <run-id>` as what continues it. `yoyo triage repair` then
@@ -2128,36 +2129,37 @@ worktree. `yoyo triage rerun` is still the right verb where the ground has moved
 and the work is to be done again; it is no longer the only one available.
 
 **The harness continues a first silent-stream stall itself, once.** A run whose
-provider stream went silent in its first developer attempt, or at its checks or
-its review after that attempt finished, with nothing handed back to its
-developer, does
-not wait on her decision any more. Once the sweep has settled it, its docket
-entry says the harness stopped the provider and nothing was judged, names the
+provider stream went silent during development or review does not wait on her
+decision after its first silent session, including when it was already repairing
+a failing check or reviewer findings. The interrupted repair keeps its original
+input and the attempt already counted; continuing it adds no attempt or grant.
+Once the sweep has settled it, its docket entry says the harness stopped the provider and nothing was judged, names the
 harness as the next mover, and a watching `yoyo work` session's next pull with
 a developer slot free continues it itself — in the same worktree and developer
-session, at the phase it stalled in, exactly as `yoyo triage repair` would —
-with no decision recorded and no review round, repair attempt, repair grant, or
+session, at the phase it stalled in, with no decision recorded and no review round, repair attempt, repair grant, or
 re-run spent. The continuation is recorded on the run (a repair continuation
 marked `by_harness`, granting nothing) and noted on the item, the entry is
 closed in the harness's name, and while it stands `yoyo status` holds the item
 as the harness's move rather than as a decision waiting on anybody. The
 operator's pause and the intake hold stop it exactly as they stop a recorded
-decision's carry-out; a decision she records about the stoppage first is
-carried out instead. Maintenance keeps its checkout and branch while the
-automatic continuation is outstanding, including when intake or capacity delays
+decision's carry-out; a decision she records about the current stoppage first is
+carried out instead. A decision already carried out for an earlier stoppage of
+the same run does not prevent this continuation. If the watching session restarts
+between the silence and the continuation, its replacement reads the run and
+docket records and carries on the same run under the same bounds. Maintenance
+keeps its checkout and branch while the automatic continuation is outstanding, including when intake or capacity delays
 it beyond the retained tail. An interrupted developer's uncommitted work stays
 in that checkout; recreating committed files from a branch cannot recover it.
 It is held to what her repair of a stall is held to: the
-worktree has to be as the harness left it, and a stall at the checks or the
-review has to still hold the change. One that fails either is written onto the run
+worktree has to be as the harness left it, and a stall at the checks, review,
+or a repair already underway must still hold the change. One that fails either is written onto the run
 (`stall_continuation_refused`), the item is told, and the stoppage is docketed
 again for her. **The harness does this at most once for one run.** A run that
 stalls again after the harness carried it on is settled and docketed as before,
 and its entry says the harness's continuation is spent and what happens next is
-her decision. A stall inside the repair loop, and a provider stopped for
-running out of its total budget rather than for going silent, are not
-continued this way. Where the run had been stopped for a
-[redeploy](#a-session-draining-to-restart-into-a-deployed-build) and
+her decision. A provider stopped for running out of its total budget rather
+than for going silent is not continued this way. Where the run had been stopped
+for a [redeploy](#a-session-draining-to-restart-into-a-deployed-build) and
 re-adopted before it stalled, the entry and the item's note say so. Where it
 stalled at the phase it was re-adopted at, they say the stall began in the
 session that re-adoption resumed; where it stalled later, they say only that
@@ -3409,8 +3411,9 @@ repair attempt because a stall judges nothing; one stopped at its review or its
 checks after the attempt finished is continued at that step, with no developer
 invoked — the entry says which, and
 [what a stall is owed](#when-a-provider-stalls-or-runs-out-of-budget) is the
-whole of it. A first stall of a provider stream that went silent, outside the
-repair loop, is the exception to waiting on her: the harness continues it
+whole of it. A first stall of a provider stream that went silent, including
+during a repair already underway, is the exception to waiting on her: the
+harness continues it
 itself at a watching session's next pull, once per run, and only a second
 stall is hers — [the same section](#when-a-provider-stalls-or-runs-out-of-budget)
 says how. The
@@ -4698,7 +4701,7 @@ comes from a small fixed set:
 | word | what it means |
 | --- | --- |
 | `succeeded` | the work landed |
-| `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream outside the repair loop, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
+| `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream, including during a repair, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
 | `cancelled` | something stopped it rather than judged it — the operator, or a killed process |
 | `timed out` | the harness stopped it on time; nothing judged the change, and only a check stage its bound stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
 | `failed` | it ended without succeeding and without leaving anybody a blocker |

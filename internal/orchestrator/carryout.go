@@ -773,7 +773,10 @@ func (c CarryOut) stallTask(entry triage.Entry, item outstandingItem) (CarryOutT
 	if c.Stalls == nil || !entry.HarnessContinuesStall {
 		return CarryOutTask{}, false, nil
 	}
-	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() {
+	// A decision about an earlier stoppage may already have put this run back
+	// to work. It does not decide a later silent session in that repair; only a
+	// decision made about the current stoppage takes precedence over the harness.
+	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() && !decision.DecidedAt.Before(entry.RecordedAt) {
 		return CarryOutTask{}, false, nil
 	}
 	due, err := c.Stalls.Due(entry.RunID)
