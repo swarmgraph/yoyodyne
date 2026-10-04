@@ -349,9 +349,9 @@ func (r Reconciler) sweepPublication(ctx context.Context, superseded supersededP
 //
 // A run that still owes a step is never a candidate, for the reason its branch
 // is not — a live developer is working in that checkout, and whether it is still
-// needed is reconciliation's question rather than hygiene's. Neither is a run
-// whose record already says the checkout is gone, which is every run whose work
-// was integrated and cleaned up.
+// needed is reconciliation's question rather than hygiene's. A retired checkout
+// with a finding or an undelivered recovery note still needs that obligation
+// settled, but it occupies no slot in the tail of checkouts kept on disk.
 //
 // The tail is held back from the newest end, and it is a tail of checkouts that
 // are actually there rather than of records: a run whose checkout this sweep
@@ -360,8 +360,18 @@ func (r Reconciler) sweepPublication(ctx context.Context, superseded supersededP
 // slot that was meant to keep somebody's evidence on disk.
 func sweepableWorktrees(recorded []runstate.State) []runstate.State {
 	candidates := make([]runstate.State, 0, len(recorded))
+	retired := make([]runstate.State, 0)
 	for _, state := range recorded {
-		if state.Outstanding() || state.WorktreePath == "" || state.WorktreeRemoved {
+		if state.WorktreePath == "" {
+			continue
+		}
+		if state.WorktreeRemoved {
+			if hasReconcileFinding(state, runstate.ReconcileWorktree) || (state.PreservedWorkRef != "" && state.PreservedWorkNotedAt == nil) {
+				retired = append(retired, state)
+			}
+			continue
+		}
+		if state.Outstanding() {
 			continue
 		}
 		candidates = append(candidates, state)
@@ -376,9 +386,9 @@ func sweepableWorktrees(recorded []runstate.State) []runstate.State {
 		return first.After(second)
 	})
 	if len(candidates) <= settledWorktreeTail {
-		return nil
+		return retired
 	}
-	return candidates[settledWorktreeTail:]
+	return append(retired, candidates[settledWorktreeTail:]...)
 }
 
 // settledAt is when a run stopped being something anybody was watching. A run
@@ -467,7 +477,18 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 	// The state is re-read by AdoptRun, so a run something else settled, retired,
 	// or re-entered in the meantime is never swept from the snapshot this loop
 	// started with.
-	if state.Outstanding() || state.WorktreePath == "" || state.WorktreeRemoved {
+	if state.WorktreePath == "" {
+		return WorktreeSweep{}, false
+	}
+	if state.WorktreeRemoved {
+		pendingNote := state.PreservedWorkRef != "" && state.PreservedWorkNotedAt == nil
+		if pendingNote {
+			sweep.PreservedWork = state.PreservedWorkRef
+			sweep.ItemProblem = r.recordPreservedWork(ctx, &state, state.PreservedWorkRef)
+		}
+		return sweep, pendingNote || hasReconcileFinding(state, runstate.ReconcileWorktree)
+	}
+	if state.Outstanding() {
 		return WorktreeSweep{}, false
 	}
 	kept, releaseDecision := r.recoveryNeedsArtifacts(ctx, state)
@@ -491,20 +512,20 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 	// sweep did, and only the first is reported as a retirement.
 	if removal.Removed {
 		sweep.Removed = removal.Registered
-		sweep.RecordProblem = r.recordSweptWorktree(state, removal.PreservedWork)
+		sweep.RecordProblem = r.recordSweptWorktree(&state, removal.PreservedWork)
 		// The item is told wherever a capture happened, and only then. What the run
 		// failed with was written on that item hours or days earlier, naming a
 		// checkout that was there when it was written; this is the correction, and
 		// it is the only thing a person reading the item can follow to the work.
 		if removal.PreservedWork != "" {
-			sweep.ItemProblem = r.recordPreservedWork(ctx, state, removal.PreservedWork)
+			sweep.ItemProblem = r.recordPreservedWork(ctx, &state, removal.PreservedWork)
 		}
 	}
 	if !sweep.Removed && sweep.Kept == "" && sweep.Failure == "" && sweep.RecordProblem == "" && sweep.ItemProblem == "" {
 		// The checkout was gone before this sweep reached it and its record now
 		// says so. There is nothing left for anybody to read, and nothing left to
 		// probe: the run drops out of the candidates on every later pass.
-		return WorktreeSweep{}, false
+		return sweep, hasReconcileFinding(state, runstate.ReconcileWorktree)
 	}
 	return sweep, true
 }
@@ -517,17 +538,18 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 // The ref the work was captured onto is recorded beside it, because the run's
 // own record is the only place anybody would think to look for where a stopped
 // run's half-finished change went.
-func (r Reconciler) recordSweptWorktree(state runstate.State, preservedWork string) string {
+func (r Reconciler) recordSweptWorktree(state *runstate.State, preservedWork string) string {
 	swept := r.clock().Now()
 	state.WorktreeRemoved = true
 	state.WorktreeSweptAt = &swept
 	if preservedWork != "" {
 		state.PreservedWorkRef = preservedWork
+		state.PreservedWorkNotedAt = nil
 	}
 	// When the run ended is what dates it; this dates the last thing the harness
 	// did to what it left behind, which is what UpdatedAt has always meant.
 	state.UpdatedAt = swept
-	if err := r.Store.Save(state); err != nil {
+	if err := r.Store.Save(*state); err != nil {
 		return fmt.Sprintf(
 			"the checkout of run %s was retired and its own record still says otherwise, so anything reading that run will name a directory that is gone: %v",
 			state.RunID, err)
@@ -550,13 +572,28 @@ func (r Reconciler) recordSweptWorktree(state runstate.State, preservedWork stri
 // A note that could not be written never fails the sweep, for the reason the
 // record problem beside it does not: the capture happened, the ref is a
 // garbage-collection root, and what is missing is somebody being told.
-func (r Reconciler) recordPreservedWork(ctx context.Context, state runstate.State, preservedWork string) string {
+func (r Reconciler) recordPreservedWork(ctx context.Context, state *runstate.State, preservedWork string) string {
 	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if _, err := r.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderPreservedWorkNotes(state, preservedWork)); err != nil {
-		return fmt.Sprintf(
-			"the checkout of run %s was retired and what it held was recorded on %s, and %s could not be told, so anything read from that item still names a directory that is gone: %v",
-			state.RunID, preservedWork, state.WorkItemID, err)
+	note := renderPreservedWorkNotes(*state, preservedWork)
+	// Delivery can succeed just before its marker save fails. The item is the
+	// other durable copy, so verify it before appending the recovery note again.
+	item, err := r.Tracker.Show(recordCtx, state.WorkItemID)
+	if err != nil {
+		return fmt.Sprintf("read prior preservation notes of %s: %v", state.WorkItemID, err)
+	}
+	if !strings.Contains(item.Notes, note) {
+		if _, err := r.Tracker.RecordOutcome(recordCtx, state.WorkItemID, note); err != nil {
+			return fmt.Sprintf(
+				"the checkout of run %s was retired and what it held was recorded on %s, and %s could not be told, so anything read from that item still names a directory that is gone: %v",
+				state.RunID, preservedWork, state.WorkItemID, err)
+		}
+	}
+	noted := r.clock().Now()
+	state.PreservedWorkNotedAt = &noted
+	state.UpdatedAt = noted
+	if err := r.Store.Save(*state); err != nil {
+		return fmt.Sprintf("record delivery of the preserved work note for run %s: %v", state.RunID, err)
 	}
 	return ""
 }
@@ -690,13 +727,13 @@ func (r Reconciler) sweepBranch(ctx context.Context, recorded runstate.State, re
 	// answers sends somebody after it.
 	if removal.Commit == "" {
 		if state.BranchRemoved {
-			return BranchSweep{}, false
+			return sweep, hasReconcileFinding(state, runstate.ReconcileBranch)
 		}
 		if problem := r.recordSweptBranch(state); problem != "" {
 			sweep.RecordProblem = problem
 			return sweep, true
 		}
-		return BranchSweep{}, false
+		return sweep, hasReconcileFinding(state, runstate.ReconcileBranch)
 	}
 	sweep.Commit = removal.Commit
 	sweep.Removed = removal.Removed

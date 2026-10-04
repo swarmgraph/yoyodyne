@@ -1047,6 +1047,25 @@ func TestStateRequiresCoherentReviewAndIntegrationEvidence(t *testing.T) {
 			},
 		},
 		{
+			name: "delivered preservation note with no preserved work",
+			mutate: func(state *State) {
+				noted := state.UpdatedAt
+				state.PreservedWorkNotedAt = &noted
+			},
+			problem: "preserved_work_noted_at requires the preserved work its note names",
+		},
+		{
+			name: "delivered preservation note of a retired checkout",
+			mutate: func(state *State) {
+				swept := state.UpdatedAt
+				state.Integration = nil
+				state.WorktreeRemoved = true
+				state.WorktreeSweptAt = &swept
+				state.PreservedWorkRef = "refs/yoyodyne/preserved-work/" + state.RunID
+				state.PreservedWorkNotedAt = &swept
+			},
+		},
+		{
 			name: "preserved work with no sweep that recorded it",
 			mutate: func(state *State) {
 				state.Integration = nil

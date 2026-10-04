@@ -2604,10 +2604,12 @@ unreadable forge answer, leaves a finding on that item's run record and notes.
 The finding names the refusal, the remedy, and who moves it: the harness retries
 the settlement, and the development manager decides what to preserve when a
 moved remote branch carries work outside its target. Reconcile finishes the rest
-of the pass and reports each item's settlement or remaining finding; these findings alone do not make the command
-or the supervisor's maintenance pass fail. A failure to discover the pass's
-state still fails the command. Repeating the same refusal retries the settlement
-without adding another finding note; an undelivered note is retried too.
+of the pass and reports each item's settlement or remaining finding; these
+findings alone do not make the command or the supervisor's maintenance pass
+fail. A failure to discover the pass's state still fails the command. Repeating
+the same refusal retries the settlement without adding another finding note;
+an undelivered note is retried too. If a branch was removed elsewhere, the next
+sweep confirms its absence and clears the saved refusal under the run's lease.
 
 A run it settled into an ending that is not success is reported twice over: what the sweep did with it,
 and — in the same words `yoyo status` uses — what became of the run and what
@@ -3297,6 +3299,10 @@ a person. They are removed by the settlement that confirms the merge, as
 record, and so is a checkout the sweep finds already gone — removed by you, or by
 an external `git worktree prune` — so `yoyo status` and the triage docket stop
 advertising a directory that is not there rather than sending you after it.
+If delivery of a preservation or finding note fails after retirement, later
+passes retry the note under the run's lease even though the checkout is gone.
+The item is checked for a note already delivered before appending it again,
+and the finding clears once those delivery obligations are settled.
 Because the sweep is part of `yoyo reconcile`, this is owned and recurring rather
 than something anybody has to remember.
 

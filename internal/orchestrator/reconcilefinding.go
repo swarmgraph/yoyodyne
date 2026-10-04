@@ -24,6 +24,19 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 		return nil, fmt.Sprintf("record settlement finding for run %s: %v", runID, err)
 	}
 	defer lease.Release()
+	// Another settlement can record the forge's final answer before the refresh
+	// sweep revisits the request. That answer settles its earlier read refusal.
+	if published := state.PullRequest; published != nil && (published.Merged || published.Superseded != "" || published.HandedBack != nil || strings.EqualFold(strings.TrimSpace(published.State), "CLOSED")) {
+		attention, problem := r.clearReconcileFindings(ctx, &state, func(f runstate.ReconcileFinding) bool {
+			return f.Step == runstate.ReconcileRefresh
+		})
+		if problem != "" {
+			return attention, problem
+		}
+		if step == runstate.ReconcileRefresh {
+			return nil, ""
+		}
+	}
 	if (step == runstate.ReconcileRun || step == runstate.ReconcilePublication) && problem == "" && state.PullRequest != nil && state.PullRequest.Merged {
 		problem = state.PublishFailure
 	}
@@ -33,16 +46,9 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 	}
 	index := slices.IndexFunc(state.ReconcileFindings, func(f runstate.ReconcileFinding) bool { return f.Step == step })
 	if problem == "" {
-		before := len(state.ReconcileFindings)
-		state.ReconcileFindings = slices.DeleteFunc(state.ReconcileFindings, func(f runstate.ReconcileFinding) bool {
+		return r.clearReconcileFindings(ctx, &state, func(f runstate.ReconcileFinding) bool {
 			return f.Step == step || (step == runstate.ReconcilePublication && f.Step == runstate.ReconcileRun && !state.Outstanding())
 		})
-		if len(state.ReconcileFindings) != before {
-			if err := r.Store.Save(state); err != nil {
-				return nil, fmt.Sprintf("clear settlement finding for run %s: %v", runID, err)
-			}
-		}
-		return nil, ""
 	}
 	problem = runstate.RecordReconcileProblem(problem)
 	if index < 0 {
@@ -52,15 +58,49 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 		state.ReconcileFindings[index].Problem = problem
 		state.ReconcileFindings[index].Pending = true
 	}
+	if state.ReconcileFindings[index].Pending {
+		if err := r.Store.Save(state); err != nil {
+			view := state
+			view.ReconcileFindings = []runstate.ReconcileFinding{state.ReconcileFindings[index]}
+			attention := readmodel.ReconcileFindingAttention(view)
+			return &attention, fmt.Sprintf("save settlement finding for run %s: %v", runID, err)
+		}
+	}
+	return r.deliverReconcileFinding(ctx, &state, index)
+}
+
+// clearReconcileFindings requires the run lease and proof of resolution from
+// its caller. A resolved operation can still owe delivery of its saved finding;
+// finish that delivery before clearing its only pending marker.
+func (r Reconciler) clearReconcileFindings(ctx context.Context, state *runstate.State, resolved func(runstate.ReconcileFinding) bool) (*readmodel.Attention, string) {
+	for index, finding := range state.ReconcileFindings {
+		if resolved(finding) && finding.Pending {
+			attention, problem := r.deliverReconcileFinding(ctx, state, index)
+			if problem != "" {
+				return attention, problem
+			}
+		}
+	}
+	before := len(state.ReconcileFindings)
+	state.ReconcileFindings = slices.DeleteFunc(state.ReconcileFindings, resolved)
+	if len(state.ReconcileFindings) != before {
+		if err := r.Store.Save(*state); err != nil {
+			return nil, fmt.Sprintf("clear settlement finding for run %s: %v", state.RunID, err)
+		}
+	}
+	return nil, ""
+}
+
+// deliverReconcileFinding requires the caller's run lease. It also runs after
+// resolution, because a failed note is an obligation separate from the artifact
+// that originally produced the finding.
+func (r Reconciler) deliverReconcileFinding(ctx context.Context, state *runstate.State, index int) (*readmodel.Attention, string) {
 	finding := &state.ReconcileFindings[index]
-	view := state
+	view := *state
 	view.ReconcileFindings = []runstate.ReconcileFinding{*finding}
 	attention := readmodel.ReconcileFindingAttention(view)
 	if !finding.Pending {
 		return &attention, ""
-	}
-	if err := r.Store.Save(state); err != nil {
-		return &attention, fmt.Sprintf("save settlement finding for run %s: %v", runID, err)
 	}
 	note := "Settlement finding: " + attention.CitedWhat() + "\nRun: " + state.RunID + "\nNext move: " + attention.CitedWhose()
 	// A previous delivery may have succeeded just before its marker save failed.
@@ -77,10 +117,14 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 		}
 	}
 	finding.Pending = false
-	if err := r.Store.Save(state); err != nil {
-		return &attention, fmt.Sprintf("record delivered settlement finding for run %s: %v", runID, err)
+	if err := r.Store.Save(*state); err != nil {
+		return &attention, fmt.Sprintf("record delivered settlement finding for run %s: %v", state.RunID, err)
 	}
 	return &attention, ""
+}
+
+func hasReconcileFinding(state runstate.State, step runstate.ReconcileStep) bool {
+	return slices.ContainsFunc(state.ReconcileFindings, func(f runstate.ReconcileFinding) bool { return f.Step == step })
 }
 
 func nonEmptyProblems(problems ...string) []string {

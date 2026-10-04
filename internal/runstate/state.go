@@ -2692,6 +2692,10 @@ type State struct {
 	// Absent is every run whose checkout held nothing to move, and every run whose
 	// checkout is still there.
 	PreservedWorkRef string `json:"preserved_work_ref,omitempty"`
+	// PreservedWorkNotedAt records delivery of the retired checkout's recovery
+	// note. Until it is set, convergence retries the note even though the
+	// checkout itself no longer needs retiring.
+	PreservedWorkNotedAt *time.Time `json:"preserved_work_noted_at,omitempty"`
 	// TargetBranch is the integration target fixed when the worktree was
 	// created. It is durable so a resumed run promotes the work into the branch
 	// it was written against rather than whatever happens to be checked out
@@ -3839,6 +3843,9 @@ func (s State) Validate() error {
 		if strings.HasPrefix(preservedWork, "refs/heads/") || !strings.HasPrefix(preservedWork, "refs/") {
 			problems = append(problems, fmt.Errorf("preserved_work_ref %q must be a ref outside refs/heads", s.PreservedWorkRef))
 		}
+	}
+	if s.PreservedWorkNotedAt != nil && strings.TrimSpace(s.PreservedWorkRef) == "" {
+		problems = append(problems, errors.New("preserved_work_noted_at requires the preserved work its note names"))
 	}
 	if retiredBy != "" {
 		if !ValidRunID(retiredBy) {

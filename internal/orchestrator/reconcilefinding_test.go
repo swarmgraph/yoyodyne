@@ -49,6 +49,37 @@ func TestReconcileRetriesAnUndeliveredFindingAndClearsItWhenTheForgeAnswers(t *t
 	}
 }
 
+func TestReconcileClearsARefreshFindingWhenTheRunSettlementRecordsTheMerge(t *testing.T) {
+	t.Parallel()
+	fixture := newQueuedFixture(t)
+	outcome := fixture.run(t)
+	reconciler := fixture.reconciler(t)
+	reconciler.Tracker = &refuseSettlementNoteOnce{WorkTracker: fixture.tracker}
+	// A request can have a refresh finding from before its run was re-armed.
+	// The run now owes its queued merge, so refresh no longer selects it.
+	finding, problem := reconciler.recordReconcileFinding(context.Background(), outcome.RunID, runstate.ReconcileRefresh, "forge answer unreadable")
+	if finding == nil || problem == "" {
+		t.Fatalf("finding = %+v, problem = %q, want a pending refresh note", finding, problem)
+	}
+	fixture.forge.PerformQueuedMerge(t)
+	results, err := reconciler.Reconcile(context.Background())
+	if err != nil || len(results) != 1 || results[0].Action != ActionCompleted || results[0].FindingProblem != "" {
+		t.Fatalf("settlement = %+v, %v", results, err)
+	}
+	if saved := loadRun(t, fixture.store, results[0].RunID); !saved.PullRequest.Merged || len(saved.ReconcileFindings) != 0 {
+		t.Fatalf("settled publication still has findings: %+v", saved.ReconcileFindings)
+	}
+	findingNotes := 0
+	for _, note := range fixture.tracker.Record().NoteRecords {
+		if strings.HasPrefix(note, "Settlement finding:") {
+			findingNotes++
+		}
+	}
+	if findingNotes != 1 {
+		t.Fatalf("finding notes = %d, want the pending refresh note delivered once", findingNotes)
+	}
+}
+
 type refuseSettlementNoteOnce struct {
 	WorkTracker
 	refused bool

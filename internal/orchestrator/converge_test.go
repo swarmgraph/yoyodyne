@@ -550,6 +550,7 @@ func TestConvergeRetiresSettledCheckoutsPastTheTail(t *testing.T) {
 	settled := make([]runstate.State, 0, settledWorktreeTail+1)
 	for index := 0; index <= settledWorktreeTail; index++ {
 		state := settledRunWithCheckout(t, worktrees, store, index)
+		tracker.HoldsItem(beads.WorkItem{ID: state.WorkItemID, Title: "Task", Status: "open"})
 		if index == 0 {
 			writeSweepFile(t, filepath.Join(state.WorktreePath, "half-done.txt"), "the developer got this far\n")
 		}
@@ -571,7 +572,7 @@ func TestConvergeRetiresSettledCheckoutsPastTheTail(t *testing.T) {
 	}
 	swept := convergence.Worktrees[0]
 	oldest := settled[0]
-	if swept.RunID != oldest.RunID || !swept.Removed || swept.Kept != "" || swept.Failure != "" || swept.RecordProblem != "" {
+	if swept.RunID != oldest.RunID || !swept.Removed || swept.Kept != "" || swept.Failure != "" || swept.RecordProblem != "" || swept.ItemProblem != "" {
 		t.Fatalf("sweep = %#v, want run %s retired", swept, oldest.RunID)
 	}
 	if registered := len(linkedWorktrees(t, repository)); registered != settledWorktreeTail {
