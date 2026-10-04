@@ -207,3 +207,110 @@ func TestAForgeCheckHandbackRecoversAWithdrawnMergeAndKeepsClosedItemsClosed(t *
 		})
 	}
 }
+
+func TestADroppedMergeRecordsItsOwnForgeFailureEvenWhenItCannotBeReplayed(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		fixture func(*testing.T) (queuedFixture, *checkedForge, Outcome)
+		change  func(*runstate.State)
+		gone    bool
+	}{
+		{
+			name: "promotion resumption limit reached",
+			change: func(state *runstate.State) {
+				for range runstate.MaxIntegrationResumptions {
+					state.IntegrationResumptions = append(state.IntegrationResumptions, runstate.IntegrationResumption{
+						Cause: runstate.CauseQueuedHeadBehind, Reason: "the queued head fell behind its target", ResumedAt: state.UpdatedAt,
+					})
+				}
+			},
+		},
+		{
+			name: "branch already removed",
+			gone: true,
+			change: func(state *runstate.State) {
+				state.BranchRemoved = true
+				state.BranchSweptAt = &state.UpdatedAt
+			},
+		},
+		{
+			name: "local promotion already cleaned up",
+			gone: true,
+			fixture: func(t *testing.T) (queuedFixture, *checkedForge, Outcome) {
+				fixture := newQueuedFixture(t)
+				original := fixture.run(t)
+				return fixture, &checkedForge{queuedForge: fixture.forge}, original
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			makeFixture := test.fixture
+			if makeFixture == nil {
+				makeFixture = queuedOnProtectedTarget
+			}
+			fixture, forge, original := makeFixture(t)
+			prior, err := fixture.store.Load(original.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if test.change != nil {
+				test.change(&prior)
+			}
+			if why := unreplayable(prior); why == "" {
+				t.Fatal("the fixture still permits replay")
+			}
+			if err := fixture.store.Save(prior); err != nil {
+				t.Fatal(err)
+			}
+			fixture.docket = &memoryDocket{}
+			forge.DropQueuedMerge()
+			forge.reading = redOnTheChange()
+			if _, err := fixture.sweep(t, forge, false).Reconcile(ctx); err != nil {
+				t.Fatal(err)
+			}
+			stopped, err := fixture.store.Load(original.RunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if stopped.CheckFailure == nil || stopped.CheckFailure.Command != "lint" || stopped.CheckFailure.ForgeHeadCommit != original.PullRequest.HeadCommit {
+				t.Fatalf("failing check = %#v; want the dropped head's own forge failure", stopped.CheckFailure)
+			}
+			if stopped.Integration != nil || stopped.PullRequest.MergeQueued {
+				t.Fatal("the dropped red revision retained promotion credit or a queued merge")
+			}
+			if _, _, err := rearmablePublication(stopped); err == nil || !strings.Contains(err.Error(), "unchanged revision cannot be re-armed") {
+				t.Fatalf("re-arm refusal = %v", err)
+			}
+			entries, err := fixture.docket.List()
+			if err != nil || len(entries) != 1 || entries[0].Check == nil || entries[0].Class != triage.ClassStoppedRun {
+				t.Fatalf("docket = %#v, %v; want the failing check on the stopped run", entries, err)
+			}
+			if strings.Contains(entries[0].Render(), "merge request may be repeated") {
+				t.Fatal("the docket offered a re-arm of the unchanged red revision")
+			}
+			if test.gone {
+				intake, err := runstate.NewIntakeHoldStore(t.TempDir(), "yoyodyne")
+				if err != nil {
+					t.Fatal(err)
+				}
+				continuer := RepairContinuer{
+					Docket: fixture.docket, Runs: fixture.store, Intake: intake, Decisions: fixture.store.Triage(),
+					Items: fixture.tracker, Worktrees: &fakeOwnership{}, ConfiguredAttempts: 2, Capacity: 1,
+					Start: func(context.Context, string, string) (Outcome, error) {
+						t.Fatal("a missing change was continued")
+						return Outcome{}, nil
+					},
+				}
+				_, err = continuer.Continue(ctx, RepairContinueRequest{Run: stopped.RunID})
+				if err == nil || !strings.Contains(err.Error(), "supported alternative") || !strings.Contains(err.Error(), "yoyo triage rerun "+stopped.RunID) {
+					t.Fatalf("repair refusal = %v; want the supported re-run named", err)
+				}
+				if !strings.Contains(entries[0].Render(), "yoyo triage rerun "+stopped.RunID) {
+					t.Fatal("the docket did not name the supported alternative when repair cannot continue")
+				}
+			}
+		})
+	}
+}

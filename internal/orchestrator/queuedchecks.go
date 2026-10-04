@@ -463,10 +463,10 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 // branch, and where the forge dropped it with its head behind the target and
 // failing nothing the change touches, it is the race a replay answers — brought
 // up to date from the kept branch, checked and reviewed again, and queued again
-// by its own run (updateQueuedHead). Only a drop that cannot be replayed is a
-// person's: a local promotion, a run whose artifacts or sessions are gone, a
-// request the forge closed, a head level with its target, or checks that fail
-// on the change itself.
+// by its own run (updateQueuedHead). Checks failing on the change go to repair
+// before replay eligibility is considered. Other drops that cannot be replayed
+// keep their usual handback: a local promotion, a run whose artifacts or
+// sessions are gone, a request the forge closed, or a head level with its target.
 //
 // A reading of the checks the forge could not give decides the drop neither
 // way. The record is left as it stands, still queued, and the next sweep asks
@@ -474,7 +474,7 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.State, observed publish.PullRequest) (Reconciliation, bool, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
-	if r.Checks == nil || unreplayable(*state) != "" || !strings.EqualFold(observed.State, "OPEN") {
+	if r.Checks == nil {
 		return Reconciliation{}, false, nil
 	}
 	result := reconciliationOf(*state, ActionQueued)
@@ -502,6 +502,9 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 			published.Number, checks.Describe(target)))
 		return stopped, true, err
 	}
+	if unreplayable(*state) != "" || !strings.EqualFold(observed.State, "OPEN") {
+		return Reconciliation{}, false, nil
+	}
 	// A head level with its target that failed on no file its change touches
 	// failed on the target, and the queue dropping it is the same fact the sweep
 	// withdrawing it would have been: filed as the target's, and waited on.
@@ -509,7 +512,7 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 		waiting, err := r.waitOnRedTarget(ctx, *state, checks, reading.Files, true)
 		return waiting, true, err
 	}
-	if checks.BehindBy == 0 || checks.ChangeFails() {
+	if checks.BehindBy == 0 {
 		return Reconciliation{}, false, nil
 	}
 	result = reconciliationOf(*state, ActionQueued)

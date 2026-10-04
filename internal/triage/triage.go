@@ -1830,6 +1830,7 @@ func (e Entry) Render() string {
 		if e.Check.ForgeHeadCommit != "" {
 			label = fmt.Sprintf("Failing forge check: %s (commit %s)", e.Check.Command, e.Check.ForgeHeadCommit)
 			rendered.WriteString("      This change failed its forge checks. A repair continues the preserved change in its developer session, with fresh checks and independent review; the unchanged revision cannot be re-armed.\n")
+			fmt.Fprintf(&rendered, "      If its developer session or preserved change cannot be recovered, the supported alternative is a re-run decided by the development manager through `yoyo triage rerun %s`.\n", e.RunID)
 		}
 		rendered.WriteString(indented(
 			label, e.Check.Output))

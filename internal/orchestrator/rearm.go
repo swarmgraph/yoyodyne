@@ -479,8 +479,8 @@ func rearmablePublication(state runstate.State) (runstate.PullRequest, runstate.
 	}
 	published := *state.PullRequest
 	if state.CheckFailure != nil && state.CheckFailure.ForgeHeadCommit != "" {
-		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf("pull request %d failed this change's forge checks on %s, so its unchanged revision cannot be re-armed; a repair decided by the development manager continues the preserved change through `yoyo triage repair %s`, with fresh checks and independent review",
-			published.Number, state.CheckFailure.ForgeHeadCommit, state.RunID)
+		return runstate.PullRequest{}, runstate.Integration{}, fmt.Errorf("pull request %d failed this change's forge checks on %s, so its unchanged revision cannot be re-armed; a repair decided by the development manager continues the preserved change through `yoyo triage repair %s`, with fresh checks and independent review. If its developer session or preserved change cannot be recovered, the supported alternative is a re-run decided by the development manager through `yoyo triage rerun %s`",
+			published.Number, state.CheckFailure.ForgeHeadCommit, state.RunID, state.RunID)
 	}
 	if state.Integration == nil {
 		return runstate.PullRequest{}, runstate.Integration{}, UnrearmablePublicationError{RunID: state.RunID, Number: published.Number, Why: fmt.Sprintf(

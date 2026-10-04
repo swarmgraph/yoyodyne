@@ -428,6 +428,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 			prior.RunID, owner, entry.WorkItemID)
 	}
 	if err := continuableRepair(prior, found); err != nil {
+		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
+			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch", err, prior.RunID)
+		}
 		return result, err
 	}
 	recovery := checkoutRecovery{Runs: c.Runs, Worktrees: c.Worktrees, Clock: c.Clock}
