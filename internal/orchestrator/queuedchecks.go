@@ -315,6 +315,10 @@ func forgeCheckFailure(checks runstate.PullRequestChecks, account string) *runst
 // invalidateForgeApproval retains the publication as history, but takes back
 // the promotion and review credit the next developer attempt must earn again.
 func invalidateForgeApproval(state *runstate.State) {
+	if state.Integration != nil && !state.Integration.ThroughPullRequest {
+		promoted := *state.Integration
+		state.CheckFailure.LocalPromotion = &promoted
+	}
 	state.Integration = nil
 	state.ChecksPassed = nil
 	state.ReviewSessionID = ""

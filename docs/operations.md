@@ -2806,6 +2806,14 @@ the queue was landing them.
   development manager grants is carried out by `yoyo triage repair` on that
   same change and session, under the existing repair budget; fresh configured
   checks and independent review must pass before it is published again.
+  This failure is recorded even if the forge already dropped the merge and
+  the run cannot replay its head: replay limits or missing artifacts never
+  authorize re-arming the red revision. If the developer session or preserved
+  change cannot be recovered, the repair refusal and docket name a re-run
+  decided by the development manager, through `yoyo triage rerun`, as the
+  supported alternative. A change already promoted locally keeps that
+  promotion as cleanup history with the failing check, without current
+  promotion or review credit.
   An older stopped run that kept its failing forge checks only on the
   publication cannot supply this repair input: the repair refusal names a
   development-manager-decided re-run, carried out by `yoyo triage rerun`, as

@@ -314,3 +314,37 @@ func TestADroppedMergeRecordsItsOwnForgeFailureEvenWhenItCannotBeReplayed(t *tes
 		})
 	}
 }
+
+func TestAnUnreplayableDroppedMergeKeepsItsRecoveryForUnrelatedFailures(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, forge, original := queuedOnProtectedTarget(t)
+	prior, err := fixture.store.Load(original.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range runstate.MaxIntegrationResumptions {
+		prior.IntegrationResumptions = append(prior.IntegrationResumptions, runstate.IntegrationResumption{
+			Cause: runstate.CauseQueuedHeadBehind, Reason: "the queued head fell behind its target", ResumedAt: prior.UpdatedAt,
+		})
+	}
+	if err := fixture.store.Save(prior); err != nil {
+		t.Fatal(err)
+	}
+	forge.DropQueuedMerge()
+	forge.reading = redOnTheChange()
+	forge.reading.Failing[0].Paths = []string{"unrelated.txt"}
+	if _, err := fixture.sweep(t, forge, false).Reconcile(ctx); err != nil {
+		t.Fatal(err)
+	}
+	stopped, err := fixture.store.Load(original.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stopped.CheckFailure != nil || stopped.Integration == nil || stopped.MergeDrop == nil || stopped.PullRequest.MergeQueued {
+		t.Fatal("an unrelated failure lost the existing dropped-merge recovery")
+	}
+	if _, _, err := rearmablePublication(stopped); err != nil {
+		t.Fatalf("re-arm eligibility for an unrelated failure = %v", err)
+	}
+}

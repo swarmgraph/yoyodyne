@@ -359,6 +359,10 @@ type CheckFailure struct {
 	// reports a conclusion rather than a process exit code, so ExitCode is not
 	// used for this input.
 	ForgeHeadCommit string `json:"forge_head_commit,omitempty"`
+	// LocalPromotion keeps the history that authorized cleanup when the failed
+	// forge revision was already promoted locally. It is not current integration
+	// or approval credit: a repair must pass the gates again.
+	LocalPromotion *Integration `json:"local_promotion,omitempty"`
 }
 
 // Validate reports every contract violation in the recorded check at once.
@@ -369,6 +373,14 @@ func (c CheckFailure) Validate() error {
 	}
 	if c.ForgeHeadCommit != "" && !commitPattern.MatchString(c.ForgeHeadCommit) {
 		problems = append(problems, errors.New("forge_head_commit must be a full commit id"))
+	}
+	if c.LocalPromotion != nil {
+		if err := c.LocalPromotion.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("local_promotion: %w", err))
+		}
+		if c.LocalPromotion.ThroughPullRequest || c.ForgeHeadCommit == "" || c.LocalPromotion.SourceCommit != c.ForgeHeadCommit {
+			problems = append(problems, errors.New("local_promotion must be the local promotion of the failed forge revision"))
+		}
 	}
 	if len(c.Output) > MaxCheckOutputBytes {
 		problems = append(problems, fmt.Errorf("output is %d bytes, which exceeds the %d byte bound", len(c.Output), MaxCheckOutputBytes))
@@ -3743,7 +3755,13 @@ func (s State) Validate() error {
 	retiredBy := strings.TrimSpace(s.ArtifactsRetiredBy)
 	sweptWorktree := s.WorktreeSweptAt != nil
 	sweptBranch := s.BranchSweptAt != nil
-	if ((s.WorktreeRemoved && !sweptWorktree) || (s.BranchRemoved && !sweptBranch)) && s.Integration == nil && retiredBy == "" {
+	// A forge failure takes back current promotion credit without erasing the
+	// local promotion that already earned cleanup of these artifacts.
+	priorPromotion := s.CheckFailure != nil && s.CheckFailure.LocalPromotion != nil
+	if priorPromotion && (s.PullRequest == nil || s.MergeDrop == nil || s.PullRequest.HeadCommit != s.CheckFailure.ForgeHeadCommit) {
+		problems = append(problems, errors.New("a failing check's local promotion requires the dropped publication of that revision"))
+	}
+	if ((s.WorktreeRemoved && !sweptWorktree) || (s.BranchRemoved && !sweptBranch)) && s.Integration == nil && !priorPromotion && retiredBy == "" {
 		problems = append(problems, errors.New("removed artifacts require recorded integration, the run that superseded this one and retired them, or the convergence sweep that retired the checkout or deleted the branch"))
 	}
 	if sweptWorktree && !s.WorktreeRemoved {
