@@ -131,47 +131,52 @@ func HeldForAPerson(ctx context.Context, stoppages Stoppages, decisions Decision
 	if err != nil {
 		return backlog.Holds{}, fmt.Errorf("read the escalated stoppages: %w", err)
 	}
-	return heldStopping(runs, escalated, standingDecisions(decisions), standingStops(decisions), Looking(ctx, remains, nil)), nil
+	decided := standingDecisions(decisions)
+	return heldStopping(runs, escalated, decided, standingStops(decided), Looking(ctx, remains, nil)), nil
 }
 
 // latestStop is the stop an item's triage record stands at, where the decision
 // recorded last about any of its runs is a stop.
 type latestStop func(workItemID string) (runstate.TriageDecision, bool)
 
-// standingStops reads each item's triage record once for the stop it stands
-// at. A record that cannot be read holds nothing here: which item a stop
+// standingStops asks the same reading for the stop an item stands at.
+// A record that cannot be read holds nothing here: which item a stop
 // superseded it with is unknown, and every other hold on the item is still read
 // and still says what it could not.
-func standingStops(decisions Decisions) latestStop {
-	if decisions == nil {
+func standingStops(decided standing) latestStop {
+	if decided == nil {
 		return nil
 	}
-	read := make(map[string]*runstate.TriageDecision)
 	return func(workItemID string) (runstate.TriageDecision, bool) {
-		if stopped, seen := read[workItemID]; seen {
-			if stopped == nil {
-				return runstate.TriageDecision{}, false
-			}
-			return *stopped, true
-		}
-		read[workItemID] = nil
-		counters, err := decisions.Counters(workItemID)
-		if err != nil {
+		counters, problem := decided(workItemID)
+		if problem != "" {
 			return runstate.TriageDecision{}, false
 		}
 		latest, found := counters.LatestDecision()
 		if !found || latest.Decision != runstate.TriageDecisionStop {
 			return runstate.TriageDecision{}, false
 		}
-		read[workItemID] = &latest
 		return latest, true
 	}
 }
 
-// standing is what triage has decided about one item's stoppage: whether a
-// decision the harness carries out stands about it, and what stopped this
-// reading finding out.
-type standing func(workItemID string, run runstate.State) decidedStanding
+// standing reads the decisions about one item's runs and what stopped that
+// reading finding out. The hold selects a run from these references before
+// asking whether that run's decision is still outstanding.
+type standing func(workItemID string) (runstate.TriageCounters, string)
+
+func (read standing) of(workItemID string, run runstate.State) decidedStanding {
+	counters, problem := read(workItemID)
+	if problem == "" && counters.WorkItemID != "" && counters.WorkItemID != workItemID {
+		problem = fmt.Sprintf("the triage record belongs to %s rather than %s", counters.WorkItemID, workItemID)
+	}
+	// The docket asks the same shared rule of the same run and ledger.
+	reading := decidedStanding{carryOut: counters.AwaitingCarryOutOf(run), problem: problem}
+	if refused, found := counters.RefusedCarryOut(run.RunID); found {
+		reading.refused = &refused
+	}
+	return reading
+}
 
 // decidedStanding is one reading of a stoppage's triage record. carryOut is a
 // decision the harness has still to act on; refused is a decision it tried to
@@ -188,15 +193,15 @@ type decidedStanding struct {
 // runs would otherwise open the same file for each of them.
 func standingDecisions(decisions Decisions) standing {
 	if decisions == nil {
-		return func(string, runstate.State) decidedStanding {
-			return decidedStanding{problem: "nothing was wired to read what triage has decided about it"}
+		return func(string) (runstate.TriageCounters, string) {
+			return runstate.TriageCounters{}, "nothing was wired to read what triage has decided about it"
 		}
 	}
 	read := make(map[string]runstate.TriageCounters)
 	failed := make(map[string]string)
-	return func(workItemID string, run runstate.State) decidedStanding {
+	return func(workItemID string) (runstate.TriageCounters, string) {
 		if problem, known := failed[workItemID]; known {
-			return decidedStanding{problem: problem}
+			return runstate.TriageCounters{}, problem
 		}
 		counters, seen := read[workItemID]
 		if !seen {
@@ -204,19 +209,11 @@ func standingDecisions(decisions Decisions) standing {
 			if err != nil {
 				problem := fmt.Sprintf("what triage has decided about it could not be read: %v", err)
 				failed[workItemID] = problem
-				return decidedStanding{problem: problem}
+				return runstate.TriageCounters{}, problem
 			}
 			read[workItemID], counters = opened, opened
 		}
-		// The rule itself is triage.AwaitingCarryOut, which the development
-		// manager's docket reads too: one item given two answers to whether a
-		// carry-out is outstanding is one item given two next movers, which is a
-		// disagreement only the operator could adjudicate.
-		reading := decidedStanding{carryOut: counters.AwaitingCarryOutOf(run)}
-		if refused, found := counters.RefusedCarryOut(run.RunID); found {
-			reading.refused = &refused
-		}
-		return reading
+		return counters, ""
 	}
 }
 
@@ -335,7 +332,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			reasons[workItemID] = backlog.Hold{Reason: redTargetPublication(run), Decided: true, Since: run.PullRequest.TargetRed.At}
 			continue
 		}
-		reasons[workItemID] = heldFor(run.RunID, unmergedPublication(run), decided(workItemID, run), stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, unmergedPublication(run), decided.of(workItemID, run), stoppedAt(run))
 	}
 	// The stoppages, each looked at rather than read: a run whose change the
 	// repository still holds, a run whose change nothing could look for, and a run
@@ -355,48 +352,11 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		}
 		// A decision the harness was refused carrying out still stands, so it holds
 		// the item as surely as one it has still to carry out.
-		reading := decided(run.WorkItemID, run)
+		reading := decided.of(run.WorkItemID, run)
 		return reading.carryOut || reading.refused != nil
 	}) {
 		found := looked[run.RunID]
-		preserved := found.Holds()
-		// An approved change the environment stopped is answered before the item's
-		// triage record is read at all, and without reading it: what such a stoppage
-		// waits on is the harness resuming the promotion, whatever has or has not
-		// been decided about the item's other stoppages. It is reported as the
-		// harness's move — the same wait the surfaces already call a carry-out —
-		// because the alternative is naming the development manager on a stoppage
-		// the docket (triage.Entry.renderNextMover) tells her she owes nothing
-		// about, and an item given two next movers is a disagreement only the
-		// operator can settle.
-		//
-		// That holds while the branch is there, and triage.IntegrationResumable is
-		// the rule both readers ask it by. Once the branch is gone the resume has
-		// nothing to promote, so the stop is answered as any stoppage is — held
-		// where a worktree survives or a decision stands, closed by whose move
-		// that is — with the re-run named as the way on rather than a verb that
-		// would refuse.
-		if run.IntegrationStop != nil && StoppageMover(run, &found, false) == MoverHarness {
-			reasons[workItemID] = backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
-			continue
-		}
-		reading := decided(workItemID, run)
-		if run.IntegrationStop != nil {
-			reasons[workItemID] = heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), reading, stoppedAt(run))
-			continue
-		}
-		// A first silent-stream stall nobody has decided about is the harness's to
-		// continue, with no decision to wait on: it is held as the harness's move,
-		// in words that say so rather than as a decision already recorded.
-		if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
-			reasons[workItemID] = backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
-			continue
-		}
-		if !preserved {
-			reasons[workItemID] = heldFor(run.RunID, continuedStoppage(run), reading, stoppedAt(run))
-			continue
-		}
-		reasons[workItemID] = heldFor(run.RunID, preservedChange(run, found), reading, stoppedAt(run))
+		reasons[workItemID] = stoppageHold(run, decided, found)
 	}
 	// A raise whose re-run the development manager has decided and the harness
 	// has still to carry out. The run that raised the item succeeded, so none of
@@ -412,7 +372,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		if _, held := reasons[workItemID]; held || !run.Status.Terminal() || !run.Escalated() {
 			continue
 		}
-		if reading := decided(workItemID, run); reading.carryOut || reading.refused != nil {
+		if reading := decided.of(workItemID, run); reading.carryOut || reading.refused != nil {
 			reasons[workItemID] = heldFor(run.RunID, raiseRerun(run), reading, stoppedAt(run))
 		}
 	}
@@ -423,7 +383,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool {
 		return outstandingPublication(run) && mergeConfirmed(run)
 	}) {
-		reasons[workItemID] = heldFor(run.RunID, mergedPublication(run), decided(workItemID, run), stoppedAt(run))
+		reasons[workItemID] = heldFor(run.RunID, mergedPublication(run), decided.of(workItemID, run), stoppedAt(run))
 	}
 	// A stop the development manager decided, last, because it is only ever about
 	// the item's latest run and says the most about what to do with it. Such a run
@@ -436,7 +396,135 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 	for workItemID, hold := range supersededHolds(runs, stopped, look) {
 		reasons[workItemID] = hold
 	}
+	holdDecisions(reasons, runs, escalated, decided, func(run runstate.State) triage.Found {
+		if found, seen := looked[run.RunID]; seen {
+			return found
+		}
+		found := look(run)
+		looked[run.RunID] = found
+		return found
+	})
 	return backlog.ReadHolds(reasons).OnUnlandedParents(unlandedChanges(runs))
+}
+
+// stoppageHold describes one run, regardless of which of an item's runs a hold
+// selects. An approved change stopped at promotion is still the harness's to
+// resume while its branch survives, without a triage decision being needed.
+func stoppageHold(run runstate.State, decided standing, found triage.Found) backlog.Hold {
+	preserved := found.Holds()
+	if run.IntegrationStop != nil && StoppageMover(run, &found, false) == MoverHarness {
+		return backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
+	}
+	reading := decided.of(run.WorkItemID, run)
+	if run.IntegrationStop != nil {
+		return heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), reading, stoppedAt(run))
+	}
+	if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
+		return backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
+	}
+	if !preserved {
+		return heldFor(run.RunID, continuedStoppage(run), reading, stoppedAt(run))
+	}
+	return heldFor(run.RunID, preservedChange(run, found), reading, stoppedAt(run))
+}
+
+// holdDecisions names the run an outstanding decision concerns, even when a
+// different run has preserved work or an unfinished publication. Maintenance
+// updates and later independent runs do not settle a repair of that run. A
+// missing or inconsistent reference holds the item and says what could not be
+// established, retaining any account of preserved work already found.
+func holdDecisions(held map[string]backlog.Hold, runs []runstate.State, escalated []runstate.Escalation, decided standing, look Look) {
+	byRun := make(map[string]runstate.State)
+	items := make(map[string]struct{})
+	for _, run := range runs {
+		byRun[run.RunID] = run
+		if run.WorkItemID != "" {
+			items[run.WorkItemID] = struct{}{}
+		}
+	}
+	for _, escalation := range escalated {
+		if escalation.WorkItemID != "" {
+			items[escalation.WorkItemID] = struct{}{}
+		}
+	}
+	latest := latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" })
+	for workItemID := range items {
+		counters, problem := decided(workItemID)
+		if problem != "" {
+			continue
+		}
+		var selected runstate.TriageDecision
+		var hold backlog.Hold
+		var referenceProblem string
+		found := false
+		for _, decision := range counters.Decisions {
+			candidate, problem := decisionHold(workItemID, decision, counters, byRun, latest[workItemID], decided, look)
+			if candidate.Reason == "" || (found && (decision.DecidedAt.Before(selected.DecidedAt) ||
+				(decision.DecidedAt.Equal(selected.DecidedAt) && decision.RunID >= selected.RunID))) {
+				continue
+			}
+			selected, hold, referenceProblem, found = decision, candidate, problem, true
+		}
+		if !found {
+			continue
+		}
+		if referenceProblem != "" {
+			if prior, preserved := held[workItemID]; preserved {
+				hold.Reason += "; " + prior.Reason
+			}
+		}
+		held[workItemID] = hold
+	}
+}
+
+func decisionHold(workItemID string, decision runstate.TriageDecision, counters runstate.TriageCounters, byRun map[string]runstate.State, latest runstate.State, decided standing, look Look) (backlog.Hold, string) {
+	_, refused := counters.RefusedCarryOut(decision.RunID)
+	if !decision.Spends() || (decision.Decision == runstate.TriageDecisionRepair && !counters.GrantOutstanding() && !refused) {
+		return backlog.Hold{}, ""
+	}
+	run, recorded := byRun[decision.RunID]
+	var problem string
+	switch {
+	case strings.TrimSpace(decision.RunID) == "":
+		problem = "the decision names no run"
+	case counters.WorkItemID != "" && counters.WorkItemID != workItemID:
+		problem = fmt.Sprintf("the triage record belongs to %s rather than %s", counters.WorkItemID, workItemID)
+	case !recorded:
+		problem = fmt.Sprintf("run %s is missing from the recorded runs", decision.RunID)
+	case run.WorkItemID != workItemID:
+		problem = fmt.Sprintf("run %s belongs to %s rather than %s", decision.RunID, run.WorkItemID, workItemID)
+	default:
+		// A re-run is carried out by starting a newer run; a repair continues
+		// its named run, and a re-arm settles that run's publication instead.
+		if !run.Status.Terminal() || (!counters.AwaitingCarryOutOf(run) && !refused) ||
+			(decision.Decision == runstate.TriageDecisionRerun && latest.RunID != run.RunID && !latest.StartedAt.Before(decision.DecidedAt)) ||
+			(decision.Decision == runstate.TriageDecisionRearm && mergeConfirmed(run)) {
+			return backlog.Hold{}, ""
+		}
+		if !stoppage(run) && !outstandingPublication(run) && !run.Escalated() {
+			problem = fmt.Sprintf("run %s records neither a stoppage nor an unfinished publication nor a raised item", decision.RunID)
+		}
+	}
+	if problem != "" {
+		return backlog.Hold{
+			Reason: fmt.Sprintf("the %q decision's run reference could not be reconciled: %s; the item remains held until that reference is reconciled", decision.Decision, problem),
+			RunID:  decision.RunID, Since: decision.DecidedAt,
+		}, problem
+	}
+	reading := decided.of(workItemID, run)
+	switch {
+	case outstandingPublication(run) && mergeConfirmed(run):
+		return heldFor(run.RunID, mergedPublication(run), reading, stoppedAt(run)), ""
+	case stoppage(run):
+		return stoppageHold(run, decided, look(run)), ""
+	case outstandingPublication(run):
+		if run.WaitingOnRedTarget() {
+			return backlog.Hold{Reason: redTargetPublication(run), Decided: true, Since: run.PullRequest.TargetRed.At, RunID: run.RunID}, ""
+		}
+		return heldFor(run.RunID, unmergedPublication(run), reading, stoppedAt(run)), ""
+	default:
+		return heldFor(run.RunID, raiseRerun(run), reading, stoppedAt(run)), ""
+	}
 }
 
 // supersededHolds is every item whose latest run the development manager
@@ -565,15 +653,17 @@ func StoppageMover(run runstate.State, found *triage.Found, awaitingCarryOut boo
 
 // latestPerItem is the runs a rule matches, one per work item. One item can have
 // stopped, or published, more than once; the most recent run is the one that
-// describes where the work actually is, so a later account replaces an earlier
-// one rather than whichever the store happened to list first.
+// describes where the work actually is. Use the store's start-time ordering:
+// maintenance of an older record must not make it the latest run.
 func latestPerItem(runs []runstate.State, matches func(runstate.State) bool) map[string]runstate.State {
 	latest := make(map[string]runstate.State)
-	for _, run := range runs {
+	ordered := append([]runstate.State(nil), runs...)
+	runstate.NewestFirst(ordered)
+	for _, run := range ordered {
 		if !matches(run) {
 			continue
 		}
-		if previous, seen := latest[run.WorkItemID]; seen && previous.UpdatedAt.After(run.UpdatedAt) {
+		if _, seen := latest[run.WorkItemID]; seen {
 			continue
 		}
 		latest[run.WorkItemID] = run
