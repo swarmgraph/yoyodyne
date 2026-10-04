@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -45,12 +46,16 @@ func TestRunLeaseHolderProcess(t *testing.T) {
 		fmt.Println("store:", err)
 		os.Exit(2)
 	}
-	if _, _, err := store.AdoptRun(context.Background(), runID); err != nil {
+	_, lease, err := store.AdoptRun(context.Background(), runID)
+	if err != nil {
 		fmt.Println("adopt:", err)
 		os.Exit(2)
 	}
+	// Collection must not release the lease while this process is still alive.
+	runtime.GC()
 	fmt.Println("run lease held")
 	time.Sleep(60 * time.Second)
+	runtime.KeepAlive(lease)
 	os.Exit(0)
 }
 
