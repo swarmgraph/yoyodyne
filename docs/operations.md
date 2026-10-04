@@ -2816,7 +2816,9 @@ the queue was landing them.
   decided by the development manager, through `yoyo triage rerun`, as the
   supported alternative. A change already promoted locally keeps that
   promotion as cleanup history with the failing check, without current
-  promotion or review credit.
+  promotion or review credit. When a repair continues its preserved change,
+  the old promotion and failing check stay in the continuation's history;
+  the repaired change must earn its own checks, review and cleanup evidence.
   An older stopped run that kept its failing forge checks only on the
   publication cannot supply this repair input: the repair refusal names a
   development-manager-decided re-run, carried out by `yoyo triage rerun`, as

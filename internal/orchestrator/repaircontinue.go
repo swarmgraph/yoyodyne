@@ -883,12 +883,13 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	}
 	continued.RepairContinuations = append(append([]runstate.RepairContinuation{}, prior.RepairContinuations...),
 		runstate.RepairContinuation{
-			GrantedAttempts:   granted.attempts,
-			Reason:            reason,
-			ContinuedAt:       c.now(),
-			SupersededBlocker: prior.Blocker,
-			Stall:             stalled,
-			CheckStage:        prior.StoppedAtStageBound(),
+			GrantedAttempts:        granted.attempts,
+			Reason:                 reason,
+			ContinuedAt:            c.now(),
+			SupersededBlocker:      prior.Blocker,
+			SupersededCheckFailure: prior.CheckFailure,
+			Stall:                  stalled,
+			CheckStage:             prior.StoppedAtStageBound(),
 		})
 	if !stalled && !prior.StoppedAtStageBound() {
 		continued.RepairAttempts = prior.RepairAttempts + 1
@@ -909,8 +910,13 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	continued.Environmental = nil
 	if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" {
 		// The old head's forge reading remains in the repair input and the
-		// superseded blocker above. It must not describe the publication this
-		// attempt will make, or leave that publication looking dropped again.
+		// continuation's history above. Artifacts were verified or restored before
+		// this re-entry, so the old local promotion no longer authorizes cleanup.
+		// Keep it in history while the input still names what needs repairing.
+		failure := *prior.CheckFailure
+		failure.LocalPromotion = nil
+		continued.CheckFailure = &failure
+		// The old drop must not describe the publication this attempt will make.
 		continued.PublishFailure = ""
 		continued.MergeDrop = nil
 		if prior.PullRequest != nil {

@@ -1786,6 +1786,9 @@ func (s *State) recordedTexts() []recordedText {
 		continuation := &s.RepairContinuations[index]
 		nested("repair_continuations[].reason", at("repair_continuations", index, "reason"), &continuation.Reason, MaxSelectionReasonBytes)
 		nested("repair_continuations[].superseded_blocker", at("repair_continuations", index, "superseded_blocker"), &continuation.SupersededBlocker, MaxBlockerBytes)
+		if continuation.SupersededCheckFailure != nil {
+			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
+		}
 	}
 	environmental := func(key, path string, refusal *EnvironmentalRefusal) {
 		nested(key+".detail", path+".detail", &refusal.Detail, MaxEnvironmentalDetailBytes)
@@ -2164,6 +2167,10 @@ type RepairContinuation struct {
 	// words it was recorded in. It is absent on a re-entry that carried none,
 	// such as a check-stage timeout.
 	SupersededBlocker string `json:"superseded_blocker,omitempty"`
+	// SupersededCheckFailure keeps the failure this continuation was handed,
+	// including any earlier local promotion. It is history, not current check,
+	// review, promotion, or cleanup credit for the continued change.
+	SupersededCheckFailure *CheckFailure `json:"superseded_check_failure,omitempty"`
 	// Returned says the round this continuation bought was environmentally
 	// refused, so the grant it came out of was never actually spent on anything.
 	// It is what keeps the attempts still counting toward this run's own budget —
@@ -2215,6 +2222,11 @@ func (c RepairContinuation) Validate() error {
 	}
 	if len(c.SupersededBlocker) > MaxBlockerBytes {
 		problems = append(problems, fmt.Errorf("superseded_blocker is %d bytes, which exceeds the %d byte bound", len(c.SupersededBlocker), MaxBlockerBytes))
+	}
+	if c.SupersededCheckFailure != nil {
+		if err := c.SupersededCheckFailure.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("superseded_check_failure: %w", err))
+		}
 	}
 	return errors.Join(problems...)
 }

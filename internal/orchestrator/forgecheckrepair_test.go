@@ -2,8 +2,10 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,8 +19,45 @@ import (
 
 func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *testing.T) {
 	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		fixture func(*testing.T) (queuedFixture, *checkedForge, Outcome)
+	}{
+		{name: "through the pull request", fixture: queuedOnProtectedTarget},
+		{name: "locally promoted evidence with preserved artifacts", fixture: queuedLocalEvidenceWithPreservedArtifacts},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			forgeCheckRepairCarryOut(t, test.fixture)
+		})
+	}
+}
+
+func queuedLocalEvidenceWithPreservedArtifacts(t *testing.T) (queuedFixture, *checkedForge, Outcome) {
+	t.Helper()
+	fixture := newQueuedFixture(t)
+	provider := orchestratortest.RoleBackend(writeFeature, approveEvidenceVerdict)
+	pipeline := publishing(automatic(newSharedPipeline(t, fixture.repository, fixture.worktreeRoot, fixture.store, fixture.tracker, provider, []string{"exit 0"}), provider), fixture.forge)
+	// A locally promoted run whose cleanup could not start still holds its
+	// change. Evidence keeps its item open, so the forge handback can be repaired.
+	pipeline.Worktrees = &hookedWorktrees{
+		WorktreeManager: pipeline.Worktrees,
+		beforeCleanup:   func() error { return errors.New("worktree is busy") },
+	}
+	outcome, err := pipeline.Run(context.Background(), fixture.tracker.Record().Item.ID)
+	if err != nil || outcome.Integration == nil || outcome.Integration.ThroughPullRequest || outcome.PullRequest == nil || !outcome.PullRequest.MergeQueued || outcome.WorktreeRemoved || outcome.BranchRemoved {
+		t.Fatalf("local evidence landing = %#v, %v; want a queued local promotion with preserved artifacts", outcome, err)
+	}
+	if outcome.WorkItemClosed || fixture.tracker.Record().Item.Status == "closed" || outcome.ReviewApproves != "evidence" {
+		t.Fatal("the evidence landing closed its item")
+	}
+	return fixture, &checkedForge{queuedForge: fixture.forge}, outcome
+}
+
+func forgeCheckRepairCarryOut(t *testing.T, makeFixture func(*testing.T) (queuedFixture, *checkedForge, Outcome)) {
+	t.Helper()
 	ctx := context.Background()
-	fixture, forge, original := queuedOnProtectedTarget(t)
+	fixture, forge, original := makeFixture(t)
 	fixture.docket = &memoryDocket{}
 	forge.reading = redOnTheChange()
 	reconciler := fixture.sweep(t, forge, false)
@@ -32,6 +71,9 @@ func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *
 	}
 	if stopped.CheckFailure == nil || stopped.CheckFailure.ForgeHeadCommit != original.PullRequest.HeadCommit {
 		t.Fatalf("failing check = %#v, want the forge failure bound to the withdrawn head", stopped.CheckFailure)
+	}
+	if !original.Integration.ThroughPullRequest && stopped.CheckFailure.LocalPromotion == nil {
+		t.Fatal("the local promotion was not recorded as cleanup history")
 	}
 	if stopped.Integration != nil || stopped.ChecksPassed != nil || stopped.ReviewDecision != "" || stopped.ReviewHeadCommit != "" {
 		t.Fatal("a red change retained promotion, checks or review credit")
@@ -61,7 +103,20 @@ func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *
 	continuer := RepairContinuer{
 		Docket: fixture.docket, Runs: fixture.store, Intake: intake, Decisions: fixture.store.Triage(),
 		Items: fixture.tracker, Worktrees: pipeline.Worktrees.(RepairWorktrees),
-		ConfiguredAttempts: 2, Capacity: 1, Start: pipeline.Continue, Clock: fixedClock{at: stopped.UpdatedAt},
+		ConfiguredAttempts: 2, Capacity: 1, Clock: fixedClock{at: stopped.UpdatedAt},
+		Start: func(ctx context.Context, item, run string) (Outcome, error) {
+			continued, err := fixture.store.Load(run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if continued.Integration != nil || continued.ChecksPassed != nil || continued.ReviewDecision != "" || continued.MergeDrop != nil || continued.CheckFailure == nil || continued.CheckFailure.LocalPromotion != nil {
+				t.Fatal("repair retained the old publication or promotion credit")
+			}
+			if len(continued.RepairContinuations) != 1 || !reflect.DeepEqual(continued.RepairContinuations[0].SupersededCheckFailure, stopped.CheckFailure) {
+				t.Fatal("repair lost the failed check or its local promotion history")
+			}
+			return pipeline.Continue(ctx, item, run)
+		},
 	}
 	if _, err := fixture.store.Triage().GrantRepair(ctx, stopped.WorkItemID,
 		triageDecided(runstate.TriageDecisionRepair, stopped.RunID), continueGrantRounds, docketedNow, continueCaps); err != nil {
@@ -84,8 +139,14 @@ func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *
 			t.Errorf("developer prompt does not carry %q:\n%s", want, requests[0].Prompt)
 		}
 	}
-	if len(provider.RequestsForRole(domain.RoleReviewer)) != 1 {
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if len(reviews) == 0 {
 		t.Fatal("the repaired change was published without fresh independent review")
+	}
+	for _, request := range reviews {
+		if request.SessionID != "" {
+			t.Fatal("the repair resumed an old review session")
+		}
 	}
 	settled, err := fixture.store.Load(original.RunID)
 	if err != nil {
@@ -93,6 +154,9 @@ func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *
 	}
 	if settled.CheckFailure != nil || settled.ChecksPassed == nil || settled.GrantedRepairAttempts() != continueGrantRounds || settled.RepairAttempts != stopped.RepairAttempts+1 {
 		t.Fatalf("repaired record = %#v; want fresh checks and the existing repair budget", settled)
+	}
+	if !reflect.DeepEqual(settled.RepairContinuations[0].SupersededCheckFailure, stopped.CheckFailure) {
+		t.Fatal("fresh checks discarded the history of the repaired failure")
 	}
 	if settled.PublishFailure != "" || settled.MergeDrop != nil || settled.PullRequest.Checks != nil {
 		t.Fatal("the repaired publication inherited the old head's drop or forge reading")
