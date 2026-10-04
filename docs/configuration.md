@@ -259,7 +259,7 @@ the role's name. It is reported and never written: the set is read off the role
 in the harness's own registry, there is no `capabilities` key to put in a
 configuration, and a file that writes one is refused like any other key that
 does not exist. The set of role names is fixed for the same reason —
-the tools each role may use, a reviewer's absence of any included, are derived
+the capabilities and harness tools each role holds are derived
 from the name — so `role` must be one of the six: `product-manager`,
 `architect`, `development-manager`, `developer`, `reviewer`, or
 `program-manager`, and anything else is

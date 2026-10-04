@@ -172,7 +172,11 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 	}
 	scanCut := len(data) > MaxScanBytes
 	if scanCut {
-		data = data[:MaxScanBytes]
+		end := MaxScanBytes
+		for end > 0 && !utf8.RuneStart(data[end]) {
+			end--
+		}
+		data = data[:end]
 	}
 	if single && scanCut {
 		result.Truncated = true
@@ -186,7 +190,11 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		last := bytes.LastIndexByte(data, '\n')
 		if last != len(data)-1 {
 			scanCut = true
-			data = data[:last+1]
+			end := last + 1
+			for end > 0 && end < len(data) && !utf8.RuneStart(data[end]) {
+				end--
+			}
+			data = data[:end]
 		}
 		entries = bytes.SplitAfter(data, []byte{'\n'})
 	}

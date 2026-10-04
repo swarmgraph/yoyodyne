@@ -19,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 const (
@@ -531,6 +532,10 @@ func TestReviewAppendsTheConfiguredPersonaBelowTheImmutableContract(t *testing.T
 	}
 	if contract, configured := strings.Index(systemPrompt, "single JSON object"), strings.Index(systemPrompt, "House reviewer"); contract > configured {
 		t.Fatalf("persona preceded the immutable contract: %q", systemPrompt)
+	}
+	tools := toolcatalog.Contract(domain.RoleReviewer)
+	if strings.Count(systemPrompt, tools) != 1 || strings.Index(systemPrompt, tools) > strings.Index(systemPrompt, "House reviewer") {
+		t.Fatal("the review invocation lost its generated tools or put them below its persona")
 	}
 
 	// With no persona configured the contract is the whole system prompt.

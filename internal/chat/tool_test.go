@@ -8,11 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 const logRequest = "```yoyodyne-log\n" + `{"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}` + "\n```"
@@ -118,6 +122,46 @@ func TestAuditFailureNeverDeliversLogEvidence(t *testing.T) {
 	}
 }
 
+func TestLogToolRedactsSecretsInAuditParameters(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	directory := filepath.Join(root, "products/sample/runs")
+	if err := os.MkdirAll(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, "run-secret-value.json"), []byte(`{"state":"completed"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	request := "```yoyodyne-log\n" + `{"requests":[{"record":"run","name":"run-secret-value","cursor":0,"max_bytes":4096}]}` + "\n```"
+	provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: request}, {SessionID: "session-1", FinalText: "Done."}}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleProgramManager
+	options.RedactValues = []string{"secret-value"}
+	options.LogReader = logread.Reader{StateRoot: root, ProductID: "sample"}
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "read the run")
+	if err != nil || len(reply.LogReads) != 1 || reply.LogReads[0].Problem != "" {
+		t.Fatalf("read results=%v err=%v", reply.LogReads, err)
+	}
+	events, err := options.Store.LoadEvents(session.state.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	count := 0
+	for _, event := range events {
+		if event.Type != execution.EventToolRequested && event.Type != execution.EventToolPerformed {
+			continue
+		}
+		count++
+		if strings.Contains(string(event.Payload), "secret-value") || !strings.Contains(string(event.Payload), "run-[REDACTED]") {
+			t.Fatalf("audit parameters were not redacted: %s", event.Payload)
+		}
+	}
+	if count != 2 {
+		t.Fatalf("tool audit events=%d", count)
+	}
+}
+
 func TestLogToolRefusesUnGrantedRolesAndUnreadableBlocks(t *testing.T) {
 	t.Parallel()
 	for _, answer := range []string{logRequest, "```yoyodyne-log\n" + `{"requests":[{"record":"memory","cursor":0,"max_bytes":100}]}` + "\n```"} {
@@ -164,6 +208,73 @@ func TestPersonaAndRemitCannotAddLogGrant(t *testing.T) {
 	if strings.Contains(authority.Contract, "## log.read (") {
 		t.Fatal("ungranted tool described")
 	}
+}
+
+func TestRefusedTrackerToolNamesTheRequestedCapability(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: "```yoyodyne-tracker\n" + `{"actions":[{"action":"close","id":"sample","reason":"private reason"}]}` + "\n```"}}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleArchitect
+	session := openTestSession(t, options)
+	if _, err := session.Send(context.Background(), "read only"); err == nil {
+		t.Fatal("architect closed a work item")
+	}
+	events, err := options.Store.LoadEvents(session.state.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []execution.EventType
+	for _, event := range events {
+		if event.Type != execution.EventToolRequested && event.Type != execution.EventToolRefused {
+			continue
+		}
+		var audit ToolAudit
+		if err := json.Unmarshal(event.Payload, &audit); err != nil {
+			t.Fatal(err)
+		}
+		if audit.Tool != capability.BacklogAdmit || audit.Role != domain.RoleArchitect || strings.Contains(string(event.Payload), "private reason") {
+			t.Fatalf("refusal audit=%s", event.Payload)
+		}
+		kinds = append(kinds, event.Type)
+	}
+	if len(kinds) != 2 || kinds[0] != execution.EventToolRequested || kinds[1] != execution.EventToolRefused {
+		t.Fatalf("refusal events=%v", kinds)
+	}
+}
+
+func TestTrackerToolCountsTheTruncationNoticeInsideItsByteBound(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: trackerReply("Read.", `{"action":"read","id":"sample"}`)}, {SessionID: "session-1", FinalText: "Done."}}}
+	options := testOptions(t, provider)
+	options.Tracker = &fakeTracker{items: map[string]beads.WorkItem{"sample": {ID: "sample", Title: "Item"}}}
+	options.Work = &fakeWork{price: ItemPrice{Runs: []RunPrice{{RunID: "run-1", Remains: strings.Repeat("界", 32<<10)}}}}
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "read the item")
+	if err != nil || len(reply.Actions) != 1 || reply.Actions[0].Failure != "" {
+		t.Fatalf("read=%v err=%v", reply.Actions, err)
+	}
+	registered, _ := toolcatalog.Registry().Lookup(string(capability.WorkItemRead))
+	detail := reply.Actions[0].Detail
+	if len(detail) > registered.Tool.Bounds.BytesPerRequest || !utf8.ValidString(detail) || !strings.Contains(detail, "cut at 32768 bytes") {
+		t.Fatalf("invalid bounded evidence: bytes=%d suffix=%q", len(detail), detail[max(0, len(detail)-100):])
+	}
+	events, err := options.Store.LoadEvents(session.state.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Type == execution.EventToolPerformed {
+			var audit ToolAudit
+			if err := json.Unmarshal(event.Payload, &audit); err != nil {
+				t.Fatal(err)
+			}
+			if !audit.Truncated || audit.Bytes != len(detail) {
+				t.Fatalf("truncation not audited: %#v", audit)
+			}
+			return
+		}
+	}
+	t.Fatal("bounded read was refused instead of performed")
 }
 
 func TestLogToolStopsAfterItsBoundedRounds(t *testing.T) {

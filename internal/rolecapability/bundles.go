@@ -149,8 +149,8 @@ func bundles() []Bundle {
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
 				capability.ReportFile,
-				// The reviewer reaches for nothing: it has no tools, and the change, the
-				// item, and the evidence are supplied to it. The read is the harness's, on
+				// The reviewer names no repository path: the change, the item, and the
+				// inspection evidence are supplied to it. The read is the harness's, on
 				// the reviewer's behalf, which is what this capability has always meant.
 				capability.RepositoryRead,
 				capability.ProviderInvoke,
@@ -173,7 +173,7 @@ func bundles() []Bundle {
 			// It holds no ProviderInvoke either, and that is the design's list rather
 			// than an oversight: a pass is a recurring-task firing of the role's own
 			// conversation, which asks nothing of a bundle before it spends, and no
-			// registered action runs on this role's behalf.
+			// delivery-run action runs on this role's behalf.
 			Role: domain.RoleProgramManager,
 			Owns: "one outcome across the line, watched on a schedule: the work admitted inside its own lane, and its lane report",
 			Holds: []capability.Capability{

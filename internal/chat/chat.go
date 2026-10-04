@@ -1430,7 +1430,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// turn and the wakeup the harness owes it.
 		var refused *TrackerError
 		if errors.As(err, &refused) {
-			if auditErr := s.refuseToolBlocks(answer); auditErr != nil {
+			if auditErr := s.refuseToolBlocks(answer, parsed); auditErr != nil {
 				return reply, errors.Join(err, auditErr)
 			}
 			trackerRounds++
@@ -1454,13 +1454,13 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			return reply, errors.Join(err, settled)
 		}
 		if err != nil {
-			return reply, errors.Join(err, s.refuseToolBlocks(answer))
+			return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
 		}
 		// What this role has no authority for is refused before any of it is
 		// recorded or carried out. The answer is readable and the turn was paid
 		// for, so both are returned; what the role asked for is simply not done.
 		if err := s.authorize(parsed); err != nil {
-			return reply, errors.Join(err, s.refuseToolBlocks(answer))
+			return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
 		}
 
 		// A document is refused at the action layer before anything about it is
@@ -1470,7 +1470,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// repository nothing and costs the operator a decision they were never
 		// asked for.
 		if err := s.refuseWrites(parsed.Writes); err != nil {
-			return reply, errors.Join(&DocumentError{Role: s.state.Role, Err: err}, s.refuseToolBlocks(answer))
+			return reply, errors.Join(&DocumentError{Role: s.state.Role, Err: err}, s.refuseToolBlocks(answer, parsed))
 		}
 		// A concern is recorded before anything else is decided about the turn: it
 		// is the product manager declining to propose, and what it declined to
@@ -1486,19 +1486,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// does not exist, and the approval is spent by the time the creation
 		// refuses it.
 		if err := s.verifyProposalGoals(parsed.Proposals); err != nil {
-			return reply, errors.Join(&ProposalGoalError{Err: err}, s.refuseToolBlocks(answer))
+			return reply, errors.Join(&ProposalGoalError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
 		}
 		// What a proposal says done means is checked next, for the same reason
 		// and at the same cost: a done-condition naming a document no run may
 		// write is work no run can finish, and the operator would be approving it.
 		if err := s.verifyProposalConditions(parsed.Proposals); err != nil {
-			return reply, errors.Join(&ProposalConditionError{Err: err}, s.refuseToolBlocks(answer))
+			return reply, errors.Join(&ProposalConditionError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
 		}
 		// What a proposal is placed against is confirmed to exist before the
 		// operator is asked about any of it. A block naming an item nobody created
 		// proposes nothing, exactly as an unreadable one does.
 		if err := s.verifyProposalReferences(ctx, parsed.Proposals); err != nil {
-			return reply, errors.Join(&ProposalPlacementError{Err: err}, s.refuseToolBlocks(answer))
+			return reply, errors.Join(&ProposalPlacementError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
 		}
 		// What each proposal looks like among the work already admitted is judged
 		// before any of it is recorded, so a proposal that is work the tracker

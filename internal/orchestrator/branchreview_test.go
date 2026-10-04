@@ -2,7 +2,9 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -292,6 +294,47 @@ func TestBranchReviewRecordsTheEventStreamOfItsInvocation(t *testing.T) {
 		if events[index].Sequence <= events[index-1].Sequence {
 			t.Fatalf("events %d and %d are out of order: %#v", index-1, index, events)
 		}
+	}
+}
+
+func TestBranchReportToolsAreAuditedWithoutMovingTheVerdict(t *testing.T) {
+	t.Parallel()
+	for _, malformed := range []bool{false, true} {
+		t.Run(fmt.Sprint(malformed), func(t *testing.T) {
+			repository := accumulatedRepository(t)
+			entry := `{"severity":"note","message":"private report text"}`
+			want := execution.EventToolPerformed
+			if malformed {
+				entry = `{"severity":"invalid","message":"private report text"}`
+				want = execution.EventToolRefused
+			}
+			reviewer, reviews, _ := newBranchReviewer(t, repository, branchProvider(`{"decision":"approve","summary":"the commits agree"}`+"\n"+reportBlock(entry)))
+			outcome, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"})
+			if err != nil || !outcome.Approved() || (outcome.ReportProblem != "") != malformed {
+				t.Fatalf("outcome=%#v err=%v", outcome, err)
+			}
+			events, err := reviews.LoadEvents(branchReviewID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var kinds []execution.EventType
+			for _, event := range events {
+				if !strings.HasPrefix(string(event.Type), "tool.") {
+					continue
+				}
+				var audit execution.ToolAudit
+				if err := json.Unmarshal(event.Payload, &audit); err != nil {
+					t.Fatal(err)
+				}
+				if audit.Tool != "report.file" || audit.Role != domain.RoleReviewer || audit.Bounds.RequestsPerReply != 5 || strings.Contains(string(event.Payload), "private") {
+					t.Fatalf("audit=%s", event.Payload)
+				}
+				kinds = append(kinds, event.Type)
+			}
+			if !slices.Equal(kinds, []execution.EventType{execution.EventToolRequested, want}) {
+				t.Fatalf("audit events=%v", kinds)
+			}
+		})
 	}
 }
 

@@ -31,6 +31,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 // trackerFence opens the one block a reply may carry tracker actions in. It is
@@ -1429,8 +1430,17 @@ func (s *Session) performTrackerActions(ctx context.Context, actions []TrackerAc
 				return 0, false, errors.New(outcome.Failure)
 			}
 			if s.trackerTool(action.Action) == capability.WorkItemRead {
-				cut := len(outcome.Detail) > 32<<10
-				outcome.Detail = boundText(outcome.Detail, 32<<10)
+				registered, _ := toolcatalog.Registry().Lookup(string(capability.WorkItemRead))
+				limit := registered.Tool.Bounds.BytesPerRequest
+				cut := len(outcome.Detail) > limit
+				if cut {
+					marker := fmt.Sprintf("\n\n[cut at %d bytes; treat the rest as unread rather than absent]", limit)
+					end := limit - len(marker)
+					for end > 0 && !utf8.RuneStart(outcome.Detail[end]) {
+						end--
+					}
+					outcome.Detail = strings.TrimSpace(outcome.Detail[:end]) + marker
+				}
 				return len(outcome.Detail), cut, nil
 			}
 			return 0, false, nil

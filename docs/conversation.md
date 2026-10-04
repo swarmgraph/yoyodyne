@@ -948,6 +948,10 @@ directions written onto `yoyodyne-ifd.283` came to read as writes that never
 landed — both were durable, and both were outside the window this rendering
 showed. The runs section above is outside that cut.
 
+A conversation tool returns at most 32 KiB for each tracker read, including
+the item and its runs together, and declares any further cut. `/show` is a
+direct operator command and does not spend this tool's prompt budget.
+
 ## Directives, and the work they pause
 
 A redirection is about one item. A directive is about the product: it is

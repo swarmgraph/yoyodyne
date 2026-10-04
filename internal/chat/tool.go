@@ -30,7 +30,15 @@ func auditTool[T any](ctx context.Context, s *Session, id capability.Capability,
 	if !found {
 		return zero, fmt.Errorf("unregistered tool %s", id)
 	}
-	audit := ToolAudit{ID: fmt.Sprintf("t%d.%d", s.state.Turns, s.state.LastSequence+1), Tool: id, Role: s.state.Role, Turn: s.state.Turns, Pass: s.pass, Parameters: parameters, Bounds: registered.Tool.Bounds, Requests: count}
+	metadata := make(map[string]any, len(parameters))
+	redactor := execution.NewRedactor(s.options.RedactValues...)
+	for key, value := range parameters {
+		if text, ok := value.(string); ok {
+			value = redactor.Redact(text)
+		}
+		metadata[key] = value
+	}
+	audit := ToolAudit{ID: fmt.Sprintf("t%d.%d", s.state.Turns, s.state.LastSequence+1), Tool: id, Role: s.state.Role, Turn: s.state.Turns, Pass: s.pass, Parameters: metadata, Bounds: registered.Tool.Bounds, Requests: count}
 	if id == capability.ExchangeAsk {
 		audit.Bounds.RoundsPerMessage = s.options.askRounds()
 	}
@@ -89,17 +97,72 @@ func auditTool[T any](ctx context.Context, s *Session, id capability.Capability,
 
 // refuseToolBlocks audits unreadable or unauthorized requests without persisting
 // any of their untrusted JSON (which may contain credentials or record text).
-func (s *Session) refuseToolBlocks(answer string) error {
-	seen := map[string]bool{}
+func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPerformed ...capability.Capability) error {
+	counts := map[capability.Capability]int{}
+	seen := map[string]bool{"yoyodyne-report": true}
+	add := func(id capability.Capability, count int) {
+		if count > 0 {
+			counts[id] += count
+			if registered, found := toolcatalog.Registry().Lookup(string(id)); found {
+				seen[registered.Tool.Block] = true
+			}
+		}
+	}
+	for _, action := range parsed.Actions {
+		add(s.trackerTool(action.Action), 1)
+	}
+	for _, read := range parsed.Reads {
+		id := capability.RepositoryRead
+		if read.Action == "list" {
+			id = capability.RepositoryList
+		}
+		add(id, 1)
+	}
+	add(capability.LogRead, len(parsed.LogReads))
+	add(capability.ResearchCommission, len(parsed.Queries))
+	add(capability.ProposalRaise, len(parsed.Proposals))
+	add(capability.ConcernRaise, len(parsed.Concerns))
+	add(capability.AgentContextMutate, len(parsed.Memories))
+	if parsed.Ask != nil {
+		add(capability.ExchangeAsk, 1)
+	}
+	if parsed.Evaluation != nil {
+		add(capability.EvaluationRecord, 1)
+	}
+	if parsed.LaneReportCarried {
+		add(capability.LaneReportWrite, 1)
+	}
+	if parsed.Restart != nil {
+		add(capability.ServiceRequestRestart, 1)
+	}
+	writeTool := capability.ArtifactProductMutate
+	for _, registered := range toolcatalog.Granted(s.state.Role) {
+		if registered.Tool.ID == capability.ArtifactDesignMutate {
+			writeTool = capability.ArtifactDesignMutate
+		}
+	}
+	add(writeTool, len(parsed.Writes))
+	for _, id := range alreadyPerformed {
+		delete(counts, id)
+		if registered, found := toolcatalog.Registry().Lookup(string(id)); found {
+			seen[registered.Tool.Block] = true
+		}
+	}
 	for _, registered := range toolcatalog.Registry().Actions() {
 		block := registered.Tool.Block
-		if block == "yoyodyne-report" || seen[block] || !strings.Contains(answer, "```"+block) {
-			continue
+		count := counts[registered.Tool.ID]
+		if count == 0 {
+			if seen[block] || !strings.Contains(answer, "```"+block) {
+				continue
+			}
+			// An unreadable block cannot identify a validated operation. Record
+			// its protocol once without guessing parameters out of malformed JSON.
+			count = 1
 		}
 		seen[block] = true
-		_, err := auditTool(context.Background(), s, registered.Tool.ID, map[string]any{"block": block}, 1, func() (struct{}, error) { return struct{}{}, errors.New("block refused before invocation") }, nil)
+		_, err := auditTool(context.Background(), s, registered.Tool.ID, map[string]any{"block": block}, count, func() (struct{}, error) { return struct{}{}, errors.New("block refused before invocation") }, nil)
 		// The refusal itself is expected; failure to write either event is not.
-		if err != nil && err.Error() != "block refused before invocation" && err.Error() != "the role holds no grant for this tool" {
+		if err != nil && strings.Contains(err.Error(), "audit failed") {
 			return err
 		}
 	}
