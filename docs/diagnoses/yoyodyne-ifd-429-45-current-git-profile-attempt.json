@@ -1,0 +1,598 @@
+{
+  "title": "Current orchestrator Git profiling: failed measurement and recorder corrections",
+  "work_item": {
+    "id": "yoyodyne-ifd.429.45",
+    "title": "Profile current orchestrator Git cost and identify bounded test reductions"
+  },
+  "recorded_at": "2026-10-04 08:01:23 PDT",
+  "revision": "f2a2d73e0180d4bdb1fec1c51f3cea5afd827b07",
+  "outcome": "Incomplete. The attempted broad sample is invalid; no current baseline, measured hot-family ranking, conversion or speedup is claimed.",
+  "scope": "A durable diagnosis only. Scratch-only measurement tooling and Go overlays left production code, tests, configuration, durability, timeout values, package boundaries and tracker exports unchanged.",
+  "previous_evidence": "docs/diagnoses/yoyodyne-ifd-429-45-current-git-profile-prerequisite.json",
+  "prerequisite_now_verified": {
+    "item": {
+      "id": "yoyodyne-ifd.435.11",
+      "title": "Developer sandbox access matches the run's declared cache and scratch paths",
+      "status_in_copied_export": "closed"
+    },
+    "commands": [
+      {
+        "command": "make fmtcheck",
+        "outcome": "passed"
+      },
+      {
+        "command": "make cachecheck",
+        "outcome": "passed"
+      },
+      {
+        "command": "Python Path.write_text in the assigned scratch directory",
+        "outcome": "passed",
+        "log": "/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-429-45-314362cd/yoyodyne/scratch/run-314362cdb2c1bbc6a00166c8aed55058/environment-check.log"
+      }
+    ],
+    "cache": "/Users/mbryant/github/yoyodyne/.git/yoyodyne/go-build",
+    "scratch": "/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-429-45-314362cd/yoyodyne/scratch/run-314362cdb2c1bbc6a00166c8aed55058",
+    "qualification": "This fresh run used its newly assigned paths, not the historical diagnosis paths. No bd command was run."
+  },
+  "approved_measurement_decision": {
+    "source": "Development-manager decision delivered in the work-item notes, after turn 872 of conversation chat-e62712cfa48dbe186d3620a04596077b.",
+    "total_seconds_including_preparation": 900,
+    "preparation_seconds": 120,
+    "scenario_allocations_seconds": [
+      360,
+      45,
+      45,
+      45,
+      45,
+      60,
+      90,
+      90
+    ],
+    "maximum_test_commands": 9,
+    "maximum_simultaneous_test_commands": 2,
+    "samples_per_scenario": 1,
+    "stop_conditions": [
+      "Either required path remains unwritable: stop before compilation or profiling (the condition observed here).",
+      "Preparation, a scenario allocation or total wall budget expires: terminate the bounded process group, wait for exit and retain partial results as incomplete.",
+      "A command fails, an expected test is skipped or selected test names disagree: retain the result and stop further profiling.",
+      "The attribution instrument changes Git exit behavior, leaves unclassified origins or loses records: stop; do not publish the counts as a baseline.",
+      "No automatic repeats, no retries on moving load, and no additional scenarios beyond the nine-command plan."
+    ],
+    "actual_test_commands": 1,
+    "automatic_test_repetitions": 0,
+    "actual_maximum_simultaneous_test_commands": 1,
+    "new_load_generated": "None. YOYODYNE_TEST_CREATION_LOOP was unset; only the existing promotion test ran its own finite neighbour-registration loop (54 add/remove cycles).",
+    "compliance_failure": {
+      "preparation_until_broad_launch_seconds": 146.364317,
+      "preparation_allowance_seconds": 120,
+      "overrun_seconds": 26.364317,
+      "conformance_finished_after_seconds": 108.5208730000013,
+      "account": "The recorder conformance finished within the preparation allowance, but the external supervisor was prepared afterwards. Preparation therefore exceeded the allowance before the broad sample started; the developer should have stopped instead of starting it.",
+      "measurement_end_after_budget_start_seconds": 317.505294
+    },
+    "stop_applied": "The broad command exited nonzero. No other planned scenario ran and no sample was repeated. The command completed before its external deadline; no measurement remains running."
+  },
+  "conditions": {
+    "go": "go version go1.26.6 darwin/arm64",
+    "git": "git version 2.50.1",
+    "real_git": "/opt/homebrew/bin/git",
+    "cpu_count": 16,
+    "environment": {
+      "GOFLAGS": null,
+      "GOMAXPROCS": null,
+      "GOCACHE": "/Users/mbryant/github/yoyodyne/.git/yoyodyne/go-build",
+      "YOYODYNE_TEST_CREATION_LOOP": null,
+      "YOYODYNE_NODE_UNAVAILABLE": null
+    },
+    "gocache": "/Users/mbryant/github/yoyodyne/.git/yoyodyne/go-build",
+    "hardware": "darwin/arm64, 16 logical CPUs reported by Python os.cpu_count; CPU model and physical-core count were not collected.",
+    "effective_parallelism": "GOFLAGS and GOMAXPROCS were unset. No -p or -parallel override was supplied. The darwin host reports 16 logical CPUs, implying the normal Go defaults of up to 16 test cases per binary and up to 16 build/package jobs; the actual runtime values were not instrumented and are not independently measured.",
+    "cache_condition": "Existing harness-configured shared compiled-object cache reused; -count=1 prevented Go test-result cache replay. No cache was flushed and no cold-cache comparison was attempted.",
+    "start": "2026-10-04 07:58:31 PDT",
+    "end": "2026-10-04 08:01:23 PDT",
+    "start_load": [
+      4.7080078125,
+      6.015625,
+      7.9130859375
+    ],
+    "end_load": [
+      10.72412109375,
+      7.63037109375,
+      8.181640625
+    ],
+    "machine_activity": "Other users or harness runs were not controlled. No synthetic saturation was created."
+  },
+  "failed_sample": {
+    "name": "broad current orchestrator baseline attempt",
+    "command_argv": [
+      "go",
+      "test",
+      "-overlay",
+      "/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-429-45-314362cd/yoyodyne/scratch/run-314362cdb2c1bbc6a00166c8aed55058/overlay.json",
+      "-count=1",
+      "-json",
+      "-timeout",
+      "20m",
+      "./internal/orchestrator",
+      "./internal/orchestrator/orchestratortest"
+    ],
+    "whole_command_prefix": [
+      "/usr/bin/time",
+      "-l"
+    ],
+    "supervisor": "run-one.py broad 360 <command_argv>",
+    "exit_code": 1,
+    "deadline_reached": false,
+    "supervisor_wall_seconds": 171.13933970901417,
+    "whole_command_time": {
+      "real_seconds": 171.1,
+      "user_cpu_seconds": 180.61,
+      "system_cpu_seconds": 422.53,
+      "qualification": "Observed cost of the invalid instrumented attempt, including compilation, wrappers, tests and descendants. It is not a current baseline or an estimate for an uninstrumented passing suite.",
+      "additional_stderr": "time: sysctl kern.clockrate: Operation not permitted"
+    },
+    "scenario_coverage": [
+      {
+        "package": "internal/orchestrator",
+        "test_files": 122,
+        "source_top_level_tests": 1165,
+        "executed_top_level_tests": 1165,
+        "missing": [],
+        "unexpected": [],
+        "top_level_results": {
+          "pass": 932,
+          "fail": 233
+        }
+      },
+      {
+        "package": "internal/orchestrator/orchestratortest",
+        "test_files": 2,
+        "source_top_level_tests": 1,
+        "executed_top_level_tests": 1,
+        "missing": [],
+        "unexpected": [],
+        "top_level_results": {
+          "pass": 1
+        }
+      }
+    ],
+    "all_test_terminal_results_including_subtests": {
+      "pass": 1262,
+      "fail": 408
+    },
+    "statement_coverage": "Not collected; scenario execution counts are not statement coverage.",
+    "observed_recorder_data": {
+      "preparation_records_excluded": 5,
+      "broad_start_records": 43868,
+      "broad_end_records": 43868,
+      "recorded_pid_range": [
+        100,
+        99998
+      ],
+      "diagnostic_output_lines_naming_wrapper_exit_125": 375,
+      "recorded_git_user_cpu_seconds": 112.646049,
+      "recorded_git_system_cpu_seconds": 191.86046,
+      "sum_recorded_git_wall_seconds": 1059.449995,
+      "qualification": "These are surviving recorder entries, not a reconciled count of all requested Git invocations. Every surviving start has an end, but reused identifiers refused new starts, so that equality did not establish completeness. Git wall durations overlap and cannot be compared with suite elapsed time."
+    },
+    "first_failure_message": "pipeline_test.go:3618: cleanup could not list worktrees: exit status 125:",
+    "failure_attribution": "The measurement wrapper generated exit 125. This attempt does not demonstrate a regression in Yoyodyne or Git."
+  },
+  "recording_failure": {
+    "mechanism": "The wrapper used records/<pid>-start.json and records/<pid>-end.json opened exclusively. The host process-ID range wrapped during the fork-heavy sample. A reused PID encountered an existing start record and returned 125 before calling real Git.",
+    "evidence": [
+      "The records span PIDs 100 through 99998.",
+      "All saved wrapper completion records have real Git exits 0, 1, 2, 128 or 129; none has exit 125.",
+      "Test output contains 375 diagnostic lines naming exit status 125.",
+      "Opening an already saved PID start path with exclusive-create reproduces FileExistsError (Errno 17).",
+      "The active scenario file remained present and scratch remained writable."
+    ],
+    "certainty": "PID reuse is the supported explanation for the recorder refusal. The wrapper did not log errno on its rejected opens, so the specific refused path for each failure is not recorded.",
+    "required_correction": "Allocate a unique invocation identifier independent of PID (for example mkstemp), carry it through start and end records, and use PID only as metadata. A write refusal must include its errno and path and invalidate the sample visibly.",
+    "preflight_gap": "Five successful behavior cases did not test identifier reuse or failure behavior. The wrapper passed a small preflight and then changed Git exit behavior under the actual finite suite.",
+    "deadline_gap": "The supervisor enumerates descendants with ps only if a deadline expires. A post-run diagnostic established that spawning ps is refused here (Operation not permitted). The deadline branch was not entered, but it cannot be accepted as reliable descendant/process-group cleanup in a later sample.",
+    "required_deadline_correction": "Track the measurement process groups as they are created, or use another supported supervisor whose deadline and child reaping are verified in this sandbox before starting measurement. Do not change production or test-binary timeouts.",
+    "cleanup_evidence": "The supervisor reaped /usr/bin/time, both Go test packages produced terminal events, and all surviving wrapper starts have waited/reaped Git children and matching end records. A whole-machine process inventory could not be checked because ps was refused."
+  },
+  "baseline_fields": {
+    "accepted_git_invocations": null,
+    "fixture_setup_git_invocations": null,
+    "fixture_assertion_git_invocations": null,
+    "fixture_mutation_git_invocations": null,
+    "fixture_cleanup_git_invocations": null,
+    "fake_forge_git_invocations": null,
+    "harness_git_invocations": null,
+    "accepted_git_cpu_seconds": null,
+    "accepted_suite_cpu_seconds": null,
+    "accepted_suite_wall_seconds": null,
+    "measured_hot_families": null,
+    "qualification": "Not measured reliably, never zero. The scratch analyzer also infers some fixture phases from source order; its phase rules were not fully audited. Its raw per-test rankings and origin estimates are deliberately not accepted or copied here."
+  },
+  "remaining_scenarios": [
+    {
+      "name": "narrow verification wiring",
+      "budget_seconds": 45,
+      "command": "go test -count=1 -json -timeout 20m ./internal/orchestrator -run '^TestEveryCheckIsToldWhichGoPackagesTheChangeTouches$'",
+      "coverage": "Existing one-package and non-module subcases, shell environment, stage record and item notes.",
+      "status": "Not run after the stop"
+    },
+    {
+      "name": "broad and empty verification selection",
+      "budget_seconds": 45,
+      "command": "go test -count=1 -json -timeout 20m ./internal/checks -run '^(TestAModuleFileChangeIsTheWholeModule|TestARepositoryThatIsNoGoModuleIsTheWholeModule|TestAChangeTouchingNoPackageIsEmpty)$'",
+      "coverage": "Module-wide fallback, non-Go fallback and explicitly empty Go selection, using existing filesystem fixtures without a pipeline.",
+      "status": "Not run after the stop"
+    },
+    {
+      "name": "non-Go verification",
+      "budget_seconds": 45,
+      "command": "go test -count=1 -json -timeout 20m ./internal/orchestrator -run '^(TestPipelineDrivesANonGoProjectThroughEveryPhase|TestPipelineStopsANonGoProjectAtItsFailingCheck|TestNonGoFixtureVerifiesTheLanguageAgnosticInvariant)$'",
+      "coverage": "TypeScript fixture checked with project-declared POSIX shell commands: success, failure and language invariant.",
+      "status": "Not run after the stop"
+    },
+    {
+      "name": "path-check selection family",
+      "budget_seconds": 45,
+      "command": "go test -count=1 -json -timeout 20m ./internal/orchestrator -run '^(TestAPathCheckRunsOnlyForAChangeTouchingWhatItVouchesFor|TestAPathCheckWhoseListIsMissingRuns|TestAChangeThatEmptiesAPathChecksListStillRunsIt|TestAChangeThatNarrowsAPathChecksListStillRunsIt)$'",
+      "coverage": "Included, excluded and unrelated paths; missing lists; edits to the list cannot disable its gate.",
+      "status": "Not run after the stop"
+    },
+    {
+      "name": "landing and verification policy candidates",
+      "budget_seconds": 60,
+      "command": "go test -count=1 -json -timeout 20m ./internal/orchestrator -run '^(TestAMarkerTheHarnessCannotUseTakesTheParkingInstead|TestAnUnreadableLandingClaimDoesNotCostTheExecutionRecord|TestAnUnreadableVerificationBlockSaysSoRatherThanReadingAsNoRecord|TestEachAttemptRecordsItsOwnExecutionsRatherThanInheritingThem)$'",
+      "coverage": "Unusable marker table and verification-record isolation across malformed claims and attempts.",
+      "status": "Not run after the stop"
+    },
+    {
+      "name": "real repository, lease and killed-registration controls",
+      "budget_seconds": 90,
+      "command": "go test -count=1 -json -timeout 20m ./internal/gitworktree -run '^(TestManagerIntegratePromotesCheckedWorkAndPermitsCleanup|TestManagerRemovalQueuesOnTheWorktreeRegistryLease|TestListingKeptUnderALeaseIsNeverStaleAcrossTheHoldersOwnChanges|TestListingOutsideALeaseIsNeverKept|TestPruningClearsTheRegistrationsAKilledAddLeftBehind)$'",
+      "coverage": "Actual promotion and cleanup, registry lease exclusion and invalidation, crash residue cleanup; these remain real Git.",
+      "status": "Not run after the stop"
+    },
+    {
+      "budget_seconds": 90,
+      "commands": [
+        "go test -race -count=1 -json -timeout 20m ./internal/orchestrator -run '^TestEveryCheckIsToldWhichGoPackagesTheChangeTouches$'",
+        "go test -race -count=1 -json -timeout 20m ./internal/orchestrator -run '^(TestPipelineDrivesANonGoProjectThroughEveryPhase|TestPipelineStopsANonGoProjectAtItsFailingCheck)$'"
+      ],
+      "coverage": "Two normal focused verification commands sharing the Go cache, each using its tests own repositories; one paired sample, not a contention benchmark.",
+      "name": "one paired concurrent sample",
+      "status": "Not run after the stop"
+    }
+  ],
+  "conversion_inventory": {
+    "source": "Use bounded_conversion_candidates and real_git_coverage_to_retain in the previously reviewed prerequisite diagnosis; its current_cost fields remain null.",
+    "unchanged_unranked_groups": [
+      {
+        "name": "Path-check selection tables",
+        "maximum_scope": "The four top-level path-check tests listed in the focused scenario; stay in internal/orchestrator and retain integration representatives.",
+        "smaller_test": "Call existing pathChecksFor with temp-directory lists and explicit changed paths, then withPathChecks and describePathChecks. Reuse internal/checks path-pattern coverage rather than duplicate its full parser matrix. No Git needed for policy and ordering cases.",
+        "retained_integration_assertions": "Keep a real-Git matched path-check pipeline through review and stage persistence, and a paths-list edit pipeline proving selection uses actual changed paths. Keep execution-order/evidence assertions on those representatives, not merely on a policy return value.",
+        "current_cost": null
+      },
+      {
+        "name": "Unusable landing-marker combinations",
+        "maximum_scope": "One existing top-level test, TestAMarkerTheHarnessCannotUseTakesTheParkingInstead, containing four marker subcases; no settlement or closure redesign.",
+        "smaller_test": "Construct activeRun with state.WorkItemID and Pipeline.Tracker using orchestratortest.Tracker; call existing resolveImpediment for each table case. Assert returned blocker and reason. Include a confirmed open marker control and an injected Show refusal within this bounded group.",
+        "retained_integration_assertions": "Keep one unusable-marker pipeline proving promotion, parking, outcome and notes; keep TestALandingThatNamesItsImpedimentLeavesTheItemOpenWaitingOnIt and TestADependencyRefusedAtTheSettlementSaysParkedOnEverySurface. Resolver-only tests do not prove settlement or surface agreement.",
+        "current_cost": null
+      },
+      {
+        "name": "Verification-record extraction and per-attempt isolation",
+        "maximum_scope": "At most the three top-level selfcheck tests in the policy-focused scenario; parser behavior remains owned by internal/selfcheck.",
+        "smaller_test": "Exercise existing activeRun.claimVerification and recordVerification over whole/rest reply pairs and successive attempts; assert state/outcome parity, Problem, removal from summary and clearing of a prior record. Reuse selfcheck.Extract/Record.Missing coverage already present rather than create a second parser.",
+        "retained_integration_assertions": "Keep a malformed verification hand-back repaired by the same developer, TestAChangeNobodyRanIsHandedBackAndNeverReachesAReviewer, TestAProbeTheEnvironmentRefusedEndsTheRunNamingIt and TestWhatTheDeveloperExecutedReachesTheReviewer. Parsing alone does not prove that review and integration gates refuse the change.",
+        "current_cost": null
+      }
+    ],
+    "decision": "No candidates selected, ranked, implemented or admitted to the tracker. The prior assertion mappings remain proposals. A valid current inventory must precede any selection of bounded implementation items.",
+    "real_git_retained": "Keep representative end-to-end delivery and non-Go checks, exact-revision promotion, repository drift/conflicts, cross-process leases, registration crashes, physical confinement and durable recovery coverage as the prerequisite diagnosis lists."
+  },
+  "reproduction_and_raw_evidence": {
+    "scratch_root": "/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-429-45-314362cd/yoyodyne/scratch/run-314362cdb2c1bbc6a00166c8aed55058",
+    "raw_files": [
+      {
+        "name": "budget.json",
+        "sha256": "59632276af202dbc2192e63453cea962d98a9f9b9face22c7784b8fa20370567"
+      },
+      {
+        "name": "conformance.json",
+        "sha256": "c135561436453f28951d6d6d136376cd60a6abd16794666185a4304fab9dd466"
+      },
+      {
+        "name": "broad-start.json",
+        "sha256": "7919b17a23f415b6514c00faacd0c729ef8e94eaa8264a645a911f081ea78867"
+      },
+      {
+        "name": "broad-result.json",
+        "sha256": "19e04367a8505e3e64e1de07ee74051c688675fe8d6750857a0fc3eaf5dc3abe"
+      },
+      {
+        "name": "broad-tests.jsonl",
+        "sha256": "59c3efb6855c0c96291fbb09f52937818eedd2f5f96bc62fb9b99edcdc83f62c"
+      },
+      {
+        "name": "broad-timing.log",
+        "sha256": "bbb0a2deb47f0d3b2dce2d1489505da2f5d25bb7db1d2cd47e8e4653f3d572fe"
+      },
+      {
+        "name": "broad-failure-summary.log",
+        "sha256": "a3831bf62d87631ee635f045fd6b94c8c89770ba0360a7a466a74d5008445032"
+      },
+      {
+        "name": "failure-notes.json",
+        "sha256": "75d2dd0ce15800bc2bfc3ffde066fb3d071569e8f81bf5d1ff8fd231e5185262"
+      },
+      {
+        "name": "source-hashes.json",
+        "sha256": "0c32865bcc7c8ed10218ec40d3fe7e6e610c9ca1eebb8576449f2725fb90ccac"
+      },
+      {
+        "name": "overlay.json",
+        "sha256": "8d9b4b352e3f995263155da6e377cf883e0faa7fb77a9484e354a9d64bedb6f2"
+      }
+    ],
+    "records": "records/*-start.json and records/*-end.json",
+    "ownership_records": "owners/*.json",
+    "overlay_inputs": "overlay.json and overlay/; source-hashes.json records the original source hashes.",
+    "instrumentation_scope": "Scratch-only C PATH wrapper delegates to the resolved Git binary, strips its own PATH entry for Git children and waits with wait4. Runtime call stacks and exact TempDir owners are added through Go overlays. Direct test Git helpers, fake forge Git calls and OSProcessRunner commands are tagged; internal Git descendants count only within their parent invocation resource usage.",
+    "conformance": {
+      "cases": [
+        {
+          "args": [
+            "--version"
+          ],
+          "direct_exit": 0,
+          "wrapped_exit": 0,
+          "identical_streams_and_exit": true
+        },
+        {
+          "args": [
+            "-C",
+            "/Users/mbryant/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-429-45-314362cd",
+            "rev-parse",
+            "HEAD"
+          ],
+          "direct_exit": 0,
+          "wrapped_exit": 0,
+          "identical_streams_and_exit": true
+        },
+        {
+          "args": [
+            "-C",
+            "/Users/mbryant/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-429-45-314362cd",
+            "rev-parse",
+            "--verify",
+            "refs/heads/nonexistent-profile-ref"
+          ],
+          "direct_exit": 128,
+          "wrapped_exit": 128,
+          "identical_streams_and_exit": true
+        },
+        {
+          "args": [
+            "hash-object",
+            "--stdin"
+          ],
+          "direct_exit": 0,
+          "wrapped_exit": 0,
+          "identical_streams_and_exit": true
+        },
+        {
+          "args": [
+            "--definitely-not-a-git-option"
+          ],
+          "direct_exit": 129,
+          "wrapped_exit": 129,
+          "identical_streams_and_exit": true
+        }
+      ],
+      "starts": 5,
+      "ends": 5,
+      "elapsed_preparation_seconds": 108.5208730000013
+    },
+    "overhead": "No statistically supported overhead estimate was collected. Each recorded Git invocation adds one wrapper fork, two exclusive record writes and call-stack serialization; the attempt timings include that overhead. The C child rusage excludes wrapper CPU, while whole-command rusage includes it.",
+    "saved_scripts": [
+      {
+        "name": "prepare.py",
+        "sha256": "beee1b449588f8c29b56639dd02eccb39a07ee444c540fd6f545de205102156c",
+        "lines": [
+          "import json,time,subprocess,os,re,hashlib",
+          "from pathlib import Path",
+          "s=Path(__file__).parent",
+          "b=json.loads((s/'budget.json').read_text())",
+          "assert time.monotonic()-b['started_monotonic']<120,'preparation allocation exhausted'",
+          "(s/'bin').mkdir(exist_ok=True); (s/'records').mkdir(exist_ok=True); (s/'owners').mkdir(exist_ok=True); (s/'overlay').mkdir(exist_ok=True)",
+          "(s/'active').write_text('preparation')",
+          "c=r'''",
+          "#include <stdio.h>",
+          "#include <signal.h>",
+          "#include <stdlib.h>",
+          "#include <unistd.h>",
+          "#include <sys/wait.h>",
+          "#include <sys/resource.h>",
+          "#include <time.h>",
+          "#include <string.h>",
+          "#include <errno.h>",
+          "#define ROOT @ROOT@",
+          "#define REAL @REAL@",
+          "static double now(void){struct timespec t;clock_gettime(CLOCK_MONOTONIC,&t);return t.tv_sec+t.tv_nsec/1e9;}",
+          "static void quote(FILE*f,const char*s){fputc('\"',f);for(;*s;s++){unsigned char c=*s;if(c=='\"'||c=='\\\\'){fputc('\\\\',f);fputc(c,f);}else if(c<32)fprintf(f,\"\\\\u%04x\",c);else fputc(c,f);}fputc('\"',f);}",
+          "int main(int argc,char**argv){char path[4096],cwd[4096],scenario[256]={0};FILE*a=fopen(ROOT \"/active\",\"r\");if(!a)return 125;fgets(scenario,sizeof(scenario),a);fclose(a);getcwd(cwd,sizeof(cwd));",
+          "snprintf(path,sizeof(path),ROOT \"/records/%d-start.json\",getpid());FILE*f=fopen(path,\"wx\");if(!f)return 125;fprintf(f,\"{\\\"pid\\\":%d,\\\"ppid\\\":%d,\\\"scenario\\\":\",getpid(),getppid());quote(f,scenario);fputs(\",\\\"cwd\\\":\",f);quote(f,cwd);fputs(\",\\\"args\\\":[\",f);for(int i=1;i<argc;i++){if(i>1)fputc(',',f);quote(f,argv[i]);}fputs(\"],\\\"stack\\\":\",f);char*stack=getenv(\"YOYO_PROFILE_STACK\");fputs(stack?stack:\"null\",f);fputs(\"}\\n\",f);if(fclose(f))return 125;",
+          "double start=now();pid_t p=fork();if(p<0)return 125;if(!p){char*pp=getenv(\"PATH\");if(pp&&strncmp(pp,ROOT \"/bin:\",strlen(ROOT \"/bin:\"))==0)setenv(\"PATH\",pp+strlen(ROOT \"/bin:\"),1);unsetenv(\"YOYO_PROFILE_STACK\");argv[0]=REAL;execv(REAL,argv);_exit(127);}int status;struct rusage u;while(wait4(p,&status,0,&u)<0){if(errno!=EINTR)return 125;}",
+          "snprintf(path,sizeof(path),ROOT \"/records/%d-end.json\",getpid());f=fopen(path,\"wx\");if(!f)return 125;int code=WIFEXITED(status)?WEXITSTATUS(status):128+WTERMSIG(status);fprintf(f,\"{\\\"pid\\\":%d,\\\"exit\\\":%d,\\\"signal\\\":%d,\\\"wall\\\":%.9f,\\\"user\\\":%.9f,\\\"system\\\":%.9f}\\n\",getpid(),code,WIFSIGNALED(status)?WTERMSIG(status):0,now()-start,u.ru_utime.tv_sec+u.ru_utime.tv_usec/1e6,u.ru_stime.tv_sec+u.ru_stime.tv_usec/1e6);if(fclose(f))return 125;if(WIFSIGNALED(status)){signal(WTERMSIG(status),SIG_DFL);raise(WTERMSIG(status));}return code;}",
+          "'''.replace('@ROOT@',json.dumps(str(s))).replace('@REAL@',json.dumps(b['real_git']))",
+          "(s/'git-wrapper.c').write_text(c)",
+          "subprocess.run(['clang','-O2','-o',str(s/'bin/git'),str(s/'git-wrapper.c')],check=True,timeout=max(1,120-(time.monotonic()-b['started_monotonic'])))",
+          "# Every overlaid TempDir keeps its existing allocation and records the exact test owner.",
+          "common=r'''",
+          "func profileStack() string {",
+          " pcs := make([]uintptr,64); n := profileRuntime.Callers(2,pcs); frames := profileRuntime.CallersFrames(pcs[:n]); var names []string",
+          " for { frame, more := frames.Next(); names = append(names,frame.Function+\"|\"+frame.File+\":\"+fmt.Sprint(frame.Line)); if !more {break} }",
+          " data,_ := profileJSON.Marshal(names); return string(data)",
+          "}",
+          "func profileCommand(name string, args ...string) *exec.Cmd {",
+          " cmd := exec.Command(name,args...); if name == \"git\" {cmd.Env=append(os.Environ(),\"YOYO_PROFILE_STACK=\"+profileStack())}; return cmd",
+          "}",
+          "func profileTempDir(t testing.TB) string {",
+          " t.Helper(); dir:=t.TempDir(); data,_:=profileJSON.Marshal(map[string]string{\"root\":dir,\"test\":t.Name(),\"package\":@PACKAGE@}); f,err:=os.CreateTemp(@OWNERS@,\"owner-*.json\"); if err!=nil {t.Fatal(err)}; if _,err=f.Write(data);err!=nil {t.Fatal(err)}; if err=f.Close();err!=nil {t.Fatal(err)}; return dir",
+          "}",
+          "'''.replace('@OWNERS@',json.dumps(str(s/'owners')))",
+          "replace={}; hashes={}",
+          "carriers={'internal/orchestrator':'pipeline_test.go','internal/gitworktree':'manager_test.go','internal/orchestrator/orchestratortest':'forge.go'}",
+          "for directory,carrier in carriers.items():",
+          " files=list(Path(directory).glob('*_test.go')) if not directory.endswith('orchestratortest') else list(Path(directory).glob('*.go'))",
+          " for path in files:",
+          "  source=path.read_text(); changed=source.replace('t.TempDir()','profileTempDir(t)').replace('exec.Command(\"git\",','profileCommand(\"git\",')",
+          "  if path.name==carrier:",
+          "   changed=changed.replace('import (','import (\\n profileRuntime \"runtime\"\\n profileJSON \"encoding/json\"',1)",
+          "   if '\"os\"' not in changed: changed=changed.replace('import (','import (\\n \"os\"',1)",
+          "   changed+='\\n'+common.replace('@PACKAGE@',json.dumps(directory))",
+          "  elif '\"os/exec\"' in changed and 'exec.' not in changed:",
+          "   changed=changed.replace('\\n\\t\"os/exec\"','')",
+          "  if changed!=source:",
+          "   target=s/'overlay'/directory/path.name;target.parent.mkdir(parents=True,exist_ok=True);target.write_text(changed);replace[str(path.resolve())]=str(target);hashes[str(path)]=hashlib.sha256(source.encode()).hexdigest()",
+          "path=Path('internal/execution/process.go');source=path.read_text();changed=source.replace('import (','import (\\n profileRuntime \"runtime\"\\n profileJSON \"encoding/json\"',1).replace('process.Env = WithGitMaintenanceFence(command.Env)','process.Env = WithGitMaintenanceFence(command.Env)\\n process.Env = append(process.Env,\"YOYO_PROFILE_STACK=\"+profileStack())')",
+          "changed+='\\n'+common.split('func profileCommand')[0]",
+          "target=s/'overlay/process.go';target.write_text(changed);replace[str(path.resolve())]=str(target);hashes[str(path)]=hashlib.sha256(source.encode()).hexdigest()",
+          "(s/'overlay.json').write_text(json.dumps({'Replace':replace},indent=2));(s/'source-hashes.json').write_text(json.dumps(hashes,indent=2))",
+          "# Conformance does not run Go tests and stays within preparation.",
+          "cases=[['--version'],['-C',str(Path.cwd()),'rev-parse','HEAD'],['-C',str(Path.cwd()),'rev-parse','--verify','refs/heads/nonexistent-profile-ref'],['hash-object','--stdin'],['--definitely-not-a-git-option']]",
+          "checks=[]",
+          "for args in cases:",
+          " direct=subprocess.run([b['real_git'],*args],input=b'profile-input\\n',capture_output=True)",
+          " wrapped=subprocess.run([str(s/'bin/git'),*args],input=b'profile-input\\n',capture_output=True)",
+          " same=(direct.returncode,direct.stdout,direct.stderr)==(wrapped.returncode,wrapped.stdout,wrapped.stderr)",
+          " checks.append({'args':args,'direct_exit':direct.returncode,'wrapped_exit':wrapped.returncode,'identical_streams_and_exit':same});assert same",
+          "records=list((s/'records').glob('*-start.json'));ends=list((s/'records').glob('*-end.json'));assert len(records)==len(ends)==len(cases)",
+          "(s/'conformance.json').write_text(json.dumps({'cases':checks,'starts':len(records),'ends':len(ends),'elapsed_preparation_seconds':time.monotonic()-b['started_monotonic']},indent=2))",
+          "assert time.monotonic()-b['started_monotonic']<120,'preparation allocation exhausted'",
+          "print('Preparation passed:',len(replace),'overlay files;',len(cases),'wrapper conformance cases;',round(time.monotonic()-b['started_monotonic'],2),'seconds')"
+        ]
+      },
+      {
+        "name": "run-one.py",
+        "sha256": "a1aacd040586f9fc85950a942edbd83c2effcc6ec72afdfe8d2377f1f4ccb7ee",
+        "lines": [
+          "import subprocess,time,json,os,sys,signal,resource",
+          "from pathlib import Path",
+          "s=Path(__file__).parent;b=json.loads((s/'budget.json').read_text());name=sys.argv[1];allocation=int(sys.argv[2]);cmd=sys.argv[3:];start=time.monotonic();left=900-(start-b['started_monotonic']);assert left>0",
+          "(s/'active').write_text(name);env=os.environ.copy();env['PATH']=str(s/'bin')+':'+env['PATH'];r={'name':name,'command':cmd,'start_epoch':time.time(),'start_load':os.getloadavg(),'allocation':allocation,'remaining_total':left};(s/(name+'-start.json')).write_text(json.dumps(r))",
+          "with (s/(name+'-tests.jsonl')).open('w') as out,(s/(name+'-timing.log')).open('w') as err:",
+          " p=subprocess.Popen(['/usr/bin/time','-l',*cmd],stdout=out,stderr=err,env=env,start_new_session=True)",
+          " try: code=p.wait(timeout=min(allocation,left));r['deadline_reached']=False",
+          " except subprocess.TimeoutExpired:",
+          "  rows=subprocess.check_output(['ps','-axo','pid=,ppid='],text=True);pairs=[tuple(map(int,row.split())) for row in rows.splitlines()];children={p.pid}",
+          "  while True:",
+          "   expanded=children|{pid for pid,ppid in pairs if ppid in children}",
+          "   if expanded==children:break",
+          "   children=expanded",
+          "  for pid in sorted(children,reverse=True):",
+          "   try:os.kill(pid,signal.SIGKILL)",
+          "   except ProcessLookupError:pass",
+          "  code=p.wait();r['deadline_reached']=True;r['killed_pids']=sorted(children)",
+          "r.update(exit_code=code,wall=time.monotonic()-start,end_epoch=time.time(),end_load=os.getloadavg());(s/(name+'-result.json')).write_text(json.dumps(r,indent=2));print(json.dumps(r));sys.exit(1 if r['deadline_reached'] else code)"
+        ]
+      },
+      {
+        "name": "analyze.py",
+        "sha256": "f5b69befe5fadc99ca42ee1314a3dff17c0be8acb4410c292aaacf2908c1b265",
+        "lines": [
+          "import json,collections,re,os,sys",
+          "from pathlib import Path",
+          "s=Path(__file__).parent",
+          "owners=[json.loads(p.read_text()) for p in (s/'owners').glob('*.json')]",
+          "for r in owners:r['root']=os.path.realpath(r['root'])",
+          "owners.sort(key=lambda r:len(r['root']),reverse=True)",
+          "starts=[json.loads(p.read_text()) for p in (s/'records').glob('*-start.json')]",
+          "ends={r['pid']:r for p in (s/'records').glob('*-end.json') if (r:=json.loads(p.read_text()))}",
+          "source={str(p.resolve()):p.read_text().splitlines() for directory in ['internal/orchestrator','internal/gitworktree'] for p in Path(directory).glob('*_test.go')}",
+          "def subcmd(args):",
+          " i=0",
+          " while i<len(args):",
+          "  a=args[i]",
+          "  if a in ['-C','-c','--git-dir','--work-tree','--namespace']:i+=2",
+          "  elif a.startswith('-'):i+=1",
+          "  else:return ' '.join(args[i:i+2]) if a in ['worktree','remote','submodule'] and i+1<len(args) else a",
+          " return '(global option)'",
+          "def directory(r):",
+          " d=r['cwd'];args=r['args']",
+          " for i,a in enumerate(args[:-1]):",
+          "  if a=='-C':d=os.path.abspath(os.path.join(d,args[i+1]))",
+          " return os.path.realpath(d)",
+          "def frames(r):",
+          " out=[]",
+          " for frame in r.get('stack') or []:",
+          "  fun,loc=frame.split('|');file,line=loc.rsplit(':',1);out.append((fun,file,int(line)))",
+          " return out",
+          "def origin(r):",
+          " stack=frames(r);names=[f[0] for f in stack];raw='\\n'.join(names);command=subcmd(r['args'])",
+          " if not stack:return 'unclassified'",
+          " if any('/internal/gitworktree.' in f[0] and not f[1].endswith('_test.go') for f in stack):return 'harness'",
+          " if any('/internal/execution.OSProcessRunner.Run' in f[0] for f in stack):return 'harness'",
+          " if re.search(r'(removeLinked\\w*Worktrees|removeLinkedWorktrees|linked\\w*WorktreePaths|linkedWorktreePaths|clearUnfinishedRegistrations)',raw):return 'fixture cleanup'",
+          " if re.search(r'(pipelineRepository|writeCommitted|newRepository|nonGoFixtureRepository)',raw):return 'fixture setup'",
+          " if '.Git|' in '\\n'.join(r['stack']) and ('fakeForge' in raw or '/orchestratortest.' in raw) and 'runGitQuiet' not in raw:return 'fake forge'",
+          " if 'runGitQuiet' in raw or 'gitOutput' in raw or (command in ['merge-base','rev-parse','status','diff','log','show','ls-files','ls-tree','for-each-ref','symbolic-ref','cat-file','check-ignore']):return 'fixture assertion'",
+          " if '.Git|' in '\\n'.join(r['stack']) and ('fakeForge' in raw or '/orchestratortest.' in raw):return 'fake forge'",
+          " # Direct Git operations before the first pipeline/run invocation in a top-level test are fixture extensions.",
+          " for fun,file,line in reversed(stack):",
+          "  if file in source and re.search(r'\\.Test\\w+(\\.func\\d+)?$',fun):",
+          "   lines=source[file];start=line-1",
+          "   while start>=0 and not re.match(r'^func Test\\w+\\(',lines[start]):start-=1",
+          "   if start<0:continue",
+          "   end=start+1",
+          "   while end<len(lines) and not lines[end].startswith('func '):end+=1",
+          "   candidates=[i+1 for i in range(start,end) if re.search(r'\\.(Run|Reconcile|Rerun|Repair|Resume|Converge|Schedule|Create|Integrate|Publish)\\(',lines[i]) and not 't.Run(' in lines[i]]",
+          "   if candidates and line<min(candidates):return 'fixture setup'",
+          "   break",
+          " return 'fixture mutation'",
+          "rows=[]",
+          "for r in starts:",
+          " if r['scenario']=='preparation':continue",
+          " r['subcommand']=subcmd(r['args']);r['origin']=origin(r);d=directory(r);owner=next((o for o in owners if d==o['root'] or d.startswith(o['root']+'/')),None)",
+          " r['test']=owner['test'] if owner else None;r['package']=owner['package'] if owner else None",
+          " if not owner:",
+          "  for fun,file,line in frames(r):",
+          "   m=re.search(r'\\.(Test\\w+)',fun)",
+          "   if m:r['test']=m.group(1);r['package']=str(Path(file).parent.relative_to(Path.cwd()));r['ownership_basis']='direct call stack';break",
+          " r.update(ends.get(r['pid'],{}));rows.append(r)",
+          "(s/'classified-records.json').write_text(json.dumps(rows))",
+          "by={}",
+          "for scenario in sorted({r['scenario'] for r in rows}):",
+          " rs=[r for r in rows if r['scenario']==scenario];orig=collections.Counter(r['origin'] for r in rs);families=collections.defaultdict(lambda: {'count':0,'user':0.,'system':0.,'git_wall_sum':0.})",
+          " for r in rs:",
+          "  key=(r.get('package') or 'unknown')+'/'+(r.get('test') or 'unknown').split('/')[0];v=families[key];v['count']+=1",
+          "  for dest,src in [('user','user'),('system','system'),('git_wall_sum','wall')]:v[dest]+=r.get(src,0.)",
+          " by[scenario]={'count':len(rs),'origin_counts':dict(orig),'subcommands':dict(collections.Counter(r['subcommand'] for r in rs)),'unowned':sum(r['test'] is None for r in rs),'incomplete':sum('exit' not in r for r in rs),'git_user':sum(r.get('user',0) for r in rs),'git_system':sum(r.get('system',0) for r in rs),'git_wall_sum':sum(r.get('wall',0) for r in rs),'top_families':sorted((dict(test=k,**v) for k,v in families.items()),key=lambda v:v['count'],reverse=True)[:30]}",
+          "(s/'aggregate.json').write_text(json.dumps(by,indent=2))",
+          "print(json.dumps(by,indent=2)[:2500])"
+        ]
+      }
+    ],
+    "instructions": "The saved scripts reproduce the failed method, not an approved sampler. For another run, use that run's assigned scratch and shared cache, re-create budget.json with current revision/toolchain/environment/start times, correct the defects above, verify phase attribution and reconcile unique start/end identifiers, then obtain the development manager's fresh finite allocation before the nine planned commands. Include supervisor preparation within the 120 seconds. Do not run the saved wrapper unchanged."
+  },
+  "release_conditions": [
+    "Correct and verify unique invocation recording and behavior preservation, including identifier reuse and recording failure.",
+    "Verify external deadlines terminate/reap every measurement process group without relying on refused ps access.",
+    "Audit fixture phase and repository/test ownership attribution before accepting origin or per-test counts.",
+    "The development manager authorizes a fresh finite measurement attempt; collect the planned current scenarios without repetitions and then review the measured conversion inventory."
+  ],
+  "delivery_verification": {
+    "json_decode": {
+      "command": "python3 -m json.tool docs/diagnoses/yoyodyne-ifd-429-45-current-git-profile-attempt.json > /dev/null",
+      "outcome": "passed"
+    },
+    "focused_repository_check": {
+      "command": "go test -count=1 -timeout 20m ./internal/composition",
+      "outcome": "passed",
+      "log": "/Users/mbryant/github/yoyodyne/.git/worktrees/yoyodyne-ifd-429-45-314362cd/yoyodyne/scratch/run-314362cdb2c1bbc6a00166c8aed55058/delivery-composition.log",
+      "output": "ok  \tgithub.com/mason-bryant/yoyodyne/internal/composition\t1.852s",
+      "qualification": "Delivery check separate from the measurement allocation, with no overlay or PATH wrapper."
+    }
+  },
+  "remaining_risk": "The work item is not discharged. Current hot families, validated Git origin totals and the focused/non-Go/concurrent cost comparison are still unavailable. The September 25 numbers remain historical; the observed 43,868 recorder entries must not replace them as a current baseline."
+}
