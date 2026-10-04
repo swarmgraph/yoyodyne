@@ -255,10 +255,17 @@ func redTargetMarker(target, check string) string {
 // A sweep wired with nothing to file through hands the merge back as it always
 // did.
 func (r Reconciler) waitOnRedTarget(ctx context.Context, state runstate.State, checks runstate.PullRequestChecks, files []string, dropped bool) (Reconciliation, error) {
+	ownership := r.redTargetOwner(ctx, state.Integration.TargetBranch, checks, files)
+	return r.waitOnRedTargetOwned(ctx, state, checks, ownership, dropped)
+}
+
+// waitOnRedTargetOwned uses the attribution already read for this head. A
+// dropped merge needs that reading before replay eligibility is considered;
+// reading it again could give a different answer about the same settlement.
+func (r Reconciler) waitOnRedTargetOwned(ctx context.Context, state runstate.State, checks runstate.PullRequestChecks, ownership redTargetOwnership, dropped bool) (Reconciliation, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
 	describe := checks.Describe(target)
-	ownership := r.redTargetOwner(ctx, target, checks, files)
 	if ownership.Change != "" {
 		published.Checks = &checks
 		state.PullRequest = &published

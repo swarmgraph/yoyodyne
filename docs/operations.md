@@ -2807,7 +2807,10 @@ the queue was landing them.
   same change and session, under the existing repair budget; fresh configured
   checks and independent review must pass before it is published again.
   This failure is recorded even if the forge already dropped the merge and
-  the run cannot replay its head: replay limits or missing artifacts never
+  the run cannot replay its head. On a level head, a check passing on the target
+  or a job log naming changed files or their directories attributes the failure
+  before replay eligibility is considered, even without annotations naming
+  those files: replay limits or missing artifacts never
   authorize re-arming the red revision. If the developer session or preserved
   change cannot be recovered, the repair refusal and docket name a re-run
   decided by the development manager, through `yoyo triage rerun`, as the

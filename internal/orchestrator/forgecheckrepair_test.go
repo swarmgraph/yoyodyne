@@ -10,6 +10,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -346,5 +347,142 @@ func TestAnUnreplayableDroppedMergeKeepsItsRecoveryForUnrelatedFailures(t *testi
 	}
 	if _, _, err := rearmablePublication(stopped); err != nil {
 		t.Fatalf("re-arm eligibility for an unrelated failure = %v", err)
+	}
+}
+
+func TestAnUnreplayableDroppedMergeRecordsUnannotatedFailuresAttributedToItsChange(t *testing.T) {
+	t.Parallel()
+	for _, missing := range []bool{false, true} {
+		for _, targetPasses := range []bool{false, true} {
+			name := "resumption limit / "
+			if missing {
+				name = "missing branch / "
+			}
+			if targetPasses {
+				name += "check passes on target"
+			} else {
+				name += "job log names changed package"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Parallel()
+				ctx := context.Background()
+				fixture, forge, original := queuedOnProtectedTarget(t)
+				prior := loadRun(t, fixture.store, original.RunID)
+				if missing {
+					prior.BranchRemoved = true
+					prior.BranchSweptAt = &prior.UpdatedAt
+				} else {
+					for range runstate.MaxIntegrationResumptions {
+						prior.IntegrationResumptions = append(prior.IntegrationResumptions, runstate.IntegrationResumption{
+							Cause: runstate.CauseQueuedHeadBehind, Reason: "the queued head fell behind its target", ResumedAt: prior.UpdatedAt,
+						})
+					}
+				}
+				if why := unreplayable(prior); why == "" {
+					t.Fatal("the fixture still permits replay")
+				}
+				if err := fixture.store.Save(prior); err != nil {
+					t.Fatal(err)
+				}
+				fixture.docket = &memoryDocket{}
+				forge.DropQueuedMerge()
+				forge.reading = pullRequest907Reading()
+				if recordedChecks(forge.reading, prior.UpdatedAt).ChangeFails() {
+					t.Fatal("the fixture attributed the failure by annotation paths")
+				}
+				reconciler := fixture.sweep(t, forge, false)
+				filer := &recordingFiler{}
+				// Attribution also works where nothing is wired to file target work.
+				if missing {
+					reconciler.Filer = filer
+				}
+				main := &targetChecks{reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit}}
+				logs := &jobLogs{tail: pullRequest907Log}
+				want := "the forge's account of build names internal/machinehome"
+				if targetPasses {
+					main.reading.Passing = []string{"build"}
+					logs.tail = "Process completed with exit code 2."
+					want = "build passes on main's own head"
+				}
+				reconciler.TargetChecks, reconciler.JobLogs = main, logs
+				results, err := reconciler.Reconcile(ctx)
+				if err != nil {
+					t.Fatal(err)
+				}
+				assertHandedBackToTheChange(t, fixture, forge, fixture.tracker.(*orchestratortest.Tracker), filer, results, want)
+				if len(main.asked) != 1 || main.asked[0] != "main" {
+					t.Fatalf("target checks asked = %v; want one attribution reading", main.asked)
+				}
+				stopped := loadRun(t, fixture.store, original.RunID)
+				if stopped.CheckFailure == nil || stopped.CheckFailure.Command != "build" || stopped.CheckFailure.ForgeHeadCommit != original.PullRequest.HeadCommit {
+					t.Fatalf("repair input = %#v; want the attributed forge failure", stopped.CheckFailure)
+				}
+				if !strings.Contains(stopped.CheckFailure.Output, "How the forge ended build: failure") || (!targetPasses && !strings.Contains(stopped.CheckFailure.Output, "internal/machinehome")) {
+					t.Fatalf("repair input lost the forge's account: %s", stopped.CheckFailure.Output)
+				}
+				if stopped.Integration != nil || stopped.ChecksPassed != nil || stopped.ReviewDecision != "" {
+					t.Fatal("the failing change retained publication credit")
+				}
+				if _, _, err := rearmablePublication(stopped); err == nil || !strings.Contains(err.Error(), "unchanged revision cannot be re-armed") {
+					t.Fatalf("re-arm refusal = %v", err)
+				}
+				entries, err := fixture.docket.List()
+				if err != nil || len(entries) != 1 || entries[0].Check == nil || entries[0].Class != triage.ClassStoppedRun {
+					t.Fatalf("docket = %#v, %v; want the forge failure on the stopped run", entries, err)
+				}
+				if rendered := entries[0].Render(); !strings.Contains(rendered, "A repair continues the preserved change") || strings.Contains(rendered, "merge request may be repeated") {
+					t.Fatalf("the docket did not direct the red change to repair: %s", rendered)
+				}
+			})
+		}
+	}
+}
+
+func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t *testing.T) {
+	t.Parallel()
+	for _, confirmed := range []bool{false, true} {
+		name := "target checks pending and log names unrelated work"
+		if confirmed {
+			name = "check also fails on target"
+		}
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			ctx := context.Background()
+			filer := &recordingFiler{}
+			fixture, forge, _, reconciler, logs := redTargetSweep(t, filer)
+			prior := loadRun(t, fixture.store, pipelineRunID)
+			for range runstate.MaxIntegrationResumptions {
+				prior.IntegrationResumptions = append(prior.IntegrationResumptions, runstate.IntegrationResumption{
+					Cause: runstate.CauseQueuedHeadBehind, Reason: "the queued head fell behind its target", ResumedAt: prior.UpdatedAt,
+				})
+			}
+			if err := fixture.store.Save(prior); err != nil {
+				t.Fatal(err)
+			}
+			forge.DropQueuedMerge()
+			forge.reading = pullRequest907Reading()
+			main := &targetChecks{reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit, Pending: []string{"build"}}}
+			if confirmed {
+				main.reading.Pending, main.reading.Failing = nil, []string{"build"}
+				// The target's own failure takes precedence even if the log names
+				// a package this change also touches.
+				logs.tail = pullRequest907Log
+			}
+			reconciler.TargetChecks = main
+			results, err := reconciler.Reconcile(ctx)
+			if err != nil || len(results) != 1 || results[0].Action != ActionBlocked || results[0].Failure != "" {
+				t.Fatalf("reconciliation = %#v, %v; want the existing dropped-merge handback", results, err)
+			}
+			stopped := loadRun(t, fixture.store, pipelineRunID)
+			if stopped.CheckFailure != nil || stopped.Integration == nil || stopped.MergeDrop == nil || stopped.PullRequest.MergeQueued || stopped.PullRequest.TargetRed != nil {
+				t.Fatal("an unrelated failure lost its existing dropped-merge recovery")
+			}
+			if len(filer.filed) != 0 || len(main.asked) != 1 {
+				t.Fatalf("filed = %#v, target checks asked = %v; want attribution only, with no new target wait", filer.filed, main.asked)
+			}
+			if _, _, err := rearmablePublication(stopped); err != nil {
+				t.Fatalf("re-arm eligibility for an unrelated failure = %v", err)
+			}
+		})
 	}
 }

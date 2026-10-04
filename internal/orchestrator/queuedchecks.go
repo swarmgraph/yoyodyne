@@ -506,14 +506,26 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 			published.Number, checks.Describe(target)))
 		return stopped, true, err
 	}
+	// An unannotated failure on a level head can still be the change's: the
+	// check passes on the target, or its log names a file or package the change
+	// touches. Attribution comes before replay limits, just like annotations.
+	levelRed := checks.BehindBy == 0 && checks.Red() && !checks.FailedInTheJob()
+	var ownership redTargetOwnership
+	if levelRed {
+		ownership = r.redTargetOwner(ctx, target, checks, reading.Files)
+		if ownership.Change != "" {
+			stopped, err := r.waitOnRedTargetOwned(ctx, *state, checks, ownership, true)
+			return stopped, true, err
+		}
+	}
 	if unreplayable(*state) != "" || !strings.EqualFold(observed.State, "OPEN") {
 		return Reconciliation{}, false, nil
 	}
 	// A head level with its target that failed on no file its change touches
 	// failed on the target, and the queue dropping it is the same fact the sweep
 	// withdrawing it would have been: filed as the target's, and waited on.
-	if checks.BehindBy == 0 && checks.Red() && !checks.ChangeFails() && !checks.FailedInTheJob() && r.Filer != nil {
-		waiting, err := r.waitOnRedTarget(ctx, *state, checks, reading.Files, true)
+	if levelRed && r.Filer != nil {
+		waiting, err := r.waitOnRedTargetOwned(ctx, *state, checks, ownership, true)
 		return waiting, true, err
 	}
 	if checks.BehindBy == 0 {
