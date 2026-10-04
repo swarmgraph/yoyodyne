@@ -1589,16 +1589,16 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			}
 		}
 		if len(parsed.LogReads) > 0 {
-			results, problem := s.performLogReads(ctx, parsed.LogReads, &logRounds)
-			reply.LogReads = append(reply.LogReads, LogRound{Results: results, Problem: problem})
-			if problem != "" {
+			round := s.performLogReads(ctx, parsed.LogReads, &logRounds)
+			reply.LogReads = append(reply.LogReads, round)
+			if round.Problem != "" {
 				// A spent bound ends log retrieval for this message. A refusal
 				// is visible on the reply and cannot start an endless loop.
 				if logRounds < logread.MaxRoundsPerMessage {
-					undelivered += "# Operational records\n\nNothing was read: " + problem + "\n\n"
+					undelivered += "# Operational records\n\nNothing was read: " + round.Problem + "\n\n"
 				}
 			} else {
-				undelivered += logread.Render(results)
+				undelivered += logread.Render(round.Results)
 			}
 		}
 		// What this reply concluded about an operator's idea, written down where it
@@ -1671,11 +1671,8 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				// One message has asked as much as it may. The exchange itself is
 				// untouched — nothing was opened and nothing was spent — so this
 				// bounds the reply rather than the thread.
-				reply.Exchanges = append(reply.Exchanges, ExchangeRound{
-					Asked:    parsed.Ask.Role,
-					Question: oneLineAsk(*parsed.Ask),
-					Problem:  fmt.Sprintf("one message asks at most %d round(s), and this one has", s.options.askRounds()),
-				})
+				reply.Exchanges = append(reply.Exchanges, s.refuseAsk(ctx, *parsed.Ask,
+					fmt.Sprintf("one message asks at most %d round(s), and this one has", s.options.askRounds())))
 				// This round is the last one, so whatever was retrieved was about to be
 				// handed back and now never will be. It is written down for the next
 				// turn, because results the role never sees are the exact loss the
@@ -3078,6 +3075,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// reply that rests on a file is one the operator should be able to hold
 		// against the commit the file was read at.
 		s.reportRepositoryReads(out, reply)
+		s.reportLogReads(out, reply)
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
 		s.reportMemories(out, reply)
@@ -3444,6 +3442,16 @@ func (s *Session) reportRepositoryReads(out io.Writer, reply Reply) {
 		return
 	}
 	for _, round := range reply.RepositoryReads {
+		fmt.Fprint(out, round.Render())
+	}
+	fmt.Fprintln(out)
+}
+
+func (s *Session) reportLogReads(out io.Writer, reply Reply) {
+	if len(reply.LogReads) == 0 {
+		return
+	}
+	for _, round := range reply.LogReads {
 		fmt.Fprint(out, round.Render())
 	}
 	fmt.Fprintln(out)

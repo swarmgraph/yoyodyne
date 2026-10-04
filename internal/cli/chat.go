@@ -81,6 +81,9 @@ type chatOutput struct {
 	// commit, the path, and the time, and reported here for the reason the
 	// research is: what a reply's advice rests on is the operator's to see.
 	RepositoryReads []chat.RepositoryRound `json:"repository_reads,omitempty"`
+	// LogReads names the operational records, bounds, and outcomes, including
+	// audit failures that withheld evidence from the role.
+	LogReads []chat.LogRound `json:"log_reads,omitempty"`
 	// Picture is how old the picture of the repository the reply was answered
 	// from was, in landings on the target branch, and what the harness did about
 	// it. It is reported for the reason the reads are: what a reply's advice
@@ -369,6 +372,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 			Exchanges:          reply.Exchanges,
 			Research:           reply.Research,
 			RepositoryReads:    reply.RepositoryReads,
+			LogReads:           reply.LogReads,
 			Picture:            reply.Picture,
 			CompactionSaves:    reply.CompactionSaves,
 			RecordCuts:         reply.RecordCuts,
@@ -389,6 +393,7 @@ func runChatMessage(ctx context.Context, session *chat.Session, role domain.Agen
 	printChatActions(stdout, role, reply.Actions, reply.ResultsCarriedOver)
 	printChatResearch(stdout, reply.Research)
 	printChatRepositoryReads(stdout, reply.RepositoryReads)
+	printChatLogReads(stdout, reply.LogReads)
 	printChatPicture(stdout, reply.Picture)
 	printChatCompactionSaves(stdout, reply.CompactionSaves)
 	printChatRecordCuts(stdout, reply.RecordCuts)
@@ -1304,6 +1309,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 		// travel with the failure for the same reason the actions do.
 		output.Research = reply.Research
 		output.RepositoryReads = reply.RepositoryReads
+		output.LogReads = reply.LogReads
 		// The picture's age was measured and recorded before the turn was taken,
 		// so it travels with the failure for the same reason.
 		output.Picture = reply.Picture
@@ -1331,6 +1337,7 @@ func reportChatFailure(stdout, stderr io.Writer, jsonOutput bool, role domain.Ag
 	printChatActions(stdout, role, output.Actions, output.ResultsCarriedOver)
 	printChatResearch(stdout, output.Research)
 	printChatRepositoryReads(stdout, output.RepositoryReads)
+	printChatLogReads(stdout, output.LogReads)
 	printChatPicture(stdout, output.Picture)
 	printChatCompactionSaves(stdout, output.CompactionSaves)
 	printChatEvaluation(stdout, output.Evaluation, output.EvaluationProblem)
@@ -1502,6 +1509,16 @@ func printChatResearch(writer io.Writer, rounds []chat.ResearchRound) {
 // printChatRepositoryReads names what the harness read from the repository and
 // at which commit, one line per path. The content is in the reply above it.
 func printChatRepositoryReads(writer io.Writer, rounds []chat.RepositoryRound) {
+	if len(rounds) == 0 {
+		return
+	}
+	fmt.Fprintln(writer)
+	for _, round := range rounds {
+		fmt.Fprint(writer, round.Render())
+	}
+}
+
+func printChatLogReads(writer io.Writer, rounds []chat.LogRound) {
 	if len(rounds) == 0 {
 		return
 	}

@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -120,6 +121,66 @@ func TestAuditFailureNeverDeliversLogEvidence(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestConversationReportsLogReadAuditFailures(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: logRequest},
+		{SessionID: "session-1", FinalText: "Nothing was available."},
+	}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleProgramManager
+	options.Store = failingToolAuditStore{Store: options.Store, fail: execution.EventToolPerformed}
+	options.LogReader = &countedLogReader{}
+	session := openTestSession(t, options)
+	var out bytes.Buffer
+	if err := session.Converse(context.Background(), testConsole(strings.NewReader("Read the watch.\n/exit\n"), &out)); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"log.read watch", "cursor 0", "byte cap 4096", "tool outcome audit failed", "audit store refused the write"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("conversation dropped %q: %q", want, out.String())
+		}
+	}
+	if strings.Contains(out.String(), "private evidence") {
+		t.Fatal("conversation exposed evidence whose audit failed")
+	}
+}
+
+func TestLogToolReportsAppliedReplyByteBounds(t *testing.T) {
+	t.Parallel()
+	request := "```yoyodyne-log\n" + `{"requests":[{"record":"watch","cursor":0,"max_bytes":49152},{"record":"pass","cursor":0,"max_bytes":49152},{"record":"docket","cursor":0,"max_bytes":4096}]}` + "\n```"
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: request},
+		{SessionID: "session-1", FinalText: "The records were read."},
+	}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleProgramManager
+	options.LogReader = &fullLogReader{}
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "Read the records.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reply.LogReads) != 1 {
+		t.Fatalf("log rounds=%+v", reply.LogReads)
+	}
+	round := reply.LogReads[0]
+	if len(round.Requests) != 3 || round.Requests[2].MaxBytes != 0 || len(round.Results) != 3 || !round.Results[2].Truncated {
+		t.Fatalf("reply did not report the exhausted byte allowance: %+v", round)
+	}
+	if !strings.Contains(round.Render(), "log.read docket with cursor 0, byte cap 0") {
+		t.Fatalf("rendering hid the applied bound: %q", round.Render())
+	}
+}
+
+type fullLogReader struct{}
+
+func (*fullLogReader) Read(_ context.Context, requests []logread.Request) ([]logread.Result, error) {
+	request := requests[0]
+	content := strings.Repeat("a", request.MaxBytes)
+	return []logread.Result{{Record: request.Record, Name: request.Name, Content: content, Bytes: len(content), NextCursor: int64(len(content))}}, nil
 }
 
 func TestLogToolRedactsSecretsInAuditParameters(t *testing.T) {

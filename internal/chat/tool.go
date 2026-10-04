@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -173,20 +174,58 @@ type LogReader interface {
 	Read(context.Context, []logread.Request) ([]logread.Result, error)
 }
 type LogRound struct {
-	Results []logread.Result `json:"results,omitempty"`
-	Problem string           `json:"problem,omitempty"`
+	Requests []logread.Request `json:"requests,omitempty"`
+	Results  []logread.Result  `json:"results,omitempty"`
+	Problem  string            `json:"problem,omitempty"`
 }
 
-func (s *Session) performLogReads(ctx context.Context, requests []logread.Request, rounds *int) ([]logread.Result, string) {
-	var all []logread.Result
+// Render reports the records and applied bounds without repeating their content.
+func (r LogRound) Render() string {
+	var out strings.Builder
+	for i, request := range r.Requests {
+		name := request.Record
+		if request.Name != "" {
+			name += "/" + request.Name
+		}
+		fmt.Fprintf(&out, "log.read %s with ", name)
+		if request.Cursor != nil {
+			fmt.Fprintf(&out, "cursor %d", *request.Cursor)
+		} else {
+			fmt.Fprintf(&out, "window %s to %s", request.Since.Format(time.RFC3339), request.Until.Format(time.RFC3339))
+		}
+		fmt.Fprintf(&out, ", byte cap %d (scan cap %d): ", request.MaxBytes, logread.MaxScanBytes)
+		switch {
+		case r.Problem != "":
+			fmt.Fprintf(&out, "nothing handed back: %s\n", r.Problem)
+		case i < len(r.Results):
+			result := r.Results[i]
+			if result.Problem != "" {
+				fmt.Fprintf(&out, "refused: %s\n", result.Problem)
+				continue
+			}
+			fmt.Fprintf(&out, "%d byte(s), next cursor %d", result.Bytes, result.NextCursor)
+			if result.Truncated {
+				out.WriteString("; truncated")
+			}
+			out.WriteByte('\n')
+		}
+	}
+	return out.String()
+}
+
+func (s *Session) performLogReads(ctx context.Context, requests []logread.Request, rounds *int) LogRound {
+	var round LogRound
 	remaining := logread.MaxBytesPerReply
 	spent := *rounds >= logread.MaxRoundsPerMessage
 	if !spent {
 		*rounds++
 	}
 	for _, request := range requests {
+		bounded := request
+		bounded.MaxBytes = min(request.MaxBytes, remaining)
+		round.Requests = append(round.Requests, bounded)
 		// Only closed identifiers and numeric/time bounds are audit parameters.
-		parameters := map[string]any{"record": request.Record, "name": request.Name, "max_bytes": min(request.MaxBytes, remaining), "scan_bytes": logread.MaxScanBytes, "since": request.Since, "until": request.Until, "cursor": request.Cursor}
+		parameters := map[string]any{"record": request.Record, "name": request.Name, "max_bytes": bounded.MaxBytes, "scan_bytes": logread.MaxScanBytes, "since": request.Since, "until": request.Until, "cursor": request.Cursor}
 		result, err := auditTool(ctx, s, capability.LogRead, parameters, 1, func() ([]logread.Result, error) {
 			if spent {
 				return nil, errors.New("log.read has spent its rounds for this message")
@@ -197,8 +236,6 @@ func (s *Session) performLogReads(ctx context.Context, requests []logread.Reques
 			if remaining == 0 {
 				return []logread.Result{{Record: request.Record, Name: request.Name, Truncated: true}}, nil
 			}
-			bounded := request
-			bounded.MaxBytes = min(request.MaxBytes, remaining)
 			return s.options.LogReader.Read(ctx, []logread.Request{bounded})
 		}, func(results []logread.Result) (int, bool, error) {
 			if len(results) != 1 {
@@ -216,16 +253,19 @@ func (s *Session) performLogReads(ctx context.Context, requests []logread.Reques
 		if err != nil {
 			// An audit failure must never expose even an earlier request's evidence.
 			if strings.Contains(err.Error(), "audit failed") {
-				return nil, err.Error()
+				round.Results = nil
+				round.Problem = err.Error()
+				return round
 			}
-			all = append(all, logread.Result{Record: request.Record, Name: request.Name, Problem: err.Error()})
+			round.Results = append(round.Results, logread.Result{Record: request.Record, Name: request.Name, Problem: err.Error()})
 		} else {
 			remaining -= len(result[0].Content)
-			all = append(all, result...)
+			round.Results = append(round.Results, result...)
 		}
 	}
 	if spent {
-		return nil, "log.read has spent its rounds for this message"
+		round.Results = nil
+		round.Problem = "log.read has spent its rounds for this message"
 	}
-	return all, ""
+	return round
 }

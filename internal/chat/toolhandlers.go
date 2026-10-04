@@ -185,6 +185,18 @@ func (s *Session) conductAsk(ctx context.Context, ask exchange.Ask) conducted {
 	return outcome
 }
 
+// refuseAsk records a bounded request through the tool envelope without opening
+// an exchange. Keep the message's existing refusal unless auditing itself fails.
+func (s *Session) refuseAsk(ctx context.Context, ask exchange.Ask, problem string) ExchangeRound {
+	_, err := auditTool(ctx, s, capability.ExchangeAsk, nil, 1, func() (struct{}, error) {
+		return struct{}{}, errors.New(problem)
+	}, nil)
+	if err != nil && strings.Contains(err.Error(), "audit failed") {
+		problem = err.Error()
+	}
+	return ExchangeRound{Asked: ask.Role, Question: oneLineAsk(ask), Problem: problem}
+}
+
 func (s *Session) recordEvaluation(entry evaluation.Entry) (*evaluation.Evaluation, error) {
 	return auditTool(context.Background(), s, capability.EvaluationRecord, nil, 1, func() (*evaluation.Evaluation, error) { return s.recordEvaluationWithoutToolAudit(entry) }, nil)
 }
