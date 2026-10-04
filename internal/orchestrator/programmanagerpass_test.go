@@ -453,7 +453,7 @@ func TestAnEventThatArrivesLateIsCarriedByTheNextPass(t *testing.T) {
 // while it is being asked.
 type cancellingRole struct{ cancel context.CancelFunc }
 
-func (r cancellingRole) Wake(ctx context.Context, _ domain.AgentRole, _, _, _, _ string) (Turn, error) {
+func (r cancellingRole) Wake(ctx context.Context, _ domain.AgentRole, _, _, _, _ string, _ RecurringTurnOptions) (Turn, error) {
 	r.cancel()
 	return Turn{ConversationID: "chat-1"}, ctx.Err()
 }

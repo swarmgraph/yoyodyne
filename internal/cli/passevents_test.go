@@ -163,11 +163,11 @@ func TestAnInstancesPassOpensTheInstancesOwnConversation(t *testing.T) {
 	t.Parallel()
 
 	var opened []string
-	open := func(_ context.Context, _ domain.AgentRole, agent, _ string) (*chat.Session, *runstate.ConversationHold, error) {
+	open := func(_ context.Context, _ domain.AgentRole, agent, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		opened = append(opened, agent)
-		return nil, nil, errors.New("the provider is not signed in")
+		return nil, nil, nil, errors.New("the provider is not signed in")
 	}
-	_, err := roleConversation{open: open}.Wake(context.Background(), domain.RoleProgramManager, "reliability-pm", "reliability-pm#1", "", "a pass")
+	_, err := roleConversation{open: open}.Wake(context.Background(), domain.RoleProgramManager, "reliability-pm", "reliability-pm#1", "", "a pass", orchestrator.RecurringTurnOptions{})
 	if !errors.Is(err, orchestrator.ErrRoleUnreachable) {
 		t.Fatalf("Wake() error = %v, want the conversation reported unreachable", err)
 	}
@@ -209,7 +209,7 @@ func TestAnInstancesPassRefusedByItsVersionCheckSaysWhatTheCheckCameTo(t *testin
 
 	stopped, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := conversation.Wake(stopped, domain.RoleProgramManager, "factory-flow-pm", "factory-flow-pm#1", "", "a pass")
+	_, err := conversation.Wake(stopped, domain.RoleProgramManager, "factory-flow-pm", "factory-flow-pm#1", "", "a pass", orchestrator.RecurringTurnOptions{})
 	if err == nil || strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("Wake() on a stopped scheduler error = %v, want the cancellation rather than a missing backend", err)
 	}
@@ -218,7 +218,7 @@ func TestAnInstancesPassRefusedByItsVersionCheckSaysWhatTheCheckCameTo(t *testin
 		t.Fatalf("Wake() on a stopped scheduler error = %v, want the role unreachable because the pass was cancelled, and not a failed firing", err)
 	}
 
-	_, err = conversation.Wake(context.Background(), domain.RoleProgramManager, "factory-flow-pm", "factory-flow-pm#1", "", "a pass")
+	_, err = conversation.Wake(context.Background(), domain.RoleProgramManager, "factory-flow-pm", "factory-flow-pm#1", "", "a pass", orchestrator.RecurringTurnOptions{})
 	if err == nil || strings.Contains(err.Error(), "not installed") {
 		t.Fatalf("Wake() over a failing claude error = %v, want what the version check came to rather than a missing backend", err)
 	}

@@ -25,7 +25,7 @@ type wakeCapture struct {
 	messages []string
 }
 
-func (w *wakeCapture) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string) (orchestrator.Turn, error) {
+func (w *wakeCapture) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string, _ orchestrator.RecurringTurnOptions) (orchestrator.Turn, error) {
 	w.messages = append(w.messages, message)
 	return orchestrator.Turn{ConversationID: "chat-1", Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "looked"}}, nil
 }

@@ -5813,6 +5813,28 @@ rest. `--json` is never bounded and always carries the whole log.
 It is read-only. A sweep is written once and never revised, and nothing here
 fires one, retires one, or decides anything about what a pass found.
 
+**A reply without its closing report is asked once for the block alone.** The
+harness quotes the block's shape in the same conversation and on the same pass,
+without asking the role to repeat its work. A valid second reply records one
+ordinary pass with its findings. Both replies' costs and every action and write
+already recorded remain part of that pass; the request spends no work-item
+budget and is outside the pass's work-turn bound. A reply that already carries
+the block is never asked again, and a pass gets at most one such request, even
+when it takes several work turns.
+
+If the report is still missing, the listing marks the pass **FAILED PASS**:
+its findings remain unrecorded, its writes stand, and it counts toward the
+repeated-failure finding watched by the factory-flow program manager and
+resolved by the development manager. A program manager's failed pass also keeps
+its event cursor where it was. After
+`execution.missing_reports_before_fresh_conversation` consecutive passes still
+omit the block — three by default — the next pass opens a fresh conversation
+for that role or program manager instance, with its normal memory and briefing.
+The pass records the previous and new conversation and the reason for replacing
+it, and the listing says so. The earlier conversation's durable records remain
+available. A recovered report ends the count; a conversation already replaced
+by another task or by the operator is reused.
+
 Each pass's header names the model its turns ran on — the task's own
 [`model`](configuration.md#a-tasks-own-model) where it names one, the role's
 configured model where it does not, and the alternate where a failover answered
@@ -5930,8 +5952,9 @@ These outcomes look similar in a listing and are not the same thing:
   healthy harness that is most of them, and a run of passes that keeps finding
   things is itself a signal about the harness rather than about the sweep.
 - **A pass that produced no account** says so and names what stopped it — a
-  turn the provider failed, a role that answered in prose without the block the
-  harness reads. It is never shown as a quiet pass.
+  turn the provider failed, or a role that still omitted the closing block after
+  the harness's one request for it. It is recorded as failed and never shown as
+  a quiet or completed pass.
 - **A missed cadence** is shown the same way: a pass that took no turn, starting
   when the task fell due and ending when the miss was noticed, and naming what
   kept the task from firing, under a `MISSED PASS` line naming the trigger that

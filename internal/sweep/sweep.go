@@ -571,6 +571,17 @@ func Contract() string {
 	}, "\n")
 }
 
+// ReportRequest recovers an account without asking the role to do its work again.
+func ReportRequest() string {
+	return strings.Join([]string{
+		"Your previous reply omitted its closing report block. This is the only request for it on this pass. Reply with the block alone, accounting for that reply's findings and actions already taken. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded.",
+		Fence,
+		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}]}`,
+		"```",
+		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply.",
+	}, "\n")
+}
+
 // RecommendationContract is what an owning role is told, beside the contract
 // above, when the harness has put proposed changes to its documents in front of
 // it. It is a separate paragraph rather than part of Contract because most

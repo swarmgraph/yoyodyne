@@ -112,16 +112,16 @@ func TestAProviderWaitLetsAScheduledPassRunAndPreservesItsTurn(t *testing.T) {
 			trigger := orchestrator.Trigger{
 				Tasks:  map[string]config.RecurringTask{"manager-pass": {Role: identity.Role, Every: config.Duration(time.Hour), Enabled: true, Prompt: "look at the docket"}},
 				Claims: sweeps, Reports: sweeps, Clock: clock,
-				Roles: roleConversation{open: func(ctx context.Context, _ domain.AgentRole, _, _ string) (*chat.Session, *runstate.ConversationHold, error) {
+				Roles: roleConversation{open: func(ctx context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 					passHold, err := conversations.Claim(ctx, identity)
 					if err != nil {
-						return nil, nil, err
+						return nil, nil, nil, err
 					}
 					passOptions := options
 					passOptions.Hold = passHold
 					passOptions.UsageLimitPause = chat.UsageLimitPause{}
 					session, err := chat.Open(passOptions)
-					return session, passHold, err
+					return session, passHold, nil, err
 				}},
 			}
 			ctx, cancel := context.WithCancel(context.Background())
@@ -257,9 +257,9 @@ func TestAScheduledPassBehindAHeldConversationIsMissedRatherThanFailed(t *testin
 			if err != nil {
 				t.Fatal(err)
 			}
-			roles := roleConversation{timeout: 10 * time.Millisecond, open: func(ctx context.Context, _ domain.AgentRole, _, _ string) (*chat.Session, *runstate.ConversationHold, error) {
+			roles := roleConversation{timeout: 10 * time.Millisecond, open: func(ctx context.Context, _ domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 				_, err := store.Claim(ctx, identity)
-				return nil, nil, err
+				return nil, nil, nil, err
 			}}
 			forge := &conversationWaitForge{notice: runstate.ForgeNotice{
 				Number: 445, URL: "https://forge.invalid/pull/445", HeadBranch: "yoyodyne/yoyodyne-ifd-283/aaaaaaaa",

@@ -36,11 +36,11 @@ type handlingRole struct {
 	during func(turn int)
 }
 
-func (r *handlingRole) Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string) (Turn, error) {
+func (r *handlingRole) Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string, options RecurringTurnOptions) (Turn, error) {
 	if r.during != nil {
 		r.during(len(r.messages))
 	}
-	return r.wokenRole.Wake(ctx, role, agent, pass, model, message)
+	return r.wokenRole.Wake(ctx, role, agent, pass, model, message, options)
 }
 
 func reportTriageTask() map[string]config.RecurringTask {
@@ -230,7 +230,7 @@ type shownRole struct {
 	during   func(turn int)
 }
 
-func (r *shownRole) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string) (Turn, error) {
+func (r *shownRole) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string, options RecurringTurnOptions) (Turn, error) {
 	if r.during != nil {
 		r.during(len(r.messages))
 	}

@@ -57,10 +57,11 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Tasks: parts.config.RecurringTasks,
 		// Where a firing is claimed and paced, so one task fires once per cadence
 		// however many sessions are polling.
-		Claims:       parts.store.Sweeps(),
-		Availability: machineAvailability(parts),
-		Reports:      parts.store.Sweeps(),
-		Roles:        roleConversation{configPath: configPath, stderr: stderr},
+		Claims:             parts.store.Sweeps(),
+		Availability:       machineAvailability(parts),
+		Reports:            parts.store.Sweeps(),
+		Roles:              roleConversation{configPath: configPath, stderr: stderr},
+		MissingReportLimit: parts.config.Execution.MissingReportLimit(),
 		ConversationWork: sweepConversationWork{
 			items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
 		},
@@ -379,7 +380,7 @@ type roleConversation struct {
 	// open is how the conversation is opened for a turn, and nil for every
 	// trigger but a test's: production prepares and opens the operator's own
 	// conversation with the task's model, waiting for its hold within the bound.
-	open func(ctx context.Context, role domain.AgentRole, agent, model string) (*chat.Session, *runstate.ConversationHold, error)
+	open func(ctx context.Context, role domain.AgentRole, agent, model string, options orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error)
 	// timeout is a test's shorter bound; production shares the conversation's
 	// turn bound, including the time spent waiting for its hold.
 	timeout time.Duration
@@ -394,9 +395,8 @@ type roleConversation struct {
 // reasons opening fails — the operator is mid-turn with the role, the provider is
 // not signed in, no agent fills the role — are all of that kind.
 //
-// An answer with no sweep block is not a failed turn. The role answered; what is
-// lost is the structure, which the caller says out loud rather than losing the
-// turn over.
+// An answer with no sweep block is asked once for the block alone, under the
+// same conversation hold. An unrecovered account fails the pass.
 //
 // A task that names its own model has this turn ask for it, and only this turn:
 // the conversation, its account, and its failover are the role's, and the next
@@ -406,14 +406,14 @@ type roleConversation struct {
 // program manager's lane report — is stamped with the pass as well as the turn,
 // and a report it carried that was refused is on the pass's record beside
 // whatever else the pass has to say about itself.
-func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string) (orchestrator.Turn, error) {
+func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string, options orchestrator.RecurringTurnOptions) (orchestrator.Turn, error) {
 	bound := r.timeout
 	if bound <= 0 {
 		bound = chat.DefaultTurnTimeout
 	}
 	ctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
-	session, lease, err := r.opener()(ctx, role, agent, model)
+	session, lease, replacement, err := r.opener()(ctx, role, agent, model, options)
 	if err != nil {
 		return orchestrator.Turn{}, passNotOpened(err)
 	}
@@ -426,6 +426,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// and the provider charged for it exactly as it charges for one that answered.
 	evidence := session.Evidence()
 	turn := orchestrator.Turn{
+		Replacement:    replacement,
 		ConversationID: evidence.ConversationID,
 		CostUSD:        session.TurnCostUSD(),
 		Model:          servingModel(evidence),
@@ -447,7 +448,35 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	if err != nil {
 		return turn, notWoken(err)
 	}
+	turn.Turns = 1
 	turn.Result, turn.ResultProblem = readSweep(role, reply.Text)
+	_, result, _, extractErr := sweep.Extract(reply.Text)
+	if result == nil && extractErr == nil {
+		turn.MissingReport = true
+		if options.RetryReport {
+			// Keep the session and hold: another turn must not intervene between
+			// the work and the request for its account.
+			turn.ReportRetried = true
+			recovered, recoveryErr := session.Send(ctx, sweep.ReportRequest())
+			turn.CostUSD += session.TurnCostUSD()
+			turn.Saved = append(turn.Saved, recovered.Saved...)
+			turn.Wording = append(turn.Wording, recovered.Wording...)
+			turn.ReportsFiled += len(recovered.Reports)
+			turn.Admitted = append(turn.Admitted, recovered.AdmittedWork()...)
+			turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
+			turn.Model = servingModel(session.Evidence())
+			if recoveryErr != nil {
+				return turn, fmt.Errorf("the request for the missing closing report failed; the preceding reply's findings remain unrecorded: %w", recoveryErr)
+			}
+			turn.Turns++
+			turn.Result, turn.ResultProblem = readSweep(role, recovered.Text)
+			turn.MissingReport = turn.Result == nil
+			if turn.MissingReport {
+				turn.ResultProblem = appendProblem(turn.ResultProblem, "the closing report is still missing after the pass's one request for it; the pass failed and its findings remain unrecorded")
+			}
+			turn.ResultProblem = appendProblem(turn.ResultProblem, recovered.LaneReport.Refusal())
+		}
+	}
 	if refusal := reply.LaneReport.Refusal(); refusal != "" {
 		if turn.ResultProblem == "" {
 			turn.ResultProblem = refusal
@@ -532,31 +561,54 @@ func passNotOpened(err error) error {
 	return &orchestrator.NotStartedError{Cause: runstate.PreTurnConversationUnopened, Err: unreachable}
 }
 
-func (r roleConversation) opener() func(context.Context, domain.AgentRole, string, string) (*chat.Session, *runstate.ConversationHold, error) {
+func (r roleConversation) opener() func(context.Context, domain.AgentRole, string, string, orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 	if r.open != nil {
 		return r.open
 	}
-	return func(ctx context.Context, role domain.AgentRole, agent, model string) (*chat.Session, *runstate.ConversationHold, error) {
+	return func(ctx context.Context, role domain.AgentRole, agent, model string, options orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		prepared, err := prepareChat(ctx, role, agent, r.configPath, r.errors())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		if err := prepared.onModel(model); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		// A scheduled pass waits for the hold like an operator's command, but
 		// still defers a provider refusal to its next cadence instead of sleeping
 		// through a usage window. Queueing and provider waiting are independent.
 		hold, err := prepared.claim(ctx, true, r.errors())
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
-		session, err := prepared.open(ctx, hold, false, false, r.errors())
+		replacement, err := recurringReplacement(prepared.store, prepared.identity, options)
 		if err != nil {
-			return nil, nil, errors.Join(err, hold.Release())
+			return nil, nil, nil, errors.Join(err, hold.Release())
 		}
-		return session, hold, nil
+		session, err := prepared.open(ctx, hold, replacement != nil, false, r.errors())
+		if err != nil {
+			return nil, nil, nil, errors.Join(err, hold.Release())
+		}
+		return session, hold, replacement, nil
 	}
+}
+
+// Called under the hold: another task or the operator may already have replaced
+// the conversation, which ends the old conversation's missing-report count.
+func recurringReplacement(store *runstate.ConversationStore, identity runstate.ConversationIdentity, options orchestrator.RecurringTurnOptions) (*runstate.SweepConversationReplacement, error) {
+	if options.FreshAfter == "" {
+		return nil, nil
+	}
+	current, err := store.Load(identity)
+	if errors.Is(err, runstate.ErrNoConversation) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if current.ConversationID != options.FreshAfter {
+		return nil, nil
+	}
+	return &runstate.SweepConversationReplacement{Previous: current.ConversationID, Reason: options.FreshReason}, nil
 }
 
 func (r roleConversation) errors() io.Writer {
@@ -761,6 +813,15 @@ func renderSweep(recorded runstate.Sweep) string {
 	// partial, and the next firing will meet the same refusal.
 	if recorded.NotStarted != "" {
 		fmt.Fprintf(&rendered, "  FAILED FIRING: it failed before its first turn — %s\n", recorded.NotStarted.Describe())
+	}
+	if recorded.Failed && recorded.NotStarted == "" {
+		rendered.WriteString("  FAILED PASS: it did not complete\n")
+	}
+	if recorded.ReportRetried {
+		rendered.WriteString("  requested the missing closing report once on this pass\n")
+	}
+	if replacement := recorded.ConversationReplacement; replacement != nil {
+		fmt.Fprintf(&rendered, "  replaced conversation %s with %s: %s\n", replacement.Previous, recorded.ConversationID, replacement.Reason)
 	}
 	// A missed pass is said as one, naming the trigger that owed it, so a gap
 	// reads as a pass owed rather than as a quiet one.
