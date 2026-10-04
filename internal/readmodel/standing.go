@@ -1835,6 +1835,11 @@ func readNeedsHuman(sources Sources, held switches, actions []Attention, amendme
 	if recorded, err := sources.Runs.Recorded(); err != nil {
 		problem = joinProblems(problem, fmt.Sprintf("the promotions awaiting the forge could not be read: %v", err))
 	} else {
+		for _, state := range recorded {
+			if len(state.ReconcileFindings) > 0 && (!state.Status.Terminal() || !state.Outstanding()) && !state.AwaitingForge() {
+				attention = append(attention, ReconcileFindingAttention(state))
+			}
+		}
 		for _, state := range AwaitingForge(recorded) {
 			attention = append(attention, awaitingForgeAttention(state))
 		}

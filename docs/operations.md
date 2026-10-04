@@ -2598,8 +2598,26 @@ from a worktree it creates, and [the configuration
 guide](configuration.md#discovery) says how the resolution is made.
 
 It compares the recorded run against the repository and Beads, and then finishes
-the run's own remaining step or hands the item to you. A run it settled into an
-ending that is not success is reported twice over: what the sweep did with it,
+the run's own remaining step or records what still needs doing on that item.
+A settlement refused for one item, including a remote branch deletion or an
+unreadable forge answer, leaves a finding on that item's run record and notes.
+The finding names the refusal, the remedy, and who moves it: the harness retries
+the settlement, and the development manager decides what to preserve when a
+moved remote branch carries work outside its target. Reconcile finishes the rest
+of the pass and reports each item's settlement or remaining finding; these
+findings alone do not make the command or the supervisor's maintenance pass
+fail. A failure to discover the pass's state still fails the command. Repeating
+the same refusal retries the settlement without adding another finding note;
+an undelivered note is retried too. Every pass revisits saved findings under
+their run's lease, including publications and checkouts whose settlement has
+finished and that no operation sweep selects any more. A completed settlement
+whose finding note or clearing save is refused remains recorded for retry;
+attention names that delivery or clearing obligation rather than a settlement
+still refused. The item is checked for a note already delivered before another
+is appended. If a branch was removed elsewhere, the next sweep confirms its
+absence and clears the saved refusal under the run's lease.
+
+A run it settled into an ending that is not success is reported twice over: what the sweep did with it,
 and — in the same words `yoyo status` uses — what became of the run and what
 remains of its change. Those are different facts, and only the second answers
 whether your work is still there. A run whose work landed says only what the
@@ -2926,7 +2944,15 @@ rather than moved on a publication nothing verified. A **merged branch that
 could not be deleted** is the third, and is the mildest: the item is already
 settled — closed, or back in the backlog, as its landing said — and your local
 branch already caught up, and what is left is a branch on the forge. It says so
-in a second line on the item naming the branch.
+in a second line on the item naming the branch, followed by a settlement finding
+with the remedy and who moves it. A remote branch at the recorded
+published commit is removed as before. If the branch has moved, reconcile reads
+the remote target and checks whether it contains the moved tip. A tip already
+in that target is left alone and the publication settles with nothing
+outstanding. A tip outside the target keeps the deletion refusal as a finding
+on that item: preserve the extra work before removing the leftover branch, then
+reconcile clears the outstanding publication. Neither case fails the rest of
+the maintenance pass.
 
 All three are on that docket, and all three hold their item out of the pull for
 as long as they stand — which is the point: the change is already reviewed and
@@ -3035,9 +3061,16 @@ one note saying what was settled and which line it replaces. That is the lever
 behind the sentence in [how work flows](work.md#letting-the-harness-choose-the-work)
 that a hold lifts by the publication being settled, which until yoyodyne-ifd.357
 had nothing behind it. A publication the remote still refuses stays exactly
-where it was — the record keeps the account the run wrote, which is the line on
-the item, and nothing is written on either — and the sweep says what the remote
-answers now on every pass it stands. The eight held requests PR 497 merged on 2026-09-13 are
+where it was — the publication record keeps the account the run wrote, which
+is the line on the item. Its settlement finding records what the remote refuses
+now and the next move; the same finding is delivered to the item once, rather
+than announced as new on every pass. The sweep still reports what remains on
+each pass, and continues settling the other items. Once publication settlement
+succeeds, its saved finding is revisited independently of publication selection:
+failed finding delivery or a failed clearing save is retried under the run's
+lease, without keeping the publication outstanding or delivering the note twice.
+The eight held requests PR
+497 merged on 2026-09-13 are
 the case this was built on: confirmation then required the remote tip to carry
 exactly the promotion's content, which only the last merge of a batch does, so
 all eight settled as unconfirmed and stayed that way until this could re-ask.
@@ -3049,9 +3082,9 @@ stopped watching — used to keep whatever the forge last said at the moment the
 run ended, for good: a pull request somebody merged days later stayed recorded
 open and unmerged, and the triage docket and the status surfaces read that rather
 than the truth. Reconcile asks the forge about each of those and records the
-answer — merged, closed, or still open. It only writes the record: nothing is
-merged, nothing is closed, no branch moves, and the work item is not touched by
-the asking. What the sweep does close, one step later, is decided on the
+answer — merged, closed, or still open. The refresh updates the publication
+record and records a refused answer as a finding on that run and its work item.
+What the sweep does close, one step later, is decided on the
 harness's own promotion record and described below; the refresh is what makes
 that record true first. A request that turns out to have merged outside the harness — a
 dropped merge you made by hand on the forge — is recorded as merged here, and the
@@ -3060,8 +3093,14 @@ merge is settled by the sweep that finds it rather than staying handed back for
 good. A record the forge agrees with is left exactly as it is, and a merged one
 is never asked about again by this half — merged is the one answer a forge does
 not take back. A record left alone for a reason, such as a branch the forge
-answers about with some other request, is reported and is not a failure; a forge
-that could not be reached is, and the next sweep asks the same question again.
+answers about with some other request, is reported and is not a failure. An
+unreachable forge or an unreadable answer leaves a finding on the affected item,
+naming the refusal, the remedy, and who moves it. Reconcile continues settling
+the other items, and that finding alone does not fail the maintenance pass. The
+next sweep retries the unanswered request without adding another note for the
+same refusal; undelivered finding notes are retried too. Once the answer is
+recorded, the saved finding is delivered and cleared under the run's lease even
+if the publication no longer needs refreshing.
 
 **Which publications a pass asks about.** Only the unsettled ones. A request
 the record already holds as merged, as closed, as superseded by the
@@ -3276,6 +3315,10 @@ a person. They are removed by the settlement that confirms the merge, as
 record, and so is a checkout the sweep finds already gone — removed by you, or by
 an external `git worktree prune` — so `yoyo status` and the triage docket stop
 advertising a directory that is not there rather than sending you after it.
+If delivery of a preservation or finding note fails after retirement, later
+passes retry the note under the run's lease even though the checkout is gone.
+The item is checked for a note already delivered before appending it again,
+and the finding clears once those delivery obligations are settled.
 Because the sweep is part of `yoyo reconcile`, this is owned and recurring rather
 than something anybody has to remember.
 

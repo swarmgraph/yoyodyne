@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -299,8 +302,8 @@ func TestReconcileLeavesAPublicationTheRemoteStillRefuses(t *testing.T) {
 	if after.PullRequest.MergeCommit != "" {
 		t.Errorf("record = %#v, want nothing confirmed", after.PullRequest)
 	}
-	if len(fixture.tracker.Record().NoteRecords) != notes {
-		t.Errorf("the sweep wrote %d note(s) on an item whose publication it could not finish", len(fixture.tracker.Record().NoteRecords)-notes)
+	if len(fixture.tracker.Record().NoteRecords) != notes+1 || settlements[0].Finding == nil {
+		t.Errorf("notes = %q, want one settlement finding", fixture.tracker.Record().NoteRecords[notes:])
 	}
 	if held := heldItemsOf(t, fixture.store, fixture.tracker.Record().Item.ID); !held[fixture.tracker.Record().Item.ID] {
 		t.Errorf("holds = %v, want the item still held by its outstanding publication", held)
@@ -310,6 +313,9 @@ func TestReconcileLeavesAPublicationTheRemoteStillRefuses(t *testing.T) {
 	again, err := reconciler.FinishPublications(context.Background())
 	if err != nil || len(again) != 1 || again[0].Settled {
 		t.Fatalf("second FinishPublications() = %#v, %v; want the same publication still outstanding", again, err)
+	}
+	if len(fixture.tracker.Record().NoteRecords) != notes+1 {
+		t.Error("the same refusal was announced again")
 	}
 	if repeated := loadRun(t, fixture.store, pipelineRunID); !repeated.UpdatedAt.Equal(before.UpdatedAt) {
 		t.Errorf("a record the remote still refuses was rewritten at %s, was %s", repeated.UpdatedAt, before.UpdatedAt)
@@ -413,4 +419,173 @@ func landAnotherChange(t *testing.T, remote string) string {
 	runPipelineGit(t, clone, "commit", "--quiet", "-m", "someone else's work")
 	runPipelineGit(t, clone, "push", "--quiet", "origin", "HEAD:refs/heads/main")
 	return publishedCommit(t, remote, "main")
+}
+
+// A branch moved after the forge merged its request. Containment, rather than
+// the recorded publication hash alone, decides whether it leaves anything owed.
+func TestReconcileSettlesAMovedMergedBranchOnlyWhenItsTipIsInTheTarget(t *testing.T) {
+	t.Parallel()
+	for _, contained := range []bool{true, false} {
+		t.Run(map[bool]string{true: "tip in target", false: "tip outside target"}[contained], func(t *testing.T) {
+			t.Parallel()
+			fixture := newQueuedFixture(t)
+			outcome := fixture.run(t)
+			fixture.forge.PerformQueuedMerge(t)
+			tip := landAnotherChange(t, fixture.remote)
+			if !contained {
+				// Make a commit not reachable from main using the published tip
+				// as its parent, without moving any target.
+				tree := gitLine(t, fixture.repository, "rev-parse", outcome.Integration.SourceCommit+"^{tree}")
+				tip = gitLine(t, fixture.repository, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit-tree", tree, "-p", outcome.Integration.SourceCommit, "-m", "unmerged branch work")
+				runPipelineGit(t, fixture.repository, "push", "origin", tip+":refs/heads/"+outcome.Branch)
+			} else {
+				runPipelineGit(t, fixture.remote, "update-ref", "refs/heads/"+outcome.Branch, tip)
+			}
+			results := fixture.reconcile(t)
+			if len(results) != 1 || results[0].Failure != "" || results[0].Action != ActionCompleted {
+				t.Fatalf("Reconcile() = %#v, want the merge settled without a pass failure", results)
+			}
+			state := loadRun(t, fixture.store, pipelineRunID)
+			if contained {
+				if state.PublishFailure != "" || state.ReconcileFindings != nil || results[0].Finding != nil {
+					t.Fatalf("state = %#v, want no outstanding publication or finding", state)
+				}
+				if settlements, err := fixture.reconciler(t).FinishPublications(context.Background()); err != nil || len(settlements) != 0 {
+					t.Fatalf("FinishPublications() = %#v, %v, want nothing outstanding", settlements, err)
+				}
+			} else {
+				if !strings.Contains(state.PublishFailure, "want the published commit") || state.ReconcileFindings == nil || results[0].Finding == nil {
+					t.Fatalf("state = %#v, result = %#v, want the moved tip refusal recorded", state, results[0])
+				}
+				finding := results[0].Finding
+				if finding.Mover != readmodel.MoverDevelopmentManager || !strings.Contains(finding.Whose(), "preserve any branch work outside the target") {
+					t.Fatalf("finding = %#v, next move = %q", finding, finding.Whose())
+				}
+				notes := len(fixture.tracker.Record().NoteRecords)
+				for pass := 0; pass < 2; pass++ {
+					settlements, err := fixture.reconciler(t).FinishPublications(context.Background())
+					if err != nil || len(settlements) != 1 || settlements[0].Finding == nil || settlements[0].Settled {
+						t.Fatalf("FinishPublications() = %#v, %v", settlements, err)
+					}
+				}
+				if len(fixture.tracker.Record().NoteRecords) != notes {
+					t.Error("the repeated refusal wrote another finding note")
+				}
+			}
+			if publishedCommit(t, fixture.remote, outcome.Branch) != tip {
+				t.Error("the moved remote branch was deleted or changed")
+			}
+		})
+	}
+}
+
+// Both requests need their merged branch settled. One refuses deletion, and
+// the other must still lose its branch and outstanding publication on this pass.
+func TestReconcileFinishesOtherPublicationsBesideARefusedDeletion(t *testing.T) {
+	t.Parallel()
+	fixture := newQueuedFixture(t)
+	fixture.worktrees = func(observer ReconcileWorktrees) ReconcileWorktrees {
+		return &refusingBranch{ReconcileWorktrees: observer}
+	}
+	outcome := fixture.run(t)
+	fixture.forge.PerformQueuedMerge(t)
+	fixture.reconcile(t)
+	first := loadRun(t, fixture.store, pipelineRunID)
+	other := first
+	other.RunID = "run-ffffffffffffffffffffffffffffffff"
+	other.WorkItemID = "yoyodyne-other"
+	other.Branch = first.Branch + "-other"
+	other.WorktreePath = first.WorktreePath + "-other"
+	other.ReconcileFindings = nil
+	published := *first.PullRequest
+	published.Number = 2
+	published.Branch = other.Branch
+	other.PullRequest = &published
+	if err := fixture.store.Create(other); err != nil {
+		t.Fatal(err)
+	}
+	runPipelineGit(t, fixture.remote, "update-ref", "refs/heads/"+other.Branch, outcome.Integration.SourceCommit)
+	reconciler := fixture.reconciler(t)
+	reconciler.Publisher = publicationAnswers{first.Branch: {Number: 1, Merged: true}, other.Branch: {Number: 2, Merged: true}}
+	settled, err := reconciler.FinishPublications(context.Background())
+	if err != nil || len(settled) != 2 {
+		t.Fatalf("FinishPublications() = %#v, %v", settled, err)
+	}
+	for _, result := range settled {
+		if result.WorkItemID == first.WorkItemID {
+			if result.Settled || result.Finding == nil || result.FindingProblem != "" {
+				t.Fatalf("refusal = %#v", result)
+			}
+		} else if !result.Settled || result.Failure != "" || result.Finding != nil {
+			t.Fatalf("other settlement = %#v", result)
+		}
+	}
+	if state := loadRun(t, fixture.store, other.RunID); state.PublishFailure != "" {
+		t.Fatalf("other publication still outstanding: %s", state.PublishFailure)
+	}
+	if publishedCommit(t, fixture.remote, other.Branch) != "" {
+		t.Error("other branch was not removed")
+	}
+	if state := loadRun(t, fixture.store, first.RunID); state.ReconcileFindings == nil || state.ReconcileFindings[0].Pending {
+		t.Fatal("refusal was not durably recorded and delivered")
+	}
+	notes := fixture.tracker.Record().NoteRecords
+	found := false
+	for _, note := range notes {
+		if strings.Contains(note, "Settlement finding:") && strings.Contains(note, first.WorkItemID) && strings.Contains(note, "Next move: the development manager's") && strings.Contains(note, "preserve any branch work") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("notes = %q, want the one item's refusal, remedy, and owner", notes)
+	}
+}
+
+type refusingBranch struct{ ReconcileWorktrees }
+
+func (r *refusingBranch) DeleteRemoteBranch(ctx context.Context, worktree gitworktree.Worktree, commit string) error {
+	if worktree.WorkItemID == "yoyodyne-task" {
+		return fmt.Errorf("remote branch %s is at an unexpected tip, want the published commit %s", worktree.Branch, commit)
+	}
+	return r.ReconcileWorktrees.DeleteRemoteBranch(ctx, worktree, commit)
+}
+
+type publicationAnswers map[string]publish.PullRequest
+
+func (p publicationAnswers) State(_ context.Context, branch string) (publish.PullRequest, error) {
+	return p[branch], nil
+}
+func (p publicationAnswers) Merge(context.Context, publish.MergeRequest) (publish.MergeResult, error) {
+	panic("settlement must not merge")
+}
+func (p publicationAnswers) Close(context.Context, publish.CloseRequest) (publish.Closure, error) {
+	panic("settlement must not close")
+}
+
+func TestReconcileSettlesAnOutstandingPublicationWhoseMovedTipReachedTheTarget(t *testing.T) {
+	t.Parallel()
+	fixture := newQueuedFixture(t)
+	fixture.worktrees = func(observer ReconcileWorktrees) ReconcileWorktrees {
+		return &refusingBranch{ReconcileWorktrees: observer}
+	}
+	outcome := fixture.run(t)
+	fixture.forge.PerformQueuedMerge(t)
+	fixture.reconcile(t)
+	before := loadRun(t, fixture.store, pipelineRunID)
+	if before.PublishFailure == "" || len(before.ReconcileFindings) != 1 {
+		t.Fatalf("before = %#v, want an outstanding branch and finding", before)
+	}
+	tip := landAnotherChange(t, fixture.remote)
+	runPipelineGit(t, fixture.remote, "update-ref", "refs/heads/"+outcome.Branch, tip)
+	fixture.worktrees = nil
+	results, err := fixture.reconciler(t).FinishPublications(context.Background())
+	if err != nil || len(results) != 1 || !results[0].Settled || results[0].Finding != nil || results[0].FindingProblem != "" {
+		t.Fatalf("FinishPublications() = %#v, %v", results, err)
+	}
+	if after := loadRun(t, fixture.store, pipelineRunID); after.PublishFailure != "" || len(after.ReconcileFindings) != 0 {
+		t.Fatalf("after = %#v, want nothing outstanding", after)
+	}
+	if publishedCommit(t, fixture.remote, outcome.Branch) != tip {
+		t.Fatal("the moved branch was disturbed")
+	}
 }

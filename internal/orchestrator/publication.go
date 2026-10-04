@@ -20,7 +20,8 @@ package orchestrator
 //
 // So this sweep asks. It only ever reads the forge and writes the run's own
 // publication record: it merges nothing, closes nothing, moves no branch, and
-// touches neither the work item nor anything the run promoted. What this is for
+// touches nothing the run promoted. A refused refresh records a settlement
+// finding on the run and its work item. What this is for
 // is that the record and the forge agree, so that every decision downstream is
 // made on a record that is true.
 //
@@ -67,6 +68,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -78,9 +80,11 @@ import (
 // now holds, and one the forge could not be asked about is still a promotion
 // nothing can see waiting.
 type PublicationRecovery struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
-	Branch     string `json:"branch"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Branch         string               `json:"branch"`
 	// Number and URL are the request the forge answered with, and are empty on a
 	// run the forge could not be asked about or answered nothing for.
 	Number int    `json:"number,omitempty"`
@@ -166,7 +170,15 @@ func (r Reconciler) RecoverPublications(ctx context.Context) ([]PublicationRecov
 		if err := ctx.Err(); err != nil {
 			return recovered, err
 		}
-		recovered = append(recovered, r.recoverPublication(ctx, answers, state))
+		result := r.recoverPublication(ctx, answers, state)
+		if result.Kept == "" {
+			problem := result.Failure
+			if problem == "" {
+				problem = result.Refused
+			}
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, state.RunID, runstate.ReconcileRecovery, problem)
+		}
+		recovered = append(recovered, result)
 	}
 	return recovered, nil
 }
@@ -413,10 +425,12 @@ func (r Reconciler) recordRecoveredDrop(state runstate.State, published runstate
 // what a reader acts on is the disagreement: a record that already agreed with
 // the forge is the ordinary case and says nothing.
 type PublicationRefresh struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
-	Number     int    `json:"number"`
-	URL        string `json:"url,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Number         int                  `json:"number"`
+	URL            string               `json:"url,omitempty"`
 	// Recorded is what the run's record said before the forge was asked. State
 	// and Merged are what the forge answered, and are empty on a publication that
 	// could not be asked about at all.
@@ -475,7 +489,11 @@ func (r Reconciler) RefreshPublications(ctx context.Context) ([]PublicationRefre
 	}
 	answers := r.askForge(ctx, branches)
 	for _, state := range unsettled {
-		refreshed = append(refreshed, r.refreshPublication(ctx, answers, state))
+		result := r.refreshPublication(ctx, answers, state)
+		if result.Kept == "" {
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, state.RunID, runstate.ReconcileRefresh, result.Failure)
+		}
+		refreshed = append(refreshed, result)
 	}
 	return refreshed, nil
 }
@@ -618,10 +636,12 @@ func refreshedPublication(recorded runstate.PullRequest, observed publish.PullRe
 // and what is left after, because a reader acts on the difference: a publication
 // this sweep finished lifts a hold, and one it could not is still a person's.
 type PublicationSettlement struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
-	Number     int    `json:"number"`
-	URL        string `json:"url,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Number         int                  `json:"number"`
+	URL            string               `json:"url,omitempty"`
 	// Outstanding is what the run's record said was unfinished about the
 	// publication before this sweep asked again.
 	Outstanding string `json:"outstanding"`
@@ -694,7 +714,15 @@ func (r Reconciler) FinishPublications(ctx context.Context) ([]PublicationSettle
 		if err := ctx.Err(); err != nil {
 			return settled, err
 		}
-		settled = append(settled, r.finishPublication(ctx, answers, state))
+		result := r.finishPublication(ctx, answers, state)
+		if result.Kept == "" {
+			problem := result.Failure
+			if problem == "" {
+				problem = result.Remaining
+			}
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, state.RunID, runstate.ReconcilePublication, problem)
+		}
+		settled = append(settled, result)
 	}
 	return settled, nil
 }
@@ -733,9 +761,9 @@ func unfinishedPublication(state runstate.State) bool {
 //
 // A publication that was confirmed by an earlier settlement and left only its
 // consumed branch behind is the one case taken out of that order: the branch is
-// tried first, and nothing is written anywhere unless it goes. The alternative
-// was a settlement note and a leftover note on the item at every sweep the
-// branch went on refusing to be deleted.
+// tried first, and settlement notes are written only once it goes. A refusal
+// is recorded by the sweep as a finding; repeating the same refusal adds no
+// note to the item.
 func (r Reconciler) finishPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationSettlement {
 	published := *recorded.PullRequest
 	settlement := PublicationSettlement{

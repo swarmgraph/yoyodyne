@@ -18,6 +18,7 @@ import (
 // Keys name a string by its place in the record, with [] standing for any
 // element of a list.
 var structuredStrings = map[string]string{
+	"reconcile_findings[].step":                             "a validated settlement step",
 	"config_comparison.target_commit":                       "a validated compared revision",
 	"config_comparison.previous_target_commit":              "the integration's validated previous revision",
 	"config_comparison.mismatches[].service":                "the recorded service name",

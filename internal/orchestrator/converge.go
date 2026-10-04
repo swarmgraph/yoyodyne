@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -77,6 +78,9 @@ type Convergence struct {
 	Unsuperseded []OpenPublication `json:"unsuperseded"`
 	Worktrees    []WorktreeSweep   `json:"worktrees"`
 	Branches     []BranchSweep     `json:"branches"`
+	// Findings revisits saved obligations even when their original operation
+	// has finished and no artifact sweep returns a result for the run.
+	Findings []ReconcileFindingMaintenance `json:"findings"`
 	// Registrations is the repository-wide prune that runs between the two. It
 	// is not per run because what it removes is exactly what no run record
 	// names any more.
@@ -96,9 +100,11 @@ type Convergence struct {
 // because that pair is the whole of the justification for closing a pull
 // request somebody may still be looking at.
 type PublicationSweep struct {
-	RunID        string       `json:"run_id"`
-	WorkItemID   string       `json:"work_item_id"`
-	SupersededBy Supersession `json:"superseded_by"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	SupersededBy   Supersession         `json:"superseded_by"`
 	PublicationRetirement
 }
 
@@ -108,12 +114,14 @@ type PublicationSweep struct {
 // is a registration that goes on costing every command spawned on this machine
 // until somebody deals with the work in it.
 type WorktreeSweep struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
-	Path       string `json:"path"`
-	Removed    bool   `json:"removed"`
-	Kept       string `json:"kept,omitempty"`
-	Failure    string `json:"failure,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Path           string               `json:"path"`
+	Removed        bool                 `json:"removed"`
+	Kept           string               `json:"kept,omitempty"`
+	Failure        string               `json:"failure,omitempty"`
 	// PreservedWork is the ref the checkout's uncommitted work was recorded on
 	// before the directory went, empty when it held none. It is reported because
 	// it is the answer to the only question retiring a half-finished change
@@ -152,14 +160,16 @@ type RegistrationSweep struct {
 // run is named because that is how an operator finds what the branch was for;
 // the branch is only ever removed on containment proved in the repository.
 type BranchSweep struct {
-	RunID        string `json:"run_id"`
-	WorkItemID   string `json:"work_item_id"`
-	Branch       string `json:"branch"`
-	TargetBranch string `json:"target_branch"`
-	Commit       string `json:"commit,omitempty"`
-	Removed      bool   `json:"removed"`
-	Kept         string `json:"kept,omitempty"`
-	Failure      string `json:"failure,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Branch         string               `json:"branch"`
+	TargetBranch   string               `json:"target_branch"`
+	Commit         string               `json:"commit,omitempty"`
+	Removed        bool                 `json:"removed"`
+	Kept           string               `json:"kept,omitempty"`
+	Failure        string               `json:"failure,omitempty"`
 	// RecordProblem is a branch that is gone and whose run's record could not be
 	// told so, and it is the same class as the checkout sweep's: the branch is
 	// gone either way, and what needs acting on is that every reader of that run
@@ -250,7 +260,20 @@ func (r Reconciler) Converge(ctx context.Context) (Convergence, error) {
 			convergence.Branches = append(convergence.Branches, sweep)
 		}
 	}
-	return convergence, nil
+	for index := range convergence.Publications {
+		result := &convergence.Publications[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileSuperseded, result.Failure)
+	}
+	for index := range convergence.Worktrees {
+		result := &convergence.Worktrees[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileWorktree, strings.Join(nonEmptyProblems(result.Failure, result.RecordProblem, result.ItemProblem), "; "))
+	}
+	for index := range convergence.Branches {
+		result := &convergence.Branches[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileBranch, strings.Join(nonEmptyProblems(result.Failure, result.RecordProblem, result.ItemProblem), "; "))
+	}
+	convergence.Findings, err = r.maintainReconcileFindings(ctx)
+	return convergence, err
 }
 
 // sweepPublication retires one superseded run's pull request, and reports
@@ -330,9 +353,9 @@ func (r Reconciler) sweepPublication(ctx context.Context, superseded supersededP
 //
 // A run that still owes a step is never a candidate, for the reason its branch
 // is not — a live developer is working in that checkout, and whether it is still
-// needed is reconciliation's question rather than hygiene's. Neither is a run
-// whose record already says the checkout is gone, which is every run whose work
-// was integrated and cleaned up.
+// needed is reconciliation's question rather than hygiene's. A retired checkout
+// with a finding or an undelivered recovery note still needs that obligation
+// settled, but it occupies no slot in the tail of checkouts kept on disk.
 //
 // The tail is held back from the newest end, and it is a tail of checkouts that
 // are actually there rather than of records: a run whose checkout this sweep
@@ -341,8 +364,18 @@ func (r Reconciler) sweepPublication(ctx context.Context, superseded supersededP
 // slot that was meant to keep somebody's evidence on disk.
 func sweepableWorktrees(recorded []runstate.State) []runstate.State {
 	candidates := make([]runstate.State, 0, len(recorded))
+	retired := make([]runstate.State, 0)
 	for _, state := range recorded {
-		if state.Outstanding() || state.WorktreePath == "" || state.WorktreeRemoved {
+		if state.WorktreePath == "" {
+			continue
+		}
+		if state.WorktreeRemoved {
+			if hasReconcileFinding(state, runstate.ReconcileWorktree) || (state.PreservedWorkRef != "" && state.PreservedWorkNotedAt == nil) {
+				retired = append(retired, state)
+			}
+			continue
+		}
+		if state.Outstanding() {
 			continue
 		}
 		candidates = append(candidates, state)
@@ -357,9 +390,9 @@ func sweepableWorktrees(recorded []runstate.State) []runstate.State {
 		return first.After(second)
 	})
 	if len(candidates) <= settledWorktreeTail {
-		return nil
+		return retired
 	}
-	return candidates[settledWorktreeTail:]
+	return append(retired, candidates[settledWorktreeTail:]...)
 }
 
 // settledAt is when a run stopped being something anybody was watching. A run
@@ -448,7 +481,18 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 	// The state is re-read by AdoptRun, so a run something else settled, retired,
 	// or re-entered in the meantime is never swept from the snapshot this loop
 	// started with.
-	if state.Outstanding() || state.WorktreePath == "" || state.WorktreeRemoved {
+	if state.WorktreePath == "" {
+		return WorktreeSweep{}, false
+	}
+	if state.WorktreeRemoved {
+		pendingNote := state.PreservedWorkRef != "" && state.PreservedWorkNotedAt == nil
+		if pendingNote {
+			sweep.PreservedWork = state.PreservedWorkRef
+			sweep.ItemProblem = r.recordPreservedWork(ctx, &state, state.PreservedWorkRef)
+		}
+		return sweep, pendingNote || hasReconcileFinding(state, runstate.ReconcileWorktree)
+	}
+	if state.Outstanding() {
 		return WorktreeSweep{}, false
 	}
 	kept, releaseDecision := r.recoveryNeedsArtifacts(ctx, state)
@@ -472,20 +516,20 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 	// sweep did, and only the first is reported as a retirement.
 	if removal.Removed {
 		sweep.Removed = removal.Registered
-		sweep.RecordProblem = r.recordSweptWorktree(state, removal.PreservedWork)
+		sweep.RecordProblem = r.recordSweptWorktree(&state, removal.PreservedWork)
 		// The item is told wherever a capture happened, and only then. What the run
 		// failed with was written on that item hours or days earlier, naming a
 		// checkout that was there when it was written; this is the correction, and
 		// it is the only thing a person reading the item can follow to the work.
 		if removal.PreservedWork != "" {
-			sweep.ItemProblem = r.recordPreservedWork(ctx, state, removal.PreservedWork)
+			sweep.ItemProblem = r.recordPreservedWork(ctx, &state, removal.PreservedWork)
 		}
 	}
 	if !sweep.Removed && sweep.Kept == "" && sweep.Failure == "" && sweep.RecordProblem == "" && sweep.ItemProblem == "" {
 		// The checkout was gone before this sweep reached it and its record now
 		// says so. There is nothing left for anybody to read, and nothing left to
 		// probe: the run drops out of the candidates on every later pass.
-		return WorktreeSweep{}, false
+		return sweep, hasReconcileFinding(state, runstate.ReconcileWorktree)
 	}
 	return sweep, true
 }
@@ -498,17 +542,18 @@ func (r Reconciler) sweepWorktree(ctx context.Context, recorded runstate.State) 
 // The ref the work was captured onto is recorded beside it, because the run's
 // own record is the only place anybody would think to look for where a stopped
 // run's half-finished change went.
-func (r Reconciler) recordSweptWorktree(state runstate.State, preservedWork string) string {
+func (r Reconciler) recordSweptWorktree(state *runstate.State, preservedWork string) string {
 	swept := r.clock().Now()
 	state.WorktreeRemoved = true
 	state.WorktreeSweptAt = &swept
 	if preservedWork != "" {
 		state.PreservedWorkRef = preservedWork
+		state.PreservedWorkNotedAt = nil
 	}
 	// When the run ended is what dates it; this dates the last thing the harness
 	// did to what it left behind, which is what UpdatedAt has always meant.
 	state.UpdatedAt = swept
-	if err := r.Store.Save(state); err != nil {
+	if err := r.Store.Save(*state); err != nil {
 		return fmt.Sprintf(
 			"the checkout of run %s was retired and its own record still says otherwise, so anything reading that run will name a directory that is gone: %v",
 			state.RunID, err)
@@ -531,13 +576,28 @@ func (r Reconciler) recordSweptWorktree(state runstate.State, preservedWork stri
 // A note that could not be written never fails the sweep, for the reason the
 // record problem beside it does not: the capture happened, the ref is a
 // garbage-collection root, and what is missing is somebody being told.
-func (r Reconciler) recordPreservedWork(ctx context.Context, state runstate.State, preservedWork string) string {
+func (r Reconciler) recordPreservedWork(ctx context.Context, state *runstate.State, preservedWork string) string {
 	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	if _, err := r.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderPreservedWorkNotes(state, preservedWork)); err != nil {
-		return fmt.Sprintf(
-			"the checkout of run %s was retired and what it held was recorded on %s, and %s could not be told, so anything read from that item still names a directory that is gone: %v",
-			state.RunID, preservedWork, state.WorkItemID, err)
+	note := renderPreservedWorkNotes(*state, preservedWork)
+	// Delivery can succeed just before its marker save fails. The item is the
+	// other durable copy, so verify it before appending the recovery note again.
+	item, err := r.Tracker.Show(recordCtx, state.WorkItemID)
+	if err != nil {
+		return fmt.Sprintf("read prior preservation notes of %s: %v", state.WorkItemID, err)
+	}
+	if !strings.Contains(item.Notes, note) {
+		if _, err := r.Tracker.RecordOutcome(recordCtx, state.WorkItemID, note); err != nil {
+			return fmt.Sprintf(
+				"the checkout of run %s was retired and what it held was recorded on %s, and %s could not be told, so anything read from that item still names a directory that is gone: %v",
+				state.RunID, preservedWork, state.WorkItemID, err)
+		}
+	}
+	noted := r.clock().Now()
+	state.PreservedWorkNotedAt = &noted
+	state.UpdatedAt = noted
+	if err := r.Store.Save(*state); err != nil {
+		return fmt.Sprintf("record delivery of the preserved work note for run %s: %v", state.RunID, err)
 	}
 	return ""
 }
@@ -671,13 +731,13 @@ func (r Reconciler) sweepBranch(ctx context.Context, recorded runstate.State, re
 	// answers sends somebody after it.
 	if removal.Commit == "" {
 		if state.BranchRemoved {
-			return BranchSweep{}, false
+			return sweep, hasReconcileFinding(state, runstate.ReconcileBranch)
 		}
 		if problem := r.recordSweptBranch(state); problem != "" {
 			sweep.RecordProblem = problem
 			return sweep, true
 		}
-		return BranchSweep{}, false
+		return sweep, hasReconcileFinding(state, runstate.ReconcileBranch)
 	}
 	sweep.Commit = removal.Commit
 	sweep.Removed = removal.Removed

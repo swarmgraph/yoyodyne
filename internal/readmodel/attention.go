@@ -24,10 +24,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -495,8 +497,9 @@ func (a Attention) Named() bool {
 // OwedStep carries the finished run's remaining cleanup or merge settlement,
 // including the last recorded check reading. The run and item are on the entry.
 type OwedStep struct {
-	Status runstate.Status `json:"status"`
-	Phase  runstate.Phase  `json:"phase,omitempty"`
+	ReconcileFindings []runstate.ReconcileFinding `json:"reconcile_findings,omitempty"`
+	Status            runstate.Status             `json:"status"`
+	Phase             runstate.Phase              `json:"phase,omitempty"`
 	// EndedAt is when the run ended, which is when the step began to be owed.
 	// It is absent on a record that names no ending.
 	EndedAt                    time.Time                  `json:"ended_at,omitzero"`
@@ -523,6 +526,7 @@ func (s *OwedStep) queuedMerge() *runstate.PullRequest {
 // for it where the record holds one, and the drop where the forge dropped its
 // merge. Which of the four movers it waits on is read off these.
 type Publication struct {
+	ReconcileFindings []runstate.ReconcileFinding `json:"reconcile_findings,omitempty"`
 	// TargetBranch is empty where the record holds no integration to read it
 	// from; the sentence says so rather than the field carrying a placeholder.
 	TargetBranch string                `json:"target_branch,omitempty"`
@@ -606,6 +610,9 @@ func (a Attention) What() string {
 		}
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
+			if len(step.ReconcileFindings) > 0 {
+				return reconcileFindingWhat(a.WorkItemID, step.ReconcileFindings)
+			}
 			if pr := step.queuedMerge(); pr != nil {
 				what := fmt.Sprintf("merge of pull request %d for %s is queued", pr.Number, a.WorkItemID)
 				if pr.Merged {
@@ -642,6 +649,9 @@ func (a Attention) What() string {
 		}
 	case AttentionPublication:
 		if a.Publication != nil {
+			if len(a.Publication.ReconcileFindings) > 0 {
+				return reconcileFindingWhat(a.WorkItemID, a.Publication.ReconcileFindings)
+			}
 			target := a.Publication.TargetBranch
 			if target == "" {
 				target = "an unrecorded target"
@@ -775,6 +785,9 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — nothing reaches the document until they or the operator decide it"
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
+			if len(step.ReconcileFindings) > 0 {
+				return reconcileFindingWhose(a.Mover, step.ReconcileFindings)
+			}
 			if pr := step.queuedMerge(); pr != nil {
 				if pr.Checks != nil && pr.Checks.Red() {
 					checks := pr.Checks
@@ -804,6 +817,9 @@ func (a Attention) Whose() string {
 		}
 	case AttentionPublication:
 		if a.Publication != nil {
+			if len(a.Publication.ReconcileFindings) > 0 {
+				return reconcileFindingWhose(a.Mover, a.Publication.ReconcileFindings)
+			}
 			// Four cases, and all four are settled by the same sweep once the forge
 			// records the merge; each says so,
 			// because that is what stops a reader going looking for a lever that
@@ -1010,14 +1026,14 @@ func amendmentAttention(proposal amendment.Proposal) Attention {
 // owedStepAttention is a run that ended still owing a step, as the attention
 // line carries it.
 func owedStepAttention(state runstate.State) Attention {
-	step := &OwedStep{Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure, ConfigComparison: state.ConfigComparison}
+	step := &OwedStep{ReconcileFindings: state.ReconcileFindings, Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure, ConfigComparison: state.ConfigComparison}
 	if state.Integration != nil {
 		step.TargetBranch = state.Integration.TargetBranch
 	}
 	return Attention{
 		Kind:       AttentionOwedStep,
 		ID:         state.RunID,
-		Mover:      MoverHarness,
+		Mover:      reconcileFindingMover(state.ReconcileFindings),
 		WorkItemID: state.WorkItemID,
 		OwedStep:   step,
 	}
@@ -1122,3 +1138,53 @@ func operatorActionAttention(action OperatorAction) Attention {
 // line. Three stops with a line each fit; a storm longer than that is cut, and
 // the hold's own record carries the whole.
 const maxBrakeEntriesBytes = 1 << 10
+
+// ReconcileFindingAttention uses the ordinary settlement attention surface for
+// a refusal, including one found before the run itself could be settled.
+func ReconcileFindingAttention(state runstate.State) Attention {
+	attention := owedStepAttention(state)
+	attention.titles = NewWorkItemTitles([]beads.WorkItem{{ID: state.WorkItemID, Title: state.WorkItemTitle}})
+	return attention
+}
+
+func reconcileFindingWhat(item string, findings []runstate.ReconcileFinding) string {
+	problems := make([]string, 0, len(findings))
+	for _, finding := range findings {
+		if !finding.Resolved {
+			problems = append(problems, finding.Problem)
+		}
+	}
+	if len(problems) == 0 {
+		return fmt.Sprintf("settlement of %s finished; its finding still needs delivery or clearing", item)
+	}
+	what := fmt.Sprintf("reconcile could not settle %s: %s", item, strings.Join(problems, "; "))
+	if len(problems) < len(findings) {
+		what += "; findings from completed settlements still need delivery or clearing"
+	}
+	return what
+}
+
+func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) string {
+	if !slices.ContainsFunc(findings, func(f runstate.ReconcileFinding) bool { return !f.Resolved }) {
+		return mover.Possessive() + " — the next `yoyo reconcile` delivers any pending finding note and clears the resolved finding"
+	}
+	problem := reconcileFindingWhat("", findings)
+	remedy := "the next `yoyo reconcile` retries this item's settlement once the named refusal is resolved"
+	if mover == MoverDevelopmentManager {
+		remedy = "decide how to preserve any branch work outside the target before removing the leftover remote branch; the next `yoyo reconcile` retries the deletion and clears the outstanding publication"
+	} else if strings.Contains(problem, "delete the merged remote branch") {
+		remedy += "; restore access to the remote so the consumed branch can be removed"
+	} else if strings.Contains(problem, "forge") {
+		remedy += "; restore forge access so its answer can be read"
+	}
+	return mover.Possessive() + " — " + remedy
+}
+
+func reconcileFindingMover(findings []runstate.ReconcileFinding) Mover {
+	for _, finding := range findings {
+		if !finding.Resolved && strings.Contains(finding.Problem, "delete the merged remote branch") && strings.Contains(finding.Problem, "want the published commit") {
+			return MoverDevelopmentManager
+		}
+	}
+	return MoverHarness
+}

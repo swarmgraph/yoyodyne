@@ -14,9 +14,11 @@ import (
 // EscalationSettlement is what the reconcile sweep did about one escalation to
 // the operator that has stopped being one: the item it told, and what ended it.
 type EscalationSettlement struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
-	Why        string `json:"why"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Why            string               `json:"why"`
 	// Failure is what stopped the item being told or the run's record saying
 	// so; the next sweep tries again.
 	Failure string `json:"failure,omitempty"`
@@ -50,13 +52,13 @@ func (r Reconciler) EndEscalations(ctx context.Context) ([]EscalationSettlement,
 	if err != nil {
 		return nil, fmt.Errorf("read the recorded runs to end the escalations nothing waits on: %w", err)
 	}
-	var problems []error
+	itemProblems := make(map[string]string)
 	items := func(workItemID string) readmodel.EscalatedItem {
 		showCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		item, err := r.Tracker.Show(showCtx, workItemID)
 		if err != nil {
-			problems = append(problems, fmt.Errorf("read %s to learn whether its escalation has ended: %w", workItemID, err))
+			itemProblems[workItemID] = fmt.Sprintf("read %s to learn whether its escalation has ended: %v", workItemID, err)
 			return readmodel.EscalatedItem{Admitted: true}
 		}
 		return readmodel.EscalatedItem{
@@ -65,11 +67,13 @@ func (r Reconciler) EndEscalations(ctx context.Context) ([]EscalationSettlement,
 		}
 	}
 	look := readmodel.Looking(ctx, r.Docket.Remains, func() time.Time { return r.clock().Now() })
-	_, ended, problem := readmodel.Escalations(recorded, r.Docket.Decisions, items, look)
-	if problem != "" {
-		problems = append(problems, errors.New(problem))
-	}
+	actions, ended, problem := readmodel.Escalations(recorded, r.Docket.Decisions, items, look)
 	var settled []EscalationSettlement
+	for _, action := range actions {
+		if failure := itemProblems[action.WorkItemID]; failure != "" {
+			settled = append(settled, EscalationSettlement{RunID: action.RunID, WorkItemID: action.WorkItemID, Failure: failure})
+		}
+	}
 	for _, ending := range ended {
 		if ending.Recorded {
 			continue
@@ -78,7 +82,14 @@ func (r Reconciler) EndEscalations(ctx context.Context) ([]EscalationSettlement,
 			settled = append(settled, settlement)
 		}
 	}
-	return settled, errors.Join(problems...)
+	for index := range settled {
+		result := &settled[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileEscalation, result.Failure)
+	}
+	if problem != "" {
+		return settled, errors.New(problem)
+	}
+	return settled, ctx.Err()
 }
 
 // endEscalation tells one item its escalation has ended and records that on

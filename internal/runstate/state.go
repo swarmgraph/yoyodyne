@@ -1883,6 +1883,9 @@ func (s *State) recordedTexts() []recordedText {
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
 	own("cleanup_failure", &s.CleanupFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	for index := range s.ReconcileFindings {
+		nested("reconcile_findings[].problem", at("reconcile_findings", index, "problem"), &s.ReconcileFindings[index].Problem, MaxBlockerBytes)
+	}
 	if s.ConfigComparison != nil {
 		own("config_comparison.active_problem", &s.ConfigComparison.ActiveProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 		own("config_comparison.template_problem", &s.ConfigComparison.TemplateProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
@@ -2369,6 +2372,40 @@ type Integration struct {
 	ThroughPullRequest bool `json:"through_pull_request,omitempty"`
 }
 
+// ReconcileStep names the settlement whose refusal is recorded on a run.
+type ReconcileStep string
+
+const (
+	ReconcileRun         ReconcileStep = "run"
+	ReconcilePublication ReconcileStep = "publication"
+	ReconcileRecovery    ReconcileStep = "publication-recovery"
+	ReconcileRefresh     ReconcileStep = "publication-refresh"
+	ReconcileBranch      ReconcileStep = "branch"
+	ReconcileWorktree    ReconcileStep = "worktree"
+	ReconcileSuperseded  ReconcileStep = "superseded-publication"
+	ReconcileRedTarget   ReconcileStep = "red-target"
+	ReconcileEscalation  ReconcileStep = "escalation"
+)
+
+var reconcileSteps = []ReconcileStep{ReconcileRun, ReconcilePublication, ReconcileRecovery, ReconcileRefresh, ReconcileBranch, ReconcileWorktree, ReconcileSuperseded, ReconcileRedTarget, ReconcileEscalation}
+
+// RecordReconcileProblem uses the same bound and cut marker as the nested
+// durable finding, so comparing a repeated refusal is stable after a save.
+func RecordReconcileProblem(problem string) string {
+	return boundRecordedText(problem, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
+}
+
+// ReconcileFinding is a settlement this run could not make. Pending means its
+// note still needs delivery to the work item. Resolved keeps the completed
+// operation distinct from delivery and clearing that still need retrying.
+// Separate steps keep one refusal from replacing another on the same run.
+type ReconcileFinding struct {
+	Step     ReconcileStep `json:"step"`
+	Problem  string        `json:"problem"`
+	Pending  bool          `json:"pending,omitempty"`
+	Resolved bool          `json:"resolved,omitempty"`
+}
+
 type State struct {
 	SchemaVersion int              `json:"schema_version"`
 	RunID         string           `json:"run_id"`
@@ -2657,6 +2694,10 @@ type State struct {
 	// Absent is every run whose checkout held nothing to move, and every run whose
 	// checkout is still there.
 	PreservedWorkRef string `json:"preserved_work_ref,omitempty"`
+	// PreservedWorkNotedAt records delivery of the retired checkout's recovery
+	// note. Until it is set, convergence retries the note even though the
+	// checkout itself no longer needs retiring.
+	PreservedWorkNotedAt *time.Time `json:"preserved_work_noted_at,omitempty"`
 	// TargetBranch is the integration target fixed when the worktree was
 	// created. It is durable so a resumed run promotes the work into the branch
 	// it was written against rather than whatever happens to be checked out
@@ -3197,7 +3238,8 @@ type State struct {
 	CompletionRecordingFailure string `json:"completion_recording_failure,omitempty"`
 	// ConfigComparison is saved before delivery to the work item. A pending
 	// delivery remains outstanding even after settlement and cleanup finish.
-	ConfigComparison *ConfigComparison `json:"config_comparison,omitempty"`
+	ConfigComparison  *ConfigComparison  `json:"config_comparison,omitempty"`
+	ReconcileFindings []ReconcileFinding `json:"reconcile_findings,omitempty"`
 }
 
 var (
@@ -3240,6 +3282,16 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	seenFindings := make(map[ReconcileStep]bool)
+	for _, finding := range s.ReconcileFindings {
+		if !slices.Contains(reconcileSteps, finding.Step) || seenFindings[finding.Step] || strings.TrimSpace(finding.Problem) == "" {
+			problems = append(problems, errors.New("reconcile_findings requires one refusal per recognized settlement step"))
+		}
+		seenFindings[finding.Step] = true
+		if len(finding.Problem) > MaxBlockerBytes {
+			problems = append(problems, errors.New("reconcile_findings.problem exceeds its recorded text bound"))
+		}
+	}
 	if c := s.ConfigComparison; c != nil {
 		if s.Integration == nil || !commitPattern.MatchString(c.TargetCommit) || !commitPattern.MatchString(c.PreviousTargetCommit) {
 			problems = append(problems, errors.New("config_comparison requires an integration and valid compared revisions"))
@@ -3793,6 +3845,9 @@ func (s State) Validate() error {
 		if strings.HasPrefix(preservedWork, "refs/heads/") || !strings.HasPrefix(preservedWork, "refs/") {
 			problems = append(problems, fmt.Errorf("preserved_work_ref %q must be a ref outside refs/heads", s.PreservedWorkRef))
 		}
+	}
+	if s.PreservedWorkNotedAt != nil && strings.TrimSpace(s.PreservedWorkRef) == "" {
+		problems = append(problems, errors.New("preserved_work_noted_at requires the preserved work its note names"))
 	}
 	if retiredBy != "" {
 		if !ValidRunID(retiredBy) {
