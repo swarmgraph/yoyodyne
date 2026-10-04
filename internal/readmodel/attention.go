@@ -376,13 +376,16 @@ func (a Attention) CitedWhose() string {
 
 // Named reports an entry the attention line prints by name wherever it falls
 // and never counts into "and N things not named here": a finding only the
-// operator can act on, and a hold the brake placed. A line that folds those
-// into a remainder has told him nothing, and nothing telling him is the month
+// operator can act on, a repeatedly failing product pass, and a hold the brake
+// placed. A line that folds those into a remainder has told him nothing, and
+// nothing telling him is the month
 // one class of finding once waited and the two hours the brake once stood.
 func (a Attention) Named() bool {
 	switch a.Kind {
 	case AttentionOperatorAction:
 		return true
+	case AttentionFailingTask:
+		return a.FailingTask != nil && a.FailingTask.ProductPass
 	case AttentionHold:
 		return a.IntakeHold != nil && a.IntakeHold.HeldBy == runstate.IntakeHolderBrake
 	}

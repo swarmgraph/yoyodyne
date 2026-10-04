@@ -2,6 +2,7 @@ package readmodel
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -10,6 +11,18 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+func TestAPassFailureIsNamedEvenAfterTheStatusLineReachesItsLimit(t *testing.T) {
+	t.Parallel()
+	var entries []Attention
+	for i := 0; i < maxListed+1; i++ {
+		entries = append(entries, failingTaskAttention(FailingTask{Task: fmt.Sprintf("earlier-%d", i), Failures: 2}))
+	}
+	entries = append(entries, failingTaskAttention(FailingTask{Task: "maintenance", ProductPass: true, Failures: 3, FirstAt: time.Now(), Problem: "last error"}))
+	if rendered := renderWaiting(entries); !strings.Contains(rendered, "maintenance has failed 3 times") {
+		t.Fatalf("the pass was folded into an unnamed count: %s", rendered)
+	}
+}
 
 func TestAPassFailureNamesTheOperatorOnlyForARecordedPersonOnlyStep(t *testing.T) {
 	t.Parallel()

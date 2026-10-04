@@ -407,7 +407,8 @@ development manager watches it as well, and the finding says why.
 
 The dashboard's **Factory problems** section and `yoyo status` carry the same
 finding from the shared read model. Further failures raise its count without
-filing another report. Completing the watching role's pass or handling the
+filing another report, and the status line names it even after reaching its
+ordinary listing limit. Completing the watching role's pass or handling the
 report does not clear it: only a later successful maintenance pass does. The
 harness records the clearing in the report's handling log with the total
 number of consecutive failures. A later run of failures is a new finding.
@@ -4098,7 +4099,8 @@ has the rule.
   queue is not listed: it is a state of the machine rather than something waiting
   on you, and neither is a report pile or an amendment queue that is being worked through — what is
   listed is one that is not. Each head names ten entries and counts the rest,
-  except a finding that needs your hand and a hold the brake placed: those are
+  except a finding that needs your hand, a repeatedly failing product pass,
+  and a hold the brake placed: those are
   named wherever they fall and never counted into `and N things not named
   here`, because a finding folded into a count is one that did not reach you. The unpublished promotions are the same set the
   channel's hourly line counts as awaiting the forge, read by the same
