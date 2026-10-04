@@ -100,6 +100,9 @@ func assertRunRetired(t *testing.T, f queuedFixture, prior, by runstate.State) r
 		t.Fatalf("integration reservation held: %v", err)
 	}
 	lease.Release()
+	if free, err := (Reconciler{Store: f.store, Capacity: 1}).slotFree(); err != nil || !free {
+		t.Fatalf("queued integration capacity still reserved: %t, %v", free, err)
+	}
 	return saved
 }
 
@@ -171,9 +174,72 @@ func TestAnAlreadySelectedQueuedContinuationRechecksItsCompletedItem(t *testing.
 	assertRunRetired(t, f, updating, by)
 }
 
+func TestRetirementAlsoSettlesAnExpiredProviderWait(t *testing.T) {
+	t.Parallel()
+	for _, kind := range []string{"confirmed merge", "no merge", "unsettled merge", "reopened"} {
+		t.Run(kind, func(t *testing.T) {
+			f, _, r, prior := updatingRetirementFixture(t)
+			original := prior
+			original.Integration = &runstate.Integration{TargetBranch: "main", SourceCommit: prior.PullRequest.HeadCommit, TargetCommit: prior.PullRequest.HeadCommit, PreviousTargetCommit: prior.BaseCommit, ThroughPullRequest: true}
+			var by runstate.State
+			if kind != "no merge" {
+				by = recordSupersedingMerge(t, f, original)
+				if kind == "unsettled merge" {
+					by.PullRequest.MergeCommit = ""
+					by.PublishFailure = "confirmation outstanding"
+					if err := f.store.Save(by); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			deadline := r.clock().Now().Add(-time.Minute)
+			prior.Phase = runstate.PhaseDeveloping
+			prior.UsageLimitResetsAt, prior.PauseCause = &deadline, runstate.PauseUsageLimit
+			prior.RedeployStop = &runstate.RedeployStop{At: deadline, Phase: prior.Phase, BoundSeconds: 900, SessionID: "watch-0123456789abcdef"}
+			if err := f.store.Save(prior); err != nil {
+				t.Fatal(err)
+			}
+			closeRetirementItem(f)
+			if kind == "reopened" {
+				f.tracker.(*orchestratortest.Tracker).Item.Status = "in_progress"
+			}
+			continued := false
+			r.Continue = func(context.Context, string, string) (Outcome, error) { continued = true; return Outcome{}, nil }
+			results, err := r.ContinueWaits(context.Background())
+			if err != nil || len(results) != 1 {
+				t.Fatalf("wait continuation = %+v, %v", results, err)
+			}
+			result := results[0]
+			if kind == "confirmed merge" {
+				if continued || result.Failure != "" || result.Outcome == nil || result.Outcome.Retirement == nil {
+					t.Fatalf("expired wait did not retire: %+v", result)
+				}
+				saved := assertRunRetired(t, f, prior, by)
+				if saved.UsageLimitResetsAt != nil || saved.RedeployStop != nil || !strings.Contains(saved.Retirement.PriorWait, deadline.Format(time.RFC3339Nano)) || !strings.Contains(saved.Retirement.PriorWait, prior.RedeployStop.SessionID) {
+					t.Fatal("retirement lost the old wait's history or still promised continuation")
+				}
+				if again, err := r.ContinueWaits(context.Background()); err != nil || len(again) != 0 {
+					t.Fatalf("retirement announced again: %+v, %v", again, err)
+				}
+			} else {
+				if loadRun(t, f.store, prior.RunID).Retirement != nil {
+					t.Fatal("a wait was retired without applicable merge evidence")
+				}
+				if kind == "reopened" {
+					if !continued || result.Failure != "" {
+						t.Fatalf("reopened wait not continued: %+v", result)
+					}
+				} else if continued || result.Failure == "" || result.Finding == nil {
+					t.Fatalf("closed refusal did not leave a per-item finding: %+v", result)
+				}
+			}
+		})
+	}
+}
+
 func TestQueuedContinuationRetirementDoesNotGuessFromClosedStatus(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"no merge", "unsettled merge", "newer unsettled merge", "reopened", "wrong target", "evidence landing", "publication held"} {
+	for _, kind := range []string{"no merge", "unsettled merge", "newer unsettled merge", "newer replaying publication", "reopened", "wrong target", "evidence landing", "publication held"} {
 		t.Run(kind, func(t *testing.T) {
 			f, _, r, updating := updatingRetirementFixture(t)
 			original := updating
@@ -196,15 +262,22 @@ func TestQueuedContinuationRetirementDoesNotGuessFromClosedStatus(t *testing.T) 
 				if err := f.store.Save(by); err != nil {
 					t.Fatal(err)
 				}
-				if kind == "newer unsettled merge" {
+				if kind == "newer unsettled merge" || kind == "newer replaying publication" {
 					newer := by
 					newer.RunID = "run-ffffffffffffffffffffffffffffffff"
+					newer.StartedAt = by.UpdatedAt.Add(time.Second)
 					newer.UpdatedAt = by.UpdatedAt.Add(time.Minute)
 					newer.CompletedAt = &newer.UpdatedAt
 					p := *newer.PullRequest
 					p.MergeCommit = ""
 					newer.PullRequest = &p
 					newer.PublishFailure = "confirmation outstanding"
+					if kind == "newer replaying publication" {
+						newer.Integration = nil
+						newer.Status, newer.Phase, newer.CompletedAt = runstate.StatusRunning, runstate.PhaseIntegrating, nil
+						newer.WorktreeRemoved, newer.BranchRemoved = false, false
+						p.Merged, p.MergeQueued, p.State = false, false, "OPEN"
+					}
 					if err := f.store.Create(newer); err != nil {
 						t.Fatal(err)
 					}
@@ -227,18 +300,27 @@ func TestQueuedContinuationRetirementDoesNotGuessFromClosedStatus(t *testing.T) 
 			continued := false
 			r.Continue = func(context.Context, string, string) (Outcome, error) { continued = true; return Outcome{}, nil }
 			updates, err := r.ContinueUpdates(context.Background())
-			if err != nil || len(updates) != 1 || updates[0].Retired || loadRun(t, f.store, updating.RunID).Retirement != nil {
+			if err != nil || len(updates) == 0 || loadRun(t, f.store, updating.RunID).Retirement != nil {
 				t.Fatalf("negative case retired: %+v, %v", updates, err)
 			}
+			var update UpdateContinuation
+			for _, result := range updates {
+				if result.Retired {
+					t.Fatalf("negative case retired: %+v", result)
+				}
+				if result.RunID == updating.RunID {
+					update = result
+				}
+			}
 			if kind == "reopened" {
-				if !continued || updates[0].Failure != "" {
+				if !continued || update.Failure != "" {
 					t.Fatal("an authorized reopening did not retain its continuation")
 				}
-			} else if continued || updates[0].Failure == "" || updates[0].Finding == nil {
+			} else if continued || update.Failure == "" || update.Finding == nil {
 				t.Fatalf("closed refusal was not kept as an item finding: %+v", updates)
 			}
-			if kind == "no merge" && updates[0].Finding.Mover != readmodel.MoverDevelopmentManager {
-				t.Fatalf("owner = %s", updates[0].Finding.Mover)
+			if kind == "no merge" && update.Finding.Mover != readmodel.MoverDevelopmentManager {
+				t.Fatalf("owner = %s", update.Finding.Mover)
 			}
 		})
 	}
@@ -276,6 +358,32 @@ func TestRetirementSettlesOtherItemsOnTheSamePass(t *testing.T) {
 		}
 	}
 	assertRunRetired(t, f, old, by)
+}
+
+func TestRetirementDoesNotCountAnAlreadyRetiredRunAsANewerPublication(t *testing.T) {
+	t.Parallel()
+	f, _, r, old := updatingRetirementFixture(t)
+	original := old
+	original.Integration = &runstate.Integration{TargetBranch: "main", SourceCommit: old.PullRequest.HeadCommit, TargetCommit: old.PullRequest.HeadCommit, PreviousTargetCommit: old.BaseCommit, ThroughPullRequest: true}
+	by := recordSupersedingMerge(t, f, original)
+	other := old
+	other.RunID = "run-ffffffffffffffffffffffffffffffff"
+	if err := f.store.Create(other); err != nil {
+		t.Fatal(err)
+	}
+	closeRetirementItem(f)
+	r.Clock = fixedClock{at: by.UpdatedAt.Add(time.Hour)}
+	results, err := r.ContinueUpdates(context.Background())
+	if err != nil || len(results) != 2 {
+		t.Fatalf("obsolete continuations = %+v, %v", results, err)
+	}
+	for _, result := range results {
+		if !result.Retired || result.Failure != "" {
+			t.Fatalf("one retirement masked the real merge: %+v", result)
+		}
+	}
+	assertRunRetired(t, f, old, by)
+	assertRunRetired(t, f, other, by)
 }
 
 func TestRetirementNoteDeliverySurvivesARefusedMarkerAndRestart(t *testing.T) {

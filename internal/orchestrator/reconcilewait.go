@@ -20,14 +20,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // WaitContinuation is what the sweep did about one run that had exited on its
 // in-process usage-limit bound with its deadline passed.
 type WaitContinuation struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
 	// Waited is what the run was waiting out, in the words every other surface
 	// uses for it.
 	Waited string `json:"waited"`
@@ -180,6 +183,12 @@ func (r Reconciler) ContinueWaits(ctx context.Context) ([]WaitContinuation, erro
 		}(&results[index])
 	}
 	wait.Wait()
+	for index := range results {
+		result := &results[index]
+		if result.Continued || result.Outcome != nil || result.Failure != "" {
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileRun, result.Failure)
+		}
+	}
 	return results, nil
 }
 
@@ -215,6 +224,17 @@ func (r Reconciler) takeUpWait(ctx context.Context, recorded runstate.State) (Wa
 	}
 	result.Deadline = state.UsageLimitResetsAt.UTC()
 	result.Waited = runstate.DescribePause(state.PauseCause, state.UsageLimitKind)
+	retired, handled, retirementErr := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: now}).Retire(ctx, state)
+	if handled {
+		if retired.Retirement != nil {
+			result.Detail = retirementReason(retired)
+			result.Outcome = &Outcome{Retirement: retired.Retirement, RunID: retired.RunID, WorkItemID: retired.WorkItemID, Status: retired.Status, Phase: retired.Phase, Branch: retired.Branch, WorktreePath: retired.WorktreePath, Summary: result.Detail}
+		}
+		if retirementErr != nil {
+			result.Failure = retirementErr.Error()
+		}
+		return result, false
+	}
 	// A continuation already recorded for this same deadline a moment ago is a
 	// sweep beside this one that has released the lease and not yet had the
 	// pipeline adopt the run. The lease still keeps two developers off it — the

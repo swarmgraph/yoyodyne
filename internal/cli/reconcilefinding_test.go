@@ -17,7 +17,8 @@ func TestReconcileFindingsDoNotFailTheMaintenancePass(t *testing.T) {
 		ReconcileFindings: []runstate.ReconcileFinding{{Step: runstate.ReconcilePublication, Problem: "delete the merged remote branch: tip outside target, want the published commit"}}}
 	finding := readmodel.ReconcileFindingAttention(state)
 	sweep := reconcileSweep{
-		Updates: []orchestrator.UpdateContinuation{{RunID: state.RunID, WorkItemID: state.WorkItemID, Failure: "validate resumed work item: closed", Finding: &finding}},
+		Continuations: []orchestrator.WaitContinuation{{RunID: state.RunID, WorkItemID: state.WorkItemID, Failure: "validate resumed work item: closed", Finding: &finding}},
+		Updates:       []orchestrator.UpdateContinuation{{RunID: state.RunID, WorkItemID: state.WorkItemID, Failure: "validate resumed work item: closed", Finding: &finding}},
 		Runs: []orchestrator.Reconciliation{
 			{RunID: state.RunID, WorkItemID: state.WorkItemID, Action: orchestrator.ActionUnsettled, Failure: "forge answer unreadable", Finding: &finding},
 			{RunID: "other-run", WorkItemID: "other-item", Action: orchestrator.ActionCompleted},
@@ -40,6 +41,9 @@ func TestReconcileFindingsDoNotFailTheMaintenancePass(t *testing.T) {
 	var updatesOut, updatesErr bytes.Buffer
 	if printUpdates(&updatesOut, &updatesErr, sweep.Updates) {
 		t.Fatal("a queued continuation's per-item finding failed the text command")
+	}
+	if printContinuations(&updatesOut, &updatesErr, sweep.Continuations) {
+		t.Fatal("a waiting continuation's per-item finding failed the text command")
 	}
 	for _, jsonOutput := range []bool{false, true} {
 		var stdout, stderr bytes.Buffer

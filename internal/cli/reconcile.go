@@ -382,23 +382,17 @@ func continueWaitFrom(parts components, stderr io.Writer) func(context.Context, 
 	}
 }
 
-// printContinuations says what each continued run came to, and reports whether
-// any of them is a failure of the sweep's own: a continuation the pipeline
-// refused or that could not be recorded. A continued run that ended stopped is
-// reported as what it ended as and is not one — its stoppage is on the item and
-// on the docket, as any run's is.
+// printContinuations says what each continued run came to. A refused
+// continuation leaves a finding on its item and does not fail the whole pass.
 func printContinuations(stdout, stderr io.Writer, continuations []orchestrator.WaitContinuation) bool {
-	failed := false
 	for _, continuation := range continuations {
-		if continuation.Failure != "" {
-			failed = true
-		}
 		fmt.Fprint(stdout, describeContinuation(continuation))
 		if continuation.Failure != "" {
 			fmt.Fprintf(stderr, "  not continued: %s\n", continuation.Failure)
 		}
+		printReconcileFinding(stdout, stderr, continuation.Finding, continuation.FindingProblem)
 	}
-	return failed
+	return false
 }
 
 // describeContinuation is the lines the text form prints for one continued
@@ -406,6 +400,10 @@ func printContinuations(stdout, stderr io.Writer, continuations []orchestrator.W
 // then what the continued run came to in the words `yoyo run` ends on.
 func describeContinuation(continuation orchestrator.WaitContinuation) string {
 	var lines strings.Builder
+	if outcome := continuation.Outcome; outcome != nil && outcome.Retirement != nil {
+		fmt.Fprintf(&lines, "%s (%s): run retired after its item merged\n  %s\n", continuation.RunID, continuation.WorkItemID, outcome.Summary)
+		return lines.String()
+	}
 	fmt.Fprintf(&lines, "%s (%s): paused for %s past its deadline %s\n",
 		continuation.RunID, continuation.WorkItemID, continuation.Waited, continuation.Deadline.Format(time.RFC3339))
 	if !continuation.Continued {
@@ -546,15 +544,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			failed = true
 		}
 	}
-	// A continuation the pipeline refused or that could not be recorded is a
-	// run still holding its slot with nothing serving it, which is what this
-	// step exists to end; a continued run that ended stopped is not.
-	for _, continuation := range sweep.Continuations {
-		if continuation.Failure != "" {
-			failed = true
-		}
-	}
-	// Queued-head continuation refusals belong to their items' findings.
+	// Continuation refusals belong to their items' findings.
 	if jsonOutput {
 		output := reconcileOutput{
 			TrackerExports:   sweep.TrackerExports,

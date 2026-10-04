@@ -19,6 +19,7 @@ type RunRetirement struct {
 	PriorCompletedAt *time.Time `json:"prior_completed_at,omitempty"`
 	PriorFailure     string     `json:"prior_failure,omitempty"`
 	PriorBlocker     string     `json:"prior_blocker,omitempty"`
+	PriorWait        string     `json:"prior_wait,omitempty"`
 }
 
 func (r RunRetirement) Validate(runID string) error {
@@ -35,7 +36,7 @@ func (r RunRetirement) Validate(runID string) error {
 	if r.NotedAt != nil && (r.NotedAt.IsZero() || r.NotedAt.Before(r.At)) {
 		problems = append(problems, errors.New("retirement note cannot precede retirement"))
 	}
-	if len(r.PriorFailure) > MaxBlockerBytes || len(r.PriorBlocker) > MaxBlockerBytes {
+	if len(r.PriorFailure) > MaxBlockerBytes || len(r.PriorBlocker) > MaxBlockerBytes || len(r.PriorWait) > MaxBlockerBytes {
 		problems = append(problems, fmt.Errorf("retirement history exceeds the %d byte bound", MaxBlockerBytes))
 	}
 	return errors.Join(problems...)

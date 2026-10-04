@@ -1718,6 +1718,7 @@ func (s *State) recordedTexts() []recordedText {
 	if s.Retirement != nil {
 		nested("retirement.prior_failure", "retirement.prior_failure", &s.Retirement.PriorFailure, MaxBlockerBytes)
 		nested("retirement.prior_blocker", "retirement.prior_blocker", &s.Retirement.PriorBlocker, MaxBlockerBytes)
+		nested("retirement.prior_wait", "retirement.prior_wait", &s.Retirement.PriorWait, MaxBlockerBytes)
 	}
 	if s.Selection != nil {
 		add("selection.reason", "selection.reason", &s.Selection.Reason, MaxSelectionReasonBytes, selectionCutNote, true)

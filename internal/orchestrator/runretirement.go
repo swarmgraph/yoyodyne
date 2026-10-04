@@ -54,7 +54,7 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 	}
 	var latest runstate.State
 	for _, candidate := range recorded {
-		if candidate.RunID == state.RunID || candidate.WorkItemID != state.WorkItemID || candidate.Integration == nil || candidate.PullRequest == nil || handedBack(candidate) || !landedAfter(candidate, state.StartedAt) {
+		if candidate.RunID == state.RunID || candidate.WorkItemID != state.WorkItemID || candidate.Retirement != nil || candidate.PullRequest == nil || handedBack(candidate) || !landedAfter(candidate, state.StartedAt) {
 			continue
 		}
 		if latest.RunID == "" || laterLanding(candidate, latest) {
@@ -79,7 +79,7 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 		return state, true, fmt.Errorf("recheck later publications before retiring run %s: %w", state.RunID, err)
 	}
 	for _, candidate := range recorded {
-		if candidate.RunID != state.RunID && candidate.WorkItemID == state.WorkItemID && candidate.Integration != nil && candidate.PullRequest != nil && !handedBack(candidate) && laterLanding(candidate, publication) {
+		if candidate.RunID != state.RunID && candidate.WorkItemID == state.WorkItemID && candidate.Retirement == nil && candidate.PullRequest != nil && !handedBack(candidate) && laterLanding(candidate, publication) {
 			return state, true, fmt.Errorf("a newer publication of %s (%s) appeared in run %s while retirement was checked; run %s is kept, and the harness rechecks its publication on the next pass", item.Title, item.ID, candidate.RunID, state.RunID)
 		}
 	}
@@ -99,7 +99,12 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 		RunID: publication.RunID, Commit: publication.PullRequest.MergeCommit,
 		TargetBranch: publication.Integration.TargetBranch, Number: publication.PullRequest.Number,
 		At: r.Now, PriorStatus: state.Status, PriorCompletedAt: state.CompletedAt, PriorFailure: state.Failure, PriorBlocker: state.Blocker,
+		PriorWait: retirementWait(state),
 	}
+	// A terminal run cannot carry an instruction to resume. Keep what it was
+	// waiting on in the retirement history before ending that wait.
+	clearRecordedParks(&state)
+	state.RedeployStop = nil
 	state.Status = runstate.StatusCancelled
 	state.CompletedAt = &r.Now
 	state.UpdatedAt = r.Now
@@ -129,6 +134,38 @@ func confirmedCompletedPublication(state runstate.State) bool {
 func retirementReason(state runstate.State) string {
 	r := state.Retirement
 	return fmt.Sprintf("run %s was retired because %s (%s) is closed and run %s confirmed its merge through pull request #%d at %s into %s; its branch, worktree, developer session, and history are preserved, and its developer slot and reservations are released", state.RunID, state.WorkItemTitle, state.WorkItemID, r.RunID, r.Number, r.Commit, r.TargetBranch)
+}
+
+func retirementWait(state runstate.State) string {
+	var waits []string
+	if state.UsageLimitResetsAt != nil {
+		waits = append(waits, fmt.Sprintf("paused for %s until %s", runstate.DescribePause(state.PauseCause, state.UsageLimitKind), state.UsageLimitResetsAt.Format(time.RFC3339Nano)))
+	}
+	if state.UsageLimitPausedSince != nil {
+		waits = append(waits, "pause began at "+state.UsageLimitPausedSince.Format(time.RFC3339Nano))
+	}
+	if state.UsageLimitResetUnknown {
+		waits = append(waits, "the provider gave no reset time")
+	}
+	if state.ProviderStop != "" {
+		waits = append(waits, "the provider was stopped because "+describeProviderStop(state.ProviderStop))
+	}
+	if pause := state.DirectivePause; pause != nil {
+		waits = append(waits, fmt.Sprintf("directive %s (%s): %s", pause.DirectiveID, pause.Kind, pause.Unresolved))
+	}
+	if state.DependencyPause != nil {
+		waits = append(waits, "waiting on "+state.DependencyPause.Summary())
+	}
+	if state.TrackerPause != nil {
+		waits = append(waits, state.TrackerPause.Summary())
+	}
+	if state.OperatorHeldSince != nil {
+		waits = append(waits, "the operator's pause since "+state.OperatorHeldSince.Format(time.RFC3339Nano))
+	}
+	if stop := state.RedeployStop; stop != nil {
+		waits = append(waits, fmt.Sprintf("watch session %s stopped it for redeploy at %s in %s after %s", stop.SessionID, stop.At.Format(time.RFC3339Nano), stop.Phase, stop.Bound()))
+	}
+	return runstate.RecordBlocker(strings.Join(waits, "; "))
 }
 
 func (r RunRetirer) note(ctx context.Context, state runstate.State) (runstate.State, bool, error) {
