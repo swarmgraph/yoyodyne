@@ -46,7 +46,8 @@ package orchestrator
 //     failure and is handed back as the next case is (yoyodyne-c02).
 //   - A failing check naming a file the change touches is the change's own
 //     failure. The queued merge is withdrawn and the item is handed back with
-//     the check named, as a dropped merge is, rather than left queued.
+//     a failing check for repair in its preserved developer session. The red
+//     revision cannot be re-armed.
 
 import (
 	"context"
@@ -140,7 +141,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	case checks.BehindBy > 0 && !checks.ChangeFails():
 		return r.updateQueuedHead(ctx, state, result, false)
 	case checks.ChangeFails():
-		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
+		return r.handBackFailedChange(ctx, state, fmt.Sprintf(
 			"the forge's checks on pull request %d fail on this change: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs its change repaired",
 			published.Number, checks.Describe(target)))
 	case checks.FailedInTheJob():
@@ -263,6 +264,16 @@ func boundedCheckName(name string) string {
 // leaves the record queued and the next sweep asks again; a record written
 // first would hand back a merge the forge could still land.
 func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, reason string) (Reconciliation, error) {
+	return r.handBackRedMergeWithCheck(ctx, state, reason, false)
+}
+
+// handBackFailedChange returns the forge's failure to the same repair path as
+// a local failing check, after withdrawing the merge that could land it.
+func (r Reconciler) handBackFailedChange(ctx context.Context, state runstate.State, reason string) (Reconciliation, error) {
+	return r.handBackRedMergeWithCheck(ctx, state, reason, true)
+}
+
+func (r Reconciler) handBackRedMergeWithCheck(ctx context.Context, state runstate.State, reason string, changeFails bool) (Reconciliation, error) {
 	published := *state.PullRequest
 	if err := r.Checks.DisableAutoMerge(ctx, published.Number); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("withdraw the red queued merge of pull request %d for run %s: %w", published.Number, state.RunID, err)
@@ -273,6 +284,10 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 	var account string
 	if published.Checks != nil {
 		account = renderForgeAccount(r.checkAccounts(ctx, *published.Checks))
+		if changeFails {
+			state.CheckFailure = forgeCheckFailure(*published.Checks, account)
+			state.ChecksPassed = nil
+		}
 	}
 	published.MergeQueued = false
 	// A merge handed back is no longer waiting on its target's red check: it is a
@@ -282,6 +297,41 @@ func (r Reconciler) handBackRedMerge(ctx context.Context, state runstate.State, 
 	state.PublishFailure = reason
 	state.MergeDrop = &runstate.MergeDrop{At: r.clock().Now(), Reason: reason}
 	return r.settleDroppedMergeWith(ctx, state, account)
+}
+
+// forgeCheckFailure keeps the forge's conclusion, annotations and captured log
+// as repair input. There is no process exit code in a forge reading.
+func forgeCheckFailure(checks runstate.PullRequestChecks, account string) *runstate.CheckFailure {
+	names := make([]string, 0, len(checks.Failing))
+	for _, failing := range checks.Failing {
+		names = append(names, failing.Name)
+	}
+	return &runstate.CheckFailure{
+		Command: strings.Join(names, ", "), ForgeHeadCommit: checks.HeadCommit,
+		Output: boundedTail(account, runstate.MaxCheckOutputBytes),
+	}
+}
+
+// invalidateForgeApproval retains the publication as history, but takes back
+// the promotion and review credit the next developer attempt must earn again.
+func invalidateForgeApproval(state *runstate.State) {
+	if state.Integration != nil && !state.Integration.ThroughPullRequest {
+		promoted := *state.Integration
+		state.CheckFailure.LocalPromotion = &promoted
+	}
+	state.Integration = nil
+	state.ChecksPassed = nil
+	state.ReviewSessionID = ""
+	state.ReviewModel = ""
+	state.ReviewResolvedModel = ""
+	state.ReviewEffort = ""
+	state.ReviewBaseCommit = ""
+	state.ReviewHeadCommit = ""
+	state.ReviewDecision = ""
+	state.ReviewApproves = ""
+	state.ReviewSummary = ""
+	state.ReviewFindings = 0
+	state.ReviewFindingDetails = nil
 }
 
 // updateQueuedHead brings a queued head that fell behind its target and failed
@@ -417,10 +467,10 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 // branch, and where the forge dropped it with its head behind the target and
 // failing nothing the change touches, it is the race a replay answers — brought
 // up to date from the kept branch, checked and reviewed again, and queued again
-// by its own run (updateQueuedHead). Only a drop that cannot be replayed is a
-// person's: a local promotion, a run whose artifacts or sessions are gone, a
-// request the forge closed, a head level with its target, or checks that fail
-// on the change itself.
+// by its own run (updateQueuedHead). Checks failing on the change go to repair
+// before replay eligibility is considered. Other drops that cannot be replayed
+// keep their usual handback: a local promotion, a run whose artifacts or
+// sessions are gone, a request the forge closed, or a head level with its target.
 //
 // A reading of the checks the forge could not give decides the drop neither
 // way. The record is left as it stands, still queued, and the next sweep asks
@@ -428,7 +478,7 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.State, observed publish.PullRequest) (Reconciliation, bool, error) {
 	published := *state.PullRequest
 	target := state.Integration.TargetBranch
-	if r.Checks == nil || unreplayable(*state) != "" || !strings.EqualFold(observed.State, "OPEN") {
+	if r.Checks == nil {
 		return Reconciliation{}, false, nil
 	}
 	result := reconciliationOf(*state, ActionQueued)
@@ -447,14 +497,38 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 	// drop instead of replaying it, so a previous read error does not survive.
 	published.Checks = &checks
 	state.PullRequest = &published
+	// This also recovers a withdrawal whose settlement was interrupted: the
+	// forge no longer holds the merge, but its own-change failure still goes to
+	// repair rather than becoming a generic drop of the red revision.
+	if checks.ChangeFails() {
+		stopped, err := r.handBackFailedChange(ctx, *state, fmt.Sprintf(
+			"the forge dropped the queued merge of pull request %d with checks failing on this change: %s. The pull request needs its change repaired",
+			published.Number, checks.Describe(target)))
+		return stopped, true, err
+	}
+	// An unannotated failure on a level head can still be the change's: the
+	// check passes on the target, or its log names a file or package the change
+	// touches. Attribution comes before replay limits, just like annotations.
+	levelRed := checks.BehindBy == 0 && checks.Red() && !checks.FailedInTheJob()
+	var ownership redTargetOwnership
+	if levelRed {
+		ownership = r.redTargetOwner(ctx, target, checks, reading.Files)
+		if ownership.Change != "" {
+			stopped, err := r.waitOnRedTargetOwned(ctx, *state, checks, ownership, true)
+			return stopped, true, err
+		}
+	}
+	if unreplayable(*state) != "" || !strings.EqualFold(observed.State, "OPEN") {
+		return Reconciliation{}, false, nil
+	}
 	// A head level with its target that failed on no file its change touches
 	// failed on the target, and the queue dropping it is the same fact the sweep
 	// withdrawing it would have been: filed as the target's, and waited on.
-	if checks.BehindBy == 0 && checks.Red() && !checks.ChangeFails() && !checks.FailedInTheJob() && r.Filer != nil {
-		waiting, err := r.waitOnRedTarget(ctx, *state, checks, reading.Files, true)
+	if levelRed && r.Filer != nil {
+		waiting, err := r.waitOnRedTargetOwned(ctx, *state, checks, ownership, true)
 		return waiting, true, err
 	}
-	if checks.BehindBy == 0 || checks.ChangeFails() {
+	if checks.BehindBy == 0 {
 		return Reconciliation{}, false, nil
 	}
 	result = reconciliationOf(*state, ActionQueued)

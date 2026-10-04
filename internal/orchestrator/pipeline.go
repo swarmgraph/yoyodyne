@@ -8497,14 +8497,22 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, fai
 	prompt.WriteString("\n\n")
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Failing check: repair required\n\n")
-	fmt.Fprintf(&prompt, "A configured check failed on your change. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and make this check pass.\n\n", attempt, limit)
-	fmt.Fprintf(&prompt, "Command: %s\nExit code: %d\n\n", failure.Command, failure.ExitCode)
+	if failure.ForgeHeadCommit != "" {
+		fmt.Fprintf(&prompt, "The forge checks failed on your change and the harness withdrew its queued merge. This is repair attempt %d of %d. Continue the preserved change in your worktree and fix the reported failure.\n\nForge check: %s\nChecked commit: %s\n\n", attempt, limit, failure.Command, failure.ForgeHeadCommit)
+	} else {
+		fmt.Fprintf(&prompt, "A configured check failed on your change. This is repair attempt %d of %d. Continue the change already in your worktree instead of starting over, and make this check pass.\n\n", attempt, limit)
+		fmt.Fprintf(&prompt, "Command: %s\nExit code: %d\n\n", failure.Command, failure.ExitCode)
+	}
 	if failure.Output != "" {
 		prompt.WriteString("Captured output:\n\n```\n")
 		prompt.WriteString(failure.Output)
 		prompt.WriteString("\n```\n\n")
 	}
-	prompt.WriteString("Fix the cause, run the command yourself to confirm it passes, and finish with a concise summary of what you changed. The harness re-runs every configured check afterwards; review and integration stay out of reach until they all pass.")
+	if failure.ForgeHeadCommit != "" {
+		prompt.WriteString("Work from the forge's account above; nothing asks you to fetch the forge. Run the relevant local checks and finish with a concise summary of what you changed. The harness runs fresh configured checks and independent review before publishing the repaired change.")
+	} else {
+		prompt.WriteString("Fix the cause, run the command yourself to confirm it passes, and finish with a concise summary of what you changed. The harness re-runs every configured check afterwards; review and integration stay out of reach until they all pass.")
+	}
 	return prompt.String()
 }
 

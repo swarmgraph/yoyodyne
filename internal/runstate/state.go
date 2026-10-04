@@ -346,7 +346,7 @@ func DescribePause(cause, kind string) string {
 // be able to fill either with output that is mostly unrelated to the failure.
 const MaxCheckOutputBytes = 8 << 10
 
-// CheckFailure is the deterministic check a repair attempt was handed back. It
+// CheckFailure is the local or forge check a repair attempt was handed back. It
 // is durable for the same reason the findings are: an attempt interrupted
 // before it ran has to be reissued with exactly the input it was given, and a
 // run that spends its attempts has to name what still fails. The output is the
@@ -355,6 +355,14 @@ type CheckFailure struct {
 	Command  string `json:"command"`
 	ExitCode int    `json:"exit_code"`
 	Output   string `json:"output,omitempty"`
+	// ForgeHeadCommit names the revision a forge check failed on. The forge
+	// reports a conclusion rather than a process exit code, so ExitCode is not
+	// used for this input.
+	ForgeHeadCommit string `json:"forge_head_commit,omitempty"`
+	// LocalPromotion keeps the history that authorized cleanup when the failed
+	// forge revision was already promoted locally. It is not current integration
+	// or approval credit: a repair must pass the gates again.
+	LocalPromotion *Integration `json:"local_promotion,omitempty"`
 }
 
 // Validate reports every contract violation in the recorded check at once.
@@ -362,6 +370,17 @@ func (c CheckFailure) Validate() error {
 	var problems []error
 	if strings.TrimSpace(c.Command) == "" {
 		problems = append(problems, errors.New("command is required"))
+	}
+	if c.ForgeHeadCommit != "" && !commitPattern.MatchString(c.ForgeHeadCommit) {
+		problems = append(problems, errors.New("forge_head_commit must be a full commit id"))
+	}
+	if c.LocalPromotion != nil {
+		if err := c.LocalPromotion.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("local_promotion: %w", err))
+		}
+		if c.LocalPromotion.ThroughPullRequest || c.ForgeHeadCommit == "" || c.LocalPromotion.SourceCommit != c.ForgeHeadCommit {
+			problems = append(problems, errors.New("local_promotion must be the local promotion of the failed forge revision"))
+		}
 	}
 	if len(c.Output) > MaxCheckOutputBytes {
 		problems = append(problems, fmt.Errorf("output is %d bytes, which exceeds the %d byte bound", len(c.Output), MaxCheckOutputBytes))
@@ -1767,6 +1786,9 @@ func (s *State) recordedTexts() []recordedText {
 		continuation := &s.RepairContinuations[index]
 		nested("repair_continuations[].reason", at("repair_continuations", index, "reason"), &continuation.Reason, MaxSelectionReasonBytes)
 		nested("repair_continuations[].superseded_blocker", at("repair_continuations", index, "superseded_blocker"), &continuation.SupersededBlocker, MaxBlockerBytes)
+		if continuation.SupersededCheckFailure != nil {
+			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
+		}
 	}
 	environmental := func(key, path string, refusal *EnvironmentalRefusal) {
 		nested(key+".detail", path+".detail", &refusal.Detail, MaxEnvironmentalDetailBytes)
@@ -2145,6 +2167,10 @@ type RepairContinuation struct {
 	// words it was recorded in. It is absent on a re-entry that carried none,
 	// such as a check-stage timeout.
 	SupersededBlocker string `json:"superseded_blocker,omitempty"`
+	// SupersededCheckFailure keeps the failure this continuation was handed,
+	// including any earlier local promotion. It is history, not current check,
+	// review, promotion, or cleanup credit for the continued change.
+	SupersededCheckFailure *CheckFailure `json:"superseded_check_failure,omitempty"`
 	// Returned says the round this continuation bought was environmentally
 	// refused, so the grant it came out of was never actually spent on anything.
 	// It is what keeps the attempts still counting toward this run's own budget —
@@ -2196,6 +2222,11 @@ func (c RepairContinuation) Validate() error {
 	}
 	if len(c.SupersededBlocker) > MaxBlockerBytes {
 		problems = append(problems, fmt.Errorf("superseded_blocker is %d bytes, which exceeds the %d byte bound", len(c.SupersededBlocker), MaxBlockerBytes))
+	}
+	if c.SupersededCheckFailure != nil {
+		if err := c.SupersededCheckFailure.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("superseded_check_failure: %w", err))
+		}
 	}
 	return errors.Join(problems...)
 }
@@ -2727,7 +2758,7 @@ type State struct {
 	// across repairs and across runs, and a counter reset by the next attempt
 	// would answer a different question every time it was read.
 	ReviewRounds int `json:"review_rounds,omitempty"`
-	// CheckFailure carries the failing deterministic check a repair attempt was
+	// CheckFailure carries the failing local or forge check a repair attempt was
 	// handed. It and ReviewFindingDetails are the two kinds of repair input, and
 	// at most one of them describes the current attempt: the checks are re-run
 	// after every attempt, so recording a failing check clears findings that
@@ -3736,7 +3767,13 @@ func (s State) Validate() error {
 	retiredBy := strings.TrimSpace(s.ArtifactsRetiredBy)
 	sweptWorktree := s.WorktreeSweptAt != nil
 	sweptBranch := s.BranchSweptAt != nil
-	if ((s.WorktreeRemoved && !sweptWorktree) || (s.BranchRemoved && !sweptBranch)) && s.Integration == nil && retiredBy == "" {
+	// A forge failure takes back current promotion credit without erasing the
+	// local promotion that already earned cleanup of these artifacts.
+	priorPromotion := s.CheckFailure != nil && s.CheckFailure.LocalPromotion != nil
+	if priorPromotion && (s.PullRequest == nil || s.MergeDrop == nil || s.PullRequest.HeadCommit != s.CheckFailure.ForgeHeadCommit) {
+		problems = append(problems, errors.New("a failing check's local promotion requires the dropped publication of that revision"))
+	}
+	if ((s.WorktreeRemoved && !sweptWorktree) || (s.BranchRemoved && !sweptBranch)) && s.Integration == nil && !priorPromotion && retiredBy == "" {
 		problems = append(problems, errors.New("removed artifacts require recorded integration, the run that superseded this one and retired them, or the convergence sweep that retired the checkout or deleted the branch"))
 	}
 	if sweptWorktree && !s.WorktreeRemoved {

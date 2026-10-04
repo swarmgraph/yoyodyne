@@ -1015,8 +1015,17 @@ func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.S
 	if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, settlement); err != nil {
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("record the settled merge for run %s: %w", state.RunID, err)
 	}
-	if itemStatus == "closed" {
+	if itemStatus == "closed" && state.CheckFailure == nil {
 		result, err := r.completeIntegrated(ctx, state, false)
+		result.Detail = reason
+		return result, err
+	}
+	if itemStatus == "closed" && state.CheckFailure.ForgeHeadCommit != "" {
+		// A closed item stays closed. Keep the forge failure without reopening it
+		// or treating its withdrawn merge as an integration that needs cleanup.
+		invalidateForgeApproval(&state)
+		settled, err := r.saveTerminalFailure(state, reason)
+		result := reconciliationOf(settled, ActionBlocked)
 		result.Detail = reason
 		return result, err
 	}
@@ -1037,6 +1046,9 @@ func (r Reconciler) settleDroppedMergeWith(ctx context.Context, state runstate.S
 		return reconciliationOf(state, ActionBlocked), err
 	}
 	state.Blocker = runstate.RecordBlocker(notes)
+	if state.CheckFailure != nil && state.CheckFailure.ForgeHeadCommit != "" {
+		invalidateForgeApproval(&state)
+	}
 	settled, saveErr := r.saveTerminalFailure(state, reason)
 	result := reconciliationOf(settled, ActionBlocked)
 	result.Detail = reason
@@ -2056,7 +2068,11 @@ func renderReconcileBlockerNotes(state runstate.State, observation gitworktree.O
 	}
 	lines = append(lines, renderObservedArtifacts(state, observation)...)
 	if state.CheckFailure != nil {
-		lines = append(lines, fmt.Sprintf("Last failing check: %s (exit %d)", state.CheckFailure.Command, state.CheckFailure.ExitCode))
+		if state.CheckFailure.ForgeHeadCommit != "" {
+			lines = append(lines, fmt.Sprintf("Last failing forge check: %s (commit %s)", state.CheckFailure.Command, state.CheckFailure.ForgeHeadCommit))
+		} else {
+			lines = append(lines, fmt.Sprintf("Last failing check: %s (exit %d)", state.CheckFailure.Command, state.CheckFailure.ExitCode))
+		}
 	}
 	if state.PathRefusal != nil {
 		lines = append(lines, "Refused protected paths: "+strings.Join(state.PathRefusal.Paths, ", "))

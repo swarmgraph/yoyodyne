@@ -222,12 +222,13 @@ type Finding struct {
 	Line     int    `json:"line,omitempty"`
 }
 
-// Check is the deterministic check that was failing when the work stopped, with
+// Check is the local or forge check that failed when the work stopped, with
 // the bounded output the run captured of it.
 type Check struct {
-	Command  string `json:"command"`
-	ExitCode int    `json:"exit_code"`
-	Output   string `json:"output,omitempty"`
+	Command         string `json:"command"`
+	ExitCode        int    `json:"exit_code"`
+	Output          string `json:"output,omitempty"`
+	ForgeHeadCommit string `json:"forge_head_commit,omitempty"`
 }
 
 // Artifacts are the identifiers of what the stopped work left behind. They are
@@ -1825,8 +1826,14 @@ func (e Entry) Render() string {
 		rendered.WriteString(indented(fmt.Sprintf("Finding [%s]%s", finding.Severity, location), finding.Message))
 	}
 	if e.Check != nil {
+		label := fmt.Sprintf("Failing check: %s (exit %d)", e.Check.Command, e.Check.ExitCode)
+		if e.Check.ForgeHeadCommit != "" {
+			label = fmt.Sprintf("Failing forge check: %s (commit %s)", e.Check.Command, e.Check.ForgeHeadCommit)
+			rendered.WriteString("      This change failed its forge checks. A repair continues the preserved change in its developer session, with fresh checks and independent review; the unchanged revision cannot be re-armed.\n")
+			fmt.Fprintf(&rendered, "      If its developer session or preserved change cannot be recovered, the supported alternative is a re-run decided by the development manager through `yoyo triage rerun %s`.\n", e.RunID)
+		}
 		rendered.WriteString(indented(
-			fmt.Sprintf("Failing check: %s (exit %d)", e.Check.Command, e.Check.ExitCode), e.Check.Output))
+			label, e.Check.Output))
 	}
 	rendered.WriteString(e.renderArtifacts())
 	if e.Publication != nil {
@@ -2444,6 +2451,9 @@ func (e Entry) rearmNote() string {
 // untouched budget on every publication would be a line every reader learns to
 // skip — and silent on a stopped run, which is about no publication at all.
 func (e Entry) renderRearmStanding() string {
+	if e.Check != nil && e.Check.ForgeHeadCommit != "" {
+		return ""
+	}
 	if e.Class != ClassPublication || e.Counters.PublicationRearms == 0 {
 		return ""
 	}

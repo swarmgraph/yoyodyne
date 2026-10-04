@@ -223,8 +223,8 @@ func TestAQueuedHeadBehindItsTargetFailingUnrelatedChecksIsUpdatedAndRequeued(t 
 	}
 }
 
-// A head whose own change fails a check is handed back with the check named, as
-// a dropped merge is, rather than left queued.
+// A head whose own change fails a check is handed back for repair, with the
+// check named, rather than left queued.
 func TestAQueuedHeadFailingACheckOnItsOwnChangeIsHandedBack(t *testing.T) {
 	t.Parallel()
 
@@ -260,7 +260,7 @@ func TestAQueuedHeadFailingACheckOnItsOwnChangeIsHandedBack(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	if settled.MergeDrop == nil || settled.PullRequest.MergeQueued || settled.Outstanding() {
-		t.Fatalf("record = drop %#v, queued %t, outstanding %t; want the dropped merge a re-arm can act on", settled.MergeDrop, settled.PullRequest.MergeQueued, settled.Outstanding())
+		t.Fatalf("record = drop %#v, queued %t, outstanding %t; want the withdrawn merge recorded for repair", settled.MergeDrop, settled.PullRequest.MergeQueued, settled.Outstanding())
 	}
 	if settled.PullRequest.Checks == nil || !settled.PullRequest.Checks.ChangeFails() {
 		t.Errorf("checks = %#v, want the reading that decided it kept on the publication", settled.PullRequest.Checks)

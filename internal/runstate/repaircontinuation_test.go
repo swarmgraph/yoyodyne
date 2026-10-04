@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -133,5 +134,36 @@ func TestStoreRoundTripsTheGrantsARunWasContinuedOn(t *testing.T) {
 	}
 	if err := broken.Validate(); err == nil || !strings.Contains(err.Error(), "exceeds the bound") {
 		t.Fatalf("Validate() error = %v, want the bound on recorded continuations enforced", err)
+	}
+}
+
+func TestARepairContinuationKeepsTheFailedLocalPromotionAsHistory(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	state.RepairAttempts = 1
+	continuation := grantedContinuation()
+	promotion := integratedState(t, PhaseComplete).Integration
+	continuation.SupersededCheckFailure = &CheckFailure{
+		Command: "build", Output: "build failed on feature.txt", ForgeHeadCommit: promotion.SourceCommit,
+		LocalPromotion: promotion,
+	}
+	state.RepairContinuations = []RepairContinuation{continuation}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(state.RunID)
+	if err != nil || !reflect.DeepEqual(loaded.RepairContinuations, state.RepairContinuations) {
+		t.Fatalf("recorded history = %#v, %v; want the check and its original local promotion", loaded.RepairContinuations, err)
+	}
+	// History alone cannot justify removing the artifacts used by this attempt.
+	loaded.WorktreeRemoved, loaded.BranchRemoved = true, true
+	if err := loaded.Validate(); err == nil || !strings.Contains(err.Error(), "removed artifacts require recorded integration") {
+		t.Fatalf("cleanup authorized by history alone: %v", err)
+	}
+	// The historical promotion still has to belong to the failed revision.
+	continuation.SupersededCheckFailure.LocalPromotion.SourceCommit = strings.Repeat("c", 40)
+	if err := continuation.Validate(); err == nil || !strings.Contains(err.Error(), "local promotion of the failed forge revision") {
+		t.Fatalf("mismatched historical promotion accepted: %v", err)
 	}
 }
