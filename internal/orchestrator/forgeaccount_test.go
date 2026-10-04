@@ -51,7 +51,7 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 	forge.reading = redOnTheChange()
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
-	logs := &orchestratortest.RefusingJobLogs{Tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
+	logs := &orchestratortest.JobLogs{Tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
 	reconciler.JobLogs = logs
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -104,7 +104,7 @@ func TestAForgeThatRefusesTheHarnessesTokenIsNamedOnTheItemAsTheOperatorsToGrant
 	forge.refuseRerun = fmt.Errorf("ask the forge to run check 4215 again: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
-	logs := &orchestratortest.RefusingJobLogs{Err: fmt.Errorf("read the forge's log of check 4215: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)}
+	logs := &orchestratortest.JobLogs{Err: fmt.Errorf("read the forge's log of check 4215: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)}
 	reconciler.JobLogs = logs
 
 	results, err := reconciler.Reconcile(context.Background())

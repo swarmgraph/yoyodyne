@@ -3,11 +3,9 @@ package orchestratortest
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
-	"sync"
 )
 
 // RearmForge is the forge a re-arm speaks to: what it says about the request now,
@@ -71,40 +69,6 @@ func (f *AnsweringForge) Close(context.Context, publish.CloseRequest) (publish.C
 	return publish.Closure{}, errors.New("a refresh closes nothing")
 }
 
-// BatchingForge answers in batches and counts every question, failing nothing
-// but recording a question asked one branch at a time.
-type BatchingForge struct {
-	AnsweringForge
-	Numbers map[string]int
-	Err     error
-	Mutex   sync.Mutex
-	Batches [][]string
-	Single  int
-}
-
-func (f *BatchingForge) State(context.Context, string) (publish.PullRequest, error) {
-	f.Mutex.Lock()
-	defer f.Mutex.Unlock()
-	f.Single++
-	return publish.PullRequest{}, fmt.Errorf("batchingForge answers only in batches")
-}
-
-func (f *BatchingForge) States(_ context.Context, heads []string) (map[string]publish.PullRequest, error) {
-	f.Mutex.Lock()
-	defer f.Mutex.Unlock()
-	f.Batches = append(f.Batches, append([]string(nil), heads...))
-	if f.Err != nil {
-		return nil, f.Err
-	}
-	answered := map[string]publish.PullRequest{}
-	for _, head := range heads {
-		if number, ok := f.Numbers[head]; ok {
-			answered[head] = publish.PullRequest{Number: number, URL: fmt.Sprintf("https://example.invalid/pull/%d", number), State: "OPEN"}
-		}
-	}
-	return answered, nil
-}
-
 // NoticingForge is the harness's forge reading as a test drives it: a fixed set
 // of requests held open for nothing, and a record of what it was told had
 // already been reported.
@@ -127,13 +91,14 @@ func (f *NoticingForge) Notice(_ context.Context, Reported map[int]bool) ([]runs
 
 // JobLogs is the forge's log of a job, as the harness reads its tail.
 type JobLogs struct {
+	Err   error
 	Tail  string
 	Asked []int64
 }
 
 func (l *JobLogs) JobLogTail(_ context.Context, checkRun int64, _ int) (string, error) {
 	l.Asked = append(l.Asked, checkRun)
-	return l.Tail, nil
+	return l.Tail, l.Err
 }
 
 // TargetChecks is the forge's reading of the target branch's own head, or its
@@ -147,19 +112,6 @@ type TargetChecks struct {
 func (c *TargetChecks) BranchChecks(_ context.Context, branch string) (publish.BranchCheckReading, error) {
 	c.Asked = append(c.Asked, branch)
 	return c.Reading, c.Refuse
-}
-
-// RefusingJobLogs is the forge's log of a job as the harness reads it, or its
-// refusal to let the harness read it.
-type RefusingJobLogs struct {
-	Tail  string
-	Err   error
-	Asked []int64
-}
-
-func (l *RefusingJobLogs) JobLogTail(_ context.Context, checkRun int64, _ int) (string, error) {
-	l.Asked = append(l.Asked, checkRun)
-	return l.Tail, l.Err
 }
 
 // RequestChecks is the forge's reading of a request's checks, which gates arming a

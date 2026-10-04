@@ -61,7 +61,7 @@ func forgeCheckRepairCarryOut(t *testing.T, makeFixture func(*testing.T) (queued
 	fixture.docket = &memoryDocket{}
 	forge.reading = redOnTheChange()
 	reconciler := fixture.sweep(t, forge, false)
-	reconciler.JobLogs = &orchestratortest.RefusingJobLogs{Tail: "feature.txt:3: line is longer than 100 characters"}
+	reconciler.JobLogs = &orchestratortest.JobLogs{Tail: "feature.txt:3: line is longer than 100 characters"}
 	if _, err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}

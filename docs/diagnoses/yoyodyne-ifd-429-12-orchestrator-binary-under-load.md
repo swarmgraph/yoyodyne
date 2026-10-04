@@ -198,8 +198,8 @@ table describes.
 
 ## The helper package and the census (yoyodyne-ifd.429.13)
 
-Step 1 above is complete. The shared and specialized fakes of other packages' interfaces now
-live only in `internal/orchestrator/orchestratortest`:
+Step 1 above is complete. The shared and specialized fakes of other packages'
+interfaces now live only in `internal/orchestrator/orchestratortest`:
 
 - `Tracker`, the work tracker
 - `Backend`, the provider, with `RoleBackend` and `WithVerification`
@@ -214,35 +214,17 @@ directly or through any package it reaches, and
 package of its own checks that each fake still satisfies the interface
 `orchestrator` asks of it.
 
-Every in-package test uses these shared fakes from `orchestratortest`. Removing
-the in-package copies (yoyodyne-ifd.429.13.6) deletes `inpackagefakes_test.go` and
-`fakeforge_test.go`, along with their accessors in `fakeaccess_test.go`.
-`fakeTracker`, `fakeBackend`, `fakeForge`, `fakePricer`,
-`partialWorktreeManager`, `roleBackend`, `withVerification`, and
-`connectionReset` are no longer declared in `orchestrator`, and no aliases keep
-the old names working. The shared fixture interfaces in `fakeaccess_test.go`
-remain, with their compile-time checks against the helper package's fakes.
+Every in-package test uses these shared fakes from `orchestratortest`.
+Removing the copies (yoyodyne-ifd.429.13.6) deletes `inpackagefakes_test.go`,
+`fakeforge_test.go`, and their accessors. No aliases keep the old names working;
+`fakeaccess_test.go` retains only fixture interfaces and conformance checks.
 
-Removing the remaining independent fakes moves the specialized conversation,
-publication, recovery, and scheduler implementations there too:
-
-- The trackers: `ParkingTracker`, `LandingTracker`, `RecordingFiler`,
-  `OpenWorkItem`, `ClaimState`, `ScheduleTracker`, and `PipelineTracker`.
-- The backends: `ReplayBackend` and `LoginProbe`.
-- The forge readings: `RearmForge`, `AnsweringForge`, `BatchingForge`,
-  `NoticingForge`, `RequestChecks`, `TargetChecks`, `JobLogs`, and
-  `RefusingJobLogs`.
-- The worktree readings: `RemoteTarget`, `Ownership`, `ResumeOwnership`,
-  `RecoveryCheckout`, and `Survival`.
-- `RerunServices`, which records a re-run's tracker, forge, and worktree calls.
-
-The claim, scheduler, and re-run fixtures embed these implementations rather
-than implementing the tracker or forge themselves. The scheduler and its
-pipeline tracker still share one mutex over their queue and run state. What
-remains in `orchestrator` is fixture wiring and wrappers that change an answer
-or record a call around a helper fake or a real implementation; none is an
-independent tracker, backend, forge, or worktree fake. Those wrappers may name
-`orchestrator`'s own interfaces, which the helper package cannot import.
+The specialized conversation, publication, recovery, and scheduler fakes also
+live there, including `ReplayBackend`, `ParkingTracker`, and `RearmForge`.
+The claim, scheduler, pipeline, and re-run fixtures delegate to these fakes;
+the scheduler queue and run state still share one mutex. Remaining wrappers
+change answers around a helper fake or real implementation. None independently
+implements a tracker, backend, forge, or worktree interface.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than
