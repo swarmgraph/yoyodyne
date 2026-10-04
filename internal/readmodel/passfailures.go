@@ -37,11 +37,11 @@ func ReadPassFailures(sources Sources) ([]Attention, string) {
 			continue
 		}
 		id := f.ReportID(f.ProductID)
-		step := ""
+		var remedy *ownership.PersonOnlyRemedy
 		if h := handled[id]; h.NeedsOperator {
-			step = strings.TrimSpace(h.Reason)
+			remedy = h.PersonOnly
 		}
-		owner := ownership.ResolvePassFailure(watcher, step)
+		owner := ownership.ResolvePassFailure(watcher, remedy)
 		failure := FailingTask{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, RaisedAt: f.RaisedAt,
 			LatestAt: f.LatestAt, Problem: f.Problem, ProductPass: true, Ownership: &owner, ReportID: id}
 		entries = append(entries, failingTaskAttention(failure))

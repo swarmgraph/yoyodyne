@@ -30,6 +30,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // SchemaVersion is versioned independently of run and conversation state. A
@@ -471,6 +472,9 @@ type Handling struct {
 	// checklist from 2026-08-17 to 2026-09-14, which is why this is a field the
 	// harness reads rather than a sentence in the reason.
 	NeedsOperator bool `json:"needs_operator,omitempty"`
+	// PersonOnly supplies the validated physical act for a product-pass finding.
+	// Older handlings have no such field; their prose cannot name its operator.
+	PersonOnly *ownership.PersonOnlyRemedy `json:"person_only,omitempty"`
 }
 
 // MaxRequestsPerHandling bounds how many requests one handling maps, and
@@ -557,6 +561,14 @@ func Covering(requests []Request) ([]string, map[string][]string) {
 // Validate reports every contract violation in the handling at once.
 func (h Handling) Validate() error {
 	var problems []error
+	if h.PersonOnly != nil {
+		if !h.NeedsOperator {
+			problems = append(problems, errors.New("person_only requires needs_operator"))
+		}
+		if err := h.PersonOnly.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if h.PassFailureCleared != 0 && (h.PassFailureCleared < 3 || h.Role != HarnessReporter || h.NeedsOperator) {
 		problems = append(problems, errors.New("only the harness records a pass failure clearing, after at least three failures"))
 	}
@@ -701,6 +713,9 @@ func (h Handling) Render() string {
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "      %s %s by the %s (%s): %s\n",
 		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, strings.Join(strings.Fields(h.Reason), " "))
+	if h.PersonOnly != nil {
+		fmt.Fprintf(&rendered, "        person's step: %s\n", h.PersonOnly.Step)
+	}
 	for _, request := range h.Requests {
 		fmt.Fprintf(&rendered, "        request %q: %s\n", strings.TrimSpace(request.Request), request.answer())
 	}

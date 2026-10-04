@@ -2,6 +2,8 @@ package runstate
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -12,6 +14,50 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
+
+func TestAnUnfiledPassFailureIsFiledAndClearedAfterSuccess(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, _ := NewSweepStore(root, "example")
+	reports, _ := NewReportStore(root, "example")
+	start := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	for i := 0; i < 3; i++ {
+		at := start.Add(time.Duration(i) * time.Hour)
+		if err := store.Append(Sweep{Task: "maintenance", StartedAt: at, EndedAt: at.Add(time.Minute), Problem: "reconcile failed", Steps: []SweepStep{{Name: "reconcile", Outcome: StepFailed, Detail: "reconcile failed"}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The log reads as absent, but its missing parent prevents an append.
+	if err := os.Symlink(filepath.Join(root, "missing", "reports.jsonl"), reports.Path()); err != nil {
+		t.Fatal(err)
+	}
+	attribution := report.Attribution{RepositoryID: "example"}
+	if err := store.RecordPassFailures(context.Background(), reports, attribution, "factory-watch"); err == nil || !strings.Contains(err.Error(), "open report log") {
+		t.Fatalf("filing error = %v, want a refused report append", err)
+	}
+	recoveredAt := start.Add(3*time.Hour + time.Minute)
+	if err := store.Append(Sweep{Task: "maintenance", StartedAt: start.Add(3 * time.Hour), EndedAt: recoveredAt, Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "recovered"}, Steps: []SweepStep{{Name: "reconcile", Outcome: StepRan, Detail: "recovered"}}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(reports.Path()); err != nil {
+		t.Fatal(err)
+	}
+	// Retry from a new store after the pass has already recovered, twice.
+	restarted, _ := NewSweepStore(root, "example")
+	for i := 0; i < 2; i++ {
+		if err := restarted.RecordPassFailures(context.Background(), reports, attribution, "factory-watch"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	filed, err := reports.List()
+	if err != nil || len(filed) != 1 || !filed[0].RecordedAt.Equal(start.Add(2*time.Hour+time.Minute)) {
+		t.Fatalf("filed = %+v, %v, want one finding at the third failure", filed, err)
+	}
+	handled, err := reports.Handlings()
+	if err != nil || len(handled) != 1 || handled[0].ReportID != filed[0].ID || handled[0].PassFailureCleared != 3 || !handled[0].RecordedAt.Equal(recoveredAt) {
+		t.Fatalf("clearing = %+v, %v, want one clearing after three failures", handled, err)
+	}
+}
 
 func TestAPassFailureKeepsTheLastErrorOnOneLineWithoutCuttingACharacter(t *testing.T) {
 	t.Parallel()

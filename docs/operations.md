@@ -412,6 +412,8 @@ ordinary listing limit. Completing the watching role's pass or handling the
 report does not clear it: only a later successful maintenance pass does. The
 harness records the clearing in the report's handling log with the total
 number of consecutive failures. A later run of failures is a new finding.
+If filing or recording the clearing fails, a later pass retries both from the
+sweep log, even if the affected pass succeeded before the finding was filed.
 This applies to the recurring role passes recorded in the same sweep log too,
 including failures before their first turn and failures during a turn. A
 partial account, a held conversation, or a cadence that never fired does not
@@ -420,9 +422,12 @@ failed executions.
 
 An error does not by itself make the finding the operator's. If the Lead
 Product Manager records a report handling as needing a step only a person can
-take, that handling supplies the exact step and the ownership resolver names
-the operator for it. The factory-flow program manager still watches, and the
-development manager still resolves the cause.
+take, that handling must supply `person_only` with a permitted reason, its
+target, and the exact step. The reasons are `credential`, `repository-setting`,
+and `protected-file`; the last accepts only provider-refused settings files
+and files under `.yoyodyne/roles/`. An operator flag or ordinary repair prose
+alone cannot transfer ownership to the operator. The factory-flow program
+manager still watches, and the development manager still resolves the cause.
 
 ## Setting up with `yoyo setup`
 

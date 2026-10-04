@@ -135,6 +135,7 @@ func passFailedOrSucceeded(pass Sweep) (bool, bool) {
 // It runs after a pass is appended, under the sweep store's lock, so two
 // processes cannot file the same finding. The deterministic ID also allows a
 // retry after a report was written but its caller died or failed to sync.
+// A run that recovered before delivery still gets both its finding and clearing.
 func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStore, attribution report.Attribution, watcher string) error {
 	if reports == nil {
 		return nil
@@ -171,11 +172,11 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 	}
 	for _, f := range PassFailuresOf(passes) {
 		id := f.ReportID(s.productID)
-		if !known[id] && f.ClearedAt.IsZero() {
+		if !known[id] {
 			r := report.Report{SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter,
 				RunID: f.Task + "@" + f.FirstAt.UTC().Format(time.RFC3339Nano), ProductID: s.productID,
 				RepositoryID: attribution.RepositoryID, Build: attribution.Build, Severity: report.SeverityWarning,
-				PassFailureTask: f.Task, RecordedAt: f.RaisedAt, Message: f.Says() + ". " + PassFailureOwnersSays(ownership.ResolvePassFailure(watcher, "")) + "."}
+				PassFailureTask: f.Task, RecordedAt: f.RaisedAt, Message: f.Says() + ". " + PassFailureOwnersSays(ownership.ResolvePassFailure(watcher, nil)) + "."}
 			if err := reports.Append(r); err != nil {
 				return err
 			}

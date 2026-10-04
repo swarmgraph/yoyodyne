@@ -778,6 +778,22 @@ has handed you, each with its identifier, until she records it done: tell her
 when the change is made, and she handles the same report once more, without
 `needs`.
 
+For a [repeatedly failing product pass](operations.md#the-supervisors-maintenance-pass),
+the handling also requires `person_only` with a closed reason, a specific
+target, and the exact physical step. For example:
+
+```json
+{"action":"handle","report":"report-id","needs":"operator","reason":"a provider-refused settings file needs changing","person_only":{"reason":"protected-file","target":".claude/settings.json","step":"add the notes-writer hook to .claude/settings.json by hand"}}
+```
+
+The permitted reasons are `credential`, `repository-setting`, and
+`protected-file`. Name the credential or login, the setting only a person can
+change, or the file; a protected file must be a provider-refused settings file
+or under `.yoyodyne/roles/`. An ordinary repair or delegated decision has no
+person-only reason. The ownership resolver validates this account before
+naming the operator, and the report retains the exact step. Handling the
+report does not clear a product-pass finding; the affected pass must succeed.
+
 Where the decision is work, the admission can name the report it came from, and
 the item then records it. That citation is not bookkeeping: it is what a later
 admission citing the same report is checked against, and where one is found

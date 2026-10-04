@@ -467,6 +467,10 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		outcome.fail(errors.New("handle names no report, so nothing was recorded"))
 		return
 	}
+	if subject.PassFailureTask != "" && strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator && outcome.Action.PersonOnly == nil {
+		outcome.fail(errors.New("a product-pass finding needs a validated person_only reason, target, and exact step before it can name the operator; nothing was recorded"))
+		return
+	}
 	requests, err := s.resolveRequests(ctx, outcome)
 	if err != nil {
 		outcome.fail(fmt.Errorf("nothing was recorded: %w", err))
@@ -491,6 +495,7 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		Requests:      requests,
 		RecordedAt:    s.options.clock().Now(),
 		NeedsOperator: strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator,
+		PersonOnly:    outcome.Action.PersonOnly,
 	}
 	if err := s.options.Reports.Handle(handling); err != nil {
 		outcome.fail(err)
@@ -501,6 +506,11 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 	// something still waiting.
 	s.markReportDelivered(subject.ID)
 	if handling.NeedsOperator {
+		if subject.PassFailureTask != "" {
+			outcome.applied("recorded that %s needs the operator's hand: %s; the watching role still watches and the development manager resolves the cause; only the affected pass succeeding clears the finding",
+				subject.ID, handling.PersonOnly.Step)
+			return
+		}
 		// The handling is a finding rather than a closing, and it is said as one:
 		// what the operator is told and what `yoyo status` names is this record.
 		outcome.applied("recorded that %s, reported at %q by the %s%s, needs the operator's hand; it is named on `yoyo status` and said to him directly until a later handling records the change made%s",

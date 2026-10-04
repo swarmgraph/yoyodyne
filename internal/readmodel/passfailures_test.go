@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -44,8 +45,16 @@ func TestAPassFailureNamesTheOperatorOnlyForARecordedPersonOnlyStep(t *testing.T
 	if problem != "" || len(entries) != 1 || entries[0].Mover != MoverProgramManager {
 		t.Fatalf("failure = %+v, %s", entries, problem)
 	}
+	// A flag and ordinary repair prose cannot transfer ownership to a person.
+	if err := reports.Handle(report.Handling{SchemaVersion: report.HandlingSchemaVersion, ReportID: entries[0].FailingTask.ReportID, Role: domain.RoleProductManager, RunID: "chat-one", ProductID: "example", RepositoryID: "example", RecordedAt: start.Add(150 * time.Minute), NeedsOperator: true, Reason: "repair the harness and rerun its tests"}); err != nil {
+		t.Fatal(err)
+	}
+	entries, problem = ReadPassFailures(sources)
+	if problem != "" || len(entries) != 1 || entries[0].Mover != MoverProgramManager || entries[0].FailingTask.Ownership.PersonStep != "" {
+		t.Fatalf("ordinary repair was assigned to the operator: %+v, %s", entries, problem)
+	}
 	const step = "put the notes-writer hook in .claude/settings.json by hand"
-	if err := reports.Handle(report.Handling{SchemaVersion: report.HandlingSchemaVersion, ReportID: entries[0].FailingTask.ReportID, Role: domain.RoleProductManager, RunID: "chat-one", ProductID: "example", RepositoryID: "example", RecordedAt: start.Add(3 * time.Hour), NeedsOperator: true, Reason: step}); err != nil {
+	if err := reports.Handle(report.Handling{SchemaVersion: report.HandlingSchemaVersion, ReportID: entries[0].FailingTask.ReportID, Role: domain.RoleProductManager, RunID: "chat-one", ProductID: "example", RepositoryID: "example", RecordedAt: start.Add(3 * time.Hour), NeedsOperator: true, Reason: "a provider-refused file needs changing", PersonOnly: &ownership.PersonOnlyRemedy{Reason: ownership.PersonProtectedFile, Target: ".claude/settings.json", Step: step}}); err != nil {
 		t.Fatal(err)
 	}
 	standing := ReadStanding(context.Background(), sources)
