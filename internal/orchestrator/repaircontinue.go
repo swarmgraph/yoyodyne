@@ -428,7 +428,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		if err != nil {
 			return result, fmt.Errorf("read the repair decision before recovering its success note: %w", err)
 		}
-		if decision, decided := counters.DecisionOf(prior.RunID); decided && decision.Decision == runstate.TriageDecisionRepair && prior.RepairContinuedSince(decision.DecidedAt) {
+		if decision, decided := counters.DecisionOf(prior.RunID); decided && decision.Decision == runstate.TriageDecisionRepair && (prior.RepairContinuedSince(decision.DecidedAt) || completedRepairContinuation(prior)) {
 			return c.recoverContinuation(ctx, prior, result, lease)
 		}
 	}
@@ -580,7 +580,7 @@ func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate
 	if continuation.Returned || continuation.ByHarness || continuation.ContinuedAt.Before(decision.DecidedAt) || !strings.Contains(continuation.Reason, decision.Cite()) {
 		return result, fmt.Errorf("run %s is already running but its continuation does not carry the standing repair decision, so no repair transition was repeated", prior.RunID)
 	}
-	if !continuation.DispatchPending {
+	if !continuation.DispatchPending || completedRepairContinuation(prior) {
 		result.Decided = counters.GrantedRounds
 		result.Truncated = counters.TruncatedGrants > 0
 		c.confirmedContinuation(&result, prior)
@@ -659,11 +659,27 @@ func (c RepairContinuer) confirmContinuationNote(ctx context.Context, state *run
 	confirmed := *state
 	confirmed.RepairContinuations = append([]runstate.RepairContinuation(nil), state.RepairContinuations...)
 	confirmed.RepairContinuations[index].SuccessNotePending = false
+	if completedRepairContinuation(confirmed) {
+		confirmed.RepairContinuations[len(confirmed.RepairContinuations)-1].DispatchPending = false
+	}
 	if err := c.Runs.Save(confirmed); err != nil {
 		return fmt.Errorf("the success note on %s was confirmed, but its acknowledgement on run %s could not be recorded; note delivery remains pending until the record confirms it: %w", state.WorkItemID, state.RunID, err)
 	}
 	*state = confirmed
 	return nil
+}
+
+// completedRepairContinuation uses the execution's terminal record when the
+// dispatch acknowledgement was lost. Re-entry clears CompletedAt, so completion
+// at or after that continuation proves it has ended and must not be dispatched
+// again. A completion from the superseded stoppage is not that evidence.
+func completedRepairContinuation(state runstate.State) bool {
+	last := len(state.RepairContinuations) - 1
+	if !state.Status.Terminal() || state.CompletedAt == nil || last < 0 {
+		return false
+	}
+	continuation := state.RepairContinuations[last]
+	return !continuation.Returned && !continuation.ByHarness && !state.CompletedAt.Before(continuation.ContinuedAt)
 }
 
 // DeliverNotes retries success notes independently of dispatch and of the
@@ -675,7 +691,7 @@ func (c RepairContinuer) DeliverNotes(ctx context.Context) error {
 	}
 	var problems []error
 	for _, candidate := range recorded {
-		if !candidate.RepairSuccessNotePending() || candidate.RepairContinuations[len(candidate.RepairContinuations)-1].DispatchPending {
+		if !candidate.RepairSuccessNotePending() || (candidate.RepairContinuations[len(candidate.RepairContinuations)-1].DispatchPending && !completedRepairContinuation(candidate)) {
 			continue
 		}
 		state, lease, err := c.Runs.AdoptRun(ctx, candidate.RunID)
@@ -686,10 +702,10 @@ func (c RepairContinuer) DeliverNotes(ctx context.Context) error {
 			problems = append(problems, fmt.Errorf("take run %s to confirm its repair success notes: %w", candidate.RunID, err))
 			continue
 		}
-		// An unserved continuation has its notes recovered by carry-out. Do
-		// not take its run from the gap between pipeline exit and dispatch
-		// acknowledgement, which still belongs to that carry-out.
-		if last := len(state.RepairContinuations) - 1; last >= 0 && state.RepairContinuations[last].DispatchPending {
+		// An unserved continuation has its notes recovered by carry-out. A
+		// completed execution no longer needs dispatch, even if its acceptance
+		// acknowledgement failed; note confirmation records that evidence too.
+		if last := len(state.RepairContinuations) - 1; last >= 0 && state.RepairContinuations[last].DispatchPending && !completedRepairContinuation(state) {
 			lease.Release()
 			continue
 		}

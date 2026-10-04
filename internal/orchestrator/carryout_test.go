@@ -916,6 +916,113 @@ func TestSchedulingRecoversARepairWhoseReplacementWasNotConfirmed(t *testing.T) 
 	}
 }
 
+func TestSchedulingRecoversCompletedRepairNotesAfterDispatchAcknowledgementFailure(t *testing.T) {
+	t.Parallel()
+	for _, written := range []bool{false, true} {
+		t.Run(fmt.Sprintf("note-written=%t", written), func(t *testing.T) {
+			t.Parallel()
+			harness := newContinueHarness(t, continuableState())
+			items := &repairRecordItems{Tracker: harness.tracker}
+			items.onRecord = func(note string) error {
+				if !strings.Contains(note, "and the harness re-entered") {
+					return nil
+				}
+				if written {
+					_, _ = items.Tracker.RecordOutcome(context.Background(), docketedItem, note)
+					items.Item.Notes = items.Notes
+				}
+				return errors.New("the success note could not be confirmed")
+			}
+			runs := &repairRecordRuns{RepairRuns: harness.runs}
+			continuer := harness.continuer()
+			continuer.Items, continuer.Runs = items, runs
+			start := continuer.Start
+			continuer.Start = func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+				outcome, err := start(ctx, workItemID, runID)
+				// The pipeline saves completion before returning its accepted dispatch.
+				state, lease, adoptErr := harness.runs.AdoptRun(ctx, runID)
+				if adoptErr != nil {
+					t.Fatal(adoptErr)
+				}
+				state.Status, state.Phase = runstate.StatusSucceeded, runstate.PhaseComplete
+				completed := docketedNow.Add(time.Minute)
+				state.CompletedAt, state.UpdatedAt = &completed, completed
+				harness.save(t, state)
+				lease.Release()
+				harness.tracker.Item.Status, harness.tracker.Closed = "closed", true
+				runs.saveErr = errors.New("the dispatch acknowledgement could not be saved")
+				return outcome, err
+			}
+			first, err := continuer.Continue(context.Background(), continueRequest())
+			if err != nil || !strings.Contains(first.RecordProblem, "success note") || !strings.Contains(first.RecordProblem, "dispatch acknowledgement could not be saved") {
+				t.Fatalf("first = %+v, %v; want both recording failures", first, err)
+			}
+			before := harness.reload(t)
+			if !before.Status.Terminal() || !before.RepairContinuations[0].DispatchPending || !before.RepairSuccessNotePending() {
+				t.Fatalf("run = %+v; want completion with both acknowledgements pending", before)
+			}
+			spent := harness.spent(t)
+			runs.saveErr = nil
+			if !written {
+				repeated, err := continuer.Continue(context.Background(), continueRequest())
+				if err != nil || !repeated.AlreadyContinued || repeated.RecordProblem == "" || len(harness.started) != 1 || !reflect.DeepEqual(harness.reload(t), before) {
+					t.Fatalf("repeated = %+v, %v; want the completed execution reported without another dispatch or transition", repeated, err)
+				}
+			}
+			harness.docket.entries = nil
+			carrying := harness.carryOut()
+			carrying.Repairer = continuer
+			pulls := newScheduleHarness()
+			scheduler := Scheduler{Limit: 1, Open: func(ctx context.Context) (Pull, error) {
+				pull, err := pulls.open(ctx)
+				pull.Runs, pull.CarryOut = harness.runs, carrying
+				return pull, err
+			}}
+			pass := func() Schedule {
+				t.Helper()
+				schedule, err := scheduler.Schedule(context.Background())
+				if err != nil || len(schedule.Started) != 0 || len(harness.started) != 1 {
+					t.Fatalf("Schedule() = %s, %v; want note recovery without another dispatch", schedule.Render(), err)
+				}
+				return schedule
+			}
+			_, lease, err := harness.runs.AdoptRun(context.Background(), docketedRunID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			pass()
+			lease.Release()
+			if !reflect.DeepEqual(harness.reload(t), before) {
+				t.Fatal("note recovery changed a leased completed run")
+			}
+			if !written {
+				if failed := pass(); failed.CarryOutNoteProblem == "" || !harness.reload(t).RepairSuccessNotePending() {
+					t.Fatalf("failed note retry = %s; want the missing note failure to remain recoverable", failed.Render())
+				}
+			}
+			items.onRecord = nil
+			if recovered := pass(); recovered.CarryOutNoteProblem != "" {
+				t.Fatalf("recovered = %s; want the note confirmed", recovered.Render())
+			}
+			after := harness.reload(t)
+			if after.RepairSuccessNotePending() || after.RepairContinuations[0].DispatchPending || strings.Count(items.Notes, first.Reason) != 1 {
+				t.Fatalf("state = %+v, notes = %q; want both acknowledgements confirmed and one success note", after, items.Notes)
+			}
+			expected := before
+			expected.RepairContinuations = append([]runstate.RepairContinuation(nil), before.RepairContinuations...)
+			expected.RepairContinuations[0].DispatchPending, expected.RepairContinuations[0].SuccessNotePending = false, false
+			if !reflect.DeepEqual(after, expected) || !reflect.DeepEqual(harness.spent(t), spent) {
+				t.Fatal("note recovery changed the continuation, execution outcome, or expenditure")
+			}
+			calls := append([]string(nil), items.Calls...)
+			pass()
+			if !reflect.DeepEqual(harness.reload(t), after) || !reflect.DeepEqual(items.Calls, calls) {
+				t.Fatal("a later pass repeated confirmed note delivery")
+			}
+		})
+	}
+}
+
 func TestSchedulingRecoversRepairSuccessNotesWithoutAnotherDispatch(t *testing.T) {
 	t.Parallel()
 	for _, terminal := range []bool{false, true} {
