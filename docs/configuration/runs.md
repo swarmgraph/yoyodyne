@@ -240,9 +240,13 @@ server, saves a native session, resumes it with different cache, scratch, and
 worktree paths, and resumes that same session under reviewer restrictions.
 It requires successful Go compilation and scratch log writes, denied writes to
 unrelated and previously granted paths, and read-only restrictions after
-restoring a writable session. It checks the CLI's command exit and a distinct
-proof message for each turn, rather than the scripted provider's final reply or
-a replayed command from an earlier turn. It uses no provider credentials or paid
+restoring a writable session. It checks the CLI's command event or unified shell
+tool result for a zero exit and a distinct proof message for each turn, and
+checks the retained files. The scripted provider's final reply and a replayed
+command from an earlier turn cannot satisfy it. A unified shell command that
+yields is polled to completion; only an explicit refusal before its execution
+environment is ready is retried, within a fixed bound. Other refusals retain
+the CLI's tool result in the failure. It uses no provider credentials or paid
 model calls:
 
 ```sh

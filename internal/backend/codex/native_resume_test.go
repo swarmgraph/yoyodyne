@@ -63,22 +63,26 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	}
 	denied := []string{outside, otherScratch, filepath.Join(oldRepository, ".git"), filepath.Join(newRepository, ".git")}
 	freshProof := nativeProbeReply + ": fresh launch"
-	model.begin(nativeProbeCommand(t, oldWorktree, oldPaths, append(denied, append(newPaths, newWorktree)...), freshProof))
-	fresh := nativeProbeTurn(t, provider, request, freshProof)
+	freshDenied := append(denied, append(newPaths, newWorktree)...)
+	model.begin(nativeProbeCommand(t, oldWorktree, oldPaths, freshDenied, freshProof))
+	fresh := nativeProbeTurn(t, provider, request, freshProof, model)
 	if fresh.SessionID == "" {
 		t.Fatal("the fresh CLI invocation did not create a resumable session")
 	}
 	model.requireTurn(t)
+	nativeProbeFiles(t, oldWorktree, oldPaths, freshDenied, freshProof)
 
 	request.SessionID = fresh.SessionID
 	request.RepositoryRoot, request.WorkingDirectory = newRepository, newWorktree
 	resumeProof := nativeProbeReply + ": changed grants"
-	model.begin(nativeProbeCommand(t, newWorktree, newPaths, append(denied, append(oldPaths, oldWorktree)...), resumeProof))
-	resumed := nativeProbeTurn(t, provider, request, resumeProof)
+	resumeDenied := append(denied, append(oldPaths, oldWorktree)...)
+	model.begin(nativeProbeCommand(t, newWorktree, newPaths, resumeDenied, resumeProof))
+	resumed := nativeProbeTurn(t, provider, request, resumeProof, model)
 	if resumed.SessionID != fresh.SessionID {
 		t.Fatalf("resume created session %q instead of restoring %q", resumed.SessionID, fresh.SessionID)
 	}
 	model.requireTurn(t)
+	nativeProbeFiles(t, newWorktree, newPaths, resumeDenied, resumeProof)
 
 	// Restore that same previously writable session under the reviewer's native
 	// posture. Old and current cache, scratch, worktrees, and unrelated paths
@@ -88,11 +92,33 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	allDenied = append(allDenied, oldWorktree, newWorktree)
 	reviewProof := nativeProbeReply + ": reviewer resume"
 	model.begin(nativeProbeCommand(t, newWorktree, nil, allDenied, reviewProof))
-	readOnly := nativeProbeTurn(t, provider, request, reviewProof)
+	readOnly := nativeProbeTurn(t, provider, request, reviewProof, model)
 	if readOnly.SessionID != fresh.SessionID {
 		t.Fatalf("read-only resume created session %q instead of restoring %q", readOnly.SessionID, fresh.SessionID)
 	}
 	model.requireTurn(t)
+	nativeProbeFiles(t, newWorktree, nil, allDenied, reviewProof)
+}
+
+func nativeProbeFiles(t *testing.T, worktree string, allowed, denied []string, proof string) {
+	t.Helper()
+	if len(allowed) != 0 {
+		for _, directory := range []string{worktree, allowed[0]} {
+			body, err := os.ReadFile(filepath.Join(directory, "allowed"))
+			if err != nil || string(body) != proof {
+				t.Errorf("probe write in %s: %q, %v; want %q", directory, body, err, proof)
+			}
+		}
+		log, err := os.ReadFile(filepath.Join(allowed[1], "check.log"))
+		if err != nil || len(log) == 0 {
+			t.Errorf("probe compile log: %q, %v; want a retained Go check log", log, err)
+		}
+	}
+	for _, directory := range denied {
+		if _, err := os.Stat(filepath.Join(directory, "forbidden")); !os.IsNotExist(err) {
+			t.Errorf("forbidden probe write in %s: %v; want no file", directory, err)
+		}
+	}
 }
 
 func nativeProbeDirectories(t *testing.T, repository, worktree string) []string {
@@ -130,8 +156,8 @@ if [ "$mode" = developer ]; then
     cat "$scratch/check.log"; exit 21
   fi
   test -s "$scratch/check.log"
-  printf allowed > "$cache/allowed"
-  printf allowed > "$worktree/allowed"
+  printf '%s' "$proof" > "$cache/allowed"
+  printf '%s' "$proof" > "$worktree/allowed"
 else
   test "$(pwd -P)" != "$worktree"
 fi
@@ -144,7 +170,7 @@ printf '%s\n' "$proof"`
 	return append([]string{"sh", "-c", script, "sandbox-probe", mode, physical, cache, scratch, proof}, denied...)
 }
 
-func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunRequest, proof string) backendapi.RunResult {
+func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunRequest, proof string, model *sandboxResponses) backendapi.RunResult {
 	t.Helper()
 	result, err := provider.Run(context.Background(), request)
 	process := provider.Runner.(*sandboxCLIRunner).process
@@ -153,7 +179,8 @@ func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunReque
 			err, process.Status, process.ExitCode, result.StopReason, result.FinalText, process.Stdout, process.Stderr)
 	}
 	// A fake provider's final reply is not execution evidence. Require the CLI's
-	// completed command item to hold this turn's stdout and a successful exit;
+	// completed command item or its unified-exec tool result to hold this turn's
+	// stdout and a successful exit;
 	// replaying an earlier turn's successful command cannot satisfy a resume.
 	for _, line := range strings.Split(process.Stdout, "\n") {
 		var event struct {
@@ -169,9 +196,17 @@ func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunReque
 			return result
 		}
 	}
+	var toolResult string
+	if model != nil {
+		verified, output := model.commandEvidence(proof)
+		toolResult = output
+		if verified {
+			return result
+		}
+	}
 	// Keep checking subsequent native resumes when the CLI saved the session,
 	// even if this turn's sandbox refused to execute. The test remains failed.
-	t.Errorf("the CLI did not report a successful confinement command:\n%s\n%s", process.Stdout, process.Stderr)
+	t.Errorf("the CLI did not report a successful confinement command; tool result = %q:\n%s\n%s", toolResult, process.Stdout, process.Stderr)
 	return result
 }
 
@@ -220,19 +255,24 @@ func TestNativeProbeReadsCommandEvidenceBeforeAdapterDiscardsRawOutput(t *testin
 	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "probe",
-	}, nativeProbeReply)
+	}, nativeProbeReply, nil)
 	if result.Process.Stdout != "" || result.SessionID != "native-session" {
 		t.Fatalf("adapter result = %+v, want normalized output and the saved session", result)
 	}
 }
 
 type sandboxResponses struct {
-	mu       sync.Mutex
-	command  []string
-	calls    int
-	turn     int
-	finished bool
-	err      error
+	mu         sync.Mutex
+	command    []string
+	calls      int
+	turn       int
+	finished   bool
+	err        error
+	unified    bool
+	started    bool
+	output     string
+	lastOutput string
+	exitCode   *int
 }
 
 func (s *sandboxResponses) begin(command []string) {
@@ -240,6 +280,7 @@ func (s *sandboxResponses) begin(command []string) {
 	defer s.mu.Unlock()
 	s.command, s.calls, s.err = command, 0, nil
 	s.finished = false
+	s.unified, s.started, s.output, s.lastOutput, s.exitCode = false, false, "", "", nil
 	s.turn++
 }
 
@@ -250,6 +291,12 @@ func (s *sandboxResponses) requireTurn(t *testing.T) {
 	if s.err != nil || s.calls < 2 || !s.finished {
 		t.Fatalf("scripted Responses turn: requests = %d, error = %v", s.calls, s.err)
 	}
+}
+
+func (s *sandboxResponses) commandEvidence(proof string) (bool, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.err == nil && s.finished && s.exitCode != nil && *s.exitCode == 0 && strings.TrimSpace(s.output) == proof, s.lastOutput
 }
 
 func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -271,9 +318,42 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	responseID := fmt.Sprintf("resp_probe_%d_%d", s.turn, s.calls)
+	retry := false
+	if s.unified && s.calls > 1 {
+		output, found := sandboxCurrentOutput(request.Input, fmt.Sprintf("call_probe_%d_%d", s.turn, s.calls-1))
+		s.lastOutput = output
+		if !found {
+			s.err = fmt.Errorf("the CLI submitted no result for the current confinement command")
+		} else if strings.TrimSpace(output) == "unified exec is unavailable in this session" && !s.started && s.calls < 32 {
+			// A scripted response can reach the CLI before its execution environment
+			// is ready. Retry only this explicit pre-execution refusal, bounded by
+			// requests and the native turn's deadline; never rerun a started command.
+			timer := time.NewTimer(250 * time.Millisecond)
+			select {
+			case <-timer.C:
+				retry = true
+			case <-r.Context().Done():
+				timer.Stop()
+				s.err = r.Context().Err()
+			}
+		} else {
+			exitCode, _, running, stdout := sandboxExecResult(output)
+			if exitCode == nil && !running {
+				s.err = fmt.Errorf("the CLI refused the confinement command: %s", output)
+			} else {
+				s.started = true
+				s.output += stdout
+				s.exitCode = exitCode
+				if exitCode != nil && *exitCode != 0 {
+					s.err = fmt.Errorf("confinement command exited with code %d: %s", *exitCode, s.output)
+				}
+			}
+		}
+	}
 	var item map[string]any
-	if s.calls == 1 {
+	if s.calls == 1 || retry {
 		name, namespace := sandboxShellTool(request.Tools, "")
+		s.unified = name == "exec_command"
 		var arguments any
 		switch name {
 		case "shell":
@@ -300,13 +380,13 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				"action": map[string]any{"type": "exec", "command": s.command, "timeout_ms": 45000}}
 		} else {
 			encoded, _ := json.Marshal(arguments)
-			item = map[string]any{"type": "function_call", "id": fmt.Sprintf("fc_probe_%d", s.turn),
+			item = map[string]any{"type": "function_call", "id": fmt.Sprintf("fc_probe_%d_%d", s.turn, s.calls),
 				"call_id": fmt.Sprintf("call_probe_%d_%d", s.turn, s.calls), "name": name, "arguments": string(encoded)}
 			if namespace != "" {
 				item["namespace"] = namespace
 			}
 		}
-	} else if session, running := sandboxRunningSession(request.Input, fmt.Sprintf("call_probe_%d_%d", s.turn, s.calls-1)); running {
+	} else if session, running := sandboxRunningSession(request.Input, fmt.Sprintf("call_probe_%d_%d", s.turn, s.calls-1)); running && s.err == nil {
 		namespace, found := sandboxFunctionTool(request.Tools, "", "write_stdin")
 		if !found {
 			s.err = fmt.Errorf("the CLI returned running session %d without a write_stdin tool", session)
@@ -321,8 +401,12 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		s.finished = true
+		reply := "probe complete"
+		if s.err != nil {
+			reply = "probe failed"
+		}
 		item = map[string]any{"type": "message", "id": fmt.Sprintf("msg_probe_%d", s.turn), "role": "assistant", "status": "completed",
-			"content": []any{map[string]any{"type": "output_text", "text": "probe complete", "annotations": []any{}}}}
+			"content": []any{map[string]any{"type": "output_text", "text": reply, "annotations": []any{}}}}
 	}
 	w.Header().Set("Content-Type", "text/event-stream")
 	for _, event := range []any{
@@ -345,21 +429,54 @@ type sandboxInput struct {
 // exec_command can yield before compilation finishes. Only the current call's
 // result may request a poll; saved outputs from earlier turns are not evidence.
 func sandboxRunningSession(input []sandboxInput, callID string) (int64, bool) {
+	output, found := sandboxCurrentOutput(input, callID)
+	if !found {
+		return 0, false
+	}
+	_, session, running, _ := sandboxExecResult(output)
+	return session, running
+}
+
+func sandboxCurrentOutput(input []sandboxInput, callID string) (string, bool) {
 	for _, item := range input {
 		if item.Type != "function_call_output" || item.CallID != callID {
 			continue
 		}
 		var output string
-		if json.Unmarshal(item.Output, &output) != nil {
-			continue
+		if json.Unmarshal(item.Output, &output) == nil {
+			return output, true
 		}
-		_, suffix, found := strings.Cut(output, "Process running with session ID ")
-		if fields := strings.Fields(suffix); found && len(fields) > 0 {
-			session, err := strconv.ParseInt(fields[0], 10, 64)
-			return session, err == nil && session >= 0
+		var content []struct{ Type, Text string }
+		if json.Unmarshal(item.Output, &content) == nil {
+			for _, part := range content {
+				if part.Type == "input_text" {
+					output += part.Text
+				}
+			}
+			return output, true
 		}
 	}
-	return 0, false
+	return "", false
+}
+
+func sandboxExecResult(output string) (exitCode *int, session int64, running bool, stdout string) {
+	header, stdout, found := strings.Cut(output, "\nOutput:\n")
+	if !found {
+		return nil, 0, false, ""
+	}
+	for _, line := range strings.Split(header, "\n") {
+		if value, found := strings.CutPrefix(line, "Process exited with code "); found {
+			if code, err := strconv.Atoi(value); err == nil {
+				exitCode = &code
+			}
+		}
+		if value, found := strings.CutPrefix(line, "Process running with session ID "); found {
+			if id, err := strconv.ParseInt(value, 10, 64); err == nil && id >= 0 {
+				session, running = id, true
+			}
+		}
+	}
+	return exitCode, session, running, stdout
 }
 
 type sandboxTool struct {
@@ -481,7 +598,11 @@ func TestScriptedSandboxProviderUsesAdvertisedShellTool(t *testing.T) {
 					t.Fatalf("shell arguments = %q, want %q", arguments.Command, command)
 				}
 			}
-			model.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"tools":[]}`)))
+			body := `{"tools":[]}`
+			if test.function == "exec_command" {
+				body = `{"input":[{"type":"function_call_output","call_id":"call_probe_1_1","output":"Process exited with code 0\nOutput:\nnative sandbox probe passed\n"}]}`
+			}
+			model.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(body)))
 			model.requireTurn(t)
 		})
 	}
@@ -554,4 +675,126 @@ func TestScriptedSandboxProviderPollsOnlyTheCurrentCommandUntilItFinishes(t *tes
 		t.Fatalf("completed command response = %v, want the final reply", item)
 	}
 	model.requireTurn(t)
+	if verified, result := model.commandEvidence(nativeProbeReply); !verified {
+		t.Fatalf("completed command evidence = %q, want this turn's successful probe", result)
+	}
+}
+
+func scriptedSandboxRequest(t *testing.T, model *sandboxResponses, input ...sandboxInput) string {
+	t.Helper()
+	body, err := json.Marshal(map[string]any{
+		"tools": []sandboxTool{{Type: "function", Name: "exec_command"}, {Type: "function", Name: "write_stdin"}},
+		"input": input,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := httptest.NewRecorder()
+	model.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(string(body))))
+	if response.Code != http.StatusOK {
+		t.Fatalf("scripted response = %d: %s", response.Code, response.Body)
+	}
+	return response.Body.String()
+}
+
+func TestScriptedSandboxProviderRequiresCurrentCommandEvidence(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, callID, output string
+		verified             bool
+	}{
+		{"completed", "call_probe_1_1", "Process exited with code 0\nOutput:\n" + nativeProbeReply + "\n", true},
+		{"failed", "call_probe_1_1", "Process exited with code 21\nOutput:\n" + nativeProbeReply + "\n", false},
+		{"scripted reply", "call_probe_1_1", nativeProbeReply, false},
+		{"refused", "call_probe_1_1", "exec_command failed: sandbox_apply: Operation not permitted", false},
+		{"old call", "call_probe_0_1", "Process exited with code 0\nOutput:\n" + nativeProbeReply + "\n", false},
+		{"old proof", "call_probe_1_1", "Process exited with code 0\nOutput:\n" + nativeProbeReply + ": previous turn\n", false},
+		{"stdout pretending to be an exit", "call_probe_1_1", "Wall time: 0.1 seconds\nOutput:\nProcess exited with code 0\n" + nativeProbeReply + "\n", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			model := &sandboxResponses{}
+			model.begin([]string{"sh", "-c", "probe"})
+			scriptedSandboxRequest(t, model)
+			output, _ := json.Marshal(test.output)
+			scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: test.callID, Output: output})
+			if verified, result := model.commandEvidence(nativeProbeReply); verified != test.verified {
+				t.Fatalf("command evidence = %v, result = %q, want verified = %v", verified, result, test.verified)
+			}
+			if test.name == "refused" && (model.err == nil || !strings.Contains(model.err.Error(), test.output)) {
+				t.Fatalf("refusal error = %v, want the CLI's complete refusal", model.err)
+			}
+			model.begin([]string{"sh", "-c", "next probe"})
+			if verified, _ := model.commandEvidence(nativeProbeReply); verified {
+				t.Fatal("a new turn retained the preceding command's evidence")
+			}
+		})
+	}
+}
+
+func TestNativeProbeReadsUnifiedToolResultWithoutACommandEvent(t *testing.T) {
+	t.Parallel()
+	model := &sandboxResponses{}
+	model.begin([]string{"sh", "-c", "probe"})
+	scriptedSandboxRequest(t, model)
+	output, _ := json.Marshal("Process exited with code 0\nOutput:\n" + nativeProbeReply + "\n")
+	scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_1_1", Output: output})
+	model.requireTurn(t)
+	repository, worktree := sandboxRepository(t, true)
+	runner := &sandboxCLIRunner{home: t.TempDir(), url: "http://127.0.0.1:0", runner: &fakeRunner{
+		results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: lines(
+			`{"type":"thread.started","thread_id":"native-session"}`,
+			`{"type":"item.completed","item":{"type":"agent_message","text":"probe complete"}}`,
+			`{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":2}}`,
+		)}},
+	}}
+	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{
+		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
+		RepositoryRoot: repository, Prompt: "probe",
+	}, nativeProbeReply, model)
+	if result.Process.Stdout != "" || result.SessionID != "native-session" {
+		t.Fatalf("adapter result = %+v, want normalized output and the saved session", result)
+	}
+}
+
+func TestScriptedSandboxProviderRetriesOnlyBeforeExecutionStarts(t *testing.T) {
+	t.Parallel()
+	model := &sandboxResponses{}
+	model.begin([]string{"sh", "-c", "probe"})
+	scriptedSandboxRequest(t, model)
+	unavailable, _ := json.Marshal("unified exec is unavailable in this session")
+	response := scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_1_1", Output: unavailable})
+	if !strings.Contains(response, `"name":"exec_command"`) || model.err != nil || model.started {
+		t.Fatalf("startup retry = %s, error = %v, started = %v", response, model.err, model.started)
+	}
+	running, _ := json.Marshal("Process running with session ID 42\nOutput:\n")
+	scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_1_2", Output: running})
+	response = scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_1_3", Output: unavailable})
+	if strings.Contains(response, `"name":"exec_command"`) || model.err == nil {
+		t.Fatalf("started command was retried: %s, error = %v", response, model.err)
+	}
+
+	model.begin([]string{"sh", "-c", "next probe"})
+	scriptedSandboxRequest(t, model)
+	model.calls = 31
+	response = scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_2_31", Output: unavailable})
+	if strings.Contains(response, `"name":"exec_command"`) || model.err == nil || !strings.Contains(model.err.Error(), "unified exec is unavailable") {
+		t.Fatalf("startup refusal beyond the retry bound = %s, error = %v", response, model.err)
+	}
+}
+
+func TestSandboxToolResultDecodesContentAndIgnoresStdoutSessionMarkers(t *testing.T) {
+	t.Parallel()
+	body := json.RawMessage(`[{"type":"input_text","text":"Process exited with code 0\nOutput:\nProcess running with session ID 42\n"}]`)
+	input := []sandboxInput{{Type: "function_call_output", CallID: "current-call", Output: body}}
+	output, found := sandboxCurrentOutput(input, "current-call")
+	if !found {
+		t.Fatal("content-array tool result was not decoded")
+	}
+	exit, _, running, stdout := sandboxExecResult(output)
+	if exit == nil || *exit != 0 || running || stdout != "Process running with session ID 42\n" {
+		t.Fatalf("command result = %v, %v, %q, want a completed command with a literal stdout marker", exit, running, stdout)
+	}
+	if _, running := sandboxRunningSession(input, "current-call"); running {
+		t.Fatal("a session marker printed by the command requested a poll")
+	}
 }
