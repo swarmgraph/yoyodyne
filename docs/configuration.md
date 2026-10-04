@@ -6815,6 +6815,15 @@ to `max_turns`. A pass that still had more to do when the bound ran out is
 recorded as partial, so a truncated pass and a finished one are never the same
 short report.
 
+The development manager's continuation turns also carry the next slice of her
+live docket, through the same listing as the first turn. Entries already
+delivered on that pass are not repeated, and decisions and closed work are read
+again before each slice. The harness continues while live entries remain
+undelivered, even if a turn's account says complete. If the turn bound or a
+provider refusal ends the pass first, its record counts the entries never
+delivered and names the oldest; the next pass puts them ahead of entries already
+shown.
+
 **A reply with more than one account keeps the last.** The contract is one
 sweep block per reply, and a role that answers with two — a `more` and then a
 `complete`, which is the shape the slip takes — has slipped rather than failed.

@@ -392,6 +392,9 @@ type Sweep struct {
 	// Wording is the read model's findings about what this pass wrote for a person.
 	// The next pass is told these corrections; Result and the lane report stay intact.
 	Wording []terms.Finding `json:"wording,omitempty"`
+	// Docket records what this pass delivered and what the next pass must put
+	// first. It is absent on older passes and on roles that read no docket.
+	Docket *DocketDelivery `json:"docket,omitempty"`
 	// Steps is what the harness's own maintenance pass did, one entry per step in
 	// the order it took them, each saying whether it ran, was skipped, or failed,
 	// and why. A step that was skipped says so rather than being left out,
@@ -680,6 +683,14 @@ func (s Sweep) FoundNothing() bool {
 // Validate reports every contract violation in the record at once.
 func (s Sweep) Validate() error {
 	var problems []error
+	if s.Docket != nil {
+		if s.Role != domain.RoleDevelopmentManager {
+			problems = append(problems, errors.New("only a development manager's pass carries docket delivery"))
+		}
+		if err := s.Docket.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if s.SchemaVersion != SweepSchemaVersion {
 		problems = append(problems, fmt.Errorf("sweep schema version %d is not supported", s.SchemaVersion))
 	}

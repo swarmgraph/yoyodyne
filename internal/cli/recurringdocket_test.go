@@ -141,12 +141,12 @@ func TestASweepsDocketSaysWhenItIsEmptyAndWhenItCouldNotBeRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runstate.NewDocketStore() error = %v", err)
 	}
-	empty := sweepDocket{docketer: docketerOverDocket(runs, docket)}.Window()
+	empty := sweepDocket{docketer: docketerOverDocket(runs, docket)}.StartPass(nil).Window()
 	if !strings.Contains(empty, "Nothing is on the docket") {
 		t.Errorf("an empty docket rendered as %q, want it said in words", empty)
 	}
 
-	unread := sweepDocket{docketer: failingDocketer{}}.Window()
+	unread := sweepDocket{docketer: failingDocketer{}}.StartPass(nil).Window()
 	for _, want := range []string{"could not be read", "the docket log is locked", "Do not assume nothing has stopped"} {
 		if !strings.Contains(unread, want) {
 			t.Errorf("an unreadable docket rendered as %q, want %q", unread, want)
@@ -203,7 +203,11 @@ func TestASweepsDocketIsTheLiveWindowAndAdvancesTheSharedWalk(t *testing.T) {
 		items:    fixedItems{{ID: "yoyodyne-ifd.430.13.4", Status: "closed"}},
 		window:   docket,
 	}
-	rendered := pass.Window()
+	delivery := pass.StartPass(nil)
+	rendered := delivery.Window()
+	if problem := delivery.Delivered(); problem != "" {
+		t.Fatal(problem)
+	}
 	if strings.Contains(rendered, "on yoyodyne-ifd.430.13.4 (") {
 		t.Errorf("an entry on a closed item was listed:\n%s", rendered)
 	}

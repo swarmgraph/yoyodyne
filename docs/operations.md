@@ -5883,7 +5883,7 @@ derived from these records, and dropping any proposal you have decided since. [W
 cadence](configuration.md#working-the-amendment-queue-on-a-cadence) says how
 the pass is configured.
 
-Five outcomes look similar in a listing and are not the same thing:
+These outcomes look similar in a listing and are not the same thing:
 
 - **A pass that found nothing** shows its own summary and no findings. On a
   healthy harness that is most of them, and a run of passes that keeps finding
@@ -5918,6 +5918,12 @@ Five outcomes look similar in a listing and are not the same thing:
   lines](#where-the-harness-stands-the-four-lines).
 - **A pass stopped by its turn bound** is recorded as partial, naming the bound,
   so a truncated pass is never mistaken for a finished one.
+- **A development manager's pass that leaves docket entries unread** records
+  how many live entries were never delivered and names the oldest, including
+  when a provider refusal ended the pass. Its continuation turns carry each
+  next slice, without repeating entries already delivered on that pass. The
+  next pass starts with the unread entries. `--json` carries this evidence in
+  `docket`: the delivered count, the ordered `undelivered` entries, and `oldest`.
 - **A firing that failed before its first turn** is recorded as a failed firing,
   not a partial pass, and its header says `FAILED FIRING` with the cause:
   the harness refused the message it composed for the pass, the role's

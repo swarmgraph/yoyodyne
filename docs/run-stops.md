@@ -324,7 +324,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).pauseForOperatorHold` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/queuedchecks.go` | `(Reconciler).updateQueuedHead` | `status-write` | 1 | Resumes promotion after a queued head fell behind with running status. |
 | `internal/orchestrator/recurring.go` | `(Trigger).run` | `call:finish` | 1 | Finishes a recurring firing or sets its sweep account to more; no developer run ends. |
-| `internal/orchestrator/recurring.go` | `(Trigger).run` | `status-write` | 1 | Finishes a recurring firing or sets its sweep account to more; no developer run ends. |
+| `internal/orchestrator/recurring.go` | `(Trigger).run` | `status-write` | 3 | Sets a sweep account to more for unhandled critical reports or docket entries not yet delivered, including at the pass's ending; no developer run ends. |
 | `internal/orchestrator/redeploydrain.go` | `(*activeRun).pauseForRedeploy` | `status-write` | 1 | Reports the pause as running, with change and session preserved; no terminal ending. |
 | `internal/orchestrator/repaircontinue.go` | `(RepairContinuer).supersedeOnRun` | `status-write` | 1 | Resumes preserved repair or approved integration with running status. |
 | `internal/orchestrator/schedule.go` | `(Scheduler).Schedule` | `call:stop` | 2 | Stops the drain and watch session or delivers escalations; no developer-run ending. |

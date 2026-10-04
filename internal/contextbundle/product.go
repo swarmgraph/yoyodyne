@@ -1721,16 +1721,34 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 // back is past the last entry the walk listed, so the next window starts with
 // what this one left out.
 func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition) {
+	window := TriageDocketWindow(request, nil, nil)
+	return window.Text, window.Position
+}
+
+// DocketWindow is one rendered slice and the entries it did and did not carry.
+// A scheduled pass keeps the listed identities only after the turn is answered.
+type DocketWindow struct {
+	Text     string
+	Position *triage.WindowPosition
+	Listed   []triage.Stoppage
+	Unlisted []triage.Stoppage
+}
+
+// TriageDocketWindow uses the conversation's rendering and bounds for every
+// turn of a pass. Shown entries are left out, and entries a previous pass did
+// not reach go first, in their saved order. Identities include the stoppage's
+// age, so a fresh stoppage with the same key is a new question.
+func TriageDocketWindow(request ProductRequest, delivered, pending []triage.WindowPosition) DocketWindow {
 	entries, unavailable := request.TriageDocket, request.TriageDocketUnavailable
 	if len(entries) == 0 && strings.TrimSpace(unavailable) == "" {
-		return "", nil
+		return DocketWindow{}
 	}
 	var rendered strings.Builder
 	rendered.WriteString(triageDocketHeader)
 	if strings.TrimSpace(unavailable) != "" {
 		rendered.WriteString("The triage docket could not be read: " + singleLine(unavailable, 512) + "\n")
 		rendered.WriteString("Do not assume nothing has stopped; say that the docket could not be read.\n")
-		return rendered.String(), nil
+		return DocketWindow{Text: rendered.String()}
 	}
 	now := request.TriageDocketAt
 	if now.IsZero() {
@@ -1749,10 +1767,25 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 		closed = func(workItemID string) bool { return closedItems[workItemID] }
 	}
 	live := triage.Live(entries, closed, now)
+	seen := make(map[triage.WindowPosition]bool, len(delivered))
+	for _, at := range delivered {
+		seen[at] = true
+	}
+	remaining := make([]triage.Stoppage, 0, len(live.Stoppages))
+	for _, standing := range live.Stoppages {
+		if !seen[standing.At()] {
+			remaining = append(remaining, standing)
+		}
+	}
+	live.Stoppages = remaining
 	if len(live.Stoppages) == 0 {
-		rendered.WriteString("Nothing live has stopped: no run on open work ended on a blocker, no publication is unmerged, and no item was found unready to dispatch.\n")
+		if len(delivered) > 0 {
+			rendered.WriteString("This docket reading lists no further live entry to deliver on this pass.\n")
+		} else {
+			rendered.WriteString("Nothing live has stopped: no run on open work ended on a blocker, no publication is unmerged, and no item was found unready to dispatch.\n")
+		}
 		rendered.WriteString(renderDocketLeftOut(live, itemsUnknown))
-		return rendered.String(), nil
+		return DocketWindow{Text: rendered.String()}
 	}
 	window := triage.Walk(live.Stoppages, request.TriageDocketPosition)
 	// Every stoppage nobody has decided comes before any whose decision is
@@ -1762,6 +1795,26 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 	ordered = append(ordered, window.Next...)
 	ordered = append(ordered, window.Decided...)
 	ordered = append(ordered, window.Waiting...)
+	if len(pending) > 0 {
+		rendered.WriteString("This slice starts with the live entries earlier slices did not reach, in their saved order, before entries already shown or newly docketed.\n\n")
+		byPosition := make(map[triage.WindowPosition]triage.Stoppage, len(ordered))
+		for _, standing := range ordered {
+			byPosition[standing.At()] = standing
+		}
+		prioritized := make([]triage.Stoppage, 0, len(ordered))
+		for _, at := range pending {
+			if standing, found := byPosition[at]; found {
+				prioritized = append(prioritized, standing)
+				delete(byPosition, at)
+			}
+		}
+		for _, standing := range ordered {
+			if _, found := byPosition[standing.At()]; found {
+				prioritized = append(prioritized, standing)
+			}
+		}
+		ordered = prioritized
+	}
 	sections := make([]string, 0, maxDocketEntries)
 	for _, standing := range ordered {
 		if len(sections) >= maxDocketEntries {
@@ -1831,7 +1884,8 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 		rendered.WriteString(" The next docket you are given resumes past the last one listed here, so what nobody has decided comes first then. Treat what you cannot see as unread rather than as absent.\n")
 	}
 	rendered.WriteString(renderDocketLeftOut(live, itemsUnknown))
-	return rendered.String(), position
+	return DocketWindow{Text: rendered.String(), Position: position,
+		Listed: ordered[:len(sections)], Unlisted: ordered[len(sections):]}
 }
 
 // maxDocketTrailerBytes is what the docket holds back from its entries for the
