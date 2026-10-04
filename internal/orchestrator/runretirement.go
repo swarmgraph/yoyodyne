@@ -54,7 +54,7 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 	}
 	var latest runstate.State
 	for _, candidate := range recorded {
-		if candidate.RunID == state.RunID || candidate.WorkItemID != state.WorkItemID || candidate.Retirement != nil || candidate.PullRequest == nil || handedBack(candidate) || (candidate.CompletedAt != nil && !candidate.CompletedAt.After(state.StartedAt)) {
+		if candidate.RunID == state.RunID || candidate.WorkItemID != state.WorkItemID || candidate.Retirement != nil || handedBack(candidate) || !publicationFollowsRun(candidate, state) {
 			continue
 		}
 		if latest.RunID == "" || laterPublication(candidate, latest) {
@@ -69,7 +69,7 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 		return state, true, fmt.Errorf("read the publication of run %s under its lease before retiring run %s: %w", latest.RunID, state.RunID, err)
 	}
 	defer lease.Release()
-	if publication.WorkItemID != state.WorkItemID || publication.RunID != latest.RunID || !confirmedCompletedPublication(publication) || publication.CompletedAt == nil || !publication.CompletedAt.After(state.StartedAt) || publication.Integration.TargetBranch != state.TargetBranch {
+	if publication.WorkItemID != state.WorkItemID || publication.RunID != latest.RunID || !confirmedCompletedPublication(publication) || publication.CompletedAt == nil || !publicationFollowsRun(publication, state) || publication.Integration.TargetBranch != state.TargetBranch {
 		return state, true, fmt.Errorf("%s (%s) is closed but its later publication in run %s is not a settled confirmed merge into %s; run %s is kept, and the harness retries after the publication settles", item.Title, item.ID, latest.RunID, state.TargetBranch, state.RunID)
 	}
 	// A newer publication may have appeared while the first listing was read.
@@ -121,6 +121,16 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 // progress or finishes. Run update and completion times do not order requests.
 func laterPublication(candidate, incumbent runstate.State) bool {
 	return candidate.PullRequest.Number > incumbent.PullRequest.Number
+}
+
+// A publication must follow the run's own request, where it has one, and
+// complete after the run began. Selection retains unfinished later requests
+// so they refuse retirement until confirmed; Retire requires completion too.
+// With no request on the run, its start time supplies the ordering boundary.
+func publicationFollowsRun(publication, state runstate.State) bool {
+	return publication.PullRequest != nil &&
+		(state.PullRequest == nil || laterPublication(publication, state)) &&
+		(publication.CompletedAt == nil || publication.CompletedAt.After(state.StartedAt))
 }
 
 func (r RunRetirer) readItem(ctx context.Context, id string) (beads.WorkItem, error) {

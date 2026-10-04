@@ -176,7 +176,7 @@ func TestAnAlreadySelectedQueuedContinuationRechecksItsCompletedItem(t *testing.
 
 func TestRetirementAlsoSettlesAnExpiredProviderWait(t *testing.T) {
 	t.Parallel()
-	for _, kind := range []string{"confirmed merge", "no merge", "unsettled merge", "reopened"} {
+	for _, kind := range []string{"confirmed merge", "confirmed merge without a request", "earlier merge without a request", "no merge", "unsettled merge", "reopened"} {
 		t.Run(kind, func(t *testing.T) {
 			f, _, r, prior := updatingRetirementFixture(t)
 			original := prior
@@ -191,6 +191,17 @@ func TestRetirementAlsoSettlesAnExpiredProviderWait(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+				if kind == "earlier merge without a request" {
+					by.StartedAt = prior.StartedAt.Add(-time.Minute)
+					by.UpdatedAt = prior.StartedAt
+					by.CompletedAt = &by.UpdatedAt
+					if err := f.store.Save(by); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			if strings.Contains(kind, "without a request") {
+				prior.PullRequest = nil
 			}
 			deadline := r.clock().Now().Add(-time.Minute)
 			prior.Phase = runstate.PhaseDeveloping
@@ -210,7 +221,7 @@ func TestRetirementAlsoSettlesAnExpiredProviderWait(t *testing.T) {
 				t.Fatalf("wait continuation = %+v, %v", results, err)
 			}
 			result := results[0]
-			if kind == "confirmed merge" {
+			if kind == "confirmed merge" || kind == "confirmed merge without a request" {
 				if continued || result.Failure != "" || result.Outcome == nil || result.Outcome.Retirement == nil {
 					t.Fatalf("expired wait did not retire: %+v", result)
 				}
@@ -234,6 +245,48 @@ func TestRetirementAlsoSettlesAnExpiredProviderWait(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestRetirementKeepsANewerRequestWhenAnOlderRequestCompletesAfterItStarted(t *testing.T) {
+	t.Parallel()
+	f, _, r, newer := updatingRetirementFixture(t)
+	original := newer
+	original.Integration = &runstate.Integration{TargetBranch: "main", SourceCommit: newer.PullRequest.HeadCommit, TargetCommit: newer.PullRequest.HeadCommit, PreviousTargetCommit: newer.BaseCommit, ThroughPullRequest: true}
+	by := recordSupersedingMerge(t, f, original)
+	by.StartedAt = newer.StartedAt.Add(-time.Minute)
+	if err := f.store.Save(by); err != nil {
+		t.Fatal(err)
+	}
+	p := *newer.PullRequest
+	p.Number = by.PullRequest.Number + 1
+	p.URL = "https://example.invalid/pull/752"
+	newer.PullRequest = &p
+	if err := f.store.Save(newer); err != nil {
+		t.Fatal(err)
+	}
+	if !by.CompletedAt.After(newer.StartedAt) {
+		t.Fatal("the older request must finish after the newer run starts")
+	}
+	closeRetirementItem(f)
+	r.Continue = func(context.Context, string, string) (Outcome, error) {
+		t.Fatal("a closed item's newer request must not be resumed")
+		return Outcome{}, nil
+	}
+	results, err := r.ContinueUpdates(context.Background())
+	if err != nil || len(results) != 1 {
+		t.Fatalf("continuation pass = %+v, %v", results, err)
+	}
+	result := results[0]
+	saved := loadRun(t, f.store, newer.RunID)
+	if result.Retired || saved.Retirement != nil || result.Failure == "" || result.Finding == nil || result.Finding.Mover != readmodel.MoverDevelopmentManager {
+		t.Fatalf("the older request did not leave an owned per-item finding: %+v", result)
+	}
+	if !saved.HoldsDeveloperSlot() || saved.Status != newer.Status || saved.Phase != newer.Phase || saved.Branch != newer.Branch || saved.WorktreePath != newer.WorktreePath || saved.ProviderSessionID != newer.ProviderSessionID {
+		t.Fatal("the newer request's run was changed by the older merge")
+	}
+	if f.tracker.Record().Item.Status != "closed" || f.tracker.(*orchestratortest.Tracker).Reopened {
+		t.Fatal("the closed item was reopened")
 	}
 }
 

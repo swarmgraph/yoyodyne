@@ -2655,8 +2655,11 @@ absence and clears the saved refusal under the run's lease.
 the item is closed and another run has a later, settled publication with its
 merge confirmed into the same target, reconcile records that merge and the run
 it supersedes on the old run and on the item. Publication order comes from the
-forge's pull request numbers; progress recorded afterwards on an older run does
-not make its request newer or hide the confirmed merge. The old run ends cancelled,
+forge's pull request numbers, and the confirming request must have a higher
+number than the old run's own request. Progress recorded afterwards on an older
+run does not make its request newer or hide the confirmed merge. For a run
+without a request, the confirming run must have completed after it began;
+completion before or at its start does not authorize retirement. The old run ends cancelled,
 releasing its developer slot, integration reservation, and the files it held
 for scheduling. Its branch,
 worktree, developer session, publication record, and execution history are kept;
