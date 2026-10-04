@@ -695,6 +695,25 @@ the next pass's message under **Overdue reports**, with how many passes it has
 stood through, so a report about a whole lane cannot sit behind a pass that
 keeps choosing others.
 
+The overdue list previews at most 240 bytes of each message after joining
+whitespace. Every cut is declared beside the preview, with the full message's
+size in bytes. A role can read that report, or a report cited inside another
+report, in the same turn through its existing tracker block:
+
+```yoyodyne-tracker
+{"actions":[{"action":"read","report":"report-00000000000000000000000000000001"}]}
+```
+
+On a report read, `report` replaces the work item's `id`; the two cannot be
+given together. The harness reads the existing report store, records the
+request and its result like other reads, and returns the whole message before
+the role finishes answering. Messages are limited to 4 KiB when filed, and the
+result uses the same 8 KiB bound as an item read: the message is kept whole,
+with any cut to its attribution declared. The existing action-count and round
+limits still apply. A handled report remains readable, and an identifier the
+store does not hold is refused with that reason. Reading changes no report's
+handling and no work item's state.
+
 That ordering is the difference between a bound and a bottleneck, and this
 project learned it the expensive way. Delivering the worst ten of a worst-first
 listing takes the same ten every turn until somebody decides about one of them,

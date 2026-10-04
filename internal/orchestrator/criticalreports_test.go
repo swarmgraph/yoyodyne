@@ -2,9 +2,11 @@ package orchestrator
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -291,5 +293,39 @@ func TestAProgramManagersReportLeftThroughTwoPassesIsNamedOverdue(t *testing.T) 
 		if strings.Contains(message, unwanted) {
 			t.Fatalf("the pass's message names %s as overdue:\n%s", unwanted, message)
 		}
+	}
+}
+
+func TestAnOverdueReportDeclaresItsCutAndHowToReadTheWholeMessage(t *testing.T) {
+	t.Parallel()
+	store := sweepStore(t)
+	for _, started := range []time.Time{recurringNow.Add(-3 * time.Hour), recurringNow.Add(-2 * time.Hour)} {
+		if err := store.Append(runstate.Sweep{
+			SchemaVersion: runstate.SweepSchemaVersion, ProductID: "example", Task: "report-triage",
+			Role: domain.RoleProductManager, StartedAt: started, EndedAt: started.Add(time.Minute),
+			Turns: 1, Result: complete("worked the pile"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const id = "report-00000000000000000000000000000001"
+	message := strings.Repeat("é", overdueTextBytes) + "\nThe request at the end must be read."
+	pile := &memoryPile{reports: []report.Report{
+		filedReport(id, domain.RoleProgramManager, report.SeverityWarning, message, recurringNow.Add(-4*time.Hour)),
+	}}
+	trigger := Trigger{Reports: store, Pile: pile}
+	listed := trigger.overdueFor(reportTriageTask()["report-triage"])
+	for _, want := range []string{
+		id,
+		fmt.Sprintf("limited to %d bytes", overdueTextBytes),
+		fmt.Sprintf("message cut; full message is %d bytes", len(message)),
+		`{"action":"read","report":"report-id"}`,
+	} {
+		if !strings.Contains(listed, want) {
+			t.Fatalf("the overdue list lacks %q: %s", want, listed)
+		}
+	}
+	if strings.Contains(listed, "The request at the end") || !utf8.ValidString(listed) {
+		t.Fatalf("the preview exceeded its bound or cut through a rune: %s", listed)
 	}
 }

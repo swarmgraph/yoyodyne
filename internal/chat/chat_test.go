@@ -103,7 +103,7 @@ func TestOpenPutsTheContractBeforeAPersonaThatTriesToWidenIt(t *testing.T) {
 	// project's admission policy, which is part of the contract rather than
 	// something a persona could sit in front of.
 	authority, _ := AuthorityFor(domain.RoleProductManager)
-	want := productManagerContract + "\n\n" + admissionClause(authority, Admission{})
+	want := productManagerContract + "\n\n" + reportReadClause + "\n\n" + admissionClause(authority, Admission{})
 	if bare := SystemPrompt(domain.RoleProductManager, Admission{}, nil, "  "); bare != want {
 		t.Fatalf("empty persona changed the prompt: %q", bare)
 	}

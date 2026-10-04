@@ -272,6 +272,7 @@ func (t Trigger) overdueFor(task config.RecurringTask) string {
 	}
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "These warnings and notes from a program manager have stood unhandled through %d or more of your passes. Decide about each on this pass: a report that asks for nothing is handled by saying so.\n\n", overduePasses)
+	fmt.Fprintf(&rendered, "Each preview is limited to %d bytes after whitespace is joined. A cut names the full message's size; read the whole report, or one it cites, with {\"action\":\"read\",\"report\":\"report-id\"} in your yoyodyne-tracker block.\n\n", overdueTextBytes)
 	listed := overdue
 	if len(listed) > maxOverdueListed {
 		listed = listed[:maxOverdueListed]
@@ -285,9 +286,14 @@ func (t Trigger) overdueFor(task config.RecurringTask) string {
 		if reported.WorkItemID != "" {
 			on = " on " + reported.WorkItemID
 		}
+		text := strings.Join(strings.Fields(reported.Message), " ")
+		preview := clip(text, overdueTextBytes)
+		if len(text) > overdueTextBytes {
+			preview += fmt.Sprintf(" [message cut; full message is %d bytes]", len(reported.Message))
+		}
 		fmt.Fprintf(&rendered, "- %s [%s] from %s%s, filed %s, unhandled through %d of your passes: %s\n",
 			reported.ID, reported.Severity, reporter, on, reported.RecordedAt.UTC().Format(time.RFC3339),
-			passes[reported.ID], clip(strings.Join(strings.Fields(reported.Message), " "), overdueTextBytes))
+			passes[reported.ID], preview)
 	}
 	if len(overdue) > len(listed) {
 		fmt.Fprintf(&rendered, "\n%d further overdue report(s) from a program manager are not listed here.\n", len(overdue)-len(listed))
