@@ -39,6 +39,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -47,6 +48,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 // BranchChangeReader describes an accumulated change. It is the narrow half of
@@ -244,10 +246,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	outcome.Findings = result.Verdict.Findings
 	// What the reviewer reported is collected before its verdict is read,
 	// because a report survives a review that produced no verdict at all.
-	b.collectReports(&outcome, result.Reports)
-	if result.ReportProblem != "" {
-		b.noteReportProblem(&outcome, errors.New(result.ReportProblem))
-	}
+	b.collectReports(&outcome, result.Reports, &result.LastSequence, result.ReportProblem)
 	if result.Decision == review.DecisionApprove || result.Decision == review.DecisionRepair {
 		outcome.Decision = result.Decision
 	}
@@ -407,7 +406,51 @@ func (b BranchReviewer) record(outcome *BranchReviewOutcome, change gitworktree.
 // failure here is noted and swallowed, for the same reason it is on a run: a
 // review that failed because the reviewer mentioned a risk would teach every
 // reviewer to stop mentioning them.
-func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []report.Entry) {
+func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []report.Entry, sequence *uint64, unreadable string) {
+	if len(entries) == 0 && unreadable == "" {
+		return
+	}
+	registered, _ := toolcatalog.Registry().Lookup(string(capability.ReportFile))
+	audit := execution.ToolAudit{ID: fmt.Sprintf("tool-%d", *sequence+1), Tool: capability.ReportFile, Role: domain.RoleReviewer, Round: 1, Requests: max(1, len(entries)), Bounds: registered.Tool.Bounds}
+	emit := func(kind execution.EventType) error {
+		*sequence++
+		event, err := execution.NewEvent(outcome.ReviewID, *sequence, b.clock().Now(), kind, "harness", audit)
+		if err == nil {
+			err = b.sink(event)
+		}
+		return err
+	}
+	if err := emit(execution.EventToolRequested); err != nil {
+		b.noteReportProblem(outcome, fmt.Errorf("tool request audit failed: %w", err))
+		return
+	}
+	before := outcome.ReportProblem
+	allowed := false
+	for _, granted := range toolcatalog.Granted(domain.RoleReviewer) {
+		allowed = allowed || granted.Name == registered.Name
+	}
+	if unreadable != "" {
+		b.noteReportProblem(outcome, errors.New(unreadable))
+	} else if !allowed {
+		b.noteReportProblem(outcome, errors.New("the role holds no grant for this tool"))
+	} else if len(entries) > audit.Bounds.RequestsPerReply {
+		b.noteReportProblem(outcome, errors.New("tool request count exceeds its descriptor bound"))
+	} else {
+		err := registered.Perform(context.Background(), toolcatalog.Call{Perform: func(context.Context) error { b.collectReportsWithoutToolAudit(outcome, entries); return nil }})
+		if err != nil {
+			b.noteReportProblem(outcome, err)
+		}
+	}
+	kind := execution.EventToolPerformed
+	if outcome.ReportProblem != before {
+		kind = execution.EventToolRefused
+	}
+	if err := emit(kind); err != nil {
+		b.noteReportProblem(outcome, fmt.Errorf("tool outcome audit failed: %w", err))
+	}
+}
+
+func (b BranchReviewer) collectReportsWithoutToolAudit(outcome *BranchReviewOutcome, entries []report.Entry) {
 	if len(entries) == 0 {
 		return
 	}

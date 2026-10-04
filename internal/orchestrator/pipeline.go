@@ -38,6 +38,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/selfcheck"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 // maxCommitSubjectBytes bounds the work item title carried into the
@@ -8344,7 +8345,7 @@ func developerContract(scratchDirectory string, checks []string) string {
 	// template above, because it names this project's own declared checks: a
 	// contract asking a developer to run commands the project does not declare
 	// would be asking for something nobody can run.
-	return strings.ReplaceAll(contract, selfCheckContractPlaceholder, selfcheck.Contract(checks))
+	return strings.ReplaceAll(contract, selfCheckContractPlaceholder, selfcheck.Contract(checks)) + "\n\n" + toolcatalog.Contract(domain.RoleDeveloper)
 }
 
 const developerContractTemplate = `You are the developer for one bounded Yoyodyne work item.

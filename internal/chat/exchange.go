@@ -108,7 +108,7 @@ type conducted struct {
 // carried is reported as exactly that, and the conversation carries on with the
 // role told its question went unanswered — the same shape a failed tracker
 // action already has, and for the same reason.
-func (s *Session) conductAsk(ctx context.Context, ask exchange.Ask) conducted {
+func (s *Session) conductAskWithoutToolAudit(ctx context.Context, ask exchange.Ask) conducted {
 	if s.options.Exchanges == nil {
 		return conducted{
 			round:    ExchangeRound{Asked: ask.Role, Problem: errNoExchanges.Error(), Question: oneLineAsk(ask)},

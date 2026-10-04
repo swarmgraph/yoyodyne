@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -1367,6 +1368,10 @@ func TestPipelineSendsTheEffectiveDeveloperPersona(t *testing.T) {
 	persona := strings.Index(prompt, "Prefer the smallest change")
 	if contract < 0 || persona < 0 || contract > persona {
 		t.Fatalf("persona did not follow the harness contract: contract = %d, persona = %d\n%s", contract, persona, prompt)
+	}
+	tools := toolcatalog.Contract(domain.RoleDeveloper)
+	if strings.Count(prompt, tools) != 1 || strings.Index(prompt, tools) > persona {
+		t.Fatal("the developer invocation lost its generated tools or put them below its persona")
 	}
 }
 

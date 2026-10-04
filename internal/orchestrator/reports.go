@@ -10,6 +10,7 @@ import (
 	"fmt"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -33,12 +34,14 @@ type ReportCollector interface {
 func (a *activeRun) collectFromReply(role domain.AgentRole, text string) string {
 	rest, entries, err := report.Extract(text)
 	if err != nil {
+		a.auditUnreadableTool(role, capability.ReportFile)
 		a.noteReportProblem(role, err)
 	} else {
 		a.collectReports(role, entries)
 	}
 	rest, proposed, err := amendment.Extract(rest)
 	if err != nil {
+		a.auditUnreadableTool(role, capability.AmendmentPropose)
 		a.noteAmendmentProblem(role, err)
 		return rest
 	}
@@ -49,7 +52,7 @@ func (a *activeRun) collectFromReply(role domain.AgentRole, text string) string 
 // collectReports records what one agent invocation reported. Every failure here
 // is noted and swallowed: a run that failed because an agent mentioned a risk
 // would teach every agent to stop mentioning them.
-func (a *activeRun) collectReports(role domain.AgentRole, entries []report.Entry) {
+func (a *activeRun) collectReportsWithoutToolAudit(role domain.AgentRole, entries []report.Entry) {
 	if len(entries) == 0 {
 		return
 	}

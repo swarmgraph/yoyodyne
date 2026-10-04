@@ -2,14 +2,17 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -175,7 +178,8 @@ func TestOneMessageAsksAtMostAsMuchAsOneExchangeMay(t *testing.T) {
 	}
 	provider := &fakeBackend{results: results}
 	options := testOptions(t, provider)
-	options.Exchanges = &fakeExchanges{answers: []string{"a", "b", "c", "d"}}
+	channel := &fakeExchanges{answers: []string{"a", "b", "c", "d"}}
+	options.Exchanges = channel
 	options.AskRoundsPerMessage = 2
 	session := openTestSession(t, options)
 
@@ -189,6 +193,36 @@ func TestOneMessageAsksAtMostAsMuchAsOneExchangeMay(t *testing.T) {
 	refused := reply.Exchanges[2]
 	if refused.ID != "" || !strings.Contains(refused.Problem, "one message asks at most 2 round(s)") {
 		t.Fatalf("the third ask was not refused by the message bound: %+v", refused)
+	}
+	if len(channel.conducted) != 2 || len(provider.requests) != 3 {
+		t.Fatalf("the refused request opened an exchange or took another turn: exchanges=%d turns=%d", len(channel.conducted), len(provider.requests))
+	}
+	events, err := options.Store.LoadEvents(session.state.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var kinds []execution.EventType
+	var audits []ToolAudit
+	for _, event := range events {
+		if !strings.HasPrefix(string(event.Type), "tool.") {
+			continue
+		}
+		var audit ToolAudit
+		if err := json.Unmarshal(event.Payload, &audit); err != nil {
+			t.Fatal(err)
+		}
+		if audit.Tool != capability.ExchangeAsk {
+			continue
+		}
+		kinds = append(kinds, event.Type)
+		audits = append(audits, audit)
+	}
+	if len(kinds) != 6 || kinds[4] != execution.EventToolRequested || kinds[5] != execution.EventToolRefused {
+		t.Fatalf("exchange audit events = %v, want the third request and refusal after two performed pairs", kinds)
+	}
+	requested, outcome := audits[4], audits[5]
+	if requested.ID != outcome.ID || outcome.Role != domain.RoleProductManager || outcome.Round != 3 || outcome.Bounds.RoundsPerMessage != 2 || outcome.Requests != 1 {
+		t.Fatalf("bounded refusal audit = %#v then %#v", requested, outcome)
 	}
 }
 

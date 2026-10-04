@@ -32,6 +32,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 // Authority is what one role may ask for inside a conversation. Everything it
@@ -94,6 +95,7 @@ type Authority struct {
 	// the pair: a role told what the tree holds is the role that may ask for one
 	// thing in it.
 	RepositoryReads bool
+	LogReads        bool
 	// Asks is whether this role is on the inter-role ask channel — both ends of
 	// it, because the two are the same judgement: a role worth asking for an
 	// opinion is one whose own opinion is worth asking for. It is not the
@@ -187,6 +189,7 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 		if registry.Holds(role, capability.WorkItemRead) {
 			contract += "\n\n" + reportReadClause
 		}
+		contract += "\n\n" + toolcatalog.Contract(role)
 		built[role] = Authority{
 			Role:           role,
 			Title:          role.Title(),
@@ -201,6 +204,7 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			Evaluations:    registry.Holds(role, capability.EvaluationRecord),
 			RepositoryReads: registry.Holds(role, capability.RepositoryRead) &&
 				registry.Holds(role, capability.RepositoryList),
+			LogReads:        registry.Holds(role, capability.LogRead),
 			Asks:            registry.Holds(role, capability.ExchangeAsk),
 			Answers:         registry.Holds(role, capability.ExchangeAnswer),
 			Memory:          registry.Holds(role, capability.AgentContextMutate),
@@ -354,6 +358,9 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Refused: "a repository path to be read",
 			Reason:  "reading the repository by path is the management roles' — the Lead Product Manager, the architect, and the development manager — and this role reasons over the evidence it was given",
 		}
+	}
+	if len(parsed.LogReads) > 0 && !authority.LogReads {
+		return &AuthorityError{Role: authority.Role, Refused: "an operational record to be read", Reason: "this role holds no log.read grant"}
 	}
 	if len(parsed.Memories) > 0 && !authority.Memory {
 		return &AuthorityError{

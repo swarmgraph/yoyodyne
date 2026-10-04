@@ -42,7 +42,10 @@ const DuplicateTerminalAnomaly = "duplicate_terminal_result"
 type EventType string
 
 const (
-	EventRunStarted EventType = "run.started"
+	EventRunStarted    EventType = "run.started"
+	EventToolRequested EventType = "tool.requested"
+	EventToolPerformed EventType = "tool.performed"
+	EventToolRefused   EventType = "tool.refused"
 	// One provider invocation's terminal, whichever way it ended, carrying what
 	// the provider said it cost. A log can hold several of them — the developer's
 	// attempts and the reviewer's invocations share one — so from

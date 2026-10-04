@@ -95,7 +95,7 @@ func (s *Session) renderResearchSources() string {
 // that is not wired, a budget that is spent, and a source that would not answer
 // are all things the role has to be told about so it can say it could not find
 // out, and none of them is a reason to lose the reply that carried the question.
-func (s *Session) performResearch(ctx context.Context, queries []research.Query, rounds *int) ([]research.Finding, string) {
+func (s *Session) performResearchWithoutToolAudit(ctx context.Context, queries []research.Query, rounds *int) ([]research.Finding, string) {
 	if s.options.Research == nil {
 		return nil, "no research capability is configured for this conversation, so nothing was asked"
 	}

@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/shutdown"
@@ -285,7 +286,24 @@ func TestTheRealPartsFollowTheServicesSection(t *testing.T) {
 		t.Fatalf("realChildren() error = %v", err)
 	}
 	if len(children) != 1 || children[0].Name() != config.ServiceScheduler {
-		t.Errorf("children = %v, want the scheduler alone", children)
+		t.Fatalf("children = %v, want the scheduler alone", children)
+	}
+	scheduler := children[0].(schedulerChild)
+	if scheduler.logRoot != p.stateRoot || scheduler.log != "products/yoyodyne/scheduler.log" {
+		t.Fatalf("watch output = %q under %q", scheduler.log, scheduler.logRoot)
+	}
+	outputPath := filepath.Join(scheduler.logRoot, filepath.FromSlash(scheduler.log))
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outputPath, []byte("watch output\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	cursor := int64(0)
+	reader := logread.Reader{StateRoot: p.stateRoot, ProductID: "yoyodyne"}
+	results, err := reader.Read(context.Background(), []logread.Request{{Record: "watch", Name: "output", Cursor: &cursor, MaxBytes: 1024}})
+	if err != nil || len(results) != 1 || results[0].Content != "watch output\n" {
+		t.Fatalf("log.read of watch output = %v, %v", results, err)
 	}
 	// The maintenance pass is the supervisor's own rather than a process, so it
 	// is neither a child nor a part waiting to be adopted.

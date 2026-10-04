@@ -165,7 +165,7 @@ func (s *Session) ForPass(pass string) {
 // writeLaneReport carries out one reply's lane report, or records why it could
 // not be, and says which in the conversation's log. The log names the version
 // and never the report's text, which is the store's alone.
-func (s *Session) writeLaneReport(ctx context.Context, content *runstate.LaneReportContent, problem error) (LaneReportOutcome, error) {
+func (s *Session) writeLaneReportWithoutToolAudit(ctx context.Context, content *runstate.LaneReportContent, problem error) (LaneReportOutcome, error) {
 	outcome := LaneReportOutcome{Turn: s.state.Turns, Pass: s.pass}
 	switch {
 	case problem != nil:

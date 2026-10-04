@@ -24,6 +24,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 func TestRunHelp(t *testing.T) {
@@ -1164,10 +1165,11 @@ func TestConfigShowJSONReportsEffectiveValuesAndOrigins(t *testing.T) {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
 	}
 	var result struct {
-		Config    string            `json:"config"`
-		Sources   []string          `json:"sources"`
-		Effective config.Config     `json:"effective"`
-		Origins   map[string]string `json:"origins"`
+		Config    string              `json:"config"`
+		Sources   []string            `json:"sources"`
+		Effective config.Config       `json:"effective"`
+		Origins   map[string]string   `json:"origins"`
+		Tools     map[string][]string `json:"tools"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -1177,6 +1179,11 @@ func TestConfigShowJSONReportsEffectiveValuesAndOrigins(t *testing.T) {
 	}
 	if len(result.Effective.Agents) != 5 {
 		t.Fatalf("effective agents = %d, want the five inherited defaults", len(result.Effective.Agents))
+	}
+	for name, agent := range result.Effective.Agents {
+		if strings.Join(result.Tools[name], ",") != strings.Join(toolcatalog.Names(agent.Role), ",") {
+			t.Errorf("effective tools for %s = %v", name, result.Tools[name])
+		}
 	}
 	if result.Origins["agents.reviewer.backend"] != config.BuiltinV1 {
 		t.Fatalf("reviewer backend origin = %q", result.Origins["agents.reviewer.backend"])
