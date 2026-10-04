@@ -24,6 +24,11 @@ import (
 
 const nativeProbeReply = "native sandbox probe passed"
 
+// Match the generous subprocess budget used by the Git and tracker conformance
+// tests. Native invocation and legacy shell APIs require a budget; completion
+// polling and local HTTP requests need no separate deadline.
+const nativeProbeSubprocessBudget = 10 * time.Minute
+
 // The provider is a local scripted Responses server, not a paid model. It asks
 // the real CLI to execute one shell command, then ends the turn. The CLI creates
 // and restores its own session; neither the rollout nor its policy is faked.
@@ -52,9 +57,7 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	if err != nil {
 		t.Fatalf("local scripted Responses server unavailable: %v", err)
 	}
-	server := &httptest.Server{Listener: listener, Config: &http.Server{
-		Handler: model, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second,
-	}}
+	server := &httptest.Server{Listener: listener, Config: &http.Server{Handler: model}}
 	server.Start()
 	defer server.Close()
 	runner := &sandboxCLIRunner{home: home, url: server.URL}
@@ -62,7 +65,8 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	request := backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: oldWorktree,
 		RepositoryRoot: oldRepository, AccountConfigDir: home, Model: "gpt-5",
-		Prompt: "Execute the supplied sandbox probe, then finish.", Timeout: time.Minute, IdleTimeout: time.Minute,
+		Prompt:  "Execute the supplied sandbox probe, then finish.",
+		Timeout: nativeProbeSubprocessBudget, IdleTimeout: nativeProbeSubprocessBudget, AfterReplyTimeout: nativeProbeSubprocessBudget,
 	}
 	denied := []string{outside, otherScratch, filepath.Join(oldRepository, ".git"), filepath.Join(newRepository, ".git")}
 	freshProof := nativeProbeReply + ": fresh launch"
@@ -175,7 +179,7 @@ printf '%s\n' "$proof"`
 
 func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunRequest, proof string, model *sandboxResponses) backendapi.RunResult {
 	t.Helper()
-	result, err := provider.Run(context.Background(), request)
+	result, err := provider.Run(t.Context(), request)
 	process := provider.Runner.(*sandboxCLIRunner).process
 	if err != nil || result.IsError || result.Process.Status != execution.ProcessSucceeded {
 		t.Fatalf("native CLI turn: %v; status=%s, exit=%d, stop=%q, reply=%q\n%s\n%s",
@@ -315,8 +319,8 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.calls++
-	if s.finished || s.calls > 64 {
-		s.err = fmt.Errorf("unexpected request after a completed turn or beyond the probe's call bound")
+	if s.finished {
+		s.err = fmt.Errorf("unexpected request after a completed turn")
 		http.Error(w, s.err.Error(), http.StatusBadRequest)
 		return
 	}
@@ -327,18 +331,12 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.lastOutput = output
 		if !found {
 			s.err = fmt.Errorf("the CLI submitted no result for the current confinement command")
-		} else if strings.TrimSpace(output) == "unified exec is unavailable in this session" && !s.started && s.calls < 32 {
+		} else if strings.TrimSpace(output) == "unified exec is unavailable in this session" && !s.started {
 			// A scripted response can reach the CLI before its execution environment
-			// is ready. Retry only this explicit pre-execution refusal, bounded by
-			// requests and the native turn's deadline; never rerun a started command.
-			timer := time.NewTimer(250 * time.Millisecond)
-			select {
-			case <-timer.C:
-				retry = true
-			case <-r.Context().Done():
-				timer.Stop()
-				s.err = r.Context().Err()
-			}
+			// is ready. Retry only this explicit pre-execution refusal under the
+			// invocation's subprocess budget; never rerun a started command.
+			s.err = r.Context().Err()
+			retry = s.err == nil
 		} else {
 			exitCode, _, running, stdout := sandboxExecResult(output)
 			if exitCode == nil && !running {
@@ -360,7 +358,7 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var arguments any
 		switch name {
 		case "shell":
-			arguments = map[string]any{"command": s.command, "timeout_ms": 45000}
+			arguments = map[string]any{"command": s.command, "timeout_ms": nativeProbeSubprocessBudget.Milliseconds()}
 		case "shell_command", "exec_command":
 			words := make([]string, len(s.command))
 			for i, word := range s.command {
@@ -369,7 +367,7 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if name == "exec_command" {
 				arguments = map[string]any{"cmd": strings.Join(words, " "), "login": false, "yield_time_ms": 1000, "max_output_tokens": 4000}
 			} else {
-				arguments = map[string]any{"command": strings.Join(words, " "), "timeout_ms": 45000}
+				arguments = map[string]any{"command": strings.Join(words, " "), "timeout_ms": nativeProbeSubprocessBudget.Milliseconds()}
 			}
 		}
 		if name == "" {
@@ -380,7 +378,7 @@ func (s *sandboxResponses) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if name == "local_shell" {
 			item = map[string]any{"type": "local_shell_call", "id": fmt.Sprintf("lsh_probe_%d", s.turn),
 				"call_id": fmt.Sprintf("call_probe_%d_%d", s.turn, s.calls), "status": "completed",
-				"action": map[string]any{"type": "exec", "command": s.command, "timeout_ms": 45000}}
+				"action": map[string]any{"type": "exec", "command": s.command, "timeout_ms": nativeProbeSubprocessBudget.Milliseconds()}}
 		} else {
 			encoded, _ := json.Marshal(arguments)
 			item = map[string]any{"type": "function_call", "id": fmt.Sprintf("fc_probe_%d_%d", s.turn, s.calls),
@@ -549,6 +547,7 @@ func TestScriptedSandboxProviderUsesAdvertisedShellTool(t *testing.T) {
 				Action                           struct {
 					Type    string
 					Command []string
+					Timeout int64 `json:"timeout_ms"`
 				}
 			}
 			for _, line := range strings.Split(response.Body.String(), "\n") {
@@ -571,13 +570,14 @@ func TestScriptedSandboxProviderUsesAdvertisedShellTool(t *testing.T) {
 				t.Fatalf("tool call = %+v, want %s %s in %s", item, test.callType, test.function, test.namespace)
 			}
 			if test.callType == "local_shell_call" {
-				if item.Action.Type != "exec" || !reflect.DeepEqual(item.Action.Command, command) {
+				if item.Action.Type != "exec" || !reflect.DeepEqual(item.Action.Command, command) || item.Action.Timeout != nativeProbeSubprocessBudget.Milliseconds() {
 					t.Fatalf("local shell action = %+v, want exec %q", item.Action, command)
 				}
 			} else if test.function == "shell_command" || test.function == "exec_command" {
 				var arguments struct {
 					Command, Cmd string
-					YieldTimeMS  int `json:"yield_time_ms"`
+					YieldTimeMS  int   `json:"yield_time_ms"`
+					Timeout      int64 `json:"timeout_ms"`
 				}
 				if err := json.Unmarshal([]byte(item.Arguments), &arguments); err != nil {
 					t.Fatal(err)
@@ -588,17 +588,22 @@ func TestScriptedSandboxProviderUsesAdvertisedShellTool(t *testing.T) {
 					if arguments.YieldTimeMS != 1000 {
 						t.Fatalf("exec yield = %d, want a bounded poll", arguments.YieldTimeMS)
 					}
+				} else if arguments.Timeout != nativeProbeSubprocessBudget.Milliseconds() {
+					t.Fatalf("shell timeout = %d, want the generous subprocess budget", arguments.Timeout)
 				}
 				if command != `'sh' '-c' 'printf '"'"'quoted'"'"''` {
 					t.Fatalf("shell command = %q", command)
 				}
 			} else {
-				var arguments struct{ Command []string }
+				var arguments struct {
+					Command []string
+					Timeout int64 `json:"timeout_ms"`
+				}
 				if err := json.Unmarshal([]byte(item.Arguments), &arguments); err != nil {
 					t.Fatal(err)
 				}
-				if !reflect.DeepEqual(arguments.Command, command) {
-					t.Fatalf("shell arguments = %q, want %q", arguments.Command, command)
+				if !reflect.DeepEqual(arguments.Command, command) || arguments.Timeout != nativeProbeSubprocessBudget.Milliseconds() {
+					t.Fatalf("shell arguments = %+v, want %q with the generous subprocess budget", arguments, command)
 				}
 			}
 			body := `{"tools":[]}`
@@ -648,7 +653,11 @@ func TestScriptedSandboxProviderPollsOnlyTheCurrentCommandUntilItFinishes(t *tes
 	}
 	request()
 	output, _ := json.Marshal("Chunk ID: 123\nProcess running with session ID 42\nOutput:\n")
-	for _, callID := range []string{"call_probe_1_1", "call_probe_1_2"} {
+	// A loaded compilation can require more polls than the former 64-call cap.
+	// Drive progress by command results, without sleeping or timing the wait.
+	const polls = 80
+	for call := 1; call <= polls; call++ {
+		callID := fmt.Sprintf("call_probe_1_%d", call)
 		item := request(sandboxInput{Type: "function_call_output", CallID: callID, Output: output})
 		if string(item["name"]) != `"write_stdin"` || string(item["namespace"]) != `"functions"` {
 			t.Fatalf("running command response = %v, want namespaced write_stdin", item)
@@ -672,7 +681,7 @@ func TestScriptedSandboxProviderPollsOnlyTheCurrentCommandUntilItFinishes(t *tes
 	completed, _ := json.Marshal("Process exited with code 0\nOutput:\nnative sandbox probe passed\n")
 	item := request(
 		sandboxInput{Type: "function_call_output", CallID: "call_probe_1_1", Output: output},
-		sandboxInput{Type: "function_call_output", CallID: "call_probe_1_3", Output: completed},
+		sandboxInput{Type: "function_call_output", CallID: fmt.Sprintf("call_probe_1_%d", polls+1), Output: completed},
 	)
 	if string(item["type"]) != `"message"` {
 		t.Fatalf("completed command response = %v, want the final reply", item)
@@ -778,11 +787,16 @@ func TestScriptedSandboxProviderRetriesOnlyBeforeExecutionStarts(t *testing.T) {
 
 	model.begin([]string{"sh", "-c", "next probe"})
 	scriptedSandboxRequest(t, model)
-	model.calls = 31
-	response = scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_2_31", Output: unavailable})
-	if strings.Contains(response, `"name":"exec_command"`) || model.err == nil || !strings.Contains(model.err.Error(), "unified exec is unavailable") {
-		t.Fatalf("startup refusal beyond the retry bound = %s, error = %v", response, model.err)
+	// Startup readiness is not inferred from how many requests have passed.
+	for call := 1; call <= 80; call++ {
+		response = scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: fmt.Sprintf("call_probe_2_%d", call), Output: unavailable})
+		if !strings.Contains(response, `"name":"exec_command"`) || model.err != nil || model.started {
+			t.Fatalf("startup retry = %s, error = %v, started = %v", response, model.err, model.started)
+		}
 	}
+	completed, _ := json.Marshal("Process exited with code 0\nOutput:\n" + nativeProbeReply + "\n")
+	scriptedSandboxRequest(t, model, sandboxInput{Type: "function_call_output", CallID: "call_probe_2_81", Output: completed})
+	model.requireTurn(t)
 }
 
 func TestSandboxToolResultDecodesContentAndIgnoresStdoutSessionMarkers(t *testing.T) {

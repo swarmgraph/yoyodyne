@@ -254,10 +254,13 @@ restoring a writable session. It checks the CLI's command event or unified shell
 tool result for a zero exit and a distinct proof message for each turn, and
 checks the retained files. The scripted provider's final reply and a replayed
 command from an earlier turn cannot satisfy it. A unified shell command that
-yields is polled to completion; only an explicit refusal before its execution
-environment is ready is retried, within a fixed bound. Other refusals retain
-the CLI's tool result in the failure. It uses no provider credentials or paid
-model calls:
+yields is polled until it reports completion, without a limit on the number of
+polls. Only an explicit refusal before its execution environment is ready is
+retried. Native invocation and legacy shell APIs receive the ten-minute
+subprocess budget used by the Git and tracker conformance tests; local HTTP
+requests and completion polling have no separate deadline. Other refusals
+retain the CLI's tool result in the failure. It uses no provider credentials or
+paid model calls:
 
 ```sh
 go test ./internal/backend/codex -run TestNativeResumeReplacesSavedDirectoryGrants -count=1
