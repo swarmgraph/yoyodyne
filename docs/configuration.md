@@ -6705,6 +6705,21 @@ built for each firing and put in the message that wakes her, ahead of the
 prompt. A pass resumes her conversation rather than opening it, so the docket
 that conversation opened with is not what is waiting on her now.
 
+Every recurring task turn also receives the live work assigned to that role's
+conversation, with each item's priority shown. The harness lists it in backlog
+order: highest priority first (P0 before P1), then oldest admitted within each
+priority, using the same order as a developer pull. Parked and finished items
+are excluded. This list is read again for each turn, so an architect's pass
+receives a newer P0 design before an older P2 without relying on the prompt to
+reorder an old briefing. The role reads each item in full before deciding.
+Reports and proposed amendments keep their own ordering, described below.
+
+`yoyo init` includes a commented `architect-pass` example at `every: 1h`, whose
+prompt says to take work by priority first, then age within each priority. A
+project chooses its own cadence; this repository uses `45m` to keep passes
+closer together after the operator observed more cached opening input below
+an hour. That observation is a reason for the setting, not a provider guarantee.
+
 | Key | What it says |
 | --- | --- |
 | `role` | which role is woken. It must be a role this project configures an agent for; a task naming a role nobody fills is refused rather than discovered as silence. |

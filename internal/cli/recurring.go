@@ -61,7 +61,10 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		Availability: machineAvailability(parts),
 		Reports:      parts.store.Sweeps(),
 		Roles:        roleConversation{configPath: configPath, stderr: stderr},
-		Repository:   parts.repository,
+		ConversationWork: sweepConversationWork{
+			items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
+		},
+		Repository: parts.repository,
 		// The same pause every run, turn, and delivery reads. A firing is a
 		// provider invocation, so `yoyo pause` covers it exactly as it covers them.
 		Holds: parts.holds,
@@ -157,6 +160,21 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 
 func passFailureAttribution(cfg config.Config) report.Attribution {
 	return report.Attribution{ProductID: cfg.Product.ID, RepositoryID: string(cfg.Product.RepositoryID), Build: buildinfo.Commit()}
+}
+
+type sweepConversationWork struct {
+	items interface {
+		List(ctx context.Context, status string) ([]beads.WorkItem, error)
+	}
+}
+
+func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) (string, error) {
+	items, err := w.items.List(ctx, "")
+	if err != nil {
+		problem := fmt.Errorf("read the work waiting in the %s's conversation: %w", role.Title(), err)
+		return contextbundle.ConversationWorkSection(nil, problem.Error()), problem
+	}
+	return contextbundle.ConversationWorkSection(readmodel.ConversationWork(items, role), ""), nil
 }
 
 // sweepDocket is the triage docket as a scheduled pass of the development
