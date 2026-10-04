@@ -20,6 +20,7 @@ func raisedRun(runID, workItemID string, at time.Time) runstate.State {
 		RunID:          runID,
 		WorkItemID:     workItemID,
 		Status:         runstate.StatusSucceeded,
+		StartedAt:      at,
 		UpdatedAt:      at,
 		Branch:         "yoyodyne/" + workItemID + "/" + runID,
 		WorktreePath:   "/state/worktrees/" + runID,
@@ -55,9 +56,13 @@ func TestARaiseIsHeldOnlyForADecidedRerunNotYetCarriedOut(t *testing.T) {
 		t.Fatalf("the hold names the development manager, want the harness carrying her decision out")
 	}
 
-	fresh := runstate.State{RunID: "run-fedcba98", WorkItemID: "yoyodyne-ifd.437.13", Status: runstate.StatusRunning, UpdatedAt: at.Add(time.Hour)}
+	fresh := runstate.State{RunID: "run-fedcba98", WorkItemID: "yoyodyne-ifd.437.13", Status: runstate.StatusRunning, StartedAt: at.Add(time.Hour), UpdatedAt: at.Add(time.Hour)}
 	if _, held := heldForAPerson([]runstate.State{raise, fresh}, nil, rerun, asRecorded).Reason("yoyodyne-ifd.437.13"); held {
 		t.Fatalf("the item is still held for a re-run that has started")
+	}
+	raise.UpdatedAt = fresh.UpdatedAt.Add(time.Hour)
+	if reason, held := heldForAPerson([]runstate.State{fresh, raise}, nil, rerun, asRecorded).Reason(raise.WorkItemID); held {
+		t.Fatalf("maintenance of the raising run restored a carried-out re-run hold: %q", reason)
 	}
 }
 

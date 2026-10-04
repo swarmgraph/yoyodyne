@@ -1819,6 +1819,7 @@ func heldRun(runID, workItemID string, stopped time.Time) runstate.State {
 		RunID:        runID,
 		WorkItemID:   workItemID,
 		Status:       runstate.StatusFailed,
+		StartedAt:    stopped.Add(-time.Hour),
 		UpdatedAt:    stopped,
 		Branch:       "yoyodyne/" + workItemID + "/" + runID,
 		WorktreePath: "/state/worktrees/" + runID,
