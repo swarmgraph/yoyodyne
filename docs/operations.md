@@ -2608,8 +2608,14 @@ of the pass and reports each item's settlement or remaining finding; these
 findings alone do not make the command or the supervisor's maintenance pass
 fail. A failure to discover the pass's state still fails the command. Repeating
 the same refusal retries the settlement without adding another finding note;
-an undelivered note is retried too. If a branch was removed elsewhere, the next
-sweep confirms its absence and clears the saved refusal under the run's lease.
+an undelivered note is retried too. Every pass revisits saved findings under
+their run's lease, including publications and checkouts whose settlement has
+finished and that no operation sweep selects any more. A completed settlement
+whose finding note or clearing save is refused remains recorded for retry;
+attention names that delivery or clearing obligation rather than a settlement
+still refused. The item is checked for a note already delivered before another
+is appended. If a branch was removed elsewhere, the next sweep confirms its
+absence and clears the saved refusal under the run's lease.
 
 A run it settled into an ending that is not success is reported twice over: what the sweep did with it,
 and — in the same words `yoyo status` uses — what became of the run and what
@@ -3059,7 +3065,11 @@ where it was — the publication record keeps the account the run wrote, which
 is the line on the item. Its settlement finding records what the remote refuses
 now and the next move; the same finding is delivered to the item once, rather
 than announced as new on every pass. The sweep still reports what remains on
-each pass, and continues settling the other items. The eight held requests PR
+each pass, and continues settling the other items. Once publication settlement
+succeeds, its saved finding is revisited independently of publication selection:
+failed finding delivery or a failed clearing save is retried under the run's
+lease, without keeping the publication outstanding or delivering the note twice.
+The eight held requests PR
 497 merged on 2026-09-13 are
 the case this was built on: confirmation then required the remote tip to carry
 exactly the promotion's content, which only the last merge of a batch does, so

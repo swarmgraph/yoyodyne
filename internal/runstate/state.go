@@ -2396,12 +2396,14 @@ func RecordReconcileProblem(problem string) string {
 }
 
 // ReconcileFinding is a settlement this run could not make. Pending means its
-// note still needs delivery to the work item. Separate steps keep one refusal
-// from replacing another on the same run.
+// note still needs delivery to the work item. Resolved keeps the completed
+// operation distinct from delivery and clearing that still need retrying.
+// Separate steps keep one refusal from replacing another on the same run.
 type ReconcileFinding struct {
-	Step    ReconcileStep `json:"step"`
-	Problem string        `json:"problem"`
-	Pending bool          `json:"pending,omitempty"`
+	Step     ReconcileStep `json:"step"`
+	Problem  string        `json:"problem"`
+	Pending  bool          `json:"pending,omitempty"`
+	Resolved bool          `json:"resolved,omitempty"`
 }
 
 type State struct {

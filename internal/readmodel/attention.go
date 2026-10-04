@@ -24,6 +24,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -1149,12 +1150,24 @@ func ReconcileFindingAttention(state runstate.State) Attention {
 func reconcileFindingWhat(item string, findings []runstate.ReconcileFinding) string {
 	problems := make([]string, 0, len(findings))
 	for _, finding := range findings {
-		problems = append(problems, finding.Problem)
+		if !finding.Resolved {
+			problems = append(problems, finding.Problem)
+		}
 	}
-	return fmt.Sprintf("reconcile could not settle %s: %s", item, strings.Join(problems, "; "))
+	if len(problems) == 0 {
+		return fmt.Sprintf("settlement of %s finished; its finding still needs delivery or clearing", item)
+	}
+	what := fmt.Sprintf("reconcile could not settle %s: %s", item, strings.Join(problems, "; "))
+	if len(problems) < len(findings) {
+		what += "; findings from completed settlements still need delivery or clearing"
+	}
+	return what
 }
 
 func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) string {
+	if !slices.ContainsFunc(findings, func(f runstate.ReconcileFinding) bool { return !f.Resolved }) {
+		return mover.Possessive() + " — the next `yoyo reconcile` delivers any pending finding note and clears the resolved finding"
+	}
 	problem := reconcileFindingWhat("", findings)
 	remedy := "the next `yoyo reconcile` retries this item's settlement once the named refusal is resolved"
 	if mover == MoverDevelopmentManager {
@@ -1169,7 +1182,7 @@ func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) st
 
 func reconcileFindingMover(findings []runstate.ReconcileFinding) Mover {
 	for _, finding := range findings {
-		if strings.Contains(finding.Problem, "delete the merged remote branch") && strings.Contains(finding.Problem, "want the published commit") {
+		if !finding.Resolved && strings.Contains(finding.Problem, "delete the merged remote branch") && strings.Contains(finding.Problem, "want the published commit") {
 			return MoverDevelopmentManager
 		}
 	}

@@ -25,3 +25,18 @@ func TestSettlementFindingsUseTheSharedAttentionAndOwner(t *testing.T) {
 		t.Fatalf("forge refusal = %+v, whose = %q", attention, attention.Whose())
 	}
 }
+
+func TestResolvedSettlementFindingsLeaveOnlyTheHarnessDeliveryObligation(t *testing.T) {
+	t.Parallel()
+	state := runstate.State{RunID: "run-refused", WorkItemID: "yoyodyne-refused", Status: runstate.StatusSucceeded, Phase: runstate.PhaseComplete,
+		ReconcileFindings: []runstate.ReconcileFinding{{Step: runstate.ReconcilePublication, Problem: "delete the merged remote branch: want the published commit; tip outside target", Pending: true, Resolved: true}}}
+	attention := ReconcileFindingAttention(state)
+	if attention.Mover != MoverHarness || !strings.Contains(attention.What(), "settlement of yoyodyne-refused finished") || !strings.Contains(attention.Whose(), "delivers any pending finding note") || strings.Contains(attention.Whose(), "preserve any branch work") {
+		t.Fatalf("resolved finding = %+v, what = %q, whose = %q", attention, attention.What(), attention.Whose())
+	}
+	state.ReconcileFindings = append(state.ReconcileFindings, runstate.ReconcileFinding{Step: runstate.ReconcileRefresh, Problem: "forge answer unreadable"})
+	attention = ReconcileFindingAttention(state)
+	if attention.Mover != MoverHarness || !strings.Contains(attention.What(), "forge answer unreadable") || !strings.Contains(attention.What(), "completed settlements still need delivery") || !strings.Contains(attention.Whose(), "restore forge access") {
+		t.Fatalf("mixed findings = %+v, what = %q, whose = %q", attention, attention.What(), attention.Whose())
+	}
+}

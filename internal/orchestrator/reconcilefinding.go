@@ -54,9 +54,10 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 	if index < 0 {
 		state.ReconcileFindings = append(state.ReconcileFindings, runstate.ReconcileFinding{Step: step, Problem: problem, Pending: true})
 		index = len(state.ReconcileFindings) - 1
-	} else if state.ReconcileFindings[index].Problem != problem {
+	} else if state.ReconcileFindings[index].Problem != problem || state.ReconcileFindings[index].Resolved {
 		state.ReconcileFindings[index].Problem = problem
 		state.ReconcileFindings[index].Pending = true
+		state.ReconcileFindings[index].Resolved = false
 	}
 	if state.ReconcileFindings[index].Pending {
 		if err := r.Store.Save(state); err != nil {
@@ -73,6 +74,24 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 // its caller. A resolved operation can still owe delivery of its saved finding;
 // finish that delivery before clearing its only pending marker.
 func (r Reconciler) clearReconcileFindings(ctx context.Context, state *runstate.State, resolved func(runstate.ReconcileFinding) bool) (*readmodel.Attention, string) {
+	// Persist resolution before attempting delivery. The operation can now fall
+	// out of its sweep's candidates without losing the remaining obligation.
+	candidate := *state
+	candidate.ReconcileFindings = slices.Clone(state.ReconcileFindings)
+	changed := false
+	for index, finding := range candidate.ReconcileFindings {
+		if resolved(finding) && !finding.Resolved {
+			candidate.ReconcileFindings[index].Resolved = true
+			changed = true
+		}
+	}
+	if changed {
+		if err := r.Store.Save(candidate); err != nil {
+			attention := readmodel.ReconcileFindingAttention(*state)
+			return &attention, fmt.Sprintf("record resolved settlement finding for run %s: %v", state.RunID, err)
+		}
+		*state = candidate
+	}
 	for index, finding := range state.ReconcileFindings {
 		if resolved(finding) && finding.Pending {
 			attention, problem := r.deliverReconcileFinding(ctx, state, index)
@@ -81,12 +100,14 @@ func (r Reconciler) clearReconcileFindings(ctx context.Context, state *runstate.
 			}
 		}
 	}
-	before := len(state.ReconcileFindings)
-	state.ReconcileFindings = slices.DeleteFunc(state.ReconcileFindings, resolved)
-	if len(state.ReconcileFindings) != before {
-		if err := r.Store.Save(*state); err != nil {
-			return nil, fmt.Sprintf("clear settlement finding for run %s: %v", state.RunID, err)
+	candidate = *state
+	candidate.ReconcileFindings = slices.DeleteFunc(slices.Clone(state.ReconcileFindings), resolved)
+	if len(candidate.ReconcileFindings) != len(state.ReconcileFindings) {
+		if err := r.Store.Save(candidate); err != nil {
+			attention := readmodel.ReconcileFindingAttention(*state)
+			return &attention, fmt.Sprintf("clear settlement finding for run %s: %v", state.RunID, err)
 		}
+		*state = candidate
 	}
 	return nil, ""
 }
@@ -102,7 +123,14 @@ func (r Reconciler) deliverReconcileFinding(ctx context.Context, state *runstate
 	if !finding.Pending {
 		return &attention, ""
 	}
-	note := "Settlement finding: " + attention.CitedWhat() + "\nRun: " + state.RunID + "\nNext move: " + attention.CitedWhose()
+	// The historical note stays identical after resolution, including when a
+	// delivery marker save failed. Attention describes only what is still owed.
+	refusalView := *state
+	refusalFinding := *finding
+	refusalFinding.Resolved = false
+	refusalView.ReconcileFindings = []runstate.ReconcileFinding{refusalFinding}
+	refusal := readmodel.ReconcileFindingAttention(refusalView)
+	note := "Settlement finding: " + refusal.CitedWhat() + "\nRun: " + state.RunID + "\nNext move: " + refusal.CitedWhose()
 	// A previous delivery may have succeeded just before its marker save failed.
 	// The item's existing notes are the other durable copy of that delivery.
 	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -118,9 +146,111 @@ func (r Reconciler) deliverReconcileFinding(ctx context.Context, state *runstate
 	}
 	finding.Pending = false
 	if err := r.Store.Save(*state); err != nil {
+		finding.Pending = true
 		return &attention, fmt.Sprintf("record delivered settlement finding for run %s: %v", state.RunID, err)
 	}
 	return &attention, ""
+}
+
+// ReconcileFindingMaintenance reports obligations revisited independently of
+// the operation that created them. It uses the same saved findings and shared
+// attention projection as the operation's own result.
+type ReconcileFindingMaintenance struct {
+	RunID          string                   `json:"run_id"`
+	WorkItemID     string                   `json:"work_item_id"`
+	WorkItemTitle  string                   `json:"work_item_title,omitempty"`
+	Cleared        []runstate.ReconcileStep `json:"cleared"`
+	Finding        *readmodel.Attention     `json:"finding,omitempty"`
+	FindingProblem string                   `json:"finding_problem,omitempty"`
+}
+
+// maintainReconcileFindings visits every saved finding, including runs no
+// operation sweep selects any more. Discovery failure prevents the pass from
+// reading its state; one run's delivery or save refusal never stops the rest.
+func (r Reconciler) maintainReconcileFindings(ctx context.Context) ([]ReconcileFindingMaintenance, error) {
+	recorded, err := r.Store.Recorded()
+	if err != nil {
+		return nil, fmt.Errorf("discover saved settlement findings: %w", err)
+	}
+	results := make([]ReconcileFindingMaintenance, 0)
+	for _, state := range recorded {
+		if len(state.ReconcileFindings) == 0 {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return results, err
+		}
+		result, maintained := r.maintainRunFindings(ctx, state)
+		if maintained {
+			results = append(results, result)
+		}
+	}
+	return results, nil
+}
+
+func (r Reconciler) maintainRunFindings(ctx context.Context, recorded runstate.State) (ReconcileFindingMaintenance, bool) {
+	result := ReconcileFindingMaintenance{RunID: recorded.RunID, WorkItemID: recorded.WorkItemID, WorkItemTitle: recorded.WorkItemTitle, Cleared: make([]runstate.ReconcileStep, 0)}
+	state, lease, err := r.Store.AdoptRun(ctx, recorded.RunID)
+	if errors.Is(err, runstate.ErrRunHeld) {
+		return result, false
+	}
+	if err != nil {
+		result.FindingProblem = fmt.Sprintf("adopt run %s to maintain settlement findings: %v", recorded.RunID, err)
+		return result, true
+	}
+	defer lease.Release()
+	result.WorkItemID = state.WorkItemID
+	result.WorkItemTitle = state.WorkItemTitle
+	before := slices.Clone(state.ReconcileFindings)
+	result.Finding, result.FindingProblem = r.clearReconcileFindings(ctx, &state, func(f runstate.ReconcileFinding) bool {
+		return f.Resolved || reconcileFindingResolved(state, f.Step)
+	})
+	for _, finding := range before {
+		if !hasReconcileFinding(state, finding.Step) {
+			result.Cleared = append(result.Cleared, finding.Step)
+		}
+	}
+	if result.FindingProblem != "" {
+		return result, true
+	}
+	maintained := len(result.Cleared) > 0
+	for index, finding := range state.ReconcileFindings {
+		if finding.Pending {
+			maintained = true
+			result.Finding, result.FindingProblem = r.deliverReconcileFinding(ctx, &state, index)
+			if result.FindingProblem != "" {
+				break
+			}
+		}
+	}
+	return result, maintained
+}
+
+// Durable completion also covers records written before the resolution marker
+// existed, and a resolution-marker save refused after the operation succeeded.
+// Absence from a sweep's candidate list alone is never proof of completion.
+func reconcileFindingResolved(state runstate.State, step runstate.ReconcileStep) bool {
+	published := state.PullRequest
+	switch step {
+	case runstate.ReconcileRun:
+		return state.Status.Terminal() && !state.Outstanding() && state.CleanupFailure == "" && state.PublishFailure == "" && (state.Phase == runstate.PhaseComplete || state.SettledQuietSince != nil)
+	case runstate.ReconcileRefresh:
+		return published != nil && (published.Merged || published.Superseded != "" || published.HandedBack != nil || strings.EqualFold(strings.TrimSpace(published.State), "CLOSED"))
+	case runstate.ReconcilePublication:
+		return published != nil && published.Merged && !state.Outstanding() && state.PublishFailure == ""
+	case runstate.ReconcileRecovery:
+		return published != nil && state.PublishFailure == "" && (published.Merged || published.MergeQueued)
+	case runstate.ReconcileSuperseded:
+		return published != nil && published.Superseded != ""
+	case runstate.ReconcileWorktree:
+		return state.WorktreeRemoved && (state.PreservedWorkRef == "" || state.PreservedWorkNotedAt != nil)
+	case runstate.ReconcileEscalation:
+		return state.EscalationEnded != nil
+	case runstate.ReconcileRedTarget:
+		return published != nil && published.TargetRed != nil && (published.Merged || published.MergeQueued || published.HandedBack != nil)
+	default:
+		return false
+	}
 }
 
 func hasReconcileFinding(state runstate.State, step runstate.ReconcileStep) bool {

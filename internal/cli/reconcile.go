@@ -614,6 +614,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if output.Convergence.Branches == nil {
 			output.Convergence.Branches = []orchestrator.BranchSweep{}
 		}
+		if output.Convergence.Findings == nil {
+			output.Convergence.Findings = []orchestrator.ReconcileFindingMaintenance{}
+		}
 		if output.Convergence.Worktrees == nil {
 			output.Convergence.Worktrees = []orchestrator.WorktreeSweep{}
 		}
@@ -712,6 +715,13 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		for _, result := range convergence.Branches {
 			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range convergence.Findings {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+			if len(result.Cleared) > 0 {
+				titles := readmodel.NewWorkItemTitles([]beads.WorkItem{{ID: result.WorkItemID, Title: result.WorkItemTitle}})
+				fmt.Fprintln(stdout, titles.Cite(fmt.Sprintf("%s (%s): resolved settlement findings cleared: %v", result.RunID, result.WorkItemID, result.Cleared)))
+			}
 		}
 		for _, result := range sweep.RedTargets {
 			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)

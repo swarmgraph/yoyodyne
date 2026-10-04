@@ -27,6 +27,7 @@ func TestReconcileFindingsDoNotFailTheMaintenancePass(t *testing.T) {
 			Branches:     []orchestrator.BranchSweep{{Failure: "branch unreadable", Finding: &finding}},
 			Worktrees:    []orchestrator.WorktreeSweep{{Failure: "checkout unreadable", Finding: &finding}},
 			Publications: []orchestrator.PublicationSweep{{PublicationRetirement: orchestrator.PublicationRetirement{Failure: "forge unreadable"}, Finding: &finding}},
+			Findings:     []orchestrator.ReconcileFindingMaintenance{{RunID: state.RunID, WorkItemID: state.WorkItemID, Finding: &finding, FindingProblem: "finding clearing save refused"}},
 		},
 		RedTargets:       []orchestrator.RedTargetResumption{{Failure: "target answer unreadable", Finding: &finding}},
 		EscalationsEnded: []orchestrator.EscalationSettlement{{Failure: "item unreadable", Finding: &finding}},
@@ -44,6 +45,9 @@ func TestReconcileFindingsDoNotFailTheMaintenancePass(t *testing.T) {
 			if !strings.Contains(stdout.String(), want) {
 				t.Errorf("output = %s, want %q", &stdout, want)
 			}
+		}
+		if !strings.Contains(stdout.String()+stderr.String(), "finding clearing save refused") {
+			t.Fatalf("finding maintenance refusal was not reported: stdout = %s, stderr = %s", &stdout, &stderr)
 		}
 		if code := reportReconcileResult(&stdout, &stderr, jsonOutput, sweep, errors.New("discover outstanding runs: state unreadable")); code != 1 {
 			t.Fatalf("unreadable pass state code = %d, want failure", code)

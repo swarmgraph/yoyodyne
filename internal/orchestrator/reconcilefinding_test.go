@@ -234,6 +234,220 @@ type refusedFindingDeliveryMarker struct {
 	refuse bool
 }
 
+func TestConvergeMaintainsFindingsAfterPublicationOperationsFinish(t *testing.T) {
+	for _, step := range []runstate.ReconcileStep{runstate.ReconcileRefresh, runstate.ReconcilePublication} {
+		for _, failure := range []string{"note delivery", "clearing save", "resolution save"} {
+			t.Run(string(step)+"/"+failure, func(t *testing.T) {
+				t.Parallel()
+				reconciler, store, runID, tracker, finish := finishedFindingFixture(t, step, failure == "note delivery")
+				failingStore := &refusedFindingClear{ReconcileStore: store, refuse: failure != "note delivery", resolution: failure == "resolution save"}
+				reconciler.Store = failingStore
+				finish()
+				if saved := loadRun(t, store, runID); len(saved.ReconcileFindings) != 1 || !saved.PullRequest.Merged || saved.PublishFailure != "" || saved.ReconcileFindings[0].Resolved != (failure != "resolution save") {
+					t.Fatalf("settled operation lost its outstanding finding obligation: %+v", saved)
+				}
+				// Neither publication sweep is eligible any more. The maintenance
+				// pass must find the saved finding independently of both lists.
+				if results, err := reconciler.RefreshPublications(context.Background()); err != nil || len(results) != 0 {
+					t.Fatalf("refresh = %+v, %v, want no eligible publication", results, err)
+				}
+				if results, err := reconciler.FinishPublications(context.Background()); err != nil || len(results) != 0 {
+					t.Fatalf("finish = %+v, %v, want no eligible publication", results, err)
+				}
+				if result, err := reconciler.Converge(context.Background()); err != nil || len(result.Findings) != 1 || result.Findings[0].FindingProblem == "" || len(result.Worktrees)+len(result.Branches)+len(result.Publications) != 0 {
+					t.Fatalf("finding maintenance without an eligible artifact = %+v, %v", result, err)
+				}
+				if saved := loadRun(t, store, runID); len(saved.ReconcileFindings) != 1 {
+					t.Fatal("the failed obligation was not retained for retry")
+				}
+				tracker.refuse = false
+				failingStore.refuse = false
+				_, lease, err := store.AdoptRun(context.Background(), runID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				result, err := reconciler.Converge(context.Background())
+				if releaseErr := lease.Release(); releaseErr != nil {
+					t.Fatal(releaseErr)
+				}
+				if err != nil || len(result.Findings) != 0 {
+					t.Fatalf("finding maintenance ignored the held run lease: %+v, %v", result.Findings, err)
+				}
+				if saved := loadRun(t, store, runID); len(saved.ReconcileFindings) != 1 {
+					t.Fatal("finding cleared while the run was held")
+				}
+				for pass := 0; pass < 2; pass++ {
+					result, err := reconciler.Converge(context.Background())
+					if err != nil || (pass == 0 && (len(result.Findings) != 1 || len(result.Findings[0].Cleared) != 1)) || (pass == 1 && len(result.Findings) != 0) {
+						t.Fatalf("pass %d finding maintenance = %+v, %v", pass, result.Findings, err)
+					}
+				}
+				if saved := loadRun(t, store, runID); len(saved.ReconcileFindings) != 0 {
+					t.Fatalf("the finished operation's finding was never cleared: %+v", saved.ReconcileFindings)
+				}
+				findingNotes := 0
+				for _, note := range tracker.Tracker.NoteRecords {
+					if strings.HasPrefix(note, "Settlement finding:") {
+						findingNotes++
+					}
+				}
+				if findingNotes != 1 {
+					t.Fatalf("finding notes = %d, want one successful delivery", findingNotes)
+				}
+			})
+		}
+	}
+}
+
+func TestConvergeMaintainsOtherFindingsWhenOneDeliveryIsRefused(t *testing.T) {
+	t.Parallel()
+	reconciler, store, runID, tracker, finish := finishedFindingFixture(t, runstate.ReconcileRefresh, true)
+	finish()
+	other := loadRun(t, store, runID)
+	other.RunID = "run-ffffffffffffffffffffffffffffffff"
+	other.WorkItemID = "yoyodyne-other"
+	other.WorkItemTitle = "Record the other completed settlement"
+	other.ReconcileFindings = append([]runstate.ReconcileFinding(nil), other.ReconcileFindings...)
+	other.ReconcileFindings[0].Pending = false
+	other.ReconcileFindings[0].Resolved = false // A record written without a resolution marker.
+	if err := store.Create(other); err != nil {
+		t.Fatal(err)
+	}
+	result, err := reconciler.Converge(context.Background())
+	if err != nil || len(result.Findings) != 2 {
+		t.Fatalf("finding maintenance = %+v, %v", result.Findings, err)
+	}
+	if saved := loadRun(t, store, runID); len(saved.ReconcileFindings) != 1 || !saved.ReconcileFindings[0].Pending {
+		t.Fatal("the refused delivery was not retained")
+	}
+	if saved := loadRun(t, store, other.RunID); len(saved.ReconcileFindings) != 0 {
+		t.Fatal("one refused delivery prevented the other finding from clearing")
+	}
+	tracker.refuse = false
+	if _, err := reconciler.Converge(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if saved := loadRun(t, store, runID); len(saved.ReconcileFindings) != 0 {
+		t.Fatal("the refused delivery was not retried")
+	}
+}
+
+func TestConvergeRetriesFindingDeliveryWithoutTreatingIneligibilityAsResolution(t *testing.T) {
+	t.Parallel()
+	fixture := newQueuedFixture(t)
+	outcome := fixture.run(t)
+	reconciler := fixture.reconciler(t)
+	reconciler.Tracker = &refuseSettlementNoteOnce{WorkTracker: fixture.tracker}
+	if finding, problem := reconciler.recordReconcileFinding(context.Background(), outcome.RunID, runstate.ReconcileRefresh, "forge answer unreadable"); finding == nil || problem == "" {
+		t.Fatalf("pending finding = %+v, %q", finding, problem)
+	}
+	if results, err := reconciler.RefreshPublications(context.Background()); err != nil || len(results) != 0 {
+		t.Fatalf("refresh = %+v, %v, want the outstanding queued merge excluded", results, err)
+	}
+	result, err := reconciler.Converge(context.Background())
+	if err != nil || len(result.Findings) != 1 || result.Findings[0].FindingProblem != "" || len(result.Findings[0].Cleared) != 0 {
+		t.Fatalf("finding maintenance = %+v, %v", result.Findings, err)
+	}
+	if saved := loadRun(t, fixture.store, outcome.RunID); len(saved.ReconcileFindings) != 1 || saved.ReconcileFindings[0].Pending || saved.ReconcileFindings[0].Resolved {
+		t.Fatalf("ineligible operation's refusal cleared instead of delivering its note: %+v", saved.ReconcileFindings)
+	}
+}
+
+func TestFindingMaintenanceFailsWhenItsSavedStateCannotBeRead(t *testing.T) {
+	t.Parallel()
+	reconciler := Reconciler{Store: unreadableSavedFindings{}}
+	if results, err := reconciler.maintainReconcileFindings(context.Background()); err == nil || len(results) != 0 || !strings.Contains(err.Error(), "state unreadable") {
+		t.Fatalf("finding maintenance = %+v, %v, want discovery failure", results, err)
+	}
+}
+
+type unreadableSavedFindings struct{ ReconcileStore }
+
+func (unreadableSavedFindings) Recorded() ([]runstate.State, error) {
+	return nil, errors.New("saved state unreadable")
+}
+
+// Drive the publication operation itself to success before leaving delivery or
+// clearing refused. Local cleanup is already finished, so no artifact result
+// can incidentally retry the finding for this test.
+func finishedFindingFixture(t *testing.T, step runstate.ReconcileStep, refuseNotes bool) (*Reconciler, *runstate.Store, string, *refusedFindingNotes, func()) {
+	t.Helper()
+	if step == runstate.ReconcileRefresh {
+		fixture, state := newPublicationFixture(t)
+		tracker := &refusedFindingNotes{durableFindingNotes: &durableFindingNotes{Tracker: fixture.tracker}, refuse: refuseNotes}
+		forge := &answeringForge{err: errors.New("forge answer unreadable")}
+		reconciler := &Reconciler{Tracker: tracker, Store: fixture.store, Worktrees: newObserver(t, fixture.repository, fixture.worktreeRoot), Publisher: forge}
+		if results, err := reconciler.RefreshPublications(context.Background()); err != nil || len(results) != 1 || results[0].Finding == nil {
+			t.Fatalf("initial refresh = %+v, %v", results, err)
+		}
+		runPipelineGit(t, fixture.repository, "worktree", "remove", "--force", "--force", state.WorktreePath)
+		runPipelineGit(t, fixture.repository, "branch", "-D", state.Branch)
+		state = loadRun(t, fixture.store, state.RunID)
+		state.WorktreeRemoved, state.BranchRemoved = true, true
+		state.WorktreeSweptAt, state.BranchSweptAt = &state.UpdatedAt, &state.UpdatedAt
+		if err := fixture.store.Save(state); err != nil {
+			t.Fatal(err)
+		}
+		return reconciler, fixture.store, state.RunID, tracker, func() {
+			forge.err = nil
+			forge.answer = publish.PullRequest{Number: state.PullRequest.Number, State: "MERGED", Merged: true}
+			if results, err := reconciler.RefreshPublications(context.Background()); err != nil || len(results) != 1 || !results[0].Updated || results[0].FindingProblem == "" {
+				t.Fatalf("successful refresh with refused finding maintenance = %+v, %v", results, err)
+			}
+		}
+	}
+	fixture := newQueuedFixture(t)
+	outcome := fixture.run(t)
+	fixture.forge.PerformQueuedMerge(t)
+	tracker := &refusedFindingNotes{durableFindingNotes: &durableFindingNotes{Tracker: fixture.tracker.(*orchestratortest.Tracker)}, refuse: refuseNotes}
+	reconciler := fixture.reconciler(t)
+	reconciler.Tracker = tracker
+	worktrees := reconciler.Worktrees
+	reconciler.Worktrees = &refusingBranch{ReconcileWorktrees: worktrees}
+	if results, err := reconciler.Reconcile(context.Background()); err != nil || len(results) != 1 || results[0].Action != ActionCompleted || results[0].Finding == nil {
+		t.Fatalf("initial merge settlement = %+v, %v", results, err)
+	}
+	reconciler.Worktrees = worktrees
+	return &reconciler, fixture.store, outcome.RunID, tracker, func() {
+		if results, err := reconciler.FinishPublications(context.Background()); err != nil || len(results) != 1 || !results[0].Settled || results[0].FindingProblem == "" {
+			t.Fatalf("successful settlement with refused finding maintenance = %+v, %v", results, err)
+		}
+	}
+}
+
+type refusedFindingNotes struct {
+	*durableFindingNotes
+	refuse bool
+}
+
+func (t *refusedFindingNotes) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
+	if t.refuse && strings.HasPrefix(note, "Settlement finding:") {
+		return beads.WorkItem{}, errors.New("finding note delivery refused")
+	}
+	return t.durableFindingNotes.RecordOutcome(ctx, id, note)
+}
+
+type refusedFindingClear struct {
+	ReconcileStore
+	refuse     bool
+	resolution bool
+}
+
+func (s *refusedFindingClear) Save(state runstate.State) error {
+	if s.refuse {
+		if s.resolution {
+			for _, finding := range state.ReconcileFindings {
+				if finding.Resolved {
+					return errors.New("finding resolution save refused")
+				}
+			}
+		} else if len(state.ReconcileFindings) == 0 {
+			return errors.New("finding clearing save refused")
+		}
+	}
+	return s.ReconcileStore.Save(state)
+}
+
 func (s *refusedFindingDeliveryMarker) Save(state runstate.State) error {
 	if s.refuse {
 		for _, finding := range state.ReconcileFindings {

@@ -78,6 +78,9 @@ type Convergence struct {
 	Unsuperseded []OpenPublication `json:"unsuperseded"`
 	Worktrees    []WorktreeSweep   `json:"worktrees"`
 	Branches     []BranchSweep     `json:"branches"`
+	// Findings revisits saved obligations even when their original operation
+	// has finished and no artifact sweep returns a result for the run.
+	Findings []ReconcileFindingMaintenance `json:"findings"`
 	// Registrations is the repository-wide prune that runs between the two. It
 	// is not per run because what it removes is exactly what no run record
 	// names any more.
@@ -269,7 +272,8 @@ func (r Reconciler) Converge(ctx context.Context) (Convergence, error) {
 		result := &convergence.Branches[index]
 		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileBranch, strings.Join(nonEmptyProblems(result.Failure, result.RecordProblem, result.ItemProblem), "; "))
 	}
-	return convergence, nil
+	convergence.Findings, err = r.maintainReconcileFindings(ctx)
+	return convergence, err
 }
 
 // sweepPublication retires one superseded run's pull request, and reports

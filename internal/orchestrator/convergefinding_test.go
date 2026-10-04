@@ -97,8 +97,13 @@ func TestConvergeRetriesNotesAfterTheWorktreeHasBeenRetired(t *testing.T) {
 				t.Fatalf("first convergence = %+v, %v", first, err)
 			}
 			saved := loadRun(t, store, oldest.RunID)
-			if !saved.WorktreeRemoved || saved.PreservedWorkRef == "" || len(saved.ReconcileFindings) != 1 || !saved.ReconcileFindings[0].Pending {
+			if !saved.WorktreeRemoved || saved.PreservedWorkRef == "" || len(saved.ReconcileFindings) != 1 {
 				t.Fatalf("retirement lost its pending notes: %+v", saved)
+			}
+			// The independent finding pass can deliver the refused finding note
+			// later in this same pass, before the preservation note succeeds.
+			if saved.ReconcileFindings[0].Pending || len(notes.NoteRecords) != 1 {
+				t.Fatalf("finding delivery was not retried independently: %+v, notes %q", saved.ReconcileFindings, notes.NoteRecords)
 			}
 			for pass := 1; pass <= failures; pass++ {
 				result, err := reconciler.Converge(context.Background())
