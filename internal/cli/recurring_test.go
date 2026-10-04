@@ -81,6 +81,9 @@ func TestAConfiguredTaskGetsATriggerOverTheProductsSweepStore(t *testing.T) {
 	if trigger.Roles == nil {
 		t.Error("the trigger has no way to reach a role's conversation, so it could never wake anybody")
 	}
+	if trigger.ConversationWork == nil {
+		t.Error("the trigger has no way to read the work waiting in the role's conversation")
+	}
 }
 
 func recordedSweep(task string, at time.Time, result *sweep.Result, problem string) runstate.Sweep {

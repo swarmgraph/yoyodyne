@@ -233,16 +233,23 @@ recurring_tasks:
   # until yoyodyne-ifd.100 gives her a write action, so she says what needs landing.
   architect-pass:
     role: architect
-    every: 1h
+    # 45m, down from 1h, at the operator's direction of 2026-10-04. In her
+    # Codex session log, passes opened with 100k to 250k input tokens: gaps of
+    # 51 to 56 minutes were 92 to 95 percent cached, while gaps of 57 to 74
+    # minutes were mostly 0 percent cached. Five of the last seven opened cold;
+    # an hourly cadence plus run time was at the observed cache edge. This is
+    # the operator's observation, not a provider guarantee of cache retention.
+    every: 45m
     enabled: true
     max_turns: 4
     prompt: |
-      Your hourly pass over what is waiting on you.
+      Your recurring pass over what is waiting on you.
 
       Survey the work items carried in your conversation (executor
       conversation:architect) and the undecided proposals to your documents.
-      Take the oldest first, and rule on as many as this pass can do properly
-      rather than touching all of them: read each item or proposal in full
+      Take work by priority first, then age within each priority, and rule on
+      as many as this pass can do properly rather than touching all of them:
+      read each item or proposal in full
       and the documents it rests on before deciding. For each, say plainly
       what you decided, and write any design text so that landing it is
       copying.

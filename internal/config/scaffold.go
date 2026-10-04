@@ -746,6 +746,28 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       them is a defect to report. Only a change of fundamental intent is
 #       theirs -- one after which the goals would admit any work they refused
 #       before, or refuse any work they admitted.
+#   architect-pass:
+#     role: architect
+#     every: 1h
+#     enabled: true
+#     max_turns: 4
+#     prompt: |
+#       Your recurring pass over what is waiting on you. Survey the work
+#       carried in your conversation and the undecided proposals to your
+#       documents. Take work by priority first, then age within each priority.
+#       Rule on as many as this pass can do properly: read each item or
+#       proposal in full and the documents it rests on before deciding.
+#       End with a durable report: what you ruled, what needs landing and
+#       where, what is still waiting, and any question for the operator.
+#       When nothing is waiting, say NOTHING WAITING and stop.
+#       Name every work item by what it is, with its identifier after it:
+#       "retiring the maintenance job (434.9)", never "434.9" on its own. An
+#       identifier alone is a defect -- nobody reading later knows the item.
+#       A decision your authority covers is yours: make it, and report it
+#       afterwards. Never ask the operator to approve it; an approval routed to
+#       them is a defect to report. Only a change of fundamental intent is
+#       theirs -- one after which the goals would admit any work they refused
+#       before, or refuse any work they admitted.
 #   architect-amendments:
 #     role: architect
 #     every: 6h

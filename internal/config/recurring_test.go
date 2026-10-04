@@ -303,6 +303,44 @@ func TestScaffoldedRecurringExampleLoadsWhenUncommented(t *testing.T) {
 	if !namesWorkItemsByWhatTheyAre(amendments.Prompt) {
 		t.Errorf("prompt = %q, want the rule that a work item is named by what it is", amendments.Prompt)
 	}
+	architect, err := resolved.Config.RecurringTaskNamed("architect-pass")
+	if err != nil {
+		t.Fatalf("RecurringTaskNamed() error = %v", err)
+	}
+	if architect.Role != domain.RoleArchitect || architect.Every.Duration() != time.Hour || !architect.Enabled {
+		t.Errorf("task = %+v, want the commented architect pass at 1h", architect)
+	}
+	if !strings.Contains(architect.Prompt, "priority first, then age within each priority") || strings.Contains(strings.ToLower(architect.Prompt), "oldest first") {
+		t.Errorf("prompt = %q, want priority then age", architect.Prompt)
+	}
+}
+
+func TestThisProjectsArchitectPassUsesPriorityThenAgeEvery45Minutes(t *testing.T) {
+	t.Parallel()
+	path := "../../.yoyodyne/config.yaml"
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	task, err := cfg.RecurringTaskNamed("architect-pass")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Role != domain.RoleArchitect || !task.Enabled || task.Every.Duration() != 45*time.Minute {
+		t.Errorf("architect pass = %+v, want enabled every 45m", task)
+	}
+	if !strings.Contains(task.Prompt, "priority first, then age within each priority") || strings.Contains(strings.ToLower(task.Prompt), "oldest first") {
+		t.Errorf("prompt = %q, want priority then age", task.Prompt)
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rationale := range []string{"51 to 56 minutes", "92 to 95 percent cached", "57 to 74", "not a provider guarantee"} {
+		if !strings.Contains(string(content), rationale) {
+			t.Errorf("the cadence has lost the observed cache rationale %q", rationale)
+		}
+	}
 }
 
 func TestMinimumCadenceIsAboveTheAccident(t *testing.T) {

@@ -150,6 +150,12 @@ type RecurringAmendments interface {
 	List() ([]amendment.Record, error)
 }
 
+// RecurringConversationWork reads and renders the current work carried by the
+// woken role's conversation. It changes no tracker state.
+type RecurringConversationWork interface {
+	Read(ctx context.Context, role domain.AgentRole) (string, error)
+}
+
 // RecurringRole is a role's conversation as the harness reaches it: one message
 // sent into it, and what came back.
 //
@@ -308,11 +314,10 @@ type RecurringSweep struct {
 	Paused *runstate.OperatorHold `json:"paused,omitempty"`
 }
 
-// Trigger fires the configured recurring tasks. It has no tracker and no
-// worktree access, and it starts nothing: what it does is wake a role on a
-// cadence and write down what the role said it did. The one reading it takes
-// itself is of the forge, on the development manager's pass, and that reading
-// changes nothing on the forge either.
+// Trigger fires the configured recurring tasks. It has no tracker writes or
+// worktree access: it wakes a role on a cadence and records what the role said
+// it did. Its readings of conversation work, the docket, proposals, and the
+// forge change nothing in those sources.
 type Trigger struct {
 	// Repository is where the render-time language check reads the terms register.
 	Repository string
@@ -364,6 +369,10 @@ type Trigger struct {
 	// existing passes. Neither invokes a role or creates another monitor.
 	RecordFailures func(context.Context) error
 	PassFailures   func(domain.AgentRole, string) string
+	// ConversationWork is the role's live queue, read afresh for each recurring
+	// turn in backlog order rather than left to the conversation's old briefing.
+	// Optional: an unwired trigger wakes the role with its task alone.
+	ConversationWork RecurringConversationWork
 	// Instances are the program manager instances their triggers wake, keyed by
 	// the agent's name, as this pull read the configuration. Optional: a trigger
 	// wired without them fires the recurring tasks and nothing else, which is
@@ -1136,6 +1145,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		message += "\n\n" + t.PassFailures(task.Role, f.agent)
 	}
 	for turn := 0; turn < task.Turns(); turn++ {
+		if t.ConversationWork != nil && f.agent == "" {
+			work, err := t.ConversationWork.Read(ctx, task.Role)
+			if err != nil {
+				problems = append(problems, err.Error())
+			}
+			message = work + "\n" + message
+		}
 		if docket != nil {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
 		}
