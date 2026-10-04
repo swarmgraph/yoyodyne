@@ -563,8 +563,10 @@ func (m *Manager) resolveCommit(ctx context.Context, revision string) (string, e
 // to, which under a fork arrangement is the contributor's fork rather than the
 // repository the work was merged into. It is a compare-and-swap on the exact
 // published commit, like the local deletion: a remote branch that carries
-// anything else is left alone for a person. A branch a previous attempt already
-// deleted is reported as done rather than as a failure.
+// anything else is left alone. If its tip is already contained in the remote
+// target, leaving it is successful cleanup: no unpublished work is outstanding.
+// A moved tip outside that target keeps the refusal. A branch a previous attempt
+// already deleted is reported as done rather than as a failure.
 func (m *Manager) DeleteRemoteBranch(ctx context.Context, worktree Worktree, commit string) error {
 	if !commitPattern.MatchString(commit) {
 		return fmt.Errorf("published commit %q is invalid", commit)
@@ -580,7 +582,29 @@ func (m *Manager) DeleteRemoteBranch(ctx context.Context, worktree Worktree, com
 		return nil
 	}
 	if published != commit {
-		return fmt.Errorf("remote branch %s is at %s, want the published commit %s", worktree.Branch, published, commit)
+		if err := validateTargetBranch(worktree.TargetBranch); err != nil {
+			return err
+		}
+		target, exists, err := m.remoteCommit(ctx, m.remote, worktree.TargetBranch)
+		if err != nil {
+			return err
+		}
+		if exists {
+			if err := m.fetchRemoteBranch(ctx, worktree.TargetBranch, target); err != nil {
+				return err
+			}
+			contained, err := m.descendsFrom(ctx, published, target)
+			if err != nil {
+				return err
+			}
+			if contained {
+				// Keep the moved branch rather than deleting a ref somebody else
+				// may move again. The target already carries the tip we observed.
+				return nil
+			}
+		}
+		return fmt.Errorf("remote branch %s is at %s, want the published commit %s; its tip is not contained in target %s on %s",
+			worktree.Branch, published, commit, worktree.TargetBranch, m.remote)
 	}
 	result, err := m.runRemote(ctx, "-C", m.repositoryRoot,
 		"-c", "core.hooksPath="+os.DevNull,

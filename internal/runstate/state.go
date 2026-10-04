@@ -1883,6 +1883,9 @@ func (s *State) recordedTexts() []recordedText {
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
 	own("cleanup_failure", &s.CleanupFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("completion_recording_failure", &s.CompletionRecordingFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	for index := range s.ReconcileFindings {
+		nested("reconcile_findings[].problem", at("reconcile_findings", index, "problem"), &s.ReconcileFindings[index].Problem, MaxBlockerBytes)
+	}
 	if s.ConfigComparison != nil {
 		own("config_comparison.active_problem", &s.ConfigComparison.ActiveProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 		own("config_comparison.template_problem", &s.ConfigComparison.TemplateProblem, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
@@ -2367,6 +2370,38 @@ type Integration struct {
 	// landed rather than where the local target stands. Absent is a local
 	// promotion, which every run recorded before this was.
 	ThroughPullRequest bool `json:"through_pull_request,omitempty"`
+}
+
+// ReconcileStep names the settlement whose refusal is recorded on a run.
+type ReconcileStep string
+
+const (
+	ReconcileRun         ReconcileStep = "run"
+	ReconcilePublication ReconcileStep = "publication"
+	ReconcileRecovery    ReconcileStep = "publication-recovery"
+	ReconcileRefresh     ReconcileStep = "publication-refresh"
+	ReconcileBranch      ReconcileStep = "branch"
+	ReconcileWorktree    ReconcileStep = "worktree"
+	ReconcileSuperseded  ReconcileStep = "superseded-publication"
+	ReconcileRedTarget   ReconcileStep = "red-target"
+	ReconcileEscalation  ReconcileStep = "escalation"
+)
+
+var reconcileSteps = []ReconcileStep{ReconcileRun, ReconcilePublication, ReconcileRecovery, ReconcileRefresh, ReconcileBranch, ReconcileWorktree, ReconcileSuperseded, ReconcileRedTarget, ReconcileEscalation}
+
+// RecordReconcileProblem uses the same bound and cut marker as the nested
+// durable finding, so comparing a repeated refusal is stable after a save.
+func RecordReconcileProblem(problem string) string {
+	return boundRecordedText(problem, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
+}
+
+// ReconcileFinding is a settlement this run could not make. Pending means its
+// note still needs delivery to the work item. Separate steps keep one refusal
+// from replacing another on the same run.
+type ReconcileFinding struct {
+	Step    ReconcileStep `json:"step"`
+	Problem string        `json:"problem"`
+	Pending bool          `json:"pending,omitempty"`
 }
 
 type State struct {
@@ -3197,7 +3232,8 @@ type State struct {
 	CompletionRecordingFailure string `json:"completion_recording_failure,omitempty"`
 	// ConfigComparison is saved before delivery to the work item. A pending
 	// delivery remains outstanding even after settlement and cleanup finish.
-	ConfigComparison *ConfigComparison `json:"config_comparison,omitempty"`
+	ConfigComparison  *ConfigComparison  `json:"config_comparison,omitempty"`
+	ReconcileFindings []ReconcileFinding `json:"reconcile_findings,omitempty"`
 }
 
 var (
@@ -3240,6 +3276,16 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	seenFindings := make(map[ReconcileStep]bool)
+	for _, finding := range s.ReconcileFindings {
+		if !slices.Contains(reconcileSteps, finding.Step) || seenFindings[finding.Step] || strings.TrimSpace(finding.Problem) == "" {
+			problems = append(problems, errors.New("reconcile_findings requires one refusal per recognized settlement step"))
+		}
+		seenFindings[finding.Step] = true
+		if len(finding.Problem) > MaxBlockerBytes {
+			problems = append(problems, errors.New("reconcile_findings.problem exceeds its recorded text bound"))
+		}
+	}
 	if c := s.ConfigComparison; c != nil {
 		if s.Integration == nil || !commitPattern.MatchString(c.TargetCommit) || !commitPattern.MatchString(c.PreviousTargetCommit) {
 			problems = append(problems, errors.New("config_comparison requires an integration and valid compared revisions"))

@@ -2598,8 +2598,18 @@ from a worktree it creates, and [the configuration
 guide](configuration.md#discovery) says how the resolution is made.
 
 It compares the recorded run against the repository and Beads, and then finishes
-the run's own remaining step or hands the item to you. A run it settled into an
-ending that is not success is reported twice over: what the sweep did with it,
+the run's own remaining step or records what still needs doing on that item.
+A settlement refused for one item, including a remote branch deletion or an
+unreadable forge answer, leaves a finding on that item's run record and notes.
+The finding names the refusal, the remedy, and who moves it: the harness retries
+the settlement, and the development manager decides what to preserve when a
+moved remote branch carries work outside its target. Reconcile finishes the rest
+of the pass and reports each item's settlement or remaining finding; these findings alone do not make the command
+or the supervisor's maintenance pass fail. A failure to discover the pass's
+state still fails the command. Repeating the same refusal retries the settlement
+without adding another finding note; an undelivered note is retried too.
+
+A run it settled into an ending that is not success is reported twice over: what the sweep did with it,
 and — in the same words `yoyo status` uses — what became of the run and what
 remains of its change. Those are different facts, and only the second answers
 whether your work is still there. A run whose work landed says only what the
@@ -2926,7 +2936,15 @@ rather than moved on a publication nothing verified. A **merged branch that
 could not be deleted** is the third, and is the mildest: the item is already
 settled — closed, or back in the backlog, as its landing said — and your local
 branch already caught up, and what is left is a branch on the forge. It says so
-in a second line on the item naming the branch.
+in a second line on the item naming the branch, followed by a settlement finding
+with the remedy and who moves it. A remote branch at the recorded
+published commit is removed as before. If the branch has moved, reconcile reads
+the remote target and checks whether it contains the moved tip. A tip already
+in that target is left alone and the publication settles with nothing
+outstanding. A tip outside the target keeps the deletion refusal as a finding
+on that item: preserve the extra work before removing the leftover branch, then
+reconcile clears the outstanding publication. Neither case fails the rest of
+the maintenance pass.
 
 All three are on that docket, and all three hold their item out of the pull for
 as long as they stand — which is the point: the change is already reviewed and
@@ -3035,9 +3053,12 @@ one note saying what was settled and which line it replaces. That is the lever
 behind the sentence in [how work flows](work.md#letting-the-harness-choose-the-work)
 that a hold lifts by the publication being settled, which until yoyodyne-ifd.357
 had nothing behind it. A publication the remote still refuses stays exactly
-where it was — the record keeps the account the run wrote, which is the line on
-the item, and nothing is written on either — and the sweep says what the remote
-answers now on every pass it stands. The eight held requests PR 497 merged on 2026-09-13 are
+where it was — the publication record keeps the account the run wrote, which
+is the line on the item. Its settlement finding records what the remote refuses
+now and the next move; the same finding is delivered to the item once, rather
+than announced as new on every pass. The sweep still reports what remains on
+each pass, and continues settling the other items. The eight held requests PR
+497 merged on 2026-09-13 are
 the case this was built on: confirmation then required the remote tip to carry
 exactly the promotion's content, which only the last merge of a batch does, so
 all eight settled as unconfirmed and stayed that way until this could re-ask.

@@ -55,6 +55,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -506,8 +507,10 @@ func renderRedTargetNotes(state runstate.State, reason string, accounts []string
 // RedTargetResumption is what the sweep did about one publication waiting on
 // its target's red check.
 type RedTargetResumption struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
 	// Action is what came of it: still waiting, brought up to date, filed
 	// again, or left for the watch to re-arm.
 	Action  ReconcileAction `json:"action"`
@@ -538,7 +541,6 @@ func (r Reconciler) ResumeRedTargets(ctx context.Context) ([]RedTargetResumption
 		return nil, fmt.Errorf("read the recorded runs to find the publications waiting on a red target: %w", err)
 	}
 	var results []RedTargetResumption
-	var problems []error
 	for _, candidate := range recorded {
 		if !candidate.WaitingOnRedTarget() {
 			continue
@@ -548,7 +550,6 @@ func (r Reconciler) ResumeRedTargets(ctx context.Context) ([]RedTargetResumption
 		if err != nil {
 			result.Action = ActionUnsettled
 			result.Failure = err.Error()
-			problems = append(problems, err)
 			results = append(results, result)
 			continue
 		}
@@ -562,11 +563,16 @@ func (r Reconciler) ResumeRedTargets(ctx context.Context) ([]RedTargetResumption
 		result.Action, result.Detail = reconciliation.Action, reconciliation.Detail
 		if err != nil {
 			result.Failure = err.Error()
-			problems = append(problems, err)
 		}
 		results = append(results, result)
 	}
-	return results, errors.Join(problems...)
+	for index := range results {
+		result := &results[index]
+		if result.Action != ActionHeld {
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileRedTarget, result.Failure)
+		}
+	}
+	return results, ctx.Err()
 }
 
 // resumeRedTarget reads the checks of one publication whose items have closed,

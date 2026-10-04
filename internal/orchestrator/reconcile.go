@@ -275,10 +275,12 @@ const (
 // reconciliation itself could not finish, which leaves the run outstanding for
 // the next attempt rather than silently settled.
 type Reconciliation struct {
-	RunID      string          `json:"run_id"`
-	WorkItemID string          `json:"work_item_id"`
-	Action     ReconcileAction `json:"action"`
-	Status     runstate.Status `json:"status,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Action         ReconcileAction      `json:"action"`
+	Status         runstate.Status      `json:"status,omitempty"`
 	// Outcome is what became of the run in the read model's fixed vocabulary,
 	// carried beside the status rather than instead of it for the reason the run
 	// history and the price breakdown carry theirs: the status is the durable
@@ -370,7 +372,13 @@ func (r Reconciler) Reconcile(ctx context.Context) ([]Reconciliation, error) {
 	for _, index := range askingForge {
 		results[index] = r.reconcileRun(ctx, outstanding[index])
 	}
-	return results, nil
+	for index := range results {
+		result := &results[index]
+		if result.Action != ActionHeld && (result.Failure != "" || result.Action == ActionCompleted || outstanding[index].ReconcileFindings != nil) {
+			result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileRun, result.Failure)
+		}
+	}
+	return results, ctx.Err()
 }
 
 // asksForge reports a run whose settlement may wait on the forge: a queued

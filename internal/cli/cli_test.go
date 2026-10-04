@@ -1474,8 +1474,8 @@ func TestReconcileReportsClosedPublicationsAndNamesTheResidue(t *testing.T) {
 	}}}}
 	stdout.Reset()
 	stderr.Reset()
-	if code := reportReconcileResult(&stdout, &stderr, false, failing, nil); code != 1 {
-		t.Fatalf("reportReconcileResult() code = %d, want 1 for a request that could not be closed", code)
+	if code := reportReconcileResult(&stdout, &stderr, false, failing, nil); code != 0 {
+		t.Fatalf("reportReconcileResult() code = %d, want the per-item refusal to fail nothing else", code)
 	}
 	if !strings.Contains(stderr.String(), "pull request #44 not closed: close the superseded pull request 44") {
 		t.Errorf("stderr = %q, want the failure named", stderr.String())

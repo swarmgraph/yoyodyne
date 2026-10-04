@@ -527,28 +527,9 @@ func sweepSupervision(parts components) ([]orchestrator.SupervisionResult, error
 
 func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reconcileSweep, err error) int {
 	results, publications, convergence, docketed := sweep.Runs, sweep.Publications, sweep.Convergence, sweep.Docketed
-	// A run reconciliation could not settle stays outstanding, so the command
-	// reports failure rather than folding it into the settled results. A branch
-	// the sweep could not remove is the same kind of fact.
+	// An item that cannot be settled is a finding, not a failed maintenance
+	// pass. Errors discovering the pass's state still fail it.
 	failed := err != nil
-	for _, result := range results {
-		if result.Failure != "" {
-			failed = true
-		}
-	}
-	for _, branch := range convergence.Branches {
-		if branch.Failure != "" {
-			failed = true
-		}
-	}
-	for _, worktree := range convergence.Worktrees {
-		// A record that could not be told its checkout is gone fails the command
-		// as squarely as a retirement that could not run: it is the state that
-		// sends every later reader to a directory that is not there.
-		if worktree.Failure != "" || worktree.RecordProblem != "" {
-			failed = true
-		}
-	}
 	if convergence.Registrations.Failure != "" {
 		failed = true
 	}
@@ -562,38 +543,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			failed = true
 		}
 	}
-	// A promotion whose request could not be looked up or written is a record
-	// still saying nothing about a change the forge holds, which is the state
-	// this sweep exists to end; one left where it stands for a reason is not.
-	for _, recovery := range sweep.Recoveries {
-		if recovery.Failure != "" {
-			failed = true
-		}
-	}
-	// A publication left where it stands for a reason is not a failure; one the
-	// forge could not be asked about, or whose corrected record could not be
-	// written, is a record still disagreeing with the forge.
-	for _, publication := range publications {
-		if publication.Failure != "" {
-			failed = true
-		}
-	}
-	// A publication the remote still refuses to confirm is not a failure of the
-	// sweep: it is what the sweep found, recorded, and left for a person. One the
-	// sweep could not finish for its own reasons is.
-	for _, settlement := range sweep.Settlements {
-		if settlement.Failure != "" {
-			failed = true
-		}
-	}
 	// A continuation the pipeline refused or that could not be recorded is a
 	// run still holding its slot with nothing serving it, which is what this
 	// step exists to end; a continued run that ended stopped is not.
-	for _, redTarget := range sweep.RedTargets {
-		if redTarget.Failure != "" {
-			failed = true
-		}
-	}
 	for _, continuation := range sweep.Continuations {
 		if continuation.Failure != "" {
 			failed = true
@@ -601,22 +553,6 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 	}
 	for _, update := range sweep.Updates {
 		if update.Failure != "" {
-			failed = true
-		}
-	}
-	// An ended escalation the item could not be told of is one the next sweep
-	// tells it of; the read model has already stopped naming it either way.
-	for _, ended := range sweep.EscalationsEnded {
-		if ended.Failure != "" {
-			failed = true
-		}
-	}
-	// A superseded publication left open is a false signal on the forge rather
-	// than something at risk, but it is exactly the state this sweep exists to
-	// end, so a sweep that could not end it reports failure like the rest. The
-	// list left open is not a failure: it is the list a person decides from.
-	for _, publication := range convergence.Publications {
-		if publication.Failure != "" {
 			failed = true
 		}
 	}
@@ -755,6 +691,33 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			if result.DocketProblem != "" {
 				fmt.Fprintf(stderr, "  not docketed: %s\n", result.DocketProblem)
 			}
+		}
+		for _, result := range results {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range sweep.Recoveries {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range publications {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range sweep.Settlements {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range convergence.Publications {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range convergence.Worktrees {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range convergence.Branches {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range sweep.RedTargets {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
+		}
+		for _, result := range sweep.EscalationsEnded {
+			printReconcileFinding(stdout, stderr, result.Finding, result.FindingProblem)
 		}
 		printRecoveries(stdout, stderr, sweep.Recoveries)
 		printPublications(stdout, stderr, publications)
@@ -1177,4 +1140,13 @@ Options:
   --stall-after <d>  how long nothing may start over ready work, with nothing
                      accounting for it, before that is recorded as a stall
                      (default 10m)`)
+}
+
+func printReconcileFinding(stdout, stderr io.Writer, finding *readmodel.Attention, problem string) {
+	if finding != nil {
+		fmt.Fprintf(stdout, "  settlement finding: %s — %s\n", finding.CitedWhat(), finding.CitedWhose())
+	}
+	if problem != "" {
+		fmt.Fprintf(stderr, "  finding not recorded: %s\n", problem)
+	}
 }

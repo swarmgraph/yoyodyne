@@ -33,6 +33,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -96,9 +97,11 @@ type Convergence struct {
 // because that pair is the whole of the justification for closing a pull
 // request somebody may still be looking at.
 type PublicationSweep struct {
-	RunID        string       `json:"run_id"`
-	WorkItemID   string       `json:"work_item_id"`
-	SupersededBy Supersession `json:"superseded_by"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	SupersededBy   Supersession         `json:"superseded_by"`
 	PublicationRetirement
 }
 
@@ -108,12 +111,14 @@ type PublicationSweep struct {
 // is a registration that goes on costing every command spawned on this machine
 // until somebody deals with the work in it.
 type WorktreeSweep struct {
-	RunID      string `json:"run_id"`
-	WorkItemID string `json:"work_item_id"`
-	Path       string `json:"path"`
-	Removed    bool   `json:"removed"`
-	Kept       string `json:"kept,omitempty"`
-	Failure    string `json:"failure,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Path           string               `json:"path"`
+	Removed        bool                 `json:"removed"`
+	Kept           string               `json:"kept,omitempty"`
+	Failure        string               `json:"failure,omitempty"`
 	// PreservedWork is the ref the checkout's uncommitted work was recorded on
 	// before the directory went, empty when it held none. It is reported because
 	// it is the answer to the only question retiring a half-finished change
@@ -152,14 +157,16 @@ type RegistrationSweep struct {
 // run is named because that is how an operator finds what the branch was for;
 // the branch is only ever removed on containment proved in the repository.
 type BranchSweep struct {
-	RunID        string `json:"run_id"`
-	WorkItemID   string `json:"work_item_id"`
-	Branch       string `json:"branch"`
-	TargetBranch string `json:"target_branch"`
-	Commit       string `json:"commit,omitempty"`
-	Removed      bool   `json:"removed"`
-	Kept         string `json:"kept,omitempty"`
-	Failure      string `json:"failure,omitempty"`
+	Finding        *readmodel.Attention `json:"finding,omitempty"`
+	FindingProblem string               `json:"finding_problem,omitempty"`
+	RunID          string               `json:"run_id"`
+	WorkItemID     string               `json:"work_item_id"`
+	Branch         string               `json:"branch"`
+	TargetBranch   string               `json:"target_branch"`
+	Commit         string               `json:"commit,omitempty"`
+	Removed        bool                 `json:"removed"`
+	Kept           string               `json:"kept,omitempty"`
+	Failure        string               `json:"failure,omitempty"`
 	// RecordProblem is a branch that is gone and whose run's record could not be
 	// told so, and it is the same class as the checkout sweep's: the branch is
 	// gone either way, and what needs acting on is that every reader of that run
@@ -249,6 +256,18 @@ func (r Reconciler) Converge(ctx context.Context) (Convergence, error) {
 		if swept {
 			convergence.Branches = append(convergence.Branches, sweep)
 		}
+	}
+	for index := range convergence.Publications {
+		result := &convergence.Publications[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileSuperseded, result.Failure)
+	}
+	for index := range convergence.Worktrees {
+		result := &convergence.Worktrees[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileWorktree, strings.Join(nonEmptyProblems(result.Failure, result.RecordProblem, result.ItemProblem), "; "))
+	}
+	for index := range convergence.Branches {
+		result := &convergence.Branches[index]
+		result.Finding, result.FindingProblem = r.recordReconcileFinding(ctx, result.RunID, runstate.ReconcileBranch, strings.Join(nonEmptyProblems(result.Failure, result.RecordProblem, result.ItemProblem), "; "))
 	}
 	return convergence, nil
 }

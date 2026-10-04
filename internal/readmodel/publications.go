@@ -56,7 +56,7 @@ func awaitingForgeAttention(state runstate.State) Attention {
 	// so a missing one leaves the field empty rather than being dereferenced,
 	// and the sentence says so — a placeholder belongs in the sentence, not in
 	// a field a surface would act on.
-	publication := Publication{Branch: state.Branch, EndedAt: runEnded(state)}
+	publication := Publication{ReconcileFindings: state.ReconcileFindings, Branch: state.Branch, EndedAt: runEnded(state)}
 	if state.Integration != nil {
 		publication.TargetBranch = state.Integration.TargetBranch
 	}
@@ -91,6 +91,9 @@ func awaitingForgeAttention(state runstate.State) Attention {
 		default:
 			mover = MoverOperator
 		}
+	}
+	if len(state.ReconcileFindings) > 0 {
+		mover = reconcileFindingMover(state.ReconcileFindings)
 	}
 	return Attention{
 		Kind:        AttentionPublication,
