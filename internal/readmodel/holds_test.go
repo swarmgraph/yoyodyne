@@ -293,6 +293,71 @@ func TestAnUnresolvedDecisionReferenceIsExplicitAndKeepsPreservedWorkHeld(t *tes
 	}
 }
 
+func TestASupersededSpendingDecisionDoesNotHoldAMissingRun(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for _, word := range []string{runstate.TriageDecisionRepair, runstate.TriageDecisionRerun, runstate.TriageDecisionRearm} {
+		t.Run(word, func(t *testing.T) {
+			t.Parallel()
+			for _, preserved := range []bool{false, true} {
+				run := preservedRun("run-aaaa1111", "yoyodyne-ifd.428.47", at)
+				if !preserved {
+					run.Status, run.Blocker = runstate.StatusSucceeded, ""
+				}
+				spending := runstate.TriageDecision{Decision: word, RunID: "run-dddd4444", DecidedAt: at.Add(time.Hour)}
+				wait := spending
+				wait.Decision, wait.DecidedAt = runstate.TriageDecisionWait, at.Add(2*time.Hour)
+				record := recordedDecisions{run.WorkItemID: {
+					WorkItemID: run.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
+					Decisions: []runstate.TriageDecision{spending, wait},
+				}}
+				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reason, holding := held.Reason(run.WorkItemID)
+				if !preserved {
+					if holding {
+						t.Fatalf("superseded %q decision about a missing run holds the item: %q", word, reason)
+					}
+					continue
+				}
+				if !holding || held.RunID(run.WorkItemID) != run.RunID || held.Decided(run.WorkItemID) ||
+					!strings.Contains(reason, "its change is preserved") || strings.Contains(reason, spending.RunID) {
+					t.Fatalf("hold names %s for %q, want only the preserved run's hold", held.RunID(run.WorkItemID), reason)
+				}
+			}
+		})
+	}
+}
+
+func TestAnOutstandingSpendingDecisionWithAMissingRunRemainsHeld(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for _, word := range []string{runstate.TriageDecisionRepair, runstate.TriageDecisionRerun, runstate.TriageDecisionRearm} {
+		t.Run(word, func(t *testing.T) {
+			t.Parallel()
+			run := preservedRun("run-aaaa1111", "yoyodyne-ifd.428.47", at)
+			run.Status, run.Blocker = runstate.StatusSucceeded, ""
+			decision := runstate.TriageDecision{Decision: word, RunID: "run-dddd4444", DecidedAt: at.Add(time.Hour)}
+			record := recordedDecisions{run.WorkItemID: {
+				WorkItemID: run.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
+				Decisions: []runstate.TriageDecision{decision},
+			}}
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reason := heldReason(t, held, run.WorkItemID)
+			if held.RunID(run.WorkItemID) != decision.RunID || held.Decided(run.WorkItemID) || !strings.Contains(reason, "is missing from the recorded runs") {
+				t.Fatalf("hold names %s for %q, want the outstanding %q decision's missing reference", held.RunID(run.WorkItemID), reason, word)
+			}
+		})
+	}
+}
+
 // A reading that failed is an error rather than an empty answer, because an
 // empty answer is indistinguishable from nothing being held and would release
 // exactly the work this holds.

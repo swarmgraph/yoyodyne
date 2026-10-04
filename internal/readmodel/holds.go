@@ -478,6 +478,12 @@ func holdDecisions(held map[string]backlog.Hold, runs []runstate.State, escalate
 }
 
 func decisionHold(workItemID string, decision runstate.TriageDecision, counters runstate.TriageCounters, byRun map[string]runstate.State, latest runstate.State, decided standing, look Look) (backlog.Hold, string) {
+	// An earlier decision about this run may still be in the record. It cannot
+	// hold the item after another decision supersedes it, even if the run is
+	// missing and its reference would otherwise be reported as unresolved.
+	if current, found := counters.DecisionOf(decision.RunID); found && current != decision {
+		return backlog.Hold{}, ""
+	}
 	_, refused := counters.RefusedCarryOut(decision.RunID)
 	if !decision.Spends() || (decision.Decision == runstate.TriageDecisionRepair && !counters.GrantOutstanding() && !refused) {
 		return backlog.Hold{}, ""
