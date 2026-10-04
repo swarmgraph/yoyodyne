@@ -220,11 +220,13 @@ Removing the copies (yoyodyne-ifd.429.13.6) deletes `inpackagefakes_test.go`,
 `fakeaccess_test.go` retains only fixture interfaces and conformance checks.
 
 The specialized conversation, publication, recovery, and scheduler fakes also
-live there, including `ReplayBackend`, `ParkingTracker`, and `RearmForge`.
+live there, including `ReplayBackend`, `ParkingTracker`, `RearmForge`, and
+`BatchingForge`, whose scripted readings and synchronized call records now live
+in the helper too.
 The claim, scheduler, pipeline, and re-run fixtures delegate to these fakes;
 the scheduler queue and run state still share one mutex. Remaining wrappers
-change answers around a helper fake or real implementation. None independently
-implements a tracker, backend, forge, or worktree interface.
+intercept calls around helper fakes or real implementations; none retains a
+second copy of the shared fakes.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than

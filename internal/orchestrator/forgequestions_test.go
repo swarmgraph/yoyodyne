@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -63,7 +62,7 @@ func TestRefreshAsksTheForgeOnlyAboutUnsettledPublicationsInBatches(t *testing.T
 		unsettled[state.Branch] = state.PullRequest.Number
 	}
 
-	forge := &batchingForge{numbers: unsettled}
+	forge := &orchestratortest.BatchingForge{Numbers: unsettled}
 	tally := &ForgeQuestions{}
 	refreshed, err := Reconciler{
 		Tracker:   fixture.tracker,
@@ -76,11 +75,11 @@ func TestRefreshAsksTheForgeOnlyAboutUnsettledPublicationsInBatches(t *testing.T
 		t.Fatalf("RefreshPublications() error = %v", err)
 	}
 
-	if forge.single != 0 {
-		t.Fatalf("the forge was asked about %d branch(es) one at a time, want every question batched", forge.single)
+	if forge.Single != 0 {
+		t.Fatalf("the forge was asked about %d branch(es) one at a time, want every question batched", forge.Single)
 	}
 	asked := map[string]bool{}
-	for _, batch := range forge.batches {
+	for _, batch := range forge.Batches {
 		if len(batch) > publish.MaxStatesPerQuery {
 			t.Fatalf("one batch asked about %d branches, want at most %d", len(batch), publish.MaxStatesPerQuery)
 		}
@@ -97,8 +96,8 @@ func TestRefreshAsksTheForgeOnlyAboutUnsettledPublicationsInBatches(t *testing.T
 	if len(asked) != len(unsettled) {
 		t.Fatalf("the forge was asked about %d branch(es), want the %d unsettled ones", len(asked), len(unsettled))
 	}
-	if len(forge.batches) != 2 {
-		t.Fatalf("the forge was asked %d batch(es), want 2 for %d branches", len(forge.batches), len(unsettled))
+	if len(forge.Batches) != 2 {
+		t.Fatalf("the forge was asked %d batch(es), want 2 for %d branches", len(forge.Batches), len(unsettled))
 	}
 	if len(refreshed) != len(unsettled) {
 		t.Fatalf("refresh reported %d publication(s), want %d", len(refreshed), len(unsettled))
@@ -123,7 +122,7 @@ func TestRefreshReportsEachPublicationOfABatchTheForgeDidNotAnswer(t *testing.T)
 	t.Parallel()
 
 	fixture, before := newPublicationFixture(t)
-	forge := &batchingForge{err: fmt.Errorf("HTTP 502")}
+	forge := &orchestratortest.BatchingForge{Err: fmt.Errorf("HTTP 502")}
 	tally := &ForgeQuestions{}
 	refreshed, err := Reconciler{
 		Tracker:   fixture.tracker,
@@ -191,41 +190,7 @@ func TestReconcileSettlesDeadRunsBeforeAskingTheForge(t *testing.T) {
 	}
 }
 
-var _ PublicationStates = (*batchingForge)(nil)
-
-// batchingForge answers in batches and counts every question, failing nothing
-// but recording a question asked one branch at a time.
-type batchingForge struct {
-	orchestratortest.AnsweringForge
-	numbers map[string]int
-	err     error
-	mutex   sync.Mutex
-	batches [][]string
-	single  int
-}
-
-func (f *batchingForge) State(context.Context, string) (publish.PullRequest, error) {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	f.single++
-	return publish.PullRequest{}, fmt.Errorf("batchingForge answers only in batches")
-}
-
-func (f *batchingForge) States(_ context.Context, heads []string) (map[string]publish.PullRequest, error) {
-	f.mutex.Lock()
-	defer f.mutex.Unlock()
-	f.batches = append(f.batches, append([]string(nil), heads...))
-	if f.err != nil {
-		return nil, f.err
-	}
-	answered := map[string]publish.PullRequest{}
-	for _, head := range heads {
-		if number, ok := f.numbers[head]; ok {
-			answered[head] = publish.PullRequest{Number: number, URL: fmt.Sprintf("https://example.invalid/pull/%d", number), State: "OPEN"}
-		}
-	}
-	return answered, nil
-}
+var _ PublicationStates = (*orchestratortest.BatchingForge)(nil)
 
 // orderingForge records, when it is first asked about a pull request, whether
 // the dead run had already been settled.

@@ -10,17 +10,17 @@ import (
 
 // RerunServices records the tracker, worktree, and forge requests a rerun makes.
 type RerunServices struct {
-	// Item is the tracker's current answer; ItemErr refuses that reading.
+	// ItemErr refuses the item reading.
 	Item    beads.WorkItem
 	ItemErr error
-	// Released records every claim release note; ReleaseErr refuses the write.
+	// Released records successful release notes.
 	Released   []string
 	ReleaseErr error
-	// Retirement answers removal, and Retired counts requests for it.
+	// Retired counts removal requests.
 	Retirement gitworktree.Retirement
 	Retired    int
 	RetireErr  error
-	// Closed and Deleted record the publication and remote branch removals.
+	// Closed and Deleted record successful removals.
 	Closed    []publish.CloseRequest
 	CloseErr  error
 	Deleted   []string
@@ -48,16 +48,12 @@ func (h *RerunServices) Close(_ context.Context, request publish.CloseRequest) (
 	return publish.Closure{Closed: true, State: "CLOSED"}, nil
 }
 
-// Show is the tracker's answer about the item, read and never written. A harness
-// leaves the item open; the sequences that are about the item's own state are the
-// ones that move it.
+// Show returns the scripted item or reading error.
 func (h *RerunServices) Show(context.Context, string) (beads.WorkItem, error) {
 	return h.Item, h.ItemErr
 }
 
-// Release is the one write a re-run makes to the item: giving back a claim the
-// stopped run left on it. Each note is kept so a test can read what the item was
-// told, and releaseErr is a tracker that would not take the write.
+// Release records the release note and opens the item unless refused.
 func (h *RerunServices) Release(_ context.Context, _ string, reason string) (beads.WorkItem, error) {
 	if h.ReleaseErr != nil {
 		return beads.WorkItem{}, h.ReleaseErr

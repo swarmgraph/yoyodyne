@@ -14,9 +14,7 @@ type PipelineTracker struct {
 	Notes []string
 }
 
-// Show, Claim, RecordOutcome, Block, and Complete are the tracker the real
-// pipeline drives. They are the fake harness's items behind its own mutex,
-// because three runs are calling them at once.
+// All pipeline calls share the queue's mutex with the scheduler fixture.
 func (h *PipelineTracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
 	h.Queue.Mu.Lock()
 	defer h.Queue.Mu.Unlock()
@@ -59,9 +57,7 @@ func (h *PipelineTracker) Complete(_ context.Context, id, _ string) (beads.WorkI
 	return h.SetStatus(id, "closed")
 }
 
-// Reopen puts the item back in the backlog under the parking it was given, which
-// is the whole of what a later pull reads: an item returned open and unparked is
-// one the very next poll offers again.
+// Reopen returns an item to the queue with its parking preserved.
 func (h *PipelineTracker) Reopen(_ context.Context, id, _ string, parking domain.WorkItemParking) (beads.WorkItem, error) {
 	h.Queue.Mu.Lock()
 	for index := range h.Queue.Items {

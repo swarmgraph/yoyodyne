@@ -6,8 +6,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 )
 
-// RemoteTarget is the pre-merge check on the remote target, which a re-arm
-// makes exactly as the original merge did.
+// RemoteTarget scripts and records pre-merge target verification.
 type RemoteTarget struct {
 	Failure  error
 	Verified []gitworktree.Integration
@@ -18,16 +17,11 @@ func (s *RemoteTarget) VerifyRemoteTarget(_ context.Context, integration gitwork
 	return s.Failure
 }
 
-// Ownership stands in for the two questions a re-entry asks of the preserved
-// worktree: whether it is as the harness left it, and whether the change is
-// still in it. What each was asked about, and what each says.
+// Ownership scripts and records ownership and content readings of a worktree.
 type Ownership struct {
 	Err   error
 	Asked []gitworktree.Worktree
-	// changed is what the preserved worktree holds. A nil value is the ordinary
-	// case — the change is still there — so a test about anything else is the only
-	// one that has to say so; an empty non-nil slice is the worktree a handback
-	// must refuse. readErr is what stopped the reading where nothing could be read.
+	// Nil Changed means the ordinary change; an empty slice means no change.
 	Changed []string
 	ReadErr error
 	Read    []gitworktree.Worktree
@@ -49,8 +43,7 @@ func (f *Ownership) ChangedPaths(_ context.Context, worktree gitworktree.Worktre
 	return f.Changed, nil
 }
 
-// Survival is a repository that answers for the one stopped run: whether its
-// branch and its checkout are there.
+// Survival scripts the presence of a stopped run's branch and checkout.
 type Survival struct{ Survival gitworktree.Survival }
 
 func (l *Survival) Survives(context.Context, gitworktree.Worktree) (gitworktree.Survival, error) {

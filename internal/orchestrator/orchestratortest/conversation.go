@@ -9,8 +9,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// ReplayBackend answers scripted turns and keeps the prompts it was given, which
-// is what says the refusal reached the woken turn.
+// ReplayBackend answers scripted turns and records their prompts.
 type ReplayBackend struct {
 	Replies []string
 	Prompts []string
@@ -30,8 +29,7 @@ func (b *ReplayBackend) Run(_ context.Context, request backendapi.RunRequest) (b
 	}, nil
 }
 
-// ParkingTracker is the work tracker as this replay needs it: the parks that were
-// actually carried out, and enough of an item to park.
+// ParkingTracker records which items a conversation parks.
 type ParkingTracker struct {
 	Parked []string
 }

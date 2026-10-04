@@ -3,14 +3,14 @@ package orchestratortest
 import (
 	"context"
 	"errors"
+	"fmt"
+	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// RearmForge is the forge a re-arm speaks to: what it says about the request now,
-// what it says is unmet, and every merge it was asked for. The requests are kept
-// because the whole of what this action promises is which request it makes.
+// RearmForge scripts the request's state and records requested merges.
 type RearmForge struct {
 	Observed   publish.PullRequest
 	ObserveErr error
@@ -34,11 +34,7 @@ func (f *RearmForge) Merge(_ context.Context, request publish.MergeRequest) (pub
 	return f.Result, f.MergeErr
 }
 
-// AnsweringForge is the forge reduced to the one question this sweep asks. It
-// is separate from orchestratortest.Forge because a refresh needs answers no run
-// of the harness produces — a request somebody closed unmerged, a branch some
-// other request answers for — and because counting the questions is how a test
-// proves a settled record is never asked about twice.
+// AnsweringForge scripts publication readings and records every question.
 type AnsweringForge struct {
 	Answer publish.PullRequest
 	Err    error
@@ -55,23 +51,17 @@ func (f *AnsweringForge) State(_ context.Context, head string) (publish.PullRequ
 	return f.Answer, nil
 }
 
-// Merge is never reached from a refresh or a finish: only the recovery of a
-// promotion that recorded no request arms a merge, and none of the records these
-// tests write is one.
+// Merge refuses writes during a publication refresh.
 func (f *AnsweringForge) Merge(context.Context, publish.MergeRequest) (publish.MergeResult, error) {
 	return publish.MergeResult{}, errors.New("answeringForge merges nothing: a refresh only asks")
 }
 
-// Close is the write the refresh never makes. A refresh that reached it would
-// be closing a request on the strength of an answer, which is the orphan
-// sweep's decision and not this one's.
+// Close refuses writes during a publication refresh.
 func (f *AnsweringForge) Close(context.Context, publish.CloseRequest) (publish.Closure, error) {
 	return publish.Closure{}, errors.New("a refresh closes nothing")
 }
 
-// NoticingForge is the harness's forge reading as a test drives it: a fixed set
-// of requests held open for nothing, and a record of what it was told had
-// already been reported.
+// NoticingForge filters scripted notices against those already reported.
 type NoticingForge struct {
 	Notices  []runstate.ForgeNotice
 	Reported []map[int]bool
@@ -101,8 +91,7 @@ func (l *JobLogs) JobLogTail(_ context.Context, checkRun int64, _ int) (string, 
 	return l.Tail, l.Err
 }
 
-// TargetChecks is the forge's reading of the target branch's own head, or its
-// refusal to give one.
+// TargetChecks scripts and records readings of the target branch's checks.
 type TargetChecks struct {
 	Reading publish.BranchCheckReading
 	Refuse  error
@@ -114,8 +103,7 @@ func (c *TargetChecks) BranchChecks(_ context.Context, branch string) (publish.B
 	return c.Reading, c.Refuse
 }
 
-// RequestChecks is the forge's reading of a request's checks, which gates arming a
-// request nothing ever asked the forge to merge.
+// RequestChecks scripts and counts readings of a pull request's checks.
 type RequestChecks struct {
 	Reading publish.CheckReading
 	Err     error
@@ -125,4 +113,37 @@ type RequestChecks struct {
 func (c *RequestChecks) Checks(context.Context, int, string) (publish.CheckReading, error) {
 	c.Asked++
 	return c.Reading, c.Err
+}
+
+// BatchingForge scripts batch readings and records batch and single requests.
+type BatchingForge struct {
+	AnsweringForge
+	Numbers map[string]int
+	Err     error
+	Mutex   sync.Mutex
+	Batches [][]string
+	Single  int
+}
+
+func (f *BatchingForge) State(context.Context, string) (publish.PullRequest, error) {
+	f.Mutex.Lock()
+	defer f.Mutex.Unlock()
+	f.Single++
+	return publish.PullRequest{}, fmt.Errorf("batchingForge answers only in batches")
+}
+
+func (f *BatchingForge) States(_ context.Context, heads []string) (map[string]publish.PullRequest, error) {
+	f.Mutex.Lock()
+	defer f.Mutex.Unlock()
+	f.Batches = append(f.Batches, append([]string(nil), heads...))
+	if f.Err != nil {
+		return nil, f.Err
+	}
+	answered := map[string]publish.PullRequest{}
+	for _, head := range heads {
+		if number, ok := f.Numbers[head]; ok {
+			answered[head] = publish.PullRequest{Number: number, URL: fmt.Sprintf("https://example.invalid/pull/%d", number), State: "OPEN"}
+		}
+	}
+	return answered, nil
 }
