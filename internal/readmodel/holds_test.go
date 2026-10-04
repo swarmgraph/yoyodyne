@@ -169,12 +169,192 @@ func TestTheLatestStoppageDescribesAnItemThatStoppedTwice(t *testing.T) {
 
 	first := preservedRun("run-aaaaaaaa", "yoyodyne-ifd.100", time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC))
 	second := preservedRun("run-bbbbbbbb", "yoyodyne-ifd.100", time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC))
+	first.UpdatedAt = second.UpdatedAt.Add(time.Hour)
 
 	for _, order := range [][]runstate.State{{first, second}, {second, first}} {
 		reason := heldReason(t, heldForAPerson(order, nil, nothingDecided, asRecorded), "yoyodyne-ifd.100")
 		if !strings.Contains(reason, "run-bbbbbbbb") {
 			t.Fatalf("the hold names %q, want the later run", reason)
 		}
+	}
+}
+
+func TestAHoldNamesTheOutstandingRepairsRunDespiteMaintenanceUpdates(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	older := preservedRun("run-aaaa1111", "yoyodyne-ifd.428.47", at)
+	newer := preservedRun("run-bbbb2222", older.WorkItemID, at.Add(time.Hour))
+	decidedAt := at.Add(2 * time.Hour)
+	record := recordedDecisions{older.WorkItemID: {
+		WorkItemID: older.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
+		Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRepair, RunID: newer.RunID, DecidedAt: decidedAt}},
+	}}
+	for _, gone := range []bool{false, true} {
+		newer.BranchRemoved, newer.WorktreeRemoved = gone, gone
+		for _, maintained := range []bool{false, true} {
+			older.UpdatedAt = at
+			if maintained {
+				older.UpdatedAt = decidedAt.Add(time.Hour)
+			}
+			for _, order := range [][]runstate.State{{older, newer}, {newer, older}} {
+				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: order}, record, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reason := heldReason(t, held, older.WorkItemID)
+				if held.RunID(older.WorkItemID) != newer.RunID || !strings.Contains(reason, newer.RunID) || !held.Decided(older.WorkItemID) {
+					t.Fatalf("maintained %t, artifacts gone %t: hold names %s for %q, want the outstanding repair of %s", maintained, gone, held.RunID(older.WorkItemID), reason, newer.RunID)
+				}
+			}
+		}
+	}
+}
+
+func TestAnOlderRepairRemainsHeldBesideALaterMergedPublication(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	older := preservedRun("run-4d9f253e39d0f289c8d5ee284d24a2d1", "yoyodyne-ifd.435.1", at)
+	newer := publishedRun("run-78ab99a5abf224b52cdc013cd1aaec61", older.WorkItemID)
+	newer.StartedAt, newer.UpdatedAt = at.Add(time.Hour), at.Add(2*time.Hour)
+	newer.PullRequest.Number = 732
+	repair := runstate.TriageCounters{
+		WorkItemID: older.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
+		Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRepair, RunID: older.RunID, DecidedAt: at.Add(30 * time.Minute)}},
+	}
+	for _, cleanupUnfinished := range []bool{true, false} {
+		if !cleanupUnfinished {
+			newer.PublishFailure = ""
+		}
+		for _, order := range [][]runstate.State{{older, newer}, {newer, older}} {
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: order}, recordedDecisions{older.WorkItemID: repair}, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reason := heldReason(t, held, older.WorkItemID)
+			if held.RunID(older.WorkItemID) != older.RunID || !strings.Contains(reason, older.RunID) || !held.Decided(older.WorkItemID) {
+				t.Fatalf("cleanup unfinished %t: hold names %s for %q, want the outstanding repair of %s", cleanupUnfinished, held.RunID(older.WorkItemID), reason, older.RunID)
+			}
+		}
+	}
+	repair.CarryOuts = []runstate.TriageCarryOut{{
+		RunID: older.RunID, Decision: runstate.TriageDecisionRepair, DecidedAt: repair.Decisions[0].DecidedAt,
+		Gate: runstate.TriageGatePreservedWork, Refusal: "the worktree has changed", Clears: "reconcile the preserved work", RefusedAt: at.Add(3 * time.Hour),
+	}}
+	newer.PublishFailure = "delete the merged remote branch failed"
+	held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{older, newer}}, recordedDecisions{older.WorkItemID: repair}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reason := heldReason(t, held, older.WorkItemID)
+	if held.RunID(older.WorkItemID) != older.RunID || held.Decided(older.WorkItemID) || !strings.Contains(reason, "the worktree has changed") {
+		t.Fatalf("hold names %s for %q (decided %t), want the refused repair of the older run", held.RunID(older.WorkItemID), reason, held.Decided(older.WorkItemID))
+	}
+}
+
+func TestAnUnresolvedDecisionReferenceIsExplicitAndKeepsPreservedWorkHeld(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	preserved := preservedRun("run-aaaa1111", "yoyodyne-ifd.428.47", at)
+	other := preservedRun("run-bbbb2222", "yoyodyne-ifd.435.1", at.Add(time.Hour))
+	finished := preservedRun("run-cccc3333", preserved.WorkItemID, at.Add(2*time.Hour))
+	finished.Status, finished.Blocker = runstate.StatusSucceeded, ""
+	for _, test := range []struct {
+		name, runID, recordItem, want string
+	}{
+		{name: "unnamed run", want: "the decision names no run"},
+		{name: "missing run", runID: "run-dddd4444", want: "run run-dddd4444 is missing"},
+		{name: "another item's run", runID: other.RunID, want: "belongs to yoyodyne-ifd.435.1 rather than yoyodyne-ifd.428.47"},
+		{name: "another item's record", runID: preserved.RunID, recordItem: other.WorkItemID, want: "the triage record belongs to"},
+		{name: "no stoppage", runID: finished.RunID, want: "records neither a stoppage"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			record := recordedDecisions{preserved.WorkItemID: {
+				WorkItemID: test.recordItem, RepairGrants: 1, CommittedRounds: 2,
+				Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRepair, RunID: test.runID, DecidedAt: at.Add(3 * time.Hour)}},
+			}}
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{preserved, other, finished}}, record, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reason := heldReason(t, held, preserved.WorkItemID)
+			for _, want := range []string{test.want, "reference could not be reconciled", "its change is preserved", preserved.RunID} {
+				if !strings.Contains(reason, want) {
+					t.Errorf("hold says %q, want %q", reason, want)
+				}
+			}
+			if held.RunID(preserved.WorkItemID) != test.runID || held.Decided(preserved.WorkItemID) {
+				t.Fatalf("hold names %s (decided %t), want the unresolved reference %q without claiming a carry-out", held.RunID(preserved.WorkItemID), held.Decided(preserved.WorkItemID), test.runID)
+			}
+		})
+	}
+}
+
+func TestASupersededSpendingDecisionDoesNotHoldAMissingRun(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for _, word := range []string{runstate.TriageDecisionRepair, runstate.TriageDecisionRerun, runstate.TriageDecisionRearm} {
+		t.Run(word, func(t *testing.T) {
+			t.Parallel()
+			for _, preserved := range []bool{false, true} {
+				run := preservedRun("run-aaaa1111", "yoyodyne-ifd.428.47", at)
+				if !preserved {
+					run.Status, run.Blocker = runstate.StatusSucceeded, ""
+				}
+				spending := runstate.TriageDecision{Decision: word, RunID: "run-dddd4444", DecidedAt: at.Add(time.Hour)}
+				wait := spending
+				wait.Decision, wait.DecidedAt = runstate.TriageDecisionWait, at.Add(2*time.Hour)
+				record := recordedDecisions{run.WorkItemID: {
+					WorkItemID: run.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
+					Decisions: []runstate.TriageDecision{spending, wait},
+				}}
+				held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				reason, holding := held.Reason(run.WorkItemID)
+				if !preserved {
+					if holding {
+						t.Fatalf("superseded %q decision about a missing run holds the item: %q", word, reason)
+					}
+					continue
+				}
+				if !holding || held.RunID(run.WorkItemID) != run.RunID || held.Decided(run.WorkItemID) ||
+					!strings.Contains(reason, "its change is preserved") || strings.Contains(reason, spending.RunID) {
+					t.Fatalf("hold names %s for %q, want only the preserved run's hold", held.RunID(run.WorkItemID), reason)
+				}
+			}
+		})
+	}
+}
+
+func TestAnOutstandingSpendingDecisionWithAMissingRunRemainsHeld(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)
+	for _, word := range []string{runstate.TriageDecisionRepair, runstate.TriageDecisionRerun, runstate.TriageDecisionRearm} {
+		t.Run(word, func(t *testing.T) {
+			t.Parallel()
+			run := preservedRun("run-aaaa1111", "yoyodyne-ifd.428.47", at)
+			run.Status, run.Blocker = runstate.StatusSucceeded, ""
+			decision := runstate.TriageDecision{Decision: word, RunID: "run-dddd4444", DecidedAt: at.Add(time.Hour)}
+			record := recordedDecisions{run.WorkItemID: {
+				WorkItemID: run.WorkItemID, RepairGrants: 1, CommittedRounds: 2,
+				Decisions: []runstate.TriageDecision{decision},
+			}}
+			held, err := HeldForAPerson(context.Background(), fakeStoppages{runs: []runstate.State{run}}, record, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reason := heldReason(t, held, run.WorkItemID)
+			if held.RunID(run.WorkItemID) != decision.RunID || held.Decided(run.WorkItemID) || !strings.Contains(reason, "is missing from the recorded runs") {
+				t.Fatalf("hold names %s for %q, want the outstanding %q decision's missing reference", held.RunID(run.WorkItemID), reason, word)
+			}
+		})
 	}
 }
 
@@ -390,6 +570,7 @@ func preservedRun(runID, workItemID string, stopped time.Time) runstate.State {
 		RunID:        runID,
 		WorkItemID:   workItemID,
 		Status:       runstate.StatusFailed,
+		StartedAt:    stopped.Add(-time.Hour),
 		UpdatedAt:    stopped,
 		Branch:       "yoyodyne/" + workItemID + "/" + runID,
 		WorktreePath: "/state/worktrees/" + runID,
@@ -568,7 +749,7 @@ func TestAHoldReadWithoutTheTriageRecordSaysNothingWasWiredToReadIt(t *testing.T
 // nothingDecided is the reading of an item nobody has decided anything about,
 // which is every item in the fixtures that predate the two holds being told
 // apart.
-func nothingDecided(string, runstate.State) decidedStanding { return decidedStanding{} }
+func nothingDecided(string) (runstate.TriageCounters, string) { return runstate.TriageCounters{}, "" }
 
 // decisions is a triage record readable for the items it names, and empty for
 // every other — which is what an item nothing has been decided about actually
@@ -795,7 +976,7 @@ func TestAnItemADecidedStopSupersededIsHeldWhileItsChangeStands(t *testing.T) {
 	}
 	record := recordedDecisions{stopped.WorkItemID: {WorkItemID: stopped.WorkItemID, Decisions: []runstate.TriageDecision{stop}}}
 
-	held := heldStopping([]runstate.State{stopped}, nil, standingDecisions(record), standingStops(record), asRecorded)
+	held := heldStopping([]runstate.State{stopped}, nil, standingDecisions(record), standingStops(standingDecisions(record)), asRecorded)
 	reason := heldReason(t, held, stopped.WorkItemID)
 	for _, want := range []string{stopped.RunID, "superseded by yoyodyne-ifd.398", "change is preserved"} {
 		if !strings.Contains(reason, want) {
@@ -809,7 +990,7 @@ func TestAnItemADecidedStopSupersededIsHeldWhileItsChangeStands(t *testing.T) {
 	// The change gone: nothing is left to redo the work beside.
 	gone := stopped
 	gone.BranchRemoved, gone.WorktreeRemoved = true, true
-	if reason, holding := heldStopping([]runstate.State{gone}, nil, standingDecisions(record), standingStops(record), asRecorded).Reason(stopped.WorkItemID); holding {
+	if reason, holding := heldStopping([]runstate.State{gone}, nil, standingDecisions(record), standingStops(standingDecisions(record)), asRecorded).Reason(stopped.WorkItemID); holding {
 		t.Fatalf("an item whose stopped change is gone is held: %q", reason)
 	}
 
@@ -817,12 +998,12 @@ func TestAnItemADecidedStopSupersededIsHeldWhileItsChangeStands(t *testing.T) {
 	since := stop
 	since.Decision, since.SupersededBy, since.DecidedAt = runstate.TriageDecisionRescope, "", stoppedAt.Add(time.Hour)
 	moved := recordedDecisions{stopped.WorkItemID: {WorkItemID: stopped.WorkItemID, Decisions: []runstate.TriageDecision{since}}}
-	if reason, holding := heldStopping([]runstate.State{stopped}, nil, standingDecisions(moved), standingStops(moved), asRecorded).Reason(stopped.WorkItemID); holding {
+	if reason, holding := heldStopping([]runstate.State{stopped}, nil, standingDecisions(moved), standingStops(standingDecisions(moved)), asRecorded).Reason(stopped.WorkItemID); holding {
 		t.Fatalf("an item decided about since its stop is held as superseded: %q", reason)
 	}
 
 	// An operator's stop leaves no decision, and holds nothing, as it always has.
-	if reason, holding := heldStopping([]runstate.State{stopped}, nil, nothingDecided, standingStops(recordedDecisions{}), asRecorded).Reason(stopped.WorkItemID); holding {
+	if reason, holding := heldStopping([]runstate.State{stopped}, nil, nothingDecided, standingStops(standingDecisions(recordedDecisions{})), asRecorded).Reason(stopped.WorkItemID); holding {
 		t.Fatalf("an operator's stop held its item: %q", reason)
 	}
 }
