@@ -201,6 +201,11 @@ func recordGate(args []string, stdout, stderr io.Writer) int {
 		printGateUsage(stderr)
 		return 2
 	}
+	// A shell an agent opened cannot record the step reserved for a person.
+	// Refuse before opening the configuration or any store.
+	if err := refusedToAgentProcess("yoyo gate record", "a person records gates"); err != nil {
+		return reportGateError(stdout, stderr, *jsonOutput, err)
+	}
 	gate := positional[0]
 	// The subject is required rather than defaulted, and that is the point of it:
 	// an act passes the gate on the thing that declared it and passes nothing
@@ -352,6 +357,9 @@ It says who took the step and what they did, because a gate passed by nobody in
 particular and described by nothing is the flag this replaced. A gate already
 passed on that subject is refused rather than overwritten: the record says whose
 act it was.
+A process the harness launched for a role -- including a command run from an
+agent's shell, marked by YOYODYNE_AGENT_ROLE -- is refused it and told that a
+person records gates.
 
   yoyo gate record release-signed --for yoyodyne-ifd.400 --by you --did "read the release notes and signed v0.4.0 off"
 
