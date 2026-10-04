@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 var recurringNow = time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
@@ -1099,13 +1100,30 @@ type fixedDocket struct {
 	reads    int
 }
 
-func (d *fixedDocket) Window() string {
-	d.reads++
-	return d.rendered
+func (d *fixedDocket) StartPass([]triage.WindowPosition) RecurringDocketPass {
+	return &fixedDocketPass{source: d}
+}
+
+type fixedDocketPass struct {
+	source *fixedDocket
+	done   bool
+}
+
+func (p *fixedDocketPass) Window() string {
+	p.source.reads++
+	if p.done {
+		return ""
+	}
+	return p.source.rendered
+}
+
+func (p *fixedDocketPass) Delivered() string { p.done = true; return "" }
+func (p *fixedDocketPass) Remaining() (runstate.DocketDelivery, string) {
+	return runstate.DocketDelivery{}, ""
 }
 
 // The development manager's pass carries the docket as it stands in the message
-// that wakes her, read once for the firing however many turns it takes; a pass
+// that wakes her, asking for another slice on each further turn; a pass
 // of any other role's carries none, because no other role decides about it.
 func TestADevelopmentManagersFiringCarriesTheDocketAndNoOtherRolesDoes(t *testing.T) {
 	t.Parallel()
@@ -1123,8 +1141,8 @@ func TestADevelopmentManagersFiringCarriesTheDocketAndNoOtherRolesDoes(t *testin
 	if len(role.messages) != 2 || !strings.Contains(role.messages[0], "on yoyodyne-ifd.428.29") || !strings.Contains(role.messages[0], "read for this pass") {
 		t.Fatalf("messages = %q, want the docket in the message that woke her", role.messages)
 	}
-	if strings.Contains(role.messages[1], "Triage docket") || docket.reads != 1 {
-		t.Errorf("the docket was read %d time(s) and continued into %q, want it read once for the firing", docket.reads, role.messages[1])
+	if strings.Contains(role.messages[1], "Triage docket") || docket.reads != 2 {
+		t.Errorf("the docket was read %d time(s) and continued into %q, want each turn to ask for the next slice without repeating this one", docket.reads, role.messages[1])
 	}
 
 	other := sweepStore(t)

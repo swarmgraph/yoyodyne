@@ -1716,6 +1716,13 @@ manager's task — a summons from the intake brake included — builds the docke
 again and puts it in the message that wakes her, in the same listing her
 conversation carries, whether or not anything was delivered since her last turn.
 
+Each continuation turn carries the next slice in that order, with entries
+already delivered on the pass left out. Decisions and closed work are read
+again between turns. A pass cannot end complete while live entries remain
+undelivered; if its turn bound or a provider refusal ends it first, its record
+counts those entries and names the oldest. The next pass starts with those
+unread entries before showing entries an earlier pass already delivered.
+
 **What she is shown is a window onto the docket, not the docket.** The docket
 is a log that only grows, and a conversation has a budget. So each picture she
 is given, and each pass's message, lists at most 25 entries, within a fixed
@@ -1725,7 +1732,9 @@ whose decision the harness was stopped carrying out. Whether an item is closed
 is read from the tracker as the window is built. If the tracker cannot be read,
 nothing is left out, and the window says so. A stopped run is listed once, with
 its other docketings beneath it, and says how long it has waited since it was
-first docketed. Every stoppage nobody has decided comes before any entry whose
+first docketed. A scheduled pass first lists the live entries its earlier slices
+or a previous pass did not reach, in their saved order. Among the remaining
+entries, every stoppage nobody has decided comes before any entry whose
 decision is recorded, however the harness was stopped carrying that decision
 out. Among the undecided, critical entries come first: an item a role raised as
 unmeetable, and a Lead Product Manager's decision about a run still in flight.

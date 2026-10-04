@@ -97,6 +97,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // RecurringClaims is the durable cadence: where a firing is claimed before it is
@@ -351,8 +352,8 @@ type Trigger struct {
 	// nothing, which is what every pass did until the requests were counted.
 	Forge RecurringForge
 	// Docket is the triage docket as the development manager reads it, read
-	// afresh for every firing of a task of hers and carried in the message that
-	// wakes her. Optional: a trigger wired without one wakes her with the task
+	// afresh for every turn of a task of hers and carried in each turn's message.
+	// Optional: a trigger wired without one wakes her with the task
 	// alone, which is what every pass did until three of them in one afternoon
 	// decided none of three approved changes waiting on her — the docket in her
 	// context was the one rendered when her conversation opened, and a pass
@@ -768,7 +769,17 @@ func missedReportMessage(missed RecurringMiss, now time.Time) string {
 // each with its age, so her check for what reached him without needing him has
 // his line to check against.
 type RecurringDocket interface {
+	StartPass(pending []triage.WindowPosition) RecurringDocketPass
+}
+
+// RecurringDocketPass walks one firing without repeating entries it has already
+// delivered. Window prepares the next slice; Delivered commits it only when the
+// role answered. Remaining reads live state again, so a decision between turns
+// removes an entry before the next turn and before the final count is recorded.
+type RecurringDocketPass interface {
 	Window() string
+	Delivered() string
+	Remaining() (runstate.DocketDelivery, string)
 }
 
 // RecurringOutages is the outage record as a firing reads it. It is satisfied
@@ -843,7 +854,7 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
 		}
 		batch := t.amendmentBatch(task)
-		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, t.docketFor(task), t.overdueFor(task), batch), batch: batch})
+		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, "", t.overdueFor(task), batch), batch: batch})
 		return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
 	}
 	// The program manager instances come after the tasks and share their bound:
@@ -926,19 +937,8 @@ func (t Trigger) Summon(ctx context.Context, summons BrakeSummons) (Fired, error
 	}
 	summoned := summonedBy(summons.Hold)
 	batch := t.amendmentBatch(task)
-	fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSummons, message: summonsMessage(name, task, summons.Hold, t.docketFor(task), batch), summoned: summoned, batch: batch})
+	fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSummons, message: summonsMessage(name, task, summons.Hold, "", batch), summoned: summoned, batch: batch})
 	return fired, nil
-}
-
-// docketFor is the docket a firing of this task carries: the development
-// manager's, read now, and nothing for any other role. It is read once per
-// firing rather than once per turn, because the turns after the first continue
-// the same pass over what the first was shown.
-func (t Trigger) docketFor(task config.RecurringTask) string {
-	if t.Docket == nil || task.Role != domain.RoleDevelopmentManager {
-		return ""
-	}
-	return t.Docket.Window()
 }
 
 // developmentManagerTask is the first enabled task, in name order, that wakes
@@ -1091,6 +1091,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	}
 	var merged *sweep.Result
 	var problems []string
+	var pending []triage.WindowPosition
 	// What stopped the proposals being put to the role is on the record ahead of
 	// the turns, because it is what happened first and it explains an account
 	// that recommends on nothing.
@@ -1102,9 +1103,10 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// would otherwise write the same memories and report a second time.
 	// And the findings the last pass that took a turn left no trace of are named
 	// in this one's, so the role can write the trace now rather than lose them.
-	if earlier, problem := t.earlierPasses(name); problem != "" {
+	if earlier, unread, problem := t.earlierPasses(name); problem != "" {
 		problems = append(problems, problem)
 	} else {
+		pending = unread
 		if already := savedByUnfinishedPasses(earlier); len(already) > 0 {
 			message += "\n\n" + alreadySavedMessage(already)
 		}
@@ -1113,8 +1115,15 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			message += "\n\n" + untracedMessage(untraced)
 		}
 	}
+	var docket RecurringDocketPass
+	if t.Docket != nil && task.Role == domain.RoleDevelopmentManager {
+		docket = t.Docket.StartPass(pending)
+	}
 	failed := false
 	for turn := 0; turn < task.Turns(); turn++ {
+		if docket != nil {
+			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
+		}
 		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message)
 		// What the turn cost is carried whichever way it went, because the provider
 		// charges for a turn that failed exactly as for one that answered — and so
@@ -1185,6 +1194,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		}
 		fired.Turns++
 		recorded.Turns++
+		if docket != nil {
+			problems = append(problems, docket.Delivered())
+		}
 		for _, id := range answered.CriticalReports {
 			shown[id] = true
 		}
@@ -1192,18 +1204,30 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			problems = append(problems, answered.ResultProblem)
 		}
 		if answered.Result == nil {
-			// A turn that answered without an account ends the firing rather than
-			// asking again: the role has said what it had to say, and a second turn
-			// would be spent asking it to reformat rather than to do anything.
-			break
-		}
-		if merged == nil {
+			problems = append(problems, fmt.Sprintf(
+				"turn %d of the recurring task %s produced no account of itself, so what it found is only in the %s's conversation",
+				turn+1, name, task.Role))
+		} else if merged == nil {
 			merged = answered.Result
 		} else {
 			folded := merged.Merge(*answered.Result)
 			merged = &folded
 		}
-		if answered.Result.Status != sweep.StatusMore {
+		unreadDocket := false
+		if docket != nil {
+			delivery, problem := docket.Remaining()
+			problems = append(problems, problem)
+			unreadDocket = len(delivery.Undelivered) > 0
+			if unreadDocket && merged != nil {
+				merged.Status = sweep.StatusMore
+			}
+		}
+		if answered.Result == nil && !unreadDocket {
+			// Do not spend another turn asking for an account alone. Unread docket
+			// entries are work for the next turn even without a structured reply.
+			break
+		}
+		if merged != nil && merged.Status != sweep.StatusMore {
 			standing, problem := t.standingCriticals(shown)
 			if problem != "" {
 				problems = append(problems, problem)
@@ -1239,6 +1263,14 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			break
 		}
 		message = continueMessage(name)
+	}
+	if docket != nil {
+		delivery, problem := docket.Remaining()
+		recorded.Docket = &delivery
+		problems = append(problems, delivery.Says(), problem)
+		if len(delivery.Undelivered) > 0 && merged != nil {
+			merged.Status = sweep.StatusMore
+		}
 	}
 	// A firing that produced no account says so here rather than relying on
 	// whoever wired the conversation to have said it. The record refuses a sweep
@@ -1712,24 +1744,31 @@ func describeSavedBeforeFailing(name string, saved []runstate.SavedWrite) string
 
 // earlierPasses is this task's recorded passes, in the order they were
 // written, read once for everything the next pass is told about the ones
-// before it. It reports what stopped it reading them as a problem for the
+// before it, and the unread docket entries from the product's latest pass.
+// It reports what stopped it reading them as a problem for the
 // record, and then lists nothing, since a pass told nothing reads the same as
 // one told there was nothing.
-func (t Trigger) earlierPasses(name string) ([]runstate.Sweep, string) {
+func (t Trigger) earlierPasses(name string) ([]runstate.Sweep, []triage.WindowPosition, string) {
 	if t.Reports == nil {
-		return nil, ""
+		return nil, nil, ""
 	}
 	recorded, _, err := t.Reports.List()
 	if err != nil {
-		return nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told what an unfinished one had already saved or which findings an earlier one left no trace of: %v", name, err)
+		return nil, nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told which docket entries were never delivered, what an unfinished one had already saved or which findings an earlier one left no trace of: %v", name, err)
 	}
 	var passes []runstate.Sweep
+	var pending []triage.WindowPosition
 	for _, earlier := range recorded {
+		// The docket belongs to the product, even where two tasks wake the
+		// development manager or a task was renamed between passes.
+		if earlier.Role == domain.RoleDevelopmentManager && earlier.Docket != nil {
+			pending = earlier.Docket.Undelivered
+		}
 		if earlier.Task == name {
 			passes = append(passes, earlier)
 		}
 	}
-	return passes, ""
+	return passes, pending, ""
 }
 
 // savedByUnfinishedPasses is every memory and lane-report write a task's
@@ -1879,7 +1918,7 @@ func docketLines(docket string) []string {
 	}
 	return []string{
 		"",
-		"The triage docket below was read for this pass, and is the docket as it stands now rather than the one your conversation opened with. Every entry on it is a stoppage nobody has decided about, whether or not it was ever delivered to you on its own; decide what you can on this pass.",
+		"The triage docket below was read for this pass, and is the docket as it stands now rather than the one your conversation opened with. Decide the entries still awaiting your decision, whether or not they were ever delivered to you on their own; entries already decided say what is waiting on the harness.",
 		"",
 		docket,
 	}
@@ -1948,12 +1987,11 @@ func summonsMessage(name string, task config.RecurringTask, hold runstate.Intake
 }
 
 // continueMessage is what a pass that said it had more to do is given next. It
-// deliberately says nothing about what to look at: the role has the whole of its
-// own previous turn in the conversation, and repeating the task here would be a
-// second copy of an instruction that can disagree with the first.
+// keeps the task in the previous turn. A development manager's next docket
+// slice is added by the same pass loop that carried its first slice.
 func continueMessage(name string) string {
 	return strings.Join([]string{
-		fmt.Sprintf("You said the pass of %q had more to do than that turn held. Carry on with the rest of it.", name),
+		fmt.Sprintf("The pass of %q has more to do than that turn held. Carry on with the rest of it.", name),
 		"Report only what this turn found: what you already reported is kept, and repeating it would be counted twice.",
 		"",
 		sweep.Contract(),

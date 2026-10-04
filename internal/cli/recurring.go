@@ -32,6 +32,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // recurringTrigger wires the schedule over parts that are already built, so a
@@ -172,9 +173,32 @@ type sweepDocket struct {
 	now func() time.Time
 }
 
-// Window is the docket, then what waits on the operator.
-func (d sweepDocket) Window() string {
-	rendered := d.docket()
+func (d sweepDocket) StartPass(pending []triage.WindowPosition) orchestrator.RecurringDocketPass {
+	return &sweepDocketPass{source: d, pending: pending}
+}
+
+type sweepDocketPass struct {
+	source   sweepDocket
+	shown    []triage.WindowPosition
+	pending  []triage.WindowPosition
+	next     contextbundle.DocketWindow
+	complete bool
+	known    []triage.Stoppage
+}
+
+func (p *sweepDocketPass) Window() string {
+	window, problem, complete := p.read()
+	p.next = window
+	p.complete = complete
+	p.remember(window, complete)
+	rendered := window.Text
+	if rendered == "" {
+		rendered = "## Triage docket\n\nNothing is on the docket: no stoppage is waiting on a decision of yours.\n"
+	}
+	if problem != "" {
+		rendered += "\n" + problem + "\n"
+	}
+	d := p.source
 	if d.standing == nil {
 		return rendered
 	}
@@ -185,19 +209,103 @@ func (d sweepDocket) Window() string {
 	return rendered + "\n" + d.standing().RenderOperatorWaits(now)
 }
 
-// docket builds the docket and renders it. A build that failed outright is
-// rendered as unreadable, one that failed part way is rendered with what it
-// found and says it is incomplete, and an empty docket says so in words — a
-// pass handed no docket section could not tell nothing waiting from nothing
-// read.
-func (d sweepDocket) docket() string {
+func (p *sweepDocketPass) Delivered() string {
+	for _, standing := range p.next.Listed {
+		p.shown = append(p.shown, standing.At())
+	}
+	if p.complete {
+		p.pending = nil
+		for _, standing := range p.next.Unlisted {
+			p.pending = append(p.pending, standing.At())
+		}
+	}
+	// Unlike a prepared message a provider refused, an answered turn advances
+	// the shared conversation walk. The pass's own seen set also covers urgent,
+	// decided and waited entries, which do not advance that walk.
+	if p.next.Position != nil && p.source.window != nil {
+		if err := p.source.window.RecordWindowPosition(*p.next.Position); err != nil {
+			return fmt.Sprintf("where this docket window stopped could not be recorded, so another conversation may start from the same place: %v", err)
+		}
+	}
+	return ""
+}
+
+func (p *sweepDocketPass) Remaining() (runstate.DocketDelivery, string) {
+	window, problem, complete := p.read()
+	p.remember(window, complete)
+	seen := make(map[triage.WindowPosition]bool, len(p.shown))
+	for _, at := range p.shown {
+		seen[at] = true
+	}
+	delivery := runstate.DocketDelivery{Delivered: len(p.shown)}
+	for _, standing := range p.known {
+		if seen[standing.At()] {
+			continue
+		}
+		seen[standing.At()] = true
+		delivery.Undelivered = append(delivery.Undelivered, standing.At())
+		if delivery.Oldest == nil || standing.Since.Before(delivery.Oldest.Position.Since) {
+			delivery.Oldest = &runstate.UndeliveredDocketEntry{Position: standing.At(),
+				WorkItemID: standing.Entry.WorkItemID, WorkItemTitle: standing.Entry.WorkItemTitle, RunID: standing.Entry.RunID}
+		}
+	}
+	if !complete {
+		// An unreadable or partial first window still owes every entry the
+		// last pass named, even where this pass has not managed to read it.
+		for _, at := range p.pending {
+			if seen[at] {
+				continue
+			}
+			delivery.Undelivered = append(delivery.Undelivered, at)
+			if delivery.Oldest == nil || at.Since.Before(delivery.Oldest.Position.Since) {
+				delivery.Oldest = &runstate.UndeliveredDocketEntry{Position: at}
+			}
+		}
+	}
+	p.pending = delivery.Undelivered
+	return delivery, problem
+}
+
+// remember drops absent entries only on a complete reading. A partial reading
+// can add or refresh evidence, but cannot prove a known unread entry was settled.
+func (p *sweepDocketPass) remember(window contextbundle.DocketWindow, complete bool) {
+	current := append(append([]triage.Stoppage(nil), window.Listed...), window.Unlisted...)
+	if complete {
+		p.known = current
+		return
+	}
+	byPosition := make(map[triage.WindowPosition]triage.Stoppage, len(current))
+	for _, standing := range current {
+		byPosition[standing.At()] = standing
+	}
+	for i, standing := range p.known {
+		if refreshed, found := byPosition[standing.At()]; found {
+			p.known[i] = refreshed
+			delete(byPosition, standing.At())
+		}
+	}
+	for _, standing := range current {
+		if _, found := byPosition[standing.At()]; found {
+			p.known = append(p.known, standing)
+		}
+	}
+}
+
+// read uses the same renderer as the conversation, refreshed between turns.
+// A partial build says what it could not establish beside what it did find.
+func (p *sweepDocketPass) read() (contextbundle.DocketWindow, string, bool) {
+	d := p.source
 	built, err := d.docketer.Build()
 	listed := built.Listed()
 	if err != nil && len(listed) == 0 {
-		rendered, _ := contextbundle.TriageDocket(contextbundle.ProductRequest{TriageDocketUnavailable: err.Error()})
-		return rendered
+		window := contextbundle.TriageDocketWindow(contextbundle.ProductRequest{TriageDocketUnavailable: err.Error()}, nil, nil)
+		return window, fmt.Sprintf("the live docket could not be read, so which entries remain undelivered could not be established: %v", err), false
 	}
-	request := contextbundle.ProductRequest{TriageDocket: listed, TriageDocketAt: time.Now()}
+	now := time.Now()
+	if d.now != nil {
+		now = d.now()
+	}
+	request := contextbundle.ProductRequest{TriageDocket: listed, TriageDocketAt: now}
 	var problems []string
 	if len(listed) > 0 {
 		if d.items == nil {
@@ -215,24 +323,11 @@ func (d sweepDocket) docket() string {
 			}
 		}
 	}
-	rendered, position := contextbundle.TriageDocket(request)
-	if rendered == "" {
-		return "## Triage docket\n\nNothing is on the docket: no stoppage is waiting on a decision of yours.\n"
-	}
-	// The walk advances as the message carrying it is built, the same moment the
-	// conversation's picture advances it.
-	if position != nil && d.window != nil {
-		if recordErr := d.window.RecordWindowPosition(*position); recordErr != nil {
-			problems = append(problems, fmt.Sprintf("where this docket window stopped could not be recorded, so the next one starts from the same place: %v", recordErr))
-		}
-	}
+	window := contextbundle.TriageDocketWindow(request, p.shown, p.pending)
 	if err != nil {
-		rendered += fmt.Sprintf("\nThe docket could only be built in part, so there may be stoppages it does not list: %v\n", err)
+		problems = append(problems, fmt.Sprintf("The docket could only be built in part, so there may be stoppages it does not list: %v", err))
 	}
-	for _, problem := range problems {
-		rendered += "\n" + problem + "\n"
-	}
-	return rendered
+	return window, strings.Join(problems, "; "), err == nil
 }
 
 // roleConversation is a role's own conversation, reached the way an operator

@@ -92,7 +92,7 @@ type Stoppage struct {
 
 // At is the position a window is left at by being carried past one stoppage.
 func (s Stoppage) At() WindowPosition {
-	return WindowPosition{Since: s.Since, Key: s.Entry.Key}
+	return WindowPosition{Since: s.Since.UTC(), Key: s.Entry.Key}
 }
 
 // LiveDocket is the docket as the window reads it: the live stoppages, oldest

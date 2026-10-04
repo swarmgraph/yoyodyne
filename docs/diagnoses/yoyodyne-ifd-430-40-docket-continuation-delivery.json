@@ -1,0 +1,38 @@
+{
+  "title": "Why the October 4 docket continuations omitted the remaining entries",
+  "work_item": "Docket continuation delivery (yoyodyne-ifd.430.40)",
+  "diagnosis": "The old trigger constructed the docket only for the first turn of a firing. Fire and Summon called docketFor while building wakeMessage or summonsMessage, before entering Trigger.run. docketFor read one bounded slice through Docket.Window. When the account requested another turn, Trigger.run replaced the message with continueMessage, which contained generic continuation and reporting instructions but no docket slice and no new docket read. Keeping the first turn in the conversation could not deliver entries that its bounded slice had never included. This control flow explains why the promised remainder did not arrive on continuation turns.",
+  "reported_occurrences": [
+    {
+      "date": "2026-10-04",
+      "after_turns": [877, 881],
+      "undelivered_entries": 57,
+      "source": "Development-manager report report-932ca1e6e6f2275613c341f724bf1e11, supplied in the assigned work item.",
+      "observation": "The delivered docket promised 57 further live entries, but continuation prompts carried none. A fresh survey was cut short, leaving those stoppages unassessed."
+    },
+    {
+      "date": "2026-10-04",
+      "after_turn": 926,
+      "continuation_prompts": 2,
+      "undelivered_entries": 58,
+      "undecided_entries": 54,
+      "entries_awaiting_decisions_being_carried_out": 4,
+      "source": "The recurrence attached to Docket continuation delivery (yoyodyne-ifd.430.40) after development-manager turn 930.",
+      "observation": "Two successive continuation prompts supplied no additional docket entries after the stopped-item reads returned as turn 926, despite the last delivered docket promising 58 further live entries. The same first-turn-only construction explains this recurrence."
+    }
+  ],
+  "source_code_evidence": {
+    "revision": "7346ca75420538c93d32bf219be3441411a8a116",
+    "path": "internal/orchestrator/recurring.go",
+    "first_turn": "Fire and Summon pass docketFor(task) into the initial message before calling run; docketFor explicitly reads once per firing.",
+    "continuations": "The turn loop assigns message = continueMessage(name), or criticalsOutstandingMessage for an unhandled critical report. Neither constructs or reads another docket slice.",
+    "evidence_scope": "The pre-correction source was inspected at the named revision. Historical counts and turn numbers come from the report and recurrence supplied by the work item; the historical provider conversation logs were not reread."
+  },
+  "correction": "The existing turn loop now reads the next live slice before each turn and marks it delivered only after a successful reply. It continues while unread entries remain, even when the reply says complete or supplies no sweep account. Missing-account explanations remain on the pass record. Early endings save the undelivered count, oldest entry and ordered identities, which the next pass reads ahead of entries already shown. Live decisions and closures are refreshed between turns.",
+  "regression_coverage": [
+    "internal/cli/recurringdocketcontinue_test.go drives 82 and 83 live entries through four ordered slices, reproducing the promised remainders of 57 and 58.",
+    "The same tests cover turn-bound and provider-limit endings, the next pass starting with unread entries, decisions and closures between turns, incomplete docket reads, and successful replies without sweep accounts.",
+    "internal/contextbundle/docketpass_test.go covers continuation through urgent and already-decided entries without repeating those already shown.",
+    "internal/runstate/sweepdocket_test.go covers an ordinary work-item description followed by its identifier when the oldest entry has no recorded title."
+  ]
+}
