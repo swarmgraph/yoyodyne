@@ -30,6 +30,7 @@ func TestTheVerbsThatRecordAPersonsDecisionRefuseAnAgentsProcess(t *testing.T) {
 	stateRoot := t.TempDir()
 	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
 	t.Setenv(execution.AgentRoleVariable, string(domain.RoleDeveloper))
+	t.Setenv("USER", "Mason")
 	configPath := writeConfig(t, validConfig)
 	project := filepath.Dir(configPath)
 	writeArtifact(t, project, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil))
@@ -61,6 +62,9 @@ func TestTheVerbsThatRecordAPersonsDecisionRefuseAnAgentsProcess(t *testing.T) {
 		{[]string{"release", "--config", configPath}, "a person releases intake"},
 		{[]string{"role", "activate", "specialist", "--config", configPath}, "a person activates a role definition"},
 		{[]string{"artifact", "approve", "--config", configPath, "v1-goals", "--reason", "approved by a shell"}, "a person approves an artifact"},
+		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--by", "Mason", "--did", "read the soak", "--config", configPath}, "a person records gates"},
+		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--did", "read the soak", "--config", configPath}, "a person records gates"},
+		{[]string{"gate", "record", "soak-reviewed", "--for", "yoyodyne-ifd.209.7", "--did", "read the soak", "--config", filepath.Join(project, "missing.yaml")}, "a person records gates"},
 	} {
 		stdout, stderr, code := runCLI(t, verb.args...)
 		if code != 1 {
@@ -88,7 +92,8 @@ func TestTheVerbsThatRecordAPersonsDecisionRefuseAnAgentsProcess(t *testing.T) {
 	}
 
 	// Nothing was recorded by any of them: no pause placed, the intake hold a
-	// person placed still standing, and the goals document untouched.
+	// person placed still standing, the goals document untouched, and no gate
+	// passed.
 	if _, held, err := holds.Held(); err != nil || held {
 		t.Fatalf("Held() after the refused pause = %t, %v, want no hold", held, err)
 	}
@@ -97,6 +102,13 @@ func TestTheVerbsThatRecordAPersonsDecisionRefuseAnAgentsProcess(t *testing.T) {
 	}
 	if after, err := os.ReadFile(goals); err != nil || !bytes.Equal(before, after) {
 		t.Fatalf("the goals document changed under a refused approval (err = %v):\n%s", err, after)
+	}
+	store, err := runstate.NewStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	if acts, err := store.HumanActs(); err != nil || len(acts) != 0 {
+		t.Fatalf("HumanActs() after the refused gate record = %v, %v, want no gate passed", acts, err)
 	}
 
 	// Clearing the marker is what a person at a shell an agent opened does,
@@ -162,6 +174,58 @@ func TestTheVerbLaunchedFromADevelopersEnvironmentIsRefused(t *testing.T) {
 	}
 	if _, held, err := holds.Held(); err != nil || !held {
 		t.Fatalf("Held() after a person's pause = %t, %v, want the hold placed", held, err)
+	}
+}
+
+func TestGateRecordLaunchedFromADevelopersEnvironmentIsRefused(t *testing.T) {
+	// Not parallel: the helper switch and the environment inherited by the
+	// shell are set here. USER is present, but does not make an agent a person.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	t.Setenv(productHelperVariable, "1")
+	t.Setenv("USER", "Mason")
+	configPath := writeConfig(t, validConfig)
+	store, err := runstate.NewStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	program, err := os.Executable()
+	if err != nil {
+		t.Fatalf("Executable() error = %v", err)
+	}
+
+	command := `"$0" gate record soak-reviewed --for yoyodyne-ifd.209.7 --did "read the soak" --config "$1"`
+	shell := exec.Command("/bin/sh", "-c", command, program, configPath)
+	shell.Env = execution.WithAgentRole(execution.ExplicitEnvironment(nil), domain.RoleDeveloper)
+	var stdout, stderr bytes.Buffer
+	shell.Stdout, shell.Stderr = &stdout, &stderr
+	err = shell.Run()
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) || exit.ExitCode() != 1 {
+		t.Fatalf("gate record from a developer's environment err = %v, stdout = %q, stderr = %q, want exit 1", err, stdout.String(), stderr.String())
+	}
+	for _, want := range []string{"yoyo gate record is refused from a process the harness launched for the developer", "a person records gates"} {
+		if !strings.Contains(stderr.String(), want) {
+			t.Fatalf("gate record stderr = %q, want it to say %q", stderr.String(), want)
+		}
+	}
+	if acts, err := store.HumanActs(); err != nil || len(acts) != 0 {
+		t.Fatalf("HumanActs() after the refused gate record = %v, %v, want no gate passed", acts, err)
+	}
+
+	// The same shell command without the marker records a person's act, with
+	// USER supplying the name exactly as the command documents.
+	person := exec.Command("/bin/sh", "-c", command, program, configPath)
+	person.Env = execution.ExplicitEnvironment(nil)
+	stdout.Reset()
+	stderr.Reset()
+	person.Stdout, person.Stderr = &stdout, &stderr
+	if err := person.Run(); err != nil {
+		t.Fatalf("gate record from a person's environment err = %v, stdout = %q, stderr = %q", err, stdout.String(), stderr.String())
+	}
+	act, recorded, err := store.HumanAct("yoyodyne-ifd.209.7", "soak-reviewed")
+	if err != nil || !recorded || act.Person != "Mason" || act.Statement != "read the soak" {
+		t.Fatalf("HumanAct() after a person's gate record = %+v, %t, %v, want Mason's act recorded", act, recorded, err)
 	}
 }
 

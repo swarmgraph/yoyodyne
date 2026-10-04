@@ -2,10 +2,11 @@ package cli
 
 // The verbs that record a person's decision refuse a process an agent started.
 //
-// `yoyo pause`, `yoyo resume`, `yoyo release`, `yoyo artifact approve`, and
-// `yoyo role activate` each
+// `yoyo pause`, `yoyo resume`, `yoyo release`, `yoyo artifact approve`,
+// `yoyo role activate`, and `yoyo gate record` each
 // write down something only a person decides: to stop spending, to start again,
-// to let the harness choose work, to stand behind a document. Inside the harness
+// to let the harness choose work, to stand behind a document, to activate a role
+// definition, or to attest to taking a step. Inside the harness
 // that is enforced in Go -- no pipeline path writes any of those records -- but
 // each verb is a binary anything with a shell can execute, and a developer run
 // has a shell. So the guarantee held against the harness's own code and, against
@@ -23,8 +24,8 @@ package cli
 // tested end to end; the holds are under the state root, where the only thing
 // between a stripped environment and a write is the provider's own sandbox,
 // which the harness enables for a developer run and neither declares the
-// policy of nor verifies. `yoyo gate record`, when it lands, refuses here as
-// well.
+// policy of nor verifies. Gate acts live under that same state root and hold
+// the same boundary.
 
 import (
 	"fmt"

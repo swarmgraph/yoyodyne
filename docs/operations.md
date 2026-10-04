@@ -985,16 +985,17 @@ What is deliberately not here is a list of your own. The Lead Product Manager ke
 none, and the harness keeps none apart from the records above: a checklist is
 what reaches you when you ask, and this is what reaches you when it happens.
 
-**These three verbs, `yoyo artifact approve`, and `yoyo role activate` are a
-person's, and a process an agent started is refused them.** Every process the
-harness launches for a role carries the role it was launched for in its environment, as
+**These three verbs, `yoyo artifact approve`, `yoyo role activate`, and
+`yoyo gate record` are a person's, and a process an agent started is refused
+them.** Every process the harness launches for a role carries the role it was
+launched for in its environment, as
 `YOYODYNE_AGENT_ROLE`, on top of [the explicit environment](configuration.md#the-environment-a-check-runs-in)
 every invocation is built from; the variable is under the harness's own
 prefix, so a shell the agent opens and every `yoyo` that shell runs carry it
 too. `yoyo pause`, `yoyo resume` in both its forms, `yoyo release`,
-`yoyo artifact approve`, and `yoyo role activate` read it before they read
-anything else, and a process that carries it is told, in a sentence rather than a permission error, whose
-act this is:
+`yoyo artifact approve`, `yoyo role activate`, and `yoyo gate record` read it
+before they read anything else, and a process that carries it is told, in a
+sentence rather than a permission error, whose act this is:
 
 ```text
 yoyo release is refused from a process the harness launched for the developer: a person releases intake, and an agent's process is not one
@@ -1013,15 +1014,14 @@ path: a run's change carrying it is refused before any check runs or any
 reviewer sees it, whatever wrote it, and that is tested end to end
 (`TestAChangeRewritingTheProductsGoalsIsRefusedWithTheGoalsDocumentNamed` in
 `internal/orchestrator`, with the join to the path `approve` writes pinned
-beside the refusal tests in `internal/cli`). The holds live under the state
-root, outside any worktree, and nothing the harness tests stands between a
+beside the refusal tests in `internal/cli`). The holds and gate acts live under
+the state root, outside any worktree, and nothing the harness tests stands between a
 stripped environment and a write there: a developer run enables Claude Code's
 OS-level sandbox over its shell (`sandbox.enabled`, failing if it is
 unavailable), and that sandbox's write policy is the provider's own rather
 than anything the harness declares or verifies, so it is not counted on here.
 A person at a shell an agent opened clears the variable and the verbs are
-theirs again. The same refusal is what `yoyo gate record` will give, once the
-human gate (`yoyodyne-ifd.209.20`) lands.
+theirs again.
 
 **A hold the brake placed asks a person for nothing until it is escalated —
 by the development manager, or by the harness at the bound on its own loop.**
@@ -1439,6 +1439,19 @@ reason gates exist. Before them, the only way to write down "a person has to sig
 this off first" was an item somebody closes, and on 2026-09-04 machinery closed
 exactly such an item and the work behind it became pullable with the reserved
 step untaken.
+
+A process the harness launched for a role is refused `yoyo gate record` before
+the configuration or state is opened. Naming a person with `--by`, or accepting
+the default from `$USER`, does not lift that refusal:
+
+```text
+yoyo gate record is refused from a process the harness launched for the developer: a person records gates, and an agent's process is not one
+```
+
+`--json` carries the same sentence under `error`, and no act is recorded. This
+uses `YOYODYNE_AGENT_ROLE` and has the same environment boundary described
+[above](#where-a-finding-that-needs-your-hand-goes): stripping the variable
+removes the check.
 
 The record names who took the step and what they say they did, because a gate
 passed by nobody in particular and described by nothing is the flag that failed.
