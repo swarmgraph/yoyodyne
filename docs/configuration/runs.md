@@ -135,10 +135,10 @@ Two things are asked, and only the first is universal.
 What belongs in the `detail` of anything but a pass is the message the command
 itself printed, rather than a paraphrase of it, because a tool that refuses
 often says how to stop refusing and that sentence is the whole value of the
-record. The class this was written for is already closed from the other side:
-the Go build cache defaults under the user's home, which a run's sandbox does
-not grant, and the harness points `GOCACHE` at `.git/yoyodyne/go-build` for
-every run it makes — the developer's own probe included, as
+record. The Go build cache defaults under the user's home, which a run's sandbox
+does not grant. The harness points `GOCACHE` at `.git/yoyodyne/go-build` and
+explicitly admits that path for Codex developers — the developer's own probe
+included, as
 [the environment a check runs in](#the-environment-a-check-runs-in) describes.
 An environment the harness did not make is the project's own to warn about, and
 this repository's `make` targets refuse with the redirect named; a developer
@@ -216,6 +216,48 @@ user's home, which a developer run's sandbox does not grant: without the
 redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
+
+For a Codex developer, redirecting the environment alone does not grant a write.
+The adapter uses `workspace-write` with an explicit
+`sandbox_workspace_write.writable_roots` override naming only the shared cache
+and the scratch directory assigned to this run. It resolves those paths against
+the harness's checkout, refuses escaping worktree pointers and redirected cache
+or scratch paths, creates both directories through the confined writer with a
+pinned directory handle, and sets `GOCACHE` to the same resolved cache path.
+It does not grant the whole Git directory, another run's scratch, or an inherited
+cache path. The adapter disables approvals and sandbox network access. These
+are existing Codex settings, not new keys in Yoyodyne's configuration schema.
+
+The installed `codex-cli 0.159.2` lists `--add-dir` on `exec`, but not on
+`exec resume`. The adapter passes the writable-root configuration and `--cd`
+before `resume`, alongside `--sandbox`, on every invocation. These arguments
+request the current run's directory policy; argument and CLI-help checks alone
+do not prove that native resume replaces a saved session's permissions or cwd.
+Read-only roles receive no developer directory grants.
+
+The following regression launches the real CLI with a local scripted Responses
+server, saves a native session, resumes it with different cache, scratch, and
+worktree paths, and resumes that same session under reviewer restrictions.
+It requires successful Go compilation and scratch log writes, denied writes to
+unrelated and previously granted paths, and read-only restrictions after
+restoring a writable session. It checks the CLI's command exit and a distinct
+proof message for each turn, rather than the scripted provider's final reply or
+a replayed command from an earlier turn. It uses no provider credentials or paid
+model calls:
+
+```sh
+go test ./internal/backend/codex -run TestNativeResumeReplacesSavedDirectoryGrants -count=1
+```
+
+The regression runs by default when Codex is installed; only an absent CLI skips
+it. Refusal to start the local server or execute the native sandbox fails the
+check. A host must permit loopback listening and native sandbox execution.
+An outer sandbox that refuses `sandbox-exec` with
+`sandbox_apply: Operation not permitted` cannot exercise the native policy.
+An accepted CLI launch or saved thread does not prove permitted cache writes,
+scratch log writes, or confinement after resume. Successful native execution
+evidence is required before claiming those conditions are met; unrestricted
+filesystem access does not substitute for it.
 
 A provider invocation is given the same list with one thing more:
 `YOYODYNE_AGENT_ROLE`, naming the role the process was launched for —

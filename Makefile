@@ -37,11 +37,12 @@ TEST_TIMEOUT ?= 20m
 # gate at setup -- "operation not permitted" on a path in the message and no
 # mention of a cache anywhere, which reads as a broken toolchain rather than as
 # a directory nobody granted. That is exactly what an agent sandbox looks like
-# from in here: it grants writes to the worktree, to .git, and to TMPDIR, and
-# the cache defaults under the user's home. The harness sets GOCACHE for the
-# runs it makes, so this is for an environment it did not make -- an interactive
-# agent session, or any other sandbox -- and it names the redirect rather than
-# leaving it to be rediscovered.
+# from in here: it grants writes to the worktree and TMPDIR, and the cache
+# defaults under the user's home. The harness sets GOCACHE and explicitly
+# admits the assigned cache and scratch directories for Codex developers. This
+# warning is also needed in an environment the harness did not make -- an
+# interactive agent session, or any other sandbox -- and it names the redirect
+# rather than leaving it to be rediscovered.
 cachecheck:
 	@cache="$$($(GO) env GOCACHE)"; \
 	if ! mkdir -p "$$cache" 2>/dev/null || ! touch "$$cache/.yoyodyne-writable" 2>/dev/null; then \

@@ -4057,6 +4057,7 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		RunID:             a.state.RunID,
 		Role:              domain.RoleDeveloper,
 		WorkingDirectory:  a.worktree.Path,
+		RepositoryRoot:    p.Repository,
 		Prompt:            prompt,
 		SessionID:         sessionID,
 		Model:             model,

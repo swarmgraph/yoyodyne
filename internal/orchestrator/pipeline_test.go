@@ -1409,6 +1409,9 @@ func TestTheDeveloperIsGivenAScratchDirectoryCutForItsOwnRun(t *testing.T) {
 	if !strings.Contains(requests[0].Prompt, scratch) {
 		t.Fatalf("the contract never names the run's scratch directory %q:\n%s", scratch, requests[0].Prompt)
 	}
+	if requests[0].RepositoryRoot != pipeline.Repository {
+		t.Fatalf("developer repository root = %q, want the harness's %q", requests[0].RepositoryRoot, pipeline.Repository)
+	}
 	if info, err := os.Stat(scratch); err != nil || !info.IsDir() {
 		t.Fatalf("stat the named scratch directory: info = %v, err = %v", info, err)
 	}

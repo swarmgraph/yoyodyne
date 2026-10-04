@@ -35,12 +35,12 @@ import (
 //
 // Where it goes is decided by the same two constraints as the build cache beside
 // it. It is outside the working tree, so nothing written there can enter the
-// change or leave the tree dirty; and it is inside the Git directory, which is
-// one of the three places a run's sandbox actually grants -- the worktree, the
-// repository's Git directory, and the temporary directory. The harness's own
-// state tree is none of those: a directory cut there is one the run is refused
-// at its first write, which is why this is not where a reader might expect the
-// harness to keep it.
+// change or leave the tree dirty; and it is inside the Git directory, where the
+// provider can admit it explicitly. Codex grants this run's directory rather
+// than all of Git's state, beside the worktree and temporary directory. The
+// harness's own state tree is none of those: a directory cut there is one the
+// run is refused at its first write, which is why this is not where a reader
+// might expect the harness to keep it.
 //
 // The worktree's own administrative directory rather than the repository's is
 // the other half. Git creates it for that worktree and removes it with that
@@ -79,31 +79,100 @@ const scratchDirectoryName = "scratch"
 // is refused before anything is created, and every existing component below the
 // root is resolved against the filesystem on the way down.
 func PrepareScratchDirectory(repositoryRoot, workingDirectory, runID string) (string, error) {
-	id, named := scratchRunID(runID)
-	if !named {
-		return "", fmt.Errorf("run id %q is not a name a scratch directory can be cut for", runID)
-	}
-	repositoryGit, found := repositoryGitDirectory(repositoryRoot)
-	if !found {
-		return "", fmt.Errorf("no Git directory holds the repository %q", repositoryRoot)
-	}
-	root, err := repowrite.NewRoot(repositoryGit)
+	root, relative, err := scratchLocation(repositoryRoot, workingDirectory, runID)
 	if err != nil {
-		return "", fmt.Errorf("confine the scratch directory for run %s: %w", runID, err)
+		return "", err
 	}
-	worktreeGit, found := WorktreeGitDirectory(workingDirectory)
-	if !found {
-		return "", fmt.Errorf("no Git directory holds a scratch directory for run %q working in %q", runID, workingDirectory)
-	}
-	inside, err := gitDirectoryWithin(root.Path(), worktreeGit)
-	if err != nil {
-		return "", fmt.Errorf("place the scratch directory for run %s: %w", runID, err)
-	}
-	created, err := root.MakeDirectory(path.Join(inside, harnessGitSubdirectory, scratchDirectoryName, id), 0o700)
+	created, err := prepareDirectory(root, relative)
 	if err != nil {
 		return "", fmt.Errorf("create the scratch directory for run %s: %w", runID, err)
 	}
 	return created, nil
+}
+
+// PrepareDeveloperDirectories names only the shared build cache and this run's
+// scratch directory. Resolving them through the same root as scratch creation
+// refuses a worktree pointer or symlink that would grant access outside the
+// repository's Git directory. Both directories are created through the confined
+// writer so native sandbox policies can admit them on the first run of a repository.
+func PrepareDeveloperDirectories(repositoryRoot, workingDirectory, runID string) ([]string, error) {
+	if _, found := repositoryGitDirectory(repositoryRoot); !found {
+		return nil, nil
+	}
+	root, relative, err := scratchLocation(repositoryRoot, workingDirectory, runID)
+	if err != nil {
+		return nil, err
+	}
+	cache, err := root.Resolve(path.Join(harnessGitSubdirectory, "go-build"))
+	if err != nil {
+		return nil, fmt.Errorf("confine the build cache for run %s: %w", runID, err)
+	}
+	scratch, err := root.Resolve(relative)
+	if err != nil {
+		return nil, fmt.Errorf("confine the scratch directory for run %s: %w", runID, err)
+	}
+	// A link to another directory inside .git is still a wider grant than the
+	// declared cache or scratch. In particular, a cache linked to .git itself
+	// must not make all Git state writable.
+	if cache != filepath.Join(root.Path(), harnessGitSubdirectory, "go-build") || scratch != filepath.Join(root.Path(), filepath.FromSlash(relative)) {
+		return nil, fmt.Errorf("developer cache or scratch directory for run %s is redirected by a symlink", runID)
+	}
+	cache, err = prepareDirectory(root, path.Join(harnessGitSubdirectory, "go-build"))
+	if err != nil {
+		return nil, fmt.Errorf("prepare the build cache for run %s: %w", runID, err)
+	}
+	scratch, err = prepareDirectory(root, relative)
+	if err != nil {
+		return nil, fmt.Errorf("prepare the scratch directory for run %s: %w", runID, err)
+	}
+	if cache != filepath.Join(root.Path(), harnessGitSubdirectory, "go-build") || scratch != filepath.Join(root.Path(), filepath.FromSlash(relative)) {
+		return nil, fmt.Errorf("developer cache or scratch directory for run %s is redirected by a symlink", runID)
+	}
+	return []string{cache, scratch}, nil
+}
+
+// Directory creation holds the root's handle across the write. Resolve alone
+// cannot stop a path replaced after validation from redirecting a mkdir.
+func prepareDirectory(root repowrite.Root, relative string) (string, error) {
+	if _, err := root.Resolve(relative); err != nil {
+		return "", err
+	}
+	pinned, err := repowrite.OpenPinnedRoot(root.Path())
+	if err != nil {
+		return "", err
+	}
+	defer pinned.Close()
+	if err := pinned.MakeDirectory(relative, 0o700); err != nil {
+		return "", err
+	}
+	if err := pinned.Unchanged(); err != nil {
+		return "", err
+	}
+	return root.Resolve(relative)
+}
+
+func scratchLocation(repositoryRoot, workingDirectory, runID string) (repowrite.Root, string, error) {
+	id, named := scratchRunID(runID)
+	if !named {
+		return repowrite.Root{}, "", fmt.Errorf("run id %q is not a name a scratch directory can be cut for", runID)
+	}
+	repositoryGit, found := repositoryGitDirectory(repositoryRoot)
+	if !found {
+		return repowrite.Root{}, "", fmt.Errorf("no Git directory holds the repository %q", repositoryRoot)
+	}
+	root, err := repowrite.NewRoot(repositoryGit)
+	if err != nil {
+		return repowrite.Root{}, "", fmt.Errorf("confine the scratch directory for run %s: %w", runID, err)
+	}
+	worktreeGit, found := WorktreeGitDirectory(workingDirectory)
+	if !found {
+		return repowrite.Root{}, "", fmt.Errorf("no Git directory holds a scratch directory for run %q working in %q", runID, workingDirectory)
+	}
+	inside, err := gitDirectoryWithin(root.Path(), worktreeGit)
+	if err != nil {
+		return repowrite.Root{}, "", fmt.Errorf("place the scratch directory for run %s: %w", runID, err)
+	}
+	return root, path.Join(inside, harnessGitSubdirectory, scratchDirectoryName, id), nil
 }
 
 // gitDirectoryWithin names one worktree's administrative directory as a path

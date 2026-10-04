@@ -56,7 +56,8 @@ const ClaudeCodeAdapterVersion = "claude-code/1"
 // turn.completed or turn.failed — where codex/1 read none of them and failed
 // every such stream as unreadable, so a record says which of the two read it.
 // "codex/3" adds native read-only invocations for reviewers and management roles.
-const CodexAdapterVersion = "codex/3"
+// "codex/4" admits the developer's confined cache and scratch on launch and resume.
+const CodexAdapterVersion = "codex/4"
 
 // Endpoint is one execution endpoint: which provider, read by which compiled
 // adapter, under which account, asking which model.
