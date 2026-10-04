@@ -196,10 +196,10 @@ evidence of a time saving by themselves. The saving the counts support is about
 a tenth of the package's Git processes, at the kernel cost per process the first
 table describes.
 
-## The helper package and the census (yoyodyne-ifd.429.13, landed by 429.13.1)
+## The helper package and the census (yoyodyne-ifd.429.13)
 
-Step 1 above has its first half. The fakes of other packages' interfaces now
-have exported copies in `internal/orchestrator/orchestratortest`:
+Step 1 above is complete. The shared fakes of other packages' interfaces now
+live only in `internal/orchestrator/orchestratortest`:
 
 - `Tracker`, the work tracker
 - `Backend`, the provider, with `RoleBackend` and `WithVerification`
@@ -214,13 +214,14 @@ directly or through any package it reaches, and
 package of its own checks that each fake still satisfies the interface
 `orchestrator` asks of it.
 
-The in-package fakes are untouched. `fakeTracker`, `fakeBackend`, `fakeForge`,
-`fakePricer`, `partialWorktreeManager`, `roleBackend`, `withVerification`, and
-`connectionReset` are still declared in `pipeline_test.go` and `publish_test.go`,
-and every in-package test still uses them. So for now each fake exists twice.
-The second half of step 1 is to point the in-package tests at
-`orchestratortest` and delete the in-package copies. That is the first of the
-migrations, and it is not part of this change.
+Every in-package test uses these shared fakes from `orchestratortest`. Removing
+the in-package copies (yoyodyne-ifd.429.13.6) deletes `inpackagefakes_test.go` and
+`fakeforge_test.go`, along with their accessors in `fakeaccess_test.go`.
+`fakeTracker`, `fakeBackend`, `fakeForge`, `fakePricer`,
+`partialWorktreeManager`, `roleBackend`, `withVerification`, and
+`connectionReset` are no longer declared in `orchestrator`, and no aliases keep
+the old names working. The shared fixture interfaces in `fakeaccess_test.go`
+remain, with their compile-time checks against the helper package's fakes.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than
@@ -230,8 +231,11 @@ count: none of the fakes reaches an internal.
 - 681 tests reach no unexported identifier of the package.
 - 153 tests reach 129 distinct unexported identifiers between them.
 
-Main has gained one test since that census: `TestEveryTurnOfAFiringIsToldItsPass`
-in `recurring_test.go`. The census does not classify it.
+The first addition after that census was `TestEveryTurnOfAFiringIsToldItsPass`
+in `recurring_test.go`. This historical census does not classify it or later
+additions. Removing the in-package fakes adds or removes no tests and changes
+none of their assertions; the counts below still describe the tree of pull
+request #757.
 
 ### By file
 

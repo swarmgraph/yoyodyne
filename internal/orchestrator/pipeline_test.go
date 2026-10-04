@@ -5821,8 +5821,8 @@ func TestRunLeavesARunStoppedForARedeployResumableAndReadoptsIt(t *testing.T) {
 	t.Parallel()
 
 	repository, worktreeRoot, store := restartableFixture(t)
-	tracker := &fakeTracker{item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	first := roleBackend(func(request backend.RunRequest) error {
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	first := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	// The check says when it is running and then runs for as long as the race
@@ -5851,7 +5851,7 @@ func TestRunLeavesARunStoppedForARedeployResumableAndReadoptsIt(t *testing.T) {
 		}
 	}()
 
-	paused, err := firstPipeline.Run(ctx, tracker.item.ID)
+	paused, err := firstPipeline.Run(ctx, tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v, want a run stopped for a redeploy reported as a pause rather than a failure", err)
 	}
@@ -5864,11 +5864,11 @@ func TestRunLeavesARunStoppedForARedeployResumableAndReadoptsIt(t *testing.T) {
 	if paused.Failure != "" {
 		t.Fatalf("a run stopped for a redeploy was reported as a failure: %q", paused.Failure)
 	}
-	if tracker.blocked || tracker.closed || !tracker.claimed {
-		t.Fatalf("the stop disturbed the work item: blocked=%t closed=%t claimed=%t", tracker.blocked, tracker.closed, tracker.claimed)
+	if tracker.Blocked || tracker.Closed || !tracker.Claimed {
+		t.Fatalf("the stop disturbed the work item: blocked=%t closed=%t claimed=%t", tracker.Blocked, tracker.Closed, tracker.Claimed)
 	}
-	if !strings.Contains(tracker.notes, "paused this run for a redeploy") || !strings.Contains(tracker.notes, "15m0s") {
-		t.Fatalf("the item was not told the run was paused for a redeploy under its bound:\n%s", tracker.notes)
+	if !strings.Contains(tracker.Notes, "paused this run for a redeploy") || !strings.Contains(tracker.Notes, "15m0s") {
+		t.Fatalf("the item was not told the run was paused for a redeploy under its bound:\n%s", tracker.Notes)
 	}
 	stoppedState, err := store.Load(paused.RunID)
 	if err != nil {
@@ -5877,7 +5877,7 @@ func TestRunLeavesARunStoppedForARedeployResumableAndReadoptsIt(t *testing.T) {
 	if stoppedState.Status.Terminal() || stoppedState.RedeployStop == nil || stoppedState.Phase != runstate.PhaseChecking {
 		t.Fatalf("stopped state = %#v, want a non-terminal run recording the stop at its checks", stoppedState)
 	}
-	if stoppedState.WorktreePath == "" || stoppedState.Branch == "" || stoppedState.ProviderSessionID != first.developerSession {
+	if stoppedState.WorktreePath == "" || stoppedState.Branch == "" || stoppedState.ProviderSessionID != first.DeveloperSession {
 		t.Fatalf("the stop did not preserve the run's artifacts or session: %#v", stoppedState)
 	}
 	if _, err := os.Stat(filepath.Join(stoppedState.WorktreePath, "feature.txt")); err != nil {
@@ -5887,27 +5887,27 @@ func TestRunLeavesARunStoppedForARedeployResumableAndReadoptsIt(t *testing.T) {
 	// The session that comes back re-adopts the run: the same run, the same
 	// worktree, the gate re-earned from the checks, and no developer attempt
 	// spent — the change was already made.
-	second := roleBackend(func(request backend.RunRequest) error {
+	second := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	secondPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, []string{"exit 0"}), second)
-	outcome, err := secondPipeline.Run(context.Background(), tracker.item.ID)
+	outcome, err := secondPipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("resumed Run() error = %v", err)
 	}
 	if outcome.RunID != paused.RunID || outcome.WorktreePath != paused.WorktreePath {
 		t.Fatalf("resumed run = %#v, want the stopped run %s in %s", outcome, paused.RunID, paused.WorktreePath)
 	}
-	if outcome.Integration == nil || !tracker.closed || tracker.blocked {
-		t.Fatalf("the resumed run did not complete normally: %#v (blocked=%t)", outcome, tracker.blocked)
+	if outcome.Integration == nil || !tracker.Closed || tracker.Blocked {
+		t.Fatalf("the resumed run did not complete normally: %#v (blocked=%t)", outcome, tracker.Blocked)
 	}
-	if developers := second.requestsForRole(domain.RoleDeveloper); len(developers) != 0 {
+	if developers := second.RequestsForRole(domain.RoleDeveloper); len(developers) != 0 {
 		t.Fatalf("resumed developer invocations = %d, want none for a run stopped at its checks", len(developers))
 	}
 	if outcome.RepairAttempts != 0 {
 		t.Fatalf("repair attempts = %d, want the stop to have cost none", outcome.RepairAttempts)
 	}
-	if claims := countCalls(tracker.calls, "claim"); claims != 1 {
+	if claims := countCalls(tracker.Calls, "claim"); claims != 1 {
 		t.Fatalf("claims = %d, want the item claimed once across the stop", claims)
 	}
 	finished, err := store.Load(outcome.RunID)
@@ -5930,15 +5930,15 @@ func TestRunLeavesARunStoppedForARedeployMidAttemptResumableInTheSameSession(t *
 	t.Parallel()
 
 	repository, worktreeRoot, store := restartableFixture(t)
-	tracker := &fakeTracker{item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	ctx, stop := context.WithCancelCause(context.Background())
 	defer stop(nil)
 	drained := RedeployDrain{At: time.Date(2026, 9, 19, 7, 50, 0, 0, time.UTC), Bound: 15 * time.Minute, SessionID: "watch-before"}
-	first := roleBackend(func(request backend.RunRequest) error {
+	first := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "partial.txt"), []byte("half done\n"), 0o600)
 	}, approveVerdict)
-	served := first.run
-	first.run = func(request backend.RunRequest) (backend.RunResult, error) {
+	served := first.Respond
+	first.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		if request.Role != domain.RoleDeveloper {
 			return served(request)
 		}
@@ -5950,7 +5950,7 @@ func TestRunLeavesARunStoppedForARedeployMidAttemptResumableInTheSameSession(t *
 		stop(drained)
 		return backend.RunResult{
 			Backend:    domain.BackendClaudeCode,
-			SessionID:  first.developerSession,
+			SessionID:  first.DeveloperSession,
 			IsError:    true,
 			StopReason: string(execution.ProcessCancelled),
 			Process:    execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1},
@@ -5959,18 +5959,18 @@ func TestRunLeavesARunStoppedForARedeployMidAttemptResumableInTheSameSession(t *
 	}
 	firstPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 0"}), first)
 
-	paused, err := firstPipeline.Run(ctx, tracker.item.ID)
+	paused, err := firstPipeline.Run(ctx, tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v, want a run stopped mid-attempt reported as a pause rather than a failure", err)
 	}
 	if !paused.Paused || paused.Status != runstate.StatusRunning || paused.RedeployStop == nil || paused.RedeployStop.Phase != runstate.PhaseDeveloping {
 		t.Fatalf("outcome = %#v, want a paused run carrying the redeploy stop at its developer attempt", paused)
 	}
-	if paused.Failure != "" || strings.Contains(tracker.notes, "developer reported failure") {
-		t.Fatalf("the harness blamed the developer for its own stop: %q\n%s", paused.Failure, tracker.notes)
+	if paused.Failure != "" || strings.Contains(tracker.Notes, "developer reported failure") {
+		t.Fatalf("the harness blamed the developer for its own stop: %q\n%s", paused.Failure, tracker.Notes)
 	}
-	if tracker.blocked || tracker.closed || !tracker.claimed {
-		t.Fatalf("the stop disturbed the work item: blocked=%t closed=%t claimed=%t", tracker.blocked, tracker.closed, tracker.claimed)
+	if tracker.Blocked || tracker.Closed || !tracker.Claimed {
+		t.Fatalf("the stop disturbed the work item: blocked=%t closed=%t claimed=%t", tracker.Blocked, tracker.Closed, tracker.Claimed)
 	}
 	stoppedState, err := store.Load(paused.RunID)
 	if err != nil {
@@ -5979,8 +5979,8 @@ func TestRunLeavesARunStoppedForARedeployMidAttemptResumableInTheSameSession(t *
 	if stoppedState.Status.Terminal() || stoppedState.RedeployStop == nil || stoppedState.Phase != runstate.PhaseDeveloping {
 		t.Fatalf("stopped state = %#v, want a non-terminal run recording the stop at its attempt", stoppedState)
 	}
-	if stoppedState.ProviderSessionID != first.developerSession {
-		t.Fatalf("session = %q, want the killed attempt's session %q preserved for the continuation", stoppedState.ProviderSessionID, first.developerSession)
+	if stoppedState.ProviderSessionID != first.DeveloperSession {
+		t.Fatalf("session = %q, want the killed attempt's session %q preserved for the continuation", stoppedState.ProviderSessionID, first.DeveloperSession)
 	}
 	if _, err := os.Stat(filepath.Join(stoppedState.WorktreePath, "partial.txt")); err != nil {
 		t.Fatalf("the stopped attempt's work did not survive: %v", err)
@@ -5988,20 +5988,20 @@ func TestRunLeavesARunStoppedForARedeployMidAttemptResumableInTheSameSession(t *
 
 	// The session that comes back continues the attempt in the same session,
 	// and the run finishes: the same run, the same worktree, no repair spent.
-	second := roleBackend(func(request backend.RunRequest) error {
+	second := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	secondPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, []string{"exit 0"}), second)
-	outcome, err := secondPipeline.Run(context.Background(), tracker.item.ID)
+	outcome, err := secondPipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("resumed Run() error = %v", err)
 	}
-	if outcome.RunID != paused.RunID || outcome.WorktreePath != paused.WorktreePath || outcome.Integration == nil || !tracker.closed {
+	if outcome.RunID != paused.RunID || outcome.WorktreePath != paused.WorktreePath || outcome.Integration == nil || !tracker.Closed {
 		t.Fatalf("resumed run = %#v, want the stopped run %s finished in %s", outcome, paused.RunID, paused.WorktreePath)
 	}
-	developers := second.requestsForRole(domain.RoleDeveloper)
-	if len(developers) != 1 || developers[0].SessionID != first.developerSession {
-		t.Fatalf("resumed developer invocations = %#v, want one, continuing session %q", developers, first.developerSession)
+	developers := second.RequestsForRole(domain.RoleDeveloper)
+	if len(developers) != 1 || developers[0].SessionID != first.DeveloperSession {
+		t.Fatalf("resumed developer invocations = %#v, want one, continuing session %q", developers, first.DeveloperSession)
 	}
 	if outcome.RepairAttempts != 0 {
 		t.Fatalf("repair attempts = %d, want the stop to have cost none", outcome.RepairAttempts)
@@ -6023,22 +6023,22 @@ func TestRunLeavesARunStoppedForARedeployMidReviewResumableAndReviewsAgain(t *te
 	t.Parallel()
 
 	repository, worktreeRoot, store := restartableFixture(t)
-	tracker := &fakeTracker{item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	ctx, stop := context.WithCancelCause(context.Background())
 	defer stop(nil)
 	drained := RedeployDrain{At: time.Date(2026, 9, 19, 7, 50, 0, 0, time.UTC), Bound: 15 * time.Minute, SessionID: "watch-before"}
-	first := roleBackend(func(request backend.RunRequest) error {
+	first := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
-	served := first.run
-	first.run = func(request backend.RunRequest) (backend.RunResult, error) {
+	served := first.Respond
+	first.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
 		if request.Role != domain.RoleReviewer {
 			return served(request)
 		}
 		stop(drained)
 		return backend.RunResult{
 			Backend:    domain.BackendClaudeCode,
-			SessionID:  first.reviewerSession,
+			SessionID:  first.ReviewerSession,
 			IsError:    true,
 			StopReason: string(execution.ProcessCancelled),
 			Process:    execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1},
@@ -6047,39 +6047,39 @@ func TestRunLeavesARunStoppedForARedeployMidReviewResumableAndReviewsAgain(t *te
 	}
 	firstPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 0"}), first)
 
-	paused, err := firstPipeline.Run(ctx, tracker.item.ID)
+	paused, err := firstPipeline.Run(ctx, tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v, want a run stopped mid-review reported as a pause rather than a failure", err)
 	}
 	if !paused.Paused || paused.RedeployStop == nil || paused.RedeployStop.Phase != runstate.PhaseReviewing {
 		t.Fatalf("outcome = %#v, want a paused run carrying the redeploy stop at its review", paused)
 	}
-	if tracker.blocked || tracker.closed || strings.Contains(tracker.notes, "reviewer reported failure") {
-		t.Fatalf("the stopped review disturbed the work item or blamed the reviewer: blocked=%t closed=%t\n%s", tracker.blocked, tracker.closed, tracker.notes)
+	if tracker.Blocked || tracker.Closed || strings.Contains(tracker.Notes, "reviewer reported failure") {
+		t.Fatalf("the stopped review disturbed the work item or blamed the reviewer: blocked=%t closed=%t\n%s", tracker.Blocked, tracker.Closed, tracker.Notes)
 	}
 	stoppedState, err := store.Load(paused.RunID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if stoppedState.Status.Terminal() || stoppedState.RedeployStop == nil || stoppedState.ProviderSessionID != first.developerSession {
+	if stoppedState.Status.Terminal() || stoppedState.RedeployStop == nil || stoppedState.ProviderSessionID != first.DeveloperSession {
 		t.Fatalf("stopped state = %#v, want a non-terminal run with its developer session preserved", stoppedState)
 	}
 
-	second := roleBackend(func(request backend.RunRequest) error {
+	second := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	secondPipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, []string{"exit 0"}), second)
-	outcome, err := secondPipeline.Run(context.Background(), tracker.item.ID)
+	outcome, err := secondPipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("resumed Run() error = %v", err)
 	}
-	if outcome.RunID != paused.RunID || outcome.Integration == nil || !tracker.closed {
+	if outcome.RunID != paused.RunID || outcome.Integration == nil || !tracker.Closed {
 		t.Fatalf("the resumed run did not finish the same change: %#v", outcome)
 	}
-	if developers := second.requestsForRole(domain.RoleDeveloper); len(developers) != 0 {
+	if developers := second.RequestsForRole(domain.RoleDeveloper); len(developers) != 0 {
 		t.Fatalf("resumed developer invocations = %d, want none for a run stopped at its review", len(developers))
 	}
-	if reviews := second.requestsForRole(domain.RoleReviewer); len(reviews) != 1 {
+	if reviews := second.RequestsForRole(domain.RoleReviewer); len(reviews) != 1 {
 		t.Fatalf("resumed review invocations = %d, want the gate re-earned with one fresh review", len(reviews))
 	}
 	if outcome.RepairAttempts != 0 {
@@ -6095,13 +6095,13 @@ func TestRunCancelsARunStoppedForARedeployItCannotContinueNamingTheRedeploy(t *t
 	t.Parallel()
 
 	repository := pipelineRepository(t)
-	tracker := &fakeTracker{item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
-	provider := roleBackend(func(request backend.RunRequest) error {
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	// No session was ever established, so there is nothing for a later attempt
 	// to continue in.
-	provider.developerSession = ""
+	provider.DeveloperSession = ""
 	running := filepath.Join(t.TempDir(), "checking")
 	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"touch '" + running + "' && sleep 60"})
 	pipeline = automatic(pipeline, provider)
@@ -6122,7 +6122,7 @@ func TestRunCancelsARunStoppedForARedeployItCannotContinueNamingTheRedeploy(t *t
 		}
 	}()
 
-	outcome, err := pipeline.Run(ctx, tracker.item.ID)
+	outcome, err := pipeline.Run(ctx, tracker.Item.ID)
 	assertSavedStopClass(t, store, outcome.RunID, runstate.StopRedeploy)
 	if err == nil {
 		t.Fatal("Run() error = nil, want a run that could not be continued to end")
@@ -6140,8 +6140,8 @@ func TestRunCancelsARunStoppedForARedeployItCannotContinueNamingTheRedeploy(t *t
 	if state.RedeployStop != nil || !state.Status.Terminal() || state.WorktreePath == "" || state.Branch == "" {
 		t.Fatalf("terminal state = %#v, want no resumption marker on a run that ended, with its artifacts named", state)
 	}
-	if !strings.Contains(tracker.notes, "deployed over it") {
-		t.Fatalf("the item was not told the redeploy is what stopped the run:\n%s", tracker.notes)
+	if !strings.Contains(tracker.Notes, "deployed over it") {
+		t.Fatalf("the item was not told the redeploy is what stopped the run:\n%s", tracker.Notes)
 	}
 }
 
@@ -6662,12 +6662,12 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	t.Parallel()
 
 	repository := pipelineRepository(t)
-	tracker := &fakeTracker{item: beads.WorkItem{ID: "yoyodyne-ifd.441", Title: "Task", Status: "open"}}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-ifd.441", Title: "Task", Status: "open"}}
 	// The exact text internal/beads formats for a `bd` killed on its deadline,
 	// which is in the recovery package's closed set of transport failures and is
 	// what the classifier matched on 441's tail.
-	tracker.blockErr = errors.New("bd update failed with status timed_out and exit code -1: ")
-	provider := roleBackend(func(request backend.RunRequest) error {
+	tracker.BlockErr = errors.New("bd update failed with status timed_out and exit code -1: ")
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "docs", "design.md"), []byte("this run's answer\n"), 0o600); err != nil {
 			return err
 		}
@@ -6681,7 +6681,7 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	// (yoyodyne-ifd.132), so the conflict goes straight to the blocker write.
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 
-	outcome, err := pipeline.Run(context.Background(), tracker.item.ID)
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if !errors.Is(err, gitworktree.ErrRebaseConflict) {
 		t.Fatalf("Run() error = %v, want the replay conflict", err)
 	}
@@ -6691,8 +6691,8 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 		!strings.Contains(err.Error(), "record the replay conflict as a blocker: bd update failed with status timed_out") {
 		t.Fatalf("Run() error = %v, want the conflict and the failed blocker write both named", err)
 	}
-	if outcome.Blocked || outcome.Integration != nil || tracker.closed || tracker.blocked {
-		t.Fatalf("Run() outcome = %#v, blocked = %t, closed = %t; want the run stopped with no blocker taken and nothing promoted", outcome, tracker.blocked, tracker.closed)
+	if outcome.Blocked || outcome.Integration != nil || tracker.Closed || tracker.Blocked {
+		t.Fatalf("Run() outcome = %#v, blocked = %t, closed = %t; want the run stopped with no blocker taken and nothing promoted", outcome, tracker.Blocked, tracker.Closed)
 	}
 	if outcome.IntegrationStop != nil {
 		t.Fatalf("a replay conflict was reported as an environmental stop: %#v", outcome.IntegrationStop)
@@ -6702,9 +6702,9 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	}
 	// The item's notes name the conflict and who moves next, because the blocker
 	// that would have said so never reached the item.
-	if !strings.Contains(tracker.notes, "Replay conflict: approved, then stopped at the integrating phase by a replay conflict onto main") ||
-		!strings.Contains(tracker.notes, "a person to settle the conflict") || strings.Contains(tracker.notes, "Integration stop:") {
-		t.Fatalf("item notes do not name the conflict as what stopped the run:\n%s", tracker.notes)
+	if !strings.Contains(tracker.Notes, "Replay conflict: approved, then stopped at the integrating phase by a replay conflict onto main") ||
+		!strings.Contains(tracker.Notes, "a person to settle the conflict") || strings.Contains(tracker.Notes, "Integration stop:") {
+		t.Fatalf("item notes do not name the conflict as what stopped the run:\n%s", tracker.Notes)
 	}
 	// Both sides of the change survive, untouched.
 	if content := readPipelineFile(t, repository, filepath.Join("docs", "design.md")); content != "somebody else's answer\n" {
@@ -6941,11 +6941,11 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 	t.Parallel()
 
 	repository := pipelineRepository(t)
-	tracker := &fakeTracker{item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	var reconciliationPrompt string
 	var markersSeen bool
 	attempts := 0
-	provider := roleBackend(func(request backend.RunRequest) error {
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		attempts++
 		design := filepath.Join(request.WorkingDirectory, "docs", "design.md")
 		if attempts == 1 {
@@ -6973,12 +6973,12 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 	}, approveVerdict)
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
 
-	outcome, err := pipeline.Run(context.Background(), tracker.item.ID)
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if outcome.Blocked || outcome.Integration == nil || !tracker.closed {
-		t.Fatalf("Run() outcome = %#v, closed = %t; want the reconciled change promoted", outcome, tracker.closed)
+	if outcome.Blocked || outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("Run() outcome = %#v, closed = %t; want the reconciled change promoted", outcome, tracker.Closed)
 	}
 	if !markersSeen {
 		t.Fatal("the developer was not handed the change moved onto the target with the conflict left in it")
@@ -6990,7 +6990,7 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 	}
 	// The same developer session was continued rather than a fresh one started.
 	var developerRequests, reviews int
-	for _, request := range provider.requests {
+	for _, request := range provider.Requests {
 		switch request.Role {
 		case domain.RoleDeveloper:
 			developerRequests++
@@ -7017,7 +7017,7 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 		t.Fatalf("state = attempts %d, retries %d, conflict %#v; want one attempt spent and the conflict settled", state.RepairAttempts, state.IntegrationRetries, state.ReplayConflict)
 	}
 	// Neither verdict asked for repair, so the item's round budget is untouched.
-	counters, err := store.Triage().Counters(tracker.item.ID)
+	counters, err := store.Triage().Counters(tracker.Item.ID)
 	if err != nil {
 		t.Fatalf("Counters() error = %v", err)
 	}
