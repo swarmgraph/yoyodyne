@@ -269,6 +269,8 @@ func TestQueuedContinuationRetirementDoesNotGuessFromClosedStatus(t *testing.T) 
 					newer.UpdatedAt = by.UpdatedAt.Add(time.Minute)
 					newer.CompletedAt = &newer.UpdatedAt
 					p := *newer.PullRequest
+					p.Number++
+					p.URL = "https://example.invalid/pull/752"
 					p.MergeCommit = ""
 					newer.PullRequest = &p
 					newer.PublishFailure = "confirmation outstanding"
@@ -360,14 +362,25 @@ func TestRetirementSettlesOtherItemsOnTheSamePass(t *testing.T) {
 	assertRunRetired(t, f, old, by)
 }
 
-func TestRetirementDoesNotCountAnAlreadyRetiredRunAsANewerPublication(t *testing.T) {
+func TestRetirementIgnoresProgressAfterTheMergeOnTwoOlderPublications(t *testing.T) {
 	t.Parallel()
 	f, _, r, old := updatingRetirementFixture(t)
 	original := old
 	original.Integration = &runstate.Integration{TargetBranch: "main", SourceCommit: old.PullRequest.HeadCommit, TargetCommit: old.PullRequest.HeadCommit, PreviousTargetCommit: old.BaseCommit, ThroughPullRequest: true}
 	by := recordSupersedingMerge(t, f, original)
+	// Both requests were opened before the merge, but their obsolete runs
+	// recorded replay progress afterwards. Neither update is a new publication.
+	old.UpdatedAt = by.UpdatedAt.Add(time.Hour)
+	if err := f.store.Save(old); err != nil {
+		t.Fatal(err)
+	}
 	other := old
 	other.RunID = "run-ffffffffffffffffffffffffffffffff"
+	other.UpdatedAt = old.UpdatedAt.Add(time.Minute)
+	p := *other.PullRequest
+	p.Number++
+	p.URL = "https://example.invalid/pull/2"
+	other.PullRequest = &p
 	if err := f.store.Create(other); err != nil {
 		t.Fatal(err)
 	}
@@ -384,6 +397,13 @@ func TestRetirementDoesNotCountAnAlreadyRetiredRunAsANewerPublication(t *testing
 	}
 	assertRunRetired(t, f, old, by)
 	assertRunRetired(t, f, other, by)
+	notes := len(f.tracker.Record().NoteRecords)
+	if again, err := r.ContinueUpdates(context.Background()); err != nil || len(again) != 0 {
+		t.Fatalf("retirements announced again: %+v, %v", again, err)
+	}
+	if len(f.tracker.Record().NoteRecords) != notes {
+		t.Fatal("a later pass announced retirement again")
+	}
 }
 
 func TestRetirementNoteDeliverySurvivesARefusedMarkerAndRestart(t *testing.T) {

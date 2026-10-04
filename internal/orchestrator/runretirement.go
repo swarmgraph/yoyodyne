@@ -54,10 +54,10 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 	}
 	var latest runstate.State
 	for _, candidate := range recorded {
-		if candidate.RunID == state.RunID || candidate.WorkItemID != state.WorkItemID || candidate.Retirement != nil || candidate.PullRequest == nil || handedBack(candidate) || !landedAfter(candidate, state.StartedAt) {
+		if candidate.RunID == state.RunID || candidate.WorkItemID != state.WorkItemID || candidate.Retirement != nil || candidate.PullRequest == nil || handedBack(candidate) || (candidate.CompletedAt != nil && !candidate.CompletedAt.After(state.StartedAt)) {
 			continue
 		}
-		if latest.RunID == "" || laterLanding(candidate, latest) {
+		if latest.RunID == "" || laterPublication(candidate, latest) {
 			latest = candidate
 		}
 	}
@@ -69,7 +69,7 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 		return state, true, fmt.Errorf("read the publication of run %s under its lease before retiring run %s: %w", latest.RunID, state.RunID, err)
 	}
 	defer lease.Release()
-	if publication.WorkItemID != state.WorkItemID || publication.RunID != latest.RunID || !confirmedCompletedPublication(publication) || !landedAfter(publication, state.StartedAt) || publication.Integration.TargetBranch != state.TargetBranch {
+	if publication.WorkItemID != state.WorkItemID || publication.RunID != latest.RunID || !confirmedCompletedPublication(publication) || publication.CompletedAt == nil || !publication.CompletedAt.After(state.StartedAt) || publication.Integration.TargetBranch != state.TargetBranch {
 		return state, true, fmt.Errorf("%s (%s) is closed but its later publication in run %s is not a settled confirmed merge into %s; run %s is kept, and the harness retries after the publication settles", item.Title, item.ID, latest.RunID, state.TargetBranch, state.RunID)
 	}
 	// A newer publication may have appeared while the first listing was read.
@@ -79,7 +79,7 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 		return state, true, fmt.Errorf("recheck later publications before retiring run %s: %w", state.RunID, err)
 	}
 	for _, candidate := range recorded {
-		if candidate.RunID != state.RunID && candidate.WorkItemID == state.WorkItemID && candidate.Retirement == nil && candidate.PullRequest != nil && !handedBack(candidate) && laterLanding(candidate, publication) {
+		if candidate.RunID != state.RunID && candidate.WorkItemID == state.WorkItemID && candidate.Retirement == nil && candidate.PullRequest != nil && !handedBack(candidate) && laterPublication(candidate, publication) {
 			return state, true, fmt.Errorf("a newer publication of %s (%s) appeared in run %s while retirement was checked; run %s is kept, and the harness rechecks its publication on the next pass", item.Title, item.ID, candidate.RunID, state.RunID)
 		}
 	}
@@ -114,6 +114,13 @@ func (r RunRetirer) Retire(ctx context.Context, state runstate.State) (runstate.
 		return prior, true, fmt.Errorf("record the retirement of run %s: %w", state.RunID, err)
 	}
 	return r.note(ctx, state)
+}
+
+// Pull requests in this repository are numbered by the forge when opened.
+// Their numbers order publications even when an older run later records replay
+// progress or finishes. Run update and completion times do not order requests.
+func laterPublication(candidate, incumbent runstate.State) bool {
+	return candidate.PullRequest.Number > incumbent.PullRequest.Number
 }
 
 func (r RunRetirer) readItem(ctx context.Context, id string) (beads.WorkItem, error) {
