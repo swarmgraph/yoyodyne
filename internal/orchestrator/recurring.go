@@ -1204,25 +1204,30 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			problems = append(problems, answered.ResultProblem)
 		}
 		if answered.Result == nil {
-			// A turn that answered without an account ends the firing rather than
-			// asking again: the role has said what it had to say, and a second turn
-			// would be spent asking it to reformat rather than to do anything.
-			break
-		}
-		if merged == nil {
+			problems = append(problems, fmt.Sprintf(
+				"turn %d of the recurring task %s produced no account of itself, so what it found is only in the %s's conversation",
+				turn+1, name, task.Role))
+		} else if merged == nil {
 			merged = answered.Result
 		} else {
 			folded := merged.Merge(*answered.Result)
 			merged = &folded
 		}
+		unreadDocket := false
 		if docket != nil {
 			delivery, problem := docket.Remaining()
 			problems = append(problems, problem)
-			if len(delivery.Undelivered) > 0 {
+			unreadDocket = len(delivery.Undelivered) > 0
+			if unreadDocket && merged != nil {
 				merged.Status = sweep.StatusMore
 			}
 		}
-		if merged.Status != sweep.StatusMore {
+		if answered.Result == nil && !unreadDocket {
+			// Do not spend another turn asking for an account alone. Unread docket
+			// entries are work for the next turn even without a structured reply.
+			break
+		}
+		if merged != nil && merged.Status != sweep.StatusMore {
 			standing, problem := t.standingCriticals(shown)
 			if problem != "" {
 				problems = append(problems, problem)
