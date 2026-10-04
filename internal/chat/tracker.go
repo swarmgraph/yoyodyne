@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -247,7 +248,7 @@ var trackerActionArguments = map[string][]string{
 	actionRetire:       {},
 	actionTriage:       {"run", "decision", "budget", "superseded_by"},
 	actionInFlight:     {"decision", "superseded_by"},
-	actionHandle:       {"report", "requests", "needs"},
+	actionHandle:       {"report", "requests", "needs", "person_only"},
 	actionBrake:        {"decision"},
 	actionWithdraw:     {"proposal"},
 	actionDirective:    {"directive", "decision", "became"},
@@ -484,6 +485,9 @@ type TrackerAction struct {
 	// what six such reports were, from 2026-08-17 until the 2026-09-14 sweep read
 	// them: nothing reads a reason for whose move it names.
 	Needs string `json:"needs,omitempty"`
+	// PersonOnly is the closed reason, target, and exact physical step for a
+	// product-pass finding whose remedy needs a person.
+	PersonOnly *ownership.PersonOnlyRemedy `json:"person_only,omitempty"`
 	// State is which kind of stale backlog state a repair corrects, from the
 	// vocabulary internal/backlogrepair declares. It is required there and taken
 	// by nothing else: the three are found in different records and corrected by
@@ -1160,6 +1164,14 @@ func (a TrackerAction) validateArguments() []error {
 		if needs := strings.TrimSpace(a.Needs); needs != "" && needs != handleNeedsOperator {
 			problems = append(problems, fmt.Errorf("handle \"needs\" is %q; the one value it takes is %q, for a change only the operator can make by hand", needs, handleNeedsOperator))
 		}
+		if a.PersonOnly != nil {
+			if strings.TrimSpace(a.Needs) != handleNeedsOperator {
+				problems = append(problems, errors.New("handle person_only requires needs set to operator"))
+			}
+			if err := a.PersonOnly.Validate(); err != nil {
+				problems = append(problems, err)
+			}
+		}
 	case actionBrake:
 		switch decision := runstate.IntakeBrakeDecision(strings.TrimSpace(a.Decision)); {
 		case decision == "":
@@ -1346,6 +1358,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.Needs) != "" {
 		carried = append(carried, "needs")
+	}
+	if a.PersonOnly != nil {
+		carried = append(carried, "person_only")
 	}
 	return carried
 }

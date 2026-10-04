@@ -20,9 +20,63 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+func TestAProductPassHandlingRequiresAPermittedPersonOnlyRemedy(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name, extra string
+		applied     bool
+	}{
+		{name: "ordinary repair", extra: `,"needs":"operator"`},
+		{name: "unregistered reason", extra: `,"needs":"operator","person_only":{"reason":"repair","target":"maintenance","step":"repair the harness"}`},
+		{name: "role-owned file", extra: `,"needs":"operator","person_only":{"reason":"protected-file","target":"internal/maintain/maintain.go","step":"repair the harness"}`},
+		{name: "protected file", extra: `,"needs":"operator","person_only":{"reason":"protected-file","target":".claude/settings.json","step":"add the notes-writer hook to .claude/settings.json by hand"}`, applied: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			reports := &fakeReports{}
+			subject := collectedReport("report-00000000000000000000000000000002", report.SeverityWarning, "the maintenance pass needs repairing", 2)
+			subject.Role, subject.PassFailureTask = report.HarnessReporter, "maintenance"
+			seedReports(t, reports, subject)
+			provider := &fakeBackend{results: []backendapi.RunResult{
+				{SessionID: "session-1", FinalText: trackerReply("Dealing with the pass.", `{"action":"handle","report":"`+subject.ID+`","reason":"the development manager is resolving the cause"`+tc.extra+`}`)},
+				{SessionID: "session-1", FinalText: "Recorded."},
+			}}
+			options := testOptions(t, provider)
+			options.Reports, options.Tracker = reports, &fakeTracker{}
+			session, err := Open(options)
+			if err != nil {
+				t.Fatal(err)
+			}
+			reply, err := session.Send(context.Background(), "deal with the maintenance finding")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !tc.applied {
+				if len(reports.handled) != 0 || len(reply.Actions) > 0 && reply.Actions[0].Applied {
+					t.Fatalf("ordinary repair was handed to the operator: %+v, %+v", reports.handled, reply.Actions)
+				}
+				if len(reply.HandedBack) == 0 && (len(reply.Actions) == 0 || reply.Actions[0].Failure == "") {
+					t.Fatalf("handling was not explicitly refused: %+v", reply)
+				}
+				return
+			}
+			if len(reply.Actions) != 1 || !reply.Actions[0].Applied || len(reports.handled) != 1 {
+				t.Fatalf("handling = %+v, %+v", reply, reports.handled)
+			}
+			remedy := reports.handled[0].PersonOnly
+			if remedy == nil || remedy.Reason != ownership.PersonProtectedFile || remedy.Target != ".claude/settings.json" || remedy.Step != "add the notes-writer hook to .claude/settings.json by hand" {
+				t.Fatalf("person-only remedy was not retained: %+v", remedy)
+			}
+			if !strings.Contains(reply.Actions[0].Summary, remedy.Step) || !strings.Contains(reply.Actions[0].Summary, "only the affected pass succeeding clears") {
+				t.Fatalf("the handling misstated the step or clearing: %s", reply.Actions[0].Summary)
+			}
+		})
+	}
+}
 
 // The whole point of the change: a report filed by any role is in front of the
 // product manager without anybody carrying it there.

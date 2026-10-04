@@ -4,7 +4,29 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
+
+func TestReportHandlingsValidatePersonOnlyRemedies(t *testing.T) {
+	t.Parallel()
+	handling := testHandling("report-00000000000000000000000000000001", "the provider login has expired")
+	handling.PersonOnly = &ownership.PersonOnlyRemedy{Reason: ownership.PersonCredential, Target: "provider login", Step: "log in to the provider by hand"}
+	if err := handling.Validate(); err == nil || !strings.Contains(err.Error(), "person_only requires needs_operator") {
+		t.Fatalf("handling without needs_operator = %v", err)
+	}
+	handling.NeedsOperator = true
+	if err := handling.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if rendered := handling.Render(); !strings.Contains(rendered, handling.PersonOnly.Step) {
+		t.Fatalf("the exact step was lost in the report listing: %s", rendered)
+	}
+	handling.PersonOnly.Reason = "repair"
+	if err := handling.Validate(); err == nil || !strings.Contains(err.Error(), "not permitted") {
+		t.Fatalf("unpermitted person-only reason = %v", err)
+	}
+}
 
 func TestExtractTakesTheBlockOutAndLeavesWhatWasSaid(t *testing.T) {
 	t.Parallel()

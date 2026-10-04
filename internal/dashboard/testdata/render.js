@@ -324,7 +324,13 @@ function over(name, beneath, steps) {
   return Object.assign({}, page, { name, beneath }, steps);
 }
 
+const failingPasses = fixture("standing-pass-failures");
+failingPasses.factory_problems[0].what = "the product pass maintenance has failed 5 times in a row since 2026-10-04 12:00 UTC; latest: reconcile: last error";
+failingPasses.factory_problems[0].whose = "the program manager's — the factory-flow program manager factory-flow-pm watches and must answer this finding; the development manager resolves the cause; the affected pass succeeding clears this finding";
+
 const pages = [
+  { name: "pass-failures", token: "t", standing: ok(failingPasses), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "pass-failures-unreadable", token: "t", standing: ok(fixture("standing-pass-failures-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "run-steps", token: "t", standing: ok(fixture("standing-run-steps")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "signin", token: "", standing: pending, throughput: pending, spend: pending },
   { name: "loading", token: "t", standing: pending, throughput: pending, spend: pending },
@@ -543,7 +549,7 @@ async function run(scenario) {
   }
 
   const page = document.getElementById("page");
-  const sections = ["band", "spend", "live", "pipeline", "throughput", "capacity", "managers"];
+  const sections = ["band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
   const popups = ["grouping", "card", "report"];
   const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
   sections.forEach((id) => {

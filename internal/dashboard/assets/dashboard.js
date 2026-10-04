@@ -1,5 +1,5 @@
 // The page's own script: hold the token, fetch the read model with it, and
-// draw the seven sections from what comes back. It is served from this origin
+// draw the eight sections from what comes back. It is served from this origin
 // because the policy allows script from nowhere else.
 //
 // The token lives in sessionStorage and nowhere else. Session storage is scoped
@@ -1215,6 +1215,32 @@ var standingWarningAgeSeconds = 5 * 60;
     section("managers", "ready");
   }
 
+  function renderFactory() {
+    var standing = model.standing;
+    if (!standing) {
+      section("factory", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
+      return;
+    }
+    if (standing.factory_problems_problem) {
+      section("factory", "error", standing.factory_problems_problem, whatToDoAboutTheStanding());
+      return;
+    }
+    var entries = standing.factory_problems || [];
+    if (entries.length === 0) {
+      section("factory", "empty", "No product pass has failed three times in a row.");
+      return;
+    }
+    var list = document.getElementById("factory-list");
+    clear(list);
+    entries.forEach(function (entry) {
+      var row = el("li", "held");
+      row.appendChild(el("h3", "held-title", saidWhat(entry)));
+      row.appendChild(el("p", "held-reason", saidWhose(entry)));
+      list.appendChild(row);
+    });
+    section("factory", "ready");
+  }
+
   // ---- the pop-ups: a grouping's items, and one item's card -------------------
 
   // Two pop-ups, each a dialog over the page with the four states a section
@@ -1773,6 +1799,12 @@ var standingWarningAgeSeconds = 5 * 60;
         add("First failed", dayAndClock(failing.first_at));
         add("Latest", dayAndClock(failing.latest_at));
         add("What stopped it", failing.problem, "card-field-prose");
+        if (failing.ownership) {
+          add("Watching", failing.ownership.agent || failing.ownership.watcher);
+          add("Resolving", failing.ownership.resolver);
+          add("Person's step", failing.ownership.person_step, "card-field-prose");
+          add("Finding", failing.report_id, "card-field-id");
+        }
         break;
       case "untraced-pass":
         var untraced = entry.untraced_pass;
@@ -2138,6 +2170,7 @@ var standingWarningAgeSeconds = 5 * 60;
     renderPipeline();
     renderThroughput();
     renderCapacity();
+    renderFactory();
     renderManagers();
     // An open grouping, and an open entry card, are drawn again from the
     // reading just taken, so each stays as live as what it was opened from.

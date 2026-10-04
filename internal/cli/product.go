@@ -47,6 +47,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/redeploy"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -690,6 +691,10 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if err != nil {
 		return nil, nil, err
 	}
+	reports, err := runstate.NewReportStore(p.stateRoot, productID)
+	if err != nil {
+		return nil, nil, err
+	}
 	pass := &maintain.Pass{
 		Product:    productID,
 		Every:      maintenance.Every.Duration(),
@@ -705,6 +710,10 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 		Runner:     p.runner,
 		Now:        p.now,
 		Log:        log,
+		RecordFailures: func(ctx context.Context) error {
+			return sweeps.RecordPassFailures(ctx, reports, passFailureAttribution(p.resolved.Config),
+				readmodel.FactoryFlowAgent(programManagerInstances(p.resolved.Config)))
+		},
 	}
 	// Assigned only where there is one: an interface holding a nil pointer is
 	// not nil, and the pass reads a nil rebuilder as the reason above.

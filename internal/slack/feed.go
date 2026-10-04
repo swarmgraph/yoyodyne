@@ -516,7 +516,8 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	// the reports the stream above was read from and from what became of them.
 	// It is read here rather than as the reports are because a finding is not a
 	// report: a report is said where it is filed, and a finding stands from the
-	// moment a handling makes one until a later handling ends it.
+	// moment a handling makes one until its recorded ending. Product-pass
+	// findings are read with their sweeps and end when the affected pass succeeds.
 	// The amendment log is read ahead of the findings because the batches the
 	// owners argued are findings too, and are read from it.
 	records, tornRecords, err := f.Proposals.Scan()
@@ -1411,6 +1412,17 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 		return nil, fmt.Errorf("read what became of the collected reports: %w", err)
 	}
 	actions := readmodel.OperatorActions(filed, handlings)
+	passFailuresRead := true
+	if f.Runs != nil {
+		passActions, problem := readmodel.PassFailureOperatorActions(readmodel.Sources{Passes: f.Runs.Sweeps(), Reports: f.Reports})
+		if problem != "" {
+			// An unreadable log does not establish that a finding ended. Keep
+			// its mark while continuing to deliver unrelated findings.
+			f.say("product pass findings for the operator could not be read and were not said this pass: %s", problem)
+			passFailuresRead = false
+		}
+		actions = append(actions, passActions...)
+	}
 	escalated, problem := readmodel.EscalatedOperatorActions(states, f.Decisions, nil, nil)
 	if problem != "" {
 		// A triage record that cannot be read costs that item's finding this
@@ -1473,6 +1485,9 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 			// A batch whose pass could not be read this time is not known to have
 			// ended, so its mark is kept rather than dropped and said again later.
 			if !batchesRead && strings.HasPrefix(mark, findingMark+readmodel.AmendmentBatchKeyPrefix) {
+				continue
+			}
+			if !passFailuresRead && strings.HasPrefix(mark, findingMark+readmodel.PassFailureKeyPrefix) {
 				continue
 			}
 			ended = append(ended, mark)

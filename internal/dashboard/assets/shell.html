@@ -127,6 +127,17 @@
       </div>
     </section>
 
+    <section id="factory" class="panel factory" data-state="loading" aria-labelledby="factory-heading">
+      <div class="panel-head">
+        <h2 id="factory-heading">Factory problems</h2>
+        <p class="panel-note">product passes that keep failing, with who watches and who resolves the cause</p>
+      </div>
+      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
+      <div class="section-error" role="alert"><p id="factory-problem" class="problem"></p><p id="factory-remedy" class="remedy"></p></div>
+      <div class="section-empty"><p id="factory-empty" class="empty"></p></div>
+      <div class="section-ready"><ul id="factory-list" class="held-list"></ul></div>
+    </section>
+
     <section id="managers" class="panel managers" data-state="loading" aria-labelledby="managers-heading">
       <div class="panel-head">
         <h2 id="managers-heading">Program managers</h2>

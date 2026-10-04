@@ -84,13 +84,18 @@
             <p id="capacity-empty" class="empty">No run or conversation is waiting on provider capacity, and no usage window is holding every role.</p>
           </div>
         </section>
-        <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
+        <section id="factory" class="panel factory" data-state="ready" aria-labelledby="factory-heading">
           <div class="panel-head">
             <h2 id="factory-heading">Factory problems</h2>
             <p class="panel-note">product passes that keep failing, with who watches and who resolves the cause</p>
           </div>
-          <div class="section-empty">
-            <p id="factory-empty" class="empty">No product pass has failed three times in a row.</p>
+          <div class="section-ready">
+            <ul id="factory-list" class="held-list">
+              <li class="held">
+                <h3 class="held-title">the product pass maintenance has failed 5 times in a row since 2026-10-04 12:00 UTC; latest: reconcile: last error</h3>
+                <p class="held-reason">the program manager's — the factory-flow program manager factory-flow-pm watches and must answer this finding; the development manager resolves the cause; the affected pass succeeding clears this finding</p>
+              </li>
+            </ul>
           </div>
         </section>
         <section id="managers" class="panel managers" data-state="empty" aria-labelledby="managers-heading">

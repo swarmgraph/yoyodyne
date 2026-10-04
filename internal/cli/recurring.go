@@ -79,6 +79,14 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			RepositoryID: string(parts.config.Product.RepositoryID),
 			Build:        buildinfo.Commit(),
 		},
+		RecordFailures: func(ctx context.Context) error {
+			return parts.store.Sweeps().RecordPassFailures(ctx, parts.reports,
+				passFailureAttribution(parts.config), readmodel.FactoryFlowAgent(programManagerInstances(parts.config)))
+		},
+		PassFailures: func(role domain.AgentRole, agent string) string {
+			return readmodel.RenderPassFailures(readmodel.Sources{Passes: parts.store.Sweeps(), Reports: parts.reports,
+				ProgramManagers: programManagerInstances(parts.config)}, role, agent)
+		},
 		// The proposed changes, so a task that wakes a role owning documents puts
 		// the undecided ones against them in the wake and records what the role
 		// argued. The same log every run proposes into and `yoyo amendment`
@@ -145,6 +153,10 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		}
 	}
 	return trigger
+}
+
+func passFailureAttribution(cfg config.Config) report.Attribution {
+	return report.Attribution{ProductID: cfg.Product.ID, RepositoryID: string(cfg.Product.RepositoryID), Build: buildinfo.Commit()}
 }
 
 // sweepDocket is the triage docket as a scheduled pass of the development
@@ -893,7 +905,17 @@ and a firing that failed before its first turn -- a message the harness
 refused, a conversation that would not open, a turn that would not assemble --
 is marked FAILED FIRING with its cause. A task that fails that way twice in a
 row is also on "yoyo status"'s needs-a-human line and said in the channel, and
-the first firing that takes a turn clears it.
+the first firing that takes a turn ends that pre-turn signal; a product pass
+finding raised after three failures clears only when the pass succeeds.
+
+A product pass that fails three times in a row also files one finding in the
+report pile. The factory-flow program manager watches and must answer it in
+her next pass and existing digest; the development manager resolves the cause.
+Without a factory-flow instance, the development manager watches too. The same
+finding appears in status and the dashboard's Factory problems section, with
+its failure count kept current. Only that pass succeeding clears it, recording
+the total failures in the report handling log. A report handling naming a
+person-only remedy names the operator with the exact step.
 
 A missed pass is marked MISSED PASS with the trigger that owed it: a schedule
 or an instance's events that no pull took for a whole interval, or a pass

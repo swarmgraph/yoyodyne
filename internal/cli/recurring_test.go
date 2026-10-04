@@ -75,6 +75,9 @@ func TestAConfiguredTaskGetsATriggerOverTheProductsSweepStore(t *testing.T) {
 	if trigger.Reports == nil {
 		t.Error("the trigger has nowhere to record a pass, so what it found would reach nobody")
 	}
+	if trigger.RecordFailures == nil || trigger.PassFailures == nil {
+		t.Error("the trigger cannot file repeated failures or deliver them to the watching and resolving roles")
+	}
 	if trigger.Roles == nil {
 		t.Error("the trigger has no way to reach a role's conversation, so it could never wake anybody")
 	}

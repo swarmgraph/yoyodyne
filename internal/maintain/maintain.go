@@ -143,6 +143,8 @@ type Pass struct {
 
 	Now func() time.Time
 	Log func(format string, args ...any)
+	// RecordFailures files or clears the shared finding after recording a pass.
+	RecordFailures func(context.Context) error
 
 	// nextDue is when the cadence next fires, kept so a supervisor looking every
 	// few seconds does not open the claim each time.
@@ -284,6 +286,11 @@ func (p *Pass) finish(ctx context.Context, reconciled runstate.SweepStep) {
 	}
 	if _, err := p.Claims.Settle(ctx, config.MaintenanceTaskName, recorded.Problem); err != nil {
 		p.log("the maintenance pass's claim could not be settled: %v", err)
+	}
+	if p.RecordFailures != nil {
+		if err := p.RecordFailures(ctx); err != nil {
+			p.log("the product pass failure finding could not be recorded: %v", err)
+		}
 	}
 	p.last = &recorded
 	// Last, once the record that says so is written: the supervisor lets its

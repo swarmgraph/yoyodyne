@@ -359,6 +359,11 @@ type Trigger struct {
 	// context was the one rendered when her conversation opened, and a pass
 	// resumes that conversation rather than opening it.
 	Docket RecurringDocket
+	// RecordFailures files and clears the sweep-derived finding in the report
+	// pile. PassFailures projects it into the watching and resolving roles'
+	// existing passes. Neither invokes a role or creates another monitor.
+	RecordFailures func(context.Context) error
+	PassFailures   func(domain.AgentRole, string) string
 	// Instances are the program manager instances their triggers wake, keyed by
 	// the agent's name, as this pull read the configuration. Optional: a trigger
 	// wired without them fires the recurring tasks and nothing else, which is
@@ -808,6 +813,13 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 		return RecurringSweep{Paused: &hold}, nil
 	}
 	var problems []error
+	// Recover a report or clearing whose write was interrupted after its pass
+	// reached the sweep log, including a cancelled instance pass.
+	if t.RecordFailures != nil {
+		if err := t.RecordFailures(ctx); err != nil {
+			problems = append(problems, fmt.Errorf("record product pass failure findings: %w", err))
+		}
+	}
 	// Whether the provider is answering anybody is read once, before any task is
 	// claimed. A firing made into a login nobody has renewed spends a claim on a
 	// turn that cannot be served and records a turn that failed, which over three
@@ -1120,6 +1132,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		docket = t.Docket.StartPass(pending)
 	}
 	failed := false
+	if t.PassFailures != nil {
+		message += "\n\n" + t.PassFailures(task.Role, f.agent)
+	}
 	for turn := 0; turn < task.Turns(); turn++ {
 		if docket != nil {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
@@ -1641,6 +1656,11 @@ func (t Trigger) settle(ctx context.Context, fired *Fired, recorded runstate.Swe
 	if _, err := t.Claims.Settle(write, recorded.Task, boundedProblem([]string{fired.Problem})); err != nil {
 		fired.Problem = appendProblem(fired.Problem, fmt.Sprintf(
 			"what became of the firing of the recurring task %s could not be written against its cadence: %v", recorded.Task, err))
+	}
+	if t.RecordFailures != nil {
+		if err := t.RecordFailures(write); err != nil {
+			fired.Problem = appendProblem(fired.Problem, fmt.Sprintf("the product pass failure finding could not be recorded: %v", err))
+		}
 	}
 }
 

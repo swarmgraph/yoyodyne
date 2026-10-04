@@ -349,7 +349,7 @@ func (s *Server) presented(request *http.Request) bool {
 }
 
 // servePage is the shell: the page with its states — asking for the token,
-// loading, error, ready — and its seven sections, each with an empty, a loading,
+// loading, error, ready — and its eight sections, each with an empty, a loading,
 // and an error state of its own, and nothing of the read model in any of them.
 // It is static text the page's own script then fills from the JSON, so it is
 // served to a browser that has no token yet, which is every browser before it
