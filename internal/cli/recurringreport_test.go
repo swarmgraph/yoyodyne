@@ -353,3 +353,22 @@ func TestFailedRolePassFindingCarriesPrintedOutputAndNamesAnotherOwner(t *testin
 		})
 	}
 }
+
+func TestFailedRolePassFindingKeepsTheTerminalDiagnosticAfterPrintedOutput(t *testing.T) {
+	p := newReportRecoveryPass(t, "fail", "fail", "fail")
+	const diagnostic = "terminal cause: session refused secret-value"
+	p.backend.failure = &backendapi.RunResult{Backend: domain.BackendClaudeCode, IsError: true, StopReason: "process_exit_1", FinalText: diagnostic}
+	for i := 0; i < 3; i++ {
+		pass := p.fire(t)
+		if !strings.Contains(pass.FailureOutput, "last cause:") || !strings.Contains(pass.FailureOutput, "terminal cause: session refused") || !strings.Contains(pass.FailureOutput, "earlier output omitted") || strings.Contains(pass.FailureOutput, "secret-value") || len(pass.FailureOutput) > runstate.MaxSweepTextBytes {
+			t.Fatalf("saved failure output = %q", pass.FailureOutput)
+		}
+	}
+	findings, err := p.reports.List()
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("findings = %+v, %v", findings, err)
+	}
+	if !strings.Contains(findings[0].Message, "terminal cause: session refused") || strings.Contains(findings[0].Message, "secret-value") {
+		t.Fatalf("finding = %s", findings[0].Message)
+	}
+}

@@ -2131,7 +2131,12 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	s.failureOutput = ""
 	if err != nil || result.IsError {
 		if outputTail == "" {
-			outputTail = result.FinalText + "\n" + result.Process.Stdout + "\n" + result.Process.Stderr + "\n" + result.Process.OutputTruncation
+			outputTail = result.Process.Stdout + "\n" + result.Process.Stderr + "\n" + result.Process.OutputTruncation
+		}
+		// The terminal can name a cause no preceding text event carried. Keep it
+		// last so bounding the combined output preserves that diagnostic.
+		if result.FinalText != "" {
+			outputTail += "\n" + result.FinalText
 		}
 		s.failureOutput = runstate.FailureOutputTail(execution.NewRedactor(s.options.RedactValues...).Redact(outputTail))
 	}
@@ -2190,7 +2195,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if result.IsError {
 		s.stream.cutOff()
 		return "", errors.Join(
-			fmt.Errorf("%s reported failure: %s", RoleTitle(s.state.Role), result.DescribeFailure()),
+			fmt.Errorf("%s reported failure: %s", RoleTitle(s.state.Role), execution.NewRedactor(s.options.RedactValues...).Redact(result.DescribeFailure())),
 			declined,
 			abandoned,
 			refusal,
