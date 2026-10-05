@@ -248,6 +248,29 @@ func askUnavailable(cause error) string {
 		"\n\nCarry on answering the operator without it, and say plainly that you asked and did not get an answer. Do not ask the same thing again in this reply.\n"
 }
 
+// askRefused is what the asking role is told when it put a question to a role
+// it may not ask. It says the rest of its reply was carried out, so the role does
+// not issue the same actions again, and it does not invite a retry.
+func askRefused(cause error) string {
+	why := cause.Error()
+	var refusal *AuthorityError
+	if errors.As(cause, &refusal) && strings.TrimSpace(refusal.Reason) != "" {
+		why = "you may not ask for " + refusal.Refused + ": " + refusal.Reason
+	}
+	return "# Your ask\n\nThe question you asked was not put to anybody, because " +
+		singleLine(why, maxTrackerFailureBytes) +
+		". Everything else your reply asked for was carried out as usual.\n\nCarry on without an answer, and say plainly that the question was not put. Do not ask the same role again in this reply.\n"
+}
+
+// refusedAskSays is a refused ask in ordinary words, for the operator and for
+// the record of a pass.
+func refusedAskSays(asker domain.AgentRole, ask exchange.Ask) string {
+	if ask.Role == asker {
+		return fmt.Sprintf("the %s put a question to its own role, which it may not do, so the question was handed back and the rest of that reply was carried out", RoleTitle(asker))
+	}
+	return fmt.Sprintf("the %s asked the %s a question, which it may not do, so the question was handed back and the rest of that reply was carried out", RoleTitle(asker), RoleTitle(ask.Role))
+}
+
 // askExhausted is what the asking role is told when its exchange reached the
 // round limit it was opened with. It says the exchange is over and that the
 // operator has it, because a role told only "refused" asks the same thing again

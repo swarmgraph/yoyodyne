@@ -479,6 +479,12 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.ResultProblem = appendProblem(turn.ResultProblem, recovered.LaneReport.Refusal())
 		}
 	}
+	// A question the role put to a role it may not ask was handed back and the
+	// rest of its reply carried out, so it is said beside the account and is
+	// not a failed turn.
+	for _, refused := range reply.RefusedAsks {
+		turn.ResultProblem = appendProblem(turn.ResultProblem, refused)
+	}
 	if refusal := reply.LaneReport.Refusal(); refusal != "" {
 		if turn.ResultProblem == "" {
 			turn.ResultProblem = refusal
@@ -987,14 +993,18 @@ refused, a conversation that would not open, a turn that would not assemble --
 is marked FAILED FIRING with its cause. A task that fails that way twice in a
 row is also on "yoyo status"'s needs-a-human line and said in the channel, and
 the first firing that takes a turn ends that pre-turn signal; a product pass
-finding raised after three failures clears only when the pass succeeds.
+finding raised after three failures clears only when the pass next carries out
+its work. A pass that carried out its actions and says more is waiting is
+partial, not failed, and ends a run of failures; so is one whose reply wrote its
+report block more than once, which is read by the last.
 
 A product pass that fails three times in a row also files one finding in the
 report pile. The factory-flow program manager watches and must answer it in
 her next pass and existing digest; the development manager resolves the cause.
 Without a factory-flow instance, the development manager watches too. The same
 finding appears in status and the dashboard's Factory problems section, with
-its failure count kept current. Only that pass succeeding clears it, recording
+its failure count kept current, each line leading with what went wrong in
+ordinary words. Only that pass carrying out its work clears it, recording
 the total failures in the report handling log. A report handling naming a
 person-only remedy names the operator with the exact step.
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -17,8 +18,9 @@ import (
 const PassFailureThreshold = 3
 
 // PassFailure is a run of failed passes, derived from the sweep log. A later
-// failure changes its count, never its identity; only its own pass succeeding
-// ends it. Completing the watcher's pass or handling its report does not.
+// failure changes its count, never its identity; only its own pass carrying out
+// its work ends it, whether that pass finished or reported more work waiting.
+// Completing the watcher's pass or handling its report does not.
 type PassFailure struct {
 	ProductID domain.ProductID `json:"product_id"`
 	Task      string           `json:"task"`
@@ -26,8 +28,12 @@ type PassFailure struct {
 	FirstAt   time.Time        `json:"first_at"`
 	RaisedAt  time.Time        `json:"raised_at"`
 	LatestAt  time.Time        `json:"latest_at"`
-	Problem   string           `json:"problem"`
-	ClearedAt time.Time        `json:"cleared_at,omitempty"`
+	// WentWrong is what stopped the latest failed pass, in ordinary words, and
+	// Problem is that pass's record. A line about the failure leads with the
+	// first, because the record is written for whoever debugs the harness.
+	WentWrong string    `json:"went_wrong,omitempty"`
+	Problem   string    `json:"problem"`
+	ClearedAt time.Time `json:"cleared_at,omitempty"`
 }
 
 func (f PassFailure) ReportID(product domain.ProductID) string {
@@ -36,8 +42,12 @@ func (f PassFailure) ReportID(product domain.ProductID) string {
 }
 
 func (f PassFailure) Says() string {
-	return fmt.Sprintf("the product pass %s has failed %d times in a row since %s; latest: %s",
+	said := fmt.Sprintf("the product pass %s has failed %d times in a row since %s; latest: %s",
 		f.Task, f.Failures, f.FirstAt.In(time.Local).Format("2006-01-02 15:04 MST"), lastPassErrorLine(f.Problem))
+	if wrong := strings.Join(strings.Fields(f.WentWrong), " "); wrong != "" {
+		said = wrong + ": " + said
+	}
+	return said
 }
 
 func lastPassErrorLine(problem string) string {
@@ -64,10 +74,12 @@ func PassFailureOwnersSays(owner ownership.PassFailure) string {
 	return said
 }
 
-// PassFailuresOf returns raised failure runs, including their later successful
-// endings. Missed cadences and held conversations are observations rather than
-// failed executions. A partial account is progress, but clears nothing until a
-// completed pass is recorded.
+// PassFailuresOf returns raised failure runs, including their later endings.
+// Missed cadences and held conversations are observations rather than failed
+// executions. A partial pass — one that carried out its actions, gave its
+// account, and said more work is waiting — is not a failure, and it ends a run
+// of them as a completed pass does: a role whose queue is never empty would
+// otherwise hold a finding that can never clear.
 func PassFailuresOf(passes []Sweep) []PassFailure {
 	ordered := append([]Sweep(nil), passes...)
 	sort.SliceStable(ordered, func(i, j int) bool { return ordered[i].StartedAt.Before(ordered[j].StartedAt) })
@@ -77,14 +89,14 @@ func PassFailuresOf(passes []Sweep) []PassFailure {
 		if pass.Missed != nil && pass.Missed.How != MissCancelled {
 			continue
 		}
-		failed, succeeded := passFailedOrSucceeded(pass)
+		failed, worked := passFailedOrWorked(pass)
 		f := active[pass.Task]
 		if failed {
 			if f.Failures == 0 {
 				f.ProductID, f.Task, f.FirstAt = pass.ProductID, pass.Task, pass.StartedAt
 			}
 			f.Failures++
-			f.LatestAt, f.Problem = pass.StartedAt, pass.Problem
+			f.LatestAt, f.Problem, f.WentWrong = pass.StartedAt, pass.Problem, PassWentWrong(pass)
 			for _, step := range pass.Steps {
 				if step.Outcome == StepFailed {
 					f.Problem = step.Name + ": " + step.Detail
@@ -94,7 +106,7 @@ func PassFailuresOf(passes []Sweep) []PassFailure {
 				f.RaisedAt = pass.EndedAt
 			}
 			active[pass.Task] = f
-		} else if succeeded {
+		} else if worked {
 			if f.Failures >= PassFailureThreshold {
 				f.ClearedAt = pass.EndedAt
 				ended = append(ended, f)
@@ -116,7 +128,13 @@ func PassFailuresOf(passes []Sweep) []PassFailure {
 	return ended
 }
 
-func passFailedOrSucceeded(pass Sweep) (bool, bool) {
+// passFailedOrWorked says whether a pass failed, and whether it did its work.
+// A role's pass fails only where a turn's actions were not carried out, it
+// never started, it was stopped under it, or it gave no account at all. Its
+// account having come from the last of several report blocks, or saying more
+// work waits, is neither: the pass did its work. A pass that took no turn and
+// failed nothing — a wait on the provider — is neither either.
+func passFailedOrWorked(pass Sweep) (bool, bool) {
 	if pass.HarnessPass() {
 		for _, step := range pass.Steps {
 			if step.Outcome == StepFailed {
@@ -128,8 +146,56 @@ func passFailedOrSucceeded(pass Sweep) (bool, bool) {
 	if pass.Failed || pass.NotStarted != "" || pass.Missed != nil || (pass.Turns > 0 && pass.Result == nil) {
 		return true, false
 	}
-	return false, pass.Result != nil && pass.Result.Status == "complete"
+	return false, pass.Result != nil
 }
+
+// PassWentWrong says in ordinary words what made a failed pass fail, for the
+// front of every line about it. It reads what the record states as fields,
+// and the harness's own sentences where a field does not say: a refused ask, an
+// unreadable one, and a refused document are named, and any other turn that
+// failed is said as a turn whose actions were not carried out.
+func PassWentWrong(pass Sweep) string {
+	role := pass.Role.Title()
+	if role == "" {
+		role = "role"
+	}
+	switch {
+	case pass.HarnessPass():
+		for _, step := range pass.Steps {
+			if step.Outcome == StepFailed {
+				return fmt.Sprintf("the %s step of the pass failed", step.Name)
+			}
+		}
+		return "the pass reported a problem"
+	case pass.NotStarted != "":
+		return pass.NotStarted.Describe() + ", so nothing was asked of the " + role
+	case pass.Missed != nil:
+		return "the pass was stopped before it finished, so what it would have looked at waits for the next one"
+	case !pass.Failed && pass.Turns > 0 && pass.Result == nil:
+		return "the " + role + " gave no account of the pass, so what it found is only in its conversation"
+	}
+	turn := "a turn"
+	if found := failedTurn.FindStringSubmatch(pass.Problem); found != nil {
+		turn = "turn " + found[1]
+	}
+	if asked := refusedAsk.FindStringSubmatch(pass.Problem); asked != nil {
+		return fmt.Sprintf("the %s asked the %s a question, which it may not do, so the actions of %s were not carried out", role, asked[1], turn)
+	}
+	switch {
+	case strings.Contains(pass.Problem, "an ask the harness cannot read"):
+		return fmt.Sprintf("the %s wrote a question for another role that the harness could not read, so the actions of %s were not carried out", role, turn)
+	case strings.Contains(pass.Problem, "which that role has no authority for"):
+		return fmt.Sprintf("the %s asked for something its role may not do, so the actions of %s were not carried out", role, turn)
+	case strings.Contains(pass.Problem, "a document the harness will not record"):
+		return fmt.Sprintf("the %s wrote a document the harness would not record, so the actions of %s were not carried out", role, turn)
+	}
+	return fmt.Sprintf("%s of the %s's pass stopped before its actions were carried out", turn, role)
+}
+
+var (
+	failedTurn = regexp.MustCompile(`turn (\d+) of the recurring task \S+ failed`)
+	refusedAsk = regexp.MustCompile(`asked for a question put to the ([a-z ]+?), which that role has no authority for`)
+)
 
 // RecordPassFailures files and clears findings in the existing report logs.
 // It runs after a pass is appended, under the sweep store's lock, so two
@@ -185,7 +251,7 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 		if known[id] && !f.ClearedAt.IsZero() && !cleared[id] {
 			if err := reports.Handle(report.Handling{SchemaVersion: report.HandlingSchemaVersion, PassFailureCleared: f.Failures, ReportID: id, Role: report.HarnessReporter,
 				RunID: f.Task + "@" + f.ClearedAt.UTC().Format(time.RFC3339Nano), ProductID: s.productID, RepositoryID: attribution.RepositoryID,
-				RecordedAt: f.ClearedAt, Reason: fmt.Sprintf("The product pass %s succeeded at %s, clearing the finding after %d consecutive failures.", f.Task, f.ClearedAt.In(time.Local).Format("2006-01-02 15:04 MST"), f.Failures)}); err != nil {
+				RecordedAt: f.ClearedAt, Reason: fmt.Sprintf("The product pass %s carried out its work at %s, clearing the finding after %d consecutive failures.", f.Task, f.ClearedAt.In(time.Local).Format("2006-01-02 15:04 MST"), f.Failures)}); err != nil {
 				return err
 			}
 		}

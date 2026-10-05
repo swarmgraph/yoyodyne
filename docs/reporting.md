@@ -1550,7 +1550,8 @@ hours. It is not repeated beyond that, since the attention line carries it
 while it stands. The first firing that takes a turn ends these pre-turn messages,
 and a later run of failures is said as a new one. After three failed executions,
 the [product pass finding](operations.md#the-supervisors-maintenance-pass) also
-reaches the factory-flow program manager and remains until the pass succeeds.
+reaches the factory-flow program manager and remains until the pass next
+carries out its work, finished or with more waiting.
 
 > The recurring task development-manager-sweep has failed before its first turn
 > 2 times in a row since 2026-09-26T06:39:00Z: the harness refused the message

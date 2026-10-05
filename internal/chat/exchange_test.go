@@ -446,3 +446,54 @@ func TestAskingDoesNotSpendTheTrackerRoundBudget(t *testing.T) {
 		t.Fatal("the round past the budget delivered its results as well as carrying them")
 	}
 }
+
+// A question put to a role the asker may not ask is refused alone: the refusal
+// is handed back to the asking role, and the reply's other blocks are carried
+// out. On 2026-10-05 the architect's pass asked the developer a question, and
+// the whole turn was refused with it — the memories it wrote were thrown away
+// and the pass was counted as failed.
+func TestARefusedAskIsHandedBackAndTheRestOfTheReplyIsCarriedOut(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	memories, err := runstate.NewMemoryStore(root, "yoyodyne", "")
+	if err != nil {
+		t.Fatalf("NewMemoryStore() error = %v", err)
+	}
+	answer := "I will remember this and ask the developer.\n\n" +
+		memoryBlock(`{"memories":[{"action":"remember","memory":"heavyweight-permit","text":"The permit ends with its run."}]}`) +
+		askBlock(`{"ask":{"role":"developer","question":"does the permit outlive the run?"}}`)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: "The question was not put, so I am going on what the code shows."},
+	}}
+	options := testOptions(t, provider)
+	options.Role = domain.RoleArchitect
+	options.Agent = string(domain.RoleArchitect)
+	options.Store = newTestStore(t, root)
+	options.Memories = memories
+	options.Exchanges = &fakeExchanges{answers: []string{"never reached"}}
+	session := openTestSession(t, options)
+
+	reply, err := session.Send(context.Background(), "Carry on with the pass.")
+	if err != nil {
+		t.Fatalf("Send() error = %v, want the refused ask handed back rather than the turn failed", err)
+	}
+	if len(reply.Memories) != 1 || len(reply.Saved) != 1 {
+		t.Fatalf("memories = %+v, saved = %+v, want the memory written beside the refused ask", reply.Memories, reply.Saved)
+	}
+	if len(reply.RefusedAsks) != 1 || !strings.Contains(reply.RefusedAsks[0], "the architect asked the developer a question, which it may not do") {
+		t.Fatalf("refused asks = %q", reply.RefusedAsks)
+	}
+	if len(reply.Exchanges) != 1 || reply.Exchanges[0].ID != "" || reply.Exchanges[0].Asked != domain.RoleDeveloper {
+		t.Fatalf("exchanges = %+v, want the refused ask listed with nothing opened", reply.Exchanges)
+	}
+	if len(provider.requests) != 2 {
+		t.Fatalf("provider invocations = %d, want the refusal handed back as a second round", len(provider.requests))
+	}
+	for _, wanted := range []string{"was not put to anybody", "Everything else your reply asked for was carried out"} {
+		if !strings.Contains(provider.requests[1].Prompt, wanted) {
+			t.Fatalf("the hand-back is missing %q: %q", wanted, provider.requests[1].Prompt)
+		}
+	}
+}

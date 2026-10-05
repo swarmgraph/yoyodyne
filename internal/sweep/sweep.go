@@ -487,12 +487,14 @@ func noteDropped(summary string, dropped droppedCounts) string {
 //
 // A reply carrying more than one block is not a failure either, and this is
 // where the sweep differs from the other channels, which refuse a second block.
-// The contract is one block per reply and a role that sent two has slipped, but
-// the slip is the model's and recurs, and a pass whose decisions were taken and
-// whose record was then thrown away is the report-pile problem in miniature. So
+// The contract is one block, at the end of the answer. A role that wrote one on
+// each round of a reply — the harness hands back what a round asked for, and the
+// answer goes on after it — has not failed: its work was done, and a pass whose
+// decisions were taken must not lose its record over the shape of the reply. So
 // the last block is the account — a role that wrote "more" and then "complete"
 // settled on the second — and the note says the reply carried more than one, for
-// the record to state beside the account rather than in place of it.
+// the record to state beside the account rather than in place of it. It is a
+// note and never a failure.
 func Extract(reply string) (prose string, result *Result, note string, err error) {
 	block, count, err := fenced.SplitLast(reply, Fence, "sweep")
 	if err != nil {
@@ -506,7 +508,7 @@ func Extract(reply string) (prose string, result *Result, note string, err error
 		return block.Before, nil, "", err
 	}
 	if count > 1 {
-		note = fmt.Sprintf("the reply carried %d sweep blocks where the contract asks for one, and the last of them is the account recorded", count)
+		note = fmt.Sprintf("the reply carried %d sweep blocks, and the last of them is the account recorded; extra blocks are not a failure", count)
 	}
 	return block.Rest, result, note, nil
 }
@@ -555,7 +557,7 @@ func Decode(payload string) (*Result, error) {
 // are one statement.
 func Contract() string {
 	return strings.Join([]string{
-		"End your answer with exactly one block of this shape, and nothing after it:",
+		"Write this block once, at the very end of your answer, and nothing after it. Where your answer asks for something the harness carries out and hands back — tracker actions, memory writes, reads, research, a question to another role — your answer goes on after the results, so leave the block out of that part and write it only when you ask for nothing more. If you do write it more than once, the last one is your account:",
 		"",
 		Fence,
 		`{"status":"complete|more","summary":"what this pass found, in a sentence or two","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you did and why","filed":["work you filed for its root cause"]}],"questions":["what only a person can settle"]}`,
