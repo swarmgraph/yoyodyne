@@ -13,7 +13,11 @@ revisions:
     - action: amended
       by: product-manager
       at: 2026-09-19T14:40:00Z
-      reason: 'the spend-follows-the-work goal, drafted for the operator''s 2026-09-19 direction that model spend follows the work rather than the role, so cost findings can be admitted against a goal rather than raised as concerns; approved by the operator the same day'
+      reason: the spend-follows-the-work goal, drafted for the operator's 2026-09-19 direction that model spend follows the work rather than the role, so cost findings can be admitted against a goal rather than raised as concerns; approved by the operator the same day
+    - action: amended
+      by: product-manager
+      at: 2026-10-05T00:29:54.416476Z
+      reason: 'yoyodyne-ifd.433.11: intent: consistent. The opening said none of these goals gates v1 work, while [spend-follows-the-work] has had work admitted under it since the operator approved it on 2026-09-19. The opening now says that goal applies now and work is held to it. No goal is added, removed or reworded, so the goals admit and refuse exactly the same work as before.'
 approvals:
     - revision: 0
       by: operator
@@ -23,14 +27,20 @@ approvals:
       by: operator
       at: 2026-09-19T14:40:00Z
       reason: 'Approved by the operator on 2026-09-19 as drafted by the product manager: spend follows the work.'
+    - revision: 2
+      by: operator
+      at: 2026-10-05T00:29:54.416476Z
+      reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 1589, for the document the product-manager wrote there (document-1589.1)
 ---
 
 # Operations goals
 
 These are post-v1 outcomes: Yoyodyne operating the software it builds. They
 support the brief's goal that the system can operate what it ships, and none of
-them gates v1 or its releases. Recorded now so work that arrives ahead of them
-is designed knowing where it leads.
+them gates v1 or its releases, with one exception: [spend-follows-the-work]
+applies now, and work is attributed to it and held to it as to any v1 goal.
+Recorded now so work that arrives ahead of them is designed knowing where it
+leads.
 
 ## Goals
 

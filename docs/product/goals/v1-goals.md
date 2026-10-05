@@ -34,6 +34,10 @@ revisions:
       by: product-manager
       at: 2026-09-07T18:00:00Z
       reason: the configurability goal gains the multi-provider clause the operator directed on 2026-09-07 - the harness supports multiple providers behind one adapter contract, with the safety-invariants qualifier unchanged and capability validation as how a new provider is admitted safely; drafted by the product manager, approved by the operator as drafted
+    - action: amended
+      by: product-manager
+      at: 2026-10-05T00:29:53.016326Z
+      reason: 'yoyodyne-ifd.433.11: intent: fundamental. Mason directed on 2026-09-27 that a standing set of goals apply to every item and to every role''s output and decisions. This revision adds one section naming the plain-language and autonomy goals as that set; no goal is added, removed or reworded, so existing attributions are untouched. It changes what the goals govern, because a reviewer will refuse a change that breaks a standing goal even where the item''s own goal is met, so it is the operator''s to approve. The two goals are named by their opening words because the goal identifiers (yoyodyne-ifd.344) are not yet recorded.'
 approvals:
     - revision: 2
       by: operator
@@ -55,6 +59,10 @@ approvals:
       by: operator
       at: 2026-09-07T13:02:41.413629Z
       reason: 'Operator approved the multi-provider clause as the product manager drafted it, 2026-09-07: the harness supports multiple providers behind one adapter contract, safety-invariants qualifier unchanged'
+    - revision: 7
+      by: operator
+      at: 2026-10-05T00:29:53.016326Z
+      reason: approved by the operator in conversation chat-91253e0e070c17b0663651cc48602122, turn 1587, for the document the product-manager wrote there (document-1587.1)
 ---
 
 # V1 goals
@@ -123,3 +131,21 @@ milestone rather than an outcome, it was reached, and it is recorded as such.
   *Supports: it works on other people's projects.*
 - A team can run Yoyodyne against one shared repository: collaborators each run their own harness without losing work, splitting the tracker, or weakening any safety invariant.
   *Supports: it works on other people's projects.*
+
+## Standing goals
+
+yoyodyne-ifd.433.11. Two of the goals above apply to every work item and to
+every role's own output and decisions, whichever goal the item serves:
+
+- the plain-language goal, which begins 'The harness's surfaces read clearly';
+- the autonomy goal, which begins 'Run development nearly autonomously'.
+
+Every role applies them to what it writes and to what it decides. The reviewer
+judges every change against them beside the item's own goal, and refuses a
+change that breaks one, naming the goal and where. The Lead Product Manager's
+sweep checks work closed since its last pass against them and admits a
+correction for a violation. A change that breaks a standing goal is a defect
+whatever its item's goal says.
+
+This section adds no goal and changes the wording of none. It names two of the
+goals already stated above as the ones that govern everything.
