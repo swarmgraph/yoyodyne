@@ -1038,8 +1038,26 @@ func (t *memoryTip) affordable(revision MemoryRevision) error {
 		live += len(revision.Text)
 	}
 	if live > MaxMemoryLiveBytes {
-		return fmt.Errorf("%w: %s would know %d bytes and the budget is %d; compact or retire a memory first",
-			ErrMemoryBudget, revision.Agent, live, MaxMemoryLiveBytes)
+		largest := append([]MemoryRevision(nil), t.Live...)
+		total := 0
+		for _, current := range largest {
+			total += len(current.Text)
+		}
+		sort.Slice(largest, func(i, j int) bool {
+			if len(largest[i].Text) != len(largest[j].Text) {
+				return len(largest[i].Text) > len(largest[j].Text)
+			}
+			return largest[i].Memory < largest[j].Memory
+		})
+		var names []string
+		for i, current := range largest {
+			if i == 3 {
+				break
+			}
+			names = append(names, fmt.Sprintf("%q (%d bytes)", current.Memory, len(current.Text)))
+		}
+		return fmt.Errorf("%w: %s would know %d bytes and the budget is %d; current total is %d bytes; largest memories: %s; compact or retire a memory first",
+			ErrMemoryBudget, revision.Agent, live, MaxMemoryLiveBytes, total, strings.Join(names, ", "))
 	}
 	return nil
 }

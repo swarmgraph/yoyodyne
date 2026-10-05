@@ -855,3 +855,69 @@ func TestACompactedTurnThatNamesNoSessionLeavesNoneToResume(t *testing.T) {
 		t.Fatalf("third prompt = %q, want the conversation rebuilt in front of it", provider.requests[3].Prompt)
 	}
 }
+
+func TestOverBudgetMemoryCompactionDoesNotStopTheWaitingReply(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	memories, err := runstate.NewMemoryStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	role := domain.RoleDevelopmentManager
+	for _, name := range []string{"largest-a", "largest-b", "largest-c"} {
+		rememberEarlier(t, memories, role, name, strings.Repeat("a", 8192))
+	}
+	target := rememberEarlier(t, memories, role, "target", strings.Repeat("b", 4096))
+	rememberEarlier(t, memories, role, "retire-me", strings.Repeat("c", 4096))
+	before, _, err := memories.Memories(string(role))
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := json.Marshal(map[string]any{"memories": []map[string]any{{"action": "compact", "memory": "target", "text": strings.Repeat("d", 4097), "compacts": []int{target.Sequence}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := &compactionBackend{speakingBackend: &speakingBackend{results: []backendapi.RunResult{
+		{SessionID: "old", FinalText: "Earlier answer."},
+		{SessionID: "old", FinalText: memoryBlock(string(block))},
+		{SessionID: "new", FinalText: "The waiting pass carried on.\n" + memoryBlock(`{"memories":[{"action":"retire","memory":"retire-me","text":"Outdated."}]}`)},
+	}}}
+	options := compactingOptions(t, root, provider, 1)
+	options.Role, options.Agent, options.Memories = role, string(role), memories
+	session := openTestSession(t, options)
+	if _, err := session.Send(context.Background(), "First message."); err != nil {
+		t.Fatal(err)
+	}
+	provider.beforeRun = func(request backendapi.RunRequest) {
+		if len(provider.requests) != 2 {
+			return
+		}
+		after, _, err := memories.Memories(string(role))
+		if err != nil {
+			t.Fatal(err)
+		}
+		a, _ := json.Marshal(before)
+		b, _ := json.Marshal(after)
+		if string(a) != string(b) {
+			t.Fatal("refused compaction changed the memory store")
+		}
+		for _, want := range []string{"not recorded", "32769", "budget is 32768", "current total is 32768", `"largest-a" (8192 bytes)`, `"largest-b" (8192 bytes)`, `"largest-c" (8192 bytes)`} {
+			if !strings.Contains(request.Prompt, want) {
+				t.Errorf("next turn missing %q", want)
+			}
+		}
+	}
+	reply, err := session.Send(context.Background(), "Waiting pass.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reply.Text != "The waiting pass carried on." || session.Evidence().SessionID != "new" {
+		t.Fatalf("waiting reply was lost: %+v", reply)
+	}
+	if len(reply.Memories) != 2 || reply.Memories[0].Recorded || !reply.Memories[1].Recorded {
+		t.Fatalf("rest of reply not carried out: %+v", reply.Memories)
+	}
+	if len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].Failure != "" {
+		t.Fatalf("budget refusal failed session save: %+v", reply.CompactionSaves)
+	}
+}
