@@ -774,7 +774,7 @@ everything else is said to the Lead Product Manager:
 ```text
 /status                  what is in flight, claimed, blocked, available, and done, with prices
 /backlog                 the admitted work in order, and what would be pulled next
-/show <id>               one work item in full, and what each run for it cost
+/show <id>               one bounded work item read, and what each run for it cost
 /diff [id]               what a run changed, from the run's own record
 /reports                 what agents reported without it stopping their work
 /refresh                 re-read the repository and tracker into this conversation
@@ -948,7 +948,7 @@ being started while the last one is being stopped. It reports what became of eac
 run rather than what was asked of it, and one run that could not be stopped never
 hides the others.
 
-`/show` prints one work item in full — its status, priority, parent,
+`/show` prints a bounded reading of one work item — its status, priority, parent,
 dependencies, description, design, acceptance criteria, and notes — through the
 same tracker capability the Lead Product Manager reads items with. What you see is
 what the agent discussing it could see, which is the point: the two of you are
@@ -967,7 +967,18 @@ unread rather than left out. On 2026-09-26 the development manager could not
 find the run to record a decision on for `yoyodyne-ifd.430.13.4`, because the
 note naming it was in the part of the notes the read cut.
 
-An item too long to carry whole is cut, and the cut is declared where it falls.
+An item read carries at most 8 KiB before the separate runs section. Long text
+before the notes is returned in parts: each part names its starting byte, how
+many bytes it returns, and how many remain. It gives the next tracker read
+request, such as `{"action":"read","id":"beads-id","offset":3500}`, for a role
+to put in its next `yoyodyne-tracker` block. The offset counts bytes in the
+rendered item text, including headings, before the notes. Following these
+requests reaches the entire description, design, and acceptance criteria in
+order. A short item's ordinary read keeps the same output. The role can use
+`"offset":0` to start the complete text again; each part reads the current item,
+so it must start again if the item changes between reads. Action and round
+limits still apply, and a role continues in a later turn where needed.
+`/show` displays the first part and its continuation request.
 The notes are cut from their beginning rather than their end, and are guaranteed
 room whatever else the item carries: notes are only appended to, so their end is
 what was written most recently, and a reader checking whether something was just

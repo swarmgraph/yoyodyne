@@ -325,7 +325,7 @@ func TestReadingAnItemReturnsItInFull(t *testing.T) {
 	if len(cut) > maxTrackerItemBytes+len("\n\n[cut at 8192 bytes; treat the rest as unread rather than absent]") {
 		t.Fatalf("cut item is %d bytes", len(cut))
 	}
-	if !strings.Contains(cut, "cut at") {
+	if !strings.Contains(cut, "bytes remain") {
 		t.Fatalf("a cut item did not say so: %q", cut[len(cut)-200:])
 	}
 }
