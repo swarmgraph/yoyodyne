@@ -405,7 +405,7 @@ func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, e
 		source, readErr := read(reader.ConfigPath)
 		if readErr != nil {
 			if errors.Is(readErr, os.ErrNotExist) {
-				problems = append(problems, fmt.Errorf("stale configuration reader record %s: recorded configuration %s no longer exists; the next %s start records its actual configuration path; other parts were still checked", reader.recordPath, reader.ConfigPath, reader.Service))
+				problems = append(problems, fmt.Errorf("stale configuration reader record %s: recorded configuration %s no longer exists; this record remains stale even after a different process starts; it is excluded from configuration key comparison, and other parts were still checked", reader.recordPath, reader.ConfigPath))
 			} else {
 				problems = append(problems, fmt.Errorf("the configuration the %s service reads could not be read: %w", reader.Service, readErr))
 			}

@@ -318,7 +318,7 @@ func TestAStaleConfigurationRecordDoesNotHideOtherParts(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing stale record diagnostic")
 	}
-	for _, want := range []string{"stale configuration reader record", legacy, stale.ConfigPath, "next supervisor start", "other parts were still checked"} {
+	for _, want := range []string{"stale configuration reader record", legacy, stale.ConfigPath, "remains stale even after a different process starts", "other parts were still checked"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("%v does not name %q", err, want)
 		}
