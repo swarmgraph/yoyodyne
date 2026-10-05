@@ -13,7 +13,8 @@ import (
 // records every act the harness takes on it in the order taken, and can be told
 // to refuse any of them.
 type Tracker struct {
-	Item beads.WorkItem
+	SchedulingWaitClearErr error
+	Item                   beads.WorkItem
 	// AlsoHolds is the other work this tracker has, by identifier. It is what
 	// makes an impediment a landing named one the harness can confirm; a tracker
 	// that answered for every identifier could not tell the two cases apart.
@@ -227,6 +228,9 @@ func (f *Tracker) ForgetSettlement() {
 
 // RecordSchedulingWait mirrors the mutable metadata without changing notes.
 func (f *Tracker) RecordSchedulingWait(ctx context.Context, id, reason string, at time.Time) (beads.WorkItem, error) {
+	if reason == "" && f.SchedulingWaitClearErr != nil {
+		return beads.WorkItem{}, f.SchedulingWaitClearErr
+	}
 	item, err := f.Show(ctx, id)
 	if err != nil {
 		return beads.WorkItem{}, err

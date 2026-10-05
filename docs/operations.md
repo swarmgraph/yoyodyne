@@ -4471,7 +4471,11 @@ dashboard's waiting-work list. The shared reading names what holds it back,
 when it was first passed over, and when its current reason began. The tracker
 holds this as mutable `yoyodyne_scheduling_wait` metadata, separate from the
 item's append-only notes. A changed reason replaces that value; confirmed run
-acceptance clears it before execution, while a refused dispatch leaves it intact.
+acceptance attempts to clear it before execution, while a refused dispatch
+leaves it intact. A failed metadata write does not stop accepted execution: the
+run records the clearing failure, status reports it, and reconciliation retries
+it once the run's lease is free. Running-work lists hide the obsolete reason
+while that reporting write is outstanding.
 
 `execution.scheduling_wait_problem_after` sets how long the same reason may
 stand before the shared reading marks it as prolonged; its default is `1h`.

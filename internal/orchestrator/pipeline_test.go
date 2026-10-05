@@ -72,7 +72,8 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		AcceptanceCriteria: "feature.txt exists",
 		Status:             "open",
 	}}
-	tracker.Item.SchedulingWait = &beads.SchedulingWait{Reason: "waiting for work", FirstPassedOver: time.Now(), ReasonSince: time.Now().Add(time.Second)}
+	tracker.Item.SchedulingWait = &beads.SchedulingWait{Reason: "waiting for work", FirstPassedOver: time.Now().Add(-time.Minute), ReasonSince: time.Now().Add(-time.Minute)}
+	tracker.SchedulingWaitClearErr = errors.New("metadata write unavailable")
 	tracker.OnClaim = func() error {
 		if err := os.MkdirAll(filepath.Join(repository, ".beads"), 0o700); err != nil {
 			return err
@@ -80,8 +81,8 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		return os.WriteFile(filepath.Join(repository, ".beads", "issues.jsonl"), []byte("claim control state\n"), 0o600)
 	}
 	provider := &orchestratortest.Backend{Respond: func(request backend.RunRequest) (backend.RunResult, error) {
-		if tracker.Item.SchedulingWait != nil {
-			t.Fatal("accepted fresh run still carries a scheduling wait during execution")
+		if tracker.Item.SchedulingWait == nil {
+			t.Fatal("fixture did not retain metadata after refusing its clear")
 		}
 		if !strings.Contains(request.Prompt, "design content") {
 			return backend.RunResult{}, errors.New("prompt did not contain referenced design")
@@ -147,12 +148,18 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(outcome.WorktreePath, "feature.txt")); err != nil {
 		t.Fatalf("preserved worktree change missing: %v", err)
 	}
+	state, loadErr := store.Load(outcome.RunID)
+	if loadErr != nil || state.SchedulingWaitClearFailure == "" || !state.Outstanding() {
+		t.Fatalf("clearing obligation = %q, %v", state.SchedulingWaitClearFailure, loadErr)
+	}
+
 }
 
 // The run record says what the item is called and not only which item it is.
 // Everything that reports on a run afterwards reads the durable record and never
 // the tracker, so a title nothing wrote down while the item was in hand is a
 // title no surface can name the work by.
+
 func TestARunRecordsWhatTheItemIsCalled(t *testing.T) {
 	t.Parallel()
 

@@ -1274,6 +1274,9 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// because this record is the only place they survive the run — a refused
 	// proposal that reached only the run's printed outcome was, afterwards, one
 	// nobody could tell from a proposal never made.
+	if run.SchedulingWaitClearFailure != "" {
+		fmt.Fprintf(writer, "  scheduling reason clearing pending: %s\n", singleLine(run.SchedulingWaitClearFailure))
+	}
 	if run.ReportProblem != "" {
 		fmt.Fprintf(writer, "  report not kept: %s\n", singleLine(run.ReportProblem))
 		printed = true

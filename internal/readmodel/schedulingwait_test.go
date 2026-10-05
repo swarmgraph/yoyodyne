@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 func TestSharedStandingCarriesTheSchedulersCurrentReason(t *testing.T) {
@@ -43,5 +44,23 @@ func TestSchedulingWaitProlongedUsesTheCurrentReasonAndConfiguredTime(t *testing
 	wait.ReasonSince = moment.Add(-time.Minute)
 	if schedulingWaitProlonged(wait, moment, time.Hour) {
 		t.Fatal("a changed reason retained the age of the earlier reason")
+	}
+}
+
+func TestRunningWorkSuppressesAnOldSchedulingReason(t *testing.T) {
+	wait := &beads.SchedulingWait{Reason: "obsolete waiting reason", FirstPassedOver: moment.Add(-time.Hour), ReasonSince: moment.Add(-time.Hour)}
+	item := beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open", SchedulingWait: wait}
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"open": {item}}, ready: []beads.WorkItem{item}}}
+	sources.Runs = fakeRuns{incomplete: []runstate.State{{RunID: "run-a", WorkItemID: item.ID, WorkItemTitle: item.Title, Status: runstate.StatusRunning, StartedAt: moment}}}
+	standing := ReadStanding(context.Background(), sources)
+	for _, ref := range append(standing.AdmittedItems, standing.StartableItems...) {
+		if ref.SchedulingWait != nil || ref.WaitReason != "" || ref.SchedulingWaitProlonged {
+			t.Fatalf("running work retains a wait: %+v", ref)
+		}
+	}
+	encoded, _ := json.Marshal(standing)
+	if strings.Contains(string(encoded), wait.Reason) {
+		t.Fatalf("running reading includes old reason: %s", encoded)
 	}
 }

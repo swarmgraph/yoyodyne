@@ -701,14 +701,15 @@ func (p Preservation) checkable() bool {
 }
 
 type Outcome struct {
-	Retirement   *runstate.RunRetirement `json:"retirement,omitempty"`
-	RunID        string                  `json:"run_id"`
-	WorkItemID   string                  `json:"work_item_id"`
-	Status       runstate.Status         `json:"status"`
-	Phase        runstate.Phase          `json:"phase,omitempty"`
-	Branch       string                  `json:"branch,omitempty"`
-	WorktreePath string                  `json:"worktree_path,omitempty"`
-	BaseCommit   string                  `json:"base_commit,omitempty"`
+	SchedulingWaitClearFailure string                  `json:"scheduling_wait_clear_failure,omitempty"`
+	Retirement                 *runstate.RunRetirement `json:"retirement,omitempty"`
+	RunID                      string                  `json:"run_id"`
+	WorkItemID                 string                  `json:"work_item_id"`
+	Status                     runstate.Status         `json:"status"`
+	Phase                      runstate.Phase          `json:"phase,omitempty"`
+	Branch                     string                  `json:"branch,omitempty"`
+	WorktreePath               string                  `json:"worktree_path,omitempty"`
+	BaseCommit                 string                  `json:"base_commit,omitempty"`
 	// continuationAccepted is set only after an adopted run has passed its
 	// resume preconditions. A pre-adoption pause can name an existing run
 	// without accepting it.
@@ -1473,9 +1474,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 	if err := validateClaimedItem(item, a.state.WorkItemID); err != nil {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
-	if err := acceptSchedulingWait(ctx, a.pipeline.Tracker, a.state.WorkItemID, a.pipeline.clock().Now()); err != nil {
-		return fmt.Errorf("clear accepted item's scheduling wait: %w", err)
-	}
+	a.clearAcceptedSchedulingWait(ctx)
 	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
@@ -1890,9 +1889,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			AmendmentProblem: state.AmendmentProblem,
 		},
 	}
-	if err := acceptSchedulingWait(ctx, p.Tracker, state.WorkItemID, p.clock().Now()); err != nil {
-		return Outcome{}, fmt.Errorf("clear accepted item's scheduling wait: %w", err)
-	}
+	run.clearAcceptedSchedulingWait(ctx)
 	// A run resumed at its promotion carries the verdict that authorized it into
 	// the outcome it reports, because the steps past this point read the outcome:
 	// the independence check reads the two sessions off it, the notes recorded on

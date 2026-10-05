@@ -760,6 +760,20 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Startable = len(waits.startable)
 	standing.StartableItems = waits.startable
 	standing.AdmittedItems = waits.admitted
+	for _, run := range running {
+		for i := range waits.admitted {
+			if waits.admitted[i].WorkItemID == run.WorkItemID {
+				waits.admitted[i].SchedulingWait = nil
+				waits.admitted[i].WaitReason = ""
+			}
+		}
+		for i := range waits.startable {
+			if waits.startable[i].WorkItemID == run.WorkItemID {
+				waits.startable[i].SchedulingWait = nil
+				waits.startable[i].WaitReason = ""
+			}
+		}
+	}
 	for i := range standing.AdmittedItems {
 		ref := &standing.AdmittedItems[i]
 		markSchedulingWait(ref, now, sources.SchedulingWaitProblemAfter)
