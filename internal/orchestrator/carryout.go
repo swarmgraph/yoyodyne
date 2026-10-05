@@ -639,13 +639,13 @@ func onceRecorded(runs CarryOutRuns) func() ([]runstate.State, error) {
 	}
 }
 
-// repairOutstanding reports a repair grant with rounds the harness has not handed
-// to a run yet. It asks the same two records the repair action asks and in the
+// repairOutstanding reports a repair decision not yet carried out, with rounds
+// left to hand its run. It asks the same two records the repair action asks and in the
 // same order: what was granted, against what the item's own runs record having
 // been continued on. The counters alone cannot answer it — the grant counter is a
 // total nothing clears — and a cheaper reading of them would offer a grant the
 // action then refuses, which is a finding nobody asked for every pass.
-func (i outstandingItem) repairOutstanding(workItemID string, history func() ([]runstate.State, error)) (bool, error) {
+func (i outstandingItem) repairOutstanding(workItemID, runID string, history func() ([]runstate.State, error)) (bool, error) {
 	if i.counters.GrantedRounds < 1 {
 		return false, nil
 	}
@@ -654,8 +654,12 @@ func (i outstandingItem) repairOutstanding(workItemID string, history func() ([]
 		return false, err
 	}
 	carried := 0
+	decision, decided := i.counters.DecisionOf(runID)
 	for _, state := range recorded {
 		if state.WorkItemID == workItemID {
+			if decided && state.RunID == decision.RunID && state.RepairContinuedSince(decision.DecidedAt) {
+				return false, nil
+			}
 			carried += state.CarriedOutRepairAttempts()
 		}
 	}
@@ -680,7 +684,7 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 		if len(i.counters.Decisions) != 0 {
 			return CarryOutTask{}, false, nil, nil
 		}
-		if outstanding, err := i.repairOutstanding(entry.WorkItemID, history); err != nil {
+		if outstanding, err := i.repairOutstanding(entry.WorkItemID, entry.RunID, history); err != nil {
 			return CarryOutTask{}, false, nil, err
 		} else if outstanding {
 			decision.Decision = runstate.TriageDecisionRepair
@@ -715,7 +719,7 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 		if entry.Class == triage.ClassEscalation {
 			return CarryOutTask{}, false, nil, nil
 		}
-		outstanding, err := i.repairOutstanding(entry.WorkItemID, history)
+		outstanding, err := i.repairOutstanding(entry.WorkItemID, entry.RunID, history)
 		if err != nil {
 			return CarryOutTask{}, false, nil, err
 		}
@@ -745,9 +749,9 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 	if c.CheckStages == nil || (!entry.HarnessContinuesChecks && strings.TrimSpace(entry.CheckStageStop) == "") {
 		return CarryOutTask{}, false, nil
 	}
-	// A stop or a decision to let the run finish was made about the run in
-	// flight, and decides nothing about the stoppage the bound later made.
-	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() {
+	// An earlier decision about the run does not decide this later stoppage.
+	// A decision about the current stoppage takes precedence over recovery policy.
+	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() && !decision.DecidedAt.Before(entry.RecordedAt) {
 		return CarryOutTask{}, false, nil
 	}
 	// The run's current obligation is authoritative. An old docket entry may

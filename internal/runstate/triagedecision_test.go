@@ -310,7 +310,6 @@ func TestARepairContinuedSinceItsDecisionIsCarriedOut(t *testing.T) {
 	}
 	for name, continuation := range map[string]RepairContinuation{
 		"before the decision":     {GrantedAttempts: 2, ContinuedAt: decided.Add(-time.Hour)},
-		"returned":                {GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Returned: true},
 		"the harness's own stall": {ContinuedAt: decided.Add(2 * time.Minute), Stall: true, ByHarness: true},
 	} {
 		run.RepairContinuations = []RepairContinuation{continuation}
@@ -318,9 +317,11 @@ func TestARepairContinuedSinceItsDecisionIsCarriedOut(t *testing.T) {
 			t.Fatalf("a continuation %s carried the repair out", name)
 		}
 	}
-	run.RepairContinuations = []RepairContinuation{{GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute)}}
-	if counters.AwaitingCarryOutOf(run) {
-		t.Fatal("a repair handed back to its run still reads as the harness's to carry out")
+	for _, returned := range []bool{false, true} {
+		run.RepairContinuations = []RepairContinuation{{GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Returned: returned}}
+		if counters.AwaitingCarryOutOf(run) || !counters.StandingOf(run).CarriedOut || counters.StandingOf(run).Decided {
+			t.Fatalf("a carried-out repair still decides a later stop (returned %t): %#v", returned, counters.StandingOf(run))
+		}
 	}
 }
 

@@ -481,7 +481,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// on trust, and so is how much of that grant is left to carry out and what it
 	// was decided on. The reason the run records names that role, so the decision
 	// and the words attributed to it both come from the record the role wrote.
-	granted, err := c.granted(entry.WorkItemID, entry.RunID)
+	granted, err := c.granted(entry.WorkItemID, prior)
 	if err != nil {
 		return result, err
 	}
@@ -620,7 +620,8 @@ type repairGrant struct {
 // found there names the run itself. So a repair recorded against some other
 // item's run is never what this finds: it is refused here as missing from this
 // item's record rather than carried out against a run it does not name.
-func (c RepairContinuer) granted(workItemID, runID string) (repairGrant, error) {
+func (c RepairContinuer) granted(workItemID string, run runstate.State) (repairGrant, error) {
+	runID := run.RunID
 	counters, err := c.Decisions.Counters(workItemID)
 	if err != nil {
 		return repairGrant{}, fmt.Errorf("read what triage has recorded about %s: %w", workItemID, err)
@@ -635,6 +636,11 @@ func (c RepairContinuer) granted(workItemID, runID string) (repairGrant, error) 
 		return repairGrant{}, permanentCarryOut(triage.CarryOutDecisionSuperseded, fmt.Errorf(
 			"the decision standing about the stoppage of run %s is %q rather than a repair, %s: a repair recorded earlier about it was superseded by that decision and the rounds it reserved were released with it, so carrying a repair out here would spend attempts the item's record no longer holds",
 			runID, standing.Decision, standing.Cite()))
+	}
+	if run.RepairContinuedSince(standing.DecidedAt) {
+		return repairGrant{}, permanentCarryOut(triage.CarryOutDecisionSuperseded, fmt.Errorf(
+			"the repair decision about run %s was already carried out; this later stop needs its own decision by the development manager or a continuation authorized by recovery policy, and refunding a round does not authorize repeating the earlier decision",
+			runID))
 	}
 	if counters.RepairGrants < 1 {
 		return repairGrant{}, fmt.Errorf(
