@@ -433,33 +433,6 @@ func TestRunWaitsOutAnExpiredLoginDuringReview(t *testing.T) {
 	}
 }
 
-// loginProbe stands in for the developer's provider as a watch asks it one
-// thing: whether the machine is logged in.
-type loginProbe struct {
-	mu            sync.Mutex
-	authenticated bool
-	asked         int
-}
-
-func (p *loginProbe) CheckAvailability(context.Context) (backend.Availability, error) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.asked++
-	return backend.Availability{Installed: true, Authenticated: p.authenticated}, nil
-}
-
-func (p *loginProbe) login() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.authenticated = true
-}
-
-func (p *loginProbe) loggedIn() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.authenticated
-}
-
 // The 2026-09-17 shape replayed: dispatches refused because the login expired
 // count toward nothing — no brake, no docket, no exclusion — the session waits
 // naming the login, and re-authentication resumes the line without a release.
@@ -470,7 +443,7 @@ func TestWatchingWaitsOutAnExpiredLoginWithoutTrippingTheBrake(t *testing.T) {
 	harness.blockedRuns = 3
 	harness.capacity = 2
 	outages := newOutageStore(t)
-	probe := &loginProbe{}
+	probe := &orchestratortest.LoginProbe{}
 	harness.outages, harness.provider = outages, probe
 	sessions := &recordedSessions{}
 	// Both dispatches have read the login expired before either records the
@@ -488,7 +461,7 @@ func TestWatchingWaitsOutAnExpiredLoginWithoutTrippingTheBrake(t *testing.T) {
 	// product and reports the refusal typed. Once the operator logs in the runs
 	// complete.
 	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
-		if !probe.loggedIn() {
+		if !probe.LoggedIn() {
 			readMu.Lock()
 			expiredRead++
 			if expiredRead == 2 {
@@ -509,7 +482,7 @@ func TestWatchingWaitsOutAnExpiredLoginWithoutTrippingTheBrake(t *testing.T) {
 		switch sleeps {
 		case 2:
 			// The operator logs in two polls into the wait.
-			probe.login()
+			probe.Login()
 			return true
 		case 5:
 			return false
@@ -550,9 +523,9 @@ func TestWatchingWaitsOutAnExpiredLoginWithoutTrippingTheBrake(t *testing.T) {
 	if _, away, err := outages.Standing(); err != nil || away {
 		t.Fatalf("Standing() after the login = %t, %v, want the outage cleared by the watch's own probe", away, err)
 	}
-	probe.mu.Lock()
-	asked := probe.asked
-	probe.mu.Unlock()
+	probe.Mu.Lock()
+	asked := probe.Asked
+	probe.Mu.Unlock()
 	if asked == 0 {
 		t.Fatal("the watch never asked the provider whether the login was renewed")
 	}
@@ -580,7 +553,7 @@ func TestADrainStopsOnAProviderAnsweringNobody(t *testing.T) {
 	if _, err := outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderUnauthenticated, Waiting: "an earlier dispatch"}); err != nil {
 		t.Fatal(err)
 	}
-	harness.outages, harness.provider = outages, &loginProbe{}
+	harness.outages, harness.provider = outages, &orchestratortest.LoginProbe{}
 	started := false
 	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
 		started = true

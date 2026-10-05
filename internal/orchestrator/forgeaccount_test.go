@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 
@@ -17,19 +18,6 @@ import (
 // harness's forge access, because a developer run given the item may not reach
 // the forge at all. Where the forge refuses the harness's token, the item says
 // so and names granting it as the operator's.
-
-// refusingJobLogs is the forge's log of a job as the harness reads it, or its
-// refusal to let the harness read it.
-type refusingJobLogs struct {
-	tail  string
-	err   error
-	asked []int64
-}
-
-func (l *refusingJobLogs) JobLogTail(_ context.Context, checkRun int64, _ int) (string, error) {
-	l.asked = append(l.asked, checkRun)
-	return l.tail, l.err
-}
 
 // redOnTheChange is a head failing a check on the file its change touches,
 // with the forge's annotations and its page for the job.
@@ -63,7 +51,7 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 	forge.reading = redOnTheChange()
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
-	logs := &refusingJobLogs{tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
+	logs := &orchestratortest.JobLogs{Tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
 	reconciler.JobLogs = logs
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -73,8 +61,8 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.withdrawn) != 1 {
 		t.Fatalf("reconciliation = %#v, withdrawn = %v; want the merge withdrawn and handed back", results, forge.withdrawn)
 	}
-	if len(logs.asked) != 1 || logs.asked[0] != 77 {
-		t.Errorf("job logs asked = %v, want the failing job's log read under the harness's access", logs.asked)
+	if len(logs.Asked) != 1 || logs.Asked[0] != 77 {
+		t.Errorf("job logs asked = %v, want the failing job's log read under the harness's access", logs.Asked)
 	}
 	head := loadRun(t, fixture.store, pipelineRunID).PullRequest.HeadCommit
 	notes := fixture.tracker.Record().Notes
@@ -116,7 +104,7 @@ func TestAForgeThatRefusesTheHarnessesTokenIsNamedOnTheItemAsTheOperatorsToGrant
 	forge.refuseRerun = fmt.Errorf("ask the forge to run check 4215 again: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
-	logs := &refusingJobLogs{err: fmt.Errorf("read the forge's log of check 4215: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)}
+	logs := &orchestratortest.JobLogs{Err: fmt.Errorf("read the forge's log of check 4215: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)}
 	reconciler.JobLogs = logs
 
 	results, err := reconciler.Reconcile(context.Background())

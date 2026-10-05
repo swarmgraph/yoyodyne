@@ -67,7 +67,7 @@ func TestAReadyPriorityZeroItemIsSelectedAheadOfALowerPriorityDecisionAndNewerWo
 	t.Parallel()
 
 	harness := newScheduleHarness(stuckPriorityZeroItems()...)
-	harness.ready["yoyodyne-ifd.271"] = false
+	harness.ReadyItems["yoyodyne-ifd.271"] = false
 	fired := map[string]bool{}
 	harness.outstanding = outstandingUntilFired(fired, decidedTask("yoyodyne-ifd.271"))
 	harness.carry = carriedWhenASlotIsFree(fired)
@@ -115,7 +115,7 @@ func TestADecisionOutrankedOnlyByWorkThatCannotStartTakesTheSlot(t *testing.T) {
 
 	items := append(stuckPriorityZeroItems(), beads.WorkItem{ID: "yoyodyne-ifd.900", Title: "Later work", Status: "open", Priority: 4})
 	harness := newScheduleHarness(items...)
-	harness.ready["yoyodyne-ifd.271"] = false
+	harness.ReadyItems["yoyodyne-ifd.271"] = false
 	for _, id := range []string{"yoyodyne-c02", "yoyodyne-8ff"} {
 		harness.pausing[id] = []directive.Directive{{
 			ID:         "directive-1",
@@ -211,7 +211,7 @@ func TestCheckStageContinuationsTakeAFreeSlotAheadOfEqualOrLowerPriorityFreshWor
 					beads.WorkItem{ID: "yoyodyne-continuation", Title: "Continue the stopped checks", Status: "blocked", Priority: 1},
 					beads.WorkItem{ID: "yoyodyne-fresh", Title: "Fresh work", Status: "open", Priority: freshPriority},
 				)
-				h.ready["yoyodyne-continuation"] = false
+				h.ReadyItems["yoyodyne-continuation"] = false
 				fired := map[string]bool{}
 				task := decidedTask("yoyodyne-continuation")
 				task.Decision = decision

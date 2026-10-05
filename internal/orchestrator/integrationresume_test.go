@@ -27,7 +27,7 @@ import (
 // whether the preserved worktree is as the harness left it, and whether the
 // change is still in it.
 type resumeOwnership struct {
-	fakeOwnership
+	orchestratortest.Ownership
 	readyErr error
 	asked    int
 	// restored is each retired worktree this was asked to put back, and
@@ -469,7 +469,7 @@ func TestAResumptionRefusesARetiredWorktreeItCannotRestore(t *testing.T) {
 	}
 
 	emptied := newResumeHarness(t, retiredState())
-	emptied.ownership.changed = []string{}
+	emptied.ownership.Changed = []string{}
 	if _, err := emptied.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrPreservedChangeMissing) {
 		t.Fatalf("Resume() error = %v, want the restored but empty worktree refused", err)
 	}
@@ -500,14 +500,14 @@ func TestAResumptionRefusesAWorktreeThatIsNotAsTheHarnessLeftItOrIsEmpty(t *test
 	t.Parallel()
 
 	touched := newResumeHarness(t, approvedStoppedState())
-	touched.ownership.err = errors.New("worktree HEAD is deadbeef, want the commit the harness recorded")
+	touched.ownership.Err = errors.New("worktree HEAD is deadbeef, want the commit the harness recorded")
 	if _, err := touched.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrWorktreeNotAsLeft) {
 		t.Fatalf("Resume() error = %v, want the touched worktree refused", err)
 	}
 	touched.assertNothingWritten(t)
 
 	emptied := newResumeHarness(t, approvedStoppedState())
-	emptied.ownership.changed = []string{}
+	emptied.ownership.Changed = []string{}
 	if _, err := emptied.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrPreservedChangeMissing) {
 		t.Fatalf("Resume() error = %v, want the empty worktree refused", err)
 	}
@@ -1190,8 +1190,8 @@ func TestAnIntegrationStoppedRunIsNeitherReleasedNorRestartedAndItsResumePromote
 	queue := newScheduleHarness()
 	queue.now = audited
 	queue.finished = []runstate.State{stopped}
-	queue.items = []beads.WorkItem{claimedItem(tracker.Item.ID, tracker.Item.Title)}
-	queue.ready = map[string]bool{}
+	queue.Items = []beads.WorkItem{claimedItem(tracker.Item.ID, tracker.Item.Title)}
+	queue.ReadyItems = map[string]bool{}
 	queue.stoppages = haltedWork{runs: []runstate.State{stopped}}
 	queue.claims = ClaimAuditor{
 		Tracker: queue, Runs: queue, Releases: &claimLog{},
@@ -1340,7 +1340,7 @@ func TestResumeChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
 			t.Fatal(err)
 		}
 		resumer := harness.resumer()
-		resumer.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		resumer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
 		result, err := resumer.Resume(context.Background(), resumeRequest())
 		if (err == nil) != there || result.Resumed != there || (len(harness.started) > 0) != there {
 			t.Fatalf("Resume() = %#v, %v, want resumed %t", result, err, there)

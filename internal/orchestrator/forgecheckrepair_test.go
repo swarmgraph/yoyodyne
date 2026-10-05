@@ -61,7 +61,7 @@ func forgeCheckRepairCarryOut(t *testing.T, makeFixture func(*testing.T) (queued
 	fixture.docket = &memoryDocket{}
 	forge.reading = redOnTheChange()
 	reconciler := fixture.sweep(t, forge, false)
-	reconciler.JobLogs = &refusingJobLogs{tail: "feature.txt:3: line is longer than 100 characters"}
+	reconciler.JobLogs = &orchestratortest.JobLogs{Tail: "feature.txt:3: line is longer than 100 characters"}
 	if _, err := reconciler.Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestAnOlderForgeCheckHandbackNamesTheSupportedRepairAlternative(t *testing.
 	}
 	continuer := RepairContinuer{
 		Docket: fixture.docket, Runs: fixture.store, Intake: intake, Decisions: fixture.store.Triage(),
-		Items: fixture.tracker, Worktrees: &fakeOwnership{}, ConfiguredAttempts: 2, Capacity: 1,
+		Items: fixture.tracker, Worktrees: &orchestratortest.Ownership{}, ConfiguredAttempts: 2, Capacity: 1,
 		Start: func(context.Context, string, string) (Outcome, error) {
 			t.Fatal("an older record was continued without repair input")
 			return Outcome{}, nil
@@ -362,7 +362,7 @@ func TestADroppedMergeRecordsItsOwnForgeFailureEvenWhenItCannotBeReplayed(t *tes
 				}
 				continuer := RepairContinuer{
 					Docket: fixture.docket, Runs: fixture.store, Intake: intake, Decisions: fixture.store.Triage(),
-					Items: fixture.tracker, Worktrees: &fakeOwnership{}, ConfiguredAttempts: 2, Capacity: 1,
+					Items: fixture.tracker, Worktrees: &orchestratortest.Ownership{}, ConfiguredAttempts: 2, Capacity: 1,
 					Start: func(context.Context, string, string) (Outcome, error) {
 						t.Fatal("a missing change was continued")
 						return Outcome{}, nil
@@ -455,17 +455,17 @@ func TestAnUnreplayableDroppedMergeRecordsUnannotatedFailuresAttributedToItsChan
 					t.Fatal("the fixture attributed the failure by annotation paths")
 				}
 				reconciler := fixture.sweep(t, forge, false)
-				filer := &recordingFiler{}
+				filer := &orchestratortest.RecordingFiler{}
 				// Attribution also works where nothing is wired to file target work.
 				if missing {
 					reconciler.Filer = filer
 				}
-				main := &targetChecks{reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit}}
-				logs := &jobLogs{tail: pullRequest907Log}
+				main := &orchestratortest.TargetChecks{Reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit}}
+				logs := &orchestratortest.JobLogs{Tail: pullRequest907Log}
 				want := "the forge's account of build names internal/machinehome"
 				if targetPasses {
-					main.reading.Passing = []string{"build"}
-					logs.tail = "Process completed with exit code 2."
+					main.Reading.Passing = []string{"build"}
+					logs.Tail = "Process completed with exit code 2."
 					want = "build passes on main's own head"
 				}
 				reconciler.TargetChecks, reconciler.JobLogs = main, logs
@@ -474,8 +474,8 @@ func TestAnUnreplayableDroppedMergeRecordsUnannotatedFailuresAttributedToItsChan
 					t.Fatal(err)
 				}
 				assertHandedBackToTheChange(t, fixture, forge, fixture.tracker.(*orchestratortest.Tracker), filer, results, want)
-				if len(main.asked) != 1 || main.asked[0] != "main" {
-					t.Fatalf("target checks asked = %v; want one attribution reading", main.asked)
+				if len(main.Asked) != 1 || main.Asked[0] != "main" {
+					t.Fatalf("target checks asked = %v; want one attribution reading", main.Asked)
 				}
 				stopped := loadRun(t, fixture.store, original.RunID)
 				if stopped.CheckFailure == nil || stopped.CheckFailure.Command != "build" || stopped.CheckFailure.ForgeHeadCommit != original.PullRequest.HeadCommit {
@@ -512,7 +512,7 @@ func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t 
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			filer := &recordingFiler{}
+			filer := &orchestratortest.RecordingFiler{}
 			fixture, forge, _, reconciler, logs := redTargetSweep(t, filer)
 			prior := loadRun(t, fixture.store, pipelineRunID)
 			for range runstate.MaxIntegrationResumptions {
@@ -525,12 +525,12 @@ func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t 
 			}
 			forge.DropQueuedMerge()
 			forge.reading = pullRequest907Reading()
-			main := &targetChecks{reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit, Pending: []string{"build"}}}
+			main := &orchestratortest.TargetChecks{Reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit, Pending: []string{"build"}}}
 			if confirmed {
-				main.reading.Pending, main.reading.Failing = nil, []string{"build"}
+				main.Reading.Pending, main.Reading.Failing = nil, []string{"build"}
 				// The target's own failure takes precedence even if the log names
 				// a package this change also touches.
-				logs.tail = pullRequest907Log
+				logs.Tail = pullRequest907Log
 			}
 			reconciler.TargetChecks = main
 			results, err := reconciler.Reconcile(ctx)
@@ -541,8 +541,8 @@ func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t 
 			if stopped.CheckFailure != nil || stopped.Integration == nil || stopped.MergeDrop == nil || stopped.PullRequest.MergeQueued || stopped.PullRequest.TargetRed != nil {
 				t.Fatal("an unrelated failure lost its existing dropped-merge recovery")
 			}
-			if len(filer.filed) != 0 || len(main.asked) != 1 {
-				t.Fatalf("filed = %#v, target checks asked = %v; want attribution only, with no new target wait", filer.filed, main.asked)
+			if len(filer.Filed) != 0 || len(main.Asked) != 1 {
+				t.Fatalf("filed = %#v, target checks asked = %v; want attribution only, with no new target wait", filer.Filed, main.Asked)
 			}
 			if _, _, err := rearmablePublication(stopped); err != nil {
 				t.Fatalf("re-arm eligibility for an unrelated failure = %v", err)

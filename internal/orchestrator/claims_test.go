@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"sync"
 	"testing"
@@ -30,15 +31,10 @@ func (c fixedClock) Now() time.Time { return c.at }
 
 // claimHarness stands in for the tracker, the run store, and the release log.
 type claimHarness struct {
-	mu sync.Mutex
-	// released is every item this harness was asked to give back, with the note
-	// the audit wrote onto it.
-	released map[string]string
-	// order is the identifiers in the order they were released, so a test can say
-	// what a sweep of several did.
-	order []string
-	runs  []runstate.State
-	log   []runstate.ReleasedClaim
+	orchestratortest.ClaimTracker
+	mu   sync.Mutex
+	runs []runstate.State
+	log  []runstate.ReleasedClaim
 	// saved is every run record the audit ended, by run, which is the half of a
 	// release that actually frees the developer slot.
 	saved map[string]runstate.State
@@ -51,24 +47,25 @@ type claimHarness struct {
 	// parkOnAdopt replaces what a run's record says once its lease is taken, which
 	// is how a run that parked between the reading and the lease is driven.
 	parkOnAdopt map[string]runstate.State
-	// failRelease, failAppend, failRuns, failAdopt, and failSave stand in for a
-	// tracker that refuses, a log that cannot be written, and a run store that
-	// will not answer or will not be written.
-	failRelease error
-	failAppend  error
-	failRuns    error
-	failAdopt   error
-	failSave    error
+	// failAppend, failRuns, failAdopt, and failSave stand in for a log that
+	// cannot be written and a run store that will not answer or be written.
+	failAppend error
+	failRuns   error
+	failAdopt  error
+	failSave   error
 }
 
 func newClaimHarness(runs ...runstate.State) *claimHarness {
-	return &claimHarness{
-		released:    map[string]string{},
-		runs:        runs,
-		saved:       map[string]runstate.State{},
-		held:        map[string]bool{},
-		parkOnAdopt: map[string]runstate.State{},
+	harness := &claimHarness{
+		ClaimTracker: orchestratortest.ClaimTracker{Released: map[string]string{}},
+		runs:         runs,
+		saved:        map[string]runstate.State{},
+		held:         map[string]bool{},
+		parkOnAdopt:  map[string]runstate.State{},
 	}
+
+	harness.ClaimTracker.Mu = &harness.mu
+	return harness
 }
 
 // AdoptRun stands in for taking a run's lease. The nil lease is what a released
@@ -118,17 +115,6 @@ func (h *claimHarness) Save(state runstate.State) error {
 		}
 	}
 	return nil
-}
-
-func (h *claimHarness) Release(_ context.Context, id, reason string) (beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.failRelease != nil {
-		return beads.WorkItem{}, h.failRelease
-	}
-	h.released[id] = reason
-	h.order = append(h.order, id)
-	return beads.WorkItem{ID: id, Status: "open"}, nil
 }
 
 func (h *claimHarness) Recorded() ([]runstate.State, error) {
@@ -202,7 +188,7 @@ func TestADeadClaimIsGivenBackAndRecorded(t *testing.T) {
 	if len(sweep.Problems) != 0 {
 		t.Fatalf("problems = %v, want none", sweep.Problems)
 	}
-	note, gave := harness.released["yoyodyne-ifd.264"]
+	note, gave := harness.Released["yoyodyne-ifd.264"]
 	if !gave {
 		t.Fatal("the tracker was never asked to give the claim back")
 	}
@@ -402,7 +388,7 @@ func TestAClaimWhoseRunIsStillHeldIsLeftToTheProcessHoldingIt(t *testing.T) {
 	if len(sweep.Released) != 0 || len(sweep.Problems) != 0 {
 		t.Fatalf("sweep = %+v, want a held run left alone and nothing said", sweep)
 	}
-	if len(harness.released) != 0 || len(harness.saved) != 0 {
+	if len(harness.Released) != 0 || len(harness.saved) != 0 {
 		t.Fatal("a run a live process holds was written to or had its claim taken")
 	}
 }
@@ -426,7 +412,7 @@ func TestARunThatParkedUnderTheLeaseKeepsItsClaim(t *testing.T) {
 	if len(sweep.Released) != 0 || len(sweep.Problems) != 0 {
 		t.Fatalf("sweep = %+v, want the parked run left alone", sweep)
 	}
-	if len(harness.saved) != 0 || len(harness.released) != 0 {
+	if len(harness.saved) != 0 || len(harness.Released) != 0 {
 		t.Fatal("a run that parked under the lease was ended or had its claim taken")
 	}
 }
@@ -450,7 +436,7 @@ func TestARunThatCouldNotBeSettledLeavesTheClaimAloneAndIsNamed(t *testing.T) {
 	if len(sweep.Problems) != 1 || !strings.Contains(sweep.Problems[0], "nothing will pull the item") {
 		t.Fatalf("problems = %v, want the unsettled run named with what it costs", sweep.Problems)
 	}
-	if len(harness.released) != 0 {
+	if len(harness.Released) != 0 {
 		t.Fatal("the claim was given back over a run whose slot is still held")
 	}
 }
@@ -474,8 +460,8 @@ func TestAClaimIsGivenBackOnceEvenIfTheTrackerStillCallsItClaimed(t *testing.T) 
 	if len(sweep.Released) != 0 {
 		t.Fatalf("released = %+v, want the second audit to say nothing", sweep.Released)
 	}
-	if len(harness.order) != 1 {
-		t.Fatalf("the tracker was asked %d time(s), want the claim given back once", len(harness.order))
+	if len(harness.Order) != 1 {
+		t.Fatalf("the tracker was asked %d time(s), want the claim given back once", len(harness.Order))
 	}
 	if len(harness.log) != 1 {
 		t.Fatalf("the release log holds %d record(s), want one", len(harness.log))
@@ -519,7 +505,7 @@ func TestAClaimTheTrackerRefusesIsNamedAndDoesNotStopTheSweep(t *testing.T) {
 		deadRun("run-209-7", "yoyodyne-ifd.209.7"),
 		deadRun("run-264", "yoyodyne-ifd.264"),
 	)
-	harness.failRelease = errors.New("the tracker is locked")
+	harness.FailRelease = errors.New("the tracker is locked")
 	sweep, err := harness.auditor().Audit(context.Background(), []beads.WorkItem{
 		claimedItem("yoyodyne-ifd.209.7", "The first of the pair"),
 		claimedItem("yoyodyne-ifd.264", "The second of the pair"),
@@ -608,21 +594,6 @@ func (l *claimLog) List() ([]runstate.ReleasedClaim, error) {
 	return append([]runstate.ReleasedClaim(nil), l.records...), nil
 }
 
-// Release gives a claimed item back to the harness's queue, exactly as the
-// tracker does: the item is open, and pullable again.
-func (h *scheduleHarness) Release(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for index, item := range h.items {
-		if item.ID == id {
-			h.items[index].Status = "open"
-			h.ready[id] = true
-			return h.items[index], nil
-		}
-	}
-	return beads.WorkItem{}, fmt.Errorf("no such work item %s", id)
-}
-
 // Recorded is every run this harness holds, in flight or finished.
 func (h *scheduleHarness) Recorded() ([]runstate.State, error) {
 	h.mu.Lock()
@@ -678,7 +649,7 @@ func TestDeadRunsFillingTheMachineAreSettledAndTheirItemsPulledAgain(t *testing.
 	harness.now = auditMoment
 	harness.inFlight["yoyodyne-ifd.209.7"] = deadRun("run-209-7", "yoyodyne-ifd.209.7")
 	harness.inFlight["yoyodyne-ifd.264"] = deadRun("run-264", "yoyodyne-ifd.264")
-	harness.items = []beads.WorkItem{
+	harness.Items = []beads.WorkItem{
 		claimedItem("yoyodyne-ifd.209.7", "The first of the pair"),
 		claimedItem("yoyodyne-ifd.264", "The second of the pair"),
 	}
@@ -744,7 +715,7 @@ func TestAHeldIntakeStillAuditsTheClaims(t *testing.T) {
 	harness := newScheduleHarness()
 	harness.held = &runstate.IntakeHold{HeldAt: auditMoment.Add(-time.Hour), Reason: "runs kept blocking"}
 	harness.inFlight["yoyodyne-ifd.264"] = deadRun("run-264", "yoyodyne-ifd.264")
-	harness.items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while intake is held")}
+	harness.Items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while intake is held")}
 	log := &claimLog{}
 	harness.claims = ClaimAuditor{
 		Tracker:   harness,
@@ -784,9 +755,9 @@ func TestAProviderAnsweringNobodyStillAuditsTheClaims(t *testing.T) {
 	if _, err := outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderUnauthenticated, Waiting: "an earlier dispatch"}); err != nil {
 		t.Fatal(err)
 	}
-	harness.outages, harness.provider = outages, &loginProbe{}
+	harness.outages, harness.provider = outages, &orchestratortest.LoginProbe{}
 	harness.inFlight["yoyodyne-ifd.264"] = deadRun("run-264", "yoyodyne-ifd.264")
-	harness.items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while the provider is away")}
+	harness.Items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while the provider is away")}
 	log := &claimLog{}
 	harness.claims = ClaimAuditor{
 		Tracker:   harness,

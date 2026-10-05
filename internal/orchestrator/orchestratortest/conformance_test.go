@@ -1,6 +1,7 @@
 package orchestratortest_test
 
 import (
+	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 )
@@ -13,4 +14,8 @@ var (
 	_ orchestrator.PullRequests    = (*orchestratortest.Forge)(nil)
 	_ orchestrator.Pricer          = (*orchestratortest.Pricer)(nil)
 	_ orchestrator.WorktreeManager = orchestratortest.PartialWorktreeManager{}
+	_ chat.Backend                 = (*orchestratortest.ReplayBackend)(nil)
+	_ chat.Tracker                 = (*orchestratortest.ParkingTracker)(nil)
+	_ orchestrator.WorkTracker     = (*orchestratortest.PipelineTracker)(nil)
+	_ orchestrator.RearmForge      = (*orchestratortest.RearmForge)(nil)
 )

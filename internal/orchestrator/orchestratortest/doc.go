@@ -1,7 +1,7 @@
 // Package orchestratortest holds the orchestrator tests' fakes of other
 // packages' interfaces: the tracker, the provider backend, the forge, the
-// pricing ledger, and a worktree manager that never finished creating its
-// worktree.
+// pricing ledger, and worktree managers, including the specialized readings
+// and request records used by conversations, schedulers, and recovery.
 //
 // They live here rather than in the orchestrator's own test files so that a
 // test package outside orchestrator can use them too. An in-package test

@@ -903,17 +903,17 @@ func baselinePartialCleanup(t *testing.T) *baselineFixture {
 func baselineOutstandingPublication(t *testing.T) *baselineFixture {
 	fixture := newBaselineFixture(t, baselineItem())
 	remote := addBareRemote(t, fixture.repository)
-	provider := roleBackend(baselineImplements, approveVerdict)
+	provider := orchestratortest.RoleBackend(baselineImplements, approveVerdict)
 	// The forge takes the branch and the pull request and then cannot say what
 	// became of the merge, which is the publication left outstanding.
-	forge := &fakeForge{remote: remote, stateErr: errors.New("the forge is unreachable")}
+	forge := &orchestratortest.Forge{Remote: remote, StateErr: errors.New("the forge is unreachable")}
 	fixture.invoke(t, "run", publishing(fixture.automatic(t, provider, []string{"test -f feature.txt"}), forge))
 	return fixture
 }
 
 func baselineCompletionRecordedLate(t *testing.T) *baselineFixture {
 	fixture := newBaselineFixture(t, baselineItem())
-	provider := roleBackend(baselineImplements, approveVerdict)
+	provider := orchestratortest.RoleBackend(baselineImplements, approveVerdict)
 	// The terminal write and its retry are refused, and the late write after them
 	// lands, so what survives is the record that says it arrived late.
 	refusing := &briefOutageStore{StateStore: fixture.store, at: runstate.PhaseComplete, refusals: 2}
@@ -926,8 +926,8 @@ func baselineCompletionRecordedLate(t *testing.T) *baselineFixture {
 
 func baselineEnvironmentRefusedProbe(t *testing.T) *baselineFixture {
 	fixture := newBaselineFixture(t, baselineItem())
-	provider := roleBackend(baselineImplements, approveVerdict)
-	provider.developerFinalText = "I cannot run anything in this worktree.\n\n" +
+	provider := orchestratortest.RoleBackend(baselineImplements, approveVerdict)
+	provider.DeveloperFinalText = "I cannot run anything in this worktree.\n\n" +
 		verificationBlock(`{"probe":{"command":"make build","outcome":"refused","detail":"could not start /bin/sh: operation not permitted"}}`)
 	fixture.invoke(t, "run", fixture.automatic(t, provider, []string{"test -f feature.txt"}))
 	return fixture

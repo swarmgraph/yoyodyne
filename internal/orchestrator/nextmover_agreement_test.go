@@ -20,6 +20,7 @@ package orchestrator
 
 import (
 	"context"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 
@@ -195,14 +196,6 @@ func TestAnApprovedChangeTheEnvironmentStoppedNamesTheHarnessOnBothSurfaces(t *t
 	}
 }
 
-// looked is a repository that answers for the one stopped run: whether its
-// branch and its checkout are there.
-type looked struct{ survival gitworktree.Survival }
-
-func (l *looked) Survives(context.Context, gitworktree.Worktree) (gitworktree.Survival, error) {
-	return l.survival, nil
-}
-
 // The same stop once its branch is gone. The resume restores the checkout from
 // the branch and promotes the reviewed commit on it, so with the branch deleted
 // it refuses, and neither reader may send anybody to it: the docket names what
@@ -272,7 +265,7 @@ func TestAnApprovedChangeWhoseBranchIsGoneIsNeverSentToTheResume(t *testing.T) {
 			// Docketed as the run ends, with the branch and the checkout both there,
 			// which is the only way a death reaches the docket at all; then the branch
 			// is deleted, and the docket built for the development manager looks again.
-			repository := &looked{survival: gitworktree.Survival{BranchExists: true, WorktreePresent: true}}
+			repository := &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: true, WorktreePresent: true}}
 
 			docket := &memoryDocket{}
 			docketer := docketerDeciding([]runstate.State{stopped}, docket, recorded, recorded)
@@ -286,7 +279,7 @@ func TestAnApprovedChangeWhoseBranchIsGoneIsNeverSentToTheResume(t *testing.T) {
 			if before := docket.entries[0].Render(); !strings.Contains(before, "yoyo triage resume") {
 				t.Fatalf("with its branch there the entry does not name the resume:\n%s", before)
 			}
-			repository.survival = test.survival
+			repository.Survival = test.survival
 
 			built, err := docketer.Build()
 			if err != nil {

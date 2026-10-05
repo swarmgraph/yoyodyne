@@ -74,7 +74,7 @@ func TestAutomaticCheckContinuationKeepsArtifactsBeyondTheTailWhileDelayed(t *te
 					t.Fatal(err)
 				}
 			}
-			w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true}
+			w := &recoveryCheckout{Ownership: h.ownership, branch: true, present: true}
 			c := checkStageRecoveryContinuer(h, w)
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
 			if err != nil || result.Continued || (gate == "intake" && result.IntakeHeld == nil) || (gate == "capacity" && result.CapacityFull == nil) {
@@ -184,7 +184,7 @@ func TestAutomaticCheckContinuationRestoresTheRecordedCrossRoleRunAcrossRestart(
 			if err != nil {
 				t.Fatal(err)
 			}
-			w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
+			w := &recoveryCheckout{Ownership: h.ownership, branch: true}
 			w.beforeRestore = func() {
 				durable := loadRecoveryRun(t, h.runs, s.RunID)
 				if durable.ChecksPassed != nil || !durable.CheckoutRestorePending || !durable.Status.Terminal() || !reflect.DeepEqual(durable.CheckStageContinuations, s.CheckStageContinuations) {
@@ -226,7 +226,7 @@ func TestAutomaticCheckRestorationRestartVerifiesTheCompletedCheckout(t *testing
 			s.WorktreeRemoved, s.CheckoutRestorePending = true, true
 			s.WorktreeSweptAt = &s.UpdatedAt
 			h := newUndecidedHarness(t, s)
-			w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true, dirty: dirty}
+			w := &recoveryCheckout{Ownership: h.ownership, branch: true, present: true, dirty: dirty}
 			c := checkStageRecoveryContinuer(h, w)
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
 			after := loadRecoveryRun(t, h.runs, s.RunID)
@@ -272,7 +272,7 @@ func TestAutomaticCheckRestorationRefusesUnrecoverableStateWithoutSpending(t *te
 			w := &recoveryCheckout{branch: true}
 			tc.change(&s, w)
 			h := newUndecidedHarness(t, s)
-			w.fakeOwnership = h.ownership
+			w.Ownership = h.ownership
 			c := checkStageRecoveryContinuer(h, w)
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
 			after := loadRecoveryRun(t, h.runs, s.RunID)

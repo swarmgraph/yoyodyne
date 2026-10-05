@@ -257,7 +257,7 @@ func TestTheSchedulersDispatchIsRefusedWhereARepairIsOwed(t *testing.T) {
 	// Somebody puts the item back, which is what makes the scheduler pull it: an
 	// item the tracker calls ready is one the backlog offers, and nothing about
 	// the stoppage is visible in that offer.
-	if _, err := harness.setStatus("yoyodyne-alpha", "open"); err != nil {
+	if _, err := harness.SetStatus("yoyodyne-alpha", "open"); err != nil {
 		t.Fatalf("setStatus() error = %v", err)
 	}
 	harness.develop = func(workItemID, worktree string) error {

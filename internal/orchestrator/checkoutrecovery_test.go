@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"reflect"
 	"strings"
 	"testing"
@@ -13,7 +14,7 @@ import (
 )
 
 type recoveryCheckout struct {
-	*fakeOwnership
+	*orchestratortest.Ownership
 	present       bool
 	branch        bool
 	restores      int
@@ -105,7 +106,7 @@ func TestRepairRestoresTheRecordedRunWithoutResettingItsSpend(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
+	w := &recoveryCheckout{Ownership: h.ownership, branch: true}
 	w.beforeRestore = func() {
 		stopped := h.reload(t)
 		if stopped.ChecksPassed != nil || !stopped.Status.Terminal() || stopped.RepairAttempts != s.RepairAttempts {
@@ -158,7 +159,7 @@ func TestRepairRestorationRefusesWithoutSpendingTheContinuation(t *testing.T) {
 			w := &recoveryCheckout{branch: true}
 			tc.change(&s, w)
 			h := newContinueHarness(t, s)
-			w.fakeOwnership = h.ownership
+			w.Ownership = h.ownership
 			c := h.continuer()
 			c.Worktrees, c.Remains = w, w
 			result, err := c.Continue(context.Background(), continueRequest())
@@ -181,7 +182,7 @@ func TestRepairRestartAfterCheckoutRestorationUsesTheSameDecisionOnce(t *testing
 	s := missingRecoveryState()
 	s.CheckoutRestorePending = true
 	h := newContinueHarness(t, s)
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true}
+	w := &recoveryCheckout{Ownership: h.ownership, branch: true, present: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
 	result, err := c.Continue(context.Background(), continueRequest())
@@ -206,7 +207,7 @@ func TestRepairRestartRefusesAPartlyRestoredCheckout(t *testing.T) {
 	s := missingRecoveryState()
 	s.CheckoutRestorePending = true
 	h := newContinueHarness(t, s)
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true, dirty: true}
+	w := &recoveryCheckout{Ownership: h.ownership, branch: true, present: true, dirty: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
 	if _, err := c.Continue(context.Background(), continueRequest()); err == nil || !strings.Contains(err.Error(), "unfinished") {
@@ -227,7 +228,7 @@ func TestMissingCheckoutRecoveryWaitsForIntakeAndKeepsCheckStageSpend(t *testing
 	s.ReviewFindings, s.ReviewDecision, s.ReviewSummary = 0, "", ""
 	s.CheckStage = &runstate.CheckStage{StartedAt: s.StartedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true, ElapsedSeconds: 1800}
 	h := newContinueHarness(t, s)
-	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
+	w := &recoveryCheckout{Ownership: h.ownership, branch: true}
 	c := h.continuer()
 	c.Worktrees, c.Remains = w, w
 	if _, err := h.intake.Hold(runstate.IntakeHolderOperator, "wait", docketedNow); err != nil {
