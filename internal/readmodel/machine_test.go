@@ -293,3 +293,29 @@ func TestRecordedWatchStopAndOpeningStillGiveExactDowntime(t *testing.T) {
 		t.Fatalf("recorded stop/opening did not explain the gap: %+v", cause)
 	}
 }
+
+func TestConcurrentPassDoesNotExplainAMissedPass(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	availability := ReadWatchAvailability(Sources{
+		Sessions: fakeSessions{transitions: []runstate.WatchTransition{{At: start, RecurringPass: &runstate.WatchPass{Task: "other-pass", At: start, Concurrent: true}}}},
+		Sweeps:   fakeSweeps{recorded: []runstate.Sweep{{Task: "other-pass", StartedAt: start, EndedAt: end}}},
+		Now:      func() time.Time { return end },
+	})
+	cause := availability.Cause(start, end, "owed-pass")
+	if cause.Waiting || cause.WaitingFor != 0 || strings.Contains(cause.Why, "waiting") {
+		t.Fatalf("cause: %+v", cause)
+	}
+}
+func TestWaitingDurationCountsOverlappingPassesOnce(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	availability := WatchAvailability{passes: []watchGap{
+		{from: start.Add(-time.Hour), to: start.Add(20 * time.Minute), task: "a", known: true},
+		{from: start.Add(10 * time.Minute), to: start.Add(40 * time.Minute), task: "b", known: true},
+	}}
+	if got := availability.waitingFor(start, start.Add(30*time.Minute), "owed"); got != 30*time.Minute {
+		t.Fatalf("wait: %s", got)
+	}
+}

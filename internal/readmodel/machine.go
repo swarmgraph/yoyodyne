@@ -16,8 +16,9 @@ type MachineHistory interface {
 // GapCause is the observed account of one interval, including whether the
 // harness's own serial pass held it. Empty Why means the cause is unknown.
 type GapCause struct {
-	Why     string
-	Waiting bool
+	Why        string
+	Waiting    bool
+	WaitingFor time.Duration
 	// Problem describes incomplete evidence, never an established cause.
 	Problem string
 	// Checked means durable history was consulted. A caller must not then
@@ -199,7 +200,7 @@ func ReadWatchAvailability(sources Sources) WatchAvailability {
 			}
 		}
 		for _, transition := range transitions {
-			if pass := transition.RecurringPass; pass != nil {
+			if pass := transition.RecurringPass; pass != nil && !pass.Concurrent {
 				end, known := endings[passMoment{pass.Task, pass.At.UnixNano()}]
 				if !known {
 					end = now
@@ -321,7 +322,7 @@ func (a WatchAvailability) Cause(from, to time.Time, task string) GapCause {
 			problem = joinProblems(problem, fmt.Sprintf("the session last recorded taking the recurring pass of %s at %s; its ending is unrecorded, so whether it held this pass is uncertain", gap.task, localMoment(gap.from)))
 		}
 	}
-	return GapCause{Why: a.Explain(from, to, task), Waiting: task != "" && a.WaitingBehindPass(from, to, task), Problem: problem, Checked: true}
+	return GapCause{Why: a.Explain(from, to, task), Waiting: task != "" && a.WaitingBehindPass(from, to, task), WaitingFor: a.waitingFor(from, to, task), Problem: problem, Checked: true}
 }
 
 func unobservedPresence(gap watchGap) string {
@@ -344,4 +345,35 @@ func (a WatchAvailability) WaitingBehindPass(from, to time.Time, task string) bo
 
 func overlaps(gap watchGap, from, to time.Time) bool {
 	return gap.from.Before(to) && gap.to.After(from)
+}
+
+// waitingFor counts the union of established waits, clipped to the missed gap.
+func (a WatchAvailability) waitingFor(from, to time.Time, task string) time.Duration {
+	var gaps []watchGap
+	for _, gap := range a.passes {
+		if task == "" || !gap.known || gap.task == task || !overlaps(gap, from, to) {
+			continue
+		}
+		if gap.from.Before(from) {
+			gap.from = from
+		}
+		if gap.to.After(to) {
+			gap.to = to
+		}
+		gaps = append(gaps, gap)
+	}
+	sort.Slice(gaps, func(i, j int) bool { return gaps[i].from.Before(gaps[j].from) })
+	var total time.Duration
+	end := from
+	for _, gap := range gaps {
+		start := gap.from
+		if start.Before(end) {
+			start = end
+		}
+		if gap.to.After(start) {
+			total += gap.to.Sub(start)
+			end = gap.to
+		}
+	}
+	return total
 }

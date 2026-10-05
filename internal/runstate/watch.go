@@ -446,10 +446,12 @@ func (t WatchTransition) Note() bool {
 // program manager instance, the role it wakes, what triggered it, and when it
 // began.
 type WatchPass struct {
-	Task    string           `json:"task"`
-	Role    domain.AgentRole `json:"role,omitempty"`
-	Trigger PassTrigger      `json:"trigger,omitempty"`
-	At      time.Time        `json:"at"`
+	// Concurrent means other conversations can start beside this pass.
+	Concurrent bool             `json:"concurrent,omitempty"`
+	Task       string           `json:"task"`
+	Role       domain.AgentRole `json:"role,omitempty"`
+	Trigger    PassTrigger      `json:"trigger,omitempty"`
+	At         time.Time        `json:"at"`
 }
 
 // Says is the pass in the words the watch log's reason carries.
@@ -457,6 +459,9 @@ func (p WatchPass) Says() string {
 	said := fmt.Sprintf("taking the recurring pass of %s since %s", p.Task, p.At.UTC().Format(time.RFC3339))
 	if p.Trigger != "" {
 		said += fmt.Sprintf(", fired by its %s", p.Trigger)
+	}
+	if p.Concurrent {
+		return said + "; the session keeps polling while this pass runs; other conversations can take their passes alongside it"
 	}
 	return said + "; the session fires its passes inside its poll, so it pulls nothing more until this pass ends"
 }

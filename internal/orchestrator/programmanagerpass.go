@@ -7,7 +7,7 @@ package orchestrator
 // and it is built on the recurring-task machinery rather than beside it, so
 // every rule that file states holds here unchanged: the operator's pause stops
 // a pass and the intake hold does not, the claim is taken before the first turn
-// is asked, at most one firing is made per pull, a provider answering nobody is
+// is asked, at most one firing per conversation is made per pull, a provider answering nobody is
 // recorded as the wait rather than as a turn that failed, and every pass ends in
 // the same durable record `yoyo sweeps` reads. What is added is three things.
 //

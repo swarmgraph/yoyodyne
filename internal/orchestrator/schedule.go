@@ -159,6 +159,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
@@ -1359,6 +1360,28 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// cadence is what this pass knows about why a recurring task might not have
 	// fired when it fell due; see recurringWatch.
 	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}}
+	// Recurring passes return their accounts to the watch's goroutine. They
+	// never mutate the schedule, and are all collected before the watch ends.
+	type recurringCompletion struct {
+		schedule Schedule
+		held     recurringHold
+		finished bool
+	}
+	recurringDone := make(chan recurringCompletion)
+	recurringRunning := 0
+	recurringContext := context.WithValue(ctx, recurringFlightsKey{}, &recurringFlights{busy: map[string]bool{}})
+	collectRecurring := func(done recurringCompletion) {
+		if done.finished {
+			recurringRunning--
+		}
+		schedule.SpentUSD += done.schedule.SpentUSD
+		schedule.Fired = append(schedule.Fired, done.schedule.Fired...)
+		if done.schedule.RecurringProblem != "" || len(done.schedule.Fired) > 0 {
+			schedule.RecurringProblem = done.schedule.RecurringProblem
+		}
+		cadence.hold(done.held)
+	}
+
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
 	// reading: nothing is ever removed, because a run that ends without moving the
@@ -1945,6 +1968,15 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	session.enter(runstate.WatchWatching, account{reason: s.opening()})
 pulling:
 	for {
+		for {
+			select {
+			case done := <-recurringDone:
+				collectRecurring(done)
+			default:
+				goto accountsCollected
+			}
+		}
+	accountsCollected:
 		// A pull that read everything it needed clears the failures behind it. What
 		// the window measures is a store that has gone on being unreadable, rather
 		// than a count of the contended readings one session met over a long life.
@@ -2083,17 +2115,52 @@ pulling:
 		// held or braked queue is usually waiting on. What it delivers is bounded to
 		// one stoppage per pass; see Escalator.
 		s.escalate(ctx, &schedule, pull)
-		// The schedule is fired here for the same reasons, and it is placed after
-		// the escalation deliberately: both spend a turn and both are bounded to one
-		// per pass, and a pass that did both did as much waking as it is going to.
+		// The schedule is fired after escalation. A watch collects its recurring
+		// results on this goroutine and starts due conversations without waiting
+		// for a different conversation's turns to finish.
 		// Stopped work goes first because it is a specific thing that has already
 		// gone wrong and is waiting on a judgment, where a recurring pass is the
 		// standing look that runs whether or not anything happened.
 		//
 		// A task that went a whole interval unfired is recorded as missed first,
 		// with what kept it, before the firing that resumes it; see missed.
+		// Only the built-in trigger uses the watch's conversation reservations.
+		// An adapter may embed Trigger while replacing Fire; that does not opt its
+		// replacement into background execution.
+		_, triggerValue := pull.Recurring.(Trigger)
+		_, triggerPointer := pull.Recurring.(*Trigger)
+		concurrent := s.Watching && (triggerValue || triggerPointer)
+		if concurrent {
+			for {
+				select {
+				case done := <-recurringDone:
+					collectRecurring(done)
+				default:
+					goto recurringCollected
+				}
+			}
+		}
+	recurringCollected:
+		if s.Budget > 0 && schedule.SpentUSD >= s.Budget {
+			schedule.Stopped = ScheduleBudgetSpent
+			break
+		}
 		s.missed(ctx, &schedule, pull, &cadence)
-		cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
+		if concurrent {
+			recurringRunning++
+			firingContext := session.passing(context.WithValue(recurringContext, recurringAccountKey{}, func(task Fired) {
+				account := Schedule{}
+				held := s.recordRecurring(&account, RecurringSweep{Fired: []Fired{task}}, nil)
+				recurringDone <- recurringCompletion{schedule: account, held: held}
+			}))
+			go func() {
+				account := Schedule{}
+				held := s.fire(firingContext, &account, pull)
+				recurringDone <- recurringCompletion{schedule: account, held: held, finished: true}
+			}()
+		} else {
+			cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
+		}
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to
 		// be late with: the refusal is already in that conversation's next turn
@@ -3053,6 +3120,9 @@ pulling:
 		running--
 		settle(done)
 	}
+	for recurringRunning > 0 {
+		collectRecurring(<-recurringDone)
+	}
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
 	// restarted into the build deployed over it is waiting on nothing and nobody,
@@ -4003,25 +4073,19 @@ func (s Scheduler) escalate(ctx context.Context, schedule *Schedule, pull Pull) 
 	}
 }
 
-// fire wakes whichever recurring task is due, and records what came back on the
-// schedule.
-//
-// Nothing here stops the pass, for the reason the escalation beside it does not:
-// a firing that failed costs the pass nothing it was doing, so it is reported
-// beside the pull rather than in place of it. What it costs is the pull's own
-// thread while the turns are taken, bounded by the task's turn bound and by one
-// firing per pass — the same trade the delivery above was placed for, and made
-// once for both.
-//
-// What it returns is what this pass's firing says would keep a due task from
-// firing — the schedule failing, the operator's pause, or another task taking
-// the pass's one firing — and empty where nothing did. It is what a missed
-// cadence found at a later pass is attributed to.
+// fire runs due conversations and records their combined cost and results.
+// A failed firing is reported beside the pull rather than stopping it. A
+// successful pass in another conversation is not evidence that a due pass
+// was held; only an observed refusal or pause explains such a hold.
 func (s Scheduler) fire(ctx context.Context, schedule *Schedule, pull Pull) recurringHold {
 	if pull.Recurring == nil {
 		return recurringHold{}
 	}
 	sweep, err := pull.Recurring.Fire(ctx)
+	return s.recordRecurring(schedule, sweep, err)
+}
+
+func (s Scheduler) recordRecurring(schedule *Schedule, sweep RecurringSweep, err error) recurringHold {
 	var problems []string
 	held := recurringHold{at: s.now()}
 	if err != nil {
@@ -4046,8 +4110,7 @@ func (s Scheduler) fire(ctx context.Context, schedule *Schedule, pull Pull) recu
 			held.why = strings.TrimSpace(task.Problem)
 			held.refused = true
 		default:
-			held.why = fmt.Sprintf("the pass took its one firing for the recurring task %s", task.Task)
-			held.fired = task.Task
+			// Successful conversations do not hold other roles' passes.
 		}
 		// What the firing cost is the session's spend, exactly as a delivery's is
 		// and for the same reason: the provider charged for the turns either way,
@@ -4172,12 +4235,10 @@ func (s Scheduler) nextFiring(ctx context.Context, pull Pull) (time.Duration, bo
 // missed records every task that has gone a whole interval past the time it
 // fell due without firing, once per gap, with what kept it.
 //
-// A whole interval is the threshold because anything shorter is the ordinary
-// shape of a cadence: a pass fires one task, so a second task due alongside it
-// waits for the next pass, and a firing's turns hold the pass for as long as
-// they take. A task that has gone a whole interval unfired is a firing that
-// should have happened and did not, which is the thing the operator's own
-// maintenance job found on 2026-09-14 and the harness never said.
+// A whole interval is the threshold because ordinary polling can take a due
+// task a little past its cadence. Different conversations can run together;
+// established waits from older serial sessions are counted separately from
+// time a pass could have run.
 //
 // What kept it comes from OS sleep history, scheduler presence and the other
 // passes recorded during the gap, alongside current holds this session found.
@@ -4230,13 +4291,13 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 				miss.Why += "; " + observed.Why
 			}
 			if observed.Waiting && !watch.held.quiet {
-				miss.Severity = report.SeverityCritical
+				miss.Severity = waitingSeverity(observed, due, now)
 			}
 		case observed.Why != "":
 			miss.Why = observed.Why
 			miss.Severity = report.SeverityWarning
 			if observed.Waiting {
-				miss.Severity = report.SeverityCritical
+				miss.Severity = waitingSeverity(observed, due, now)
 			}
 		case observed.Checked:
 			miss.Why = "the watch session did not reach its schedule while the task was due; no machine sleep, harness downtime or wait behind another pass was established for this gap"
@@ -5421,6 +5482,7 @@ func readoptionReason(state runstate.State) string {
 }
 
 type watchSession struct {
+	recordMu sync.Mutex
 	to       WatchSessions
 	now      func() time.Time
 	schedule *Schedule
@@ -5688,6 +5750,8 @@ func (w *watchSession) passing(ctx context.Context) context.Context {
 // can see, which is worth saying out loud and is not worth stopping the work
 // for.
 func (w *watchSession) record(transition SessionState) {
+	w.recordMu.Lock()
+	defer w.recordMu.Unlock()
 	transition.At = w.now()
 	if err := w.to.Record(transition); err != nil && w.schedule.SessionProblem == "" {
 		w.schedule.SessionProblem = fmt.Sprintf("the session could not record that it was %s, so what it is doing is not readable from anywhere but here: %v", transition.State, err)
@@ -6326,4 +6390,11 @@ func (s Schedule) Failed() bool {
 		}
 	}
 	return false
+}
+
+func waitingSeverity(observed readmodel.GapCause, due RecurringDue, now time.Time) report.Severity {
+	if observed.WaitingFor > due.Every || now.Sub(due.At)-observed.WaitingFor >= due.Every {
+		return report.SeverityCritical
+	}
+	return report.SeverityWarning
 }

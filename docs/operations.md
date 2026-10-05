@@ -1999,26 +1999,22 @@ kept awake — on power, with system sleep disabled; on a Mac laptop whose lid i
 closed that takes `sudo pmset -a disablesleep 1`, which `caffeinate` does not
 do — and nothing the harness does replaces that.
 
-**The watch log says which pass the session is in.** A watching session fires
-its recurring passes inside its poll, one at a time, so while a pass runs the
-session pulls nothing. Until yoyodyne-ifd.433.20 it also wrote nothing: the log
-went from its last line before that pass to 09:48 PDT the next morning with not
-a word. Now each pass the session begins is a line in `watch.jsonl` as it starts:
+**The watch log says which passes the session is taking.** A watching session
+keeps polling while recurring passes run. Different conversations take their
+passes alongside one another; each conversation still takes only one turn at a
+time. Each pass begins with a line in `watch.jsonl`:
 
 ```text
-taking the recurring pass of development-manager-sweep since 2026-09-30T04:52:08Z, fired by its schedule; the session fires its passes inside its poll, so it pulls nothing more until this pass ends
+taking the recurring pass of development-manager-sweep since 2026-09-30T04:52:08Z, fired by its schedule; the session keeps polling while this pass runs; other conversations can take their passes alongside it
 ```
 
-carried as `recurring_pass` — the task or instance, its role, what fired it,
-and when it began. It is a note about what the session is doing inside its
-poll rather than a change of the session's state, like a dispatch's wait: the
-session line on `yoyo status` and the stall reading still name the session's
-own last word, so a session idle over an empty queue that begins a pass is not
-read as one choosing work. The session's next line after the pass is the
-account of the poll that pass was part of. A pass that holds the poll for hours
-is therefore said as the pass, with its start, rather than left as silence; the
-pass still holds the poll, and running passes beside the poll rather than
-inside it is not done here.
+The `recurring_pass` record names the task or instance, its role, what fired it,
+when it began, and whether it runs alongside polling. It is a note about a pass,
+rather than a change of the session's state. Each completed conversation's cost
+is collected before the next budget check, without waiting for other passes.
+The session waits for all its started passes to return before it ends.
+Older records without the concurrent flag describe the earlier behavior, when
+one pass held the poll and other roles waited behind it.
 
 ## When a provider stalls or runs out of budget
 
