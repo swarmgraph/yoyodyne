@@ -352,9 +352,11 @@ agents:
       path: personas/architect.md
   developer:
     role: developer
-    backend: codex
-    model: gpt-6.1-sol
-    effort: high
+    # Opus, from Codex Sol, at the operator's direction of 2026-10-05: the
+    # Codex weekly window was at 95% with no developer fallback built yet.
+    backend: claude-code
+    model: opus
+    effort: medium
     # One instance per configured developer slot.
     instances: 4
     persona:
@@ -416,9 +418,10 @@ agents:
       path: personas/product-manager.md
   reviewer:
     role: reviewer
-    backend: codex
-    model: gpt-6.1-sol
-    effort: high
+    # Opus, from Codex Sol, at the operator's direction of 2026-10-05.
+    backend: claude-code
+    model: opus
+    effort: medium
     # Raised 1->2 alongside max_concurrent_developers: 3 so reviews don't
     # queue behind one instance when the slots fill (operator, 2026-09-04).
     instances: 2
