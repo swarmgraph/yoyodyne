@@ -318,12 +318,43 @@ func TestAStaleConfigurationRecordDoesNotHideOtherParts(t *testing.T) {
 	if err == nil {
 		t.Fatal("missing stale record diagnostic")
 	}
-	for _, want := range []string{"stale configuration reader record", legacy, stale.ConfigPath, "remains stale even after a different process starts", "other parts were still checked"} {
+	for _, want := range []string{"stale configuration reader record", legacy, stale.ConfigPath, "removed this stale record automatically", "other parts were still checked"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("%v does not name %q", err, want)
 		}
 	}
 	if len(mismatches) != 1 || mismatches[0].Service != "dashboard" {
 		t.Fatalf("other parts not checked: %+v", mismatches)
+	}
+}
+
+func TestStaleConfigurationCleanupPreservesAChangedRecord(t *testing.T) {
+	store, err := NewConfigReaderStore(t.TempDir(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	old := ConfigReader{Service: ConfigReaderSupervisor, PID: 101, ConfigPath: filepath.Join(store.stateRoot, "gone.yaml"), StartedAt: time.Now(), Keys: []string{"version"}}
+	if err := store.Record(old); err != nil {
+		t.Fatal(err)
+	}
+	readers, err := store.Running()
+	if err != nil || len(readers) != 1 {
+		t.Fatalf("readers: %+v, %v", readers, err)
+	}
+	current := old
+	current.ConfigPath = filepath.Join(store.stateRoot, "current.yaml")
+	if err := os.WriteFile(current.ConfigPath, []byte("version: 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(current); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.removeStale(readers[0]); err == nil || !strings.Contains(err.Error(), "record changed") {
+		t.Fatalf("cleanup did not protect new startup: %v", err)
+	}
+	readers, err = store.Running()
+	if err != nil || len(readers) != 1 || readers[0].ConfigPath != current.ConfigPath {
+		t.Fatalf("current startup lost: %+v, %v", readers, err)
 	}
 }

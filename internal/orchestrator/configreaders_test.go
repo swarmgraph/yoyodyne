@@ -571,7 +571,7 @@ func TestALandingSeparatesAStaleLegacySupervisorFromRunningParts(t *testing.T) {
 	if len(sections) != 2 || !strings.HasPrefix(sections[0], "Running parts that cannot read") || !strings.Contains(sections[0], "the dashboard service") || strings.Contains(sections[0], "stale configuration reader record") || strings.Contains(sections[0], "the supervisor service") {
 		t.Fatalf("stale record presented as a running failure: %s", notes)
 	}
-	for _, want := range []string{"Configuration reader records and comparison problems:", "stale configuration reader record", "supervisor.json", stale.ConfigPath, "remains stale even after a different process starts", "other parts were still checked"} {
+	for _, want := range []string{"Configuration reader records and comparison problems:", "stale configuration reader record", "supervisor.json", stale.ConfigPath, "removed this stale record automatically", "other parts were still checked"} {
 		if !strings.Contains(sections[1], want) {
 			t.Errorf("stale record explanation lacks %q: %s", want, notes)
 		}
@@ -579,7 +579,10 @@ func TestALandingSeparatesAStaleLegacySupervisorFromRunningParts(t *testing.T) {
 	if strings.Contains(notes, "next supervisor start") {
 		t.Fatal("promises a restart will repair the old record")
 	}
-	if _, err := os.Stat(legacy); err != nil {
-		t.Fatalf("comparison unexpectedly modified live evidence: %v", err)
+	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale record was not removed: %v", err)
+	}
+	if again, err := store.MismatchesIn(os.ReadFile); err != nil || len(again) != 1 {
+		t.Fatalf("corrected comparison = %+v, %v", again, err)
 	}
 }
