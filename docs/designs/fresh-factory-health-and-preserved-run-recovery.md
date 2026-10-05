@@ -56,7 +56,7 @@ Recover the same run, branch, worktree, provider session and counters. Preserve 
 
 A recovery actor takes the existing run lease and strictly reloads its record. It then reads current dependencies, operator holds, directives and applicable gates before invoking a provider or advancing delivery. A pre-adoption refusal is not a durable dependency wait.
 
-If unfinished dependencies prevent continuation, record the dependency wait under the run lease without advancing the interrupted phase. Only a successfully established durable wait releases capacity. The duplicate-run reservation remains in force. When dependencies clear, reacquire capacity and clear the wait under the same reservation lock used by fresh reservations, while retaining the run lease. A capacity refusal leaves the durable wait and interrupted phase intact.
+If unfinished dependencies prevent continuation, record the dependency wait under the run lease without advancing the interrupted phase. Only a successfully established durable wait releases capacity. The duplicate-run reservation stays active. When dependencies clear, reacquire capacity and clear the wait under the same reservation lock used by fresh reservations, while retaining the run lease. A capacity refusal leaves the durable wait and interrupted phase intact.
 
 A redeploy stop describes why execution ended; it is not by itself a perpetual audit exemption or proof of a legitimate wait. The shared classification must lead to continuation, a durable wait, completion of already integrated work, or an accountable unresolved hold. Claim auditing must not cancel useful preserved work merely to free capacity.
 
