@@ -40,6 +40,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -209,13 +210,17 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		return outcome, invariantErr
 	}
 	outcome.Invariants = invariants.IDs()
+	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.Specifications, reviewedRevision(ctx, b.Worktrees, change.BaseCommit))
+	if err != nil {
+		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
+	}
 
 	account := b.account()
 	result, reviewErr := b.Reviewer.Review(ctx, review.Request{
 		RunID:      reviewID,
 		Scope:      review.ScopeBranch,
 		Branch:     branchScope(change),
-		Context:    branchContext(change),
+		Context:    branchContext(change) + intent,
 		Invariants: invariants.Text(),
 		// The repository holds the named commits; its current checkout need not
 		// be the reviewed branch. The review contract distinguishes the two.

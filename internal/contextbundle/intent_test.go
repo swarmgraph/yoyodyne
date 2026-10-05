@@ -125,6 +125,39 @@ func TestTheSpecificationHomeIsReadAtTheReviewedRevision(t *testing.T) {
 	}
 }
 
+func TestTheStandingSetAndItsGoalStatementsReachReviewAtTheBase(t *testing.T) {
+	root := intentFixture(t)
+	const goals = "# V1 goals\n\n## Goals\n\n- Make the surfaces read clearly.\n- Run development autonomously.\n- Trace changes to intent.\n\n## Standing goals\n\nThe first two goals apply to every change, whichever goal the item serves.\n"
+	revision := &Revision{
+		Name: "base commit abc123",
+		Read: func(path string, _ int64) (int64, []byte, error) {
+			if path != "docs/product/goals/v1-goals.md" {
+				return 0, nil, ErrNotAtRevision
+			}
+			return int64(len(goals)), []byte(goals), nil
+		},
+	}
+	item := beads.WorkItem{ID: "yoyodyne-1", Title: "Record attribution", Status: "in_progress", Notes: "Goal served: Trace changes to intent."}
+	bundle, err := Assemble(Request{RepositoryRoot: root, WorkItem: item, Specifications: "docs/product", Revision: revision})
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := AssembleIntent(root, "docs/product", revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for scope, text := range map[string]string{"work item": bundle.Text, "branch": branch} {
+		for _, want := range []string{goals, "base commit abc123", IntentHeading} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s context is missing %q", scope, want)
+			}
+		}
+		if strings.Contains(text, "[one] One goal.") {
+			t.Errorf("%s context read goals from the checkout rather than the base", scope)
+		}
+	}
+}
+
 // A home too large for its share is named rather than silently cut short.
 func TestASpecificationHomeTooLargeForItsShareNamesWhatItLeftOut(t *testing.T) {
 	root := intentFixture(t)

@@ -7637,16 +7637,7 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 	if baseCommit == "" {
 		return a.context, nil
 	}
-	revision := &contextbundle.Revision{
-		Name: "base commit " + baseCommit,
-		Read: func(path string, maxBytes int64) (int64, []byte, error) {
-			file, err := p.Worktrees.FileAtCommit(ctx, baseCommit, path, maxBytes)
-			if errors.Is(err, gitworktree.ErrNotAtCommit) {
-				return 0, nil, fmt.Errorf("%w: %w", contextbundle.ErrNotAtRevision, err)
-			}
-			return file.Size, file.Content, err
-		},
-	}
+	revision := reviewedRevision(ctx, p.Worktrees, baseCommit)
 	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)

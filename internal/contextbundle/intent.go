@@ -3,6 +3,8 @@ package contextbundle
 import (
 	"errors"
 	"fmt"
+	"path"
+	"sort"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
@@ -28,12 +30,20 @@ import (
 // room at all; what does not fit is named rather than silently missing.
 const maxIntentShareDivisor = 2
 
+// AssembleIntent supplies the product home to a review with no single work
+// item. It uses the same revision reader and budget as work-item intent, so a
+// branch review receives the standing set without inventing an attribution.
+func AssembleIntent(repositoryRoot, directory string, revision *Revision) (string, error) {
+	text, _, err := renderWorkItemIntent(repositoryRoot, referenceSource{root: repositoryRoot, revision: revision}, directory, defaultMaxBytes/maxIntentShareDivisor)
+	return text, err
+}
+
 // renderWorkItemIntent reads every document under the specifications directory
 // into the section a developer and a reviewer read product intent from, within
 // the budget it is given. Documents are read from the working tree, or, where a
-// revision is set, as that commit holds them; the listing is always the working
-// tree's, because a revision can only be asked about one path at a time, and a
-// document the commit does not hold is left out as the deliverable-to-be it is.
+// revision is set, as that commit holds them. A supplied revision listing also
+// discovers documents deleted or renamed in the working tree; older callers
+// without one still discover paths there.
 //
 // Nothing here fails the bundle for a document: one that cannot be read or does
 // not fit is named as not carried, because a run refused over a document in a
@@ -52,7 +62,7 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 	if err != nil {
 		return "", nil, err
 	}
-	paths, err := discoverSpecifications("specifications", root, clean)
+	paths, err := specificationPaths(root, source.revision, clean)
 	if err != nil {
 		return "", nil, err
 	}
@@ -97,6 +107,27 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 	return section, references, nil
 }
 
+func specificationPaths(root repowrite.Root, revision *Revision, directory string) ([]string, error) {
+	if revision == nil || revision.ListFiles == nil {
+		return discoverSpecifications("specifications", root, directory)
+	}
+	files, err := revision.ListFiles()
+	if err != nil {
+		return nil, fmt.Errorf("discover product documents at %s: %w", revision.Name, err)
+	}
+	var documents []string
+	for _, file := range files {
+		if path.Clean(file) != file || path.IsAbs(file) || file == ".." || strings.HasPrefix(file, "../") || strings.ContainsAny(file, "\\\x00") {
+			return nil, fmt.Errorf("invalid repository path %q in listing at %s", file, revision.Name)
+		}
+		if strings.HasPrefix(file, directory+"/") && strings.EqualFold(path.Ext(file), ".md") {
+			documents = append(documents, file)
+		}
+	}
+	sort.Strings(documents)
+	return documents, nil
+}
+
 // intentFallback is the one sentence said about the specification home when
 // nothing else about it fits. Assemble reserves it before the item's notes are
 // cut to size, so even an item whose notes filled the budget leaves room to say
@@ -138,9 +169,9 @@ func renderWorkItemIntentHeader(directory string, revision *Revision) string {
 # Authoritative product intent
 
 Every document under %s is authoritative product intent: what the product is,
-who it is for, the goals work serves, and what it will not do. This work item
-serves one of those goals, and nothing in it or in the files it names revises
-what these documents say. Where the item and one of them disagree, or two of
+who it is for, the goals work serves, and what it will not do. Work serves
+these goals; nothing in a work item or in the files it names revises what these
+documents say. Where an item and one of them disagree, or two of
 them disagree with each other, say so naming both rather than choosing between
 them. A directory index here is the index it is, and its ownership statements
 are rules.%s
