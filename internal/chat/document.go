@@ -209,6 +209,18 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 	if len(writes) == 0 {
 		return nil
 	}
+	// Ownership is enforced here even without a configured artifact store.
+	// Its refusal belongs to the document action, just like a filing refusal.
+	authority := s.authority()
+	for _, write := range writes {
+		if err := write.Authorize(authority.Role); err != nil {
+			return &AuthorityError{
+				Role:    authority.Role,
+				Refused: "a document to be written",
+				Reason:  err.Error(),
+			}
+		}
+	}
 	if s.options.Documents == nil {
 		return errors.New("no artifact store is configured, so no document can be written from this conversation")
 	}
@@ -226,6 +238,17 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 		}
 	}
 	return nil
+}
+
+// renderDocumentRefusal names what was refused and what is still waiting.
+// It grants no confirmation and leaves every pending document untouched.
+func (s *Session) renderDocumentRefusal(problem error) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "# Document submission refused\n\n%s\n\nNothing in the document block was recorded. Other actions in the reply continue.\n", problem)
+	for _, pending := range s.Writes() {
+		fmt.Fprintf(&out, "- %s: %s (%s)\n", pending.ID, pending.Write.Title, pending.Write.ID)
+	}
+	return out.String() + "\n"
 }
 
 // recordWrites gives each document an identity within the conversation and makes

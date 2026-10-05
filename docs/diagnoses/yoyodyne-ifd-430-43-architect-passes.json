@@ -1,0 +1,946 @@
+{
+  "description": "Saved sweep records and complete terminal events for the fourteen architect passes examined. Source objects are copied without changing their fields; local_start and terminal_reply_bytes are calculated labels. The drafted-document events identify the two waiting submissions in the cited later pass.",
+  "source": "Yoyodyne state/products/yoyodyne: sweeps/sweeps.jsonl and conversations/<conversation_id>.events.jsonl",
+  "passes": [
+    {
+      "local_start": "2026-10-03T21:37:01.355646-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T04:37:01.355646Z",
+        "ended_at": "2026-10-04T04:44:55.930913Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Specified cumulative stop-cause accounts that preserve immutable reports and handling history. Release recovery still lacks the governing subsection needed for a ruling.",
+          "findings": [
+            {
+              "issue": "Dispatch marks and model recommendations (yoyodyne-ifd.305) requires enforcement before the governing designs' evidence requirements have been demonstrated.",
+              "disposition": "left",
+              "detail": "Confirmed the conflict against both designs at 583562768c11, recommended the proposed staged rollout, and supplied exact companion revisions. Recorded the conclusion in memory; implementation remains with the existing work and neither document was changed."
+            },
+            {
+              "issue": "Cumulative stop-cause reporting needs durable membership and retry-safe publication without rewriting collected reports.",
+              "disposition": "left",
+              "detail": "Supplied exact program-manager design text, a scoped capability, revision reason, acceptance examples and proposed parent wording for Reconcile cumulative stop-cause reporting with immutable reports (yoyodyne-ifd.430.13.11.1). Recorded the design in memory; governed publication remains outstanding."
+            }
+          ],
+          "recommendations": [
+            {
+              "proposal": "amendment-1f22a89cf44a923a43bbb5a1255e9bfc",
+              "verdict": "approve",
+              "reason": "The designs expressly require demonstrated invalidation, failure and accuracy behavior before readiness enforcement, and separate measured evidence before routing. Specify advisory collection and coordinated protocol wording now, retaining a later evidence-backed architect revision before either mechanism becomes enforced."
+            }
+          ]
+        },
+        "problem": "turn 3 of the recurring task architect-pass failed, so its pass is partial: an ask the harness cannot read: invalid ask: question must ask something and end with a question mark; before that failure the pass of architect-pass saved 2 write(s), which stand and were not undone: memory \"sweep-dispatch-mark-promotion\" (remember, revision 1), memory \"cumulative-stop-cause-design\" (remember, revision 1); the next pass is told of them so it does not write them again; no machine sleep, harness downtime or wait behind another pass was established during the stopped response",
+        "failed": true,
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "sweep-dispatch-mark-promotion",
+            "revision": 1
+          },
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "cumulative-stop-cause-design",
+            "revision": 1
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5741,
+        "timestamp": "2026-10-04T04:44:55.600145Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 14307869,
+            "cached_input_tokens": 12129792,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 47912,
+            "reasoning_output_tokens": 3698
+          },
+          "result": "I’ll continue Interrupted release-tag publication and recovery evidence (yoyodyne-ifd.436.2.1) by resolving the missing authority evidence. The previous read stopped before “The release tag”; repeating it would return the same prefix. I’ll ask the development manager for a focused assessment grounded in that subsection before deciding recovery rules.\n\n```yoyodyne-ask\n{\"ask\":{\"role\":\"development-manager\",\"question\":\"For Interrupted release-tag publication and recovery evidence (yoyodyne-ifd.436.2.1), which existing release-authority constraints must recovery preserve, and does the current contract permit retrying publication of an unchanged, demonstrably harness-owned local tag after remote absence is confirmed? Please ground the advice in the exact text of 'The release tag' in docs/designs/v1-harness-design.md, quoting the relevant subsection and naming the inspected commit if your permitted inspection can reach it; otherwise identify what remains unavailable.\",\"context\":\"The child was read fully in t367.1. My read at 583562768c11 was truncated at 48 KiB before the release subsection; internal/release was absent. I have not ruled on release recovery or authorized publication. I need the existing authority, checked-commit and gate-evidence rules before specifying retry behavior; no execution or live release validation is requested.\"}}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 12129792,
+            "input_tokens": 2178077,
+            "output_tokens": 47912,
+            "reasoning_output_tokens": 3698
+          }
+        }
+      },
+      "terminal_reply_bytes": 1367
+    },
+    {
+      "local_start": "2026-10-03T23:40:43.203367-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T06:40:43.203367Z",
+        "ended_at": "2026-10-04T06:45:01.565873Z",
+        "turns": 1,
+        "model": "gpt-6-astra",
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "heavyweight-admission-outstanding-contract",
+            "revision": 1
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5859,
+        "timestamp": "2026-10-04T06:45:00.721217Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 17088232,
+            "cached_input_tokens": 14528384,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 56625,
+            "reasoning_output_tokens": 4849
+          },
+          "result": "The previous pass’s six findings were not retained outside its report. I’m recording them now in two memories, combining the overlapping native-execution findings. These preserve the inspection conclusions at commit e3e68dcb97ee; they do not establish the current implementation or claim that any design revision landed.\n\nNo new proposals were supplied for recommendation. Next I’ll survey the current architect queue before selecting the oldest outstanding work.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"heavyweight-admission-outstanding-contract\",\"subject\":\"Design independent capacity and recovery rules for heavyweight checks (yoyodyne-ifd.429.43)\",\"text\":\"Inspection at e3e68dcb97ee left native developer command admission unresolved: neither concrete adapter established non-bypassable admission and aggregate descendant limits; the existing invocation wrapper and command observations are insufficient evidence. Prepared but unpublished provisions specify durable FIFO ordering, atomic reservations, bounded waiting with separate execution timing, and restart-safe accounting; separate repository state homes still require a shared capacity authority to prevent independent pools on one machine. This records the prior pass's first four untraced findings; no implementation, runtime verification or publication is established.\"},{\"action\":\"remember\",\"memory\":\"heavyweight-bounded-measurement-plan\",\"subject\":\"Design independent capacity and recovery rules for heavyweight checks (yoyodyne-ifd.429.43)\",\"text\":\"At e3e68dcb97ee, Makefile, project configuration, CI, adoption script and path manifest were inspected. Prepared but unpublished measurement provisions bound comparisons to baseline plus three single-variable profiles, at most 32 trials within four hours, thirty minutes per trial and two experimental workloads; retain coverage, cache conditions, failures and individual measurements. The adoption walk includes Go builds, extra Go tests and network installation attempts around a tiny Python fixture, so it cannot alone establish heavyweight non-Go performance. This records the prior pass's last two untraced findings; no experiment ran and no settings were selected or activated.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 14528384,
+            "input_tokens": 2559848,
+            "output_tokens": 56625,
+            "reasoning_output_tokens": 4849
+          }
+        }
+      },
+      "terminal_reply_bytes": 2237
+    },
+    {
+      "local_start": "2026-10-04T00:42:17.013888-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T07:42:17.013888Z",
+        "ended_at": "2026-10-04T07:42:37.62065Z",
+        "turns": 1,
+        "model": "gpt-6-astra",
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "heavyweight-admission-outstanding-contract",
+            "revision": 2
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5869,
+        "timestamp": "2026-10-04T07:42:37.05612Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 17187862,
+            "cached_input_tokens": 14616576,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 56924,
+            "reasoning_output_tokens": 4919
+          },
+          "result": "The first memory was saved; the measurement memory was refused because the memory budget was full. I’m folding those two remaining findings into the existing entry, keeping it shorter so all six conclusions have a durable record before I continue the queue review.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"heavyweight-admission-outstanding-contract\",\"text\":\"At e3e68dcb97ee, native command admission remained unresolved: neither adapter established enforceable admission or descendant limits. Unpublished provisions cover FIFO ordering, atomic reservations, bounded waits and recovery; separate state homes still need shared capacity accounting. Resource comparisons remain bounded to 32 trials, four hours, thirty minutes per trial and two experimental workloads, preserving coverage and recording cache conditions and failures. The adoption walk mixes Go builds/tests and network installation with a tiny Python fixture; it cannot establish heavyweight non-Go performance. This retains all six previously untraced findings for Design independent capacity and recovery rules for heavyweight checks (yoyodyne-ifd.429.43). No implementation, experiment or publication was established.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 14616576,
+            "input_tokens": 2571286,
+            "output_tokens": 56924,
+            "reasoning_output_tokens": 4919
+          }
+        }
+      },
+      "terminal_reply_bytes": 1216
+    },
+    {
+      "local_start": "2026-10-04T01:43:45.661888-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T08:43:45.661888Z",
+        "ended_at": "2026-10-04T08:44:52.980501Z",
+        "turns": 1,
+        "model": "gpt-6-astra",
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 15
+          }
+        ],
+        "wording": [
+          {
+            "term": "cadence",
+            "replacement": "how often it repeats, or its schedule",
+            "retired": true
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5899,
+        "timestamp": "2026-10-04T08:44:52.702977Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 17718506,
+            "cached_input_tokens": 14993664,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 58422,
+            "reasoning_output_tokens": 5069
+          },
+          "result": "At commit 69a33b4f3d30, the V1 goals support delegated operational configuration while preserving authority and independent review. The workflow design’s description of schedules as “operator-local policy” identifies where settings belong, but does not explain who may change them. I’m settling that distinction for Applying recommended configuration through a role (yoyodyne-ifd.434.8).\n\nThe ownership-document read failed at the path I supplied; neither directory listing located it. I have not treated that absence as permission to change authority.\n\nIn docs/designs/configurable-workflows.md, replace the first paragraph under “Recurring tasks” with:\n\n> A recurring task is a schedule-triggered instance of a named agent’s bounded task workflow. Configuration selects what and when; the validated role contract determines authority. Task definitions and guidance references are project configuration. Cadence and enablement are local operational settings: the Lead Product Manager decides changes within approved goals and standing directives, and the harness applies them through a typed, recorded, independently reviewed configuration change. Calling a setting operator-local describes its scope, not a requirement for an operator edit or approval. A cadence change cannot change the task’s agent, role, prompt, guidance reference, workflow binding, capabilities, or spending authorization. Each of those remains subject to its own governing mechanism.\n\nReplace settled question 16 with:\n\n> Event subscriptions and workflow bindings are project configuration. Cadence and enablement are local operational settings decided as the recurring-task section specifies. Account selection and authority-bearing settings remain outside that delegation. Configuration changes activate at an explicit reload boundary for new invocations; an in-flight invocation retains its pinned configuration and authority.\n\nImmediately after that recurring-task opening paragraph, insert:\n\n> An operational configuration request identifies an existing task and changes only explicitly permitted fields. It cannot create or rename an agent or task, replace a containing configuration object, edit a persona or remit, or update an approval policy. The harness validates the complete resulting configuration and refuses changes outside the authorized fields, including indirect changes introduced through aliases or references. A report associating a persona update with operational configuration work does not authorize that update. Persona changes require a separately scoped governed change.\n>\n> Publication and adoption are distinct facts. The record identifies the deciding role, reason, prior and resulting values, reviewed commit, and the running process’s observed configuration revision. Drift and doctor must distinguish a published setting awaiting adoption from an adopted setting. A failed reload preserves the last valid configuration and reports the failure without claiming adoption.\n\nRevision-log reason:\n\n> Clarify delegated cadence decisions and exclude persona and authority changes from operational configuration writes for Applying recommended configuration through a role (yoyodyne-ifd.434.8).\n\nI rejected both unrestricted configuration-object replacement and routine operator edits: the former could change authority; the latter conflicts with the approved autonomy goal. This is a design decision, not a new repository-wide invariant.\n\nThis text remains unlanded. No files changed or tests ran. The broader configuration design and its publication remain outstanding; the tracker still does not establish the oldest item’s exact admission age.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"role-configuration-scope-reconciliation\",\"text\":\"Applying recommended configuration through a role (yoyodyne-ifd.434.8): at 69a33b4f3d30 read configurable-workflows, authority-by-capability and v1-goals; supplied exact recurring-task opening, question 16 and validation/adoption text delegating cadence/enablement to LPM while excluding persona, identity and authority changes. Ownership document path under docs/product failed; broader design/publication remain open. Earlier 248cba861ec9 race prerequisites remain: unset-only RACE_PACKAGES fallback, ReadDir errors require conservative full coverage, reverse dependencies omitted, actual merge-candidate full race and necessary macOS execution retained; Ubuntu CI alone insufficient. Existing Scoped local race checks with verified full-coverage safeguards (yoyodyne-ifd.429.46) covers adoption. No writes/tests; t389 queue cut, exact oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 14993664,
+            "input_tokens": 2724842,
+            "output_tokens": 58422,
+            "reasoning_output_tokens": 5069
+          }
+        }
+      },
+      "terminal_reply_bytes": 4647
+    },
+    {
+      "local_start": "2026-10-04T02:44:29.623367-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T09:44:29.623367Z",
+        "ended_at": "2026-10-04T09:45:59.539452Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Settled schedule ownership and the boundary excluding persona and authority changes for Applying recommended configuration through a role (yoyodyne-ifd.434.8). Exact revision text is prepared but remains unlanded; broader design work continues.",
+          "findings": [
+            {
+              "issue": "Applying recommended configuration through a role (yoyodyne-ifd.434.8) needed explicit schedule ownership and limits on operational writes.",
+              "disposition": "left",
+              "detail": "Prepared replacements for Recurring tasks and settled question 16 in docs/designs/configurable-workflows.md, assigning schedule and enablement decisions to the Lead Product Manager within approved direction, requiring reviewed application and observed adoption, and excluding persona and authority changes. Trace confirmed in role-configuration-scope-reconciliation revision 15; publication remains outstanding."
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 16
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5930,
+        "timestamp": "2026-10-04T09:45:59.191709Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 18456860,
+            "cached_input_tokens": 15672064,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 60237,
+            "reasoning_output_tokens": 5153
+          },
+          "result": "At commit 9698a1a2106e, I read the ownership design and all four requested configuration files. The reads succeeded.\n\nThe important distinction is now clear: `config.lock` records the original template values; it is neither an authorization record nor evidence that a running process adopted a change. `Config.Revision()` identifies effective settings, including persona and remit text, but does not establish who authorized them. Also, `document.go` defines decoding and replacement rules—it does not provide the structured writer I was looking for.\n\nFor Applying recommended configuration through a role (yoyodyne-ifd.434.8), I choose to preserve that baseline and record operational decisions separately. Replacing the baseline after each operational edit would erase the history that makes three-way comparison useful.\n\nInsert the following before “The authority model” in docs/designs/configurable-workflows.md:\n\n> ### Recording and recovering operational configuration changes\n>\n> Applying recommended configuration through a role (yoyodyne-ifd.434.8) preserves the distinction between template history, an authorized change, publication, and observed adoption.\n>\n> The existing `config.lock` remains a record of what the template originally supplied. Applying an operational setting does not regenerate it, advance it to the current template, or copy the project’s current values into it. A missing baseline remains unknown unless its original contents can be recovered from evidence. Recording a new operational decision does not require inventing that missing history.\n>\n> Each authorized change has a durable operation identifier and records the deciding role, reason, repository, target file, expected source contents, permitted fields, their prior presence and values, and their requested replacements. Absence, explicit empty values, and inherited values remain distinct. The effective configuration revision supplements this record; it cannot replace source comparison because different source files can produce identical effective settings.\n>\n> The trusted writer changes only the authorized fields in an isolated candidate. It uses the existing decoder and resolver to validate the complete result. It preserves list order and whole-list replacement semantics. Where a containing mapping replaces an inherited mapping, the candidate must explicitly preserve every unaffected effective member; silently dropping another task is refused. Both the source differences and effective differences must remain within the recorded authorization. Unsupported YAML structures are refused rather than rewritten ambiguously.\n>\n> The candidate passes protected-path authorization, independent review, and the applicable verification before publication. A configuration change cannot weaken the checks or authority used to approve itself: that change is evaluated under the previously authorized policy and any additional verification its governing design requires.\n>\n> Retries reconcile the same operation’s candidate, publication, and adoption records before acting. An uncertain publication is investigated before another change is created. Source changes outside the operation require a fresh comparison and review; recovery never overwrites them with an earlier whole-file copy.\n>\n> Drift retains its existing template comparison and separately shows the operational decision that explains a project value. A conflict is assigned to the owner of that setting through the ownership resolver; “conflicting” does not itself mean the operator must decide. Doctor reports published-but-unadopted settings separately from invalid configuration and unknown adoption.\n>\n> Adoption is established by the relevant running reader reporting the effective configuration revision and its process identity after successful loading. Writing the file, publishing a commit, or recomputing a digest is insufficient. Restoring prior settings is another recorded, reviewed change against current contents, preserving intervening unrelated edits.\n\nRevision-log reason:\n\n> Preserve template history and specify source-bound authorization, reviewed publication, retry recovery and observed adoption for Applying recommended configuration through a role (yoyodyne-ifd.434.8).\n\nThis supplies another concrete part of the existing design work. It has not been published or tested; the complete field-and-role table remains unfinished.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"role-configuration-scope-reconciliation\",\"text\":\"Applying recommended configuration through a role (yoyodyne-ifd.434.8): at 9698a1a2106e read ownership-and-the-operator under docs/designs plus config lock/drift/revision/document fully. Supplied configurable-workflows insertion preserving original config.lock, separate source-bound authorization, inherited mapping/list semantics, prior-policy review, retry reconciliation and observed adoption; document.go is a decoder, not writer. Earlier schedule ownership/exclusions text stands. Race prerequisites: unset-only fallback, ReadDir uncertainty means full, reverse dependencies omitted, actual candidate full race plus necessary macOS execution; existing Scoped local race checks with verified full-coverage safeguards (yoyodyne-ifd.429.46) covers adoption. Field/role table and publication unfinished; no writes/tests. Exact oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 15672064,
+            "input_tokens": 2784796,
+            "output_tokens": 60237,
+            "reasoning_output_tokens": 5153
+          }
+        }
+      },
+      "terminal_reply_bytes": 5397
+    },
+    {
+      "local_start": "2026-10-04T03:44:36.725742-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T10:44:36.725742Z",
+        "ended_at": "2026-10-04T10:46:03.683376Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Settled baseline preservation and configuration-change recovery for Applying recommended configuration through a role (yoyodyne-ifd.434.8). The field-and-role table and publication remain outstanding.",
+          "findings": [
+            {
+              "issue": "Applying recommended configuration through a role (yoyodyne-ifd.434.8) must distinguish template history from authorization and running adoption.",
+              "disposition": "left",
+              "detail": "Prepared exact configurable-workflows insertion preserving config.lock, binding authorization to source contents, preserving inherited members, requiring review under prior policy, and reconciling retries before repeated action. Running adoption requires reader evidence. Trace confirmed in role-configuration-scope-reconciliation revision 16; text remains unlanded."
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 17
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5953,
+        "timestamp": "2026-10-04T10:46:03.434873Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 19167284,
+            "cached_input_tokens": 16130432,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 62242,
+            "reasoning_output_tokens": 5274
+          },
+          "result": "All five reads succeeded at commit 9698a1a2106e. They establish two limits for the remaining table: developer model mappings select only a model, and recurring-task model overrides retain the agent’s account and authority. Effort validation checks the configured provider’s declared support; it does not prove that every fallback invocation used the requested level.\n\nThe management-loop protocol also reserves execution-profile selection to the development manager and requires evidence before automatic routing is enforced. Operational configuration must preserve that division.\n\nFor Applying recommended configuration through a role (yoyodyne-ifd.434.8), insert the following before “Recording and recovering operational configuration changes” in docs/designs/configurable-workflows.md:\n\n> ### Operational settings and their deciding roles\n>\n> Applying recommended configuration through a role (yoyodyne-ifd.434.8) uses a closed field registry implemented in trusted code. Each entry specifies its type, deciding role, permitted target, validation, and activation boundary. A schema-valid setting is not automatically writable through this mechanism. Unknown fields and containing-object replacements are refused.\n>\n> | Settings | Deciding role | Constraint |\n> | --- | --- | --- |\n> | `checks`, `landing_checks`, `path_checks` | Development manager | Commands and coverage must satisfy approved acceptance criteria and the architect’s verification design. Removing or narrowing required coverage needs the applicable design ruling first. |\n> | `execution.developer_models` | Development manager | An ordered label-to-model mapping within established provider eligibility and spending policy. It changes neither reviewer settings nor authority. It cannot activate automatic routing before its design’s evidence requirement is met. |\n> | Existing developer or management agent’s `model`, `model_version`, `effort`; existing recurring task’s `model` | Development manager | Preserve agent identity, role, provider, account, persona, remit, and fallback configuration. Respect standing model directions and verified adapter support. Reviewer settings are excluded from this initial registry. |\n> | `execution.developer_slots` preferences | Lead Product Manager | Preserve slot identity and count, standing reliability allocation, and mechanical eligibility. A preference does not authorize otherwise ineligible work. Only preference fields are writable. |\n> | Existing recurring task’s `every`, `enabled`, `max_turns` | Lead Product Manager | Preserve task identity, role, prompt, and workflow. Respect standing schedule directions, mandatory coverage, spending policy, and the runtime’s interval and turn bounds. |\n> | `execution.check_timeout`, `check_stage_timeout`, `landing_check_timeout` | Development manager | Stay within the governing check and recovery design. Changing a configured duration cannot remove an independently enforced deadline or resource limit. |\n> | `execution.work_poll`, `redeploy_drain_limit`, `factory_stall_after` | Development manager | Preserve the governing scheduling, restart, and health contracts. |\n> | `execution.repair_attempts_before_replan`, `integration_retries_before_reconciliation`, `transient_relaunches_before_blocking` | Lead Product Manager | Decide the operational budget, informed by the development manager’s evidence. Changes cannot reset spent counters or enlarge an existing run’s authorization. |\n> | `execution.usage_limit_max_pause`, `usage_limit_in_process_pause`, `usage_limit_unknown_reset_pause`, `server_overload_pause` | Lead Product Manager | Preserve the recovery design’s refusal classification, finite bounds, and standing directives. |\n> | `execution.blocked_runs_before_intake_hold`, `brake_cooldown`, `brake_escalation_cycles` | Lead Product Manager | Preserve the intake brake, development-manager ownership, and existing holds. A setting change cannot release a hold. |\n>\n> The architect owns the constraints these decisions must satisfy, not routine selection of their values. A program manager may decide an entry only where a registered lane scope explicitly delegates that setting; otherwise it proposes the change to the listed role.\n>\n> The action targets an existing agent or task by identity without changing that identity. This distinction permits an existing agent’s model setting while refusing agent creation, removal, renaming, or role reassignment. The writer records the exact permitted fields rather than granting the caller access to the surrounding mapping.\n>\n> Provider definitions, backend and account selection, fallback endpoints, operators, approval policies, capabilities, role definitions, personas, remits, research access, repository and state locations, concurrency counts, and grant limits are outside this initial registry. They retain their separately governed paths. In particular, `triage.repair_grant_attempts` is not an ordinary retry setting merely because it is numeric.\n>\n> Model and effort changes require validation against the effective provider and supported adapter build. A syntactically valid selector does not prove availability or compatibility. Where the existing fallback policy omits an unsupported effort level, the invocation must record that omission; configuration approval cannot certify that the fallback used the requested level.\n>\n> Registry entries and capability scopes are reviewed harness code. Configuration cannot add an entry, change its owner, or relax its constraints. Refusing an unsupported request names the owning role or missing capability; it does not turn a delegated decision into an operator approval.\n\nRevision-log reason:\n\n> Define the initial operational field registry and deciding roles for Applying recommended configuration through a role (yoyodyne-ifd.434.8), preserving verification, provider eligibility, spending bounds and authority separation.\n\nThis settles the initial field-and-role table. I rejected granting access to whole agent blocks or treating all numeric thresholds alike: both would allow operational writes to reach authority-bearing settings. The consolidated document revision and publication remain outstanding; nothing was implemented or tested.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"role-configuration-scope-reconciliation\",\"text\":\"Applying recommended configuration through a role (yoyodyne-ifd.434.8): at 9698a1a2106e read model mapping, recurring tasks, effort, management-loop protocol and provider design. Supplied exact configurable-workflows field/role table: DM checks/models/operational timings; LPM slot preferences/schedules/retry-wait-brake budgets; closed registry excludes reviewer settings, identity/persona/authority/provider-account changes, concurrency and repair grants. Preserve routing evidence requirements and truthful fallback effort. Prior baseline-preservation, source authorization, recovery/adoption text stands. Race prerequisites retain conservative scope, full candidate and macOS coverage; Enable scoped local race checks with verified full-coverage safeguards (yoyodyne-ifd.429.46) covers adoption. Table settled; consolidated publication outstanding. No writes/tests; oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 16130432,
+            "input_tokens": 3036852,
+            "output_tokens": 62242,
+            "reasoning_output_tokens": 5274
+          }
+        }
+      },
+      "terminal_reply_bytes": 7263
+    },
+    {
+      "local_start": "2026-10-04T04:55:32.384091-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T11:55:32.384091Z",
+        "ended_at": "2026-10-04T11:59:27.825485Z",
+        "turns": 1,
+        "model": "gpt-6-astra",
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "reports_filed": 1
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 5987,
+        "timestamp": "2026-10-04T11:59:27.606846Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 19716009,
+            "cached_input_tokens": 16543488,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 63730,
+            "reasoning_output_tokens": 5366
+          },
+          "result": "The consultation is closed. The remaining prerequisite is product-boundary reconciliation by the Lead Product Manager; a design-only correction cannot release Acting from the dashboard (yoyodyne-ifd.432.8). I’m recording the finding for the pass; no implementation, document write, or duplicate work was created.\n\n```yoyodyne-report\n{\"reports\":[{\"severity\":\"warning\",\"message\":\"At ce099231c25c, observability-and-dashboard both prohibits all writes and permits amendment decisions and owed-step settlement, while V1 non-goals retains the read-only boundary and ownership-and-the-operator assigns ordinary amendments to document owners and owed steps to the harness. Acting from the dashboard (yoyodyne-ifd.432.8) therefore needs Lead Product Manager reconciliation of approved scope before the architect can reconcile the design; the consultation established no existing authorization, and amendment-6f5625ff0bb211a630200a9ed760e756 is recommended for decline as written.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 16543488,
+            "input_tokens": 3172521,
+            "output_tokens": 63730,
+            "reasoning_output_tokens": 5366
+          }
+        }
+      },
+      "terminal_reply_bytes": 981
+    },
+    {
+      "local_start": "2026-10-04T05:55:40.218407-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T12:55:40.218407Z",
+        "ended_at": "2026-10-04T12:57:16.172274Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Reviewed the dashboard amendment against four documents at ce099231c25c and recommend declining it as written. The architect queue remains open; its oldest waiting age could not be established from the truncated survey.",
+          "findings": [
+            {
+              "issue": "Acting from the dashboard (yoyodyne-ifd.432.8) conflicts with the product boundary and later ownership rules.",
+              "disposition": "consulted",
+              "detail": "Read the governing documents, consulted the Lead Product Manager, closed the exchange and submitted a durable report. No existing authorization was established; product-boundary reconciliation must precede the dashboard design revision, and the existing parking remains unchanged."
+            }
+          ],
+          "recommendations": [
+            {
+              "proposal": "amendment-6f5625ff0bb211a630200a9ed760e756",
+              "verdict": "decline",
+              "reason": "The contradiction is real, but removing the no-write clauses alone would bypass the unresolved read-only product boundary. Reconciliation must also preserve document owners' amendment decisions and the harness's ownership of owed steps rather than transfer them through person-bound authentication."
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 18
+          }
+        ],
+        "wording": [
+          {
+            "term": "in force",
+            "replacement": "active, or still applies",
+            "retired": true
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 6014,
+        "timestamp": "2026-10-04T12:57:15.894133Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 20374180,
+            "cached_input_tokens": 17014144,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 65521,
+            "reasoning_output_tokens": 5473
+          },
+          "result": "The four documents read successfully at f1e71be3b9c7. They establish an important boundary for Applying recommended configuration through a role (yoyodyne-ifd.434.8): a conversation may request a recorded configuration change, but publication and integration remain actions performed through a run. The model-policy wording also needs a companion correction so the development manager’s configuration authority does not become an unrestricted per-item model override.\n\nI choose the existing tool registry and reviewed-run path. A direct configuration-writing conversation tool would bypass the publication boundary; a separate configuration service would duplicate mechanisms already designed here.\n\nInsert the following in `docs/designs/configurable-workflows.md`, immediately before “The authority model”, alongside the prepared field-and-role table:\n\n> Applying recommended configuration through a role (yoyodyne-ifd.434.8) uses a conversation-invocable action named `configuration.change.request`, of class `act`. It records an authorized request and its durable operation identity; it does not edit the active configuration, run checks, publish a commit, or reload a service.\n>\n> The request identifies the project, the expected source revision, the existing configuration target, a bounded list of typed field changes, the deciding role, and the reason. The harness derives the caller’s identity from the invocation. The trusted field registry checks ownership and scope for every change. A request spanning different owners requires separately recorded authorization from each owner against the same proposed values; otherwise the entire request is refused before any delivery work is created.\n>\n> The accepted request reaches the existing reviewed-run path. Its protected-path authorization covers only the recorded configuration file and field changes, including explicitly recorded inherited values needed to preserve whole-list or whole-mapping semantics. It grants no general write to `.yoyodyne`, no write to role definitions, and no permission to alter the field registry. The harness checks both the source diff and the resulting effective configuration against this authorization.\n>\n> The conversation action reports “request recorded” and the existing delivery identity. It reports publication and observed adoption separately when those facts exist. Retrying the same operation reconciles its durable state and returns the existing delivery identity; it never creates a second delivery merely because the first response was lost. A changed request requires fresh authorization.\n>\n> Independent review and required verification apply before publication under the policy in force before the proposed change. A configuration change cannot waive its own checks or review. Reload and adoption use the existing explicit boundary, with each affected reader’s observed configuration revision recorded. Acceptance of a request, a successful commit, and adoption are distinct facts.\n\nIn `docs/designs/management-loop-protocol.md`, replace the first sentence under “Execution profiles” with:\n\n> The development manager selects among five named profiles — **mechanical-low-risk**, **standard**, **high-judgment**, **architecture-sensitive**, **specialist** — when choosing an item’s execution profile, never an arbitrary provider model string. The development manager separately owns the permitted operational model settings specified in [configurable-workflows](configurable-workflows.md), within standing operator directions, spending limits and provider eligibility. Changes to those settings follow the recorded authorization and reviewed publication path; selecting a profile for an item cannot change that policy.\n\nRetain the rest of the execution-profile paragraph, including its evidence requirement before enforcing routing.\n\nUse this revision reason for both documents:\n\n> Separate configuration requests from reviewed publication and observed adoption, and distinguish model-policy maintenance from per-item profile selection for Applying recommended configuration through a role (yoyodyne-ifd.434.8).\n\nThese are prepared revisions, not published changes. The consolidated ruling and bounded race-check delivery remain outstanding; no implementation or tests were performed.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"role-configuration-scope-reconciliation\",\"text\":\"Applying recommended configuration through a role (yoyodyne-ifd.434.8): at f1e71be3b9c7 read configurable-workflows, management-loop-protocol, authority-by-capability and tool-interface fully; supplied exact configuration.change.request contract separating recorded requests, scoped reviewed-run delivery and observed adoption, plus profile-selection/model-policy companion replacement and revision reason. Prior field/role table, baseline preservation, source authorization and recovery provisions stand; bounded race ruling retains conservative scope, full candidate and necessary macOS coverage via Enable scoped local race checks with verified full-coverage safeguards (yoyodyne-ifd.429.46). Consolidated publication outstanding; no writes/tests, older tracker notes cut and oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 17014144,
+            "input_tokens": 3360036,
+            "output_tokens": 65521,
+            "reasoning_output_tokens": 5473
+          }
+        }
+      },
+      "terminal_reply_bytes": 5235
+    },
+    {
+      "local_start": "2026-10-04T07:10:43.066567-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T14:10:43.066567Z",
+        "ended_at": "2026-10-04T14:12:30.77756Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Prepared the configuration-request and reviewed-delivery contract, plus the model-policy companion wording, for Applying recommended configuration through a role (yoyodyne-ifd.434.8). Consolidation and publication remain outstanding; the oldest waiting age is unknown.",
+          "findings": [
+            {
+              "issue": "Applying recommended configuration through a role (yoyodyne-ifd.434.8) needs an explicit boundary between requesting a change, publishing it and observing adoption.",
+              "disposition": "left",
+              "detail": "Supplied exact text and a revision reason for configurable-workflows and management-loop-protocol after four complete reads at f1e71be3b9c7; retained in confirmed memory revision 18. The contract preserves scoped authorization, independent review, retry reconciliation and separate adoption evidence; nothing has been written or implemented."
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "amendment-decision-ruling",
+            "revision": 5
+          }
+        ],
+        "wording": [
+          {
+            "term": "in force",
+            "replacement": "active, or still applies",
+            "retired": true
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 6045,
+        "timestamp": "2026-10-04T14:12:30.463713Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 21257307,
+            "cached_input_tokens": 17657088,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 67305,
+            "reasoning_output_tokens": 5539
+          },
+          "result": "Both reads succeeded at f2a2d73e0180. The artifact contract still requires an operator commit, and the closing decision still assigns landing to the operator. Those clauses conflict with the admitted Automatic publication of owner-authored documents (yoyodyne-ifd.433.21.1).\n\nI retain the requirement that a ruling must land before its item closes. I replace the manual publication requirement with the existing reviewed-run path. This reconciles the documents with the admitted first slice; it adds no prerequisite to that implementation.\n\nReplace “How a write reaches disk” in `docs/designs/artifact-contract.md` with:\n\n> ## How a write reaches disk\n>\n> Automatic publication of owner-authored documents (yoyodyne-ifd.433.21.1) carries a document from its owning role’s conversation through the existing approvals policy and reviewed integration path.\n>\n> The harness checks ownership and the applicable approval policy before confirming a write. An owner-authored document whose kind is automatically approved requires no operator prompt. A qualifying brief or goals revision recorded as consistent with intent follows its existing delegated rule; fundamental or unmarked changes retain the applicable operator confirmation. This path does not decide another role’s amendment proposal.\n>\n> Confirmation binds the stored document identity, exact content and expected base revision. Its provenance records the author, confirming actor, policy and policy revision, without attributing automatic confirmation to the operator. Existing pending documents use their stored identity and content; the role does not submit them again. Missing ownership or authorization evidence is reported to the owning role rather than invented.\n>\n> Confirmation and the durable handoff to publication must survive a restart together. The harness opens a run limited to that document’s file, materializes the owner-authored content with mechanically generated governance metadata in an isolated checkout, and applies normal checks, independent review and integration gates. No developer agent rewrites the document, and no uncommitted change is left in the primary checkout. Existing revision and approval history is preserved.\n>\n> A durable operation identity links confirmation, the publication run and the resulting commit. Recovery reconciles those records before retrying; a lost response cannot produce a duplicate revision or landing. A changed document base returns to the owner for reconciliation rather than overwriting intervening work.\n>\n> Review refusal, check failure and target conflict return the findings to the owning conversation. The owner remains responsible for revising the document; a revised submission starts a fresh run linked to the preceding attempt. Delivery records carry a finite return limit and a durable count across revisions and restarts. At that limit, automatic continuation stops, preserves the document and evidence, and records a blocked entry owned by the document’s role. It neither invokes a developer nor transfers the decision to the operator.\n>\n> Surfaces distinguish confirmation, waiting publication, failed publication and verified landing. Confirmation alone is never described as publication.\n\nReplace “Consequences” in `docs/decisions/design-rulings-land-before-closing.md` with:\n\n> **Consequences.** The architect supplies the exact revision text. The harness publishes the authorized document through the reviewed path specified by the artifact contract. The design item stays open until the governed revision and its revision-log entry are verified on the target branch; confirmation, a pending document or an open publication run does not satisfy that condition. Publication failure returns to the owning role with its evidence. This rule does not require the operator to commit a delegated ruling or block implementation of the already-admitted publication mechanism on a contract that mechanism must deliver.\n\nUse this revision reason in both documents:\n\n> Reconcile Automatic publication of owner-authored documents (yoyodyne-ifd.433.21.1) with policy-based confirmation and reviewed delivery, preserving verified landing before design-item closure.\n\nThe implementation must state and test its finite return limit, as its existing acceptance criteria require. These replacement passages are prepared, not written or landed. No tests or implementation were performed.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"amendment-decision-ruling\",\"text\":\"At f2a2d73e0180 read artifact-contract and design-rulings-land-before-closing fully; supplied exact publication-section and Consequences replacements plus revision reason for Automatic publication of owner-authored documents (yoyodyne-ifd.433.21.1). Tracker t410 confirms first slice needs no further architectural prerequisite and has no recorded run: policy confirmation, existing pending content, isolated one-file reviewed delivery, durable recovery and bounded owner returns; never developer rewriting or manual commit. Owning-role amendment decisions (yoyodyne-ifd.437.14) remains separate, with earlier owner-authorization and authority-by-capability text still required. No submission, publication or tests; pending identities remain unresolved.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 17657088,
+            "input_tokens": 3600219,
+            "output_tokens": 67305,
+            "reasoning_output_tokens": 5539
+          }
+        }
+      },
+      "terminal_reply_bytes": 5283
+    },
+    {
+      "local_start": "2026-10-04T08:11:25.481733-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T15:11:25.481733Z",
+        "ended_at": "2026-10-04T15:15:22.119715Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Prepared the artifact-contract and closing-rule reconciliation for Automatic publication of owner-authored documents (yoyodyne-ifd.433.21.1), preserving active approval policy, independent review and verified landing. Publication and remaining architect work are outstanding; the oldest waiting age is unknown.",
+          "findings": [
+            {
+              "issue": "The artifact contract and closing decision still assign publication to the operator despite the admitted automatic-publication path.",
+              "disposition": "left",
+              "detail": "Read both documents at f2a2d73e0180 and supplied exact replacements and a revision reason, retained in confirmed memory revision 5. Automatic publication of owner-authored documents (yoyodyne-ifd.433.21.1) covers implementation without another architectural prerequisite; no document was written, no duplicate work admitted and no publication verified."
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "publication-authorization-inspection",
+            "revision": 3
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 6066,
+        "timestamp": "2026-10-04T15:15:21.706114Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 21678907,
+            "cached_input_tokens": 17980544,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 68940,
+            "reasoning_output_tokens": 5643
+          },
+          "result": "Owning-role amendment decisions (yoyodyne-ifd.437.14) needs an explicit transition for proposals already shown to their owner. At commit 7346ca754205, `internal/chat/amendment.go` suppresses proposals by delivered identifier and marks them delivered while building the turn, even if that turn subsequently fails. That record proves delivery was attempted; it cannot prove a recommendation, decision, or published revision.\n\nI read that file, `docs/designs/ownership-and-the-operator.md`, and `docs/decisions/authority-by-capability.md` in full. All three reads succeeded. I decide that enabling owner decisions must make still-undecided proposals actionable again, including proposals with earlier recommendations. Automatically treating those recommendations as approvals would invent authorization; retaining delivery suppression would leave the existing backlog stranded.\n\nInsert the following subsection before “What is enforced in code” in `docs/designs/ownership-and-the-operator.md`:\n\n> ## Previously delivered amendments\n>\n> Owning-role amendment decisions (yoyodyne-ifd.437.14) distinguishes delivery, recommendation, decision and publication. A proposal’s appearance in a conversation, including a durable delivery mark, establishes none of the later steps. An earlier recommendation remains evidence for the owner’s decision and is never converted automatically into a decision.\n>\n> When the owning-role decision capability becomes available, every still-undecided proposal becomes eligible for delivery to its current document owner, regardless of its previous delivery marks. Delivery includes the complete proposal, its target and current target revision, and any retained recommendation with its source. Missing recommendation text is stated as missing; it is not reconstructed from a verdict or summary.\n>\n> The existing bounded proposal delivery is reused. Proposals are ordered by their original filing time, with identifier as the tie-breaker. An entry omitted by a turn’s bounds remains eligible. Building a turn or recording that its text was shown does not remove an undecided proposal from the owner’s outstanding work. A failed turn leaves it outstanding. Routine turns may summarize previously shown entries, but a decision turn must provide the complete proposal or a supported read action that retrieves it.\n>\n> The owner issues a fresh typed decision against the proposal and target versions inspected. The harness checks current document ownership and the reserved intent boundary when recording it. Changed proposal content or a changed target revision requires renewed inspection; no decision is silently transferred to the changed content. Retrying the same recorded operation returns its existing result rather than appending another decision.\n>\n> The decision is recorded under the actual deciding role and reported to the operator afterwards. Historical recommendations, decisions and delivery records remain intact. Publication is tracked separately through the existing reviewed document-publication path. An accepted proposal awaiting publication remains visible as such.\n>\n> Acceptance checks cover an earlier recommendation without a decision, a delivery followed by a failed turn, a backlog larger than one delivery, a changed document owner, changed proposal or target content, and a repeated decision request after its response was lost. Each case must preserve the original evidence and must neither invent an operator approval nor lose outstanding work.\n\nAppend this paragraph to “Consequences” in `docs/decisions/authority-by-capability.md`:\n\n> Owning-role amendment decisions (yoyodyne-ifd.437.14) uses a trusted capability scoped to the target document and its current owner. The harness derives the actor from the authenticated conversation, checks ownership and reserved intent authority at execution, and records that actor without substituting the operator. Delivery marks and recommendations confer no authority. Introducing this capability for existing roles does not enable configurable role bundles or waive their parity requirement.\n\nUse this revision reason in both documents:\n\n> Record safe transition from proposal recommendations to owning-role decisions for Owning-role amendment decisions (yoyodyne-ifd.437.14), preserving prior evidence and making undecided proposals actionable after capability activation.\n\nThis is additional design text ready to apply, not a published revision or an executed validation. The existing work covers it; no duplicate item is needed. Consolidated publication remains outstanding, and the supplied records still do not establish the oldest outstanding item’s age.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"publication-authorization-inspection\",\"text\":\"At 7346ca754205 read ownership-and-the-operator, authority-by-capability and chat/amendment.go fully. Delivery marks suppress previously shown proposals and are recorded before turn success; supplied exact ownership subsection and authority-decision addition for Owning-role amendment decisions (yoyodyne-ifd.437.14): activation reoffers undecided proposals, recommendations never auto-decide, complete evidence at decision, current owner/version checks, retry-safe recording and separate publication. Earlier immutable authorization/provenance provisions remain required; no publication/tests or duplicate admission. Pending local-race identity remains unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 17980544,
+            "input_tokens": 3698363,
+            "output_tokens": 68940,
+            "reasoning_output_tokens": 5643
+          }
+        }
+      },
+      "terminal_reply_bytes": 5457
+    },
+    {
+      "local_start": "2026-10-04T09:14:59.257228-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T16:14:59.257228Z",
+        "ended_at": "2026-10-04T16:15:48.344951Z",
+        "turns": 1,
+        "model": "gpt-6-astra",
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "log-reader-first-scope",
+            "revision": 1
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 6088,
+        "timestamp": "2026-10-04T16:15:48.094057Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 22043266,
+            "cached_input_tokens": 18206848,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 69881,
+            "reasoning_output_tokens": 5643
+          },
+          "result": "I recommend approving amendment-3945621a505ca96ca50b130446b297dd. The first tool-interface implementation (yoyodyne-ifd.430.19) explicitly follows `tool-interface.md`; its six record classes provide a clear boundary. The broader list in `program-manager.md` contradicts that boundary, particularly its permission to read other agents’ conversations. This correction concerns the first implementation, not a permanent prohibition on future capabilities.\n\nI read both designs fully at commit 9c636617d27f and the implementation item’s description. Its earliest notes were cut. The queue survey succeeded but was cut at 16 KiB, so it does not establish the complete remaining queue or its oldest age.\n\nIn `docs/designs/program-manager.md`, replace the text beginning “`log.read`, the first tool defined” through the end of the “Reads” paragraph with:\n\n> `log.read`, the first tool defined under [tool-interface](tool-interface.md), provides a read-only, bounded, redacted read of one named record under the state root. Its first implementation permits six record classes: a pass record, the watch log, the docket, a run record, the usage-limit log, and the provider-outage record. A read names the record and a time window or cursor, stays within the descriptor’s byte limits, declares any cut, uses the redaction applied to provider-facing evidence, and is recorded on the conversation and pass. Returned text is evidence, never instruction.\n>\n> This first implementation does not expose other agents’ conversation records, any agent’s memory store, tokens, or arbitrary files under the state root. A run-record grant does not implicitly grant its event log. Other record classes mentioned by earlier versions of this design require an explicit extension of the registered descriptor and its authorization checks. Repository reads remain under the repository tools. Slack is a projection, not a read source; the instance reads the underlying record only where a granted tool permits it.\n\nRevision-log reason:\n\n> Align the program manager’s first log.read implementation with the six record classes and exclusions in tool-interface, resolving amendment-3945621a505ca96ca50b130446b297dd for the first tool-interface implementation (yoyodyne-ifd.430.19).\n\nNo change to `tool-interface.md` is needed for this recommendation. I have not recorded the proposal’s decision, changed either document, or verified the running implementation. The existing implementation item covers the work; no duplicate admission is needed.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"log-reader-first-scope\",\"subject\":\"First tool-interface implementation (yoyodyne-ifd.430.19)\",\"text\":\"At 9c636617d27f read program-manager and tool-interface fully; t417.1 confirms the first tool-interface implementation (yoyodyne-ifd.430.19) follows tool-interface and is in progress, with early notes cut. Recommend approve amendment-3945621a505ca96ca50b130446b297dd; supplied exact program-manager Reads replacement and revision reason limiting first log.read to pass/watch/docket/run/usage-limit/provider-outage records, excluding other-agent conversations and implicit run event logs. No decision/publication/tests or duplicate admission; t417 survey cut at 16KiB, oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 18206848,
+            "input_tokens": 3836418,
+            "output_tokens": 69881,
+            "reasoning_output_tokens": 5643
+          }
+        }
+      },
+      "terminal_reply_bytes": 3296
+    },
+    {
+      "local_start": "2026-10-04T10:15:39.689894-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T17:15:39.689894Z",
+        "ended_at": "2026-10-04T17:17:51.650991Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Recommend one document correction for the two proposals concerning the first tool-interface implementation (yoyodyne-ifd.430.19): retain the six permitted record classes and exclude other agents' conversations. Exact text for docs/designs/program-manager.md awaits governed publication; remaining architect work and its oldest age are not fully established by the truncated survey.",
+          "recommendations": [
+            {
+              "proposal": "amendment-3945621a505ca96ca50b130446b297dd",
+              "verdict": "approve",
+              "reason": "The program-manager design contradicts the explicit first log.read scope in tool-interface. The prepared replacement aligns the six permitted record classes and exclusions without widening the admitted implementation."
+            },
+            {
+              "proposal": "amendment-78204f523dba153b19d2f9c1b365d28c",
+              "verdict": "merge",
+              "reason": "This requests resolution of the same record-access contradiction. The earlier proposal and its prepared document revision already settle the permitted records and exclude other agents' conversations, so a second amendment is unnecessary.",
+              "into": "amendment-3945621a505ca96ca50b130446b297dd"
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 19
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 6117,
+        "timestamp": "2026-10-04T17:17:51.426081Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 22718561,
+            "cached_input_tokens": 18690944,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 73185,
+            "reasoning_output_tokens": 5863
+          },
+          "result": "All three reads succeeded at commit 9c636617d27f. The documents still lack the consolidated operational-configuration contract. They also assign schedules to operator-local policy and model mappings to operator policy without explaining how a delegated role maintains those values.\n\nFor Applying recommended configuration through a role (yoyodyne-ifd.434.8), I choose a trusted, field-scoped request followed by a reviewed configuration change. A general configuration-file write would grant too much; requiring protected role-definition support would add an unrelated prerequisite. This is a design decision under the existing authority invariant, not a new repository-wide invariant.\n\nThe following text consolidates the configuration contract. It is ready to insert immediately before “The authority model” in `docs/designs/configurable-workflows.md`.\n\n> ## Operational configuration applied by a role\n>\n> Applying recommended configuration through a role (yoyodyne-ifd.434.8) removes routine configuration pastes by the operator while preserving protected paths and trusted authority checks. A role decides permitted operational values; the harness records the decision, delivers a reviewed change, and reports whether the intended readers have adopted it.\n>\n> **Permitted fields and their owners.** Trusted Go code holds a closed registry of permitted configuration fields. Each entry identifies the exact field, its type, validation, deciding role, permitted effects and adoption boundary. A field’s presence in the configuration schema does not make it writable through this capability.\n>\n> | Operational setting | Deciding role and constraint |\n> | --- | --- |\n> | Checks, landing checks and path checks | Development manager, preserving required verification. Narrowing coverage must follow the applicable architect design. |\n> | Developer model mappings and operational model, model-version and effort fields on existing developer or management agents and tasks | Development manager, within standing provider eligibility, spending directions and supported adapter behavior. Agent identity, role, backend and account remain unchanged. |\n> | Preferences within existing developer slots | Lead Product Manager, preserving slot count, identity and eligible endpoints. |\n> | Interval, enablement and turn limit of an existing recurring task | Lead Product Manager, preserving mandatory coverage and the task’s identity, agent, prompt, workflow and remit. |\n> | Check time limits and operational polling, drain and stall limits | Development manager, preserving enclosing budgets and required verification. |\n> | Repair-attempt, integration-retry and transient-relaunch limits | Lead Product Manager; changing a limit never erases spent attempts or independently authorizes another attempt. |\n> | Usage-pause, overload and brake thresholds, cooldowns and escalation intervals | Lead Product Manager; changing a value never releases an existing hold or supplies a triage decision. |\n>\n> These categories are not wildcard grants. Every supported field needs its own registry entry. A program manager may request a change; it may decide one only where a trusted grant explicitly delegates that field within its lane.\n>\n> The capability refuses changes to agent or role identity, personas, remits, role definitions, accounts, approval policies, provider bindings, tool grants, protected-role activation, or state and repository locations. It cannot create, delete or rename agents, slots or tasks. Selecting an existing object identifies the operational field to change; it does not authorize changing that object’s identity or authority. Reviewer configuration and repair-cap grants are excluded.\n>\n> **The request.** `configuration.change.request` is a conversation-invoked action registered through the existing tool interface. It accepts a project, an existing configuration target, expected source revision, typed field changes and a reason. The harness derives the caller from the conversation and checks the deciding authority for every field. A request spanning several owners needs recorded authorization from each owner for the same proposed values; otherwise the whole request is refused.\n>\n> Acceptance records a stable operation identity and the authorized source and value changes. It does not edit a live file, run checks, commit, reload a service or claim adoption. Its result distinguishes a recorded request from a publication run and from an adopted configuration.\n>\n> **Reviewed delivery.** The existing run machinery carries the authorized change in an isolated checkout. Its protected-path grant names the exact file and permitted fields; it never grants the whole `.yoyodyne` directory and cannot include `.yoyodyne/roles/`. The trusted writer preserves unrelated source content and effective values. It uses the existing decoder and resolution rules, preserving list order and the distinction between absent, explicitly empty and inherited values. Unsupported source structures are refused rather than rewritten approximately.\n>\n> Validation checks both the source diff and the resulting effective configuration. Where a list or map must be materialized, the authorization records the inherited values that must be preserved. A source change since authorization requires a fresh comparison and renewed authorization for any changed effect; an effective-configuration digest alone does not authorize overwriting a changed source.\n>\n> The change passes protected-path validation, required checks, independent review and normal integration. The review and checks use the policy active before the change; proposed check settings cannot waive the checks needed to land themselves. No role can mint its own acceptance evidence.\n>\n> **Compatibility and adoption.** Validation establishes that the intended installed readers support the proposed fields and values. Schema acceptance alone does not prove provider model availability or actual effort support. If compatibility cannot be established, adoption remains pending with the missing evidence named.\n>\n> Publication and adoption are separate facts. The harness records the committed configuration revision, each required reader, its reload boundary, and the configuration revision that reader reports using. An unchanged or unobserved reader remains pending or unknown. New values apply at the supported reload boundary; they do not alter authority already pinned to an in-flight attempt.\n>\n> **Recovery and rollback.** The operation links authorization, candidate, publication run, resulting commit and adoption observations. After an interruption, reconciliation checks those records before repeating a side effect. A lost response does not create a second publication run or duplicate application. Uncertain outcomes remain explicit. A rollback is another authorized reviewed change, preserving unrelated changes made meanwhile.\n>\n> **Drift and doctor.** The configuration baseline retains the identity and contents of the originally installed bundle. Applying an operational change does not regenerate that baseline from current effective configuration. A missing baseline is recovered only from evidence of the original bundle; otherwise it remains unknown.\n>\n> Drift retains its existing comparison and separately cites the role’s decision and delivered change. Doctor distinguishes invalid configuration, unsupported values, pending publication, committed but unadopted values, and observed adoption. Neither a role’s authorization nor a successful commit proves that a service uses the value.\n>\n> **Bounded local race-check adoption.** Enable scoped local race checks with verified full-coverage safeguards (yoyodyne-ifd.429.46) may use a reviewed grant limited to the necessary configuration fields without waiting for this generic request capability. It must preserve full ordinary tests, formatting and vet, required full race verification of the actual merge candidate, and necessary macOS execution coverage. Linux execution and Darwin cross-compilation alone do not establish equivalent macOS coverage. Undefined or ambiguous selection runs the full scope; explicit empty selection runs no packages and cannot accidentally test the module root or claim full coverage. Intended and executed coverage remain recorded against the verified revision.\n>\n> **Acceptance.** Verification covers permitted and refused fields, wrong-owner and mixed-owner requests, attempted authority changes, absent versus empty values, preservation of unrelated inherited values, source movement, unsupported installed readers, checks evaluated under the preceding policy, interruption at publication and adoption boundaries, duplicate requests, rollback after an unrelated change, and truthful baseline, drift and doctor output. It must demonstrate that an authorized operational change reaches the committed file and its intended reader without an operator paste.\n\nTwo companion corrections are needed in that document. Replace the first paragraph under “Recurring tasks” with:\n\n> A recurring task is a schedule-triggered instance of a named agent’s bounded task workflow. Configuration selects what and when, never authority. Its definition remains project configuration. Operational intervals, enablement and turn limits are maintained by the Lead Product Manager through the field-scoped reviewed path above, subject to standing operator directions, budgets and mandatory coverage. Changing those values cannot change the task’s agent, prompt, workflow, remit or capabilities.\n\nReplace settled question 16 with:\n\n> Event subscriptions and workflow bindings are project configuration. Schedules remain local operational policy, maintained through the delegated configuration path above. Account pools are outside that path. Changes activate at the supported explicit reload boundary, with existing invocation and authority-pinning rules preserved.\n\nIn `docs/designs/management-loop-protocol.md`, replace the first sentence under “Execution profiles” with:\n\n> For an individual work item, the development manager selects among five named profiles — **mechanical-low-risk**, **standard**, **high-judgment**, **architecture-sensitive**, **specialist** — rather than supplying an arbitrary provider model string. The mapping from profiles to configured agents and models remains operational policy under standing operator directions; its permitted model fields may be maintained by the development manager through the reviewed configuration path in [configurable-workflows](configurable-workflows.md). Selecting a profile does not change that mapping or grant authority.\n\nThe remaining profile-promotion, evidence and independent-review requirements stay intact. In “Role boundaries, condensed,” replace “and profile selection” with “profile selection, and permitted operational model-policy maintenance.”\n\nAppend to “Consequences” in `docs/decisions/authority-by-capability.md`:\n\n> Applying recommended configuration through a role (yoyodyne-ifd.434.8) adds a trusted capability for a closed set of operational fields. Its scope is checked against the caller, source revision and effective changes; it grants no authority through configuration. Existing shipped roles may use this capability without enabling protected role-definition composition or bypassing that feature’s parity requirements.\n\nUse this revision reason for the three documents:\n\n> Consolidate the field ownership, reviewed delivery, recovery and observed-adoption contract for Applying recommended configuration through a role (yoyodyne-ifd.434.8), preserving protected authority and independent verification.\n\nThis completes the consolidated text for these three documents. It has not been submitted as a whole-document write or landed, so the design item remains open. No implementation or tests were performed.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"role-configuration-scope-reconciliation\",\"text\":\"At 9c636617d27f fully read configurable-workflows, management-loop-protocol and authority-by-capability; t420 confirms Applying recommended configuration through a role (yoyodyne-ifd.434.8) remains open and Automatic document publication (yoyodyne-ifd.433.21.1) has no run and needs no further architectural prerequisite. Supplied consolidated insertion before Authority model: closed field/owner registry, typed request, exact protected grants, source/effective validation, prior-policy review, compatibility, observed adoption, retry recovery, rollback and baseline/drift/doctor rules; exact recurring-task/Q16, profile-policy and authority-decision companions plus revision reason. Preserved independent bounded race path and macOS/full-candidate coverage. Text complete for these three documents but not submitted or landed; no tests, oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 18690944,
+            "input_tokens": 4027617,
+            "output_tokens": 73185,
+            "reasoning_output_tokens": 5863
+          }
+        }
+      },
+      "terminal_reply_bytes": 12873
+    },
+    {
+      "local_start": "2026-10-04T11:16:57.865156-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "started_at": "2026-10-04T18:16:57.865156Z",
+        "ended_at": "2026-10-04T18:18:32.85464Z",
+        "turns": 2,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Consolidated the three-document configuration contract for Applying recommended configuration through a role (yoyodyne-ifd.434.8), with exact text and revision reasons retained in confirmed memory revision 19. Governed publication and the remaining architect work are outstanding; the oldest admission age is unknown.",
+          "findings": [
+            {
+              "issue": "Applying recommended configuration through a role (yoyodyne-ifd.434.8) needed its configuration, schedule and model-policy provisions consolidated across the governing documents.",
+              "disposition": "left",
+              "detail": "Prepared coordinated revisions for docs/designs/configurable-workflows.md, docs/designs/management-loop-protocol.md and docs/decisions/authority-by-capability.md after full reads at 9c636617d27f. The text preserves trusted authority, independent verification and observed adoption; it is retained in memory but not submitted or landed."
+            }
+          ]
+        },
+        "problem": "the architect answered in prose without a sweep block, so what the pass found is only in the conversation",
+        "untraced": true
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-11558d325e9a214ebfd00bb4a0012750",
+        "sequence": 6145,
+        "timestamp": "2026-10-04T18:18:31.938081Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 23610175,
+            "cached_input_tokens": 19526912,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 75171,
+            "reasoning_output_tokens": 5863
+          },
+          "result": "The remaining reads succeeded at commit acffed41bdcb. They establish three requirements for Owning-role amendment decisions (yoyodyne-ifd.437.14): the record already distinguishes an owner from an operator, proposals preserve ownership as originally recorded, and concurrent decisions can currently both be appended even though readers accept only the first.\n\nI choose one serialized decision operation shared by every caller, with current ownership checked separately from historical attribution. Approval of a proposal remains distinct from authorization to publish exact replacement text. This preserves the existing proposal mechanism without turning a downstream argument into an executable edit.\n\nInsert the following section before “How a write reaches disk” in `docs/designs/artifact-contract.md`:\n\n> ## Decisions on proposed amendments\n>\n> Owning-role amendment decisions (yoyodyne-ifd.437.14) allows the role that currently owns a document to decide a proposed amendment through a typed conversation action. The harness records the actual deciding role and reports the decision to the operator afterwards. A proposal remains an argument: approving it neither edits a document nor authorizes publication of unspecified replacement text.\n>\n> **Authority and identity.** The action names the product, repository, proposal, inspected proposal-content digest, inspected target-document revision, verdict and reason. The harness derives the actor and conversation identity from the authenticated invocation. It resolves the target document and its current owner through the canonical ownership rules at execution. Neither a caller-supplied role nor the proposal’s historical owner grants authority.\n>\n> The proposal retains its original identifier, content, filing time, kind and owner as historical facts. If ownership has changed, the harness records the current ownership determination separately and directs the outstanding proposal to that owner. It does not rewrite the proposal or make old records undecodable by validating their historical ownership against today’s rules. A missing or ambiguous target is an explicit refusal requiring classification, not an operator approval request.\n>\n> A change to fundamental product intent remains the operator’s decision on a change drafted by the Lead Product Manager. Applicable unmarked product-intent changes retain their existing confirmation rule. Document-owner authority cannot bypass that boundary.\n>\n> **One recording operation.** Conversation, CLI and any other authorized decision surface use the same trusted recording operation. It serializes the read, authority and version checks, and durable append across processes sharing the product’s amendment store. A conversation lease alone is insufficient. The serialization boundary is held only for recording and reconciliation, never while invoking a model, reviewing a document or waiting for publication.\n>\n> Each request has a stable operation identity and content digest. Retrying the same operation returns its recorded result. Reusing its identity for different content is refused. A different request against an already decided proposal returns the existing decision as a conflict and causes no publication. After an uncertain write result, the harness reconciles the durable log before retrying; it must not assume that an error means nothing was appended.\n>\n> The operation records `approved` or `declined`, with a reason required for either new owner decision. It uses the existing distinction between owner and operator, supplemented by durable actor, conversation, inspected-version and operation provenance. Existing records remain readable. No owner decision is recorded as an operator decision.\n>\n> **Publication is separate.** An approved proposal is shown as accepted and awaiting its owner’s revision until the owner supplies exact document content. Publication authorization binds that content, the expected document base and the governing policy. It proceeds through the reviewed document-publication path. A proposal decision alone supplies neither a protected-path grant nor review or integration evidence.\n>\n> Changed proposal content or target revision requires renewed inspection before recording a decision. Target movement after a decision does not erase that historical decision, but the owner must reconcile the replacement document before a new publication authorization is issued.\n>\n> **Historical decisions and operator overrides.** Existing duplicate decisions retain their original order and first-decision interpretation; migration does not silently choose a different winner. New concurrent requests must not create that ambiguity.\n>\n> An operator override is an explicit, separately recorded operation identifying the decision it supersedes and its reason. It preserves the earlier record and passes through the same serialization boundary. A second ordinary decision is never interpreted as an override. An override prevents further publication under superseded authorization; it does not erase a landed revision. If the document has already landed, correction requires another reviewed revision.\n>\n> **Outstanding recommendations.** Delivery marks and recommendations are not decisions. Enabling this capability makes previously delivered but undecided proposals actionable again under the current owner. Earlier recommendations remain attributed evidence and are never converted automatically into approvals. The owner receives the complete proposal and current target evidence before deciding.\n>\n> **Verification.** Acceptance covers simultaneous conflicting decisions from separate processes, identical retries, operation-identity reuse with changed content, uncertain append outcomes, changed ownership, stale target revisions, legacy records, duplicate historical decisions, explicit overrides before and after publication, and approval without replacement text. Every case must preserve attribution and distinguish a recorded decision from a published document.\n\nRevision-log reason:\n\n> Define serialized, retry-safe amendment decisions and separate historical ownership, current authority and exact-content publication for Owning-role amendment decisions (yoyodyne-ifd.437.14).\n\nThis complements the previously prepared authority and publication revisions. It is ready to apply but remains unpublished; I performed no implementation or tests and admitted no duplicate work. The oldest outstanding item’s age remains unavailable.\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"publication-authorization-inspection\",\"text\":\"At acffed41bdcb fully read artifact-contract, runstate/amendment.go and amendment/{amendment,decision,queue}.go. Store permits concurrent appends; readers choose first; authority uses historical owner; DeciderOwner already exists. Supplied exact artifact-contract section and revision reason for Owning-role amendment decisions (yoyodyne-ifd.437.14): shared cross-process serialization, stable retry identity, uncertain-write reconciliation, current ownership separate from immutable history, proposal acceptance separate from exact-content publication, explicit operator override preserving prior/landed records, legacy compatibility and acceptance cases. Earlier delivery-transition and authority/publication companions remain required. No publication/tests or duplicate admission; oldest age unknown.\"}]}\n```",
+          "role": "architect",
+          "session_id": "01a103ce-acf0-72d3-990e-85e1401936d9",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 19526912,
+            "input_tokens": 4083263,
+            "output_tokens": 75171,
+            "reasoning_output_tokens": 5863
+          }
+        }
+      },
+      "terminal_reply_bytes": 7426
+    },
+    {
+      "local_start": "2026-10-04T21:11:48.705211-07:00",
+      "pass": {
+        "schema_version": 1,
+        "product_id": "yoyodyne",
+        "task": "architect-pass",
+        "role": "architect",
+        "conversation_id": "chat-a06587022b9caf04cbbb20d8f6fe8c13",
+        "started_at": "2026-10-05T04:11:48.705211Z",
+        "ended_at": "2026-10-05T04:18:54.709385Z",
+        "turns": 3,
+        "model": "gpt-6-astra",
+        "result": {
+          "status": "more",
+          "summary": "Submitted the consolidated artifact contract for Owning-role amendment decisions (yoyodyne-ifd.437.14), grounded in the current decision handlers and store. Publication is unconfirmed; the authority decision companion and harness-design cross-reference remain outstanding.",
+          "findings": [
+            {
+              "issue": "Applying recommended configuration through a role (yoyodyne-ifd.434.8) needs a field-level authorization boundary beyond protected-path grants.",
+              "disposition": "left",
+              "detail": "Supplied exact text for the Configuration section of docs/designs/v1-harness-design.md and recorded the ruling in memory. The source file was truncated, so no destructive whole-file replacement was submitted; bounded race adoption and consolidation remain outstanding."
+            },
+            {
+              "issue": "Publication of the complete developer-slot fallback design (yoyodyne-ifd.435.13) remains unconfirmed.",
+              "disposition": "left",
+              "detail": "The committed routing design at 794e64ada4e1 retains its old text. Recorded that the prior submission's working-tree outcome is unknown and that implementation was already unparked; no duplicate revision submitted."
+            },
+            {
+              "issue": "Bounded local race adoption under Applying recommended configuration through a role (yoyodyne-ifd.434.8) lacks demonstrated macOS execution and enforced candidate coverage.",
+              "disposition": "left",
+              "detail": "Supplied exact harness-design text and revision reason requiring full Linux and macOS candidate verification before narrowing local race checks. Corrected the mistaken identification of pathchecks.go as the Go package selector and preserved the remaining inspection gap in memory; no configuration change or duplicate work was filed."
+            },
+            {
+              "issue": "Owning-role amendment decisions (yoyodyne-ifd.437.14) requires shared serialization and recovery across human and owner callers.",
+              "disposition": "left",
+              "detail": "Source inspection confirms operator-only CLI attribution, unlocked decision recording, and delivery marks that precede successful turns. Submitted the complete contract defining the replacement behavior and recorded its status in memory; no implementation, tests, or confirmed publication."
+            }
+          ]
+        },
+        "problem": "turn 4 of the recurring task architect-pass failed, so its pass is partial: the architect wrote a document the harness will not record: 2 document(s) are already waiting on the operator and the limit is 2; decide those before writing another; before that failure the pass of architect-pass saved 4 write(s), which stand and were not undone: memory \"role-configuration-scope-reconciliation\" (remember, revision 29), memory \"developer-slot-fallback-design-submission\" (remember, revision 3), memory \"role-configuration-scope-reconciliation\" (remember, revision 30), memory \"publication-authorization-inspection\" (remember, revision 9); the next pass is told of them so it does not write them again; no machine sleep, harness downtime or wait behind another pass was established during the stopped response",
+        "failed": true,
+        "saved": [
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 29
+          },
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "developer-slot-fallback-design-submission",
+            "revision": 3
+          },
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "role-configuration-scope-reconciliation",
+            "revision": 30
+          },
+          {
+            "kind": "memory",
+            "action": "remember",
+            "memory": "publication-authorization-inspection",
+            "revision": 9
+          }
+        ]
+      },
+      "terminal": {
+        "schema_version": 2,
+        "run_id": "chat-a06587022b9caf04cbbb20d8f6fe8c13",
+        "sequence": 409,
+        "timestamp": "2026-10-05T04:18:54.533156Z",
+        "type": "run.completed",
+        "source": "codex",
+        "payload": {
+          "is_error": false,
+          "provider_usage": {
+            "input_tokens": 9488103,
+            "cached_input_tokens": 7866752,
+            "cache_write_input_tokens": 0,
+            "output_tokens": 34972,
+            "reasoning_output_tokens": 2643
+          },
+          "result": "I’m completing the authority companion for Owning-role amendment decisions (yoyodyne-ifd.437.14), using the decision record and harness-design sections read at `794e64ada4e1`. The original capability decision stays intact; the addition explains that owner decisions are a trusted harness capability, not configurable authority.\n\nThe harness design also needs two exact changes.\n\nAfter its “Artifact ownership” table, insert:\n\n> Owning-role amendment decisions (yoyodyne-ifd.437.14) are governed by the artifact contract. The owning role decides proposals within approved intent through a typed harness action authenticated from its invocation context. The harness records the actual decider separately from the authority exercised. Fundamental intent changes remain the operator’s decision, drafted by the Lead Product Manager; consistent changes remain with their owner. The operator retains explicit intervention and override. Ordinary owner decisions are reported afterwards, without a routine operator confirmation. Proposal approval, owner-authored revision, independent review, and confirmed publication remain separate facts.\n\nReplace the paragraph beginning “How a document written from a conversation reaches the repository” with:\n\n> **How a document written from a conversation reaches the repository.** The artifact contract governs owner-authored revisions and their publication. The owner supplies the document and reasoning; the harness records authority and prepares an isolated delivery run. Independent review and revision-bound checks govern integration. The delivery run does not compose the owner’s decision, and the conversation does not commit, branch, or reset the primary checkout. Fundamental intent changes retain their required operator decision; delegated owner decisions do not acquire a routine human confirmation. Earlier writes left in the operator’s working tree are reconciled from their existing records, preserving content and history. Prepared, written, reviewed, and landed are reported separately. An unavailable publication operation is an outstanding delivery dependency, not completed publication or a routine assignment of manual committing to the operator.\n\nUse this revision-log reason:\n\n> Owning-role amendment decisions (yoyodyne-ifd.437.14): link the ownership table and document-delivery paragraph to authenticated owner decisions and reviewed publication, preserving reserved intent, operator override, independent review, and existing write history.\n\nThe whole harness file remains unavailable because its read was truncated, so these replacements are supplied for application without inventing the remainder. The complete decision-record revision follows. Nothing here establishes that either companion has landed.\n\n```yoyodyne-artifact\n{\"documents\":[{\"action\":\"revise\",\"id\":\"authority-by-capability\",\"reason\":\"Owning-role amendment decisions (yoyodyne-ifd.437.14): append the owner-decision capability ruling without rewriting the original decision; distinguish trusted ownership authority from configurable bundles, preserve reserved intent and explicit operator override, and separate proposal decisions from reviewed publication.\",\"body\":\"# Authority is enforced as capabilities in Go; role names become data only after parity\\n\\n**Status:** Accepted. Refines the fixed-roles ruling (recorded via amendment e43b8198) rather than reversing it.\\n\\n## Context\\n\\nThe fixed-roles ruling held that authority a project could declare is authority a project could widen. It was right, and it also makes every specialist - an observer, an assessor - a harness code change, which does not scale to other people's projects.\\n\\n**Decision.** Authority semantics stay in trusted Go as capability primitives plus runtime separation policy. Ordinary configuration still cannot touch authority. What becomes configurable — protected, operator-activated, digest-pinned, and only after authorization-by-capability reaches behavioral parity with the five shipped roles — is the composition of known primitives into named bundles.\\n\\n**Rejected.** Roles fixed as Go constants forever: blocks specialists behind code changes and invites bespoke orchestration per specialist, which is the pattern this whole design retires. Authority in ordinary configuration or personas: rejected before, still rejected, and now enforced by invariant. A plugin API for new primitives: rejected — a primitive's semantics must be implemented and reviewed in-tree, because somebody must be accountable for what a capability means.\\n\\n**Consequences.** The parity sequence in the configurable-workflows design is binding: the authority inventory and capability registry land before anything is configurable, authorization call sites convert from role names to capability-and-scope checks before operator-defined bundles load, and the closed role-name type is removed last. Durable records created under the original five names keep compatibility decoding. The harness design's fixed-roles statement gains the refinement rather than being erased.\\n\\n## Owner decisions: subsequent ruling\\n\\nOwning-role amendment decisions (yoyodyne-ifd.437.14) adds the following ruling. The original decision above remains the record of the capability model's introduction; this addition records the specific authority needed for autonomous document ownership.\\n\\n**Choice.** The harness exposes a typed amendment-decision capability to the shipped roles that own governed documents, scoped by the canonical ownership table, product, repository, document identity, and current revision. Trusted code derives the actor from the invoking conversation or other authenticated entry point. An agent-supplied role name, persona, configuration setting, or path grant cannot supply this capability or widen its scope.\\n\\nThe architect decides amendments to architect-owned documents within approved goals. The Lead Product Manager decides amendments within the intent already delegated to that role. Fundamental intent changes remain reserved to the operator and are drafted by the Lead Product Manager. The operator retains direct intervention and a separately recorded override on any document. An assistant cannot impersonate that intervention.\\n\\n**Why this follows.** The standing autonomy goal requires routine decisions to remain with their owning roles. The existing capability principle already says that the harness performs an authorized operation on a role's behalf. Recording that role's document decision is such an operation; it is not configuration granting new authority.\\n\\n**Rejected alternatives.** Keeping every proposal on the operator's queue makes document ownership advisory and retains routine human work. Having an assistant approve on the operator's behalf falsifies who decided. Treating a role string in an output block as authorization lets untrusted content confer authority. Automatically applying a proposal's prose turns downstream advice into an upstream edit. All four are rejected.\\n\\n**Enforcement.** Every decision entry point uses the same authorization, serialization, expected-state comparison, durable operation identity, and recovery rules in the [artifact contract](../designs/artifact-contract.md). Record the actual decider separately from the owning authority. Concurrent callers cannot each claim an effective ordinary decision; retries recover the same operation. Operator overrides retain the prior decision and name the expected effective decision explicitly.\\n\\nThe first ordinary decision retains its meaning for legacy records. Unsupported record versions and damaged authoritative history cause a visible refusal rather than silent omission. Historical recommendations require source recovery and present owner reconciliation; they are not backdated decisions.\\n\\n**Separation.** Amendment approval settles a proposal, not a document. The owner authors the resulting revision. Independent review and revision-bound integration checks govern its publication. Approval does not mint check evidence, a review verdict, integration authority, or permission to overwrite a changed document. Report the decision afterwards and distinguish it from revision and landing.\\n\\n**Delivery consequence.** This capability may be implemented in the shipped trusted bundles without waiting for configurable role composition or removal of the closed role-name type. Its implementation must preserve the existing authority inventory and separation tests, adding explicit coverage for this capability. The original parity requirements still govern operator-defined bundles; this addition is no shortcut around them.\\n\\nThe runtime contract is the artifact contract, with the harness design linking its ownership and publication sections to it. This record preserves the choice and reasoning. Submission of these revisions does not establish implementation, activation, publication, or disposition of any pending proposal.\"}]}\n```\n\n```yoyodyne-memory\n{\"memories\":[{\"action\":\"remember\",\"memory\":\"publication-authorization-inspection\",\"text\":\"Owning-role amendment decisions (yoyodyne-ifd.437.14): after complete artifact-contract submission, submitted whole authority-by-capability companion preserving original prose with a subsequent owner-capability ruling, based on full read at 794e64ada4e1. Supplied exact harness-design ownership insertion, replacement publication paragraph and revision reason; whole harness file remains truncated. Owner capability needs no configurable-bundle prerequisite but preserves parity/separation checks. Both submission outcomes unknown; no tests, implementation, publication or proposal disposition. Do not resubmit blindly; harness companion still needs governed application.\"}]}\n```\n\n```yoyodyne-sweep\n{\"status\":\"more\",\"summary\":\"Submitted the authority decision companion for Owning-role amendment decisions (yoyodyne-ifd.437.14) and supplied exact harness-design replacements. Governed application and publication remain unconfirmed; the pass has further P0 work.\",\"findings\":[{\"issue\":\"Owning-role amendment decisions (yoyodyne-ifd.437.14) needs its capability and harness-design companions to agree with the submitted artifact contract.\",\"disposition\":\"left\",\"detail\":\"Submitted the complete authority-by-capability revision and supplied exact ownership and publication replacements for the partially read harness design. Recorded the delivery state in memory; no item closure, implementation, or publication is claimed.\",\"filed\":[]}],\"questions\":[],\"recommendations\":[]}\n```",
+          "role": "architect",
+          "session_id": "01a109c4-16e5-7360-bf3c-a95ec54ce30f",
+          "terminal_reason": "turn.completed",
+          "usage": {
+            "cache_read_input_tokens": 7866752,
+            "input_tokens": 1621351,
+            "output_tokens": 34972,
+            "reasoning_output_tokens": 2643
+          }
+        }
+      },
+      "terminal_reply_bytes": 10566
+    }
+  ],
+  "waiting_document_events": [
+    {
+      "schema_version": 2,
+      "run_id": "chat-a06587022b9caf04cbbb20d8f6fe8c13",
+      "sequence": 324,
+      "timestamp": "2026-10-05T03:50:31.891938Z",
+      "type": "document.drafted",
+      "source": "harness.chat",
+      "payload": {
+        "action": "revise",
+        "artifact": "claude-execution-and-account-routing",
+        "bytes": 32935,
+        "directory": "",
+        "kind": "",
+        "reason": "Complete Design per-developer-slot endpoint selection and cross-provider run failover (yoyodyne-ifd.435.13): replace obsolete Claude-only and no-fallback restrictions; specify stable slots, endpoint precedence, bounded developer and reviewer fallback, persisted transitions, recovery and legacy behavior, attribution, acceptance cases, and narrow adoption of the operator's four-slot mapping. Preserve provider eligibility, account boundaries, independent review, and existing recovery rules outside the explicit quota-fallback refinement.",
+        "title": "Execution routing: pinned invocations, developer slots, and safe provider fallback",
+        "turn": 45,
+        "write_id": "document-45.1"
+      }
+    },
+    {
+      "schema_version": 2,
+      "run_id": "chat-a06587022b9caf04cbbb20d8f6fe8c13",
+      "sequence": 401,
+      "timestamp": "2026-10-05T04:17:48.747189Z",
+      "type": "document.drafted",
+      "source": "harness.chat",
+      "payload": {
+        "action": "revise",
+        "artifact": "artifact-contract",
+        "bytes": 15519,
+        "directory": "",
+        "kind": "",
+        "reason": "Owning-role amendment decisions (yoyodyne-ifd.437.14): specify authenticated owner decisions, intent boundaries, serialized and recoverable decision recording, explicit operator overrides, pending-proposal delivery, historical reconciliation, and separate owner-authored publication; replace routine operator transcription with reviewed delivery while preserving document identity and history.",
+        "title": "",
+        "turn": 54,
+        "write_id": "document-54.1"
+      }
+    }
+  ]
+}

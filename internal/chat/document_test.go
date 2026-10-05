@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -165,16 +165,15 @@ func TestADocumentTheRoleMayNotWriteIsRefusedBeforeAnythingIsRecorded(t *testing
 	provider := &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1", ResolvedModel: "claude-opus-5",
 		FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals"),
-	}}}
+	}, {SessionID: "session-1", FinalText: "I will leave the goals to their owner."}}}
 	options, repository := documentOptions(t, provider)
 	options.Role = domain.RoleArchitect
 	options.Agent = string(domain.RoleArchitect)
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Write the goals up.")
-	var refusal *AuthorityError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want an authority refusal", err)
+	if err != nil || len(reply.DocumentRefusals) != 1 || !strings.Contains(reply.DocumentRefusals[0], "owns") {
+		t.Fatalf("Send() = %#v, %v, want an ownership refusal returned to the role", reply, err)
 	}
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
 		t.Fatalf("a refused document was recorded: %#v", session.Writes())
@@ -195,14 +194,13 @@ func TestADocumentFiledOutsideTheArtifactHomesIsRefusedAtTheActionLayer(t *testi
 	provider := &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1", ResolvedModel: "claude-opus-5",
 		FinalText: documentReply("create", "v2-goals", "goals", "internal/chat", "# Goals"),
-	}}}
+	}, {SessionID: "session-1", FinalText: "Understood."}}}
 	options, repository := documentOptions(t, provider)
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Write the goals up.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
+	if err != nil || len(reply.DocumentRefusals) != 1 {
+		t.Fatalf("Send() = %#v, %v, want a returned refusal", reply, err)
 	}
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
 		t.Fatalf("a document filed outside the homes was recorded: %#v", session.Writes())
@@ -222,18 +220,17 @@ func TestADocumentFiledInAnotherKindsHomeIsRefusedAtTheActionLayer(t *testing.T)
 	provider := &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1", ResolvedModel: "claude-opus-5",
 		FinalText: documentReply("create", "v1-design", "design", config.DefaultSpecifications, "# Design"),
-	}}}
+	}, {SessionID: "session-1", FinalText: "Understood."}}}
 	options, repository := documentOptions(t, provider)
 	options.Role = domain.RoleArchitect
 	options.Agent = string(domain.RoleArchitect)
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Write the design up.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
+	if err != nil || len(reply.DocumentRefusals) != 1 {
+		t.Fatalf("Send() = %#v, %v, want a returned refusal", reply, err)
 	}
-	if !strings.Contains(err.Error(), config.DefaultDesigns) {
+	if !strings.Contains(reply.DocumentRefusals[0], config.DefaultDesigns) {
 		t.Fatalf("the refusal does not name where a design is filed: %v", err)
 	}
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
@@ -264,7 +261,7 @@ func TestARevisionOfAnotherRolesDocumentIsRefusedBeforeTheOperatorIsAsked(t *tes
 	provider := &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1", ResolvedModel: "claude-opus-5",
 		FinalText: documentReply("revise", "v1-design", "", "", "# Design\\n\\nRevised."),
-	}}}
+	}, {SessionID: "session-1", FinalText: "Understood."}}}
 	options, repository := documentOptions(t, provider)
 	store := options.Documents.(artifact.Store)
 	design := artifact.Write{
@@ -282,9 +279,8 @@ func TestARevisionOfAnotherRolesDocumentIsRefusedBeforeTheOperatorIsAsked(t *tes
 	// The product manager owns the goals, not the designs.
 	session := openTestSession(t, options)
 	reply, err := session.Send(context.Background(), "Narrow the second design decision.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
+	if err != nil || len(reply.DocumentRefusals) != 1 {
+		t.Fatalf("Send() = %#v, %v, want a returned refusal", reply, err)
 	}
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
 		t.Fatalf("a revision of another role's document was recorded: %#v", session.Writes())
@@ -338,7 +334,7 @@ func TestAConversationWithNoArtifactStoreOffersNoWriteAndRefusesOne(t *testing.T
 	provider := &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1", ResolvedModel: "claude-opus-5",
 		FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals"),
-	}}}
+	}, {SessionID: "session-1", FinalText: "Understood."}}}
 	session := openTestSession(t, testOptions(t, provider))
 
 	// The role is not told about a mechanism nothing behind this conversation
@@ -346,10 +342,9 @@ func TestAConversationWithNoArtifactStoreOffersNoWriteAndRefusesOne(t *testing.T
 	if strings.Contains(SystemPrompt(domain.RoleProductManager, testAdmission, nil, ""), artifact.WriteFence) {
 		t.Fatal("a conversation with no artifact store offered the write contract")
 	}
-	_, err := session.Send(context.Background(), "Write the goals up.")
-	var refusal *DocumentError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want a refused document", err)
+	reply, err := session.Send(context.Background(), "Write the goals up.")
+	if err != nil || len(reply.DocumentRefusals) != 1 {
+		t.Fatalf("Send() = %#v, %v, want a returned refusal", reply, err)
 	}
 }
 
@@ -565,5 +560,71 @@ func TestARevisionReplacesTheDocumentAndRecordsAFurtherApproval(t *testing.T) {
 	}
 	if recorded.ApprovalState() != artifact.ApprovalApproved || len(recorded.Approvals) != 2 {
 		t.Fatalf("approvals = %#v", recorded.Approvals)
+	}
+}
+
+func TestARepeatedDocumentRefusalWaitsDurablyForTheNextTurn(t *testing.T) {
+	t.Parallel()
+	answer := documentReply("create", "v2-goals", "goals", "internal/chat", "# Goals")
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: "I will correct the directory."},
+	}}
+	options, _ := documentOptions(t, provider)
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "Write the goals.")
+	if err != nil || len(reply.DocumentRefusals) != 2 || len(provider.requests) != 2 {
+		t.Fatalf("Send() = %#v, %v; requests = %d", reply, err, len(provider.requests))
+	}
+	state, err := options.Store.Load(runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role})
+	if err != nil || !strings.Contains(state.PendingTrackerResults, "Document submission refused") {
+		t.Fatalf("durable results = %#v, %v", state, err)
+	}
+	if _, err := session.Send(context.Background(), "Continue."); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(provider.requests[2].Prompt, "Document submission refused") {
+		t.Fatal("the next turn did not receive the repeated refusal")
+	}
+}
+
+func TestARepeatedDocumentRefusalSurvivesALaterTrackerRound(t *testing.T) {
+	t.Parallel()
+	answer := documentReply("create", "v2-goals", "goals", "internal/chat", "# Goals")
+	read := "\n```yoyodyne-tracker\n" + `{"actions":[{"action":"read","id":"example-1"}]}` + "\n```\n"
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: answer + read},
+		{SessionID: "session-1", FinalText: "I read the work item."},
+		{SessionID: "session-1", FinalText: "I will correct the directory."},
+	}}
+	options, _ := documentOptions(t, provider)
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{"example-1": {ID: "example-1", Title: "Inspect document recovery", Status: "open"}}}
+	options.Tracker = tracker
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "Write the goals.")
+	if err != nil || len(reply.DocumentRefusals) != 2 || len(provider.requests) != 3 || len(tracker.shown) != 1 {
+		t.Fatalf("Send() = %#v, %v; requests = %d; reads = %v", reply, err, len(provider.requests), tracker.shown)
+	}
+	if !strings.Contains(provider.requests[2].Prompt, "example-1") || strings.Contains(provider.requests[2].Prompt, "Document submission refused") {
+		t.Fatalf("tracker continuation = %s", provider.requests[2].Prompt)
+	}
+	identity := runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role}
+	state, err := options.Store.Load(identity)
+	if err != nil || !strings.Contains(state.PendingTrackerResults, "Document submission refused") {
+		t.Fatalf("durable results = %#v, %v", state, err)
+	}
+	// A new process must still be able to deliver the deferred refusal.
+	session = openTestSession(t, options)
+	if _, err := session.Send(context.Background(), "Continue."); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(provider.requests[3].Prompt, "Document submission refused") {
+		t.Fatal("next message lost the repeated refusal")
+	}
+	state, err = options.Store.Load(identity)
+	if err != nil || strings.Contains(state.PendingTrackerResults, "Document submission refused") {
+		t.Fatalf("delivered refusal was not cleared: %#v, %v", state, err)
 	}
 }

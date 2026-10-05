@@ -958,6 +958,8 @@ type Reply struct {
 	// asked for them; what the role re-issued is in Actions, and a block refused
 	// again is the reply's error rather than another entry here.
 	HandedBack []string `json:"handed_back,omitempty"`
+	// DocumentRefusals are action results returned to the role without failing the turn.
+	DocumentRefusals []string `json:"document_refusals,omitempty"`
 	// Reports are what the product manager noticed and filed for the operator
 	// while it answered. They are collected rather than acted on: a report
 	// changes nothing about the turn that carried it, exactly as it changes
@@ -1366,6 +1368,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		}
 	}
 	prompt := s.turnPrompt(trimmed, picture)
+	resultsInPrompt := s.state.PendingTrackerResults
 	// chargeTo is the exchange the next invocation belongs to, set when a round of
 	// asking is delivered into it. asksTaken bounds how much asking one message
 	// may set off, which is a different question from how long one thread may run.
@@ -1384,16 +1387,18 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// repositoryRounds counts the rounds that read the repository, its own budget
 	// for the same reason.
 	repositoryRounds := 0
+	documentHandedBack := false
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
 	// what that round asked for, and record nothing as the operator's.
 	operatorMessage := trimmed
 	for round := 0; ; round++ {
-		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false)
+		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false, resultsInPrompt)
 		if round == 0 && errors.Is(err, errTurnInputTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
 		}
 		operatorMessage = ""
+		resultsInPrompt = ""
 		reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 		// The invocation is charged to the exchange whose answer it was carrying,
 		// before anything is decided about what it said: it was paid for either way.
@@ -1439,6 +1444,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			}
 			reply.HandedBack = append(reply.HandedBack, refused.Error())
 			prompt = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
+			resultsInPrompt = renderRefusedTrackerBlock(refused)
 			continue
 		}
 		// The block was readable, so a refusal waiting on a correction has had one.
@@ -1462,14 +1468,22 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			return reply, err
 		}
 
-		// A document is refused at the action layer before anything about it is
-		// recorded or shown: an illegal kind, a home this project does not file
-		// documents in, a shape the store would not accept. Nothing has touched the
-		// filesystem at this point and nothing will, so the refusal costs the
-		// repository nothing and costs the operator a decision they were never
-		// asked for.
+		// A refused document is an action result, not a failed turn. Keep the
+		// other actions and return the reason to the role once in this message;
+		// another refusal waits durably for its next turn instead of looping.
+		var documentResult string
 		if err := s.refuseWrites(parsed.Writes); err != nil {
-			return reply, &DocumentError{Role: s.state.Role, Err: err}
+			documentResult = s.renderDocumentRefusal(err)
+			parsed.Writes = nil
+			reply.DocumentRefusals = append(reply.DocumentRefusals, documentResult)
+			if documentHandedBack {
+				if err := s.carryResults(documentResult); err != nil {
+					return reply, err
+				}
+				documentResult = ""
+			} else {
+				documentHandedBack = true
+			}
 		}
 		// A concern is recorded before anything else is decided about the turn: it
 		// is the product manager declining to propose, and what it declined to
@@ -1533,7 +1547,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// rather than into the durable record — the tracker's results, and whatever
 		// research came back. It is owed to the role either way, so a round that
 		// ends up sending nothing writes it down instead of dropping it.
-		var undelivered string
+		undelivered := documentResult
 		if len(parsed.Actions) > 0 {
 			// The harness now goes to the tracker on the product manager's behalf,
 			// which emits no provider events, so the display is told directly rather
@@ -1555,7 +1569,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 					return reply, err
 				}
 			} else {
-				undelivered = renderTrackerResults(outcomes)
+				undelivered += renderTrackerResults(outcomes)
 			}
 		}
 		// Evidence from outside the repository, gathered on the role's behalf. It
@@ -1714,7 +1728,7 @@ Carry on answering the operator using these results. Say what you did, including
 // for. It is recorded before the provider is asked, so the log holds the question
 // ahead of its answer; the prompt itself is not recorded, because the picture and
 // the notices it carries are recorded already, elsewhere, and once.
-func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool) (string, error) {
+func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool, resultsInPrompt string) (string, error) {
 	retryMessage := operatorMessage
 	if retryMessage == "" {
 		retryMessage = "Continue the interrupted turn using these results:\n\n" + prompt
@@ -2228,13 +2242,15 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// conversation nobody has resumed is still being held by whatever started it.
 	s.state.Build = s.options.Build
 	s.state.Turns++
-	// The activity and the results were carried into the prompt this turn
-	// answered, so neither is pending any more. A turn that failed keeps them,
-	// because a product manager that never saw them still has not been told.
+	// The activity was carried into the prompt this turn answered. Only remove
+	// results that prompt included: later rounds can leave results waiting for
+	// the next message. A failed turn keeps everything it was owed.
 	if !savingMemory {
 		s.notices = nil
 		s.noticesDropped = false
-		s.state.PendingTrackerResults = ""
+		if resultsInPrompt != "" {
+			s.state.PendingTrackerResults = strings.Replace(s.state.PendingTrackerResults, resultsInPrompt, "", 1)
+		}
 	}
 	// And of the cuts it was told about, unless it was cut again itself.
 	if cutsTold && len(s.turnCuts) == 0 {
@@ -3387,6 +3403,9 @@ func (s *Session) await(ctx context.Context, screen console.Console, read func(i
 // the actions that failed beside the ones that worked, because a queue the
 // operator believes was reorganized is worse than one they know was not.
 func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
+	for _, refusal := range reply.DocumentRefusals {
+		fmt.Fprintln(out, refusal)
+	}
 	// A block handed back is said before what came of it, so an operator reading
 	// the actions below knows they are the re-issue rather than the first asking.
 	for _, refusal := range reply.HandedBack {

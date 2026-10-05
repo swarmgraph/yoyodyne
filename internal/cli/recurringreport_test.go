@@ -4,23 +4,28 @@ import (
 	"context"
 	"errors"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 type reportRecoveryBackend struct {
-	replies  []string
-	requests []backendapi.RunRequest
+	replies     []string
+	requests    []backendapi.RunRequest
+	interrupted bool
 }
 
 func (b *reportRecoveryBackend) Run(_ context.Context, request backendapi.RunRequest) (backendapi.RunResult, error) {
@@ -28,6 +33,16 @@ func (b *reportRecoveryBackend) Run(_ context.Context, request backendapi.RunReq
 	index := len(b.requests) - 1
 	if index >= len(b.replies) {
 		return backendapi.RunResult{}, errors.New("unexpected provider invocation")
+	}
+	if b.interrupted && index == 1 {
+		event, err := execution.NewEvent(request.RunID, request.LastSequence+1, time.Now(), execution.EventAgentMessage, "provider.claude-code", map[string]any{"text": b.replies[index]})
+		if err != nil {
+			return backendapi.RunResult{}, err
+		}
+		if err := request.EventSink(event); err != nil {
+			return backendapi.RunResult{}, err
+		}
+		return backendapi.RunResult{LastEvent: event.Sequence, FinalText: b.replies[index]}, errors.New("the provider closed the stream")
 	}
 	if b.replies[index] == "" {
 		return backendapi.RunResult{}, errors.New("report request refused")
@@ -49,6 +64,10 @@ type reportRecoveryPass struct {
 }
 
 func newReportRecoveryPass(t *testing.T, replies ...string) *reportRecoveryPass {
+	return newReportRecoveryPassWithOptions(t, nil, replies...)
+}
+
+func newReportRecoveryPassWithOptions(t *testing.T, configure func(*chat.Options), replies ...string) *reportRecoveryPass {
 	t.Helper()
 	root := t.TempDir()
 	conversations, err := runstate.NewConversationStore(root, "example")
@@ -83,13 +102,17 @@ func newReportRecoveryPass(t *testing.T, replies ...string) *reportRecoveryPass 
 			hold.Release()
 			return nil, nil, nil, err
 		}
-		session, err := chat.Open(chat.Options{
+		options := chat.Options{
 			Role: role, Agent: agent, Backend: b, Store: conversations, Hold: hold,
 			Fresh: replacement != nil, Model: "gpt-6-astra", Provider: domain.BackendClaudeCode,
 			AccountAlias: config.DefaultAccountAlias, Repository: filepath.Join(root, "repository"),
-			ProductID: "example", RepositoryID: "example", Memories: memories,
+			ProductID: "example", RepositoryID: "example", Memories: memories, Reports: reports,
 			Briefing: chat.Briefing{Text: "A fresh briefing for the product.", GatheredAt: clock.Now()},
-		})
+		}
+		if configure != nil {
+			configure(&options)
+		}
+		session, err := chat.Open(options)
 		if err != nil {
 			hold.Release()
 			return nil, nil, nil, err
@@ -299,5 +322,152 @@ func TestAnExternallyReplacedConversationIsReusedAfterMissingReports(t *testing.
 	next := p.fire(t)
 	if next.ConversationReplacement != nil || next.ConversationID != current.ConversationID || next.ConversationID == first.ConversationID {
 		t.Fatalf("replaced a conversation the operator already replaced: %+v", next)
+	}
+}
+
+// Only Show is permitted by these replies; embedding the interface makes any
+// unexpected tracker operation fail the test rather than hiding it.
+type documentPassTracker struct {
+	chat.Tracker
+	reads []string
+}
+
+func (t *documentPassTracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
+	t.reads = append(t.reads, id)
+	return beads.WorkItem{ID: id, Title: "Inspect document recovery", Status: "open"}, nil
+}
+
+func TestARecurringDocumentRefusalKeepsTheOtherActionsAndDoesNotFailThePass(t *testing.T) {
+	t.Parallel()
+	tracker := &documentPassTracker{}
+	document := func(id string) string {
+		return artifact.WriteFence + "\n" + `{"documents":[{"action":"create","id":"` + id + `","kind":"design","title":"` + id + `","directory":"docs/designs","body":"# Design","reason":"record the design"}]}` + "\n```\n"
+	}
+	p := newReportRecoveryPassWithOptions(t, func(o *chat.Options) {
+		if err := os.MkdirAll(o.Repository, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		o.Documents = artifact.StoreFor(o.Repository, config.Product{Specifications: config.DefaultSpecifications, Designs: config.DefaultDesigns, Decisions: config.DefaultDecisions, Invariants: config.DefaultInvariants})
+		o.Tracker = tracker
+	}, document("first-design")+recoveredReport, document("second-design")+recoveredReport,
+		document("refused-design")+rememberedRuling+"\n```yoyodyne-tracker\n"+`{"actions":[{"action":"read","id":"example-1"}]}`+"\n```\n```yoyodyne-report\n"+`{"reports":[{"severity":"note","message":"The design is ready. Its submission is waiting."}]}`+"\n```\n", recoveredReport)
+	for i := 0; i < 2; i++ {
+		seed := p.fire(t)
+		if seed.Failed || seed.Result == nil || len(p.backend.requests) != i+1 {
+			t.Fatalf("seed pass %d = %+v; requests = %+v", i, seed, p.backend.requests)
+		}
+	}
+	pass := p.fire(t)
+	if pass.Failed || pass.Result == nil || pass.Result.Status != "complete" || len(pass.Saved) != 1 || pass.ReportsFiled != 1 {
+		t.Fatalf("pass = %+v", pass)
+	}
+	if len(tracker.reads) != 1 || tracker.reads[0] != "example-1" {
+		t.Fatalf("tracker reads = %v", tracker.reads)
+	}
+	if len(p.backend.requests) != 4 {
+		t.Fatalf("requests = %d", len(p.backend.requests))
+	}
+	prompt := p.backend.requests[3].Prompt
+	for _, want := range []string{"Document submission refused", "limit is 2", "document-1.1", "first-design", "document-2.1", "second-design", "example-1", "review-wait"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("refusal prompt lacks %q: %s", want, prompt)
+		}
+	}
+	memories, _, err := p.memories.Live("architect")
+	if err != nil || len(memories) != 1 {
+		t.Fatalf("memories = %+v, %v", memories, err)
+	}
+	// Both waiting documents remain undecided in the durable conversation.
+	state, err := p.conversations.Load(runstate.ConversationIdentity{Agent: "architect", Role: domain.RoleArchitect})
+	if err != nil || len(state.PendingWrites) != 2 {
+		t.Fatalf("waiting documents = %+v, %v", state.PendingWrites, err)
+	}
+	for i, id := range []string{"first-design", "second-design"} {
+		write := state.PendingWrites[i]
+		if write.Artifact != id || write.Body != "# Design" || write.Action != "create" {
+			t.Fatalf("waiting document changed: %+v", write)
+		}
+		path := filepath.Join(p.backend.requests[0].WorkingDirectory, "docs", "designs", id+".md")
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("a waiting document was written: %s, %v", path, err)
+		}
+	}
+}
+
+func TestARecurringInterruptedReplyStillFailsAndKeepsItsSavedWrites(t *testing.T) {
+	t.Parallel()
+	more := "```yoyodyne-sweep\n" + `{"status":"more","summary":"saved the ruling"}` + "\n```"
+	p := newReportRecoveryPass(t, rememberedRuling+more, "The next ruling begins, because")
+	p.backend.interrupted = true
+	task := p.trigger.Tasks["architect-pass"]
+	task.MaxTurns = 2
+	p.trigger.Tasks["architect-pass"] = task
+	pass := p.fire(t)
+	if !pass.Failed || len(pass.Saved) != 1 || !strings.Contains(pass.Problem, "the provider closed the stream") {
+		t.Fatalf("pass = %+v", pass)
+	}
+	events, err := p.conversations.LoadEvents(pass.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Type == execution.EventAgentMessage && strings.Contains(string(event.Payload), "The next ruling begins, because") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("the partial reply was not saved")
+	}
+}
+
+func TestARecurringDocumentOwnershipRefusalKeepsTheOtherActionsAndDoesNotFailThePass(t *testing.T) {
+	t.Parallel()
+	tracker := &documentPassTracker{}
+	answer := artifact.WriteFence + "\n" + `{"documents":[{"action":"create","id":"refused-goals","kind":"goals","title":"Goals","directory":"docs/product","body":"# Goals","reason":"record the goals"}]}` + "\n```\n" +
+		rememberedRuling + "\n```yoyodyne-tracker\n" + `{"actions":[{"action":"read","id":"example-1"}]}` + "\n```\n```yoyodyne-report\n" + `{"reports":[{"severity":"note","message":"The goals belong to the product manager. The design work continues."}]}` + "\n```\n"
+	p := newReportRecoveryPassWithOptions(t, func(o *chat.Options) {
+		if err := os.MkdirAll(o.Repository, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		o.Documents = artifact.StoreFor(o.Repository, config.Product{Specifications: config.DefaultSpecifications, Designs: config.DefaultDesigns, Decisions: config.DefaultDecisions, Invariants: config.DefaultInvariants})
+		o.Tracker = tracker
+	}, answer, recoveredReport)
+	pass := p.fire(t)
+	if pass.Failed || pass.Result == nil || pass.Result.Status != "complete" || len(pass.Saved) != 1 || pass.ReportsFiled != 1 {
+		t.Fatalf("pass = %+v", pass)
+	}
+	if len(tracker.reads) != 1 || tracker.reads[0] != "example-1" {
+		t.Fatalf("tracker reads = %v", tracker.reads)
+	}
+	if len(p.backend.requests) != 2 {
+		t.Fatalf("requests = %d", len(p.backend.requests))
+	}
+	prompt := p.backend.requests[1].Prompt
+	for _, want := range []string{"Document submission refused", "only the role that owns", "example-1", "review-wait"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("refusal prompt lacks %q: %s", want, prompt)
+		}
+	}
+	memories, _, err := p.memories.Live("architect")
+	if err != nil || len(memories) != 1 {
+		t.Fatalf("memories = %+v, %v", memories, err)
+	}
+	state, err := p.conversations.Load(runstate.ConversationIdentity{Agent: "architect", Role: domain.RoleArchitect})
+	if err != nil || len(state.PendingWrites) != 0 {
+		t.Fatalf("waiting documents = %+v, %v", state.PendingWrites, err)
+	}
+	events, err := p.conversations.LoadEvents(pass.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Type == execution.EventDocumentDrafted {
+			t.Fatalf("refused document was recorded: %+v", event)
+		}
+	}
+	path := filepath.Join(p.backend.requests[0].WorkingDirectory, "docs", "product", "refused-goals.md")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("refused document was written: %s, %v", path, err)
 	}
 }

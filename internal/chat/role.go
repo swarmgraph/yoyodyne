@@ -299,27 +299,15 @@ func (e *AuthorityError) Error() string {
 	return message
 }
 
-// authorize refuses everything in a parsed reply that this conversation's role
-// may not ask for. It runs before any of it is recorded, so a refusal leaves the
+// authorize checks the non-document actions this conversation's role may ask
+// for. Document ownership is checked by refuseWrites so that its refusal can
+// return to the role without discarding the other permitted actions. This check
+// runs before any of it is recorded, so a refusal leaves the
 // tracker, the proposals, and the concerns exactly as they were — the prose the
 // role wrote is still the operator's to read, and the turn is still charged for,
 // because the provider answered.
 func (s *Session) authorize(parsed parsedReply) error {
 	authority := s.authority()
-	// A document is refused first, because it is the one block here that would
-	// change the repository: a role that owns no document has no business writing
-	// one, and a role that owns some may not write a kind that is not among them.
-	// Both are the artifact package's ownership table read here rather than a
-	// second table beside it.
-	for _, write := range parsed.Writes {
-		if err := write.Authorize(authority.Role); err != nil {
-			return &AuthorityError{
-				Role:    authority.Role,
-				Refused: "a document to be written",
-				Reason:  err.Error(),
-			}
-		}
-	}
 	if len(parsed.Proposals) > 0 && !authority.Proposals {
 		return &AuthorityError{
 			Role:    authority.Role,
