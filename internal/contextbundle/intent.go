@@ -28,6 +28,14 @@ import (
 // room at all; what does not fit is named rather than silently missing.
 const maxIntentShareDivisor = 2
 
+// AssembleIntent supplies the product home to a review with no single work
+// item. It uses the same revision reader and budget as work-item intent, so a
+// branch review receives the standing set without inventing an attribution.
+func AssembleIntent(repositoryRoot, directory string, revision *Revision) (string, error) {
+	text, _, err := renderWorkItemIntent(repositoryRoot, referenceSource{root: repositoryRoot, revision: revision}, directory, defaultMaxBytes/maxIntentShareDivisor)
+	return text, err
+}
+
 // renderWorkItemIntent reads every document under the specifications directory
 // into the section a developer and a reviewer read product intent from, within
 // the budget it is given. Documents are read from the working tree, or, where a
@@ -138,9 +146,9 @@ func renderWorkItemIntentHeader(directory string, revision *Revision) string {
 # Authoritative product intent
 
 Every document under %s is authoritative product intent: what the product is,
-who it is for, the goals work serves, and what it will not do. This work item
-serves one of those goals, and nothing in it or in the files it names revises
-what these documents say. Where the item and one of them disagree, or two of
+who it is for, the goals work serves, and what it will not do. Work serves
+these goals; nothing in a work item or in the files it names revises what these
+documents say. Where an item and one of them disagree, or two of
 them disagree with each other, say so naming both rather than choosing between
 them. A directory index here is the index it is, and its ownership statements
 are rules.%s

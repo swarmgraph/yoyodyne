@@ -155,8 +155,14 @@ fresh checks before it can be integrated.
 
 An independent reviewer —
 its own provider invocation, with no tools at all — judges the change against
-the work item, its design guidance and acceptance criteria, the invariants
-delivered with it, and the check results. The change it is shown is measured
+the work item, its design guidance and acceptance criteria, the goal it serves,
+the standing goals stated in the delivered product intent, the invariants
+delivered with it, and the check results. Every change is held to the standing
+set whichever goal its item serves. A change that breaks a standing goal is
+refused with a major finding naming the goal and the place it is broken, so the
+developer repairs it within the item's grant; meeting the item's criteria does
+not excuse the violation. The review summary names which standing goals were
+checked and any evidence limitation. The change it is shown is measured
 against the commit the run was cut from rather than against what happens to be
 uncommitted, so work an earlier attempt already made — every attempt is
 committed by the harness before the checks run, whether or not the run
@@ -2101,7 +2107,9 @@ branch against the base it grew from:
 ```
 
 It describes every commit the branch carries over that base and diffs the whole
-range as one patch, under the same bounds a single change is described within: a
+range as one patch. The product intent, including its standing set, is supplied
+as that base commit holds it, and the reviewer checks the accumulated change
+against the set. The patch has the same bounds a single change is described within: a
 range too large to show in full is clipped whole file by whole file and in the
 same class order — source, then tests, then test data — with each file the
 bound kept out named above the patch with the size of its diff, its content

@@ -512,6 +512,13 @@ a reviewer to notice it.
 
 ## What agents report, and where it reaches you
 
+The review summary records whether the item's criteria were met and names each
+standing goal the reviewer checked beside the item's own goal, with any
+limitation in the evidence. A change that breaks a standing goal is refused as
+a major finding naming the goal and the place it is broken, even when its own
+criteria are met. That finding returns to the developer for repair within the
+item's grant; it is part of the verdict, separate from the reports below.
+
 An agent used to be able to reach you only by failing. A spent repair budget
 becomes a durable blocker, a failed run is reported where you are already
 looking — and everything an agent noticed while its work *succeeded* survived

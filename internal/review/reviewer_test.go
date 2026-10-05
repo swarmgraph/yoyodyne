@@ -138,6 +138,55 @@ func TestReviewReturnsRepairWithActionableFindings(t *testing.T) {
 	}
 }
 
+// The provider's judgment is supplied by a double; the delivery, immutable
+// contract and refusal of an approval carrying a major finding are real.
+func TestReviewRefusesARetiredTermEvenWhenTheItemsGoalIsMet(t *testing.T) {
+	t.Parallel()
+	for _, scope := range []Scope{ScopeWorkItem, ScopeBranch} {
+		t.Run(string(scope), func(t *testing.T) {
+			request := newRequest(nil)
+			request.Scope = scope
+			if scope == ScopeBranch {
+				request.WorkItemID = ""
+				request.Branch = BranchScope{Name: "milestone", BaseCommit: "abc123", HeadCommit: "def456", Commits: []gitworktree.Commit{{Commit: "def456", Subject: "record attribution"}}}
+			}
+			request.Context += "\nGoal served: Trace changes to intent.\n# Authoritative product intent\n\n## Standing goals\n\nThe plain-language and autonomy goals apply to every change.\n"
+			request.Changes.Patch = "diff --git a/status.go b/status.go\n+fmt.Fprintln(out, \"The provider's posture changed.\")\n"
+			request.Checks = []checks.Result{{Command: "make test", Passed: true}}
+			const summary = "The item's attribution criteria are met. Checked the standing plain-language and autonomy goals; the printed retired term breaks the plain-language goal."
+			const findings = `,"findings":[{"severity":"major","message":"The standing plain-language goal is broken by the retired term posture; write tool access instead.","location":{"file":"status.go","line":12}}]}`
+			provider := &fakeBackend{finalText: `{"decision":"repair","summary":"` + summary + `"` + findings}
+			result, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if result.Decision != DecisionRepair || result.Verdict.Summary != summary {
+				t.Fatalf("review = %#v", result)
+			}
+			finding := result.Verdict.Findings[0]
+			if finding.Severity != SeverityMajor || finding.Disposition != "" || finding.Location.File != "status.go" {
+				t.Fatalf("standing goal finding = %#v", finding)
+			}
+			for _, want := range []string{"against the standing goals", "as well as the goal the work item serves", "choose repair and give a major finding naming the goal and the place", "within the item's grant", "Do not mark that finding out of scope", "name each standing goal you actually checked", "If no standing set is supplied"} {
+				if !strings.Contains(provider.request.SystemPrompt, want) {
+					t.Errorf("review contract is missing %q", want)
+				}
+			}
+			for _, want := range []string{"## Standing goals", "Goal served: Trace changes to intent.", "The provider's posture changed.", "make test: passed=true"} {
+				if !strings.Contains(provider.request.Prompt, want) {
+					t.Errorf("review evidence is missing %q", want)
+				}
+			}
+			// A provider cannot approve the same change while retaining its
+			// major finding, even with passing checks and met item criteria.
+			provider.finalText = `{"decision":"approve","approves":"implementation","summary":"` + summary + `"` + findings
+			if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request); err == nil || !strings.Contains(err.Error(), "require repair") {
+				t.Fatalf("approval with a standing goal violation error = %v", err)
+			}
+		})
+	}
+}
+
 // A criterion about what a check prints has to be answerable from the harness's
 // own evidence: the line the criterion quotes reaches the reviewer beside the
 // passing result, labelled as the check's own output, and so does the absence
