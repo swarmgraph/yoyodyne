@@ -76,6 +76,15 @@ func (s dispositionSite) key() string {
 // apart and a reader adding either should say which they meant.
 var auditedDispositionReads = []dispositionSite{
 	{
+		File: "internal/goal/relevant.go", Declaration: "(Set) ResolveRelevant", Read: "Resolved()", Reads: 1,
+		Means: "goal attribution, not a directive: whether a relevant goal matched a recorded goal, so its canonical reference can be stored.",
+	},
+	{
+		File: "internal/goal/relevant.go", Declaration: "(Set) DescribeRelevant", Read: "Resolved()", Reads: 1,
+		Means: "goal attribution, not a directive: whether a recorded reference matched a goal, so the reader sees its current wording.",
+	},
+
+	{
 		File: "internal/chat/admission.go", Declaration: "(*Session) admissionGap", Read: "Resolved()", Reads: 1,
 		Means: "goal attribution, not a directive: whether the statement was matched to a recorded goal. It has no liveness reading at all.",
 	},

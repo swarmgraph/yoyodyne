@@ -43,6 +43,7 @@ var templateOnlyPassages = map[string]map[string]string{
 		"- Predict each item's code footprint": plainWordsInTheLiveCopy,
 	},
 	"product-manager.md": {
+		"- Check each admission against all recorded goals":     "Recording relevant goals at admission (yoyodyne-ifd.433.12) ships this guidance, but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries this passage into the bound copy; remove this declaration then.",
 		"- Open a project that has not written its intent down": plainWordsInTheLiveCopy,
 	},
 	"program-manager.md": {
