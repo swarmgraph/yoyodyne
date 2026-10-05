@@ -8639,7 +8639,37 @@ func boundedCheckOutput(result execution.ProcessResult) string {
 		}
 		combined.WriteString(trimmed)
 	}
-	return boundedTail(combined.String(), runstate.MaxCheckOutputBytes)
+	output := combined.String()
+	var names []string
+	seen := map[string]bool{}
+	for _, line := range strings.Split(output, "\n") {
+		line = strings.TrimSpace(line)
+		var name string
+		if strings.HasPrefix(line, "--- FAIL: ") {
+			fields := strings.Fields(strings.TrimPrefix(line, "--- FAIL: "))
+			if len(fields) > 0 {
+				name = fields[0]
+			}
+		} else if strings.HasPrefix(line, "FAILED ") || strings.HasPrefix(line, "FAIL: ") {
+			name = strings.TrimSpace(strings.SplitN(line, " ", 2)[1])
+			name = strings.SplitN(name, " - ", 2)[0]
+		} else if strings.HasPrefix(line, "FAIL\t") || strings.HasPrefix(line, "FAIL ") {
+			fields := strings.Fields(line)
+			if len(fields) > 1 {
+				name = fields[1]
+			}
+		}
+		if name != "" && !seen[name] && len(names) < 20 {
+			seen[name] = true
+			names = append(names, name)
+		}
+	}
+	header := "No failing test or package was named in the captured output.\n"
+	if len(names) > 0 {
+		header = "Failing tests or packages named in the captured output (up to 20): " + strings.Join(names, ", ") + "\n"
+	}
+	header = boundedTail(header, 2048)
+	return header + boundedTail(output, runstate.MaxCheckOutputBytes-len(header))
 }
 
 // truncationNotice replaces the output boundedTail dropped. It counts against
@@ -9278,6 +9308,9 @@ func renderCheckNotes(outcome Outcome) []string {
 	for _, check := range outcome.Checks {
 		lines = append(lines, fmt.Sprintf("Check: %s (passed=%t, exit=%d, %s of %s)",
 			check.Command, check.Passed, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
+		if !check.Passed {
+			lines = append(lines, boundedCheckOutput(check.Process))
+		}
 	}
 	return lines
 }

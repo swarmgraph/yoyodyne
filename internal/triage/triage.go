@@ -625,6 +625,7 @@ type Counters struct {
 	ReviewRoundsCap int `json:"review_rounds_cap"`
 	// RepairAttempts is what the stopped run spent of its own repair budget, and
 	// RepairGrantAttempts is what a grant would hand the item.
+	RepairAttemptsLeft  int `json:"repair_attempts_left"`
 	RepairAttempts      int `json:"repair_attempts"`
 	RepairGrantAttempts int `json:"repair_grant_attempts"`
 	// The three decisions triage records against a durable budget, each beside
@@ -1854,6 +1855,7 @@ func (e Entry) Render() string {
 	fmt.Fprintf(&rendered, "      Triage counters: %d of %s review round(s) used%s; %d repair attempt(s) spent in this run; a grant would hand it %d\n",
 		e.Counters.ReviewRounds, capFigure(e.Counters.ReviewRoundsCap), roundsNote(e.Counters),
 		e.Counters.RepairAttempts, e.Counters.RepairGrantAttempts)
+	fmt.Fprintf(&rendered, "      Remaining: %d repair attempt(s); %d review round(s) available for a grant\n", e.Counters.RepairAttemptsLeft, e.Counters.RoundsUncommitted())
 	rendered.WriteString(e.renderDecisions())
 	rendered.WriteString(e.renderEarlier())
 	return rendered.String()
