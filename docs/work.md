@@ -773,12 +773,17 @@ off afterwards.
 
 Independent review receives the developer's final account beside the patch,
 landing claim, execution record, and the harness's check results. The account is
-saved against the attempt and the content of its change, so a review resumed in
-a later process receives the same account when the change still matches. A new
-developer invocation clears the earlier account before it runs; an account for
-another attempt or different content, including a different base after replay,
-is not presented as current evidence. A run recorded before accounts were saved,
-or one without a current account, tells the reviewer no summary is available.
+saved against the attempt and the content of its change. Every review round
+receives the latest completed account, including after a repair, a continuation,
+a replay onto a newer target base, or a later process picking the run up again.
+A new developer invocation keeps the earlier account until a completed reply
+replaces it. The brief names the recorded and current attempts and states
+whether the content and base still match; an earlier account remains testimony
+and does not establish verification of a changed candidate. If the run has no
+saved account, the brief says so and explains that the record may predate summary
+retention or no invocation returned a final account. The reviewer names that
+limitation and what it cannot verify rather than treating the missing account
+as proof that the developer supplied no evidence.
 
 The saved copy retains at most 4 KiB, cutting on a character boundary and ending
 with a note when the rest was not recorded. It is shown as the developer's own

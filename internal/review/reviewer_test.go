@@ -581,7 +581,14 @@ func TestReviewSaysWhenNoCurrentDeveloperSummaryIsAvailable(t *testing.T) {
 	if !strings.Contains(prompt, "No developer final summary is available for this attempt and change.") {
 		t.Fatalf("missing summary was not represented honestly:\n%s", prompt)
 	}
+	if !strings.Contains(prompt, "No saved final account was supplied to this review.") {
+		t.Fatal("missing account had no explanation")
+	}
 	request := newRequest(nil)
+	request.DeveloperSummaryContext = "No final account is saved in this run's durable record."
+	if prompt := reviewEvidencePrompt(request); !strings.Contains(prompt, request.DeveloperSummaryContext) {
+		t.Fatal("missing account lost its caller's explanation")
+	}
 	request.Scope = ScopeBranch
 	request.DeveloperSummary = "a single work item's account"
 	if prompt := reviewEvidencePrompt(request); strings.Contains(prompt, "Developer's final summary") || strings.Contains(prompt, request.DeveloperSummary) {

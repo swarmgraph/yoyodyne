@@ -1568,7 +1568,8 @@ const reviewSummaryCutNote = "\n[cut; the rest of this summary was not recorded]
 
 // DeveloperSummary is the developer's account of one completed invocation,
 // bound to the attempt and the content it left. It is a claim, never gate
-// evidence. A new invocation clears it before it can change the worktree.
+// evidence. It remains the latest account until a completed invocation replaces
+// it; review states when its binding differs from the candidate.
 type DeveloperSummary struct {
 	Text    string `json:"text"`
 	Content string `json:"content"`
@@ -2744,8 +2745,8 @@ type State struct {
 	ReviewSummary  string `json:"review_summary,omitempty"`
 	ReviewFindings int    `json:"review_findings,omitempty"`
 	// DeveloperSummary is absent on older runs, on invocations without a final
-	// account, and while a new developer invocation is in flight. Review only
-	// receives it when both its attempt and content still match the candidate.
+	// account. Review receives the latest saved account with its attempt and
+	// content relation to the candidate stated, including after a replay.
 	DeveloperSummary *DeveloperSummary `json:"developer_summary,omitempty"`
 	// LandingOutcome is what the developer claimed its change does to the work
 	// item, and LandingReason is its own account of the claim. They are durable
