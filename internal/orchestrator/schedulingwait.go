@@ -3,7 +3,7 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"sort"
+	"regexp"
 	"strings"
 	"time"
 
@@ -22,19 +22,14 @@ func clearSchedulingWait(ctx context.Context, tracker any, id string, now time.T
 	}
 }
 
+// Name whole identifiers only; a run identifier may contain an item identifier.
 // Name longer identifiers first so an epic's identifier does not replace the
 // beginning of a child's identifier. Titles are inserted only once.
 func schedulingWaitReason(reason string, items map[string]beads.WorkItem) string {
-	var ids []string
-	for id := range items {
-		ids = append(ids, id)
-	}
-	sort.Slice(ids, func(i, j int) bool { return len(ids[i]) > len(ids[j]) })
-	var replacements []string
-	for _, id := range ids {
+	return regexp.MustCompile(`[A-Za-z0-9_.-]+`).ReplaceAllStringFunc(reason, func(id string) string {
 		if title := strings.TrimSpace(items[id].Title); title != "" {
-			replacements = append(replacements, id, title+" ("+id+")")
+			return title + " (" + id + ")"
 		}
-	}
-	return strings.NewReplacer(replacements...).Replace(reason)
+		return id
+	})
 }
