@@ -104,8 +104,43 @@ func TestReviewReceivesTheDeveloperSummaryOfEachAttempt(t *testing.T) {
 	}
 }
 
-func TestResumedReviewReceivesOnlyACurrentDeveloperSummary(t *testing.T) {
-	for _, mode := range []string{"current", "missing", "earlier attempt", "changed content"} {
+// Docket continuation delivery (yoyodyne-ifd.430.40), run-070a8c4e,
+// received the diagnosis at review events 1081 and 1798, but lost it at 1408
+// and 2125 after each approval's change was replayed onto a newer base.
+func TestReviewKeepsTheDeveloperDiagnosisAfterReplayOntoAMovedTarget(t *testing.T) {
+	t.Parallel()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if err := os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600); err != nil {
+			return err
+		}
+		writePipelineFile(t, repository, "elsewhere.txt", "concurrent work\n")
+		runPipelineGit(t, repository, "add", "elsewhere.txt")
+		runPipelineGit(t, repository, "commit", "-m", "concurrent target change")
+		return nil
+	}, approveVerdict)
+	provider.DeveloperFinalText = "October 4 diagnosis: the docket was constructed once; continuation messages never read the next slice."
+	pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err != nil {
+		t.Fatal(err)
+	}
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if len(reviews) != 2 || provider.DeveloperAttempts != 1 {
+		t.Fatalf("reviews = %d, developer attempts = %d, want two reviews of one developer account", len(reviews), provider.DeveloperAttempts)
+	}
+	for i, request := range reviews {
+		if !strings.Contains(request.Prompt, provider.DeveloperFinalText) {
+			t.Errorf("review %d lost the completed developer diagnosis after replay", i)
+		}
+	}
+	if !strings.Contains(reviews[1].Prompt, "candidate content or base has changed") {
+		t.Fatal("replayed review did not qualify the earlier account's verification claims")
+	}
+}
+
+func TestResumedReviewReceivesTheLatestDeveloperSummaryWithItsContext(t *testing.T) {
+	for _, mode := range []string{"current", "missing", "earlier attempt", "changed content", "after repair"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
 			repository, worktreeRoot, store := restartableFixture(t)
@@ -114,7 +149,19 @@ func TestResumedReviewReceivesOnlyACurrentDeveloperSummary(t *testing.T) {
 				return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 			}, approveVerdict)
 			first.DeveloperFinalText = "Implemented the configuration and checked compatibility with the previous build."
-			first.Respond = stoppingReviewer(first.Respond, first.ReviewerSession)
+			if mode == "after repair" {
+				first.DeveloperFinalTextByAttempt = []string{"Original developer account.", "Repaired developer account."}
+			}
+			respond := first.Respond
+			stop := stoppingReviewer(respond, first.ReviewerSession)
+			first.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+				if mode == "after repair" && request.Role == domain.RoleReviewer && first.DeveloperAttempts == 1 {
+					result, err := respond(request)
+					result.FinalText = repairVerdict
+					return result, err
+				}
+				return stop(request)
+			}
 			pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, []string{"exit 0"}), first)
 			paused, err := pipeline.Run(context.Background(), tracker.Item.ID)
 			if err != nil || !paused.Paused {
@@ -155,37 +202,62 @@ func TestResumedReviewReceivesOnlyACurrentDeveloperSummary(t *testing.T) {
 				t.Fatalf("resumed reviews = %d, want one", len(reviews))
 			}
 			prompt := reviews[0].Prompt
-			if mode == "current" {
-				if !strings.Contains(prompt, first.DeveloperFinalText) {
-					t.Fatal("resumption lost the summary for the unchanged candidate")
+			if mode == "missing" {
+				if strings.Contains(prompt, first.DeveloperFinalText) || !strings.Contains(prompt, "No final account is saved in this run's durable record.") {
+					t.Fatal("resumption concealed the missing summary or its reason")
 				}
-			} else if strings.Contains(prompt, first.DeveloperFinalText) || !strings.Contains(prompt, "No developer final summary is available for this attempt and change.") {
-				t.Fatalf("resumption presented a stale summary or concealed its absence:\n%s", prompt)
+				return
+			}
+			want := first.DeveloperFinalText
+			if mode == "after repair" {
+				want = first.DeveloperFinalTextByAttempt[1]
+				if strings.Contains(prompt, first.DeveloperFinalTextByAttempt[0]) {
+					t.Fatal("re-adoption supplied the account before the repair")
+				}
+			}
+			if !strings.Contains(prompt, want) {
+				t.Fatal("resumption lost the latest completed account")
+			}
+			if mode == "earlier attempt" && !strings.Contains(prompt, "This account is from an earlier attempt.") {
+				t.Fatal("review was not told the account's attempt differs")
+			}
+			if mode == "changed content" && !strings.Contains(prompt, "candidate content or base has changed") {
+				t.Fatal("review was not told the account's candidate differs")
 			}
 		})
 	}
 }
 
-func TestADeveloperInvocationClearsThePreviousSummaryBeforeItRuns(t *testing.T) {
+func TestADeveloperInvocationRetainsTheLatestAccountUntilItsReplacement(t *testing.T) {
 	t.Parallel()
 	repository, worktreeRoot, store := restartableFixture(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	invocations := 0
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		state, err := store.Load(request.RunID)
 		if err != nil {
 			return err
 		}
-		if state.DeveloperSummary != nil {
-			t.Errorf("a running invocation still carries the earlier summary: %#v", state.DeveloperSummary)
+		if invocations == 0 && state.DeveloperSummary != nil {
+			t.Error("first invocation already has an account")
 		}
+		if invocations == 1 && (state.DeveloperSummary == nil || state.DeveloperSummary.Text != "Original account.") {
+			t.Error("repair invocation lost the latest completed account before returning a replacement")
+		}
+		invocations++
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, repairVerdict, approveVerdict)
+	provider.DeveloperFinalTextByAttempt = []string{"Original account.", "Replacement account."}
 	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, []string{"exit 0"}), provider)
 	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err != nil {
 		t.Fatal(err)
 	}
 	if provider.DeveloperAttempts != 2 {
 		t.Fatalf("developer attempts = %d, want a first invocation and a repair", provider.DeveloperAttempts)
+	}
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if !strings.Contains(reviews[1].Prompt, "Replacement account.") || strings.Contains(reviews[1].Prompt, "Original account.") {
+		t.Fatal("completed repair did not replace the previous account for review")
 	}
 }
 

@@ -4042,12 +4042,12 @@ func (a *activeRun) developerEffort() string {
 // that succeeded was, and the reissued invocation after it is charged again.
 func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID string) (backend.RunResult, error) {
 	p := a.pipeline
-	// Even a resumed or reissued invocation may change the worktree without
-	// returning an account. Retire the earlier account durably before it runs.
-	a.state.DeveloperSummary = nil
+	// Keep the latest completed account until another replaces it. An interrupted
+	// continuation has no new account; review labels the saved attempt and content
+	// rather than losing the developer's earlier testimony.
 	a.outcome.Summary = ""
 	if err := p.Store.Save(a.state); err != nil {
-		return backend.RunResult{}, fmt.Errorf("clear the previous developer summary: %w", err)
+		return backend.RunResult{}, fmt.Errorf("save the developer invocation state: %w", err)
 	}
 	account := a.account()
 	model := a.developerModel()
@@ -7683,7 +7683,7 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	if err != nil {
 		return "", providerEvidence{}, err
 	}
-	developerSummary, err := a.developerSummaryForReview(ctx)
+	developerSummary, summaryContext, err := a.developerSummaryForReview(ctx)
 	if err != nil {
 		return "", providerEvidence{}, err
 	}
@@ -7708,12 +7708,13 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 		// judged beside the evidence its author left rather than on the patch
 		// alone. It comes from the durable record for the reason the claim does: a
 		// repair round judges what the run currently holds.
-		Verification:     describeVerification(a.state),
-		DeveloperSummary: developerSummary,
-		WorktreePath:     a.worktree.Path,
-		Changes:          changes,
-		Repository:       reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
-		Checks:           a.outcome.Checks,
+		Verification:            describeVerification(a.state),
+		DeveloperSummary:        developerSummary,
+		DeveloperSummaryContext: summaryContext,
+		WorktreePath:            a.worktree.Path,
+		Changes:                 changes,
+		Repository:              reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
+		Checks:                  a.outcome.Checks,
 		// What the item's done-conditions quote, so every line of a check's
 		// output carrying one reaches the reviewer beside the check's result.
 		CheckPatterns: review.CriterionPatterns(a.item.Description, a.item.AcceptanceCriteria),
@@ -7809,22 +7810,28 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	}, nil
 }
 
-// developerSummaryForReview supplies only the account of this attempt's exact
-// change. Replaying onto another base or changing a file retires the account
-// just as a new attempt does; the reviewer is told it has no current summary.
-func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, error) {
+// developerSummaryForReview supplies the latest completed account, even after
+// replay or re-adoption, and states how its binding relates to today's candidate.
+// The binding qualifies testimony; it never grants check or integration credit.
+func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, string, error) {
 	summary := a.state.DeveloperSummary
-	if summary == nil || summary.Attempt != a.state.RepairAttempts {
-		return "", nil
+	if summary == nil {
+		return "", "No final account is saved in this run's durable record. The record may predate summary retention, or no developer invocation returned a final account.", nil
 	}
 	content, err := a.pipeline.Worktrees.ContentIdentity(ctx, a.worktree)
 	if err != nil {
-		return "", fmt.Errorf("identify the change for the developer summary: %w", err)
+		return "", "", fmt.Errorf("identify the change for the developer summary: %w", err)
+	}
+	context := fmt.Sprintf("Latest completed developer account: recorded at attempt %d; review is at attempt %d.", summary.Attempt, a.state.RepairAttempts)
+	if summary.Attempt != a.state.RepairAttempts {
+		context += " This account is from an earlier attempt."
 	}
 	if summary.Content != content {
-		return "", nil
+		context += " The candidate content or base has changed since this account was recorded; its verification claims do not establish verification of the current candidate."
+	} else {
+		context += " Its recorded content and base match the candidate."
 	}
-	return summary.Text, nil
+	return summary.Text, context, nil
 }
 
 func (a *activeRun) clearReviewEvidence() {
