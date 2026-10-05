@@ -3202,7 +3202,7 @@ func (a *activeRun) recordCheckFailure(result checks.Result) {
 	a.state.CheckFailure = &runstate.CheckFailure{
 		Command:  result.Command,
 		ExitCode: result.Process.ExitCode,
-		Output:   boundedCheckOutput(result.Process),
+		Output:   boundedCheckOutput(result),
 	}
 }
 
@@ -6305,7 +6305,7 @@ func landingCheckOutput(result checks.Result) string {
 	if result.Passed {
 		return ""
 	}
-	return boundedCheckOutput(result.Process)
+	return boundedCheckOutput(result)
 }
 
 // complete records the outcome on the work item, closes an integrated item whose
@@ -8627,49 +8627,8 @@ func accountPrompt(invariants, scratchDirectory, reason string, checks []string)
 // than the bound allows, because a suite prints its failures and its summary at
 // the end, and the truncation is stated so the developer reading it knows the
 // check did not simply stop there.
-func boundedCheckOutput(result execution.ProcessResult) string {
-	var combined strings.Builder
-	for _, stream := range []string{result.Stdout, result.Stderr} {
-		trimmed := strings.Trim(stream, "\n")
-		if trimmed == "" {
-			continue
-		}
-		if combined.Len() > 0 {
-			combined.WriteString("\n")
-		}
-		combined.WriteString(trimmed)
-	}
-	output := combined.String()
-	var names []string
-	seen := map[string]bool{}
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		var name string
-		if strings.HasPrefix(line, "--- FAIL: ") {
-			fields := strings.Fields(strings.TrimPrefix(line, "--- FAIL: "))
-			if len(fields) > 0 {
-				name = fields[0]
-			}
-		} else if strings.HasPrefix(line, "FAILED ") || strings.HasPrefix(line, "FAIL: ") {
-			name = strings.TrimSpace(strings.SplitN(line, " ", 2)[1])
-			name = strings.SplitN(name, " - ", 2)[0]
-		} else if strings.HasPrefix(line, "FAIL\t") || strings.HasPrefix(line, "FAIL ") {
-			fields := strings.Fields(line)
-			if len(fields) > 1 {
-				name = fields[1]
-			}
-		}
-		if name != "" && !seen[name] && len(names) < 20 {
-			seen[name] = true
-			names = append(names, name)
-		}
-	}
-	header := "No failing test or package was named in the captured output.\n"
-	if len(names) > 0 {
-		header = "Failing tests or packages named in the captured output (up to 20): " + strings.Join(names, ", ") + "\n"
-	}
-	header = boundedTail(header, 2048)
-	return header + boundedTail(output, runstate.MaxCheckOutputBytes-len(header))
+func boundedCheckOutput(result checks.Result) string {
+	return checks.FailureOutput(result)
 }
 
 // truncationNotice replaces the output boundedTail dropped. It counts against
@@ -9309,7 +9268,7 @@ func renderCheckNotes(outcome Outcome) []string {
 		lines = append(lines, fmt.Sprintf("Check: %s (passed=%t, exit=%d, %s of %s)",
 			check.Command, check.Passed, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
 		if !check.Passed {
-			lines = append(lines, boundedCheckOutput(check.Process))
+			lines = append(lines, boundedCheckOutput(check))
 		}
 	}
 	return lines

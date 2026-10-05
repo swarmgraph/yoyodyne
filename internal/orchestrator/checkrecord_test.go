@@ -13,12 +13,17 @@ import (
 )
 
 func TestFailedCheckRecordsNamesAndOutputOnItemAndDocket(t *testing.T) {
-	for _, named := range []bool{true, false} {
+	for _, scenario := range []struct{ named, verbose bool }{{true, false}, {false, false}, {true, true}} {
+		named := scenario.named
 		output := strings.Repeat("earlier output\n", 1000)
 		want := "No failing test or package was named"
 		if named {
 			output = "--- FAIL: TestBroken (0.01s)\n" + output
 			want = "TestBroken"
+		}
+		if scenario.verbose {
+			output += strings.Repeat(strings.Repeat("x", 1023)+"\n", 8193)
+			output += "--- FAIL: TestAfterCaptureLimit (0.01s)\n"
 		}
 		output += "last diagnostic"
 		path := t.TempDir() + "/output"
@@ -30,6 +35,14 @@ func TestFailedCheckRecordsNamesAndOutputOnItemAndDocket(t *testing.T) {
 			t.Fatalf("failed check: %v, %v", results, err)
 		}
 		result := results[0]
+		if scenario.verbose {
+			if result.Process.OutputTruncation == "" || strings.Contains(result.Process.Stdout, "last diagnostic") {
+				t.Fatal("regression did not exceed the process capture limit")
+			}
+			if !strings.Contains(result.FailureOutput, "TestAfterCaptureLimit") {
+				t.Fatal("observer lost the late failing test")
+			}
+		}
 		a := activeRun{state: runstate.State{}}
 		a.recordCheckFailure(result)
 		notes := strings.Join(renderCheckNotes(Outcome{Checks: []checks.Result{result}}), "\n")
@@ -38,7 +51,11 @@ func TestFailedCheckRecordsNamesAndOutputOnItemAndDocket(t *testing.T) {
 			if strings.Contains(text, "secret-value") {
 				t.Errorf("%s contains secret", label)
 			}
-			for _, required := range []string{want, truncationNotice, "last diagnostic"} {
+			requiredText := []string{want, truncationNotice, "last diagnostic"}
+			if scenario.verbose {
+				requiredText = append(requiredText, "TestAfterCaptureLimit")
+			}
+			for _, required := range requiredText {
 				if !strings.Contains(text, required) {
 					t.Errorf("%s missing %q: %s", label, required, text)
 				}
