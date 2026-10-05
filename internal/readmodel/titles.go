@@ -21,9 +21,35 @@ import (
 const unavailableWorkItem = "title unavailable"
 const untitledWorkItem = "no title recorded"
 
-// renderedCitation recognizes the format this resolver previously produced,
-// so a second rendering refreshes it rather than adding another citation.
-var renderedCitation = regexp.MustCompile(`\(P[0-4](?:, [^()\n]*)?\) [^\n]*? \(([A-Za-z0-9][A-Za-z0-9_-]*-[a-z0-9]+(?:\.[0-9]+)*)\)|title unavailable \(([A-Za-z0-9][A-Za-z0-9_-]*-[a-z0-9]+(?:\.[0-9]+)*)\)`)
+// Rendered citations end with their own identifier. Titles can contain other
+// parenthesized identifiers, so the final one before the next citation or line
+// break identifies the item, independently of the current tracker fields.
+var renderedCitationStart = regexp.MustCompile(`\(P[0-4](?:, [^()\n]*)?\) |title unavailable \(`)
+var citationIdentifier = regexp.MustCompile(`\(([A-Za-z0-9][A-Za-z0-9_-]*-[a-z0-9]+(?:\.[0-9]+)*)\)`)
+
+func renderedCitations(text string) [][]int {
+	starts := renderedCitationStart.FindAllStringIndex(text, -1)
+	var spans [][]int
+	for i, start := range starts {
+		end := len(text)
+		if newline := strings.IndexByte(text[start[0]:], '\n'); newline >= 0 {
+			end = start[0] + newline
+		}
+		if i+1 < len(starts) && starts[i+1][0] < end {
+			end = starts[i+1][0]
+		}
+		ids := citationIdentifier.FindAllStringSubmatchIndex(text[start[0]:end], -1)
+		if len(ids) == 0 {
+			continue
+		}
+		id := ids[len(ids)-1]
+		if strings.HasPrefix(text[start[0]:], unavailableWorkItem) {
+			id = ids[0]
+		}
+		spans = append(spans, []int{start[0], start[0] + id[1], start[0] + id[2], start[0] + id[3]})
+	}
+	return spans
+}
 
 // candidateToken is a run of the characters an identifier is made of. Each one
 // is then classified; most are ordinary words and are passed over.
@@ -197,7 +223,7 @@ func (w *WorkItemTitles) Cite(text string) string {
 	}
 	var cited strings.Builder
 	last := 0
-	rendered := renderedCitation.FindAllStringSubmatchIndex(text, -1)
+	rendered := renderedCitations(text)
 	protected := 0
 	for _, match := range candidateToken.FindAllStringIndex(text, -1) {
 		start, end := match[0], match[1]
@@ -207,30 +233,7 @@ func (w *WorkItemTitles) Cite(text string) string {
 		if protected < len(rendered) && start >= rendered[protected][0] && start < rendered[protected][1] {
 			span := rendered[protected]
 			if span[0] >= last && !insideCode(text, span[0]) {
-				idStart, idEnd := span[2], span[3]
-				if idStart < 0 {
-					idStart, idEnd = span[4], span[5]
-				}
-				id := text[idStart:idEnd]
-				// A title may itself cite another full identifier. Prefer an
-				// exact current citation over the first parenthesized id in it.
-				if w != nil {
-					lineEnd := strings.IndexByte(text[span[0]:], '\n')
-					if lineEnd < 0 {
-						lineEnd = len(text) - span[0]
-					}
-					for _, token := range candidateToken.FindAllStringIndex(text[span[0]:span[0]+lineEnd], -1) {
-						candidate := text[span[0]+token[0] : span[0]+token[1]]
-						if _, known := w.items[candidate]; !known {
-							continue
-						}
-						name := w.Name(candidate)
-						if strings.HasPrefix(text[span[0]:], name) {
-							id, span[1] = candidate, span[0]+len(name)
-							break
-						}
-					}
-				}
+				id := text[span[2]:span[3]]
 				if full, _ := w.identify(id); full != "" {
 					id = full
 				}
@@ -247,6 +250,12 @@ func (w *WorkItemTitles) Cite(text string) string {
 			end--
 		}
 		id, _ := w.identify(text[start:end])
+		if id == "" && explicitWorkItemReference(text, start) {
+			root, rest, _ := strings.Cut(text[start:end], ".")
+			if cut := strings.LastIndex(root, "-"); cut > 0 && isHash(root[cut+1:]) && rest == "" {
+				id = root
+			}
+		}
 		if id == "" || !w.standsAlone(text, start, end) || insideCode(text, start) {
 			continue
 		}
@@ -288,6 +297,19 @@ func (w *WorkItemTitles) Cite(text string) string {
 // mention receives its own complete citation, regardless of the prior text.
 func (w *WorkItemTitles) CiteAfter(prior, text string) string {
 	return w.Cite(text)
+}
+
+// An unreadable root has the same spelling as an ordinary hyphenated word.
+// Work-item wording makes that reference explicit without guessing from the
+// spelling alone. Durable fields already identified as work use Name instead.
+func explicitWorkItemReference(text string, start int) bool {
+	before := strings.ToLower(strings.TrimSpace(text[:start]))
+	for _, cue := range []string{"work item", "item", "epic", "blocked on", "waiting on", "admitted as", "filed:"} {
+		if before == cue || strings.HasSuffix(before, " "+cue) || strings.HasSuffix(before, "\n"+cue) {
+			return true
+		}
+	}
+	return false
 }
 
 // identify reads one token as a work item identifier: the identifier it names,

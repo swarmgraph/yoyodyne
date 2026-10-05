@@ -455,6 +455,13 @@ matches it; quantities, explicit versions such as `Go 1.22`, paths, links, and
 code are left intact. If the tracker is unreadable, ambiguous bare numbers
 remain as written.
 
+A root identifier without dotted children can also be an ordinary hyphenated
+word. When the tracker cannot identify it, introduce it as work, for example
+`work item calc-wja`, `waiting on calc-wja`, or `filed: calc-wja`. Those explicit
+references receive the unavailable-title marker; ordinary hyphenated words
+stay as written. Fields that already identify a work item retain its root
+identifier without needing that wording.
+
 The records themselves are not changed. A lane report, a report, and a pass's
 account are kept exactly as their author wrote them, and `yoyo reports --json`
 and `yoyo sweeps --json` carry them that way. What the read model hands a

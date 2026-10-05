@@ -311,3 +311,51 @@ func TestALaneClaimAndRestartReasonExpandWorkWithoutChangingItsReferences(t *tes
 		t.Fatal("the recorded lane prose changed")
 	}
 }
+
+func TestUnreadableRootWorkItemReferencesRemainVisible(t *testing.T) {
+	t.Parallel()
+	for _, titles := range []*WorkItemTitles{nil, NewWorkItemTitles(nil)} {
+		for _, id := range []string{"yoyodyne-ifd", "calc-wja"} {
+			text := "Waiting on work item " + id + "."
+			want := "Waiting on work item title unavailable (" + id + ")."
+			if got := titles.Cite(text); got != want {
+				t.Errorf("Cite(%q) = %q, want %q", text, got, want)
+			}
+		}
+		text := "A dry-run checks read-only behavior and follow-up work. The recurring task report-triage has failed."
+		if got := titles.Cite(text); got != text {
+			t.Errorf("ordinary hyphenated words changed: %q", got)
+		}
+	}
+}
+
+func TestRefreshingACitationKeepsItsOuterIdentifierWhenFieldsChange(t *testing.T) {
+	t.Parallel()
+	item := beads.WorkItem{ID: "yoyodyne-ifd.432.28", Title: "Extend work (yoyodyne-ifd.12) with labels", Priority: 1}
+	old := NewWorkItemTitles(append(titledItems(), item)).Name(item.ID)
+	item.Priority = 3
+	item.Labels = []string{"reliability"}
+	item.Title = "Updated work (yoyodyne-ifd.12)"
+	current := NewWorkItemTitles(append(titledItems(), item))
+	for _, titles := range []*WorkItemTitles{current, nil, NewWorkItemTitles(nil)} {
+		want := "Waiting on " + titles.Name(item.ID) + "; then " + titles.Name("yoyodyne-ifd.12") + "."
+		text := "Waiting on " + old + "; then (P0) Pause on a provider usage limit (yoyodyne-ifd.12)."
+		if got := titles.Cite(text); got != want {
+			t.Errorf("Cite(%q) = %q, want %q", text, got, want)
+		}
+		if got := titles.Cite(want); got != want {
+			t.Errorf("second rendering = %q, want %q", got, want)
+		}
+		text = old + ". See yoyodyne-ifd.12."
+		want = titles.Name(item.ID) + ". See " + titles.Name("yoyodyne-ifd.12") + "."
+		if got := titles.Cite(text); got != want {
+			t.Errorf("a later reference changed the citation: %q, want %q", got, want)
+		}
+		for _, punctuation := range []string{";", ".", ":"} {
+			text = "(P1) Extend work (yoyodyne-ifd.12)" + punctuation + " with labels (yoyodyne-ifd.432.28)"
+			if got := titles.Cite(text); got != titles.Name(item.ID) {
+				t.Errorf("punctuation in a title changed the item: %q", got)
+			}
+		}
+	}
+}
