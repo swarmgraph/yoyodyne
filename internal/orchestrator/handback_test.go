@@ -86,6 +86,13 @@ func TestARepairHandbackCarriesThePreservedChange(t *testing.T) {
 	if !result.Continued {
 		t.Fatalf("result = %#v, want the handback carried out", result)
 	}
+	if !result.Outcome.continuationAccepted {
+		t.Fatalf("outcome = %+v; want acceptance confirmed by the adopted pipeline", result.Outcome)
+	}
+	served, err := store.Load(stopped.RunID)
+	if err != nil || len(served.RepairContinuations) == 0 || served.RepairContinuations[len(served.RepairContinuations)-1].DispatchPending {
+		t.Fatalf("run = %+v, %v; want the real accepted handback acknowledged", served, err)
+	}
 	// Nothing started over: the run the docket entry names is the run that went
 	// on, in the worktree it stopped in.
 	if result.Outcome.RunID != stopped.RunID || result.Outcome.WorktreePath != stopped.WorktreePath {

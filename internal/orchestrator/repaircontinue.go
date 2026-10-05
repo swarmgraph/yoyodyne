@@ -109,6 +109,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -187,7 +188,8 @@ type PreservedChanges interface {
 // It is satisfied by Pipeline.Continue, which re-enters the run named or refuses
 // — every recorded loss of a repair round was a dispatch that started something
 // fresh instead, so what this type asks for is deliberately not something a
-// fresh run can satisfy.
+// fresh run can satisfy. Acceptance is confirmed by the adopted pipeline's
+// outcome, not by a run ID a pre-adoption pause can also report.
 type RepairContinueStarter func(ctx context.Context, workItemID, runID string) (Outcome, error)
 
 // RepairContinuer re-enters one stopped run's repair loop under a grant of
@@ -263,6 +265,9 @@ type RepairContinueResult struct {
 	RepairAttempts   int  `json:"repair_attempts,omitempty"`
 	Continued        bool `json:"continued"`
 	WorktreeRestored bool `json:"worktree_restored,omitempty"`
+	// AlreadyContinued reports a served continuation read from durable state;
+	// this request made no transition and dispatched nothing.
+	AlreadyContinued bool `json:"already_continued,omitempty"`
 	// Stall says what was carried out was a stalled attempt being carried on
 	// rather than a change being repaired: the harness stopped this run's
 	// provider before anything was returned to its developer, so the
@@ -371,12 +376,10 @@ func preservedChangeHeld(ctx context.Context, worktrees PreservedChanges, state 
 
 // Continue carries out one repair-continue decision.
 //
-// The order is the order the guarantees need. Everything that can refuse is
-// asked before anything is written, so a refused continuation leaves the item's
-// grant exactly where it was and asking again once the refusal no longer applies
-// carries out the same decision; and the item is put back before the run is made
-// live again, because a run recorded as running that nothing is running is the
-// one half-finished state no other reader here would notice.
+// Preconditions are asked before carrying the grant out. The item claim is
+// confirmed before the run is made live, and success is reported only after the
+// continuation is saved and read back. An interrupted carry-out reads both
+// records before repeating a write, so recovery cannot charge it a second time.
 func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueRequest) (RepairContinueResult, error) {
 	if err := c.validate(); err != nil {
 		return RepairContinueResult{}, err
@@ -414,10 +417,6 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 	defer lease.Release()
 
-	found := readmodel.LookFor(ctx, c.Remains, prior)
-	if err := stoppageIsOver(prior, found); err != nil {
-		return result, err
-	}
 	// The run continued is the run the decision names, and it is continued on the
 	// item it was made for. A record that put this run under some other item would
 	// have the dispatch below continue one item's run as another's work, so it is
@@ -426,6 +425,25 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		return result, fmt.Errorf(
 			"run %s is recorded as made for %q while its docket entry names %s, so a repair of it would continue one item's run as another's work; nothing was spent, and which item this stoppage belongs to is a person's to settle",
 			prior.RunID, owner, entry.WorkItemID)
+	}
+	// A save may have replaced the record before reporting a failure to sync it,
+	// or the process may have ended before recording the success on the item.
+	// Read that transition before asking for another grant or another claim.
+	if prior.Status == runstate.StatusRunning {
+		return c.recoverContinuation(ctx, prior, result, lease)
+	}
+	if prior.RepairSuccessNotePending() {
+		counters, err := c.Decisions.Counters(prior.WorkItemID)
+		if err != nil {
+			return result, fmt.Errorf("read the repair decision before recovering its success note: %w", err)
+		}
+		if decision, decided := counters.DecisionOf(prior.RunID); decided && decision.Decision == runstate.TriageDecisionRepair && (prior.RepairContinuedSince(decision.DecidedAt) || completedRepairContinuation(prior)) {
+			return c.recoverContinuation(ctx, prior, result, lease)
+		}
+	}
+	found := readmodel.LookFor(ctx, c.Remains, prior)
+	if err := stoppageIsOver(prior, found); err != nil {
+		return result, err
 	}
 	if err := continuableRepair(prior, found); err != nil {
 		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
@@ -535,30 +553,211 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 		result.WorktreeRestored = true
 	}
 
-	result.Reason = continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
+	reason := continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
 	if result.WorktreeRestored {
-		result.Reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
+		reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
 	}
+	reason = singleLine(reason, runstate.MaxSelectionReasonBytes)
 
 	// The item is put back first, because a run made live behind an item that
-	// still says it is blocked is a run nothing can resume and nothing will
-	// notice. Recording why comes before the claim, so the item never reads as
-	// work somebody quietly restarted.
-	if err := c.supersedeOnItem(ctx, entry.WorkItemID, itemRecord(result.Reason, item, prior)); err != nil {
-		return result, err
+	// still says it is blocked is a run nothing can resume. The note before the
+	// claim describes preparation; success is recorded only after the run save
+	// and its read-back have confirmed the continuation.
+	if err := c.supersedeOnItem(ctx, item, prior, granted); err != nil {
+		return c.unconfirmedContinuation(ctx, result, err)
 	}
-	continued, err := c.supersedeOnRun(prior, granted, result.Reason, result.Stall)
+	continued, err := c.supersedeOnRun(prior, granted, reason, result.Stall)
 	if err != nil {
-		return result, fmt.Errorf("record the re-entry on run %s, whose item has already been put back and told why: %w", prior.RunID, err)
+		return c.unconfirmedContinuation(ctx, result, fmt.Errorf("record the continuation on run %s, whose item claim was confirmed: %w", prior.RunID, err))
 	}
+	c.confirmedContinuation(&result, continued)
+	continued = c.recordContinuation(ctx, &result, continued, itemRecord(reason, item, prior))
+	return c.dispatchContinuation(ctx, result, continued.RepairContinuations[len(continued.RepairContinuations)-1], lease)
+}
+
+// recoverContinuation finishes an interrupted carry-out without granting or
+// counting another attempt. The run's current continuation must belong to the
+// standing decision; a running record alone is not proof of a decided repair.
+func (c RepairContinuer) recoverContinuation(ctx context.Context, prior runstate.State, result RepairContinueResult, lease *runstate.Lease) (RepairContinueResult, error) {
+	counters, err := c.Decisions.Counters(prior.WorkItemID)
+	if err != nil {
+		return result, fmt.Errorf("read the repair decision before recovering its continuation: %w", err)
+	}
+	decision, decided := counters.DecisionOf(prior.RunID)
+	last := len(prior.RepairContinuations) - 1
+	if !decided || decision.Decision != runstate.TriageDecisionRepair || last < 0 {
+		return result, fmt.Errorf("run %s is already running and resumable without a continuation of the standing repair decision, so no repair transition was repeated", prior.RunID)
+	}
+	continuation := prior.RepairContinuations[last]
+	if continuation.Returned || continuation.ByHarness || continuation.ContinuedAt.Before(decision.DecidedAt) || !strings.Contains(continuation.Reason, decision.Cite()) {
+		return result, fmt.Errorf("run %s is already running but its continuation does not carry the standing repair decision, so no repair transition was repeated", prior.RunID)
+	}
+	if !continuation.DispatchPending || completedRepairContinuation(prior) {
+		result.Decided = counters.GrantedRounds
+		result.Truncated = counters.TruncatedGrants > 0
+		c.confirmedContinuation(&result, prior)
+		result.AlreadyContinued = true
+		if continuation.SuccessNotePending {
+			prior = c.recordContinuation(ctx, &result, prior, continuation.Reason)
+		}
+		result.Outcome = Outcome{
+			RunID:             prior.RunID,
+			WorkItemID:        prior.WorkItemID,
+			Status:            prior.Status,
+			Phase:             prior.Phase,
+			Branch:            prior.Branch,
+			WorktreePath:      prior.WorktreePath,
+			BaseCommit:        prior.BaseCommit,
+			ProviderSessionID: prior.ProviderSessionID,
+			RepairAttempts:    prior.RepairAttempts,
+		}
+		return result, nil
+	}
+	item, err := c.Items.Show(ctx, prior.WorkItemID)
+	if err != nil {
+		return result, fmt.Errorf("read the item before recovering its recorded continuation: %w", err)
+	}
+	if err := validateClaimedItem(item, prior.WorkItemID); err != nil {
+		return result, fmt.Errorf("the run already holds its continuation but its item claim is not confirmed; no repair transition was repeated: %w", err)
+	}
+	// Save the existing record unchanged: an earlier save may have replaced the
+	// file and then failed to sync its directory. This confirms durability without
+	// appending a continuation or charging an attempt again.
+	confirmed, err := c.saveContinuation(prior)
+	if err != nil {
+		return c.unconfirmedContinuation(ctx, result, err)
+	}
+	result.Decided = counters.GrantedRounds
+	result.Truncated = counters.TruncatedGrants > 0
+	c.confirmedContinuation(&result, confirmed)
+	confirmed = c.recordContinuation(ctx, &result, confirmed, continuation.Reason)
+	return c.dispatchContinuation(ctx, result, continuation, lease)
+}
+
+func (c RepairContinuer) confirmedContinuation(result *RepairContinueResult, continued runstate.State) {
+	continuation := continued.RepairContinuations[len(continued.RepairContinuations)-1]
+	result.Reason = continuation.Reason
+	result.Granted = continuation.GrantedAttempts
+	result.Stall = continuation.Stall
+	result.Checks = continuation.CheckStage
+	result.ResumesAt = continued.Phase
+	result.SupersededBlocker = continuation.SupersededBlocker
 	result.RepairBudget = continued.RepairBudget(c.ConfiguredAttempts)
 	result.RepairAttempts = continued.RepairAttempts
 	result.Continued = true
+}
+
+// recordContinuation checks the item's existing notes before retrying a note
+// whose write may have succeeded even though its confirmation failed.
+func (c RepairContinuer) recordContinuation(ctx context.Context, result *RepairContinueResult, state runstate.State, note string) runstate.State {
+	if err := c.confirmContinuationNote(ctx, &state, len(state.RepairContinuations)-1, note); err != nil {
+		result.RecordProblem = err.Error()
+	}
+	return state
+}
+
+// confirmContinuationNote holds the run lease while checking the tracker and
+// acknowledging delivery. A lost response leaves the note pending; the next
+// pass reads the existing note before appending anything.
+func (c RepairContinuer) confirmContinuationNote(ctx context.Context, state *runstate.State, index int, note string) error {
+	continuation := state.RepairContinuations[index]
+	item, err := c.Items.Show(ctx, state.WorkItemID)
+	if err == nil && !strings.Contains(item.Notes, continuation.Reason) {
+		_, err = c.Items.RecordOutcome(ctx, state.WorkItemID, note)
+	}
+	if err != nil {
+		return fmt.Errorf("the continuation is recorded on run %s, but its success note on %s could not be confirmed; recovery checks the existing note before appending it: %w", state.RunID, state.WorkItemID, err)
+	}
+	confirmed := *state
+	confirmed.RepairContinuations = append([]runstate.RepairContinuation(nil), state.RepairContinuations...)
+	confirmed.RepairContinuations[index].SuccessNotePending = false
+	if completedRepairContinuation(confirmed) {
+		confirmed.RepairContinuations[len(confirmed.RepairContinuations)-1].DispatchPending = false
+	}
+	if err := c.Runs.Save(confirmed); err != nil {
+		return fmt.Errorf("the success note on %s was confirmed, but its acknowledgement on run %s could not be recorded; note delivery remains pending until the record confirms it: %w", state.WorkItemID, state.RunID, err)
+	}
+	*state = confirmed
+	return nil
+}
+
+// completedRepairContinuation uses the execution's terminal record when the
+// dispatch acknowledgement was lost. Re-entry clears CompletedAt, so completion
+// at or after that continuation proves it has ended and must not be dispatched
+// again. A completion from the superseded stoppage is not that evidence.
+func completedRepairContinuation(state runstate.State) bool {
+	last := len(state.RepairContinuations) - 1
+	if !state.Status.Terminal() || state.CompletedAt == nil || last < 0 {
+		return false
+	}
+	continuation := state.RepairContinuations[last]
+	return !continuation.Returned && !continuation.ByHarness && !state.CompletedAt.Before(continuation.ContinuedAt)
+}
+
+// DeliverNotes retries success notes independently of dispatch and of the
+// docket's current entries. A completed run can still owe its success note.
+func (c RepairContinuer) DeliverNotes(ctx context.Context) error {
+	recorded, err := c.Runs.Recorded()
+	if err != nil {
+		return fmt.Errorf("read runs for pending repair success notes: %w", err)
+	}
+	var problems []error
+	for _, candidate := range recorded {
+		if !candidate.RepairSuccessNotePending() || (candidate.RepairContinuations[len(candidate.RepairContinuations)-1].DispatchPending && !completedRepairContinuation(candidate)) {
+			continue
+		}
+		state, lease, err := c.Runs.AdoptRun(ctx, candidate.RunID)
+		if errors.Is(err, runstate.ErrRunHeld) {
+			continue
+		}
+		if err != nil {
+			problems = append(problems, fmt.Errorf("take run %s to confirm its repair success notes: %w", candidate.RunID, err))
+			continue
+		}
+		// An unserved continuation has its notes recovered by carry-out. A
+		// completed execution no longer needs dispatch, even if its acceptance
+		// acknowledgement failed; note confirmation records that evidence too.
+		if last := len(state.RepairContinuations) - 1; last >= 0 && state.RepairContinuations[last].DispatchPending && !completedRepairContinuation(state) {
+			lease.Release()
+			continue
+		}
+		for index, continuation := range state.RepairContinuations {
+			if continuation.SuccessNotePending {
+				if err := c.confirmContinuationNote(ctx, &state, index, continuation.Reason); err != nil {
+					problems = append(problems, err)
+				}
+			}
+		}
+		if err := lease.Release(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	return errors.Join(problems...)
+}
+
+func (c RepairContinuer) unconfirmedContinuation(ctx context.Context, result RepairContinueResult, err error) (RepairContinueResult, error) {
+	result.RecordProblem = fmt.Sprintf("the repair continuation of run %s was not confirmed: %v; no developer was dispatched, and recovery must read the item and run before trying again", result.RunID, err)
+	if _, noteErr := c.Items.RecordOutcome(ctx, result.WorkItemID, result.RecordProblem); noteErr != nil {
+		result.RecordProblem += fmt.Sprintf("; that outcome could not be appended to the item's notes: %v", noteErr)
+		err = errors.Join(err, fmt.Errorf("append the unconfirmed repair outcome to %s: %w", result.WorkItemID, noteErr))
+	}
+	return result, err
+}
+
+func (c RepairContinuer) dispatchContinuation(ctx context.Context, result RepairContinueResult, continuation runstate.RepairContinuation, lease *runstate.Lease) (RepairContinueResult, error) {
 	// The finding a refused carry-out left is taken back here, once the re-entry is
 	// recorded and before the run goes: a finding that stood for the length of the
 	// run would have the docket say the decision is not happening while it runs.
-	if problem := clearCarryOutFinding(ctx, c.Decisions, entry.WorkItemID, prior.RunID, c.now()); problem != "" {
-		result.RecordProblem = problem
+	if problem := clearCarryOutFinding(ctx, c.Decisions, result.WorkItemID, result.RunID, c.now()); problem != "" {
+		result.RecordProblem = strings.TrimSpace(result.RecordProblem + " " + problem)
+	}
+	// Recovery has already spent the grant on a durable continuation. A hold
+	// therefore leaves that record intact rather than reporting an unspent grant.
+	if hold, held, err := c.Intake.Held(); err != nil {
+		return result, fmt.Errorf("read whether intake is held before dispatching the recorded continuation: %w", err)
+	} else if held {
+		result.RecordProblem = strings.TrimSpace(result.RecordProblem + " The continuation is recorded, but no developer was dispatched because intake is held: " + hold.Says())
+		return result, nil
 	}
 	// The lease is given up before the run is continued, because continuing it is
 	// the pipeline adopting the same run: holding it here would refuse the very
@@ -568,9 +767,51 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// The run is named rather than left to be discovered. What is dispatched is
 	// this run's repair loop and nothing else, so a dispatch that found anything
 	// else in flight for the item refuses instead of continuing it.
-	outcome, runErr := c.Start(ctx, entry.WorkItemID, prior.RunID)
+	outcome, runErr := c.Start(ctx, result.WorkItemID, result.RunID)
 	result.Outcome = outcome
+	// Only the pipeline's adopted path confirms acceptance. A pause before
+	// adoption can return the same run ID while leaving that run untouched.
+	// Clearing before this confirmation would hide an unserved dispatch.
+	if outcome.continuationAccepted && outcome.RunID == result.RunID {
+		if err := c.recordDispatchedContinuation(ctx, result.RunID, continuation); err != nil {
+			result.RecordProblem = strings.TrimSpace(result.RecordProblem + " " + err.Error())
+		}
+	}
 	return result, runErr
+}
+
+func (c RepairContinuer) recordDispatchedContinuation(ctx context.Context, runID string, continuation runstate.RepairContinuation) error {
+	write, stopWriting := recordContext(ctx)
+	defer stopWriting()
+	state, lease, err := c.Runs.AdoptRun(write, runID)
+	// A note delivery pass may briefly hold the run after the pipeline exits.
+	// Wait within the recording bound rather than losing dispatch acknowledgement
+	// to that pass and offering an accepted dispatch again.
+	for errors.Is(err, runstate.ErrRunHeld) {
+		timer := time.NewTimer(10 * time.Millisecond)
+		select {
+		case <-write.Done():
+			timer.Stop()
+			return fmt.Errorf("the pipeline accepted run %s, but its dispatch could not be recorded: %w", runID, write.Err())
+		case <-timer.C:
+		}
+		state, lease, err = c.Runs.AdoptRun(write, runID)
+	}
+	if err != nil {
+		return fmt.Errorf("the pipeline accepted run %s, but its dispatch could not be recorded: %w", runID, err)
+	}
+	defer lease.Release()
+	for index, recorded := range state.RepairContinuations {
+		if !recorded.ContinuedAt.Equal(continuation.ContinuedAt) || recorded.Reason != continuation.Reason || !recorded.DispatchPending {
+			continue
+		}
+		state.RepairContinuations[index].DispatchPending = false
+		if err := c.Runs.Save(state); err != nil {
+			return fmt.Errorf("the pipeline accepted run %s, but its dispatch could not be recorded: %w", runID, err)
+		}
+		break
+	}
+	return nil
 }
 
 // repairGrant is the development manager's grant as this carry-out found it:
@@ -820,28 +1061,33 @@ func itemRecord(reason string, item beads.WorkItem, prior runstate.State) string
 		prior.RunID, prior.Status)
 }
 
-// supersedeOnItem records the decision on the work item and puts it back to work
-// the harness may continue. Both halves are the supersession: the note is what
-// the next reader of the item finds instead of deciding the stoppage a second
-// time, and the claim is what stops the item saying it is waiting on a person
-// while a developer is working on it.
-func (c RepairContinuer) supersedeOnItem(ctx context.Context, workItemID, reason string) error {
-	if _, err := c.Items.RecordOutcome(ctx, workItemID, reason); err != nil {
-		return fmt.Errorf("record the repair decision on %s: %w", workItemID, err)
+// supersedeOnItem records preparation and confirms the item claim. It makes no
+// claim about a continuation that has not yet been saved. An in_progress item
+// may be the claim a previous carry-out took before its run save failed; the
+// terminal run and absence of any run in flight have already been checked.
+func (c RepairContinuer) supersedeOnItem(ctx context.Context, item beads.WorkItem, prior runstate.State, granted repairGrant) error {
+	note := singleLine(fmt.Sprintf("Preparing the repair continuation of run %s, %s. The item claim and the durable continuation must both be confirmed before re-entry is reported. The reasoning that decision was recorded with: %s", prior.RunID, granted.decision.Cite(), granted.decision.Reason), runstate.MaxSelectionReasonBytes)
+	if !strings.Contains(item.Notes, note) {
+		if _, err := c.Items.RecordOutcome(ctx, item.ID, note); err != nil {
+			return fmt.Errorf("record preparation for the repair on %s: %w", item.ID, err)
+		}
+	}
+	if item.Status == claimedItemStatus {
+		return validateClaimedItem(item, item.ID)
 	}
 	// The blocker this claim clears is the one the stopped run wrote, so the
 	// clear's account is read off the error where the read-back never confirmed
 	// it; a confirmed one is the item back at work, which the check below and the
 	// continuation record are the account of.
-	item, _, err := c.Items.Claim(ctx, workItemID)
+	claimed, _, err := c.Items.Claim(ctx, item.ID)
 	if err != nil {
-		return fmt.Errorf("put %s back to work for the repair it was granted: %w", workItemID, err)
+		return fmt.Errorf("put %s back to work for the repair it was granted: %w", item.ID, err)
 	}
 	// What bd reports back is checked rather than assumed, for the reason every
 	// other write here is: an item that still says it is blocked is one the
 	// pipeline refuses to resume, and finding that out from the refusal would
 	// cost the grant that has already been spent.
-	if err := validateClaimedItem(item, workItemID); err != nil {
+	if err := validateClaimedItem(claimed, item.ID); err != nil {
 		return fmt.Errorf("validate the work item put back for its repair: %w", err)
 	}
 	return nil
@@ -890,6 +1136,8 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 			SupersededCheckFailure: prior.CheckFailure,
 			Stall:                  stalled,
 			CheckStage:             prior.StoppedAtStageBound(),
+			DispatchPending:        true,
+			SuccessNotePending:     true,
 		})
 	if !stalled && !prior.StoppedAtStageBound() {
 		continued.RepairAttempts = prior.RepairAttempts + 1
@@ -930,10 +1178,33 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	continued.CompletedAt = nil
 	continued.SettledQuietSince = nil
 	continued.UpdatedAt = c.now()
-	if err := c.Runs.Save(continued); err != nil {
-		return runstate.State{}, err
+	return c.saveContinuation(continued)
+}
+
+// saveContinuation reads the record back even when Save reports an error: a
+// failure after replacement leaves a different recovery from a refused write.
+// Only a successful save and matching read-back confirm the transition.
+func (c RepairContinuer) saveContinuation(continued runstate.State) (runstate.State, error) {
+	saveErr := c.Runs.Save(continued)
+	recorded, readErr := c.Runs.Load(continued.RunID)
+	if readErr != nil {
+		return runstate.State{}, errors.Join(saveErr, fmt.Errorf("read back the repair continuation; its outcome is uncertain: %w", readErr))
 	}
-	return continued, nil
+	last := len(continued.RepairContinuations) - 1
+	confirmed := recorded.RunID == continued.RunID && recorded.WorkItemID == continued.WorkItemID &&
+		recorded.Status == continued.Status && recorded.Phase == continued.Phase &&
+		recorded.RepairAttempts == continued.RepairAttempts && recorded.Blocker == continued.Blocker &&
+		recorded.Failure == continued.Failure && recorded.StopClass == continued.StopClass &&
+		recorded.CompletedAt == nil && recorded.Environmental == nil &&
+		len(recorded.RepairContinuations) == len(continued.RepairContinuations) && last >= 0 &&
+		reflect.DeepEqual(recorded.RepairContinuations[last], continued.RepairContinuations[last])
+	if !confirmed {
+		return runstate.State{}, errors.Join(saveErr, errors.New("the run read back does not contain the intended repair transition, so re-entry was not confirmed"))
+	}
+	if saveErr != nil {
+		return runstate.State{}, fmt.Errorf("the continuation is present in the run record, but its durable save was not confirmed; recovery must reuse that continuation: %w", saveErr)
+	}
+	return recorded, nil
 }
 
 // continuedPhase is the step a continuation puts the run back at. A repair is
@@ -1066,6 +1337,21 @@ func (result RepairContinueResult) Render() string {
 	}
 	if result.WorktreeRestored {
 		fmt.Fprintln(&rendered, "restored the recorded checkout from its branch; the run and developer session are unchanged, and checks must pass again")
+	}
+	if !result.Continued {
+		fmt.Fprintln(&rendered, "no repair continuation was confirmed; no developer was dispatched")
+		if result.RecordProblem != "" {
+			fmt.Fprintln(&rendered, result.RecordProblem)
+		}
+		return rendered.String()
+	}
+	if result.AlreadyContinued {
+		fmt.Fprintf(&rendered, "run %s already has a served repair continuation; its recorded outcome is %s at the %s phase\n", result.RunID, result.Outcome.Status, result.Outcome.Phase)
+		fmt.Fprintln(&rendered, "no new transition or dispatch was made")
+		if result.RecordProblem != "" {
+			fmt.Fprintln(&rendered, result.RecordProblem)
+		}
+		return rendered.String()
 	}
 	switch {
 	case result.Checks:

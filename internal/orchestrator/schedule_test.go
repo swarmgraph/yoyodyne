@@ -3537,6 +3537,67 @@ func sameStates(got, want []runstate.WatchState) bool {
 // directives, and a way to run a chosen item. Everything it holds is behind one
 // mutex, because a scheduler starts runs in parallel and they all report back
 // into it.
+func TestARepairRecoveryReusesOnlyItsOwnUnservedSlot(t *testing.T) {
+	t.Parallel()
+	run := continuableState()
+	run.Status = runstate.StatusRunning
+	run.RepairContinuations = []runstate.RepairContinuation{{DispatchPending: true}}
+	task := CarryOutTask{WorkItemID: run.WorkItemID, RunID: run.RunID, Recover: true}
+	for _, name := range []string{"unserved", "different run", "served", "already dispatched by this session", "not yet reserved"} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			state := run
+			state.RepairContinuations = append([]runstate.RepairContinuation(nil), run.RepairContinuations...)
+			mine := map[string]int{}
+			switch name {
+			case "different run":
+				state.RunID = "another-run"
+			case "served":
+				state.RepairContinuations[0].DispatchPending = false
+			case "already dispatched by this session":
+				mine[run.WorkItemID] = 0
+			case "not yet reserved":
+				state = runstate.State{WorkItemID: run.WorkItemID}
+			}
+			occupied := map[string]runstate.State{run.WorkItemID: state}
+			harness := newScheduleHarness()
+			harness.outstanding = func(*scheduleHarness) ([]CarryOutTask, error) { return []CarryOutTask{task}, nil }
+			chosen, _, pending := Scheduler{}.nextCarryOuts(&Schedule{}, Pull{CarryOut: harness}, occupied, mine, nil, closedGates{}, 0, 1,
+				func(CarryOutTask) (outrankedCarryOut, bool) {
+					t.Error("recovery of an occupied slot competed with ready work for a new one")
+					return outrankedCarryOut{}, true
+				})
+			want := 0
+			if name == "unserved" {
+				want = 1
+			}
+			if len(chosen) != want || len(pending) != 0 || !reflect.DeepEqual(occupied[run.WorkItemID], state) {
+				t.Fatalf("chosen = %+v, pending = %+v, occupied = %+v; want %d recovery and the original slot preserved", chosen, pending, occupied, want)
+			}
+		})
+	}
+}
+
+func TestARepairRecoveryLeavesFreeSlotsForOtherDecisionsAndHonorsTheSessionLimit(t *testing.T) {
+	t.Parallel()
+	run := continuableState()
+	run.Status = runstate.StatusRunning
+	run.RepairContinuations = []runstate.RepairContinuation{{DispatchPending: true}}
+	tasks := []CarryOutTask{
+		{WorkItemID: run.WorkItemID, RunID: run.RunID, Recover: true},
+		{WorkItemID: "fresh-item", RunID: "fresh-run"},
+	}
+	for _, limit := range []int{1, 2} {
+		harness := newScheduleHarness()
+		harness.outstanding = func(*scheduleHarness) ([]CarryOutTask, error) { return tasks, nil }
+		occupied := map[string]runstate.State{run.WorkItemID: run}
+		chosen, _, _ := Scheduler{}.nextCarryOuts(&Schedule{}, Pull{CarryOut: harness}, occupied, nil, nil, closedGates{}, 1, limit, nil)
+		if len(chosen) != limit || len(occupied) != 1 || !reflect.DeepEqual(occupied[run.WorkItemID], run) {
+			t.Fatalf("limit %d: chosen = %+v, occupied = %+v; want recovery to reuse its slot and fresh work to take the free one within the limit", limit, chosen, occupied)
+		}
+	}
+}
+
 type scheduleHarness struct {
 	mu       sync.Mutex
 	items    []beads.WorkItem

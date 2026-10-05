@@ -114,11 +114,12 @@ type CarryOutReruns interface {
 	Claimed(workItemID string) ([]runstate.Rerun, error)
 }
 
-// CarryOutRuns is the durable run state this sweep reads. Both readings answer
+// CarryOutRuns is the durable run state this sweep reads. Its readings answer
 // the same question in the two shapes it takes: whether an item has a run in
 // flight, which makes it not stopped work at all, and how much of a repair grant
 // the item's runs have already been handed, which is what says a repair decision
 // still has something left to carry out.
+// Held distinguishes a pending dispatch from a live process carrying that run.
 //
 // It reads and never writes. What becomes of a run is the run's own to record.
 //
@@ -126,6 +127,7 @@ type CarryOutReruns interface {
 type CarryOutRuns interface {
 	Incomplete() ([]runstate.State, error)
 	Recorded() ([]runstate.State, error)
+	Held(runID string) (bool, error)
 }
 
 // CarryOutRerunner starts a fresh run of an item whose stoppage was decided a
@@ -265,6 +267,9 @@ type CarryOutTask struct {
 	// withdrew for its target's red check, once the items that check was filed
 	// as have closed. DecidedAt is then when the merge was withdrawn.
 	Harness bool `json:"harness,omitempty"`
+	// Recover continues a recorded repair whose dispatch is still pending. It
+	// reuses that run's slot and grant; the action re-reads it under its lease.
+	Recover bool `json:"recover,omitempty"`
 }
 
 // CarriedOut is what one attempt came to. It reports an attempt that was stopped
@@ -305,10 +310,10 @@ type CarriedOut struct {
 // on now left out.
 //
 // Three things take an entry out. An item with a run in flight is not stopped
-// work whatever the docket said when the entry was written, and the actions would
-// refuse it anyway; a decision the harness has already carried out as far as it
-// goes is not outstanding at all; and one whose last attempt a gate refused is
-// left to its pacing, because the finding recorded then is what says so and
+// work whatever the docket said when the entry was written, except for a pending
+// repair dispatch with no live lease holder; a decision the harness has already
+// carried out as far as it goes is not outstanding at all; and one whose last
+// attempt a gate refused is left to its pacing, because the finding recorded then is what says so and
 // repeating it every poll would starve every decision behind it.
 //
 // It reads and writes nothing. What it produces is a list somebody else acts on,
@@ -412,19 +417,31 @@ func (c CarryOut) read() (carryOutReading, error) {
 		if !outstanding {
 			return
 		}
+		if task.Recover {
+			held, err := c.Runs.Held(task.RunID)
+			if err != nil {
+				problems = append(problems, fmt.Errorf("read whether pending repair run %s has a live holder: %w", task.RunID, err))
+				return
+			}
+			if held {
+				return
+			}
+		}
 		if running, busy := inFlight[entry.WorkItemID]; busy {
 			// A repair continues the run it was granted for, so that run going again
 			// is the decision being carried out rather than something keeping it back.
-			if running == entry.RunID || task.Decision == DecisionContinueStall {
+			if (running == entry.RunID && !task.Recover) || task.Decision == DecisionContinueStall {
 				return
 			}
-			reading.held = append(reading.held, heldDecision{
-				task:   task,
-				gate:   runstate.TriageGateWorkItem,
-				why:    fmt.Sprintf("run %s of %s is in flight, and a decision about an item something is already running is not attempted until that run ends", running, entry.WorkItemID),
-				clears: fmt.Sprintf("run %s ending, which needs nobody; the pass after it attempts the decision", running),
-			})
-			return
+			if running != entry.RunID {
+				reading.held = append(reading.held, heldDecision{
+					task:   task,
+					gate:   runstate.TriageGateWorkItem,
+					why:    fmt.Sprintf("run %s of %s is in flight, and a decision about an item something is already running is not attempted until that run ends", running, entry.WorkItemID),
+					clears: fmt.Sprintf("run %s ending, which needs nobody; the pass after it attempts the decision", running),
+				})
+				return
+			}
 		}
 		reading.tasks = append(reading.tasks, task)
 	}
@@ -719,7 +736,20 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 		if err != nil {
 			return CarryOutTask{}, false, nil, err
 		}
-		if !outstanding {
+		recorded, err := history()
+		if err != nil {
+			return CarryOutTask{}, false, nil, err
+		}
+		for _, state := range recorded {
+			if state.RunID != entry.RunID || state.WorkItemID != entry.WorkItemID || !state.RepairDispatchPending() {
+				continue
+			}
+			continuation := state.RepairContinuations[len(state.RepairContinuations)-1]
+			if !continuation.ContinuedAt.Before(decision.DecidedAt) && strings.Contains(continuation.Reason, decision.Cite()) {
+				task.Recover = true
+			}
+		}
+		if !outstanding && !task.Recover {
 			return CarryOutTask{}, false, nil, nil
 		}
 	default:
@@ -1298,18 +1328,24 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	return carried
 }
 
-// DeliverNotes retries tracker notes independently of the refused actions. It
-// includes closed docket entries, so a new decision cannot lose an earlier note.
+// DeliverNotes retries tracker notes independently of the refused actions and
+// accepted repair dispatches. It includes closed docket entries and completed
+// repair runs, so finishing work or making a new decision loses no earlier note.
 func (c CarryOut) DeliverNotes(ctx context.Context) error {
+	var problems []error
+	if repairs, delivers := c.Repairer.(interface{ DeliverNotes(context.Context) error }); delivers {
+		if err := repairs.DeliverNotes(ctx); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if c.Notes == nil {
-		return nil
+		return errors.Join(problems...)
 	}
 	entries, err := c.Docket.List()
 	if err != nil {
-		return fmt.Errorf("read the docket for pending carry-out notes: %w", err)
+		return errors.Join(append(problems, fmt.Errorf("read the docket for pending carry-out notes: %w", err))...)
 	}
 	seen := make(map[string]bool)
-	var problems []error
 	for _, entry := range entries {
 		if entry.WorkItemID == "" || seen[entry.WorkItemID] {
 			continue

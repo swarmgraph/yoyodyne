@@ -167,3 +167,55 @@ func TestARepairContinuationKeepsTheFailedLocalPromotionAsHistory(t *testing.T) 
 		t.Fatalf("mismatched historical promotion accepted: %v", err)
 	}
 }
+
+func TestAPendingRepairDispatchSurvivesStorageAndKeepsItsBudgetAndSlot(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	continuation := grantedContinuation()
+	continuation.DispatchPending = true
+	state.RepairContinuations = []RepairContinuation{continuation}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(state.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !loaded.RepairDispatchPending() || !loaded.HoldsDeveloperSlot() || loaded.CarriedOutRepairAttempts() != continuation.GrantedAttempts || loaded.RepairContinuations[0] != continuation {
+		t.Fatalf("loaded = %+v; want a pending dispatch still charged and holding its slot", loaded)
+	}
+	for name, mutate := range map[string]func(*State){
+		"served":   func(s *State) { s.RepairContinuations[0].DispatchPending = false },
+		"returned": func(s *State) { s.RepairContinuations[0].Returned = true },
+		"stopped":  func(s *State) { s.Status = StatusFailed },
+		"older":    func(s *State) { s.RepairContinuations = append(s.RepairContinuations, grantedContinuation()) },
+	} {
+		state := loaded
+		state.RepairContinuations = append([]RepairContinuation(nil), loaded.RepairContinuations...)
+		mutate(&state)
+		if state.RepairDispatchPending() {
+			t.Fatalf("a %s continuation was still offered for pending dispatch", name)
+		}
+	}
+}
+
+func TestARepairSuccessNoteRemainsPendingAfterDispatchAndCompletion(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := testState(t, StatusSucceeded)
+	continuation := grantedContinuation()
+	continuation.SuccessNotePending = true
+	state.RepairContinuations = []RepairContinuation{continuation, grantedContinuation()}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.Load(state.RunID)
+	if err != nil || !loaded.RepairSuccessNotePending() || loaded.RepairDispatchPending() || loaded.RepairContinuations[0] != continuation {
+		t.Fatalf("loaded = %+v, %v; want an older success note still pending after dispatch and completion", loaded, err)
+	}
+	loaded.RepairContinuations[0].SuccessNotePending = false
+	if loaded.RepairSuccessNotePending() {
+		t.Fatal("a confirmed success note was still pending")
+	}
+}

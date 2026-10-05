@@ -709,6 +709,10 @@ type Outcome struct {
 	Branch       string                  `json:"branch,omitempty"`
 	WorktreePath string                  `json:"worktree_path,omitempty"`
 	BaseCommit   string                  `json:"base_commit,omitempty"`
+	// continuationAccepted is set only after an adopted run has passed its
+	// resume preconditions. A pre-adoption pause can name an existing run
+	// without accepting it.
+	continuationAccepted bool
 	// Preservation is what was actually found of the branch and the worktree
 	// above when this run failed. It is present on a failed run that made either
 	// of them and absent everywhere else, because a run that made neither has
@@ -1846,6 +1850,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			HarnessCommit: state.HarnessCommit,
 		},
 		outcome: Outcome{
+			// Both callers adopted this run and still hold its lease. Every
+			// refusal before this boundary leaves the dispatch unserved.
+			continuationAccepted:   true,
 			RunID:                  state.RunID,
 			WorkItemID:             state.WorkItemID,
 			Status:                 runstate.StatusRunning,
