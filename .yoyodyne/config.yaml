@@ -339,12 +339,14 @@ path_checks:
 agents:
   architect:
     role: architect
-    backend: codex
-    model: gpt-6-astra
+    # Fable, from Codex Astra, at the operator's direction of 2026-10-05: the
+    # Codex plan's weekly allowance carries far less work than Claude's.
+    backend: claude-code
+    model: fable
     effort: high
     failover:
       enabled: true
-      model: fable
+      model: opus
       provider: claude-code
     instances: 1
     persona:
@@ -392,12 +394,14 @@ agents:
       on: [admissions, stoppages]
   development-manager:
     role: development-manager
-    backend: codex
-    model: gpt-6-astra
-    effort: medium
+    # Fable, from Codex Astra, at the operator's direction of 2026-10-05: the
+    # Codex plan's weekly allowance carries far less work than Claude's.
+    backend: claude-code
+    model: fable
+    effort: high
     failover:
       enabled: true
-      model: fable
+      model: opus
       provider: claude-code
     instances: 1
     persona:
