@@ -161,3 +161,55 @@ func TestTechnicalHealthProgramManagerKeepsCodexAstraHighWithoutFallback(t *test
 		t.Fatalf("technical-health configuration = %+v", agent)
 	}
 }
+
+func TestCodexModelVersionValidatesEffortForBothSelectorsAtLoad(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, model, version, level string
+		want                        []string
+	}{
+		{"family refuses effort", "gpt-6-luna", "gpt-6-astra", "ultra", []string{`model "gpt-6-luna"`, "low, medium, high, xhigh, or max"}},
+		{"family is unestablished", "unlisted-family", "gpt-6-astra", "high", []string{`Codex model "unlisted-family"`, "not established"}},
+		{"family is unestablished with default effort", "unlisted-family", "gpt-6-astra", "", []string{`Codex model "unlisted-family"`, "not established"}},
+		{"version refuses effort", "gpt-6-astra", "gpt-6-luna", "ultra", []string{`model "gpt-6-luna"`, "low, medium, high, xhigh, or max"}},
+		{"version is unestablished", "gpt-6-astra", "unlisted-version", "high", []string{`Codex model "unlisted-version"`, "not established"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := loadProjectError(t, minimalProjectConfig+`agents:
+  developer:
+    backend: codex
+    model: `+test.model+`
+    model_version: `+test.version+`
+    effort: "`+test.level+`"
+`, nil)
+			if err == nil {
+				t.Fatal("LoadResolved() succeeded, want the version or family fallback refused")
+			}
+			for _, want := range test.want {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("error = %v, want %q", err, want)
+				}
+			}
+		})
+	}
+}
+
+func TestCodexModelVersionKeepsExplicitOrDefaultEffortWhenBothSelectorsAcceptIt(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ level, want string }{
+		{"high", "high"},
+		{"", "medium"},
+	} {
+		cfg := loadProject(t, minimalProjectConfig+`agents:
+  developer:
+    backend: codex
+    model: gpt-6-astra
+    model_version: gpt-6-sol
+    effort: "`+test.level+`"
+`, nil).Config
+		if got := cfg.AgentEffort("developer"); got != test.want {
+			t.Fatalf("effort %q resolved to %q, want the version's effort %q", test.level, got, test.want)
+		}
+	}
+}

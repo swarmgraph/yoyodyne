@@ -31,8 +31,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// effortProblems reports an effort level the agent's configured model
-// would not accept. A provider the project
+// effortProblems reports an effort level the agent's configured model or
+// version fallback would not accept. A provider the project
 // does not name is reported elsewhere, and nothing is said about its levels.
 func effortProblems(providers *backend.Registry, name string, agent AgentConfig) []string {
 	level := strings.TrimSpace(agent.Effort)
@@ -43,12 +43,26 @@ func effortProblems(providers *backend.Registry, name string, agent AgentConfig)
 		if agent.ModelVersion != "" {
 			model = agent.ModelVersion
 		}
-		narrowed := descriptor.ForModel(model)
-		if descriptor.Adapter == domain.BackendCodex && len(narrowed.EffortLevels) == 0 {
-			return []string{fmt.Sprintf("agent %q uses Codex model %q whose effort levels and default are not established by this build; use a model in the codex-cli 0.159.2 bundled catalog", name, model)}
+		models := []string{model}
+		if descriptor.Adapter == domain.BackendCodex && agent.ModelVersion != "" && agent.Model != model {
+			models = append(models, agent.Model)
 		}
-		if level != "" && !narrowed.AcceptsEffort(level) {
-			problems = append(problems, effortRefusal(name, level, agent.Backend, narrowed))
+		// Version fallback keeps the initial invocation's effort, including an
+		// explicit default resolved for the version rather than the family.
+		level = descriptor.InvocationEffort(model, level)
+		for _, selector := range models {
+			narrowed := descriptor.ForModel(selector)
+			if descriptor.Adapter == domain.BackendCodex && len(narrowed.EffortLevels) == 0 {
+				problems = append(problems, fmt.Sprintf("agent %q uses Codex model %q whose effort levels and default are not established by this build; use a model in the codex-cli 0.159.2 bundled catalog", name, selector))
+				continue
+			}
+			if level != "" && !narrowed.AcceptsEffort(level) {
+				problem := effortRefusal(name, level, agent.Backend, narrowed)
+				if len(models) > 1 {
+					problem += fmt.Sprintf(" (model %q)", selector)
+				}
+				problems = append(problems, problem)
+			}
 		}
 	}
 	return problems
