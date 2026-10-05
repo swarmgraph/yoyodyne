@@ -2133,6 +2133,15 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		if outputTail == "" {
 			outputTail = result.Process.Stdout + "\n" + result.Process.Stderr + "\n" + result.Process.OutputTruncation
 		}
+		// Events carry cut prefixes; the process retains stderr's ending before
+		// those cuts, so a long diagnostic must not be read from events alone.
+		stderr := result.Process.StderrTail
+		if stderr == "" {
+			stderr = result.Process.Stderr
+		}
+		if stderr != "" {
+			outputTail += "\nProcess stderr:\n" + stderr
+		}
 		// The terminal can name a cause no preceding text event carried. Keep it
 		// last so bounding the combined output preserves that diagnostic.
 		if result.FinalText != "" {

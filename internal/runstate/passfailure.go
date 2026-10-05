@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
@@ -209,13 +210,5 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 
 // FailureOutputTail retains a small, readable end of already redacted output.
 func FailureOutputTail(output string) string {
-	const limit = 2560
-	if len(output) <= limit {
-		return output
-	}
-	cut := len(output) - limit
-	for cut < len(output) && !utf8.RuneStart(output[cut]) {
-		cut++
-	}
-	return "[earlier output omitted; retaining the last 2560 bytes]\n" + output[cut:]
+	return execution.DiagnosticTail(output)
 }

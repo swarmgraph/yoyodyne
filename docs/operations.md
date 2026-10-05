@@ -2261,16 +2261,18 @@ by different output than the 8 MiB total — a provider stream puts one tool res
 on one line, so a single large file read can reach it while the invocation as a
 whole is nowhere near verbose.
 
-It follows the same rule. The line is cut, the rest of it is read and thrown away
-so the process is never blocked writing it, and the cut line ends with a marker:
+It follows the same rule. The line is cut and the rest is drained so the process is never blocked
+writing it. A small redacted ending of stderr is kept separately in the process
+result for failed-session findings. The cut line ends with a marker:
 
 ```text
-…[line truncated at 1048576 bytes; 3407872 further bytes were not retained]
+…[line truncated at 1048576 bytes; 3407872 further bytes omitted from this line]
 ```
 
-The marker names no record holding the rest, because there is none — unlike the
-8 MiB bound, which cuts a copy while every line still reaches the event log, this
-one drops what it cuts. What follows the long line is read normally.
+The marker names no record holding the whole line. Unlike the 8 MiB bound,
+which cuts a copy while every line still reaches the event log, this one drops
+what it cuts apart from the bounded stderr ending. What follows the long line
+is read normally.
 
 For a provider stream a cut line is no longer an envelope, so nothing is read off
 it: it is recorded as a `truncated_stream_line` anomaly in the run's event log

@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -2639,5 +2640,49 @@ func TestRecordedDuplicateTerminalIsPricedOnTheInvocationItFollowed(t *testing.T
 	}
 	if totals := report.Totals(); totals.Calls != 2 || math.Abs(totals.CostUSD-want) > 1e-9 {
 		t.Fatalf("listing reads %d invocation(s) at %v, want 2 at %v", totals.Calls, totals.CostUSD, want)
+	}
+}
+
+func TestFailedSessionKeepsLongProcessDiagnosticThroughTheRealAdapter(t *testing.T) {
+	for _, count := range []int{2 * execution.MaxEventTextBytes, 2 << 20} {
+		t.Run(fmt.Sprint(count), func(t *testing.T) {
+			root := t.TempDir()
+			binary := filepath.Join(root, "provider")
+			script := "#!/bin/sh\n" + fmt.Sprintf(`awk 'BEGIN { for(i=0;i<%d;i++) printf "x"; print " secret-value LAST_PROCESS_DIAGNOSTIC" }' >&2`, count) + "\n"
+			script += "cat <<'RESULT'\n" + terminalErrorStream("process_exit_1", "terminal failure") + "RESULT\nexit 1\n"
+			if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			conversations, err := runstate.NewConversationStore(root, "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			session, err := chat.Open(chat.Options{Role: domain.RoleArchitect, Agent: "architect", Backend: Backend{Binary: binary, Runner: execution.OSProcessRunner{}}, Store: conversations, Model: "claude-test", Provider: domain.BackendClaudeCode, AccountAlias: "default", Repository: root, ProductID: "example", RepositoryID: "example", Briefing: chat.Briefing{Text: "Inspect the product.", GatheredAt: time.Now()}, RedactValues: []string{"secret-value"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			passes, _ := runstate.NewSweepStore(root, "example")
+			reports, _ := runstate.NewReportStore(root, "example")
+			for i := 0; i < 3; i++ {
+				if _, err := session.Send(context.Background(), "inspect this scheduled pass"); err == nil {
+					t.Fatal("session unexpectedly succeeded")
+				}
+				output := session.FailureOutput()
+				if !strings.Contains(output, "LAST_PROCESS_DIAGNOSTIC") || strings.Contains(output, "secret-value") || !strings.Contains(output, "earlier output omitted") || len(output) > runstate.MaxSweepTextBytes {
+					t.Fatalf("failure output = %q", output)
+				}
+				at := time.Now().Add(time.Duration(i) * time.Hour)
+				if err := passes.Append(runstate.Sweep{Task: "architect-pass", Role: domain.RoleArchitect, StartedAt: at, EndedAt: at.Add(time.Minute), Failed: true, Problem: "session failed", FailureOutput: output}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := passes.RecordPassFailures(context.Background(), reports, report.Attribution{RepositoryID: "example"}, "factory-watch"); err != nil {
+				t.Fatal(err)
+			}
+			findings, err := reports.List()
+			if err != nil || len(findings) != 1 || !strings.Contains(findings[0].Message, "LAST_PROCESS_DIAGNOSTIC") || strings.Contains(findings[0].Message, "secret-value") {
+				t.Fatalf("findings = %+v, %v", findings, err)
+			}
+		})
 	}
 }
