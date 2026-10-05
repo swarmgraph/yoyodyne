@@ -812,7 +812,7 @@ func continuedStoppage(run runstate.State) string {
 // It says nothing about whether the forge merged anything, which is a separate
 // question with three answers and is asked by mergeConfirmed below.
 func outstandingPublication(run runstate.State) bool {
-	return run.WorkItemID != "" &&
+	return run.Retirement == nil && run.WorkItemID != "" &&
 		run.Status.Terminal() &&
 		run.Integration != nil &&
 		strings.TrimSpace(run.PublishFailure) != ""

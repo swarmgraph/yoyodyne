@@ -2651,6 +2651,35 @@ still refused. The item is checked for a note already delivered before another
 is appended. If a branch was removed elsewhere, the next sweep confirms its
 absence and clears the saved refusal under the run's lease.
 
+**A run whose item already merged is retired before it is continued.** When
+the item is closed and another run has a later, settled publication with its
+merge confirmed into the same target, reconcile records that merge and the run
+it supersedes on the old run and on the item. Publication order comes from the
+forge's pull request numbers, and the confirming request must have a higher
+number than the old run's own request. Progress recorded afterwards on an older
+run does not make its request newer or hide the confirmed merge. For a run
+without a request, the confirming run must have completed after it began;
+completion before or at its start does not authorize retirement. The old run ends cancelled,
+releasing its developer slot, integration reservation, and the files it held
+for scheduling. Its branch,
+worktree, developer session, publication record, and execution history are kept;
+retirement does not reopen the item or replay its change. This check also runs
+before withdrawing a queued merge to update its head, before selecting an
+already waiting update, and again when the pipeline takes up the selected run,
+so a merge confirmed between selection and execution ends the old work too.
+Later passes announce nothing more. A retirement note that could not be
+delivered, or whose delivery marker could not be saved, is retried from the run
+record without appending the same note twice.
+
+Closed status alone proves no merge. A closed item with no confirmed later
+publication keeps its run and leaves a finding for the development manager; a
+later publication still being settled keeps the run for the harness to retry.
+An explicitly reopened item follows the existing continuation rules. Update
+and expired provider-wait refusals, like other settlement findings, name their
+next mover and do not fail the reconcile command or the maintenance pass or
+stop other items being settled. Retirement ends any recorded wait, keeping its
+account in the retirement history rather than promising another continuation.
+
 A run it settled into an ending that is not success is reported twice over: what the sweep did with it,
 and — in the same words `yoyo status` uses — what became of the run and what
 remains of its change. Those are different facts, and only the second answers
@@ -3330,7 +3359,9 @@ still needs it. A standing repair or re-run keeps the checkout and branch,
 including when a gate refused to carry the decision out; a stopped integration
 keeps them too. An outstanding automatic continuation at checks or after a silent
 provider stall also keeps them, including while intake or capacity delays it.
-A recovery record that cannot be read keeps the artifacts rather than granting
+A run retired because another run confirmed its item's merge keeps its branch
+and checkout too, regardless of the cleanup tail. A recovery record that cannot
+be read keeps the artifacts rather than granting
 retirement. Registrations whose
 checkout is no longer on disk are pruned, whichever run or person left them
 behind. A registration a killed `git worktree add` never finished filling in is
@@ -4780,7 +4811,7 @@ comes from a small fixed set:
 | --- | --- |
 | `succeeded` | the work landed |
 | `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream, including during a repair, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
-| `cancelled` | something stopped it rather than judged it — the operator, or a killed process |
+| `cancelled` | something stopped it rather than judged it — the operator, a killed process, or retirement after another run confirmed the item's merge |
 | `timed out` | the harness stopped it on time; nothing judged the change, and only a check stage its bound stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
 | `failed` | it ended without succeeding and without leaving anybody a blocker |
 | `pending`, `running` | it has not finished |

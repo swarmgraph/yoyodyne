@@ -241,6 +241,8 @@ const DefaultVanishedGrace = readmodel.DefaultDeadClaimThreshold
 type ReconcileAction string
 
 const (
+	// ActionRetired ends work superseded by a confirmed merge, preserving artifacts.
+	ActionRetired ReconcileAction = "retired"
 	// ActionHeld reports a run a live process owns, which was left untouched.
 	ActionHeld ReconcileAction = "held"
 	// ActionResumable reports a run whose own pipeline can continue it from
@@ -419,6 +421,16 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 
 // settle decides one run from its durable state and what the repository shows.
 func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	if state.Retirement != nil || updatingQueuedHead(state) {
+		retired, handled, err := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
+		if handled {
+			result := reconciliationOf(retired, ActionRetired)
+			if retired.Retirement != nil {
+				result.Detail = retirementReason(retired)
+			}
+			return result, err
+		}
+	}
 	// A run that is over and whose landing checks the record says are still
 	// running is a run whose process died inside them: a live process would hold
 	// the lease this settlement took. The landing is settled as unverified —

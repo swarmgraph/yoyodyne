@@ -382,16 +382,16 @@ func TestReconcileReportsTheWaitsItContinued(t *testing.T) {
 	})
 	stdout.Reset()
 	stderr.Reset()
-	if code := reportReconcileResult(&stdout, &stderr, false, reconcileSweep{Continuations: refused}, nil); code != 1 {
-		t.Fatalf("reportReconcileResult() code = %d, want 1 for a continuation the pipeline refused", code)
+	if code := reportReconcileResult(&stdout, &stderr, false, reconcileSweep{Continuations: refused}, nil); code != 0 {
+		t.Fatalf("reportReconcileResult() code = %d, want 0 for a per-item continuation refusal", code)
 	}
 	if !strings.Contains(stderr.String(), "not continued: the claude-code backend is not installed") {
 		t.Errorf("stderr = %q, want the refusal named", stderr.String())
 	}
 
 	var jsonOut bytes.Buffer
-	if code := reportReconcileResult(&jsonOut, &stderr, true, reconcileSweep{Continuations: refused}, nil); code != 1 {
-		t.Fatalf("reportReconcileResult() --json code = %d, want 1", code)
+	if code := reportReconcileResult(&jsonOut, &stderr, true, reconcileSweep{Continuations: refused}, nil); code != 0 {
+		t.Fatalf("reportReconcileResult() --json code = %d, want 0 for a per-item continuation refusal", code)
 	}
 	var result reconcileOutput
 	if err := json.Unmarshal(jsonOut.Bytes(), &result); err != nil {

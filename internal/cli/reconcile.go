@@ -335,13 +335,16 @@ func continueUpdateFrom(parts components, stderr io.Writer) func(context.Context
 	}
 }
 
-// printUpdates says what each queued head the sweep brought up to date came to,
-// and reports whether any of them is a failure of the sweep's own.
+// printUpdates says what each continuation came to. Its refusals are per-item
+// findings, so they do not fail a pass that could read and visit the other runs.
 func printUpdates(stdout, stderr io.Writer, updates []orchestrator.UpdateContinuation) bool {
-	failed := false
 	for _, update := range updates {
-		fmt.Fprintf(stdout, "%s (%s): queued head brought up to date onto its target\n", update.RunID, update.WorkItemID)
-		if !update.Continued {
+		what := "queued-head continuation"
+		if update.Retired {
+			what = "run retired after its item merged"
+		}
+		fmt.Fprintf(stdout, "%s (%s): %s\n", update.RunID, update.WorkItemID, what)
+		if update.Retired || !update.Continued {
 			if update.Detail != "" {
 				fmt.Fprintf(stdout, "  %s\n", update.Detail)
 			}
@@ -356,11 +359,11 @@ func printUpdates(stdout, stderr io.Writer, updates []orchestrator.UpdateContinu
 			}
 		}
 		if update.Failure != "" {
-			failed = true
 			fmt.Fprintf(stderr, "  not updated: %s\n", update.Failure)
 		}
+		printReconcileFinding(stdout, stderr, update.Finding, update.FindingProblem)
 	}
-	return failed
+	return false
 }
 
 // continueWaitFrom is the continuation the sweep continues a run with: the
@@ -379,23 +382,17 @@ func continueWaitFrom(parts components, stderr io.Writer) func(context.Context, 
 	}
 }
 
-// printContinuations says what each continued run came to, and reports whether
-// any of them is a failure of the sweep's own: a continuation the pipeline
-// refused or that could not be recorded. A continued run that ended stopped is
-// reported as what it ended as and is not one — its stoppage is on the item and
-// on the docket, as any run's is.
+// printContinuations says what each continued run came to. A refused
+// continuation leaves a finding on its item and does not fail the whole pass.
 func printContinuations(stdout, stderr io.Writer, continuations []orchestrator.WaitContinuation) bool {
-	failed := false
 	for _, continuation := range continuations {
-		if continuation.Failure != "" {
-			failed = true
-		}
 		fmt.Fprint(stdout, describeContinuation(continuation))
 		if continuation.Failure != "" {
 			fmt.Fprintf(stderr, "  not continued: %s\n", continuation.Failure)
 		}
+		printReconcileFinding(stdout, stderr, continuation.Finding, continuation.FindingProblem)
 	}
-	return failed
+	return false
 }
 
 // describeContinuation is the lines the text form prints for one continued
@@ -403,6 +400,10 @@ func printContinuations(stdout, stderr io.Writer, continuations []orchestrator.W
 // then what the continued run came to in the words `yoyo run` ends on.
 func describeContinuation(continuation orchestrator.WaitContinuation) string {
 	var lines strings.Builder
+	if outcome := continuation.Outcome; outcome != nil && outcome.Retirement != nil {
+		fmt.Fprintf(&lines, "%s (%s): run retired after its item merged\n  %s\n", continuation.RunID, continuation.WorkItemID, outcome.Summary)
+		return lines.String()
+	}
 	fmt.Fprintf(&lines, "%s (%s): paused for %s past its deadline %s\n",
 		continuation.RunID, continuation.WorkItemID, continuation.Waited, continuation.Deadline.Format(time.RFC3339))
 	if !continuation.Continued {
@@ -543,19 +544,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			failed = true
 		}
 	}
-	// A continuation the pipeline refused or that could not be recorded is a
-	// run still holding its slot with nothing serving it, which is what this
-	// step exists to end; a continued run that ended stopped is not.
-	for _, continuation := range sweep.Continuations {
-		if continuation.Failure != "" {
-			failed = true
-		}
-	}
-	for _, update := range sweep.Updates {
-		if update.Failure != "" {
-			failed = true
-		}
-	}
+	// Continuation refusals belong to their items' findings.
 	if jsonOutput {
 		output := reconcileOutput{
 			TrackerExports:   sweep.TrackerExports,

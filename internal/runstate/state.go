@@ -1715,6 +1715,11 @@ func (s *State) recordedTexts() []recordedText {
 	}
 
 	own("work_item_title", &s.WorkItemTitle, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	if s.Retirement != nil {
+		nested("retirement.prior_failure", "retirement.prior_failure", &s.Retirement.PriorFailure, MaxBlockerBytes)
+		nested("retirement.prior_blocker", "retirement.prior_blocker", &s.Retirement.PriorBlocker, MaxBlockerBytes)
+		nested("retirement.prior_wait", "retirement.prior_wait", &s.Retirement.PriorWait, MaxBlockerBytes)
+	}
 	if s.Selection != nil {
 		add("selection.reason", "selection.reason", &s.Selection.Reason, MaxSelectionReasonBytes, selectionCutNote, true)
 	}
@@ -2407,6 +2412,8 @@ type ReconcileFinding struct {
 }
 
 type State struct {
+	// Retirement ends obsolete work without removing its branch or checkout.
+	Retirement    *RunRetirement   `json:"retirement,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
 	RunID         string           `json:"run_id"`
 	ProductID     domain.ProductID `json:"product_id"`
@@ -3282,6 +3289,14 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	if s.Retirement != nil {
+		if err := s.Retirement.Validate(s.RunID); err != nil {
+			problems = append(problems, fmt.Errorf("retirement: %w", err))
+		}
+		if s.Status != StatusCancelled || s.CompletedAt == nil {
+			problems = append(problems, errors.New("a retired run must be ended cancelled with its completion recorded"))
+		}
+	}
 	seenFindings := make(map[ReconcileStep]bool)
 	for _, finding := range s.ReconcileFindings {
 		if !slices.Contains(reconcileSteps, finding.Step) || seenFindings[finding.Step] || strings.TrimSpace(finding.Problem) == "" {
@@ -4031,6 +4046,9 @@ func (s State) OperatorHeld() time.Duration {
 // long as that merge is unresolved — the forge performs it minutes after the
 // run itself is over, and what it did with it has to be found out.
 func (s State) Outstanding() bool {
+	if s.Retirement != nil {
+		return s.Retirement.NotedAt == nil
+	}
 	if !s.Status.Terminal() {
 		return true
 	}
@@ -4072,6 +4090,9 @@ func (s State) Outstanding() bool {
 // separate questions and reading one for the other is what let a settled run's
 // unpublished promotion stop being counted anywhere.
 func (s State) AwaitingForge() bool {
+	if s.Retirement != nil {
+		return false
+	}
 	if !s.Status.Terminal() || s.Integration == nil {
 		return false
 	}

@@ -417,8 +417,10 @@ func TestTheSweepContinuesTwoExitedRunsAtOnce(t *testing.T) {
 		mu.Unlock()
 		gate.arrive()
 	}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: items[0], Title: "Task", Status: "in_progress"}}
+	tracker.HoldsItem(beads.WorkItem{ID: items[1], Title: "Task", Status: "in_progress"})
 	reconciler := Reconciler{
-		Tracker:   &orchestratortest.Tracker{Item: beads.WorkItem{ID: items[0], Title: "Task", Status: "in_progress"}},
+		Tracker:   tracker,
 		Worktrees: newObserver(t, repository, worktreeRoot),
 		Store:     sweepStore,
 		Clock:     &pausingClock{now: resetsAt.Add(time.Minute)},

@@ -18,6 +18,10 @@ import (
 // Keys name a string by its place in the record, with [] standing for any
 // element of a list.
 var structuredStrings = map[string]string{
+	"retirement.run_id":                                     "the validated run whose publication superseded this run",
+	"retirement.commit":                                     "the validated confirmed merge revision",
+	"retirement.target_branch":                              "a validated local target branch",
+	"retirement.prior_status":                               "the validated status before retirement",
 	"reconcile_findings[].step":                             "a validated settlement step",
 	"config_comparison.target_commit":                       "a validated compared revision",
 	"config_comparison.previous_target_commit":              "the integration's validated previous revision",
