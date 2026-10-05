@@ -16,6 +16,8 @@
           "held_at": "\u003ctime\u003e",
           "schema_version": 1
         },
+        "provider_effort_reported": false,
+        "review_effort_reported": false,
         "run_id": "",
         "status": "",
         "work_item_closed": false,

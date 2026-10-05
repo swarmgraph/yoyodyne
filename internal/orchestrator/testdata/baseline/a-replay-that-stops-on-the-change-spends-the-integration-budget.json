@@ -52,11 +52,13 @@
           "worktree_path": "\u003cworktrees\u003e/yoyodyne-task-01234567",
           "worktree_present": true
         },
+        "provider_effort_reported": false,
         "provider_model": "opus",
         "provider_resolved_model": "claude-opus-5-developer",
         "provider_session_id": "developer-session",
         "review_base_commit": "\u003ccommit-1\u003e",
         "review_decision": "repair",
+        "review_effort_reported": false,
         "review_findings": [
           {
             "location": {
@@ -138,12 +140,14 @@
     "last_sequence": 8,
     "phase": "reviewing",
     "product_id": "yoyodyne",
+    "provider_effort_reported": false,
     "provider_model": "opus",
     "provider_resolved_model": "claude-opus-5-developer",
     "provider_session_id": "developer-session",
     "repository_id": "yoyodyne",
     "review_base_commit": "\u003ccommit-1\u003e",
     "review_decision": "repair",
+    "review_effort_reported": false,
     "review_finding_details": [
       {
         "file": "feature.txt",

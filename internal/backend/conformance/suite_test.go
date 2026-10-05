@@ -245,9 +245,14 @@ func (a Adapter) classify(condition Condition, sample Sample) []Problem {
 	if !built {
 		return problem(fmt.Sprintf("names adapter %q, which this build cannot construct", a.Descriptor.Adapter))
 	}
+	model := "opus"
+	if a.Descriptor.Adapter == domain.BackendCodex {
+		model = "gpt-6.1-sol"
+	}
 	result, err := provider.Run(context.Background(), backend.RunRequest{
 		RunID:            conformanceRunID,
 		Role:             role,
+		Model:            model,
 		WorkingDirectory: "/worktree",
 		Prompt:           "do the work",
 	})
