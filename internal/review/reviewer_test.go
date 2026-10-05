@@ -1714,3 +1714,13 @@ func TestTheContractRefusesAPersonaChangeThatLandsInTheTemplateAlone(t *testing.
 		t.Error("the branch contract asks for a finding it is given no landing claim to judge")
 	}
 }
+
+func TestTheReviewContractsApplyStandingGoals(t *testing.T) {
+	t.Parallel()
+
+	for _, scope := range []Scope{ScopeWorkItem, ScopeBranch} {
+		if !strings.Contains(reviewSystemPrompt(scope, ""), terms.StandingGoals) {
+			t.Errorf("the %v review contract does not apply standing goals to its own output and decisions", scope)
+		}
+	}
+}

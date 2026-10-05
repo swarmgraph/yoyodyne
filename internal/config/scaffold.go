@@ -697,6 +697,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #     enabled: true
 #     max_turns: 4
 #     prompt: |
+#       Apply the standing goals to everything you write and every decision
+#       you make, whichever goal the work item or your lane serves. Read
+#       the standing set in the goals documents' Standing goals section
+#       under product.specifications, the configured product specification
+#       home delivered as authoritative product intent (docs/product by
+#       default). In Yoyodyne, docs/product/goals/v1-goals.md names the
+#       plain-language and autonomy goals as that set. An output or
+#       decision that breaks a standing goal is a defect to report: name
+#       the goal and where it was broken.
 #       Sweep for unresolved issues: stoppages nobody has decided, claims on
 #       work nothing is running, deliveries that have stopped moving, anything
 #       held for a person that your own recorded authority covers. Batch broad
@@ -728,6 +737,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #     enabled: true
 #     max_turns: 4
 #     prompt: |
+#       Apply the standing goals to everything you write and every decision
+#       you make, whichever goal the work item or your lane serves. Read
+#       the standing set in the goals documents' Standing goals section
+#       under product.specifications, the configured product specification
+#       home delivered as authoritative product intent (docs/product by
+#       default). In Yoyodyne, docs/product/goals/v1-goals.md names the
+#       plain-language and autonomy goals as that set. An output or
+#       decision that breaks a standing goal is a defect to report: name
+#       the goal and where it was broken.
 #       Work the collected reports. Every role files what it noticed into one
 #       pile and you are the only role that can record what became of one, so
 #       a pile nobody wakes you for is a pile nothing drains.
@@ -755,6 +773,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #     enabled: true
 #     max_turns: 4
 #     prompt: |
+#       Apply the standing goals to everything you write and every decision
+#       you make, whichever goal the work item or your lane serves. Read
+#       the standing set in the goals documents' Standing goals section
+#       under product.specifications, the configured product specification
+#       home delivered as authoritative product intent (docs/product by
+#       default). In Yoyodyne, docs/product/goals/v1-goals.md names the
+#       plain-language and autonomy goals as that set. An output or
+#       decision that breaks a standing goal is a defect to report: name
+#       the goal and where it was broken.
 #       Your recurring pass over what is waiting on you. Survey the work
 #       carried in your conversation and the undecided proposals to your
 #       documents. Take work by priority first, then age within each priority.
@@ -777,6 +804,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #     enabled: true
 #     max_turns: 4
 #     prompt: |
+#       Apply the standing goals to everything you write and every decision
+#       you make, whichever goal the work item or your lane serves. Read
+#       the standing set in the goals documents' Standing goals section
+#       under product.specifications, the configured product specification
+#       home delivered as authoritative product intent (docs/product by
+#       default). In Yoyodyne, docs/product/goals/v1-goals.md names the
+#       plain-language and autonomy goals as that set. An output or
+#       decision that breaks a standing goal is a defect to report: name
+#       the goal and where it was broken.
 #       Work the changes other roles have proposed to your documents. The
 #       undecided ones are carried into this turn already, oldest first and at
 #       most ten a pass, and nothing else wakes you to argue them, so a queue

@@ -8377,6 +8377,8 @@ A grant lifts the harness's refusal and never somebody else's. Claude Code refus
 
 The work backlog is upstream in the same way. The Lead Product Manager decides what is admitted to it and in what order it is pulled, so do not admit work to it, reorder it, or retire anything from it. Work you discover goes in your summary, as work to be admitted rather than work you have queued.
 
+` + terms.StandingGoals + `
+
 ` + terms.DecideAndReport + `
 
 Your worktree is yours alone, and so is the scratch directory the harness cut for this run, at ` + scratchDirectoryPlaceholder + ` — anything your work needs that your change must not carry goes there. The log you redirect a check into is the ordinary case. No other run is given that directory, so nothing you write in it can be read back by a run working beside you, and nothing in it can enter your change or leave your worktree dirty. Neither of the two obvious alternatives is one you can use: a scratch file inside the worktree is untracked content every reviewer is then shown, and the machine's temporary directory is one directory every run on this machine is handed at once — two runs redirecting a check into the same name there is one file both of them write, which on 2026-09-01 is how a run came to report a broken toolchain over another run's compile error while its own checks were passing.

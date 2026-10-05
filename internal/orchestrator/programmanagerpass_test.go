@@ -386,6 +386,9 @@ func TestThePassMessageGroupsTheEventsByStream(t *testing.T) {
 	// The pass decides things inside its lane, so the message tells the
 	// instance to make those decisions and report them rather than route them
 	// to the operator for approval.
+	if !strings.Contains(message, terms.StandingGoals) {
+		t.Errorf("message = %q, want the standing goals applied to the pass output and decisions", message)
+	}
 	if !strings.Contains(message, terms.DecideAndReport) {
 		t.Errorf("message = %q, want the rule against routing approvals to the operator", message)
 	}

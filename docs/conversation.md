@@ -1235,6 +1235,17 @@ An agent is conventionally named for its role, and `yoyo init` names every one
 of them that way, so a project that has never configured two agents on a role has
 its conversations exactly where the role would have put them.
 
+**Every role applies the standing goals to everything it writes and every
+decision it makes**, whichever goal the work item or its lane serves. The
+standing set is read from the goals documents' `Standing goals` section
+under the configured `product.specifications` home, delivered as authoritative
+product intent. In Yoyodyne, [the standing goals](product/goals/v1-goals.md#standing-goals)
+are the plain-language and autonomy goals: use ordinary words and make
+decisions the role owns without routing them to the operator for approval.
+This includes a program manager's lane report and post-mortems. An output or
+decision that breaks one is a defect to report, naming the goal and where
+it was broken.
+
 **What each role may do is fixed in the harness rather than in its persona.** A
 project rewrites any persona it likes and the boundaries do not move:
 

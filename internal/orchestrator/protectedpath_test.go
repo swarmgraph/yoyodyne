@@ -965,3 +965,11 @@ func TestTheDeveloperContractDecidesAndReportsRatherThanRoutingApprovals(t *test
 		t.Fatal("the developer contract does not carry the rule against routing approvals to the operator")
 	}
 }
+
+func TestTheDeveloperContractAppliesStandingGoals(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(developerContract(scratchForTest, nil), terms.StandingGoals) {
+		t.Fatal("the developer run contract does not apply standing goals to its own output and decisions")
+	}
+}

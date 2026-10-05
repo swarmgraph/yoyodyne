@@ -566,6 +566,7 @@ func Contract() string {
 		`Every fix carries the work you filed for its root cause in "filed". A fix that files nothing is a silent repair, and the report says so.`,
 		`A finding must leave a trace outside this block on the same pass: a memory written, your lane report changed where you keep one, a report filed, or work admitted. This block and the conversation are lost to you at its next compaction. A pass whose findings leave none of those is recorded as untraced, shown as a problem that is yours to move, and your next pass is told which findings they were.`,
 		"At most " + maxFindingsText + " findings and " + maxQuestionsText + " questions in one turn: a pass that found more than that has found something systemic, and the summary is where that is said.",
+		terms.StandingGoals,
 		"The summary, the findings, and the questions are read by a person. " + terms.ItemNaming,
 		"A question is for what only the operator can decide or do, never for an approval. " + terms.DecideAndReport,
 	}, "\n")
