@@ -1365,12 +1365,15 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	type recurringCompletion struct {
 		schedule Schedule
 		held     recurringHold
+		finished bool
 	}
 	recurringDone := make(chan recurringCompletion)
 	recurringRunning := 0
 	recurringContext := context.WithValue(ctx, recurringFlightsKey{}, &recurringFlights{busy: map[string]bool{}})
 	collectRecurring := func(done recurringCompletion) {
-		recurringRunning--
+		if done.finished {
+			recurringRunning--
+		}
 		schedule.SpentUSD += done.schedule.SpentUSD
 		schedule.Fired = append(schedule.Fired, done.schedule.Fired...)
 		if done.schedule.RecurringProblem != "" || len(done.schedule.Fired) > 0 {
@@ -1965,6 +1968,15 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	session.enter(runstate.WatchWatching, account{reason: s.opening()})
 pulling:
 	for {
+		for {
+			select {
+			case done := <-recurringDone:
+				collectRecurring(done)
+			default:
+				goto accountsCollected
+			}
+		}
+	accountsCollected:
 		// A pull that read everything it needed clears the failures behind it. What
 		// the window measures is a store that has gone on being unreadable, rather
 		// than a count of the contended readings one session met over a long life.
@@ -2129,14 +2141,22 @@ pulling:
 			}
 		}
 	recurringCollected:
+		if s.Budget > 0 && schedule.SpentUSD >= s.Budget {
+			schedule.Stopped = ScheduleBudgetSpent
+			break
+		}
 		s.missed(ctx, &schedule, pull, &cadence)
 		if concurrent {
 			recurringRunning++
-			firingContext := session.passing(recurringContext)
+			firingContext := session.passing(context.WithValue(recurringContext, recurringAccountKey{}, func(task Fired) {
+				account := Schedule{}
+				held := s.recordRecurring(&account, RecurringSweep{Fired: []Fired{task}}, nil)
+				recurringDone <- recurringCompletion{schedule: account, held: held}
+			}))
 			go func() {
 				account := Schedule{}
 				held := s.fire(firingContext, &account, pull)
-				recurringDone <- recurringCompletion{schedule: account, held: held}
+				recurringDone <- recurringCompletion{schedule: account, held: held, finished: true}
 			}()
 		} else {
 			cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
@@ -4062,6 +4082,10 @@ func (s Scheduler) fire(ctx context.Context, schedule *Schedule, pull Pull) recu
 		return recurringHold{}
 	}
 	sweep, err := pull.Recurring.Fire(ctx)
+	return s.recordRecurring(schedule, sweep, err)
+}
+
+func (s Scheduler) recordRecurring(schedule *Schedule, sweep RecurringSweep, err error) recurringHold {
 	var problems []string
 	held := recurringHold{at: s.now()}
 	if err != nil {

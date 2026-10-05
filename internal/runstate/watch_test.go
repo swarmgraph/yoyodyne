@@ -748,3 +748,17 @@ func TestOnlyAnIdlePollThatCouldNotReadTheStoreIsARetriedRead(t *testing.T) {
 		}
 	}
 }
+
+func TestRecurringPassDescribesWhetherPollingContinues(t *testing.T) {
+	for _, concurrent := range []bool{false, true} {
+		pass := WatchPass{Task: "architect-pass", At: time.Unix(1, 0), Concurrent: concurrent}
+		said := pass.Says()
+		if concurrent {
+			if !strings.Contains(said, "keeps polling while this pass runs") || strings.Contains(said, "pulls nothing more") {
+				t.Fatalf("concurrent pass: %s", said)
+			}
+		} else if !strings.Contains(said, "pulls nothing more until this pass ends") {
+			t.Fatalf("historical pass: %s", said)
+		}
+	}
+}

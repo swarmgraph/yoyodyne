@@ -460,6 +460,9 @@ func (p WatchPass) Says() string {
 	if p.Trigger != "" {
 		said += fmt.Sprintf(", fired by its %s", p.Trigger)
 	}
+	if p.Concurrent {
+		return said + "; the session keeps polling while this pass runs; other conversations can take their passes alongside it"
+	}
 	return said + "; the session fires its passes inside its poll, so it pulls nothing more until this pass ends"
 }
 

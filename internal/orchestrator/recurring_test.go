@@ -1570,3 +1570,62 @@ func (s notifyingPasses) Append(pass runstate.Sweep) error {
 	s.appended <- struct{}{}
 	return err
 }
+
+// The expensive conversation finishes while the architect remains blocked.
+type costlyParallelRoles struct {
+	blocked chan struct{}
+	release chan struct{}
+}
+
+func (r costlyParallelRoles) Wake(ctx context.Context, role domain.AgentRole, _, _, _, _ string, _ RecurringTurnOptions) (Turn, error) {
+	if role == domain.RoleArchitect {
+		close(r.blocked)
+		<-r.release
+	} else {
+		<-r.blocked
+	}
+	return Turn{Turns: 1, CostUSD: 12, Result: complete("nothing")}, nil
+}
+func TestCompletedCostIsCollectedBeforeABlockedConversationFinishes(t *testing.T) {
+	store := sweepStore(t)
+	tasks := hourlyTask("sweep")
+	other := tasks["a-sweep"]
+	other.Role = domain.RoleArchitect
+	tasks["b-sweep"] = other
+	roles := costlyParallelRoles{blocked: make(chan struct{}), release: make(chan struct{})}
+	accounts := make(chan Fired)
+	acknowledged := make(chan struct{})
+	ctx := context.WithValue(context.Background(), recurringFlightsKey{}, &recurringFlights{busy: map[string]bool{}})
+	ctx = context.WithValue(ctx, recurringAccountKey{}, func(f Fired) { accounts <- f; <-acknowledged })
+	done := make(chan RecurringSweep)
+	go func() {
+		result, err := (Trigger{Tasks: tasks, Claims: store, Reports: store, Roles: roles, Clock: recurringClock{}}).Fire(ctx)
+		if err != nil {
+			t.Error(err)
+		}
+		done <- result
+	}()
+	first := <-accounts
+	schedule := Schedule{}
+	Scheduler{}.recordRecurring(&schedule, RecurringSweep{Fired: []Fired{first}}, nil)
+	if first.Role == domain.RoleArchitect || schedule.SpentUSD != 12 {
+		t.Fatalf("completed cost not collected: %+v, %+v", first, schedule)
+	}
+	// Until the watch has accepted the cost, the finished conversation remains
+	// reserved. A later pull cannot start another task against an uncounted bill.
+	later := hourlyTask("later")
+	later["c-sweep"] = later["a-sweep"]
+	delete(later, "a-sweep")
+	pending, err := (Trigger{Tasks: later, Claims: store, Reports: store, Roles: roles, Clock: recurringClock{}}).Fire(ctx)
+	if err != nil || len(pending.Fired) != 0 {
+		t.Fatalf("uncollected cost allowed another pass: %+v, %v", pending, err)
+	}
+	close(acknowledged)
+	close(roles.release)
+	second := <-accounts
+	Scheduler{}.recordRecurring(&schedule, RecurringSweep{Fired: []Fired{second}}, nil)
+	result := <-done
+	if len(result.Fired) != 0 || schedule.SpentUSD != 24 {
+		t.Fatalf("cost counted twice or lost: %+v, %+v", result, schedule)
+	}
+}

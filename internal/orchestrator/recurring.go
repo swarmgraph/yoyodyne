@@ -894,7 +894,7 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 			if len(criticals) > 0 {
 				selected[task.Role] = true
 				if release, free := reserveRecurring(ctx, string(task.Role)); free {
-					pending = append(pending, func() (Fired, bool, error) { defer release(); return t.deliverCriticals(ctx) })
+					pending = append(pending, reservedRecurring(ctx, release, func() (Fired, bool, error) { return t.deliverCriticals(ctx) }))
 				}
 			}
 		}
@@ -925,25 +925,23 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 			continue
 		}
 		selected[task.Role] = true
-		pending = append(pending, func() (Fired, bool, error) {
-			defer release()
+		pending = append(pending, reservedRecurring(ctx, release, func() (Fired, bool, error) {
 			if away {
 				return t.refuse(ctx, name, task, outage), true, nil
 			}
 			batch := t.amendmentBatch(task)
 			fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, "", t.overdueFor(task), batch), batch: batch})
 			return fired, true, nil
-		})
+		}))
 	}
 	for _, agent := range t.instanceNames() {
 		release, free := reserveRecurring(ctx, "agent:"+agent)
 		if !free {
 			continue
 		}
-		pending = append(pending, func() (Fired, bool, error) {
-			defer release()
+		pending = append(pending, reservedRecurring(ctx, release, func() (Fired, bool, error) {
 			return t.pass(ctx, agent, t.Instances[agent], outage, away)
-		})
+		}))
 	}
 	type result struct {
 		fired Fired
@@ -970,6 +968,21 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 		}
 	}
 	return sweep, errors.Join(problems...)
+}
+
+// A watch receives each account before that conversation can be scheduled again.
+type recurringAccountKey struct{}
+
+func reservedRecurring(ctx context.Context, release func(), fire func() (Fired, bool, error)) func() (Fired, bool, error) {
+	return func() (Fired, bool, error) {
+		defer release()
+		fired, took, err := fire()
+		if report, ok := ctx.Value(recurringAccountKey{}).(func(Fired)); ok && took {
+			report(fired)
+			took = false // The watch has already collected this account.
+		}
+		return fired, took, err
+	}
 }
 
 // passName is how a firing is named where a turn records it wrote something on
