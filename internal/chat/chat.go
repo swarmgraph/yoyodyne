@@ -1762,6 +1762,12 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	}
 	// Keep the waiting message even if the save turn fails before it is answered.
 	var operatorSequence uint64
+	if savingMemory {
+		// A save belongs to the waiting message, even though it records no
+		// operator message of its own. Keep that position locally so a
+		// capacity wait cannot clear it before a later size recovery.
+		operatorSequence = s.turnOperatorSequence
+	}
 	if operatorMessage != "" {
 		if err := s.recordOperatorMessage(operatorMessage); err != nil {
 			return "", err

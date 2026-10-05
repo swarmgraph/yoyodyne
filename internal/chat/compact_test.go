@@ -216,9 +216,11 @@ func TestAProviderWaitPreservesTheSaveBeforeCompaction(t *testing.T) {
 		savingMemory bool
 		cancel       bool
 		replace      bool
+		sizeRefusal  bool
 	}{
 		{name: "waiting answer needs a save after another turn"},
 		{name: "save waits while another turn runs", savingMemory: true},
+		{name: "save waits then receives a size refusal", savingMemory: true, sizeRefusal: true},
 		{name: "cancelled save preserves another turn", savingMemory: true, cancel: true},
 		{name: "save preserves a replacement conversation", savingMemory: true, replace: true},
 	} {
@@ -241,6 +243,19 @@ func TestAProviderWaitPreservesTheSaveBeforeCompaction(t *testing.T) {
 				{SessionID: "session-after-pass", FinalText: "Nothing to save."},
 				{SessionID: "new-session", FinalText: "Here is the waiting answer."},
 			}}}
+			if test.sizeRefusal {
+				// Halving removes the older large reply while retaining the
+				// newer waiting message if its event number was forgotten.
+				provider.results[0].FinalText = "Learning. " + strings.Repeat("x", 120<<10)
+				provider.results[2].FinalText = "The scheduled pass finished.\n" +
+					memoryBlock(`{"memories":[{"action":"remember","memory":"slow-checks","text":"`+conclusion+`"}]}`)
+				// The save resumes the session advanced by the intervening turn,
+				// but size recovery must rebuild without the waiting message.
+				provider.results = append(provider.results[:3], append([]backendapi.RunResult{
+					{IsError: true, FinalText: recordedCodexSizeRefusal},
+					{SessionID: "save-retry-session", FinalText: "Nothing to save."},
+				}, provider.results[4:]...)...)
+			}
 			budget := 64 << 10
 			if test.savingMemory {
 				budget = 1
@@ -329,10 +344,27 @@ func TestAProviderWaitPreservesTheSaveBeforeCompaction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if waits != 1 || len(provider.requests) != 5 || session.state.Turns != 4 {
+			wantRequests := 5
+			if test.sizeRefusal {
+				wantRequests++
+			}
+			if waits != 1 || len(provider.requests) != wantRequests || session.state.Turns != 4 {
 				t.Fatalf("waits=%d, requests=%d, turns=%d", waits, len(provider.requests), session.state.Turns)
 			}
-			save, answer := provider.requests[3], provider.requests[4]
+			save, answer := provider.requests[3], provider.requests[wantRequests-1]
+			if test.sizeRefusal {
+				retry := provider.requests[4]
+				if strings.Contains(retry.Prompt, "Waiting message.") {
+					t.Fatal("the rebuilt save retry replayed the waiting message")
+				}
+				if retry.SessionID != "" || !strings.Contains(retry.Prompt, rebuiltContextHeader) ||
+					!strings.Contains(retry.Prompt, conclusion) || !strings.HasSuffix(retry.Prompt, compactionSavePrompt()) {
+					t.Fatal("save retry lost the durable reconstruction, saved memory or save instructions")
+				}
+				if retry.LastSequence <= save.LastSequence || answer.LastSequence <= retry.LastSequence {
+					t.Fatal("save recovery reused event numbers")
+				}
+			}
 			if save.SessionID != "session-after-pass" || !strings.Contains(save.Prompt, "compact this provider session next") ||
 				strings.Contains(save.Prompt, "Waiting message.") || strings.Contains(save.Prompt, rebuiltContextHeader) {
 				t.Fatalf("save did not resume the latest session before rebuilding: %+v", save)
@@ -341,7 +373,11 @@ func TestAProviderWaitPreservesTheSaveBeforeCompaction(t *testing.T) {
 				strings.Count(answer.Prompt, "Waiting message.") != 1 {
 				t.Fatal("the rebuilt answer lost the later turn's memory or results, or repeated the waiting message")
 			}
-			if len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].Turn != 3 || reply.CompactionSaves[0].SessionID != "session-after-pass" {
+			savedSession := "session-after-pass"
+			if test.sizeRefusal {
+				savedSession = "save-retry-session"
+			}
+			if len(reply.CompactionSaves) != 1 || reply.CompactionSaves[0].Turn != 3 || reply.CompactionSaves[0].SessionID != savedSession {
 				t.Fatalf("save outcome does not name the turn that answered: %+v", reply.CompactionSaves)
 			}
 			if waits, err := store.WaitingTurns(); err != nil || len(waits) != 0 {
