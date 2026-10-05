@@ -372,12 +372,9 @@ func TestClientListsWorkItemsWithoutChangingAnything(t *testing.T) {
 	}
 }
 
-// A bd release without --limit refuses every listing for the flag, before it
-// opens the store, and a harness whose every listing fails makes no runs. So
-// the listing is asked again without the flag, and only for that refusal: this
-// puts the client over a bd that is a real process and rejects the flag the way
-// cobra does, and checks that the rows come back, that the flag was tried
-// first, and that a bd failing for any other reason is not asked twice.
+// An old tracker that refuses --limit is read again to count its default page,
+// but that page is never handed to a caller as a complete listing. Other
+// failures are not asked twice.
 func TestClientListsWithoutTheLimitFlagWhereBDRefusesIt(t *testing.T) {
 	t.Parallel()
 
@@ -403,11 +400,11 @@ func TestClientListsWithoutTheLimitFlagWhereBDRefusesIt(t *testing.T) {
 	client := Client{Runner: execution.OSProcessRunner{}, Binary: bd, Dir: directory, Timeout: 30 * time.Second}
 
 	items, err := client.List(context.Background(), "open")
-	if err != nil {
-		t.Fatalf("List() over a bd without --limit error = %v", err)
+	if err == nil || !strings.Contains(err.Error(), "read 1 work item(s)") || !strings.Contains(err.Error(), "work may be missing") {
+		t.Fatalf("List() over a bd without --limit error = %v, want the count and the missing-work warning", err)
 	}
-	if len(items) != 1 || items[0].ID != "yoyodyne-1" {
-		t.Fatalf("List() over a bd without --limit = %#v, want the one row it holds", items)
+	if items != nil {
+		t.Fatalf("List() handed a possibly incomplete page to its caller: %#v", items)
 	}
 	if _, err := client.List(context.Background(), "blocked"); err == nil || !strings.Contains(err.Error(), "locked") {
 		t.Fatalf("List() over a bd refusing for the store error = %v, want the store's refusal", err)
@@ -484,7 +481,7 @@ func TestClientAsksTheTrackerWhatIsReadyRatherThanWorkingItOut(t *testing.T) {
 	if dependency.ID != "bdprobe-3kw" || dependency.Type != "blocks" || dependency.Status != "" {
 		t.Fatalf("dependency = %#v", dependency)
 	}
-	if !reflect.DeepEqual(runner.args, [][]string{{"ready", "--json"}}) {
+	if !reflect.DeepEqual(runner.args, [][]string{{"ready", "--json", "--limit=0"}}) {
 		t.Fatalf("bd args = %#v", runner.args)
 	}
 }
@@ -2241,7 +2238,7 @@ func TestBDOutputIsRetainedWholeAndACutCopyIsRefused(t *testing.T) {
 	if err == nil {
 		t.Fatal("a cut copy of bd's output was accepted")
 	}
-	if !strings.Contains(err.Error(), "was cut and is not read") {
+	if !strings.Contains(err.Error(), "output was cut: read 0 complete work item(s); work may be missing") {
 		t.Fatalf("the refusal does not say the output was cut: %v", err)
 	}
 }
