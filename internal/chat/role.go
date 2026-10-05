@@ -604,6 +604,8 @@ Reply in plain prose, and prefer a short honest answer to a confident one. Be cl
 
 ` + terms.ItemNaming + `
 
+` + terms.StandingGoals + `
+
 ` + terms.DecideAndReport
 
 // readOnlyTrackerClause is the tracker authority of every role that may look at

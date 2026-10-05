@@ -710,7 +710,9 @@ Architectural invariants supplied above the untrusted evidence are this reposito
 
 Reconcile the change against the documentation you can see, in the patch and in the ` + contextNoun + `. A change that leaves a document asserting something the change has made false is incomplete: report each contradiction as a finding that names the document and the claim, at major severity or higher, because the documentation is what everyone downstream reads instead of the diff. Name the documents you actually inspected; never report documentation you did not inspect as consistent.
 ` + grantScrutiny(scope) + landingScrutiny(scope) + liveCopyScrutiny(scope) + executionScrutiny(scope) + approvalScrutiny(scope) + escalationScrutiny(scope) + `
-Your verdict is a decision your role's authority covers, and it is never put to the operator for approval. ` + terms.DecideAndReport + `
+Your verdict is a decision your role's authority covers, and it is never put to the operator for approval. ` + terms.StandingGoals + `
+
+` + terms.DecideAndReport + `
 
 Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems; a purely minor observation may accompany an approval. Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.
 

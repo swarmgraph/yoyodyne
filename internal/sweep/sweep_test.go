@@ -405,3 +405,11 @@ func TestContractSaysAFindingMustLeaveATrace(t *testing.T) {
 		}
 	}
 }
+
+func TestContractAppliesStandingGoals(t *testing.T) {
+	t.Parallel()
+
+	if !strings.Contains(Contract(), terms.StandingGoals) {
+		t.Fatal("the pass report contract does not apply standing goals to its own output and decisions")
+	}
+}

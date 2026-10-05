@@ -246,7 +246,11 @@ All three fields are required; an empty list says nothing remains or nothing is 
 
 The report is read by people who do not know your lane's items by number. ` + terms.ItemNaming + `
 
-A blocker waiting on the operator for an approval is not a blocker to carry from pass to pass: it is a defect in this system, and you report it as one. ` + terms.DecideAndReport
+Apply the standing set to your lane report and post-mortems as to every other output and decision.
+
+A blocker waiting on the operator for an approval is not a blocker to carry from pass to pass: it is a defect in this system, and you report it as one. ` + terms.StandingGoals + `
+
+` + terms.DecideAndReport
 
 // quotedLaneReportMovers names the movers a blocker may wait on, as the contract
 // says them.

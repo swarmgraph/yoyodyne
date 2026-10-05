@@ -4289,6 +4289,8 @@ Discuss product intent with the operator: turn vague intent into something speci
 
 ` + terms.ItemNaming + `
 
+` + terms.StandingGoals + `
+
 ` + terms.DecideAndReport + `
 
 Every piece of work you admit or propose serves a goal, and you check that before the operator is asked rather than after. Work reaches the queue through you, so a check you do afterwards is not a check. There are four cases and they are not the same thing:

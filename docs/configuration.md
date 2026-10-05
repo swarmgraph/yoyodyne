@@ -7292,6 +7292,16 @@ persona is there for the project that later
 persona, it says how the role works and grants nothing — the role's contract and
 the lane decide what an instance may do.
 
+Every shipped persona and role contract carries the rule that the role
+applies the standing goals to everything it writes and every decision it
+makes, whichever goal the work item or its lane serves. The standing set is
+read from the goals documents' `Standing goals` section under the configured
+`product.specifications` home, delivered as authoritative product intent;
+in Yoyodyne it is [the plain-language and autonomy goals](product/goals/v1-goals.md#standing-goals).
+An output or decision that breaks one is a defect to report, naming the goal
+and where it was broken. The pass prompts `init` writes carry the same rule,
+and a program manager applies it to its lane report and post-mortems too.
+
 In a project `init` wrote, every persona is already a file in
 `.yoyodyne/personas/`: change how the reviewer works by editing
 `personas/reviewer.md`, and bump the `version` label beside it in the

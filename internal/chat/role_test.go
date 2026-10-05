@@ -509,3 +509,19 @@ func TestEveryContractDecidesAndReportsRatherThanRoutingApprovals(t *testing.T) 
 		t.Error("the lane report contract does not carry the rule against routing approvals to the operator")
 	}
 }
+
+// A replaced persona cannot drop the standing goals from a role's contract.
+func TestEveryContractAppliesStandingGoals(t *testing.T) {
+	t.Parallel()
+
+	for _, role := range ConversationalRoles() {
+		authority, _ := AuthorityFor(role)
+		if !strings.Contains(authority.Contract, terms.StandingGoals) {
+			t.Errorf("%s contract does not apply standing goals to its own output and decisions", role)
+		}
+	}
+	if !strings.Contains(laneReportContract, terms.StandingGoals) ||
+		!strings.Contains(laneReportContract, "your lane report and post-mortems") {
+		t.Error("the lane report contract does not apply standing goals to the lane report and post-mortems")
+	}
+}
