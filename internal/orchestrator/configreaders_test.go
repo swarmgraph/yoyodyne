@@ -444,7 +444,7 @@ type refuseConfigFindingOnce struct {
 }
 
 func (r *refuseConfigFindingOnce) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
-	if !r.refused && strings.HasPrefix(note, "Running parts that cannot read") {
+	if !r.refused && (strings.HasPrefix(note, "Running parts that cannot read") || strings.HasPrefix(note, "Configuration reader records and comparison problems")) {
 		r.refused = true
 		return beads.WorkItem{}, errors.New("configuration finding refused")
 	}
@@ -568,7 +568,7 @@ func TestALandingSeparatesAStaleLegacySupervisorFromRunningParts(t *testing.T) {
 	}
 	notes := (configComparison{active: active, activeError: problem}).notes()
 	sections := strings.Split(notes, "\n")
-	if len(sections) != 2 || !strings.HasPrefix(sections[0], "Running parts that cannot read") || !strings.Contains(sections[0], "the dashboard service") || strings.Contains(sections[0], "supervisor") {
+	if len(sections) != 2 || !strings.HasPrefix(sections[0], "Running parts that cannot read") || !strings.Contains(sections[0], "the dashboard service") || strings.Contains(sections[0], "stale configuration reader record") || strings.Contains(sections[0], "the supervisor service") {
 		t.Fatalf("stale record presented as a running failure: %s", notes)
 	}
 	for _, want := range []string{"Configuration reader records and comparison problems:", "stale configuration reader record", "supervisor.json", stale.ConfigPath, "remains stale even after a different process starts", "other parts were still checked"} {
