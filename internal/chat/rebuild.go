@@ -30,6 +30,7 @@ package chat
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -510,29 +511,29 @@ func refusedAsTooLong(result backend.RunResult, err error) string {
 // than resuming the session that was refused — which is what keeps this from
 // dead-ending into a conversation somebody has to replace by hand.
 //
-// A replacement that could not be written down, or a rebuild that could not be
-// made, does not stop the fresh attempt: an answer with less context than it
-// should have, or one the log does not explain, is worth more to the operator
-// than none, and what is missing is named on the reply.
-func (s *Session) replaceSession(request backend.RunRequest, refusedOn backend.Endpoint, replaced, why string) backend.RunRequest {
+// A failed replacement or rebuild is returned and named on the reply. Request
+// size recovery stops on it; recovery from other context refusals may still
+// try the original prompt without the unusable session.
+func (s *Session) replaceSession(request backend.RunRequest, refusedOn backend.Endpoint, replaced, why string) (backend.RunRequest, error) {
 	s.state.ProviderSessionID = ""
 	s.state.SessionSetAside = singleLine(why, maxTrackerFailureBytes)
-	if err := s.emit(execution.EventSessionReplaced, map[string]any{
+	recordErr := s.emit(execution.EventSessionReplaced, map[string]any{
 		"replaced_session": replaced,
 		"provider":         refusedOn.Provider,
 		"account":          refusedOn.AccountAlias,
 		"model":            refusedOn.Model,
 		"reason":           s.state.SessionSetAside,
-	}); err != nil {
+	})
+	if recordErr != nil {
 		s.failoverProblem = appendProblem(s.failoverProblem, singleLine(
-			"the provider session set aside as too long was not recorded: "+err.Error(), maxTrackerFailureBytes))
+			"the provider session set aside as too long was not recorded: "+recordErr.Error(), maxTrackerFailureBytes))
 	}
 	request.SessionID = ""
 	request.LastSequence = s.state.LastSequence
 	rebuilt, err := s.rebuildFromRecord(request, sessionSetAside)
 	if err != nil {
 		s.failoverProblem = appendProblem(s.failoverProblem, singleLine(err.Error(), maxTrackerFailureBytes))
-		return request
+		return request, errors.Join(recordErr, err)
 	}
-	return rebuilt
+	return rebuilt, recordErr
 }

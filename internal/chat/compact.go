@@ -29,9 +29,10 @@ package chat
 // and what the session was carrying comes from the harness's own record instead
 // — the picture the conversation is working from and the most recent of what has
 // been said, bounded by the rebuild's own budget. A role that keeps memory is
-// first given one turn on the old session to save its conclusions. The rebuild
-// follows only after those writes have been recorded, and the provider's answer
-// starts a new session the measure starts again from.
+// first given a turn on the old session to save its conclusions. A size refusal
+// sets that session aside and retries the save once from the durable record.
+// The waiting turn follows only after those writes have been recorded. Its
+// answer starts a new session the measure starts again from.
 
 import (
 	"context"
@@ -66,7 +67,7 @@ func compactionSavePrompt() string {
 
 The harness will compact this provider session next. The new session will keep the conversation's current repository and tracker picture, your recorded memories, and the newest %d messages within %d KiB. Older messages remain in the durable conversation log but will not reach the new session; conclusions you have not recorded as memory may be lost.
 
-You have one turn on this session to save what you have learned through your yoyodyne-memory block. Use the usual memory limits and compact or retire outdated memories where needed to make room. This turn is only for memory writes; carry no other harness block and do not answer the waiting message yet. If you have nothing to save, reply exactly "Nothing to save." without a memory block.
+Use this turn to save what you have learned through your yoyodyne-memory block. Use the usual memory limits and compact or retire outdated memories where needed to make room. This turn is only for memory writes; carry no other harness block and do not answer the waiting message yet. If you have nothing to save, reply exactly "Nothing to save." without a memory block.
 `, maxRebuiltMessages, maxRebuiltContextBytes>>10)
 }
 

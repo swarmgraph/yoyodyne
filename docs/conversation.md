@@ -1501,12 +1501,21 @@ records its conclusions through its usual `yoyodyne-memory` block, or replies
 "Nothing to save." with no block. The harness records the memory writes before
 rebuilding the session, and the conversation log says the save turn happened,
 how many writes it recorded, and whether the role had nothing to save. The
-transcript and `--json` (`compaction_saves`) say the same thing. A save turn or
-memory write that fails leaves the old session in place and the waiting message
-unanswered, except for a memory-budget refusal: that refuses only the write,
-reports the sizes and largest memories to the role on its next turn, and lets
-the rebuild and waiting reply continue. Program managers receive this turn too; developers and reviewers,
-which keep no memory, do not.
+transcript and `--json` (`compaction_saves`) say the same thing. If the provider
+refuses the save request for size, the harness sets aside the unusable session
+and retries the save once from the durable conversation record, with older
+messages shortened. The retry keeps recorded memories and the save instructions;
+it does not replay the waiting message. Its memory writes are recorded before
+the waiting reply continues. Conclusions held only in the refused native
+session cannot be recovered from that record.
+
+A save turn or memory write that still fails leaves the waiting message
+unanswered. The old session stays in place unless a size refusal already set
+it aside; in that case the next turn rebuilds from the record. A memory-budget
+refusal refuses only the write, reports the sizes and largest memories to the
+role on its next turn, and lets the rebuild and waiting reply continue. Program
+managers receive this turn too; developers and reviewers, which keep no memory,
+do not.
 
 **`yoyo agent memory <name>` reads that history as text.** Every memory the
 agent holds is listed with all of its revisions, newest first, each quoted as it
@@ -2904,10 +2913,13 @@ shortening as `session.compacted` with reason `request_size`. The check runs
 after endpoint selection, so failover uses the receiving endpoint's bound.
 If a provider still rejects input for size, including Codex's `input_too_large`,
 the harness tries the turn once with a shorter reconstruction and records
-`request_size_retry`; a served retry completes the same pass. A second refusal
-ends that turn. If the fixed instructions and current evidence alone cannot
-fit, the harness refuses before starting the provider and says why rather than
-cutting them to obtain an answer.
+`request_size_retry`; a served retry completes the same pass. This also applies
+to the memory-save turn before compaction. A second refusal ends that turn.
+A reconstruction that cannot read the durable record ends without another
+provider attempt, returns the read error, and retains the event position of
+any session replacement already recorded. If the fixed instructions and current
+evidence alone cannot fit, the harness refuses before starting the provider and
+says why rather than cutting them to obtain an answer.
 
 A memory write that would exceed the 32,768-byte live memory budget is refused
 whole, including a memory compaction: it changes no memory. The refusal names

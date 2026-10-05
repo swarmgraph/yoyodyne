@@ -99,7 +99,9 @@ and, if due, `saveBeforeCompaction` then `compact` (`compact.go`); builds the
 `meteredFailover` (`usagelimit.go`) and `rebuildForOwnEndpoint`
 (`rebuild.go`). `requestBounded` (`requestsize.go`) measures the selected
 endpoint's actual prompt, shortens replayed history to leave a margin below its
-input limit, and retries a size refusal once. It then invokes in a loop that
+input limit, and retries a size refusal once, including the memory-save turn.
+A failed reconstruction returns its error and keeps the event position after
+any recorded session replacement. It then invokes in a loop that
 handles other refusals (below), and
 finally `measureSession` and `record`.
 

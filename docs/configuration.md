@@ -4358,8 +4358,12 @@ instructions and evidence, memory, decisions and docket records are preserved.
 Codex's 1,048,576-character bound includes the role contract and inspection
 instructions its adapter adds. If the endpoint nevertheless refuses for request
 size (`input_too_large` or `request_too_large`), the turn gets one shorter
-reconstruction before it can fail. This also applies to the receiving endpoint
-on failover. These bounds belong to the adapters and add no configuration key.
+reconstruction before it can fail. This also applies to the memory-save turn
+before compaction and to the receiving endpoint on failover. A save refused on
+the old session retries from the durable record; its writes are recorded before
+the waiting message continues. If that reconstruction fails, the error is
+returned and the recorded replacement's event position is kept. These bounds
+belong to the adapters and add no configuration key.
 See [request size protection](conversation.md) for the
 compaction and refusal behavior.
 

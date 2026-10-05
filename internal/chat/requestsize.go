@@ -21,16 +21,19 @@ type requestBounded struct {
 	savingMemory bool
 }
 
-func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
+func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (result backend.RunResult, err error) {
 	s := b.session
+	// Replacing or shortening a session can append events after the provider's
+	// last event. Even when rebuilding fails, the caller must keep that position.
+	defer func() { result.LastEvent = max(result.LastEvent, s.state.LastSequence) }()
 	prepared, err := s.fitRequest(b.adapter, request)
 	if err != nil {
 		return backend.RunResult{LastEvent: s.state.LastSequence}, err
 	}
 	request = prepared
 	s.sentRequest = &request
-	result, err := b.provider.Run(ctx, request)
-	if b.savingMemory || !requestRejectedForSize(result, err) {
+	result, err = b.provider.Run(ctx, request)
+	if !requestRejectedForSize(result, err) {
 		return result, err
 	}
 	// A provider can change its limit or count more than the adapter can see.
@@ -40,8 +43,12 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (ba
 	request.LastSequence = s.state.LastSequence
 	before := request.Prompt
 	if request.SessionID != "" {
-		request = s.replaceSession(request, backend.Endpoint{Provider: result.Backend,
+		var rebuildErr error
+		request, rebuildErr = s.replaceSession(request, backend.Endpoint{Provider: result.Backend,
 			AccountAlias: request.AccountAlias, Model: request.Model}, request.SessionID, sizeRefusalDetail(result, err))
+		if rebuildErr != nil {
+			return result, rebuildErr
+		}
 		s.compacting = true
 	}
 	smaller, ok, shortenErr := s.shortenRequest(request)
@@ -55,7 +62,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (ba
 		request = smaller
 	}
 	if recordErr := s.emit(execution.EventSessionCompacted, map[string]any{
-		"reason": "request_size_retry", "request_bytes": len(before),
+		"reason": "request_size_retry", "request_bytes": len(before), "saving_memory": b.savingMemory,
 		"rebuilt_bytes": len(request.Prompt), "provider_detail": singleLine(sizeRefusalDetail(result, err), maxTrackerFailureBytes),
 	}); recordErr != nil {
 		return backend.RunResult{LastEvent: s.state.LastSequence}, recordErr

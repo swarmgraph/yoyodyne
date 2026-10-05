@@ -1772,6 +1772,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if !savingMemory {
 		due = s.compactionDue(systemPrompt, prompt)
 		if due != nil && s.keepsMemory() {
+			// A save recovered from the record must not replay the waiting
+			// message as history before the role has saved its conclusions.
+			s.turnOperatorSequence = operatorSequence
 			memoriesBeforeSave := len(reply.Memories)
 			turnsBeforeSave := s.state.Turns
 			if err := s.saveBeforeCompaction(ctx, *due, reply); err != nil {
@@ -1797,7 +1800,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// The save turn is now history; the waiting message is already recorded and
 	// is omitted from a rebuild by sequence so it is not delivered twice.
 	s.turnBegan = s.state.LastSequence
-	s.turnOperatorSequence = operatorSequence
+	if !savingMemory {
+		s.turnOperatorSequence = operatorSequence
+	}
 	// A session this turn would take past its budget is compacted before the turn
 	// is sent, while that can still be done; see compact.go. It is decided here,
 	// after the operator's side is on the record and before the invocation's
@@ -1988,7 +1993,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		if why := refusedAsTooLong(result, err); !savingMemory && !requestRejectedForSize(result, err) && why != "" && resumed != "" && !replaced {
 			replaced = true
 			s.state.LastSequence = lastSequence
-			request = s.replaceSession(request, refusedOn, resumed, why)
+			// Other context refusals retain the existing attempt with less
+			// context if rebuilding fails; the problem is named on the reply.
+			request, _ = s.replaceSession(request, refusedOn, resumed, why)
 			lastSequence = s.state.LastSequence
 			// The alternate's session is the conversation's session, and it was set
 			// aside with it, so the failover is asked afresh rather than holding on to
