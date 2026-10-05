@@ -663,6 +663,15 @@ async function main() {
   }
   const out = check ? path.join(here, "renders") : process.argv[at + 1];
   if (!check) fs.mkdirSync(out, { recursive: true });
+  for (const description of ["high, from the agent", "high, from the Codex configuration", "not reported, from the Codex configuration"]) {
+    const reading = fixture("standing-busy");
+    reading.running[0].backend = "codex";
+    reading.running[0].model = "gpt-6.1-sol";
+    reading.running[0].effort_description = description;
+    reading.running[0].effort = description.endsWith("from the agent") ? "high" : "";
+    const rendered = await run(Object.assign({}, pages.find((page) => page.name === "busy"), { standing: ok(reading) }));
+    assert(rendered.html.includes("codex · gpt-6.1-sol · effort " + description), "the run card must project its effort source");
+  }
   const matrix = {};
   const runSteps = fixture("standing-run-steps");
   for (const scenario of scenarios) {

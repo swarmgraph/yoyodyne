@@ -142,11 +142,12 @@ type BranchReviewOutcome struct {
 	ResolvedModel  string           `json:"resolved_model,omitempty"`
 	Effort         string           `json:"effort,omitempty"`
 	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
-	ResolvedEffort string          `json:"resolved_effort,omitempty"`
-	EffortReported bool            `json:"effort_reported"`
-	Invariants     []string        `json:"invariants,omitempty"`
-	Reports        []report.Report `json:"reports,omitempty"`
-	ReportProblem  string          `json:"report_problem,omitempty"`
+	ResolvedEffort    string          `json:"resolved_effort,omitempty"`
+	EffortDescription string          `json:"effort_description,omitempty"`
+	EffortReported    bool            `json:"effort_reported"`
+	Invariants        []string        `json:"invariants,omitempty"`
+	Reports           []report.Report `json:"reports,omitempty"`
+	ReportProblem     string          `json:"report_problem,omitempty"`
 	// Shadow says this review was made to measure the reviewer, and gates
 	// nothing. It is carried on the outcome as well as the record so that a
 	// caller reading the verdict cannot read it as an approval either.
@@ -251,6 +252,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	outcome.ResolvedModel = result.ResolvedModel
 	outcome.Effort = result.RequestedEffort
 	outcome.ResolvedEffort = result.ResolvedEffort
+	outcome.EffortDescription = result.EffortDescription
 	outcome.EffortReported = result.EffortReported
 	outcome.Summary = result.Verdict.Summary
 	outcome.Findings = result.Verdict.Findings
@@ -383,29 +385,30 @@ func (b BranchReviewer) record(outcome *BranchReviewOutcome, change gitworktree.
 		return
 	}
 	reviewed := runstate.BranchReview{
-		SchemaVersion:  runstate.BranchReviewSchemaVersion,
-		ReviewID:       outcome.ReviewID,
-		ProductID:      b.Config.Product.ID,
-		RepositoryID:   string(b.Config.Product.RepositoryID),
-		Branch:         change.Branch,
-		BaseRef:        change.BaseRef,
-		BaseCommit:     change.BaseCommit,
-		HeadCommit:     change.HeadCommit,
-		Commits:        len(change.Commits),
-		CommitsOmitted: change.CommitsOmitted,
-		Truncated:      change.Changes.Truncated,
-		ReviewedAt:     b.clock().Now().UTC(),
-		SessionID:      outcome.SessionID,
-		Model:          outcome.Model,
-		ResolvedModel:  outcome.ResolvedModel,
-		Effort:         outcome.Effort,
-		ResolvedEffort: outcome.ResolvedEffort,
-		EffortReported: outcome.EffortReported,
-		Decision:       string(outcome.Decision),
-		Summary:        outcome.Summary,
-		Findings:       durableFindings(outcome.Findings),
-		Failure:        failure,
-		Shadow:         outcome.Shadow,
+		SchemaVersion:     runstate.BranchReviewSchemaVersion,
+		ReviewID:          outcome.ReviewID,
+		ProductID:         b.Config.Product.ID,
+		RepositoryID:      string(b.Config.Product.RepositoryID),
+		Branch:            change.Branch,
+		BaseRef:           change.BaseRef,
+		BaseCommit:        change.BaseCommit,
+		HeadCommit:        change.HeadCommit,
+		Commits:           len(change.Commits),
+		CommitsOmitted:    change.CommitsOmitted,
+		Truncated:         change.Changes.Truncated,
+		ReviewedAt:        b.clock().Now().UTC(),
+		SessionID:         outcome.SessionID,
+		Model:             outcome.Model,
+		ResolvedModel:     outcome.ResolvedModel,
+		Effort:            outcome.Effort,
+		ResolvedEffort:    outcome.ResolvedEffort,
+		EffortDescription: outcome.EffortDescription,
+		EffortReported:    outcome.EffortReported,
+		Decision:          string(outcome.Decision),
+		Summary:           outcome.Summary,
+		Findings:          durableFindings(outcome.Findings),
+		Failure:           failure,
+		Shadow:            outcome.Shadow,
 	}
 	// A review that reached no verdict must still say what stopped it, and a
 	// review whose verdict the harness rejected has both a summary and a reason.

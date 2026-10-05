@@ -343,10 +343,13 @@ type RunResult struct {
 	// ResolvedEffort is what the stream reported, never inferred from the request.
 	// EffortReported is false when the provider omitted it.
 	ResolvedEffort string
-	EffortReported bool
-	FinalText      string
-	IsError        bool
-	CostUSD        float64
+	// EffortDescription names Codex's requested level and source, or its
+	// reported level and source when no override was requested.
+	EffortDescription string
+	EffortReported    bool
+	FinalText         string
+	IsError           bool
+	CostUSD           float64
 	// CostReported says the provider actually told the harness what this
 	// invocation cost. It is separate from CostUSD because a float has no way to
 	// say it was never set: an invocation the provider ended without pricing and

@@ -178,7 +178,7 @@ func (s Standing) renderRunning() string {
 		listed, further := bound(len(s.Running))
 		for _, run := range s.Running[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, %s elapsed, %s%s\n",
-				run.WorkItemID, phaseOf(run), atEffort(run.Model, run.Effort), age(run.Elapsed), spendOf(run), slotOf(run))
+				run.WorkItemID, phaseOf(run), atEffort(run.Model, run.Effort, run.EffortDescription), age(run.Elapsed), spendOf(run), slotOf(run))
 		}
 		rendered.WriteString(remainder(further, "developer run"))
 	}
@@ -292,7 +292,7 @@ func (s Standing) renderWorking() string {
 		listed, further := bound(len(s.Working))
 		for _, turn := range s.Working[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, a turn in flight for %s after %s\n",
-				turn.Agent, turn.Role, atEffort(turn.Model, turn.Effort), age(turn.Elapsed), count(turn.Turns, "recorded turn"))
+				turn.Agent, turn.Role, atEffort(turn.Model, turn.Effort, turn.EffortDescription), age(turn.Elapsed), count(turn.Turns, "recorded turn"))
 		}
 		rendered.WriteString(remainder(further, "conversation"))
 	}
@@ -678,11 +678,15 @@ func (s Standing) StaleProgramManagersLine() string {
 	return fmt.Sprintf("Program managers stale: %d of %d (%s)\n", len(stale), len(s.ProgramManagers), strings.Join(stale, ", "))
 }
 
-// atEffort is the model a line's invocation asked for and the effort level it
-// asked at, said in the words `yoyo agent list` uses, and nothing where no level
-// was recorded: a record naming none asked for none, and a line that named the
-// model alone would be saying something it never said before this level existed.
-func atEffort(model, effort string) string {
+// atEffort says the recorded Codex level and source, or the requested level
+// for records without a description. It does not infer a provider's level.
+func atEffort(model, effort, description string) string {
+	if description != "" {
+		if model == "" {
+			return ", effort " + description
+		}
+		return ", on " + model + ", effort " + description
+	}
 	effort = strings.TrimSpace(effort)
 	if effort == "" {
 		return ""

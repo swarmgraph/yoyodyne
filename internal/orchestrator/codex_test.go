@@ -46,6 +46,15 @@ const codexDeveloperSandbox = "workspace-write"
 
 func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T) {
 	t.Parallel()
+	for _, effort := range []string{"", "high"} {
+		for _, reported := range []string{"", "high"} {
+			t.Run("effort="+effort+", reported="+reported, func(t *testing.T) { codexRunEffort(t, effort, reported) })
+		}
+	}
+}
+
+func codexRunEffort(t *testing.T, effort, reported string) {
+	t.Helper()
 
 	repository := pipelineRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
@@ -56,12 +65,12 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 	// developer names it, and the pipeline the run validates before it claims
 	// anything has to accept that.
 	pipeline.Config.Agents["developer"] = config.AgentConfig{
-		Role: domain.RoleDeveloper, Backend: domain.BackendCodex, Model: "gpt-6.1-sol", Instances: 1,
+		Role: domain.RoleDeveloper, Backend: domain.BackendCodex, Model: "gpt-6.1-sol", Effort: effort, Instances: 1,
 	}
 	// The real adapter over a CLI that is not there. What is under test is how the
 	// invocation is launched, so this double's answers are the least interesting
 	// part of it and its command lines are the whole point.
-	cli := &scriptedCodexCLI{}
+	cli := &scriptedCodexCLI{reportedEffort: reported}
 	pipeline.Backend = codex.Backend{Runner: cli}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
@@ -91,8 +100,20 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 	// requires — able to edit the worktree — and in the run's own worktree, which
 	// is what makes `workspace-write` a bound rather than a permission.
 	developer := cli.developerInvocation(t)
-	if !strings.Contains(strings.Join(developer.Args, "\n"), "--config\nmodel_reasoning_effort=\"low\"") {
-		t.Errorf("the developer invocation lacks explicit default effort: %v", developer.Args)
+	if got := strings.Contains(strings.Join(developer.Args, "\n"), "model_reasoning_effort="); got != (effort != "") {
+		t.Errorf("effort %q: override present = %v, args %v", effort, got, developer.Args)
+	}
+	wantDescription := "not reported, from the Codex configuration"
+	if effort != "" {
+		wantDescription = effort + ", from the agent"
+	} else if reported != "" {
+		wantDescription = reported + ", from the Codex configuration"
+	}
+	if state.ProviderEffort != effort || state.ProviderResolvedEffort != reported || state.ProviderEffortReported != (reported != "") || state.ProviderEffortDescription != wantDescription || outcome.ProviderEffortDescription != wantDescription {
+		t.Fatalf("run lost the effort source: state=%+v outcome=%+v", state, outcome)
+	}
+	if !strings.Contains(renderOutcomeNotes(outcome), "Developer effort: "+wantDescription) {
+		t.Fatalf("run notes lost the effort source: %s", renderOutcomeNotes(outcome))
 	}
 	if got := codexSandboxOf(t, developer.Args); got != codexDeveloperSandbox {
 		t.Errorf("the developer ran under sandbox %q, want %q", got, codexDeveloperSandbox)
@@ -140,8 +161,9 @@ type scriptedCodexCLI struct {
 	// absent makes every invocation fail to start, which is what a CLI that is
 	// not on the machine does — and is a different failure from one that ran and
 	// refused.
-	absent   bool
-	commands []execution.Command
+	absent         bool
+	reportedEffort string
+	commands       []execution.Command
 }
 
 func (c *scriptedCodexCLI) Run(_ context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
@@ -171,7 +193,7 @@ func (c *scriptedCodexCLI) Run(_ context.Context, command execution.Command, obs
 			return execution.ProcessResult{}, err
 		}
 	}
-	for _, line := range codexStream(orchestratortest.WithVerification("implemented the work item")) {
+	for _, line := range codexStream(orchestratortest.WithVerification("implemented the work item"), c.reportedEffort) {
 		if observer != nil {
 			observer(execution.Output{Stream: execution.StreamStdout, Text: line})
 		}
@@ -197,10 +219,14 @@ func (c *scriptedCodexCLI) developerInvocation(t *testing.T) execution.Command {
 	return c.commands[codexDeveloperTurn]
 }
 
-func codexStream(message string) []string {
+func codexStream(message string, effort ...string) []string {
+	msg := map[string]any{"type": "session_configured", "session_id": codexSessionID, "model": codexResolvedModel}
+	if len(effort) > 0 && effort[0] != "" {
+		msg["reasoning_effort"] = effort[0]
+	}
 	configured, err := json.Marshal(map[string]any{
 		"id":  "0",
-		"msg": map[string]any{"type": "session_configured", "session_id": codexSessionID, "model": codexResolvedModel},
+		"msg": msg,
 	})
 	if err != nil {
 		panic(err)

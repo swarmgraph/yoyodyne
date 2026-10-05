@@ -383,7 +383,9 @@ func (Backend) Capabilities() backend.Capabilities {
 // conformance_test.go checks every invocation against it.
 func invocationArgs(request backend.RunRequest, sandbox string, directories []string) []string {
 	args := []string{"exec", "--sandbox", sandbox}
-	args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
+	if request.Effort != "" {
+		args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
+	}
 	if sandbox == sandboxWorkspaceWrite {
 		// exec resume has no --add-dir option. A config override ahead of resume
 		// applies the same confined roots on every turn and replaces user roots.
@@ -453,9 +455,12 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	descriptor, _ := backend.BuiltInDescriptor(domain.BackendCodex)
 	descriptor = descriptor.ForModel(request.Model)
 	request.Effort = descriptor.InvocationEffort(request.Model, request.Effort)
-	if !descriptor.AcceptsEffort(request.Effort) {
+	if request.Effort != "" && !descriptor.AcceptsEffort(request.Effort) {
 		return backend.RunResult{}, fmt.Errorf("Codex model %q does not accept effort %q; accepted values: %s", request.Model, request.Effort, descriptor.DescribeEffortLevels())
 	}
+	defer func() {
+		returned.EffortDescription = descriptor.DescribeInvocationEffort(request.Effort, returned.ResolvedEffort, returned.EffortReported)
+	}()
 
 	invocation := request
 	if sandbox == sandboxReadOnly {

@@ -42,8 +42,13 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 	if !ok || !descriptor.SupportsRole(domain.RoleReviewer) || !descriptor.SupportsPosture(backend.PostureReadOnly) {
 		t.Fatalf("descriptor = %#v, found=%t", descriptor, ok)
 	}
-	for _, session := range []string{"", "previous-session"} {
-		t.Run("session="+session, func(t *testing.T) {
+	for _, test := range []struct{ session, effort string }{
+		{"", ""},
+		{"previous-session", ""},
+		{"", "high"},
+		{"previous-session", "high"},
+	} {
+		t.Run("session="+test.session+", effort="+test.effort, func(t *testing.T) {
 			repo := t.TempDir()
 			canonical, err := filepath.EvalSymlinks(repo)
 			if err != nil {
@@ -62,21 +67,43 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 			if !built || adapter == nil {
 				t.Fatal("adapter not built")
 			}
-			_, err = adapter.Run(context.Background(), backend.RunRequest{RunID: "run-boundary", Role: domain.RoleReviewer, Model: "gpt-6.1-sol", WorkingDirectory: repo, Prompt: "Review the repository.", SessionID: session})
+			result, err := adapter.Run(context.Background(), backend.RunRequest{RunID: "run-boundary", Role: domain.RoleReviewer, Model: "gpt-6.1-sol", Effort: test.effort, WorkingDirectory: repo, Prompt: "Review the repository.", SessionID: test.session})
 			if err != nil {
 				t.Fatal(err)
+			}
+			if result.Backend != provider || result.AdapterVersion != backend.CodexAdapterVersion {
+				t.Fatalf("recorded endpoint = %q, %q; want %q, %q", result.Backend, result.AdapterVersion, provider, backend.CodexAdapterVersion)
 			}
 			command := runner.command
 			if command.Name != "codex-proxy" {
 				t.Fatalf("binary=%q", command.Name)
 			}
 			args := strings.Join(command.Args, "\n")
-			for _, want := range []string{"--sandbox\nread-only", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "model_reasoning_effort=\"low\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
+			for _, want := range []string{"--sandbox\nread-only", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
 				if !strings.Contains(args, want) {
 					t.Errorf("launch lacks %q: %v", want, command.Args)
 				}
 			}
-			if session != "" && !strings.Contains(args, "resume\n"+session) {
+			wantOverrides := 0
+			wantDescription := "not reported, from the Codex configuration"
+			if test.effort != "" {
+				wantOverrides = 1
+				wantDescription = test.effort + ", from the agent"
+				override := "--config\nmodel_reasoning_effort=\"" + test.effort + "\""
+				if !strings.Contains(args, override) {
+					t.Fatalf("configured effort lost: %v", command.Args)
+				}
+				if test.session != "" && strings.Index(args, override) > strings.Index(args, "resume\n") {
+					t.Fatalf("effort override must precede resume: %v", command.Args)
+				}
+			}
+			if count := strings.Count(args, "model_reasoning_effort="); count != wantOverrides {
+				t.Fatalf("effort override occurs %d times, want %d: %v", count, wantOverrides, command.Args)
+			}
+			if result.EffortDescription != wantDescription {
+				t.Fatalf("effort description = %q, want %q", result.EffortDescription, wantDescription)
+			}
+			if test.session != "" && !strings.Contains(args, "resume\n"+test.session) {
 				t.Fatalf("native resume lost: %v", command.Args)
 			}
 			prompt, readErr := io.ReadAll(command.Stdin)

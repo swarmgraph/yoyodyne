@@ -373,9 +373,10 @@ type RunningRun struct {
 	Model   string         `json:"model,omitempty"`
 	// Effort is the effort level the run's developer invocations ask for, said
 	// beside the model, and absent where the developer agent configured none.
-	Effort  string         `json:"effort,omitempty"`
-	Account string         `json:"account,omitempty"`
-	Phase   runstate.Phase `json:"phase,omitempty"`
+	Effort            string         `json:"effort,omitempty"`
+	EffortDescription string         `json:"effort_description,omitempty"`
+	Account           string         `json:"account,omitempty"`
+	Phase             runstate.Phase `json:"phase,omitempty"`
 	// Stage is the phase folded onto the three parts of a run a pipeline shows,
 	// derived here so no surface keeps its own list of which phase is which.
 	Stage Stage `json:"stage"`
@@ -456,7 +457,8 @@ type WorkingTurn struct {
 	Model   string         `json:"model,omitempty"`
 	// Effort is the effort level the conversation's last recorded turn asked
 	// for, and absent where the agent configured none.
-	Effort string `json:"effort,omitempty"`
+	Effort            string `json:"effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
 	// Turns is how many turns the record holds, which is the turn before the one
 	// in flight: a turn is recorded as it completes.
 	Turns int `json:"turns"`
@@ -1015,6 +1017,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			Backend:             state.Backend,
 			Model:               modelOf(state.ProviderModel, state.ProviderResolvedModel),
 			Effort:              strings.TrimSpace(state.ProviderEffort),
+			EffortDescription:   state.ProviderEffortDescription,
 			Account:             state.AccountAlias,
 			Phase:               state.Phase,
 			Stage:               StageOf(state.Phase),
@@ -1170,14 +1173,15 @@ func readWorking(sources Sources, now time.Time) ([]WorkingTurn, string) {
 			continue
 		}
 		working = append(working, WorkingTurn{
-			Agent:   identity.Agent,
-			Role:    conversation.Role,
-			Backend: conversation.Backend,
-			Model:   modelOf(conversation.ProviderModel, conversation.ProviderResolvedModel),
-			Effort:  strings.TrimSpace(conversation.ProviderEffort),
-			Turns:   conversation.Turns,
-			Since:   conversation.UpdatedAt,
-			Elapsed: now.Sub(conversation.UpdatedAt),
+			Agent:             identity.Agent,
+			Role:              conversation.Role,
+			Backend:           conversation.Backend,
+			Model:             modelOf(conversation.ProviderModel, conversation.ProviderResolvedModel),
+			Effort:            strings.TrimSpace(conversation.ProviderEffort),
+			EffortDescription: conversation.ProviderEffortDescription,
+			Turns:             conversation.Turns,
+			Since:             conversation.UpdatedAt,
+			Elapsed:           now.Sub(conversation.UpdatedAt),
 		})
 	}
 	sort.SliceStable(working, func(first, second int) bool {

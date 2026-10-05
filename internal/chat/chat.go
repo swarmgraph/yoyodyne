@@ -585,13 +585,14 @@ type Options struct {
 // Session is one open conversation. It owns the durable record, so every turn
 // it completes is recorded before the operator sees the reply.
 type Session struct {
-	lastEffortRequested string
-	lastEffortResolved  string
-	lastEffortReported  bool
-	effortInvoked       bool
-	options             Options
-	state               runstate.Conversation
-	resumed             bool
+	lastEffortRequested   string
+	lastEffortResolved    string
+	lastEffortReported    bool
+	lastEffortDescription string
+	effortInvoked         bool
+	options               Options
+	state                 runstate.Conversation
+	resumed               bool
 	// pass names the recurring-task firing whose turns this session is taking,
 	// where one is, so a lane report it writes is stamped with it. It is empty on
 	// an operator's own conversation.
@@ -875,9 +876,10 @@ type Evidence struct {
 	// configured none.
 	Effort string `json:"effort,omitempty"`
 	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
-	ResolvedEffort string `json:"resolved_effort,omitempty"`
-	EffortReported bool   `json:"effort_reported"`
-	SessionID      string `json:"session_id,omitempty"`
+	ResolvedEffort    string `json:"resolved_effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
+	EffortReported    bool   `json:"effort_reported"`
+	SessionID         string `json:"session_id,omitempty"`
 	// SessionBytes is how large that session has grown as the harness measures
 	// it, and SessionBudgetBytes the size past which its next turn compacts it.
 	// Both are zero on a conversation whose session was never measured.
@@ -1266,6 +1268,7 @@ func (s *Session) Evidence() Evidence {
 		ResolvedModel:      s.state.ProviderResolvedModel,
 		Effort:             s.lastEffort(),
 		ResolvedEffort:     s.lastReportedEffort(),
+		EffortDescription:  s.lastEffortDescriptionValue(),
 		EffortReported:     s.lastEffortWasReported(),
 		SessionID:          s.state.ProviderSessionID,
 		SessionBytes:       s.state.ProviderSessionBytes,
@@ -1958,6 +1961,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		result, served, err = modelfailover.Serve(ctx, provider, request, policy)
 		s.lastEffortRequested, s.lastEffortResolved = served.Effort, result.ResolvedEffort
 		s.lastEffortReported, s.effortInvoked = result.EffortReported, true
+		s.lastEffortDescription = result.EffortDescription
 		// Whatever happened, the event log advanced, and the record has to agree
 		// with it or the next turn would renumber events that already exist. A
 		// reissued attempt numbers its events after the refused one's, so what is
@@ -2226,6 +2230,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// agent's own unless a crossing landed on a provider that does not accept it.
 	s.state.ProviderEffort = served.Effort
 	s.state.ProviderResolvedEffort = result.ResolvedEffort
+	s.state.ProviderEffortDescription = result.EffortDescription
 	s.state.ProviderEffortReported = result.EffortReported
 	// And what served it besides the endpoint: the configuration in force while it
 	// was. It is rewritten with the endpoint above, so the record says what is
@@ -4495,4 +4500,11 @@ func (s *Session) lastEffortWasReported() bool {
 		return s.lastEffortReported
 	}
 	return s.state.ProviderEffortReported
+}
+
+func (s *Session) lastEffortDescriptionValue() string {
+	if s.effortInvoked {
+		return s.lastEffortDescription
+	}
+	return s.state.ProviderEffortDescription
 }

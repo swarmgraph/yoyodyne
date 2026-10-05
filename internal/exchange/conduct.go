@@ -107,15 +107,16 @@ type Spoken struct {
 	// voice reports them whether or not it got an answer, because they are facts
 	// about the invocation rather than about what came back, and the durable
 	// record needs them either way.
-	Backend        domain.Backend
-	Model          string
-	ResolvedModel  string
-	Effort         string
-	ResolvedEffort string
-	EffortReported bool
-	AccountAlias   string
-	ConfigRevision string
-	Build          string
+	Backend           domain.Backend
+	Model             string
+	ResolvedModel     string
+	Effort            string
+	ResolvedEffort    string
+	EffortDescription string
+	EffortReported    bool
+	AccountAlias      string
+	ConfigRevision    string
+	Build             string
 }
 
 // ErrRoundsSpent is what a refusal past an exchange's cap unwraps to, so a
@@ -286,6 +287,7 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	round.ResolvedModel = spoken.ResolvedModel
 	round.Effort = spoken.Effort
 	round.ResolvedEffort = spoken.ResolvedEffort
+	round.EffortDescription = spoken.EffortDescription
 	round.EffortReported = spoken.EffortReported
 	round.AccountAlias = spoken.AccountAlias
 	round.ConfigRevision = spoken.ConfigRevision

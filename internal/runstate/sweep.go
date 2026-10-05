@@ -316,8 +316,9 @@ type Sweep struct {
 	// written before passes named one.
 	Effort string `json:"effort,omitempty"`
 	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
-	ResolvedEffort string `json:"resolved_effort,omitempty"`
-	EffortReported bool   `json:"effort_reported"`
+	ResolvedEffort    string `json:"resolved_effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
+	EffortReported    bool   `json:"effort_reported"`
 	// Result is the account the role gave, merged across the turns of this
 	// firing. It is absent where the pass produced none — a turn that failed, or
 	// one that answered in prose without the block — and Problem then says why.
