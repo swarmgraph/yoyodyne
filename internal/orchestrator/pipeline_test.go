@@ -1244,6 +1244,7 @@ func TestPipelineIntegratesReviewedWorkAndClosesTheItem(t *testing.T) {
 		Description:        "Follow docs/design.md",
 		AcceptanceCriteria: "feature.txt exists",
 		Status:             "open",
+		RelevantGoals:      []string{"Keep the work traceable.", "Use ordinary words."},
 	}}
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
@@ -1326,6 +1327,13 @@ func TestPipelineIntegratesReviewedWorkAndClosesTheItem(t *testing.T) {
 	reviewerRequests := provider.RequestsForRole(domain.RoleReviewer)
 	if len(developerRequests) != 1 || len(reviewerRequests) != 1 {
 		t.Fatalf("invocations: developer = %d, reviewer = %d", len(developerRequests), len(reviewerRequests))
+	}
+	for _, request := range []backend.RunRequest{developerRequests[0], reviewerRequests[0]} {
+		for _, want := range append([]string{"goals the change must not break"}, tracker.Item.RelevantGoals...) {
+			if !strings.Contains(request.Prompt, want) {
+				t.Fatalf("%s briefing omitted %q", request.Role, want)
+			}
+		}
 	}
 	if reviewerRequests[0].SessionID != "" || len(reviewerRequests[0].AllowedTools) != 0 {
 		t.Fatalf("reviewer invocation = %#v", reviewerRequests[0])

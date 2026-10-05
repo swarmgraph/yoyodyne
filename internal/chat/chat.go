@@ -2608,12 +2608,17 @@ func (s *Session) Approve(ctx context.Context, proposalID string) (CreatedItem, 
 // operator approved are otherwise the same item, placed and linked the same way.
 func (s *Session) createFromProposal(ctx context.Context, record *proposalRecord, authority string) (CreatedItem, error) {
 	proposal := record.pending.Proposal
+	relevant, err := s.options.Goals.ResolveRelevant(proposal.RelevantGoals)
+	if err != nil {
+		return CreatedItem{}, err
+	}
 	created, err := s.options.Tracker.Create(ctx, beads.NewWorkItem{
-		Title:       strings.TrimSpace(proposal.Title),
-		Description: strings.TrimSpace(proposal.Description),
-		Type:        proposedIssueType,
-		Notes:       record.pending.provenanceNotes(authority, s.options.Goals, s.state.Role, s.options.Agent),
-		Parent:      strings.TrimSpace(proposal.Parent),
+		Title:         strings.TrimSpace(proposal.Title),
+		Description:   strings.TrimSpace(proposal.Description),
+		Type:          proposedIssueType,
+		RelevantGoals: relevant,
+		Notes:         record.pending.provenanceNotes(authority, s.options.Goals, s.state.Role, s.options.Agent),
+		Parent:        strings.TrimSpace(proposal.Parent),
 		// A proposal made in a lane is created in it, in the same write, as a lane
 		// admission is.
 		Labels: proposalLabels(record.pending.Lane),
@@ -2852,11 +2857,12 @@ func (s *Session) admitOne(ctx context.Context, proposalID string) (AdmittedItem
 	s.notice("the harness admitted proposal %s to the backlog as work item %s without asking the operator, because %s: %s",
 		record.pending.ID, created.WorkItemID, basis, created.Title)
 	return AdmittedItem{
-		ProposalID: created.ProposalID,
-		WorkItemID: created.WorkItemID,
-		Title:      created.Title,
-		Goal:       strings.TrimSpace(named),
-		Basis:      basis,
+		ProposalID:    created.ProposalID,
+		WorkItemID:    created.WorkItemID,
+		Title:         created.Title,
+		RelevantGoals: record.pending.Proposal.RelevantGoals,
+		Goal:          strings.TrimSpace(named),
+		Basis:         basis,
 	}, err
 }
 
@@ -4280,7 +4286,9 @@ func (o Options) newID() (string, error) {
 // conversation carries. It is a Go constant rather than configuration because a
 // configured persona may specialize how the product manager works but must
 // never be able to widen what it is allowed to do.
-const productManagerContract = `You are the Lead Product Manager for this product, in a direct conversation with the operator who owns it.
+const relevantGoalsClause = `Check work against all recorded goals at admission. On a create or proposal, carry the potentially relevant goals beside the goal served in "relevant_goals". An update sets the list on existing work without changing its served goal; an omitted list leaves it alone and an empty list clears it. Each entry resolves exactly as the served goal does, by identity or recorded wording, and an unresolved entry is refused. There may be at most 20 entries, each one nonempty line of at most 400 bytes. The tracker stores the list separately from notes, and the developer and reviewer receive it as goals the change must not break. A survey names admitted items carrying none. These goals supplement the standing set and never narrow it.`
+
+const productManagerContract = `You are the Lead Product Manager for this product, in a direct conversation with the operator who owns it.` + "\n\n" + relevantGoalsClause + `
 
 You own product intent: the product brief, the goals derived from it, and the queue of tracked work that serves them. You do not own designs or implementation. Downstream agents may propose changes to the brief or goals; they may not make them, and you evaluate such a proposal on its merits rather than adopting it silently.
 
@@ -4329,9 +4337,9 @@ Keeping the queue coherent is yours to do, not to ask for. To act on the work tr
 {"actions":[
   {"action":"read","id":"beads-id"},
   {"action":"survey"},
-  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why this is admitted already parked","directive":"directive-id","report":"report-id","labels":["reliability"],"distinct_from":{"id":"the closed beads-id the check matched","separate":"one sentence of what is separate"},"reason":"why you are doing this"},
+  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why this is admitted already parked","directive":"directive-id","report":"report-id","labels":["reliability"],"distinct_from":{"id":"the closed beads-id the check matched","separate":"one sentence of what is separate"},"reason":"why you are doing this"},
   {"action":"attribute","id":"beads-id","goal":"the goal this work serves","reason":"why this is the goal it serves"},
-  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","executor":"conversation:architect","reason":"why"},
+  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"executor":"conversation:architect","reason":"why"},
   {"action":"label","id":"beads-id","add":"reliability","reason":"why this item carries the label"},
   {"action":"label","id":"beads-id","remove":"reliability","reason":"why it no longer does"},
   {"action":"reparent","id":"beads-id","parent":"beads-id","reason":"why"},
@@ -4394,7 +4402,7 @@ You may also propose a work item rather than creating one, when what to do is th
 To propose, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-proposal
-{"items":[{"title":"one line","description":"what the work is and what done means","rationale":"why this follows from what the operator said","goal":"the goal this work serves","parent":"beads-id","dependencies":["beads-id"]}]}
+{"items":[{"title":"one line","description":"what the work is and what done means","rationale":"why this follows from what the operator said","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","dependencies":["beads-id"]}]}
 ` + "```" + `
 
 "title", "description", "rationale", and "goal" are required on every item. "goal" names the goal from the specifications that this work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in — and it is resolved against the recorded goals before the operator is asked: a block naming a goal they do not state proposes nothing at all. A proposal that serves no goal is not a proposal you make, it is a concern you raise. "parent" and "dependencies" are optional and must name Beads items that already exist; never invent an identifier, because the harness looks each one up before the operator is asked and a block naming an item that does not exist proposes nothing at all. Propose at most ` + maxProposalsPerTurnText + ` items in one reply, propose only work the operator has actually discussed, and leave the block out entirely when you are not proposing anything. Describe proposals in your prose as well, because the block is not what the operator reads. A proposal you made that nobody has decided yet is yours to take back: "withdraw" in the tracker block names it exactly as it was listed and takes it off the operator's list, with your reason recorded beside it. Take one back when it should never have reached him — a decision your own authority covered, or work that has since been admitted another way — rather than leaving him to decline it.

@@ -76,14 +76,15 @@ type goalsOutput struct {
 	Error        string              `json:"error,omitempty"`
 }
 
-// itemAttribution is one admitted work item and the goal it serves, as the
-// harness resolves it.
+// itemAttribution is one admitted work item, the goal it serves, and the
+// relevant goals recorded beside it.
 type itemAttribution struct {
-	WorkItemID  string           `json:"work_item_id"`
-	Title       string           `json:"title"`
-	Status      string           `json:"status"`
-	Priority    int              `json:"priority"`
-	Attribution goal.Attribution `json:"attribution"`
+	RelevantGoals []string         `json:"relevant_goals"`
+	WorkItemID    string           `json:"work_item_id"`
+	Title         string           `json:"title"`
+	Status        string           `json:"status"`
+	Priority      int              `json:"priority"`
+	Attribution   goal.Attribution `json:"attribution"`
 }
 
 // itemWitness is one item a sweep witnessed, and what it witnessed. Failure is
@@ -647,11 +648,12 @@ func attributionsOf(admitted []beads.WorkItem, goals goal.Set) []itemAttribution
 	attributions := make([]itemAttribution, 0, len(admitted))
 	for _, item := range admitted {
 		attributions = append(attributions, itemAttribution{
-			WorkItemID:  item.ID,
-			Title:       item.Title,
-			Status:      item.Status,
-			Priority:    item.Priority,
-			Attribution: goals.AttributionOf(item.Notes, item.GoalWitness),
+			RelevantGoals: append([]string{}, item.RelevantGoals...),
+			WorkItemID:    item.ID,
+			Title:         item.Title,
+			Status:        item.Status,
+			Priority:      item.Priority,
+			Attribution:   goals.AttributionOf(item.Notes, item.GoalWitness),
 		})
 	}
 	return attributions
@@ -834,6 +836,7 @@ func printAttributions(stdout io.Writer, scope auditScope, attributions []itemAt
 			if entry.Attribution.State == goal.StateLost {
 				fmt.Fprintf(stdout, "  %s [p%d, %s] %s\n    %s\n",
 					entry.WorkItemID, entry.Priority, entry.Status, entry.Title, entry.Attribution.Reason)
+				fmt.Fprintf(stdout, "    relevant goals: %s\n", goals.DescribeRelevant(entry.RelevantGoals))
 			}
 		}
 		return
@@ -882,6 +885,7 @@ func printAttributions(stdout io.Writer, scope auditScope, attributions []itemAt
 		for _, entry := range entries {
 			fmt.Fprintf(stdout, "  %s [p%d, %s] %s\n", entry.WorkItemID, entry.Priority, entry.Status, entry.Title)
 			fmt.Fprintf(stdout, "    %s\n", attributionDetail(entry.Attribution))
+			fmt.Fprintf(stdout, "    relevant goals: %s\n", goals.DescribeRelevant(entry.RelevantGoals))
 		}
 	}
 }

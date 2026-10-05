@@ -1198,3 +1198,55 @@ An introduction.
 		t.Fatalf("line %d is %q, want the entry the wrapped goal opens on", wrapped.Line, got)
 	}
 }
+
+func TestGoalsAuditCarriesRelevantGoalsInTextAndJSON(t *testing.T) {
+	t.Parallel()
+	relevant := []string{"Maintain a traceable chain.", "Use ordinary words."}
+	goals := goal.Set{Sources: []string{"v1-goals"}, Goals: []goal.Goal{
+		{Statement: relevant[0], ArtifactID: "v1-goals", InForce: true},
+		{Statement: relevant[1], ArtifactID: "v1-goals", InForce: true},
+	}}
+	items := []beads.WorkItem{
+		{ID: "ifd.1", Title: "Record relevance", Status: "open", Notes: goal.Note(relevant[0]), RelevantGoals: relevant},
+		{ID: "ifd.2", Title: "Assess older work", Status: "open"},
+	}
+	attributions := attributionsOf(items, goals)
+	var rendered bytes.Buffer
+	printAttributions(&rendered, auditScopes[scopeAll], attributions, goals)
+	for _, want := range []string{"relevant goals: Maintain a traceable chain.; Use ordinary words.", "relevant goals: none recorded"} {
+		if !strings.Contains(rendered.String(), want) {
+			t.Fatalf("text omitted %q: %s", want, rendered.String())
+		}
+	}
+	encoded, err := json.Marshal(attributionOutput(auditScopes[scopeAll], attributions, goals))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var output struct {
+		Attributions []struct {
+			WorkItemID    string   `json:"work_item_id"`
+			RelevantGoals []string `json:"relevant_goals"`
+		} `json:"attributions"`
+	}
+	if err := json.Unmarshal(encoded, &output); err != nil {
+		t.Fatal(err)
+	}
+	if len(output.Attributions) != 2 || strings.Join(output.Attributions[0].RelevantGoals, ";") != strings.Join(relevant, ";") || output.Attributions[1].RelevantGoals == nil {
+		t.Fatalf("JSON did not carry both items' lists: %s", encoded)
+	}
+	items[0].RelevantGoals[0] = "Changed after projection."
+	if attributions[0].RelevantGoals[0] != "Maintain a traceable chain." {
+		t.Fatal("audit retained the tracker slice")
+	}
+}
+
+func TestUncheckedGoalsAuditListsRelevantGoalsBesideLostAttributions(t *testing.T) {
+	t.Parallel()
+	items := []beads.WorkItem{{ID: "ifd.1", Title: "Restore attribution", Status: "open", GoalWitness: goal.Witness{Recorded: true, Statement: "Maintain a traceable chain."}, RelevantGoals: []string{"Use ordinary words."}}}
+	goals := goal.Unreadable("the goals could not be read")
+	var rendered bytes.Buffer
+	printAttributions(&rendered, auditScopes[scopeAll], attributionsOf(items, goals), goals)
+	if !strings.Contains(rendered.String(), "relevant goals: Use ordinary words.") {
+		t.Fatalf("unchecked listing omitted relevance: %s", rendered.String())
+	}
+}

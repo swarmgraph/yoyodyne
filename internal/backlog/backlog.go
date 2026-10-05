@@ -273,11 +273,12 @@ type Entry struct {
 	// Position is where this item sits in the order, counting from one. It is
 	// the backlog's own numbering rather than anything the tracker stores, so it
 	// describes this reading of the queue and no more.
-	Position int    `json:"position"`
-	ID       string `json:"id"`
-	Title    string `json:"title"`
-	Priority int    `json:"priority"`
-	Status   string `json:"status"`
+	Position      int      `json:"position"`
+	ID            string   `json:"id"`
+	Title         string   `json:"title"`
+	RelevantGoals []string `json:"relevant_goals,omitempty"`
+	Priority      int      `json:"priority"`
+	Status        string   `json:"status"`
 	// Executor is what carries this item's execution where that is not a
 	// developer run, and is empty for the ordinary work that is. It is on the
 	// entry rather than left in the tracker because the queue is where anybody
@@ -457,15 +458,16 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 		}
 		gates := humangate.Of(item).Pending(discharged[item.ID])
 		queue.Entries = append(queue.Entries, Entry{
-			Position: position + 1,
-			ID:       item.ID,
-			Title:    item.Title,
-			Priority: item.Priority,
-			Status:   item.Status,
-			Executor: item.Executor,
-			Parking:  item.Parking,
-			Landing:  item.Landing,
-			Awaiting: awaiting,
+			Position:      position + 1,
+			ID:            item.ID,
+			Title:         item.Title,
+			RelevantGoals: item.RelevantGoals,
+			Priority:      item.Priority,
+			Status:        item.Status,
+			Executor:      item.Executor,
+			Parking:       item.Parking,
+			Landing:       item.Landing,
+			Awaiting:      awaiting,
 			// Only ever true beside a reason: a decision recorded about an item
 			// nothing is holding says nothing about why it is not being pulled, and
 			// carrying it here would put an item on the held count that no hold is on.
@@ -681,6 +683,9 @@ func (q Queue) Render() string {
 		}
 		fmt.Fprintf(&rendered, "  %d. [%s] p%d%s %s\n", entry.Position, entry.ID, entry.Priority, parked,
 			singleLine(entry.Title, maxRenderedTitleBytes))
+		if len(entry.RelevantGoals) > 0 {
+			fmt.Fprintf(&rendered, "    relevant goals: %s\n", strings.Join(entry.RelevantGoals, "; "))
+		}
 		if entry.Ready {
 			continue
 		}

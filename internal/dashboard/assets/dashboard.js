@@ -1627,6 +1627,7 @@ var standingWarningAgeSeconds = 5 * 60;
     fields.appendChild(field("Status", item.status));
     fields.appendChild(field("Priority", item.priority === undefined || item.priority === null ? "" : "P" + item.priority + " (0 is the most urgent, 4 the least)"));
     fields.appendChild(field("Labels", (item.labels || []).join(", ")));
+    fields.appendChild(field("Relevant goals — goals the change must not break", (item.relevant_goals || []).join("; ") || "none recorded"));
     fields.appendChild(field("Parent", item.parent, "card-field-id"));
     fields.appendChild(field("Description", item.description, "card-field-prose"));
     fields.appendChild(field("Design", item.design, "card-field-prose"));

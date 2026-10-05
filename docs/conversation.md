@@ -489,6 +489,34 @@ proposal is placed against is checked the same way: a parent or dependency the
 tracker does not hold proposes nothing at all, rather than becoming an approval
 that fails after you have given it.
 
+An admission also records `relevant_goals`: the list of goals the work could
+affect beside the one it serves. The Lead Product Manager checks all recorded
+goals at admission and names the potentially relevant ones. Each entry is
+resolved by the same rules as `goal`; an unknown goal refuses the create,
+update, or proposal before anything is written. There may be at most 20 entries,
+each a nonempty line of at most 400 bytes. The list is tracker metadata, so it
+survives notes being appended. An update supplying the list replaces it;
+omitting it preserves the earlier list, and an empty list clears it.
+
+The field has the same spelling in each contract:
+
+```text
+{"action":"create","title":"…","description":"…","goal":"…","relevant_goals":["…","…"],"reason":"…"}
+{"action":"update","id":"…","relevant_goals":["…","…"],"reason":"…"}
+```
+
+A `yoyodyne-proposal` block carries it on each proposal too:
+
+```text
+{"items":[{"title":"…","description":"…","goal":"…","relevant_goals":["…","…"],"rationale":"…"}]}
+```
+
+The queue and a full item read show these goals. A survey names admitted items
+with none recorded; the Lead Product Manager assesses them and records the list
+with `update`, rather than the harness inferring it. Absence does not stop older
+work running. The developer and reviewer receive the list labelled as goals the
+change must not break, alongside the served goal and the standing goals.
+
 Work admitted before that check existed names no goal, and it is grandfathered
 rather than blocked or backfilled by the harness itself: nothing refuses to run
 it, and it is reported as unattributed wherever the queue is read, because a
@@ -1513,7 +1541,7 @@ A lane admission is an admission, so it goes through
 [`approvals.work_items`](configuration.md#what-reaches-the-queue) exactly as the
 Lead Product Manager's does. At `human` the creation is not admitted. It is put to
 you as a proposal with the lane named on the card, and approving it creates the
-item in the lane. A proposal carries the title, description, goal, parent, and
+item in the lane. A proposal carries the title, description, goal, relevant goals, parent, and
 class. Anything else the creation named, such as its priority, is listed in the
 result for the instance to set once the item is admitted. At `automatic` it is
 admitted against a goal you approved, through the same duplicate-admission guard

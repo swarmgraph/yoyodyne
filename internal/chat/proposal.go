@@ -58,7 +58,8 @@ type Proposal struct {
 	// harness holds rather than something a well-behaved model asserts: work
 	// that serves no goal cannot be proposed at all, so it is raised as a
 	// concern instead and the operator is asked.
-	Goal string `json:"goal"`
+	Goal          string   `json:"goal"`
+	RelevantGoals []string `json:"relevant_goals,omitempty"`
 	// Parent and Dependencies name Beads items that already exist. The product
 	// manager may place proposed work in the tracker's structure; it may not
 	// invent the items it is placed against.
@@ -120,17 +121,18 @@ type PendingProposal struct {
 // admitted.
 func (p PendingProposal) recorded() runstate.PendingProposal {
 	return runstate.PendingProposal{
-		ID:           p.ID,
-		Turn:         p.Turn,
-		Title:        p.Proposal.Title,
-		Description:  p.Proposal.Description,
-		Rationale:    p.Proposal.Rationale,
-		Goal:         p.Proposal.Goal,
-		Parent:       p.Proposal.Parent,
-		Dependencies: p.Proposal.Dependencies,
-		Class:        string(p.Proposal.Class),
-		Asking:       p.Asking,
-		Lane:         p.Lane,
+		ID:            p.ID,
+		Turn:          p.Turn,
+		Title:         p.Proposal.Title,
+		Description:   p.Proposal.Description,
+		Rationale:     p.Proposal.Rationale,
+		Goal:          p.Proposal.Goal,
+		RelevantGoals: p.Proposal.RelevantGoals,
+		Parent:        p.Proposal.Parent,
+		Dependencies:  p.Proposal.Dependencies,
+		Class:         string(p.Proposal.Class),
+		Asking:        p.Asking,
+		Lane:          p.Lane,
 	}
 }
 
@@ -144,13 +146,14 @@ func restoredProposal(conversationID string, recorded runstate.PendingProposal) 
 		ConversationID: conversationID,
 		Turn:           recorded.Turn,
 		Proposal: Proposal{
-			Title:        recorded.Title,
-			Description:  recorded.Description,
-			Rationale:    recorded.Rationale,
-			Goal:         recorded.Goal,
-			Parent:       recorded.Parent,
-			Dependencies: recorded.Dependencies,
-			Class:        domain.WorkItemClass(recorded.Class),
+			Title:         recorded.Title,
+			Description:   recorded.Description,
+			Rationale:     recorded.Rationale,
+			Goal:          recorded.Goal,
+			RelevantGoals: recorded.RelevantGoals,
+			Parent:        recorded.Parent,
+			Dependencies:  recorded.Dependencies,
+			Class:         domain.WorkItemClass(recorded.Class),
 		},
 		Asking: recorded.Asking,
 		Lane:   recorded.Lane,
@@ -308,6 +311,7 @@ func (p Proposal) Validate() error {
 		// title.
 		problems = append(problems, errors.New("title cannot span lines"))
 	}
+	problems = append(problems, goal.ValidateRelevant(p.RelevantGoals))
 	problems = append(problems, validateProposalText("description", p.Description))
 	problems = append(problems, validateProposalText("rationale", p.Rationale))
 	switch named := strings.TrimSpace(p.Goal); {
@@ -446,6 +450,9 @@ func (s *Session) verifyProposalGoals(proposals []Proposal) error {
 	}
 	var problems []error
 	for _, proposal := range proposals {
+		if _, err := s.options.Goals.ResolveRelevant(proposal.RelevantGoals); err != nil {
+			problems = append(problems, fmt.Errorf("%q: %w", proposal.Title, err))
+		}
 		attribution := s.options.Goals.Attribute(proposal.Goal)
 		if attribution.State != goal.StateUnresolved {
 			continue
@@ -511,6 +518,7 @@ func (p PendingProposal) body() []string {
 	// deciding is whether this work serves the product rather than whether the
 	// sentence describing it reads well.
 	lines = append(lines, "goal: "+strings.TrimSpace(p.Proposal.Goal))
+	lines = append(lines, "relevant goals: "+(goal.Set{}).DescribeRelevant(p.Proposal.RelevantGoals))
 	if parent := strings.TrimSpace(p.Proposal.Parent); parent != "" {
 		lines = append(lines, "parent: "+parent)
 	}

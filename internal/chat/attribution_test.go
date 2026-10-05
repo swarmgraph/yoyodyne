@@ -523,7 +523,7 @@ func TestReadingAnItemSaysWhatItIsFor(t *testing.T) {
 	wrong := renderWorkItemEvidence(beads.WorkItem{ID: "yoyodyne-ifd.3", Notes: goal.Note("Grow the ecosystem.")}, goals)
 	// Told apart, because they are not the same thing to do about it: one is
 	// work to attribute and the other is a claim to correct.
-	if !strings.Contains(wrong, "Grow the ecosystem.") || strings.Contains(wrong, "none recorded") {
+	if !strings.Contains(wrong, "Grow the ecosystem.") || strings.Contains(wrong, "attribution: none recorded") {
 		t.Fatalf("rendered item = %q", wrong)
 	}
 	// An item whose notes lost their goal is read as having lost it, and the words

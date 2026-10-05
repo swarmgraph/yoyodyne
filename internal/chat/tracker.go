@@ -233,9 +233,9 @@ const (
 var trackerActionArguments = map[string][]string{
 	actionRead:         {"report"},
 	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "executor", "parked", "directive", "report", "labels", "distinct_from"},
+	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals"},
 	actionAttribute:    {"goal"},
-	actionUpdate:       {"title", "description", "note", "executor"},
+	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals"},
 	actionLabel:        {"add", "remove"},
 	actionReparent:     {"parent"},
 	actionReprioritize: {"priority"},
@@ -373,7 +373,8 @@ type TrackerAction struct {
 	// held rather than asserted, and on an attribution, which is how work
 	// admitted before that check existed acquires one. Nothing else takes it: an
 	// item's goal is added to, never rewritten.
-	Goal string `json:"goal,omitempty"`
+	Goal          string   `json:"goal,omitempty"`
+	RelevantGoals []string `json:"relevant_goals,omitzero"`
 	// Parent is a pointer so that detaching an item is expressible: an empty
 	// parent removes the one the tracker records, and an absent one leaves it
 	// alone.
@@ -1119,8 +1120,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.labelProblems()...)
 	case actionUpdate:
 		if strings.TrimSpace(a.Title) == "" && strings.TrimSpace(a.Description) == "" &&
-			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" {
-			problems = append(problems, errors.New("update must change the title, the description, the notes, or the executor"))
+			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" && a.RelevantGoals == nil {
+			problems = append(problems, errors.New("update must change the title, the description, the notes, the executor, or the relevant goals"))
 		}
 		problems = append(problems,
 			boundTrackerText("title", a.Title, maxTrackerTitleBytes, false),
@@ -1242,6 +1243,7 @@ func (a TrackerAction) validateArguments() []error {
 				a.Executor, namedWorkItemExecutors()))
 		}
 	}
+	problems = append(problems, goal.ValidateRelevant(a.RelevantGoals))
 	return problems
 }
 
@@ -1284,6 +1286,9 @@ func (a TrackerAction) labelProblems() []error {
 // action can be refused for naming one its operation has no use for.
 func (a TrackerAction) arguments() []string {
 	var carried []string
+	if a.RelevantGoals != nil {
+		carried = append(carried, "relevant_goals")
+	}
 	if strings.TrimSpace(a.Title) != "" {
 		carried = append(carried, "title")
 	}
@@ -1512,6 +1517,12 @@ func (s *Session) applyTrackerAction(ctx context.Context, outcome *TrackerOutcom
 	// that it resolves: an item admitted under a goal nothing states asserts a
 	// traceability that is not there, and the only moment refusing it costs
 	// nothing is before the item exists.
+	relevant, err := s.options.Goals.ResolveRelevant(outcome.Action.RelevantGoals)
+	if err != nil {
+		outcome.fail(err)
+		return
+	}
+	outcome.Action.RelevantGoals = relevant
 	attribution := s.attributionFor(outcome.Action)
 	if attribution.State == goal.StateUnresolved {
 		outcome.Failure = fmt.Sprintf("it names the goal %q, and %s",
@@ -1826,9 +1837,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			lane = "\n\n" + s.laneNote()
 		}
 		created, err := s.options.Tracker.Create(ctx, beads.NewWorkItem{
-			Title:       strings.TrimSpace(action.Title),
-			Description: strings.TrimSpace(action.Description),
-			Type:        proposedIssueType,
+			RelevantGoals: action.RelevantGoals,
+			Title:         strings.TrimSpace(action.Title),
+			Description:   strings.TrimSpace(action.Description),
+			Type:          proposedIssueType,
 			// The goal is written onto the item rather than only checked as it goes
 			// past, because an item in the queue that does not say what it is for is
 			// exactly the work nobody can later decide to stop doing. The directive is
@@ -1924,9 +1936,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		outcome.applied("attributed %s to the goal: %s", id, singleLine(attributed, maxTrackerFailureBytes))
 	case actionUpdate:
 		change := beads.WorkItemChange{
-			Title:       strings.TrimSpace(action.Title),
-			Description: strings.TrimSpace(action.Description),
-			Executor:    domain.WorkItemExecutor(strings.TrimSpace(string(action.Executor))),
+			RelevantGoals: action.RelevantGoals,
+			Title:         strings.TrimSpace(action.Title),
+			Description:   strings.TrimSpace(action.Description),
+			Executor:      domain.WorkItemExecutor(strings.TrimSpace(string(action.Executor))),
 		}
 		// A description rewritten to carry a done-condition no run may satisfy is
 		// the same item as one admitted with it, so it is refused at the same gate.
@@ -1940,6 +1953,9 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		if note := strings.TrimSpace(action.Note); note != "" {
 			change.AppendNotes = s.trackerProvenance("Noted", action.Reason) + "\n\n" + note
+		}
+		if action.RelevantGoals != nil {
+			change.AppendNotes += "\n\n" + s.trackerProvenance("Recorded relevant goals: "+s.options.Goals.DescribeRelevant(action.RelevantGoals), action.Reason)
 		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
@@ -2518,6 +2534,15 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 	// traceability that the cut removed would be reported as a queue with nothing
 	// to say about it.
 	rendered.WriteString(renderQueueAttribution(ordered, goals))
+	var missingRelevant []string
+	for _, item := range ordered {
+		if len(item.RelevantGoals) == 0 {
+			missingRelevant = append(missingRelevant, singleLine(item.Title, maxSurveyTitleBytes)+" ("+item.ID+")")
+		}
+	}
+	if len(missingRelevant) > 0 {
+		fmt.Fprintf(&rendered, "\nAdmitted items with no relevant goals recorded: %s.\n", namedItems(missingRelevant))
+	}
 	rendered.WriteString("\n")
 	listed := ordered
 	if len(listed) > maxTrackerSurveyItems {
@@ -2527,6 +2552,7 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 		fmt.Fprintf(&rendered, "- %s [%s, p%d, %s%s%s] %s\n",
 			item.ID, item.Status, item.Priority, item.IssueType, executorLabel(item.Executor), labelsLabel(item.Labels),
 			singleLine(item.Title, maxTrackerTitleBytes))
+		fmt.Fprintf(&rendered, "    relevant goals: %s\n", goals.DescribeRelevant(item.RelevantGoals))
 	}
 	if len(items) > len(listed) {
 		fmt.Fprintf(&rendered, "\n%d further open item(s) are not listed here.\n", len(items)-len(listed))
@@ -2679,6 +2705,7 @@ func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
 	// it is the difference between an item that traces to intent somebody
 	// approved and one that says it does.
 	fmt.Fprintf(&rendered, "attribution: %s\n", describeAttribution(goals.AttributionOf(item.Notes, item.GoalWitness)))
+	fmt.Fprintf(&rendered, "relevant goals — goals the change must not break: %s\n", goals.DescribeRelevant(item.RelevantGoals))
 	// What carries the work, said only where it is not a developer run. An item
 	// that says nothing here is ordinary work, and printing "developer run" on
 	// every item would bury the one line that changes what happens to it.
