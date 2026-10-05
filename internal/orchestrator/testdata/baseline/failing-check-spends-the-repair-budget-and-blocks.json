@@ -83,7 +83,7 @@
     "account_alias": "default",
     "backend": "claude-code",
     "base_commit": "\u003ccommit-1\u003e",
-    "blocker": "Yoyodyne stopped this item: a configured check still failed after every permitted attempt.\nRepair attempts: 2 of 2 permitted\nRun: run-0123456789abcdef0123456789abcdef\nBranch: yoyodyne/yoyodyne-task/01234567\nWorktree: \u003cworktrees\u003e/yoyodyne-task-01234567\nThe branch and worktree are preserved; the failing check below needs a replan or a reassignment.\nFailing check: exit 1 (exit 1)",
+    "blocker": "Yoyodyne stopped this item: a configured check still failed after every permitted attempt.\nRepair attempts: 2 of 2 permitted\nRun: run-0123456789abcdef0123456789abcdef\nBranch: yoyodyne/yoyodyne-task/01234567\nWorktree: \u003cworktrees\u003e/yoyodyne-task-01234567\nThe branch and worktree are preserved; the failing check below needs a replan or a reassignment.\nFailing check: exit 1 (exit 1)\nCaptured output:\nNo failing test or package was named in the captured output.",
     "branch": "yoyodyne/yoyodyne-task/01234567",
     "changes": {
       "diff_stat": "feature.txt | 1 +\n 1 file changed, 1 insertion(+)",
@@ -91,7 +91,8 @@
     },
     "check_failure": {
       "command": "exit 1",
-      "exit_code": 1
+      "exit_code": 1,
+      "output": "No failing test or package was named in the captured output.\n"
     },
     "check_stage": {
       "bound_seconds": 1800,
@@ -182,7 +183,8 @@
         "feature.txt | 1 +",
         " 1 file changed, 1 insertion(+)",
         "Check stage: \u003celapsed\u003e of the 30m0s execution.check_stage_timeout bound (gate narrowed to: the whole module (the repository root is not a Go module))",
-        "Check: exit 1 (passed=false, exit=1, \u003celapsed\u003e of 30m0s)"
+        "Check: exit 1 (passed=false, exit=1, \u003celapsed\u003e of 30m0s)",
+        "No failing test or package was named in the captured output."
       ]
     ],
     "blocker": [
@@ -192,7 +194,9 @@
       "Branch: yoyodyne/yoyodyne-task/01234567",
       "Worktree: \u003cworktrees\u003e/yoyodyne-task-01234567",
       "The branch and worktree are preserved; the failing check below needs a replan or a reassignment.",
-      "Failing check: exit 1 (exit 1)"
+      "Failing check: exit 1 (exit 1)",
+      "Captured output:",
+      "No failing test or package was named in the captured output."
     ]
   },
   "provider_invocations": [

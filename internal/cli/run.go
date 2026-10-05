@@ -673,8 +673,9 @@ func docketerFrom(parts components) *orchestrator.Docketer {
 		// The same caps the conversation's budgets spend against, assembled once,
 		// so what an entry says an item has left and what refuses the next
 		// decision about it are one set of numbers.
-		Caps:   orchestrator.TriageCaps(parts.config.Execution, parts.config.Triage),
-		Triage: parts.config.Triage,
+		Caps:        orchestrator.TriageCaps(parts.config.Execution, parts.config.Triage),
+		Triage:      parts.config.Triage,
+		RepairLimit: parts.config.Execution.RepairAttemptsBeforeReplan,
 		// Which product an entry belongs to, for the one entry that is not made
 		// from a run record and so has no run to read it off.
 		ProductID: parts.config.Product.ID,

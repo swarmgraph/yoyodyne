@@ -204,7 +204,8 @@ type Docketer struct {
 	// Triage is what the docket measures against: the age past which an unmerged
 	// publication is stuck, and the budgets every entry reports beside what the
 	// item has already spent.
-	Triage config.Triage
+	Triage      config.Triage
+	RepairLimit int
 	// ProductID is which product an entry belongs to, and is required only by the
 	// one entry that is not made from a run record. Every other entry takes it
 	// from the run, which is the more reliable source and stays the source: this
@@ -2066,6 +2067,7 @@ func (d Docketer) counters(ledger runstate.TriageCounters, run runstate.State, r
 		ReviewRounds:        ledger.ReviewRounds,
 		ReviewRoundsCap:     permitted.ReviewRounds,
 		RepairAttempts:      repairAttempts,
+		RepairAttemptsLeft:  max(0, run.RepairBudget(d.RepairLimit)-repairAttempts),
 		RepairGrantAttempts: d.Triage.RepairGrantAttempts,
 		RepairGrants:        ledger.RepairGrants,
 		RepairGrantsCap:     permitted.RepairGrants,

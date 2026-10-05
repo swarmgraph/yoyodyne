@@ -3202,7 +3202,7 @@ func (a *activeRun) recordCheckFailure(result checks.Result) {
 	a.state.CheckFailure = &runstate.CheckFailure{
 		Command:  result.Command,
 		ExitCode: result.Process.ExitCode,
-		Output:   boundedCheckOutput(result.Process),
+		Output:   boundedCheckOutput(result),
 	}
 }
 
@@ -6305,7 +6305,7 @@ func landingCheckOutput(result checks.Result) string {
 	if result.Passed {
 		return ""
 	}
-	return boundedCheckOutput(result.Process)
+	return boundedCheckOutput(result)
 }
 
 // complete records the outcome on the work item, closes an integrated item whose
@@ -8627,19 +8627,8 @@ func accountPrompt(invariants, scratchDirectory, reason string, checks []string)
 // than the bound allows, because a suite prints its failures and its summary at
 // the end, and the truncation is stated so the developer reading it knows the
 // check did not simply stop there.
-func boundedCheckOutput(result execution.ProcessResult) string {
-	var combined strings.Builder
-	for _, stream := range []string{result.Stdout, result.Stderr} {
-		trimmed := strings.Trim(stream, "\n")
-		if trimmed == "" {
-			continue
-		}
-		if combined.Len() > 0 {
-			combined.WriteString("\n")
-		}
-		combined.WriteString(trimmed)
-	}
-	return boundedTail(combined.String(), runstate.MaxCheckOutputBytes)
+func boundedCheckOutput(result checks.Result) string {
+	return checks.FailureOutput(result)
 }
 
 // truncationNotice replaces the output boundedTail dropped. It counts against
@@ -9278,6 +9267,9 @@ func renderCheckNotes(outcome Outcome) []string {
 	for _, check := range outcome.Checks {
 		lines = append(lines, fmt.Sprintf("Check: %s (passed=%t, exit=%d, %s of %s)",
 			check.Command, check.Passed, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
+		if !check.Passed {
+			lines = append(lines, boundedCheckOutput(check))
+		}
 	}
 	return lines
 }

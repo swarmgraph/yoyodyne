@@ -30,9 +30,10 @@ const DefaultStageTimeout = 30 * time.Minute
 const DefaultLandingCheckTimeout = 2 * time.Hour
 
 type Result struct {
-	Command string                  `json:"command"`
-	Process execution.ProcessResult `json:"process"`
-	Passed  bool                    `json:"passed"`
+	Command       string                  `json:"command"`
+	Process       execution.ProcessResult `json:"process"`
+	FailureOutput string                  `json:"failure_output,omitempty"`
+	Passed        bool                    `json:"passed"`
 	// Timeout is the budget this check was given. It is recorded beside the
 	// result rather than left implicit because elapsed time alone says nothing
 	// about how close a suite is to the ceiling: a check that grows past the
@@ -211,6 +212,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			budget = remaining
 		}
 		var observerErrors []error
+		var failure failureCapture
 		processResult, err := r.Process.Run(ctx, execution.Command{
 			Name:    shell,
 			Args:    []string{"-c", command},
@@ -223,6 +225,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			OutputRecord: execution.EventLogOf(request.RunID),
 			Redactor:     redactor,
 		}, func(output execution.Output) {
+			failure.add(redactor.Redact(output.Text))
 			if len(observerErrors) > 0 {
 				return
 			}
@@ -270,6 +273,9 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			// A check killed on time under a budget the stage cut short was
 			// stopped by the stage, whatever its own budget would have allowed.
 			StoppedByStage: boundByStage && processResult.Status == execution.ProcessTimedOut,
+		}
+		if !passed && failure.observed {
+			result.FailureOutput = failure.render()
 		}
 		results = append(results, result)
 		if err := emitCompleted(request.RunID, sequence, clock, sink, result); err != nil {

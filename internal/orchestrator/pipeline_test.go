@@ -2330,7 +2330,7 @@ func TestPipelineBoundsTheFailingCheckOutputItHandsBack(t *testing.T) {
 	if strings.Contains(state.CheckFailure.Output, "line 1:") {
 		t.Fatalf("bounded output kept the whole check:\n%s", state.CheckFailure.Output)
 	}
-	if !strings.HasPrefix(state.CheckFailure.Output, truncationNotice) {
+	if !strings.Contains(state.CheckFailure.Output, truncationNotice) {
 		t.Fatalf("bounded output does not say it was truncated:\n%s", state.CheckFailure.Output)
 	}
 	if !strings.Contains(tracker.BlockReason, truncationNotice) {
