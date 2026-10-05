@@ -97,7 +97,14 @@ and, if due, `saveBeforeCompaction` then `compact` (`compact.go`); builds the
 `backend.RunRequest` (`resumableSession`, `invocationEffort`,
 `options.timeout`); picks the provider through `failoverPolicy` /
 `meteredFailover` (`usagelimit.go`) and `rebuildForOwnEndpoint`
-(`rebuild.go`). It then invokes in a loop that handles refusals (below), and
+(`rebuild.go`). `requestBounded` (`requestsize.go`) measures the selected
+endpoint's actual prompt, shortens replayed history to leave a margin below its
+input limit, and retries a size refusal once, including the memory-save turn.
+Capacity waits retain the effective prompt and spent size retry; an intervening
+turn rebuilds from the latest record with the reduced history allowance.
+A failed reconstruction returns its error and keeps the event position after
+any recorded session replacement. It then invokes in a loop that
+handles other refusals (below), and
 finally `measureSession` and `record`.
 
 ### What happens when the provider refuses for a usage limit or outage?
@@ -175,6 +182,7 @@ removes them from the record once a turn has delivered them.
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
 | `usagelimit.go`, `providerwait.go`, `provideroutage.go`, `hold.go` | provider refusals, waits that put the conversation down, the operator hold |
 | `rebuild.go` | continuing on a provider that never held the session |
+| `requestsize.go` | measuring the selected endpoint's input, shortening history before sending, and retrying a size refusal once |
 | `steer.go`, `work.go`, `milestone.go` | console slash commands: `/work`, `/stop`, surveys (`SurveyWork`), `StartWork`, `StopWork` |
 | `triage.go`, `triagestop.go`, `repair.go` | development manager decisions on stopped runs |
 | `proposal.go`, `admission.go`, `resemblance.go`, `condition.go`, `concern.go`, `decision.go`, `withdraw.go` | proposals, admission without asking, duplicates, concerns, batch decisions |

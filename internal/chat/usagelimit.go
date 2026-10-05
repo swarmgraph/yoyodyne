@@ -348,7 +348,7 @@ func (s *Session) failoverPolicy() modelfailover.Policy {
 			}
 		}
 		if s.options.FailoverBackend != nil {
-			policy.AlternateProvider = s.meteredFailover()
+			policy.AlternateProvider = s.meteredFailover(false)
 		}
 	}
 	return policy
@@ -359,8 +359,8 @@ func (s *Session) failoverPolicy() modelfailover.Policy {
 // built here rather than beside the conversation's own meter because it is only
 // ever used by a substitution: an agent that never crosses providers never builds
 // one, and one that does gets a line saying what the crossing cost and where.
-func (s *Session) meteredFailover() modelfailover.Invoker {
-	return spend.Metered{
+func (s *Session) meteredFailover(savingMemory bool) modelfailover.Invoker {
+	provider := spend.Metered{
 		Provider:    s.options.FailoverBackend,
 		Log:         s.options.Spend,
 		Attribution: s.failoverAttribution(),
@@ -377,6 +377,7 @@ func (s *Session) meteredFailover() modelfailover.Invoker {
 		// stopped moving the moment it crossed.
 		Recorded: s.countSpend,
 	}
+	return requestBounded{session: s, adapter: s.options.FailoverBackend, provider: provider, savingMemory: savingMemory}
 }
 
 // ErrProviderCapacity marks the failure of a turn the provider declined for

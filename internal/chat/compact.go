@@ -5,8 +5,8 @@ package chat
 // Every turn but the first resumes a provider session, and a resumed turn sends
 // the whole of it: everything the session has been handed and everything it has
 // said, again, with the new prompt on the end. So a session grows by every turn
-// it takes, and the provider's request has a ceiling — 32 MB on the API these
-// conversations are served from. The provider's own compaction triggers on its
+// it takes, and the provider's request has a ceiling — 32 MiB on Claude Code's
+// API. The provider's own compaction triggers on its
 // token threshold rather than on that ceiling, and compacting sends the whole
 // conversation too, so by the time it tried on chat-419cedb4a013b063f477e322a2a60466
 // the session was about 34 MB and could not be sent even to be made smaller.
@@ -19,17 +19,20 @@ package chat
 // the text, and a reply's reasoning is kept in the session without ever reaching
 // the harness. That is why the budget is a quarter of the ceiling rather than
 // most of it. Provider-side inspection calls and results are also unmeasured
-// when an adapter permits read-only tools. This budget is therefore a prompt
-// and reply estimate, not a complete bound on the resumed provider session.
+// when an adapter permits read-only tools. requestsize.go separately holds the
+// supplied prompt to the selected adapter's bound, including after rebuilding.
+// This budget is therefore a prompt and reply estimate, not a complete bound
+// on the resumed provider session.
 //
 // A compaction is the rebuild a crossing makes, applied to the provider that is
 // already holding the conversation: the turn is sent with no session to resume,
 // and what the session was carrying comes from the harness's own record instead
 // — the picture the conversation is working from and the most recent of what has
 // been said, bounded by the rebuild's own budget. A role that keeps memory is
-// first given one turn on the old session to save its conclusions. The rebuild
-// follows only after those writes have been recorded, and the provider's answer
-// starts a new session the measure starts again from.
+// first given a turn on the old session to save its conclusions. A size refusal
+// sets that session aside and retries the save once from the durable record.
+// The waiting turn follows only after those writes have been recorded. Its
+// answer starts a new session the measure starts again from.
 
 import (
 	"context"
@@ -64,7 +67,7 @@ func compactionSavePrompt() string {
 
 The harness will compact this provider session next. The new session will keep the conversation's current repository and tracker picture, your recorded memories, and the newest %d messages within %d KiB. Older messages remain in the durable conversation log but will not reach the new session; conclusions you have not recorded as memory may be lost.
 
-You have one turn on this session to save what you have learned through your yoyodyne-memory block. Use the usual memory limits and compact or retire outdated memories where needed to make room. This turn is only for memory writes; carry no other harness block and do not answer the waiting message yet. If you have nothing to save, reply exactly "Nothing to save." without a memory block.
+Use this turn to save what you have learned through your yoyodyne-memory block. Use the usual memory limits and compact or retire outdated memories where needed to make room. This turn is only for memory writes; carry no other harness block and do not answer the waiting message yet. If you have nothing to save, reply exactly "Nothing to save." without a memory block.
 `, maxRebuiltMessages, maxRebuiltContextBytes>>10)
 }
 

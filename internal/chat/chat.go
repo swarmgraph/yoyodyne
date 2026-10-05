@@ -728,12 +728,20 @@ type Session struct {
 	compacting bool
 	// rebuiltMessageBytes is what the turn in flight's rebuild may spend on what
 	// has been said, and zero where it may spend the whole of
-	// maxRebuiltContextBytes. rebuiltFrom is the turn's own prompt and the reason
+	// maxRebuiltContextBytes (negative means none). rebuiltFrom is the turn's own
+	// prompt and the reason
 	// the last rebuild was put in front of, so a rebuild the provider refused as too
 	// long can be made again smaller. Both are per-turn and cleared as each one
 	// starts; see rebuild.go.
 	rebuiltMessageBytes int
 	rebuiltFrom         *rebuildInput
+	// sentRequest is the last attempt after endpoint selection and size checks.
+	// Measurement and capacity waits use what reached the provider, including
+	// failover and size recovery, rather than the request before those changes.
+	sentRequest *backend.RunRequest
+	// A size refusal gets one shorter attempt across all capacity waits for
+	// this invocation. takeTurn keeps its own copy across nested memory saves.
+	requestSizeRetried bool
 	// lastInvocationCostUSD is what the provider charged for the invocation just
 	// taken, kept apart from both totals because an exchange is charged per
 	// invocation rather than per message: the round that carried an answer back
@@ -1758,6 +1766,12 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	}
 	// Keep the waiting message even if the save turn fails before it is answered.
 	var operatorSequence uint64
+	if savingMemory {
+		// A save belongs to the waiting message, even though it records no
+		// operator message of its own. Keep that position locally so a
+		// capacity wait cannot clear it before a later size recovery.
+		operatorSequence = s.turnOperatorSequence
+	}
 	if operatorMessage != "" {
 		if err := s.recordOperatorMessage(operatorMessage); err != nil {
 			return "", err
@@ -1768,6 +1782,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if !savingMemory {
 		due = s.compactionDue(systemPrompt, prompt)
 		if due != nil && s.keepsMemory() {
+			// A save recovered from the record must not replay the waiting
+			// message as history before the role has saved its conclusions.
+			s.turnOperatorSequence = operatorSequence
 			memoriesBeforeSave := len(reply.Memories)
 			turnsBeforeSave := s.state.Turns
 			if err := s.saveBeforeCompaction(ctx, *due, reply); err != nil {
@@ -1793,13 +1810,17 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// The save turn is now history; the waiting message is already recorded and
 	// is omitted from a rebuild by sequence so it is not delivered twice.
 	s.turnBegan = s.state.LastSequence
-	s.turnOperatorSequence = operatorSequence
+	if !savingMemory {
+		s.turnOperatorSequence = operatorSequence
+	}
 	// A session this turn would take past its budget is compacted before the turn
 	// is sent, while that can still be done; see compact.go. It is decided here,
 	// after the operator's side is on the record and before the invocation's
 	// events are numbered, because the compaction is recorded too.
 	s.compacting = false
 	s.rebuiltMessageBytes, s.rebuiltFrom = 0, nil
+	s.sentRequest = nil
+	s.requestSizeRetried = false
 	defer func() { s.compacting = false }()
 	if due != nil {
 		compacted, err := s.compact(systemPrompt, prompt, *due)
@@ -1857,6 +1878,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// reported it — the two differ on every turn that resumed a session.
 		Recorded: s.countSpend,
 	}
+	provider = requestBounded{session: s, adapter: s.options.Backend, provider: provider, savingMemory: savingMemory}
 	request := backend.RunRequest{
 		RunID:            s.state.ConversationID,
 		Role:             s.state.Role,
@@ -1895,7 +1917,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// have never reached the record. A refusal must not rebuild it first.
 		request, policy = s.memorySaveRequest(request)
 		if s.alternateSession() != "" {
-			provider = s.meteredFailover()
+			provider = s.meteredFailover(true)
 		}
 	}
 	// A conversation that has taken turns and has no session to resume is one that
@@ -1945,6 +1967,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// shrunk says this turn has already halved a rebuild the provider refused
 		// as too long, so a smaller one refused the same way ends the turn.
 		shrunk bool
+		// A capacity wait resumes the shorter attempt without renewing its
+		// allowance for another size retry, even after a nested memory save.
+		sizeRetried bool
 	)
 	// What this invocation costs is counted across the attempts it took. An
 	// exchange is charged per invocation rather than per message, and an attempt
@@ -1955,7 +1980,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// is one line in the cost log naming the model that attempt actually asked
 		// for. Wrapped the other way round, a turn the alternate served would be
 		// priced against the model that refused it.
+		s.sentRequest = nil
+		s.requestSizeRetried = sizeRetried
 		result, served, err = modelfailover.Serve(ctx, provider, request, policy)
+		sizeRetried = s.requestSizeRetried
 		s.lastEffortRequested, s.lastEffortResolved = served.Effort, result.ResolvedEffort
 		s.lastEffortReported, s.effortInvoked = result.EffortReported, true
 		// Whatever happened, the event log advanced, and the record has to agree
@@ -1979,10 +2007,12 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		if policy.AlternateSessionID != "" && refusedOn.Provider == policy.AlternateEndpoint.Provider {
 			resumed = policy.AlternateSessionID
 		}
-		if why := refusedAsTooLong(result, err); !savingMemory && why != "" && resumed != "" && !replaced {
+		if why := refusedAsTooLong(result, err); !savingMemory && !requestRejectedForSize(result, err) && why != "" && resumed != "" && !replaced {
 			replaced = true
 			s.state.LastSequence = lastSequence
-			request = s.replaceSession(request, refusedOn, resumed, why)
+			// Other context refusals retain the existing attempt with less
+			// context if rebuilding fails; the problem is named on the reply.
+			request, _ = s.replaceSession(request, refusedOn, resumed, why)
 			lastSequence = s.state.LastSequence
 			// The alternate's session is the conversation's session, and it was set
 			// aside with it, so the failover is asked afresh rather than holding on to
@@ -1995,7 +2025,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// which is what every later turn would send again. So the rebuild is made
 		// once more on half the bound, and the turn asked again; a rebuild the
 		// halving would not shrink, or a second refusal, ends the turn as before.
-		if why := refusedAsTooLong(result, err); !savingMemory && why != "" && resumed == "" && !shrunk {
+		if why := refusedAsTooLong(result, err); !savingMemory && !requestRejectedForSize(result, err) && why != "" && resumed == "" && !shrunk {
 			shrunk = true
 			if smaller, ok := s.shrinkRebuild(request); ok {
 				request = smaller
@@ -2008,6 +2038,18 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		if limit == nil && outage == nil {
 			break
 		}
+		// The wrapper may have shortened the request before encountering this
+		// capacity refusal. Keep that prompt without changing the routing policy's
+		// endpoint, model or account. A replaced session must stay set aside on
+		// both routes, including a policy built before the size refusal.
+		if s.sentRequest != nil {
+			request.Prompt = s.sentRequest.Prompt
+		}
+		if sizeRetried {
+			request.SessionID = ""
+			policy.AlternateSessionID = ""
+		}
+		messageBudget := s.rebuiltMessageBytes
 		// A provider that declined this turn for want of capacity is recorded
 		// before anything is decided about waiting, because the refusal is a fact
 		// about the whole product rather than about this conversation, and nothing
@@ -2060,7 +2102,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 			}
 			request.Prompt = execution.NewRedactor(s.options.RedactValues...).Redact(request.Prompt)
 			s.compacting = false
-			s.rebuiltMessageBytes, s.rebuiltFrom = 0, nil
+			s.rebuiltFrom = nil
+			if !sizeRetried {
+				s.rebuiltMessageBytes = 0
+			}
 			if !savingMemory {
 				if due := s.compactionDue(systemPrompt, request.Prompt); due != nil {
 					if s.keepsMemory() {
@@ -2080,6 +2125,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 					}
 					s.turnBegan = s.state.LastSequence
 					s.turnOperatorSequence = operatorSequence
+					if sizeRetried {
+						s.rebuiltMessageBytes = messageBudget
+					}
 					compacted, compactErr := s.compact(systemPrompt, request.Prompt, *due)
 					if compactErr != nil {
 						return "", compactErr
@@ -2093,8 +2141,22 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 				request, policy = s.memorySaveRequest(request)
 				provider = configuredProvider
 				if s.alternateSession() != "" {
-					provider = s.meteredFailover()
+					provider = s.meteredFailover(true)
 				}
+			}
+			if sizeRetried {
+				// Another turn may have advanced the session and memories while
+				// we waited. Rebuild that newer record on the reduced allowance,
+				// including for a save, rather than returning to native history.
+				s.compacting = true
+				s.rebuiltMessageBytes = messageBudget
+				request.SessionID = ""
+				policy.AlternateSessionID = ""
+				rebuilt, rebuildErr := s.rebuildFromRecord(request, sessionSetAside)
+				if rebuildErr != nil {
+					return "", rebuildErr
+				}
+				request = rebuilt
 			}
 			if !savingMemory && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
 				rebuilt, rebuildErr := s.rebuildForOwnEndpoint(request)
@@ -2198,6 +2260,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// read before the record moves on to the endpoint that served it, because the
 	// question is about the session the record held until now.
 	resumed := s.resumedOn(s.servingEndpoint(served))
+	if s.sentRequest != nil {
+		request = *s.sentRequest
+		resumed = request.SessionID != ""
+	}
 	if savingMemory {
 		resumed = request.SessionID != ""
 	}
