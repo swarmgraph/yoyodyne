@@ -70,7 +70,7 @@ const maxTrackerRounds = 4
 
 // maxTrackerItemBytes bounds one work item carried back to the product manager.
 // Detail is fetched on demand precisely so it costs context only where judgement
-// needs it, and an item that outgrows this is cut with the cut declared.
+// needs it, and an item that outgrows this is read in parts.
 const maxTrackerItemBytes = 8 << 10
 
 // minTrackerNotesBytes is what an item's notes are guaranteed of that budget,
@@ -231,7 +231,7 @@ const (
 // action that names one was misunderstood, and carrying out the part of it that
 // parsed would do something nobody asked for.
 var trackerActionArguments = map[string][]string{
-	actionRead:         {"report"},
+	actionRead:         {"report", "offset"},
 	actionSurvey:       {},
 	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals"},
 	actionAttribute:    {"goal"},
@@ -357,6 +357,9 @@ const providerPathClause = `A work item's text can admit one of the harness's pr
 // predicate refuses.
 const documentConditionClause = `A done-condition is never written against a document a developer run may not write. The harness refuses a creation, an update, or a proposal whose "Done means" clauses or acceptance criteria name a path under the product, designs, or decisions homes, or a document one of those homes owns by its name — "the slack-reporting design", "docs/designs/observability-and-dashboard.md" — unless the item grants that path or names the executor whose conversation owns that document; the refusal quotes the clause. Three items in one week were admitted with such a clause — a design's query list to mark, a design's status entry to reconcile, a ruling to record on a design — and each spent a run before anybody found the condition no diff could meet. Cite those documents freely elsewhere in the item, as the design the work builds against or the ruling it obeys; what is refused is a condition. Where the work needs the document changed, either take that clause out of what done means and say that the document's owner amends it through the governed path once the run's summary names what there is to record, or, where the change is already decided, carry the grant. Where the work IS the document's owner recording something — a design, a ruling — the item is that owner's conversation's, and it says so with "executor": the same clause is right on an item marked "conversation:architect" and unmeetable on one marked nothing. The harness reads that shape too, with no document named: a "Done means" clause saying a design or a ruling is recorded, published, promoted, or ratified, or a title whose subject is the architect acting — "The architect designs …", "The architect rules …" — is refused on an item that names no executor, because yoyodyne-ifd.330 was admitted exactly so and spent a developer run finding out the design had already landed. A run reads the same clauses of the item it is handed, including its design guidance and acceptance criteria, and refuses to start rather than parking on the condition afterwards.`
 
+// itemReadClause is shared by every role with tracker read authority.
+const itemReadClause = `An item read is bounded at 8 KiB before its separate runs section. Long item text is returned in parts: each part says its starting byte, bytes returned, and bytes remaining, and gives the next read action with an optional "offset". Put that action in your next yoyodyne-tracker block and follow the offsets until no bytes remain before judging the description or acceptance criteria. "offset" counts bytes in the rendered item text before notes, including headings; it never skips or pages the notes. Omit it for an ordinary first read, or use 0 to start the complete text again. Notes keep a separate bounded window of their most recent writing, and any cut from their beginning is declared. Each read fetches the item as it stands now; if it changed between parts, start again at offset 0. Existing action and round limits still apply; where the rounds end, continue reading in a later turn rather than treating the remainder as absent.`
+
 // TrackerAction is one bounded operation on the work tracker. It carries
 // authority, unlike a proposal: the harness runs it as asked, so every argument
 // is validated before anything is run and the whole of it is recorded.
@@ -364,7 +367,10 @@ type TrackerAction struct {
 	Action string `json:"action"`
 	// ID names the item acted on. Every operation but a creation has one, and a
 	// creation is refused for carrying one, because the tracker assigns it.
-	ID          string `json:"id,omitempty"`
+	ID string `json:"id,omitempty"`
+	// Offset starts a continuation in the rendered item text before its notes.
+	// A pointer distinguishes the ordinary read from an explicit start at zero.
+	Offset      *int   `json:"offset,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
 	// Goal is the goal the work serves, in the words the goals document states
@@ -1067,6 +1073,14 @@ func (a TrackerAction) readsTargetFirst() bool {
 // weaker version of itself.
 func (a TrackerAction) validateArguments() []error {
 	var problems []error
+	if a.Offset != nil {
+		if *a.Offset < 0 {
+			problems = append(problems, errors.New("offset must be a nonnegative byte position"))
+		}
+		if a.readsReport() {
+			problems = append(problems, errors.New("read report does not take \"offset\"; offset continues an item's text"))
+		}
+	}
 	switch a.Action {
 	case actionCreate:
 		problems = append(problems,
@@ -1286,6 +1300,9 @@ func (a TrackerAction) labelProblems() []error {
 // action can be refused for naming one its operation has no use for.
 func (a TrackerAction) arguments() []string {
 	var carried []string
+	if a.Offset != nil {
+		carried = append(carried, "offset")
+	}
 	if a.RelevantGoals != nil {
 		carried = append(carried, "relevant_goals")
 	}
@@ -1731,7 +1748,12 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		outcome.recordTarget(item)
 		// The runs go after the item and outside its bound, because the bound cuts
 		// the front of the notes and the run a stoppage is about is named there.
-		outcome.Detail = renderWorkItemEvidence(item, s.options.Goals) + s.renderItemRuns(ctx, item.ID)
+		detail, err := renderWorkItemRead(item, s.options.Goals, action.Offset)
+		if err != nil {
+			outcome.fail(err)
+			return
+		}
+		outcome.Detail = detail + s.renderItemRuns(ctx, item.ID)
 		outcome.applied("read %s: %s", item.ID, singleLine(item.Title, maxSurveyTitleBytes))
 	case actionSurvey:
 		// The one action about the queue rather than about an item in it. It is the
@@ -2692,10 +2714,81 @@ func namedItems(ids []string) string {
 	return fmt.Sprintf("%s, and %d more", strings.Join(ids[:maxAttributionNamedItems], ", "), len(ids)-maxAttributionNamedItems)
 }
 
-// renderWorkItemEvidence is one work item in full, which is what the product
-// manager asked to read. A survey stays a summary; this is the detail that
-// judgement about a specific item actually needs.
+// renderWorkItemEvidence is the first bounded read, shared by the role and /show.
 func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
+	text, err := renderWorkItemRead(item, goals, nil)
+	if err != nil {
+		return fmt.Sprintf("item read failed: %s\n", err)
+	}
+	return text
+}
+
+// renderWorkItemRead keeps short reads unchanged and gives long standing text a
+// continuation independent of the notes' tail window. Offsets count bytes in
+// the rendered text before notes, including headings; field whitespace is kept
+// in that stream so following every continuation loses no description or criteria.
+func renderWorkItemRead(item beads.WorkItem, goals goal.Set, offset *int) (string, error) {
+	head := renderWorkItemHead(item, goals, true)
+	complete := renderWorkItemHead(item, goals, false)
+	notes := strings.TrimSpace(item.Notes)
+	budget := maxTrackerItemBytes
+	if notes != "" {
+		budget -= minTrackerNotesBytes
+	}
+	if offset == nil && len(complete) <= budget {
+		if notes == "" {
+			return head, nil
+		}
+		short := head + fmt.Sprintf("\nnotes:\n%s\n", boundTextTail(notes, maxTrackerItemBytes-len(head)))
+		if len(short) <= maxTrackerItemBytes {
+			return short, nil
+		}
+	}
+
+	head = complete
+	start := 0
+	if offset != nil {
+		start = *offset
+	}
+	if start < 0 || start > len(head) {
+		return "", fmt.Errorf("offset %d is outside the item text's 0..%d bytes; read again from offset 0", start, len(head))
+	}
+	if start < len(head) && !utf8.RuneStart(head[start]) {
+		return "", fmt.Errorf("offset %d is inside a UTF-8 character; use the next offset the read returned", start)
+	}
+	if notes != "" {
+		// Leave space for the notes heading and cut declaration, in addition to
+		// the guaranteed payload, rather than exceeding the item bound with them.
+		budget -= 128
+	}
+	// Reserve the largest possible declaration before choosing a slice. Both
+	// declarations are harness text, never sliced out of the item being read.
+	declaration := func(start, end int) string {
+		return fmt.Sprintf("[item text starts at byte %d; %d bytes returned; %d bytes remain]\n", start, end-start, len(head)-end)
+	}
+	continuation := func(end int) string {
+		action, _ := json.Marshal(TrackerAction{Action: actionRead, ID: item.ID, Offset: &end})
+		return fmt.Sprintf("\n[item text continues; read %s]\n", action)
+	}
+	reserve := len(declaration(len(head), len(head))) + 2*len(strconv.Itoa(len(head))) + len(continuation(len(head)))
+	if reserve >= budget {
+		return "", errors.New("the item identifier is too long to fit a continuation request within the item read bound")
+	}
+	end := min(len(head), start+budget-reserve)
+	for end > start && end < len(head) && !utf8.RuneStart(head[end]) {
+		end--
+	}
+	page := declaration(start, end) + head[start:end]
+	if end < len(head) {
+		page += continuation(end)
+	}
+	if notes != "" {
+		page += fmt.Sprintf("\nnotes:\n%s\n", boundTextTail(notes, minTrackerNotesBytes))
+	}
+	return page, nil
+}
+
+func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "id: %s\n", item.ID)
 	fmt.Fprintf(&rendered, "title: %s\n", singleLine(item.Title, maxTrackerTitleBytes))
@@ -2742,30 +2835,16 @@ func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
 		{"design", item.Design},
 		{"acceptance criteria", item.AcceptanceCriteria},
 	} {
-		if strings.TrimSpace(section.text) == "" {
+		text := section.text
+		if trim {
+			text = strings.TrimSpace(text)
+		}
+		if text == "" {
 			continue
 		}
-		fmt.Fprintf(&rendered, "\n%s:\n%s\n", section.label, strings.TrimSpace(section.text))
+		fmt.Fprintf(&rendered, "\n%s:\n%s\n", section.label, text)
 	}
-	notes := strings.TrimSpace(item.Notes)
-	if notes == "" {
-		return boundText(rendered.String(), maxTrackerItemBytes)
-	}
-	// The notes are rendered last and cut from the front, and everything else about
-	// the item is cut so that they always have room. Notes are only ever appended
-	// to, so their end is what was written most recently and their beginning is
-	// what the item has said since it was admitted: a cut taken the other way
-	// answers every question about a note just written by showing the admission
-	// lines, which is how two operator directions recorded on yoyodyne-ifd.283 came
-	// to be read as writes that never landed. The writes were durable, and this
-	// rendering — the one the product manager's read and the operator's `/show`
-	// both use — was what said otherwise.
-	head := boundText(rendered.String(), maxTrackerItemBytes-minTrackerNotesBytes)
-	budget := maxTrackerItemBytes - len(head)
-	if budget < minTrackerNotesBytes {
-		budget = minTrackerNotesBytes
-	}
-	return head + fmt.Sprintf("\nnotes:\n%s\n", boundTextTail(notes, budget))
+	return rendered.String()
 }
 
 // describeAttribution says in one line what an item's goal amounts to. The five

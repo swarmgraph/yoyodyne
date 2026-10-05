@@ -254,7 +254,7 @@ func (s *Session) takeLaneProposals() []PendingProposal {
 // laneTrackerClause is the program manager's tracker authority: the reads every
 // role has, and the writes its lane bounds, stated with the rules the harness
 // holds each of them to.
-const laneTrackerClause = relevantGoalsClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. Read an item before you act on it, and survey before you conclude anything about the queue. To act on the work tracker, end your reply with exactly one block, after the prose:
+const laneTrackerClause = relevantGoalsClause + "\n\n" + itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. Read an item before you act on it, and survey before you conclude anything about the queue. To act on the work tracker, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-tracker
 {"actions":[
@@ -274,7 +274,7 @@ const laneTrackerClause = relevantGoalsClause + "\n\n" + `The state you were giv
 ]}
 ` + "```" + `
 
-That example lists every action you have. There is no close and no retire: closing is the harness's when work lands, and withdrawing admitted scope is the Lead Product Manager's, so ask the Lead Product Manager. One block carries only the actions you want, at most ` + maxTrackerActionsPerTurnText + ` of them, and each takes only the arguments shown for it. "reason" is required on everything but "read" and "survey". "read" and "survey" reach the whole tracker; every other action is held to your lane, by these rules:
+That example lists every action you have. There is no close and no retire: closing is the harness's when work lands, and withdrawing admitted scope is the Lead Product Manager's, so ask the Lead Product Manager. One block carries only the actions you want, at most ` + maxTrackerActionsPerTurnText + ` of them, and each takes only the arguments described here. "reason" is required on everything but "read" and "survey". "read" and "survey" reach the whole tracker; every other action is held to your lane, by these rules:
 
 - A "create" is admitted into your lane: the harness puts your lane label on it in the same write, whether or not "labels" names it, and other labels may go beside it. Its notes record your lane and this instance. A parent it names must itself carry your lane label. It names no "directive": carrying a directive out is the Lead Product Manager's.
 - Every other action is refused unless the item carries your lane label at the moment the action runs, read from the tracker as it runs. A listing or survey that showed the label earlier is not the item as it stands, so read before you act on anything you have not just seen.

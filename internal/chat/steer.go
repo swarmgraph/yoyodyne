@@ -27,7 +27,7 @@ import (
 const commandHelp = `Commands the harness carries out for you:
   /status                     what is in flight, claimed, blocked, available, and done, with what the done work cost
   /backlog                    the admitted work in the Lead Product Manager's order, and what is next
-  /show <beads-id>            one work item in full, as the tracker holds it, and what each run for it cost
+  /show <beads-id>            one bounded work item read, as the tracker holds it, and what each run for it cost
   /diff [beads-id]            what a run changed, from the run's own record
   /reports                    what agents have reported without it stopping their work
   /refresh                    re-read the repository and tracker into this conversation
@@ -571,8 +571,8 @@ func (s *Session) ReadBacklog(ctx context.Context) (backlog.Queue, error) {
 	return queue, nil
 }
 
-// ShowWorkItem reads one work item in full. It goes through the same tracker
-// capability the product manager reads items with, deliberately: the operator
+// ShowWorkItem reads the first bounded part of one work item. It goes through
+// the same tracker capability the product manager reads items with: the operator
 // asking what something is gets exactly what the agent discussing it could
 // have, rather than a second account of the item assembled somewhere else. It
 // is read-only, and it is the operator's own command, so nothing the product
