@@ -241,6 +241,14 @@ something already answers to is refused for the mirror of that reason. A role
 that owns no document at all — the development manager, the developer, the
 reviewer — cannot write one under any circumstances.
 
+A readable document submission that the write gate refuses does not fail the
+conversation or its scheduled pass. The other tracker actions, reports, and
+memory writes continue. The role receives the refusal reason and the identifiers
+and names of any waiting documents in a further round of the same message. If
+that round submits another refused document, its refusal waits in the durable
+conversation for the role's next turn instead of starting another round. The
+limit remains two waiting documents; a refusal confirms none of them.
+
 A revision is the same action, carrying the document whole:
 
 ```sh

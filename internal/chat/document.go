@@ -228,6 +228,17 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 	return nil
 }
 
+// renderDocumentRefusal names what was refused and what is still waiting.
+// It grants no confirmation and leaves every pending document untouched.
+func (s *Session) renderDocumentRefusal(problem error) string {
+	var out strings.Builder
+	fmt.Fprintf(&out, "# Document submission refused\n\n%s\n\nNothing in the document block was recorded. Other actions in the reply continue.\n", problem)
+	for _, pending := range s.Writes() {
+		fmt.Fprintf(&out, "- %s: %s (%s)\n", pending.ID, pending.Write.Title, pending.Write.ID)
+	}
+	return out.String() + "\n"
+}
+
 // recordWrites gives each document an identity within the conversation and makes
 // it durable before the operator is asked about it. A document that lived only
 // in the process that wrote it was undecidable the moment that process exited,

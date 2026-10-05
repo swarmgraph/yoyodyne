@@ -958,6 +958,8 @@ type Reply struct {
 	// asked for them; what the role re-issued is in Actions, and a block refused
 	// again is the reply's error rather than another entry here.
 	HandedBack []string `json:"handed_back,omitempty"`
+	// DocumentRefusals are action results returned to the role without failing the turn.
+	DocumentRefusals []string `json:"document_refusals,omitempty"`
 	// Reports are what the product manager noticed and filed for the operator
 	// while it answered. They are collected rather than acted on: a report
 	// changes nothing about the turn that carried it, exactly as it changes
@@ -1384,6 +1386,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// repositoryRounds counts the rounds that read the repository, its own budget
 	// for the same reason.
 	repositoryRounds := 0
+	documentHandedBack := false
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
 	// what that round asked for, and record nothing as the operator's.
@@ -1462,14 +1465,22 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			return reply, err
 		}
 
-		// A document is refused at the action layer before anything about it is
-		// recorded or shown: an illegal kind, a home this project does not file
-		// documents in, a shape the store would not accept. Nothing has touched the
-		// filesystem at this point and nothing will, so the refusal costs the
-		// repository nothing and costs the operator a decision they were never
-		// asked for.
+		// A refused document is an action result, not a failed turn. Keep the
+		// other actions and return the reason to the role once in this message;
+		// another refusal waits durably for its next turn instead of looping.
+		var documentResult string
 		if err := s.refuseWrites(parsed.Writes); err != nil {
-			return reply, &DocumentError{Role: s.state.Role, Err: err}
+			documentResult = s.renderDocumentRefusal(err)
+			parsed.Writes = nil
+			reply.DocumentRefusals = append(reply.DocumentRefusals, documentResult)
+			if documentHandedBack {
+				if err := s.carryResults(documentResult); err != nil {
+					return reply, err
+				}
+				documentResult = ""
+			} else {
+				documentHandedBack = true
+			}
 		}
 		// A concern is recorded before anything else is decided about the turn: it
 		// is the product manager declining to propose, and what it declined to
@@ -1533,7 +1544,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// rather than into the durable record — the tracker's results, and whatever
 		// research came back. It is owed to the role either way, so a round that
 		// ends up sending nothing writes it down instead of dropping it.
-		var undelivered string
+		undelivered := documentResult
 		if len(parsed.Actions) > 0 {
 			// The harness now goes to the tracker on the product manager's behalf,
 			// which emits no provider events, so the display is told directly rather
@@ -1555,7 +1566,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 					return reply, err
 				}
 			} else {
-				undelivered = renderTrackerResults(outcomes)
+				undelivered += renderTrackerResults(outcomes)
 			}
 		}
 		// Evidence from outside the repository, gathered on the role's behalf. It
@@ -3387,6 +3398,9 @@ func (s *Session) await(ctx context.Context, screen console.Console, read func(i
 // the actions that failed beside the ones that worked, because a queue the
 // operator believes was reorganized is worse than one they know was not.
 func (s *Session) reportTrackerActions(out io.Writer, reply Reply) {
+	for _, refusal := range reply.DocumentRefusals {
+		fmt.Fprintln(out, refusal)
+	}
 	// A block handed back is said before what came of it, so an operator reading
 	// the actions below knows they are the re-issue rather than the first asking.
 	for _, refusal := range reply.HandedBack {
