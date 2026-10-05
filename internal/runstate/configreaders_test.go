@@ -126,6 +126,8 @@ func TestConfigReaderRestartSupersedesThePreviousBuildForTheSameProcess(t *testi
 			if err := store.Record(older); err != nil {
 				t.Fatal(err)
 			}
+			restarted.recordPath = filepath.Join(store.root, restarted.InstanceID()+".json")
+			other.recordPath = filepath.Join(store.root, other.InstanceID()+".json")
 			readers, err := store.Running()
 			if err != nil || !reflect.DeepEqual(readers, []ConfigReader{restarted, other}) {
 				t.Fatalf("Running() = %+v, %v, want the restarted build and the other process", readers, err)
@@ -284,7 +286,44 @@ func TestConfigReaderKeepsLegacyRecordsWithoutDuplicatingAnInstance(t *testing.T
 	if err := store.Record(restarted); err != nil {
 		t.Fatal(err)
 	}
+	restarted.recordPath = filepath.Join(store.root, restarted.InstanceID()+".json")
+	second.recordPath = filepath.Join(store.root, second.InstanceID()+".json")
 	if readers, err := store.Running(); err != nil || !reflect.DeepEqual(readers, []ConfigReader{restarted, second}) {
 		t.Fatalf("legacy startup was not superseded: %+v, %v", readers, err)
+	}
+}
+
+func TestAStaleConfigurationRecordDoesNotHideOtherParts(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewConfigReaderStore(root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	path := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(path, []byte("agents: {developer: {effort: medium}}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stale := ConfigReader{Service: ConfigReaderSupervisor, PID: 101, ConfigPath: filepath.Join(root, "gone.yaml"), StartedAt: time.Now(), Keys: []string{"version"}}
+	for _, reader := range []ConfigReader{stale, {Service: "dashboard", PID: 102, ConfigPath: path, StartedAt: time.Now(), Keys: []string{"version"}}} {
+		if err := store.Record(reader); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacy := filepath.Join(store.root, "supervisor.json")
+	if err := os.Rename(filepath.Join(store.root, stale.InstanceID()+".json"), legacy); err != nil {
+		t.Fatal(err)
+	}
+	mismatches, err := store.Mismatches()
+	if err == nil {
+		t.Fatal("missing stale record diagnostic")
+	}
+	for _, want := range []string{"stale configuration reader record", legacy, stale.ConfigPath, "next supervisor start", "other parts were still checked"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%v does not name %q", err, want)
+		}
+	}
+	if len(mismatches) != 1 || mismatches[0].Service != "dashboard" {
+		t.Fatalf("other parts not checked: %+v", mismatches)
 	}
 }

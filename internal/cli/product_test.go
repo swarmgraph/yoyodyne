@@ -41,7 +41,24 @@ func TestMain(m *testing.M) {
 		// the marker is cleared here; the tests that assert the refusal set it
 		// again for themselves.
 		os.Unsetenv(execution.AgentRoleVariable)
-		os.Exit(m.Run())
+		// Every CLI test and detached helper inherits a private default store.
+		root, err := os.MkdirTemp("", "yoyodyne-cli-state-")
+		if err != nil {
+			panic(err)
+		}
+		if err := os.Setenv("YOYODYNE_STATE_HOME", root); err != nil {
+			panic(err)
+		}
+		code := m.Run()
+		// Direct supervisor and installer tests must use their product's own
+		// store, rather than leaking records into even the suite's default.
+		paths, err := filepath.Glob(filepath.Join(root, "products", "*", "config-readers", "supervisor-*.json"))
+		if err != nil || len(paths) != 0 {
+			fmt.Fprintf(os.Stderr, "supervisor tests leaked configuration records into the default state: %v, %v\n", paths, err)
+			code = 1
+		}
+		os.RemoveAll(root)
+		os.Exit(code)
 	}
 	// The process answers a stop signal exactly as the real binary does, and it
 	// carries a bound of its own: a helper the test failed to stop ends itself
@@ -457,6 +474,17 @@ func TestTheSupervisorInstalledOverTheMaintenanceJobRetiresItAndCarriesTheRebuil
 		},
 	}
 
+	t.Cleanup(func() {
+		readers, err := runstate.NewConfigReaderStore(stateRoot, resolved.Config.Product.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		live, err := readers.Running()
+		if err != nil || len(live) != 1 || live[0].ConfigPath != resolved.Path {
+			t.Errorf("supervisor did not record its actual configuration in its own store: %+v, %v", live, err)
+		}
+	})
+
 	var stdout, stderr strings.Builder
 	if code := p.supervise(ctx, &stdout, &stderr); code != 0 {
 		t.Fatalf("supervise code = %d, stderr %q", code, stderr.String())
@@ -648,6 +676,17 @@ func TestAForegroundSupervisorRefusedByAnotherExitsCleanly(t *testing.T) {
 			return nil, nil, config.ServiceNames, nil
 		},
 	}
+	t.Cleanup(func() {
+		readers, err := runstate.NewConfigReaderStore(stateRoot, resolved.Config.Product.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		live, err := readers.Running()
+		if err != nil || len(live) != 1 || live[0].ConfigPath != resolved.Path {
+			t.Errorf("supervisor did not record its actual configuration in its own store: %+v, %v", live, err)
+		}
+	})
+
 	var stdout, stderr strings.Builder
 	if code := p.supervise(context.Background(), &stdout, &stderr); code != 0 {
 		t.Errorf("supervise code = %d, want 0 for a refusal", code)

@@ -434,7 +434,9 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 	if retired, problem := p.retireMaintenanceJob(ctx, "the supervisor"); retired != "" || problem != "" {
 		log("%s", firstNonEmptyString(retired, problem))
 	}
-	recordConfigReader(p.resolved, runstate.ConfigReaderSupervisor, stderr)
+	if err := writeConfigReaderAt(p.resolved, runstate.ConfigReaderSupervisor, p.stateRoot); err != nil {
+		fmt.Fprintf(stderr, "the supervisor could not record which configuration keys its build reads: %v\n", err)
+	}
 	hold, err := p.restartHold()
 	if err != nil {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)

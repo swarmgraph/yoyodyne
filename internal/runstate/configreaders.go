@@ -45,6 +45,8 @@ const configReadersDirectory = "config-readers"
 
 // ConfigReader is one running part's account of what its build reads.
 type ConfigReader struct {
+	recordPath string
+
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
 	// Service is the part: a service the configuration's services section
@@ -360,6 +362,7 @@ func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {
 	if reader.ProductID != s.productID {
 		return ConfigReader{}, fmt.Errorf("configuration reader record %s belongs to product %q, not %q", path, reader.ProductID, s.productID)
 	}
+	reader.recordPath = path
 	return reader, nil
 }
 
@@ -401,7 +404,11 @@ func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, e
 	for _, reader := range readers {
 		source, readErr := read(reader.ConfigPath)
 		if readErr != nil {
-			problems = append(problems, fmt.Errorf("the configuration the %s service reads could not be read: %w", reader.Service, readErr))
+			if errors.Is(readErr, os.ErrNotExist) {
+				problems = append(problems, fmt.Errorf("stale configuration reader record %s: recorded configuration %s no longer exists; the next %s start records its actual configuration path; other parts were still checked", reader.recordPath, reader.ConfigPath, reader.Service))
+			} else {
+				problems = append(problems, fmt.Errorf("the configuration the %s service reads could not be read: %w", reader.Service, readErr))
+			}
 			continue
 		}
 		keys, keysErr := config.UnreadableKeys(source, reader.Keys)

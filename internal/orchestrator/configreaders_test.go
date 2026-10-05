@@ -499,7 +499,7 @@ func TestAnImmediateLandingRetriesItsSavedConfigurationFinding(t *testing.T) {
 			if state.ConfigComparison.TargetCommit != outcome.Integration.TargetCommit || state.ConfigComparison.PreviousTargetCommit != outcome.Integration.PreviousTargetCommit {
 				t.Fatal("the saved comparison is not bound to the landed revisions")
 			}
-			if unreadable && !strings.Contains(state.ConfigComparison.ActiveProblem, "no such file or directory") {
+			if unreadable && !strings.Contains(state.ConfigComparison.ActiveProblem, "stale configuration reader record") {
 				t.Fatalf("the comparison's read failure was lost: %+v", state.ConfigComparison)
 			}
 			if !unreadable && (len(state.ConfigComparison.Mismatches) != 1 || state.ConfigComparison.Mismatches[0].PID != 4242) {
