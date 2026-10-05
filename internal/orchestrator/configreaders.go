@@ -56,11 +56,11 @@ func (c configComparison) notes() string {
 	for _, mismatch := range c.active {
 		lines = append(lines, mismatch.Says()+"; "+runstate.ConfigMismatchRemedy(mismatch.Service))
 	}
-	if c.activeError != nil {
-		lines = append(lines, "whether every running part of the product can read the configuration could not be read whole: "+c.activeError.Error())
-	}
 	if len(lines) > 0 {
 		notes = append(notes, "Running parts that cannot read the configuration this landing left: "+strings.Join(lines, "; "))
+	}
+	if c.activeError != nil {
+		notes = append(notes, "Configuration reader records and comparison problems: "+c.activeError.Error())
 	}
 	lines = nil
 	for _, mismatch := range c.templates {

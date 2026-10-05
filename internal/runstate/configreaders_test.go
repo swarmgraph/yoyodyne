@@ -126,6 +126,8 @@ func TestConfigReaderRestartSupersedesThePreviousBuildForTheSameProcess(t *testi
 			if err := store.Record(older); err != nil {
 				t.Fatal(err)
 			}
+			restarted.recordPath = filepath.Join(store.root, restarted.InstanceID()+".json")
+			other.recordPath = filepath.Join(store.root, other.InstanceID()+".json")
 			readers, err := store.Running()
 			if err != nil || !reflect.DeepEqual(readers, []ConfigReader{restarted, other}) {
 				t.Fatalf("Running() = %+v, %v, want the restarted build and the other process", readers, err)
@@ -284,7 +286,89 @@ func TestConfigReaderKeepsLegacyRecordsWithoutDuplicatingAnInstance(t *testing.T
 	if err := store.Record(restarted); err != nil {
 		t.Fatal(err)
 	}
+	restarted.recordPath = filepath.Join(store.root, restarted.InstanceID()+".json")
+	second.recordPath = filepath.Join(store.root, second.InstanceID()+".json")
 	if readers, err := store.Running(); err != nil || !reflect.DeepEqual(readers, []ConfigReader{restarted, second}) {
 		t.Fatalf("legacy startup was not superseded: %+v, %v", readers, err)
+	}
+}
+
+func TestAStaleConfigurationRecordDoesNotHideOtherParts(t *testing.T) {
+	root := t.TempDir()
+	store, err := NewConfigReaderStore(root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	path := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(path, []byte("agents: {developer: {effort: medium}}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stale := ConfigReader{Service: ConfigReaderSupervisor, PID: 101, ConfigPath: filepath.Join(root, "gone.yaml"), StartedAt: time.Now(), Keys: []string{"version"}}
+	for _, reader := range []ConfigReader{stale, {Service: "dashboard", PID: 102, ConfigPath: path, StartedAt: time.Now(), Keys: []string{"version"}}} {
+		if err := store.Record(reader); err != nil {
+			t.Fatal(err)
+		}
+	}
+	legacy := filepath.Join(store.root, "supervisor.json")
+	if err := os.Rename(filepath.Join(store.root, stale.InstanceID()+".json"), legacy); err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(store.root, ".records.lock")
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic, problem := store.Mismatches()
+	if problem == nil || !strings.Contains(problem.Error(), "diagnostic comparison left the record unchanged") || len(diagnostic) != 1 {
+		t.Fatalf("diagnostic: %+v, %v", diagnostic, problem)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("diagnostic removed record: %v", err)
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatalf("diagnostic created lock: %v", err)
+	}
+	mismatches, err := store.MismatchesIn(os.ReadFile)
+	if err == nil {
+		t.Fatal("missing stale record diagnostic")
+	}
+	for _, want := range []string{"stale configuration reader record", legacy, stale.ConfigPath, "removed this stale record automatically", "other parts were still checked"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("%v does not name %q", err, want)
+		}
+	}
+	if len(mismatches) != 1 || mismatches[0].Service != "dashboard" {
+		t.Fatalf("other parts not checked: %+v", mismatches)
+	}
+}
+
+func TestStaleConfigurationCleanupPreservesAChangedRecord(t *testing.T) {
+	store, err := NewConfigReaderStore(t.TempDir(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	old := ConfigReader{Service: ConfigReaderSupervisor, PID: 101, ConfigPath: filepath.Join(store.stateRoot, "gone.yaml"), StartedAt: time.Now(), Keys: []string{"version"}}
+	if err := store.Record(old); err != nil {
+		t.Fatal(err)
+	}
+	readers, err := store.Running()
+	if err != nil || len(readers) != 1 {
+		t.Fatalf("readers: %+v, %v", readers, err)
+	}
+	current := old
+	current.ConfigPath = filepath.Join(store.stateRoot, "current.yaml")
+	if err := os.WriteFile(current.ConfigPath, []byte("version: 1\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Record(current); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.removeStale(readers[0]); err == nil || !strings.Contains(err.Error(), "record changed") {
+		t.Fatalf("cleanup did not protect new startup: %v", err)
+	}
+	readers, err = store.Running()
+	if err != nil || len(readers) != 1 || readers[0].ConfigPath != current.ConfigPath {
+		t.Fatalf("current startup lost: %+v, %v", readers, err)
 	}
 }

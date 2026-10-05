@@ -444,7 +444,7 @@ type refuseConfigFindingOnce struct {
 }
 
 func (r *refuseConfigFindingOnce) RecordOutcome(ctx context.Context, id, note string) (beads.WorkItem, error) {
-	if !r.refused && strings.HasPrefix(note, "Running parts that cannot read") {
+	if !r.refused && (strings.HasPrefix(note, "Running parts that cannot read") || strings.HasPrefix(note, "Configuration reader records and comparison problems")) {
 		r.refused = true
 		return beads.WorkItem{}, errors.New("configuration finding refused")
 	}
@@ -499,7 +499,7 @@ func TestAnImmediateLandingRetriesItsSavedConfigurationFinding(t *testing.T) {
 			if state.ConfigComparison.TargetCommit != outcome.Integration.TargetCommit || state.ConfigComparison.PreviousTargetCommit != outcome.Integration.PreviousTargetCommit {
 				t.Fatal("the saved comparison is not bound to the landed revisions")
 			}
-			if unreadable && !strings.Contains(state.ConfigComparison.ActiveProblem, "no such file or directory") {
+			if unreadable && !strings.Contains(state.ConfigComparison.ActiveProblem, "stale configuration reader record") {
 				t.Fatalf("the comparison's read failure was lost: %+v", state.ConfigComparison)
 			}
 			if !unreadable && (len(state.ConfigComparison.Mismatches) != 1 || state.ConfigComparison.Mismatches[0].PID != 4242) {
@@ -515,7 +515,7 @@ func TestAnImmediateLandingRetriesItsSavedConfigurationFinding(t *testing.T) {
 			notes := strings.Join(tracker.NoteRecords, "\n")
 			want := "agents.developer.effort"
 			if unreadable {
-				want = "could not be read whole"
+				want = "Configuration reader records and comparison problems"
 			}
 			if !strings.Contains(notes, want) || !strings.Contains(notes, configPath) {
 				t.Fatalf("saved finding was not delivered: %s", notes)
@@ -529,5 +529,60 @@ func TestAnImmediateLandingRetriesItsSavedConfigurationFinding(t *testing.T) {
 				t.Fatalf("delivered comparison repeated: %+v, %v", again, err)
 			}
 		})
+	}
+}
+
+func TestALandingSeparatesAStaleLegacySupervisorFromRunningParts(t *testing.T) {
+	root := t.TempDir()
+	store, err := runstate.NewConfigReaderStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The leaked test PID has been reused. Starting the installed supervisor
+	// with a different PID does not supersede that legacy record.
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	path := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(path, []byte("agents: {developer: {effort: medium}}\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	stale := runstate.ConfigReader{Service: runstate.ConfigReaderSupervisor, PID: 101, ConfigPath: filepath.Join(root, "gone.yaml"), StartedAt: time.Now(), Keys: []string{"version"}}
+	if err := store.Record(stale); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(root, "products", "yoyodyne", "config-readers")
+	legacy := filepath.Join(directory, "supervisor.json")
+	if err := os.Rename(filepath.Join(directory, stale.InstanceID()+".json"), legacy); err != nil {
+		t.Fatal(err)
+	}
+	for _, reader := range []runstate.ConfigReader{
+		{Service: runstate.ConfigReaderSupervisor, PID: 103, ConfigPath: path, StartedAt: time.Now(), Keys: config.SchemaKeys()},
+		{Service: "dashboard", PID: 102, ConfigPath: path, StartedAt: time.Now(), Keys: []string{"version"}},
+	} {
+		if err := store.Record(reader); err != nil {
+			t.Fatal(err)
+		}
+	}
+	active, problem := store.MismatchesIn(os.ReadFile)
+	if len(active) != 1 || active[0].Service != "dashboard" {
+		t.Fatalf("valid reader was not compared: %+v, %v", active, problem)
+	}
+	notes := (configComparison{active: active, activeError: problem}).notes()
+	sections := strings.Split(notes, "\n")
+	if len(sections) != 2 || !strings.HasPrefix(sections[0], "Running parts that cannot read") || !strings.Contains(sections[0], "the dashboard service") || strings.Contains(sections[0], "stale configuration reader record") || strings.Contains(sections[0], "the supervisor service") {
+		t.Fatalf("stale record presented as a running failure: %s", notes)
+	}
+	for _, want := range []string{"Configuration reader records and comparison problems:", "stale configuration reader record", "supervisor.json", stale.ConfigPath, "removed this stale record automatically", "other parts were still checked"} {
+		if !strings.Contains(sections[1], want) {
+			t.Errorf("stale record explanation lacks %q: %s", want, notes)
+		}
+	}
+	if strings.Contains(notes, "next supervisor start") {
+		t.Fatal("promises a restart will repair the old record")
+	}
+	if _, err := os.Stat(legacy); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale record was not removed: %v", err)
+	}
+	if again, err := store.MismatchesIn(os.ReadFile); err != nil || len(again) != 1 {
+		t.Fatalf("corrected comparison = %+v, %v", again, err)
 	}
 }

@@ -18,6 +18,7 @@ package runstate
 // has gone is a part that is not running and says nothing.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -45,6 +46,8 @@ const configReadersDirectory = "config-readers"
 
 // ConfigReader is one running part's account of what its build reads.
 type ConfigReader struct {
+	recordPath string
+
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
 	// Service is the part: a service the configuration's services section
@@ -250,6 +253,11 @@ func (s *ConfigReaderStore) Record(reader ConfigReader) error {
 		return fmt.Errorf("pin the configuration reader's state root: %w", err)
 	}
 	defer root.Close()
+	lock, err := s.lockRecords(root)
+	if err != nil {
+		return err
+	}
+	defer func() { unlockStateFile(lock); closeStateFile(lock) }()
 	return s.recordIn(root, reader)
 }
 
@@ -360,15 +368,17 @@ func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {
 	if reader.ProductID != s.productID {
 		return ConfigReader{}, fmt.Errorf("configuration reader record %s belongs to product %q, not %q", path, reader.ProductID, s.productID)
 	}
+	reader.recordPath = path
 	return reader, nil
 }
 
 // Mismatches compares the file each running part reads, as it stands now,
 // against the keys that part's build reads, and returns every part that
 // cannot read something in it. A part whose file cannot be read is a problem
-// in the returned error rather than a part reported current.
+// in the returned error rather than a part reported current. This diagnostic
+// comparison never writes state.
 func (s *ConfigReaderStore) Mismatches() ([]ConfigMismatch, error) {
-	return s.MismatchesIn(os.ReadFile)
+	return s.mismatchesIn(os.ReadFile, false)
 }
 
 // TemplateMismatches compares newly introduced template keys against every
@@ -393,15 +403,31 @@ func (s *ConfigReaderStore) TemplateMismatches(templatePath string, added []stri
 // MismatchesIn is Mismatches with the file each part reads read by read
 // rather than from the working tree: a landing reads it as the commit it
 // landed holds it, because the checkout the parts read may not have moved onto
-// that commit yet.
+// that commit yet. It removes confirmed stale records through the confined
+// writer; diagnostic callers use the read-only Mismatches method.
 func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, error)) ([]ConfigMismatch, error) {
+	return s.mismatchesIn(read, true)
+}
+
+func (s *ConfigReaderStore) mismatchesIn(read func(string) ([]byte, error), cleanup bool) ([]ConfigMismatch, error) {
 	readers, err := s.Running()
 	problems := []error{err}
 	var mismatches []ConfigMismatch
 	for _, reader := range readers {
 		source, readErr := read(reader.ConfigPath)
 		if readErr != nil {
-			problems = append(problems, fmt.Errorf("the configuration the %s service reads could not be read: %w", reader.Service, readErr))
+			if errors.Is(readErr, os.ErrNotExist) {
+				correction := "diagnostic comparison left the record unchanged; the product removes confirmed stale records automatically during its next landing configuration comparison; other parts were still checked"
+				if cleanup {
+					correction = "the product removed this stale record automatically; other parts were still checked"
+					if err := s.removeStale(reader); err != nil {
+						correction = "automatic removal could not complete: " + err.Error() + "; the product retries removal at the next landing configuration comparison; other parts were still checked"
+					}
+				}
+				problems = append(problems, fmt.Errorf("stale configuration reader record %s: recorded configuration %s no longer exists; %s", reader.recordPath, reader.ConfigPath, correction))
+			} else {
+				problems = append(problems, fmt.Errorf("the configuration the %s service reads could not be read: %w", reader.Service, readErr))
+			}
 			continue
 		}
 		keys, keysErr := config.UnreadableKeys(source, reader.Keys)
@@ -422,4 +448,65 @@ func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, e
 		})
 	}
 	return mismatches, errors.Join(problems...)
+}
+
+// Serialize startup records and stale-record cleanup so a legacy filename
+// replaced by a new startup cannot be removed after it was inspected.
+func (s *ConfigReaderStore) lockRecords(root *repowrite.PinnedRoot) (*os.File, error) {
+	directory := filepath.Join("products", string(s.productID), configReadersDirectory)
+	if err := root.MakeDirectory(directory, 0700); err != nil {
+		return nil, err
+	}
+	lock, err := root.OpenLock(filepath.Join(directory, ".records.lock"), 0600)
+	if err != nil {
+		return nil, err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := lockStateFile(ctx, lock); err != nil {
+		lock.Close()
+		return nil, fmt.Errorf("wait for configuration reader record update: %w", err)
+	}
+	return lock, nil
+}
+
+func (s *ConfigReaderStore) removeStale(reader ConfigReader) error {
+	root, err := s.pinWriteRoot()
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	lock, err := s.lockRecords(root)
+	if err != nil {
+		return err
+	}
+	defer func() { unlockStateFile(lock); closeStateFile(lock) }()
+	relative, err := filepath.Rel(s.stateRoot, reader.recordPath)
+	if err != nil {
+		return err
+	}
+	encoded, err := root.ReadFile(relative)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var current ConfigReader
+	if _, err := decodeTolerating(encoded, &current); err != nil {
+		return err
+	}
+	if current.InstanceID() != reader.InstanceID() || current.ConfigPath != reader.ConfigPath {
+		return errors.New("the record changed after comparison; it was preserved")
+	}
+	if _, err := os.Stat(reader.ConfigPath); !errors.Is(err, os.ErrNotExist) {
+		return errors.New("the configuration path is no longer known to be missing; the record was preserved")
+	}
+	if err := root.Unchanged(); err != nil {
+		return err
+	}
+	if err := root.Remove(relative); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return root.Unchanged()
 }

@@ -1813,3 +1813,48 @@ func TestDoctorNamesTheRunningPartWhoseBuildCannotReadTheConfiguration(t *testin
 		}
 	})
 }
+
+func TestDoctorReportsAStaleSupervisorWithoutChangingItsRecords(t *testing.T) {
+	w := newWorld(t)
+	store, err := runstate.NewConfigReaderStore(w.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := runstate.ConfigReader{Service: runstate.ConfigReaderSupervisor, PID: 4242, ConfigPath: filepath.Join(w.stateRoot, "gone.yaml"), StartedAt: time.Now(), Keys: config.SchemaKeys()}
+	if err := store.Record(reader); err != nil {
+		t.Fatal(err)
+	}
+	w.alive[reader.PID] = true
+	directory := filepath.Join(w.stateRoot, "products", "yoyodyne", "config-readers")
+	path := filepath.Join(directory, reader.InstanceID()+".json")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lock := filepath.Join(directory, ".records.lock")
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	report := w.diagnose()
+	found := false
+	for _, finding := range report.Findings {
+		if finding.Check == configReadersCheck && strings.Contains(finding.Detail, "stale configuration reader record") {
+			found = true
+			for _, want := range []string{path, "diagnostic comparison left the record unchanged", "next landing configuration comparison"} {
+				if !strings.Contains(finding.Detail, want) {
+					t.Errorf("doctor diagnostic lacks %q: %s", want, finding.Detail)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("doctor did not report stale record")
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(before) {
+		t.Fatalf("doctor changed record: %v", err)
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatalf("doctor created lock: %v", err)
+	}
+}

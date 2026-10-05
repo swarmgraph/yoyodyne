@@ -40,6 +40,10 @@ func writeConfigReader(resolved config.Resolved, service string) error {
 	if err != nil {
 		return err
 	}
+	return writeConfigReaderAt(resolved, service, stateRoot)
+}
+
+func writeConfigReaderAt(resolved config.Resolved, service, stateRoot string) error {
 	store, err := runstate.NewConfigReaderStore(stateRoot, resolved.Config.Product.ID)
 	if err != nil {
 		return err
