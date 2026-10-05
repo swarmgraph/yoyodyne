@@ -426,6 +426,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// and the provider charged for it exactly as it charges for one that answered.
 	evidence := session.Evidence()
 	turn := orchestrator.Turn{
+		FailureOutput:  session.FailureOutput(),
 		Replacement:    replacement,
 		ConversationID: evidence.ConversationID,
 		CostUSD:        session.TurnCostUSD(),
@@ -468,6 +469,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
 			turn.Model = servingModel(session.Evidence())
 			if recoveryErr != nil {
+				turn.FailureOutput = session.FailureOutput()
 				return turn, fmt.Errorf("the request for the missing closing report failed; the preceding reply's findings remain unrecorded: %w", recoveryErr)
 			}
 			turn.Turns++

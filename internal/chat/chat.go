@@ -10,6 +10,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -585,6 +586,7 @@ type Options struct {
 // Session is one open conversation. It owns the durable record, so every turn
 // it completes is recorded before the operator sees the reply.
 type Session struct {
+	failureOutput       string
 	lastEffortRequested string
 	lastEffortResolved  string
 	lastEffortReported  bool
@@ -1308,6 +1310,7 @@ func (s *Session) servedByAlternate() string {
 // Each turn is recorded before the next begins, so a conversation interrupted
 // part way still resumes from what was actually said.
 func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
+	s.failureOutput = ""
 	trimmed := strings.TrimSpace(message)
 	if trimmed == "" {
 		return Reply{}, errors.New("an operator message is required")
@@ -1796,7 +1799,16 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	}
 
 	lastSequence := s.state.LastSequence
+	var outputTail string
 	sink := func(event execution.Event) error {
+		if event.Type == execution.EventProcessOutput || event.Type == execution.EventAgentMessage {
+			var printed struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(event.Payload, &printed) == nil && printed.Text != "" {
+				outputTail = runstate.FailureOutputTail(outputTail + execution.NewRedactor(s.options.RedactValues...).Redact(printed.Text) + "\n")
+			}
+		}
 		if err := s.options.Store.AppendEvent(event); err != nil {
 			return err
 		}
@@ -1937,6 +1949,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// the provider refused was charged for exactly as the one it served was.
 	s.lastInvocationCostUSD = 0
 	for {
+		outputTail = ""
 		// The failover goes outside the meter rather than inside it, so each attempt
 		// is one line in the cost log naming the model that attempt actually asked
 		// for. Wrapped the other way round, a turn the alternate served would be
@@ -2114,6 +2127,13 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// the answer the reissued one will write, so it is closed off before the
 		// next attempt writes over it.
 		s.stream.interrupted()
+	}
+	s.failureOutput = ""
+	if err != nil || result.IsError {
+		if outputTail == "" {
+			outputTail = result.FinalText + "\n" + result.Process.Stdout + "\n" + result.Process.Stderr + "\n" + result.Process.OutputTruncation
+		}
+		s.failureOutput = runstate.FailureOutputTail(execution.NewRedactor(s.options.RedactValues...).Redact(outputTail))
 	}
 	s.state.LastSequence = lastSequence
 	// A reply this turn recorded cut is owed to the next turn whichever way this
@@ -4477,3 +4497,6 @@ func (s *Session) lastEffortWasReported() bool {
 	}
 	return s.state.ProviderEffortReported
 }
+
+// FailureOutput is the redacted end of the most recent failed invocation.
+func (s *Session) FailureOutput() string { return s.failureOutput }

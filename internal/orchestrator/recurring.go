@@ -191,6 +191,7 @@ type RecurringTurnOptions struct {
 
 // Turn is what one turn of a firing came to.
 type Turn struct {
+	FailureOutput  string `json:"failure_output,omitempty"`
 	ConversationID string `json:"conversation_id,omitempty"`
 	// Turns counts answered provider turns, including a recovered report. It
 	// retains the first reply when the report request fails afterwards.
@@ -1181,6 +1182,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
 		}
 		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message, options)
+		if err != nil {
+			recorded.FailureOutput = runstate.FailureOutputTail(answered.FailureOutput)
+		}
 		// A recovery request asks only for the previous turn's account. It spends
 		// no work turn and is never offered again on this pass.
 		options.FreshAfter, options.FreshReason = "", ""

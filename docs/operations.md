@@ -405,6 +405,15 @@ digest and lane report; the development manager receives it too and owns
 resolving the cause. Where no factory-flow program manager is configured, the
 development manager watches it as well, and the finding says why.
 
+When the development manager’s own pass fails repeatedly, the factory-flow
+program manager answers the finding and resolves the cause. If that program
+manager’s own pass is failing, or no factory-flow program manager is configured
+to handle the development manager’s failure, the Lead Product Manager answers
+and resolves it. A failed session saves a redacted end of its final reply and
+process output in the pass record and finding, retaining at most 2560 bytes of
+output and declaring when earlier output was omitted. Older pass records may
+contain no session output.
+
 The dashboard's **Factory problems** section and `yoyo status` carry the same
 finding from the shared read model. Further failures raise its count without
 filing another report, and the status line names it even after reaching its
@@ -427,7 +436,8 @@ target, and the exact step. The reasons are `credential`, `repository-setting`,
 and `protected-file`; the last accepts only provider-refused settings files
 and files under `.yoyodyne/roles/`. An operator flag or ordinary repair prose
 alone cannot transfer ownership to the operator. The factory-flow program
-manager still watches, and the development manager still resolves the cause.
+manager still watches unless her own pass is failing; the role named in the
+finding still resolves the cause.
 
 ## Setting up with `yoyo setup`
 

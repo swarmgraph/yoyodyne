@@ -30,3 +30,24 @@ func ResolvePassFailure(factoryFlowAgent string, remedy *PersonOnlyRemedy) PassF
 	}
 	return answer
 }
+
+// ResolvePassFailureForRole keeps a failed role from being its own repair owner.
+func ResolvePassFailureForRole(agent string, role domain.AgentRole, failedAgent string, remedy *PersonOnlyRemedy) PassFailure {
+	answer := ResolvePassFailure(agent, remedy)
+	if role == domain.RoleDevelopmentManager {
+		answer.Resolver = domain.RoleProgramManager
+		if agent == "" {
+			answer.Watcher, answer.Resolver = domain.RoleProductManager, domain.RoleProductManager
+			if answer.Mover != MoverOperator {
+				answer.Mover = MoverProductManager
+			}
+		}
+	}
+	if role == domain.RoleProgramManager && failedAgent == agent && agent != "" {
+		answer.Watcher, answer.Agent, answer.Resolver = domain.RoleProductManager, "", domain.RoleProductManager
+		if answer.Mover != MoverOperator {
+			answer.Mover = MoverProductManager
+		}
+	}
+	return answer
+}

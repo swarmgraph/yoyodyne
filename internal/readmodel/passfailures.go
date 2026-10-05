@@ -61,9 +61,9 @@ func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 		if handling.NeedsOperator {
 			remedy = handling.PersonOnly
 		}
-		owner := ownership.ResolvePassFailure(watcher, remedy)
+		owner := ownership.ResolvePassFailureForRole(watcher, f.Role, f.Agent, remedy)
 		failure := FailingTask{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, RaisedAt: f.RaisedAt,
-			LatestAt: f.LatestAt, Problem: f.Problem, ProductPass: true, Ownership: &owner, ReportID: id}
+			LatestAt: f.LatestAt, Problem: f.Problem, FailureOutput: f.FailureOutput, ProductPass: true, Ownership: &owner, ReportID: id}
 		entries = append(entries, failingTaskAttention(failure))
 		if owner.Mover == MoverOperator {
 			actions = append(actions, OperatorAction{
@@ -107,11 +107,11 @@ func RenderPassFailures(sources Sources, role domain.AgentRole, agent string) st
 	var rendered strings.Builder
 	for _, entry := range entries {
 		owner := entry.FailingTask.Ownership
-		if role != domain.RoleDevelopmentManager && (role != owner.Watcher || agent != owner.Agent) {
+		if (role != owner.Resolver || (role == domain.RoleProgramManager && agent != owner.Agent)) && (role != owner.Watcher || agent != owner.Agent) {
 			continue
 		}
 		if rendered.Len() == 0 {
-			rendered.WriteString("## Product passes failing\n\nAnswer each finding in this pass's account. The factory-flow program manager also carries it in her existing digest and lane report. The development manager resolves the cause; only the affected pass succeeding clears it.\n\n")
+			rendered.WriteString("## Product passes failing\n\nAnswer each finding in this pass's account. The factory-flow program manager also carries it in her existing digest and lane report. The owner named below resolves the cause; only the affected pass succeeding clears it.\n\n")
 		}
 		fmt.Fprintf(&rendered, "- %s: %s; %s\n", entry.FailingTask.ReportID, entry.What(), runstate.PassFailureOwnersSays(*owner))
 	}

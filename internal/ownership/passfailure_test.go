@@ -1,6 +1,9 @@
 package ownership
 
-import "testing"
+import (
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"testing"
+)
 
 func TestPassFailureOwnershipRequiresAPermittedPersonOnlyRemedy(t *testing.T) {
 	for _, agent := range []string{"factory-flow-pm", ""} {
@@ -28,5 +31,26 @@ func TestPassFailureOwnershipRequiresAPermittedPersonOnlyRemedy(t *testing.T) {
 				t.Fatalf("ordinary repair was assigned to a person: %+v", answer)
 			}
 		}
+	}
+}
+
+func TestFailedRoleOwnershipKeepsPersonOnlyRemediesAndOtherRolesUnchanged(t *testing.T) {
+	remedy := &PersonOnlyRemedy{Reason: PersonCredential, Target: "provider login", Step: "renew the credential"}
+	for _, role := range []domain.AgentRole{domain.RoleArchitect, domain.RoleDevelopmentManager, domain.RoleProgramManager} {
+		for _, watcher := range []string{"factory-watch", ""} {
+			answer := ResolvePassFailureForRole(watcher, role, "factory-watch", remedy)
+			if answer.Mover != MoverOperator || answer.PersonStep != remedy.Step {
+				t.Fatalf("person-only remedy lost: %+v", answer)
+			}
+			if role == domain.RoleArchitect && ResolvePassFailureForRole(watcher, role, "", nil) != ResolvePassFailure(watcher, nil) {
+				t.Fatal("another role's routing changed")
+			}
+		}
+	}
+}
+
+func TestAnotherProgramManagersPassKeepsItsExistingOwner(t *testing.T) {
+	if got, want := ResolvePassFailureForRole("factory-watch", domain.RoleProgramManager, "other-manager", nil), ResolvePassFailure("factory-watch", nil); got != want {
+		t.Fatalf("ownership = %+v, want %+v", got, want)
 	}
 }

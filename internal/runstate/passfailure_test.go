@@ -141,3 +141,10 @@ func TestFailureFindingsAreSerializedAndRetriedFromTheSweepLog(t *testing.T) {
 		t.Fatalf("new run = %+v", filed)
 	}
 }
+
+func TestFailureOutputTailKeepsTheEndWithoutSplittingACharacter(t *testing.T) {
+	output := FailureOutputTail(strings.Repeat("é", 3000) + "last cause")
+	if !utf8.ValidString(output) || !strings.HasSuffix(output, "last cause") || !strings.HasPrefix(output, "[earlier output omitted;") || len(output) > MaxSweepTextBytes {
+		t.Fatalf("tail = %q", output)
+	}
+}
