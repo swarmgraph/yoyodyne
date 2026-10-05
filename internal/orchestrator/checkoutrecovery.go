@@ -34,6 +34,9 @@ func (c checkoutRecovery) restoreCheckout(ctx context.Context, prior runstate.St
 		return prior, fmt.Errorf("run %s's checkout is missing and no harness restoration is wired; outstanding recovery and surviving artifacts are kept", prior.RunID)
 	}
 	prior.ChecksPassed = nil
+	// A repaired change must earn promotion again. Clear the recorded
+	// integration with its approval so the stopped record remains valid.
+	prior.Integration = nil
 	prior.CheckoutRestorePending = true
 	if prior.ReviewDecision == runstate.ReviewApprove {
 		prior.ReviewDecision = ""

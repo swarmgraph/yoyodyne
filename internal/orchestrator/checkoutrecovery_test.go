@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -48,6 +49,50 @@ func missingRecoveryState() runstate.State {
 	s.WorktreeRemoved = true
 	s.WorktreeSweptAt = &s.UpdatedAt
 	return s
+}
+
+func TestRepairRestoresAStoppedIntegratedRunWithoutItsEarlierApproval(t *testing.T) {
+	t.Parallel()
+	s := missingRecoveryState()
+	s.Phase = runstate.PhaseCleaningUp
+	s.CheckFailure = nil
+	s.ReviewDecision, s.ReviewApproves = runstate.ReviewApprove, runstate.ApprovesImplementation
+	s.ProviderModel, s.ReviewModel = "opus", "opus"
+	s.ReviewSessionID = "independent-reviewer"
+	s.Integration = &runstate.Integration{TargetBranch: s.TargetBranch, SourceCommit: s.HarnessCommit, TargetCommit: s.HarnessCommit, PreviousTargetCommit: s.BaseCommit}
+	s.ChecksPassed = &runstate.ChecksPassed{Content: orchestratortest.PartialContentIdentity, Attempt: s.RepairAttempts, Commit: s.HarnessCommit, At: docketedNow}
+	// Store the pre-fix shape through the normal store, then carry out its
+	// recorded repair decision without rewriting or migrating that record.
+	h := newContinueHarness(t, s)
+	w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
+	w.beforeRestore = func() {
+		stopped := h.reload(t)
+		if stopped.Integration != nil || stopped.ReviewDecision != "" || stopped.ChecksPassed != nil || !stopped.Status.Terminal() {
+			t.Fatalf("restoration retained promotion authority: %#v", stopped)
+		}
+	}
+	c := h.continuer()
+	c.Worktrees, c.Remains = w, w
+	result, err := c.Continue(context.Background(), continueRequest())
+	if err != nil || !result.Continued || !result.WorktreeRestored || len(h.started) != 1 || h.started[0].runID != s.RunID {
+		t.Fatalf("repair = %#v, %v; starts = %#v", result, err, h.started)
+	}
+	after := h.reload(t)
+	if after.Branch != s.Branch || after.HarnessCommit != s.HarnessCommit || after.ProviderSessionID != s.ProviderSessionID || after.ReviewRounds != s.ReviewRounds || after.RepairAttempts != s.RepairAttempts+1 || after.Phase != runstate.PhaseDeveloping || after.Integration != nil || after.ReviewDecision != "" || after.ReviewApproves != "" {
+		t.Fatalf("repair did not preserve work and require a new review: %#v", after)
+	}
+	run := &activeRun{state: after}
+	if err := run.integrationEarned(context.Background()); !errors.Is(err, ErrIntegrationUnearned) {
+		t.Fatalf("promotion without fresh checks = %v", err)
+	}
+	// Even after new checks pass, the earlier approval cannot authorize this
+	// attempt: the independent reviewer must return a new verdict.
+	passed := *s.ChecksPassed
+	passed.Attempt = after.RepairAttempts
+	run.state.ChecksPassed = &passed
+	if err := run.integrationEarned(context.Background()); !errors.Is(err, ErrIntegrationUnearned) || !strings.Contains(err.Error(), "rather than an approval") {
+		t.Fatalf("promotion without fresh review = %v", err)
+	}
 }
 
 func TestRepairRestoresTheRecordedRunWithoutResettingItsSpend(t *testing.T) {
