@@ -20,6 +20,10 @@ reads the first and Codex the second. A change goes into both, byte for byte;
 needs, where the build cache goes, how tests wait, and what `make test` checks
 besides the Go code.
 
+A package with very large files carries a `README.md` code map
+(`internal/orchestrator`, `internal/chat`): read it before paging through
+`pipeline.go` or `chat.go`, and keep it current when you move what it names.
+
 ## The tracker
 
 The harness reads and writes the tracker on the session's behalf.
