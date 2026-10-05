@@ -301,7 +301,8 @@ func (e *AuthorityError) Error() string {
 
 // authorize checks the non-document actions this conversation's role may ask
 // for. Document ownership is checked by refuseWrites so that its refusal can
-// return to the role without discarding the other permitted actions. It runs before any of it is recorded, so a refusal leaves the
+// return to the role without discarding the other permitted actions. This check
+// runs before any of it is recorded, so a refusal leaves the
 // tracker, the proposals, and the concerns exactly as they were — the prose the
 // role wrote is still the operator's to read, and the turn is still charged for,
 // because the provider answered.

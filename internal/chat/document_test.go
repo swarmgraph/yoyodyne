@@ -2,7 +2,6 @@ package chat
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"

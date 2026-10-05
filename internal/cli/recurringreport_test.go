@@ -420,3 +420,54 @@ func TestARecurringInterruptedReplyStillFailsAndKeepsItsSavedWrites(t *testing.T
 		t.Fatal("the partial reply was not saved")
 	}
 }
+
+func TestARecurringDocumentOwnershipRefusalKeepsTheOtherActionsAndDoesNotFailThePass(t *testing.T) {
+	t.Parallel()
+	tracker := &documentPassTracker{}
+	answer := artifact.WriteFence + "\n" + `{"documents":[{"action":"create","id":"refused-goals","kind":"goals","title":"Goals","directory":"docs/product","body":"# Goals","reason":"record the goals"}]}` + "\n```\n" +
+		rememberedRuling + "\n```yoyodyne-tracker\n" + `{"actions":[{"action":"read","id":"example-1"}]}` + "\n```\n```yoyodyne-report\n" + `{"reports":[{"severity":"note","message":"The goals belong to the product manager. The design work continues."}]}` + "\n```\n"
+	p := newReportRecoveryPassWithOptions(t, func(o *chat.Options) {
+		if err := os.MkdirAll(o.Repository, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		o.Documents = artifact.StoreFor(o.Repository, config.Product{Specifications: config.DefaultSpecifications, Designs: config.DefaultDesigns, Decisions: config.DefaultDecisions, Invariants: config.DefaultInvariants})
+		o.Tracker = tracker
+	}, answer, recoveredReport)
+	pass := p.fire(t)
+	if pass.Failed || pass.Result == nil || pass.Result.Status != "complete" || len(pass.Saved) != 1 || pass.ReportsFiled != 1 {
+		t.Fatalf("pass = %+v", pass)
+	}
+	if len(tracker.reads) != 1 || tracker.reads[0] != "example-1" {
+		t.Fatalf("tracker reads = %v", tracker.reads)
+	}
+	if len(p.backend.requests) != 2 {
+		t.Fatalf("requests = %d", len(p.backend.requests))
+	}
+	prompt := p.backend.requests[1].Prompt
+	for _, want := range []string{"Document submission refused", "only the role that owns", "example-1", "review-wait"} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("refusal prompt lacks %q: %s", want, prompt)
+		}
+	}
+	memories, _, err := p.memories.Live("architect")
+	if err != nil || len(memories) != 1 {
+		t.Fatalf("memories = %+v, %v", memories, err)
+	}
+	state, err := p.conversations.Load(runstate.ConversationIdentity{Agent: "architect", Role: domain.RoleArchitect})
+	if err != nil || len(state.PendingWrites) != 0 {
+		t.Fatalf("waiting documents = %+v, %v", state.PendingWrites, err)
+	}
+	events, err := p.conversations.LoadEvents(pass.ConversationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if event.Type == execution.EventDocumentDrafted {
+			t.Fatalf("refused document was recorded: %+v", event)
+		}
+	}
+	path := filepath.Join(p.backend.requests[0].WorkingDirectory, "docs", "product", "refused-goals.md")
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("refused document was written: %s, %v", path, err)
+	}
+}
