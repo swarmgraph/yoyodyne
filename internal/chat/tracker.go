@@ -374,7 +374,7 @@ type TrackerAction struct {
 	// admitted before that check existed acquires one. Nothing else takes it: an
 	// item's goal is added to, never rewritten.
 	Goal          string   `json:"goal,omitempty"`
-	RelevantGoals []string `json:"relevant_goals,omitempty"`
+	RelevantGoals []string `json:"relevant_goals,omitzero"`
 	// Parent is a pointer so that detaching an item is expressible: an empty
 	// parent removes the one the tracker records, and an absent one leaves it
 	// alone.
@@ -1121,7 +1121,7 @@ func (a TrackerAction) validateArguments() []error {
 	case actionUpdate:
 		if strings.TrimSpace(a.Title) == "" && strings.TrimSpace(a.Description) == "" &&
 			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" && a.RelevantGoals == nil {
-			problems = append(problems, errors.New("update must change the title, the description, the notes, or the executor"))
+			problems = append(problems, errors.New("update must change the title, the description, the notes, the executor, or the relevant goals"))
 		}
 		problems = append(problems,
 			boundTrackerText("title", a.Title, maxTrackerTitleBytes, false),
@@ -1929,9 +1929,6 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		change := beads.WorkItemChange{
 			AppendNotes: s.trackerProvenance("Attributed to a goal", action.Reason) + "\n\n" + s.options.Goals.NoteFor(attributed),
 		}
-		if action.RelevantGoals != nil {
-			change.AppendNotes += "\n\n" + s.trackerProvenance("Recorded relevant goals: "+strings.Join(action.RelevantGoals, "; "), action.Reason)
-		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
 			return
@@ -1956,6 +1953,9 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		if note := strings.TrimSpace(action.Note); note != "" {
 			change.AppendNotes = s.trackerProvenance("Noted", action.Reason) + "\n\n" + note
+		}
+		if action.RelevantGoals != nil {
+			change.AppendNotes += "\n\n" + s.trackerProvenance("Recorded relevant goals: "+s.options.Goals.DescribeRelevant(action.RelevantGoals), action.Reason)
 		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)

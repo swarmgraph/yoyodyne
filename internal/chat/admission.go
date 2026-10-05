@@ -254,7 +254,8 @@ type AdmittedItem struct {
 	// whether or not the goal is what let it through, because an item in the queue
 	// that does not say what it is for is exactly the work nobody can later decide
 	// to stop doing.
-	Goal string `json:"goal"`
+	Goal          string   `json:"goal"`
+	RelevantGoals []string `json:"relevant_goals,omitempty"`
 	// Basis is why nobody was asked, in the same words the record and the item's
 	// own notes use. It is carried rather than assumed, because there is more than
 	// one answer: the operator approved the goal this serves, or they carved out
@@ -270,6 +271,9 @@ type AdmittedItem struct {
 func (a AdmittedItem) Render() string {
 	rendered := fmt.Sprintf("[%s] %s\n", a.WorkItemID, a.ProposalID) +
 		indent(a.Title) + indent("goal: "+a.Goal)
+	if len(a.RelevantGoals) > 0 {
+		rendered += indent("relevant goals: " + strings.Join(a.RelevantGoals, "; "))
+	}
 	if a.Basis != "" {
 		rendered += indent("admitted because " + a.Basis)
 	}

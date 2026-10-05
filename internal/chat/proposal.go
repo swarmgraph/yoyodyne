@@ -518,7 +518,7 @@ func (p PendingProposal) body() []string {
 	// deciding is whether this work serves the product rather than whether the
 	// sentence describing it reads well.
 	lines = append(lines, "goal: "+strings.TrimSpace(p.Proposal.Goal))
-	lines = append(lines, "relevant goals: "+strings.Join(p.Proposal.RelevantGoals, "; "))
+	lines = append(lines, "relevant goals: "+(goal.Set{}).DescribeRelevant(p.Proposal.RelevantGoals))
 	if parent := strings.TrimSpace(p.Proposal.Parent); parent != "" {
 		lines = append(lines, "parent: "+parent)
 	}

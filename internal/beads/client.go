@@ -1999,7 +1999,9 @@ func (n NewWorkItem) validate() error {
 	problems = append(problems, executorProblem(n.Executor)...)
 	problems = append(problems, parkingProblem(n.Parking)...)
 	problems = append(problems, labelProblems(n.Labels)...)
-	if err := goal.ValidateRelevant(n.RelevantGoals); err != nil { problems = append(problems, err) }
+	if err := goal.ValidateRelevant(n.RelevantGoals); err != nil {
+		problems = append(problems, err)
+	}
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid new work item: %w", errors.Join(problems...))
 	}
@@ -2015,7 +2017,7 @@ func (c WorkItemChange) validate() error {
 		strings.TrimSpace(c.Description) == "" &&
 		strings.TrimSpace(c.AppendNotes) == "" &&
 		strings.TrimSpace(string(c.Executor)) == "" &&
-		c.Priority == nil && c.Parent == nil && c.Parking == nil &&
+		c.RelevantGoals == nil && c.Priority == nil && c.Parent == nil && c.Parking == nil &&
 		len(c.AddLabels) == 0 && len(c.RemoveLabels) == 0 {
 		problems = append(problems, errors.New("an update must change something"))
 	}

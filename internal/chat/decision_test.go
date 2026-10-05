@@ -323,6 +323,7 @@ func TestAProposalCardCarriesNoMeaningInItsFrame(t *testing.T) {
 		"    What the work is.",
 		"    why: Why it follows.",
 		"    goal: Run development nearly autonomously.",
+		"    relevant goals: none recorded",
 		"    parent: yoyodyne-ifd.1",
 		"    depends on: yoyodyne-ifd.2",
 		"",

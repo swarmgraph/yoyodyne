@@ -65,6 +65,7 @@ func fullItem() beads.WorkItem {
 		Priority:           2,
 		Parent:             "yoyodyne-ifd.432",
 		Labels:             []string{"dashboard", "feature"},
+		RelevantGoals:      []string{"Keep the work traceable.", "Use ordinary words."},
 	}
 }
 
@@ -87,6 +88,7 @@ func TestReadWorkItemCarriesEveryFieldAndTheRunInFlight(t *testing.T) {
 	want := fullItem()
 	if item.ID != want.ID || item.Title != want.Title || item.Status != want.Status || item.Priority != want.Priority || item.Parent != want.Parent ||
 		item.Description != want.Description || item.Design != want.Design || item.AcceptanceCriteria != want.AcceptanceCriteria || item.Notes != want.Notes ||
+		strings.Join(item.RelevantGoals, ";") != strings.Join(want.RelevantGoals, ";") ||
 		strings.Join(item.Labels, ",") != "dashboard,feature" || !item.ObservedAt.Equal(moment) {
 		t.Fatalf("item = %+v, want every field of %+v", item, want)
 	}

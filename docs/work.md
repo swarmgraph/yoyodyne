@@ -153,10 +153,22 @@ too. Changing the executable bit or retargeting a link therefore loses the
 checks' credit, just as changing a file's bytes does; the changed tree needs
 fresh checks before it can be integrated.
 
+At admission, `relevant_goals` records the goals potentially affected by the
+work beside the one it serves. Each entry must resolve against the recorded
+goals by the same rules as the served goal. The list is stored in the tracker's
+metadata, independently of append-only notes. A tracker `update` replaces the
+list when supplied; omitting it keeps the earlier list, and `[]` clears it.
+Listings and reads show the list, and a survey names admitted items with none
+recorded so the Lead Product Manager can assess them. Older work is still
+allowed to run; the harness does not guess its relevant goals. Both the
+developer's briefing and the review bundle label these as goals the change must
+not break. They supplement the standing goals, which apply to every item.
+
 An independent reviewer —
 its own provider invocation, with no tools at all — judges the change against
 the work item, its design guidance and acceptance criteria, the goal it serves,
-the standing goals stated in the delivered product intent, the invariants
+the relevant goals recorded on the item, the standing goals stated in the
+delivered product intent, the invariants
 delivered with it, and the check results. Every change is held to the standing
 set whichever goal its item serves. A change that breaks a standing goal is
 refused with a major finding naming the goal and the place it is broken, so the
