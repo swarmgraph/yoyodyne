@@ -204,6 +204,7 @@ func printPrices(writer io.Writer, prices []runstate.ItemPrice, exchanges *runst
 	if recordedSideStreams(sides) {
 		printSideRow(writer, *sides)
 		total += sides.CostUSD
+		tokens.Merge(sides.Tokens)
 		floor = floor || !sides.Known()
 	}
 	// The rule above the total is the shape `yoyo status --spend` closes its

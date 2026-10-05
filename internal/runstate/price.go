@@ -178,6 +178,8 @@ func (p *PhaseSpend) Merge(other PhaseSpend) {
 // at the write rate, and the remainder fresh -- which is what makes the share
 // below a share rather than a ratio between unrelated numbers.
 type TokenUsage struct {
+	// Priced counts turns with a reported dollar cost, independently of usage.
+	Priced int `json:"priced_invocations,omitempty"`
 	// NoCost counts turns whose provider did not report a dollar cost.
 	NoCost int `json:"no_cost_invocations,omitempty"`
 	// InputTokens is the fresh input alone, as the provider reports it: the part
@@ -252,6 +254,7 @@ func (t *TokenUsage) Merge(other TokenUsage) {
 	t.Measured += other.Measured
 	t.Unreported += other.Unreported
 	t.NoCost += other.NoCost
+	t.Priced += other.Priced
 }
 
 // The provider prices each kind of token at a fixed multiple of the model's
@@ -1034,7 +1037,7 @@ type usageTokens struct {
 func (p pricedEvent) tokens() TokenUsage {
 	usage := p.Payload.Usage
 	if usage == nil {
-		return TokenUsage{Unreported: 1, NoCost: p.noCost()}
+		return TokenUsage{Unreported: 1, NoCost: p.noCost(), Priced: 1 - p.noCost()}
 	}
 	tokens := TokenUsage{
 		InputTokens:         usage.InputTokens,
@@ -1043,6 +1046,7 @@ func (p pricedEvent) tokens() TokenUsage {
 		OutputTokens:        usage.OutputTokens,
 		Measured:            1,
 		NoCost:              p.noCost(),
+		Priced:              1 - p.noCost(),
 	}
 	if usage.CacheCreation != nil {
 		tokens.CacheWrite5mTokens = usage.CacheCreation.Ephemeral5m
@@ -1075,7 +1079,7 @@ func (t TokenUsage) CostText(cost float64) string {
 	if t.Unreported > 0 && t.Measured > 0 {
 		tokens += fmt.Sprintf("; usage not reported for %d turns", t.Unreported)
 	}
-	if t.NoCost == t.Measured+t.Unreported {
+	if t.Priced == 0 && cost == 0 {
 		return tokens + fmt.Sprintf("; no cost reported for %d %s", t.NoCost, turns)
 	}
 	return fmt.Sprintf("$%.2f reported; %s; no cost reported for %d %s", cost, tokens, t.NoCost, turns)
@@ -1157,7 +1161,7 @@ func carriesSpendEvidence(line []byte) bool {
 
 func exchangeTokens(round exchange.Round) TokenUsage {
 	if round.CostReported == nil && len(round.Usage) == 0 {
-		return TokenUsage{}
+		return TokenUsage{Priced: 1}
 	}
 	var event pricedEvent
 	event.Payload.CostReported = round.CostReported

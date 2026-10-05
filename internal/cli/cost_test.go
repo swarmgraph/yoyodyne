@@ -609,3 +609,19 @@ func TestCostReadsPreservationFromTheRepositoryForTextAndJSON(t *testing.T) {
 		t.Fatalf("retired checkout = %v", err)
 	}
 }
+
+func TestCostLedgerTotalIncludesUncostedCodexSideThread(t *testing.T) {
+	usage := runstate.TokenUsage{InputTokens: 10, CacheReadTokens: 20, OutputTokens: 3, Measured: 1, NoCost: 1}
+	sides := runstate.SideStreamSpend{Streams: 1, Invocations: 1, Tokens: usage}
+	var output bytes.Buffer
+	printPrices(&output, nil, nil, &sides, false)
+	for _, line := range strings.Split(output.String(), "\n") {
+		if strings.HasPrefix(line, "TOTAL") {
+			if !strings.Contains(line, "30 input tokens (20 cached), 3 output tokens") || !strings.Contains(line, "no cost reported for 1 turn") {
+				t.Fatal(line)
+			}
+			return
+		}
+	}
+	t.Fatalf("no total: %s", output.String())
+}

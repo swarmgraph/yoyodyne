@@ -837,6 +837,9 @@ func (r SpendReport) Totals() SpendTotals {
 	for _, row := range r.Rows {
 		totals.Calls += row.Calls
 		totals.CostUSD += row.CostUSD
+		if row.Usage == nil {
+			totals.Usage.Priced += row.Calls
+		}
 		if row.Usage != nil {
 			totals.Usage.Merge(*row.Usage)
 		}
@@ -850,6 +853,9 @@ func (r SpendReport) Totals() SpendTotals {
 		}
 		share.Calls += row.Calls
 		share.CostUSD += row.CostUSD
+		if row.Usage == nil {
+			share.Usage.Priced += row.Calls
+		}
 		if row.Usage != nil {
 			share.Usage.Merge(*row.Usage)
 		}
@@ -1076,7 +1082,7 @@ func roundsByDay(id, status string, role domain.AgentRole, rounds []exchange.Rou
 		row.CostUSD += round.CostUSD
 		usage := exchangeTokens(round)
 		if row.Usage == nil && (round.CostReported != nil || len(round.Usage) > 0) {
-			row.Usage = &TokenUsage{}
+			row.Usage = &TokenUsage{Priced: row.Calls - 1}
 		}
 		if row.Usage != nil {
 			row.Usage.Merge(usage)

@@ -33,15 +33,14 @@ Existing records are read as recorded; this does not recover token counts from
 an invocation whose stream did not preserve them.
 
 The recorded `exec --json` stream has no plan usage-window reading. Yoyo does
-not inspect the operator's Codex home to find one. To support the weekly reading
-from a session log, a person must supply a redacted `event_msg` line whose
-`payload.type` is `token_count` and whose `payload.rate_limits.secondary`
-contains `used_percent`, `window_minutes`, and `resets_at`, from
-`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<timestamp>-<session-id>.jsonl`
-(`~/.codex` when `CODEX_HOME` is unset). Preserve those fields and the event's
-`timestamp`; remove conversation text, account identifiers, and unrelated
-usage data. A recorded example is needed before the harness can read and show
-that weekly window. No weekly reading is inferred from token counts.
+not inspect the operator's Codex home to find one. Weekly-window support needs
+a person-supplied redacted record of that reading, with its exact source file
+name and line number. The sample must preserve the event type, field names,
+percent used, window length, reset time and its format, and observation time;
+conversation text, credentials, and account identifiers should be removed.
+No such sample was supplied for this change, so the session-log location and
+field shape remain unverified and the weekly reading is not displayed. No
+weekly reading is inferred from token counts.
 
 A project can declare a provider of its own in its configuration, without forking
 this repository or rebuilding the binary. **What a declaration supplies is the

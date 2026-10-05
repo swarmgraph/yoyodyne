@@ -59,3 +59,25 @@ func TestExchangeRoundCarriesUnpricedUsage(t *testing.T) {
 		t.Fatalf("totals = %+v", totals)
 	}
 }
+
+func TestOlderPricedExchangeAndCodexTurnKeepReportedDollars(t *testing.T) {
+	legacy := exchange.Round{CostUSD: 2}
+	priced := exchangeTokens(legacy)
+	if priced.Priced != 1 || priced.Measured != 0 || priced.Unreported != 0 {
+		t.Fatal(priced)
+	}
+	codex := TokenUsage{InputTokens: 10, OutputTokens: 2, Measured: 1, NoCost: 1}
+	rows := roundsByDay("legacy", "closed", domain.RoleArchitect, []exchange.Round{legacy}, time.Time{})
+	rows = append(rows, SpendRow{Calls: 1, Usage: &codex})
+	totals := (SpendReport{Rows: rows}).Totals()
+	if totals.Usage.Priced != 1 {
+		t.Fatal(totals)
+	}
+	if text := totals.Usage.CostText(totals.CostUSD); !strings.Contains(text, "$2.00 reported") || !strings.Contains(text, "no cost reported for 1 turn") {
+		t.Fatal(text)
+	}
+	priced.Merge(codex)
+	if text := priced.CostText(2); !strings.Contains(text, "$2.00 reported") {
+		t.Fatal(text)
+	}
+}
