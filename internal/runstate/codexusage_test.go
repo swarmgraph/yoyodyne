@@ -81,3 +81,33 @@ func TestOlderPricedExchangeAndCodexTurnKeepReportedDollars(t *testing.T) {
 		t.Fatal(text)
 	}
 }
+
+func TestMixedExchangeRoundsKeepRoleTotalsInEitherOrder(t *testing.T) {
+	at := time.Date(2026, 10, 5, 12, 0, 0, 0, time.UTC)
+	reported := false
+	older := exchange.Round{AskedAt: at, CostUSD: 2}
+	codex := exchange.Round{AskedAt: at.Add(time.Minute), CostReported: &reported, Usage: json.RawMessage(`{"input_tokens":10,"cache_read_input_tokens":20,"output_tokens":3}`)}
+	for _, sample := range []struct {
+		name   string
+		rounds []exchange.Round
+	}{
+		{"older first", []exchange.Round{older, codex}},
+		{"Codex first", []exchange.Round{codex, older}},
+	} {
+		t.Run(sample.name, func(t *testing.T) {
+			rows := roundsByDay("exchange", "closed", domain.RoleArchitect, sample.rounds, time.Time{})
+			totals := (SpendReport{Rows: rows}).Totals()
+			want := TokenUsage{Priced: 1, NoCost: 1, InputTokens: 10, CacheReadTokens: 20, OutputTokens: 3, Measured: 1}
+			if len(rows) != 1 || totals.Calls != 2 || totals.CostUSD != 2 || totals.Usage != want || len(totals.ByRole) != 1 {
+				t.Fatalf("totals = %+v", totals)
+			}
+			role := totals.ByRole[0]
+			if role.Role != domain.RoleArchitect || role.Calls != 2 || role.CostUSD != 2 || role.Usage != want {
+				t.Fatalf("role = %+v", role)
+			}
+			if text := role.Usage.CostText(role.CostUSD); !strings.Contains(text, "$2.00 reported") || !strings.Contains(text, "no cost reported for 1 turn") {
+				t.Fatal(text)
+			}
+		})
+	}
+}

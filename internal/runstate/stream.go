@@ -1086,11 +1086,11 @@ func roundsByDay(id, status string, role domain.AgentRole, rounds []exchange.Rou
 		}
 		if row.Usage != nil {
 			row.Usage.Merge(usage)
-			if len(row.Roles) == 0 {
-				row.Roles = []RoleSpend{{Role: role}}
-			}
-			row.Roles[0].add(Invocation{CostUSD: round.CostUSD, Usage: usage})
 		}
+		if len(row.Roles) == 0 {
+			row.Roles = []RoleSpend{{Role: role}}
+		}
+		row.Roles[0].add(Invocation{CostUSD: round.CostUSD, Usage: usage})
 	}
 	grouped := make([]SpendRow, 0, len(order))
 	for _, day := range order {
