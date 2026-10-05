@@ -210,16 +210,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		return outcome, invariantErr
 	}
 	outcome.Invariants = invariants.IDs()
-	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.Specifications, &contextbundle.Revision{
-		Name: "base commit " + change.BaseCommit,
-		Read: func(path string, maxBytes int64) (int64, []byte, error) {
-			file, err := b.Worktrees.FileAtCommit(ctx, change.BaseCommit, path, maxBytes)
-			if errors.Is(err, gitworktree.ErrNotAtCommit) {
-				return 0, nil, fmt.Errorf("%w: %w", contextbundle.ErrNotAtRevision, err)
-			}
-			return file.Size, file.Content, err
-		},
-	})
+	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.Specifications, reviewedRevision(ctx, b.Worktrees, change.BaseCommit))
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
 	}

@@ -228,6 +228,13 @@ the base does not hold — a document the change itself creates — is not carri
 a reference at the base commit; it can still appear in the patch and in the
 candidate content described next.
 
+Product intent is discovered from the base commit's file listing as well as
+read at that commit, in both per-item and branch reviews. A goals document
+removed or renamed in the current checkout therefore still supplies the standing
+set. If the base listing cannot be read completely, including a cut at its
+20,000-path or 128 KiB limit, review stops and names the cause before invoking
+the reviewer; a partial listing cannot establish the whole set of documents.
+
 **Repository evidence also names what the reviewed commit holds.** A committed
 tree listing includes unchanged files and binary assets, so a path omitted from
 the patch is not mistaken for a missing file. It is bounded to 20,000 paths and

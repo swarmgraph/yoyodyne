@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"unicode/utf8"
@@ -22,6 +23,31 @@ const (
 	maxRepositoryContentBytes = 64 << 10
 	maxRepositoryContentFiles = 32
 )
+
+// reviewedRevision reads both product-document names and contents at the base,
+// independently of documents removed or renamed in the current checkout.
+func reviewedRevision(ctx context.Context, reader repositoryReader, commit string) *contextbundle.Revision {
+	return &contextbundle.Revision{
+		Name: "base commit " + commit,
+		ListFiles: func() ([]string, error) {
+			listing, err := reader.FilesAtCommit(ctx, commit, 20000, maxRepositoryListingBytes)
+			if err != nil {
+				return nil, err
+			}
+			if listing.Omitted != 0 {
+				return nil, fmt.Errorf("base repository listing omitted %d path(s) (limits: 20000 paths, %d bytes); standing goals cannot be discovered completely", listing.Omitted, maxRepositoryListingBytes)
+			}
+			return listing.Files, nil
+		},
+		Read: func(path string, maxBytes int64) (int64, []byte, error) {
+			file, err := reader.FileAtCommit(ctx, commit, path, maxBytes)
+			if errors.Is(err, gitworktree.ErrNotAtCommit) {
+				return 0, nil, fmt.Errorf("%w: %w", contextbundle.ErrNotAtRevision, err)
+			}
+			return file.Size, file.Content, err
+		},
+	}
+}
 
 func reviewedRepository(ctx context.Context, reader repositoryReader, commit string, item beads.WorkItem, changes gitworktree.ChangeDiff) review.RepositoryEvidence {
 	listing, err := reader.FilesAtCommit(ctx, commit, 20000, maxRepositoryListingBytes)

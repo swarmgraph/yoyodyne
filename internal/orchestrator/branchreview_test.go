@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -111,54 +112,124 @@ func branchProvider(reply string) *orchestratortest.Backend {
 }
 
 func TestBranchReviewSuppliesStandingGoalsAtItsBase(t *testing.T) {
-	repository := pipelineRepository(t)
-	goalsPath := filepath.Join(repository, "docs", "product", "goals.md")
-	if err := os.MkdirAll(filepath.Dir(goalsPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	const goals = "# Goals\n\n## Goals\n\n- Use plain language.\n- Run autonomously.\n\n## Standing goals\n\nBoth goals apply to every change.\n"
-	if err := os.WriteFile(goalsPath, []byte(goals), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runPipelineGit(t, repository, "add", ".")
-	runPipelineGit(t, repository, "commit", "-m", "record standing goals")
-	runPipelineGit(t, repository, "checkout", "-b", "milestone")
-	if err := os.WriteFile(filepath.Join(repository, "status.go"), []byte("package harness\n\nconst message = \"The provider's posture changed.\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	runPipelineGit(t, repository, "add", ".")
-	runPipelineGit(t, repository, "commit", "-m", "add status message")
-	// A later checkout edit must not replace the set at the branch's base.
-	if err := os.WriteFile(goalsPath, []byte("# A later set\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	provider := branchProvider(`{"decision":"repair","summary":"Checked the plain-language and autonomy standing goals; the status message breaks plain language.","findings":[{"severity":"major","message":"The standing plain-language goal forbids the retired term posture; write tool access.","location":{"file":"status.go","line":3}}]}`)
-	reviewer, records, _ := newBranchReviewer(t, repository, provider)
-	outcome, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if outcome.Approved() || outcome.Decision != review.DecisionRepair {
-		t.Fatalf("review = %#v", outcome)
-	}
-	for _, want := range []string{goals, "base commit " + outcome.BaseCommit, "The provider's posture changed."} {
-		if !strings.Contains(provider.Requests[0].Prompt, want) {
-			t.Errorf("review evidence is missing %q", want)
-		}
-	}
-	if strings.Contains(provider.Requests[0].Prompt, "A later set") {
-		t.Fatal("branch review used product intent from the later checkout")
-	}
-	saved, err := records.List()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(saved) != 1 || saved[0].Summary != outcome.Summary || !strings.Contains(saved[0].Summary, "plain-language and autonomy") {
-		t.Fatalf("recorded summary = %#v", saved)
+	for _, checkout := range []string{"edited", "deleted", "renamed", "home removed"} {
+		t.Run(checkout, func(t *testing.T) {
+			repository := pipelineRepository(t)
+			goalsPath := filepath.Join(repository, "docs", "product", "goals.md")
+			if err := os.MkdirAll(filepath.Dir(goalsPath), 0o700); err != nil {
+				t.Fatal(err)
+			}
+			const goals = "# Goals\n\n## Goals\n\n- Use plain language.\n- Run autonomously.\n\n## Standing goals\n\nBoth goals apply to every change.\n"
+			if err := os.WriteFile(goalsPath, []byte(goals), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runPipelineGit(t, repository, "add", ".")
+			runPipelineGit(t, repository, "commit", "-m", "record standing goals")
+			runPipelineGit(t, repository, "checkout", "-b", "milestone")
+			if err := os.WriteFile(filepath.Join(repository, "status.go"), []byte("package harness\n\nconst message = \"The provider's posture changed.\"\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			runPipelineGit(t, repository, "add", ".")
+			runPipelineGit(t, repository, "commit", "-m", "add status message")
+			// Neither changed contents nor a removed path in the checkout may
+			// replace the standing set recorded at the branch's base.
+			var changeErr error
+			switch checkout {
+			case "edited":
+				changeErr = os.WriteFile(goalsPath, []byte("# A later set\n"), 0o600)
+			case "deleted":
+				changeErr = os.Remove(goalsPath)
+			case "renamed":
+				changeErr = os.Rename(goalsPath, filepath.Join(filepath.Dir(goalsPath), "renamed.md"))
+			case "home removed":
+				changeErr = os.RemoveAll(filepath.Dir(goalsPath))
+			}
+			if changeErr != nil {
+				t.Fatal(changeErr)
+			}
+			provider := branchProvider(`{"decision":"repair","summary":"Checked the plain-language and autonomy standing goals; the status message breaks plain language.","findings":[{"severity":"major","message":"The standing plain-language goal forbids the retired term posture; write tool access.","location":{"file":"status.go","line":3}}]}`)
+			reviewer, records, _ := newBranchReviewer(t, repository, provider)
+			outcome, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if outcome.Approved() || outcome.Decision != review.DecisionRepair {
+				t.Fatalf("review = %#v", outcome)
+			}
+			for _, want := range []string{goals, "Authoritative product intent: docs/product/goals.md", "base commit " + outcome.BaseCommit, "The provider's posture changed."} {
+				if !strings.Contains(provider.Requests[0].Prompt, want) {
+					t.Errorf("review evidence is missing %q", want)
+				}
+			}
+			if strings.Contains(provider.Requests[0].Prompt, "A later set") {
+				t.Fatal("branch review used product intent from the later checkout")
+			}
+			itemReview := activeRun{
+				pipeline: Pipeline{Repository: repository, Worktrees: reviewer.Worktrees.(WorktreeManager), Config: reviewer.Config},
+				item:     beads.WorkItem{ID: "yoyodyne-task", Title: "Record attribution", Status: "in_progress"},
+			}
+			itemContext, err := itemReview.reviewedContext(context.Background(), outcome.BaseCommit)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(itemContext, goals) || !strings.Contains(itemContext, "Authoritative product intent: docs/product/goals.md") || strings.Contains(itemContext, "A later set") {
+				t.Fatalf("per-item review did not carry the standing goals at its base:\n%s", itemContext)
+			}
+			saved, err := records.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(saved) != 1 || saved[0].Summary != outcome.Summary || !strings.Contains(saved[0].Summary, "plain-language and autonomy") {
+				t.Fatalf("recorded summary = %#v", saved)
+			}
+		})
 	}
 }
 
 type fixedBranchClock struct{}
+
+type intentListingReader struct {
+	BranchChangeReader
+	err     error
+	omitted int
+}
+
+func (r intentListingReader) FilesAtCommit(ctx context.Context, commit string, maxFiles, maxBytes int) (gitworktree.CommitListing, error) {
+	if r.err != nil {
+		return gitworktree.CommitListing{}, r.err
+	}
+	listing, err := r.BranchChangeReader.FilesAtCommit(ctx, commit, maxFiles, maxBytes)
+	listing.Omitted = r.omitted
+	return listing, err
+}
+
+func TestBranchReviewRefusesAnUnreadableOrPartialBaseIntentListing(t *testing.T) {
+	for _, test := range []struct {
+		name, want string
+		err        error
+		omitted    int
+	}{
+		{name: "failed", want: "base listing unavailable", err: errors.New("base listing unavailable")},
+		{name: "bounded", want: "base repository listing omitted 3 path(s) (limits: 20000 paths, 131072 bytes)", omitted: 3},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repository := accumulatedRepository(t)
+			provider := branchProvider(`{"decision":"approve","summary":"fine"}`)
+			reviewer, records, _ := newBranchReviewer(t, repository, provider)
+			reviewer.Worktrees = intentListingReader{BranchChangeReader: reviewer.Worktrees, err: test.err, omitted: test.omitted}
+			_, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"})
+			if err == nil || !strings.Contains(err.Error(), "discover product documents at base commit") || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("review error = %v", err)
+			}
+			if len(provider.Requests) != 0 {
+				t.Fatal("reviewer was invoked without a complete base intent listing")
+			}
+			if saved, err := records.List(); err != nil || len(saved) != 0 {
+				t.Fatalf("review records = %#v, %v", saved, err)
+			}
+		})
+	}
+}
 
 func (fixedBranchClock) Now() time.Time { return time.Date(2026, 8, 15, 12, 0, 0, 0, time.UTC) }
 

@@ -87,6 +87,11 @@ type Revision struct {
 	// Name is how the commit is named to the reader — "base commit <id>" — and is
 	// what every reference read at it is labelled with.
 	Name string
+	// ListFiles, when supplied, returns the complete repository-relative file
+	// listing at this revision. A partial listing must return an error, because
+	// it cannot establish which product documents define the standing set.
+	// Older callers without it discover paths from the working tree.
+	ListFiles func() ([]string, error)
 	// Read answers one repository-relative, slash-separated path as the commit
 	// holds it: its size, and its whole content where the size is within
 	// maxBytes. A path the commit does not hold as a regular file answers an
