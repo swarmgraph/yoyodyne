@@ -2140,3 +2140,30 @@ func TestADeclarationNothingCouldReadIsNamedAsTheAuthorsMove(t *testing.T) {
 		t.Fatalf("whose = %q, want the author's move rather than an act to record", attention.Whose())
 	}
 }
+
+func TestStatusProjectsCodexEffortSourcesFromRunAndTurnRecords(t *testing.T) {
+	t.Parallel()
+	for _, description := range []string{"high, from the agent", "high, from the Codex configuration", "not reported, from the Codex configuration"} {
+		sources := quietSources()
+		sources.Runs = fakeRuns{incomplete: []runstate.State{{
+			RunID: "run-a", WorkItemID: "item-a", Backend: domain.BackendCodex, ProviderModel: "gpt-6.1-sol",
+			ProviderEffortDescription: description, Status: runstate.StatusRunning, Phase: runstate.PhaseDeveloping, StartedAt: moment,
+		}}}
+		sources.Conversations = fakeConversations{
+			recorded: []runstate.Conversation{{ConversationID: "chat-1", Agent: "architect", Role: domain.RoleArchitect,
+				Backend: domain.BackendCodex, ProviderModel: "gpt-6-astra", ProviderEffortDescription: description, UpdatedAt: moment}},
+			held: map[string]bool{"architect": true},
+		}
+		standing := ReadStanding(context.Background(), sources)
+		if len(standing.Running) != 1 || len(standing.Working) != 1 {
+			t.Fatalf("standing = %+v", standing)
+		}
+		if standing.Running[0].EffortDescription != description || standing.Working[0].EffortDescription != description {
+			t.Fatalf("projection lost the source: %+v", standing)
+		}
+		rendered := standing.renderRunning() + standing.renderWorking()
+		if strings.Count(rendered, "effort "+description) != 2 {
+			t.Fatalf("rendered = %s", rendered)
+		}
+	}
+}

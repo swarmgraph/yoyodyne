@@ -426,13 +426,14 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// and the provider charged for it exactly as it charges for one that answered.
 	evidence := session.Evidence()
 	turn := orchestrator.Turn{
-		Replacement:    replacement,
-		ConversationID: evidence.ConversationID,
-		CostUSD:        session.TurnCostUSD(),
-		Model:          servingModel(evidence),
-		Effort:         evidence.Effort,
-		ResolvedEffort: evidence.ResolvedEffort,
-		EffortReported: evidence.EffortReported,
+		Replacement:       replacement,
+		ConversationID:    evidence.ConversationID,
+		CostUSD:           session.TurnCostUSD(),
+		Model:             servingModel(evidence),
+		Effort:            evidence.Effort,
+		ResolvedEffort:    evidence.ResolvedEffort,
+		EffortDescription: evidence.EffortDescription,
+		EffortReported:    evidence.EffortReported,
 		// The criticals the conversation carried in of its own accord, so a pass
 		// that ends complete over one of them is refused as complete.
 		CriticalReports: session.CriticalReportsShown(),

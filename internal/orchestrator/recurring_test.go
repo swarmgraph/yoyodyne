@@ -44,10 +44,11 @@ type scriptedTurn struct {
 	err     error
 	cost    float64
 	// model is the model the turn says served it.
-	model          string
-	effort         string
-	resolvedEffort string
-	effortReported bool
+	model             string
+	effort            string
+	resolvedEffort    string
+	effortDescription string
+	effortReported    bool
 	// saved, reports, and admitted are the traces the turn says it left: the
 	// memory and lane-report writes it saved, how many reports it filed, and
 	// the work it admitted.
@@ -72,7 +73,7 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 	r.answers = r.answers[1:]
 	return Turn{
 		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
-		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported,
+		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported, EffortDescription: answer.effortDescription,
 		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
 	}, answer.err
 }
@@ -1413,7 +1414,7 @@ func TestFiringRecordsTheLastInvocationsEffortIncludingNone(t *testing.T) {
 	t.Parallel()
 	store := sweepStore(t)
 	role := &wokenRole{answers: []scriptedTurn{
-		{result: &sweep.Result{Status: sweep.StatusMore, Summary: "half"}, model: "gpt-6-astra", effort: "high", resolvedEffort: "medium", effortReported: true},
+		{result: &sweep.Result{Status: sweep.StatusMore, Summary: "half"}, model: "gpt-6-astra", effort: "high", resolvedEffort: "medium", effortReported: true, effortDescription: "high, from the agent"},
 		{result: complete("the rest"), model: "opus", effort: ""},
 	}}
 	fired, err := (Trigger{Tasks: hourlyTask("look"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}).Fire(context.Background())
@@ -1424,7 +1425,33 @@ func TestFiringRecordsTheLastInvocationsEffortIncludingNone(t *testing.T) {
 	if err != nil || len(recorded) != 1 || len(fired.Fired) != 1 {
 		t.Fatalf("records=%+v fired=%+v error=%v", recorded, fired, err)
 	}
-	if recorded[0].Effort != "" || fired.Fired[0].Effort != "" || recorded[0].ResolvedEffort != "" || recorded[0].EffortReported || fired.Fired[0].EffortReported {
+	if recorded[0].Effort != "" || fired.Fired[0].Effort != "" || recorded[0].ResolvedEffort != "" || recorded[0].EffortDescription != "" || fired.Fired[0].EffortDescription != "" || recorded[0].EffortReported || fired.Fired[0].EffortReported {
 		t.Fatalf("the earlier turn's effort survived the provider substitution: record=%+v fired=%+v", recorded[0], fired.Fired[0])
+	}
+}
+
+func TestFiringRecordsCodexConfiguredEffortWithAndWithoutAReportedLevel(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		effort, resolved, description string
+		reported                      bool
+	}{
+		{"high", "high", "high, from the agent", true},
+		{"", "high", "high, from the Codex configuration", true},
+		{"", "", "not reported, from the Codex configuration", false},
+	} {
+		store := sweepStore(t)
+		role := &wokenRole{answers: []scriptedTurn{{result: complete("done"), model: "gpt-6.1-sol", effort: test.effort, resolvedEffort: test.resolved, effortReported: test.reported, effortDescription: test.description}}}
+		fired, err := (Trigger{Tasks: hourlyTask("look"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}).Fire(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		recorded, _, err := store.List()
+		if err != nil || len(recorded) != 1 || len(fired.Fired) != 1 {
+			t.Fatalf("records=%+v fired=%+v error=%v", recorded, fired, err)
+		}
+		if recorded[0].Effort != test.effort || recorded[0].ResolvedEffort != test.resolved || recorded[0].EffortReported != test.reported || recorded[0].EffortDescription != test.description || fired.Fired[0].EffortDescription != test.description {
+			t.Fatalf("pass lost the effort source: record=%+v fired=%+v", recorded[0], fired.Fired[0])
+		}
 	}
 }

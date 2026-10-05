@@ -328,7 +328,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite,
 		"--config", `approval_policy="never"`,
 		"--config", "sandbox_workspace_write.writable_roots=[]",
 		"--config", "sandbox_workspace_write.network_access=false",
@@ -527,7 +527,7 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite,
 		"--config", `approval_policy="never"`,
 		"--config", "sandbox_workspace_write.writable_roots=[]",
 		"--config", "sandbox_workspace_write.network_access=false",

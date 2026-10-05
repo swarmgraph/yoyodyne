@@ -602,6 +602,7 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 		effortModel = p.developer().Model
 	}
 	state.ProviderEffort = p.Config.InvocationEffort(p.developer(), effortModel)
+	state.ProviderEffortDescription = p.Config.DescribeInvocationEffort(p.developer(), state.ProviderEffort, "", false)
 	state.EffortSettled = true
 	lease, err := p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	if err != nil {
@@ -722,13 +723,14 @@ type Outcome struct {
 	// ProviderSessionID identifies the developer session; ReviewSessionID
 	// identifies the separate reviewer session that judged its work. The model
 	// pairs are the requested selector and what the provider reported serving.
-	ProviderSessionID      string          `json:"provider_session_id,omitempty"`
-	ProviderModel          string          `json:"provider_model,omitempty"`
-	ProviderResolvedModel  string          `json:"provider_resolved_model,omitempty"`
-	ProviderEffort         string          `json:"provider_effort,omitempty"`
-	ProviderResolvedEffort string          `json:"provider_resolved_effort,omitempty"`
-	ProviderEffortReported bool            `json:"provider_effort_reported"`
-	Checks                 []checks.Result `json:"checks,omitempty"`
+	ProviderSessionID         string          `json:"provider_session_id,omitempty"`
+	ProviderModel             string          `json:"provider_model,omitempty"`
+	ProviderResolvedModel     string          `json:"provider_resolved_model,omitempty"`
+	ProviderEffort            string          `json:"provider_effort,omitempty"`
+	ProviderResolvedEffort    string          `json:"provider_resolved_effort,omitempty"`
+	ProviderEffortDescription string          `json:"provider_effort_description,omitempty"`
+	ProviderEffortReported    bool            `json:"provider_effort_reported"`
+	Checks                    []checks.Result `json:"checks,omitempty"`
 	// CheckStage is the check stage the checks above ran in: its bound and what
 	// it spent, and the narrowing every check was told. It is on the outcome so
 	// the notes the item carries say what the stage cost against what it was
@@ -811,14 +813,15 @@ type Outcome struct {
 	// invariants directory that could not be read as one, or an invariant that
 	// matched and did not fit the prompt's bound. Both mean the set the agents saw
 	// was incomplete, which is a fact for the operator rather than a run failure.
-	Invariants           []string `json:"invariants,omitempty"`
-	InvariantProblems    []string `json:"invariant_problems,omitempty"`
-	ReviewSessionID      string   `json:"review_session_id,omitempty"`
-	ReviewModel          string   `json:"review_model,omitempty"`
-	ReviewResolvedModel  string   `json:"review_resolved_model,omitempty"`
-	ReviewEffort         string   `json:"review_effort,omitempty"`
-	ReviewResolvedEffort string   `json:"review_resolved_effort,omitempty"`
-	ReviewEffortReported bool     `json:"review_effort_reported"`
+	Invariants              []string `json:"invariants,omitempty"`
+	InvariantProblems       []string `json:"invariant_problems,omitempty"`
+	ReviewSessionID         string   `json:"review_session_id,omitempty"`
+	ReviewModel             string   `json:"review_model,omitempty"`
+	ReviewResolvedModel     string   `json:"review_resolved_model,omitempty"`
+	ReviewEffort            string   `json:"review_effort,omitempty"`
+	ReviewResolvedEffort    string   `json:"review_resolved_effort,omitempty"`
+	ReviewEffortDescription string   `json:"review_effort_description,omitempty"`
+	ReviewEffortReported    bool     `json:"review_effort_reported"`
 	// ReviewBaseCommit and ReviewHeadCommit are the commits the reviewed change
 	// was measured between — the run's base and the branch's tip at the review —
 	// so the record of a verdict names what it was judged against.
@@ -1852,26 +1855,27 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		outcome: Outcome{
 			// Both callers adopted this run and still hold its lease. Every
 			// refusal before this boundary leaves the dispatch unserved.
-			continuationAccepted:   true,
-			RunID:                  state.RunID,
-			WorkItemID:             state.WorkItemID,
-			Status:                 runstate.StatusRunning,
-			Phase:                  state.Phase,
-			Branch:                 state.Branch,
-			WorktreePath:           state.WorktreePath,
-			BaseCommit:             state.BaseCommit,
-			ProviderSessionID:      state.ProviderSessionID,
-			ProviderModel:          state.ProviderModel,
-			ProviderResolvedModel:  state.ProviderResolvedModel,
-			ProviderEffort:         state.ProviderEffort,
-			ProviderResolvedEffort: state.ProviderResolvedEffort,
-			ProviderEffortReported: state.ProviderEffortReported,
-			RepairAttempts:         state.RepairAttempts,
-			TransientRelaunches:    state.TransientRelaunches,
-			Retries:                state.Retries,
-			UsageLimitKind:         state.UsageLimitKind,
-			PauseCause:             state.PauseCause,
-			ProviderOutageChannel:  state.ProviderOutageChannel,
+			continuationAccepted:      true,
+			RunID:                     state.RunID,
+			WorkItemID:                state.WorkItemID,
+			Status:                    runstate.StatusRunning,
+			Phase:                     state.Phase,
+			Branch:                    state.Branch,
+			WorktreePath:              state.WorktreePath,
+			BaseCommit:                state.BaseCommit,
+			ProviderSessionID:         state.ProviderSessionID,
+			ProviderModel:             state.ProviderModel,
+			ProviderResolvedModel:     state.ProviderResolvedModel,
+			ProviderEffort:            state.ProviderEffort,
+			ProviderResolvedEffort:    state.ProviderResolvedEffort,
+			ProviderEffortDescription: state.ProviderEffortDescription,
+			ProviderEffortReported:    state.ProviderEffortReported,
+			RepairAttempts:            state.RepairAttempts,
+			TransientRelaunches:       state.TransientRelaunches,
+			Retries:                   state.Retries,
+			UsageLimitKind:            state.UsageLimitKind,
+			PauseCause:                state.PauseCause,
+			ProviderOutageChannel:     state.ProviderOutageChannel,
 			// A resumed run keeps the pull request the interrupted process
 			// published, so the attempt it is owed updates that request rather than
 			// opening a second one for the same branch. It reports a skipped
@@ -4076,6 +4080,10 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	effort := a.developerEffort()
 	a.state.ProviderEffort = effort
 	a.outcome.ProviderEffort = effort
+	agent := p.developer()
+	agent.Backend = a.state.Backend
+	a.state.ProviderEffortDescription = p.Config.DescribeInvocationEffort(agent, effort, "", false)
+	a.outcome.ProviderEffortDescription = a.state.ProviderEffortDescription
 	provider := spend.Metered{
 		Provider:    p.Backend,
 		Log:         p.Spend,
@@ -4139,6 +4147,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	a.state.ProviderSessionID = providerResult.SessionID
 	a.state.ProviderResolvedModel = providerResult.ResolvedModel
 	a.state.ProviderResolvedEffort = providerResult.ResolvedEffort
+	a.state.ProviderEffortDescription = providerResult.EffortDescription
 	a.state.ProviderEffortReported = providerResult.EffortReported
 	a.state.LastSequence = providerResult.LastEvent
 	// Whatever stopped the previous attempt is spent: this one ran, and how it
@@ -4148,6 +4157,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	a.outcome.ProviderSessionID = providerResult.SessionID
 	a.outcome.ProviderResolvedModel = providerResult.ResolvedModel
 	a.outcome.ProviderResolvedEffort = providerResult.ResolvedEffort
+	a.outcome.ProviderEffortDescription = providerResult.EffortDescription
 	a.outcome.ProviderEffortReported = providerResult.EffortReported
 	// The attempt that produced this reply opened with whatever the harness had
 	// refused of the developer's own earlier proposals, so those are spent: they
@@ -7760,11 +7770,13 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	a.state.ReviewResolvedModel = result.ResolvedModel
 	a.state.ReviewEffort = result.RequestedEffort
 	a.state.ReviewResolvedEffort = result.ResolvedEffort
+	a.state.ReviewEffortDescription = result.EffortDescription
 	a.state.ReviewEffortReported = result.EffortReported
 	a.outcome.ReviewSessionID = result.SessionID
 	a.outcome.ReviewModel = result.RequestedModel
 	a.outcome.ReviewResolvedModel = result.ResolvedModel
 	a.outcome.ReviewResolvedEffort = result.ResolvedEffort
+	a.outcome.ReviewEffortDescription = result.EffortDescription
 	a.outcome.ReviewEffortReported = result.EffortReported
 	a.outcome.ReviewEffort = result.RequestedEffort
 	if result.Verdict.Summary != "" {
@@ -7859,6 +7871,7 @@ func (a *activeRun) clearReviewEvidence() {
 	a.state.ReviewResolvedModel = ""
 	a.state.ReviewEffort = ""
 	a.state.ReviewResolvedEffort = ""
+	a.state.ReviewEffortDescription = ""
 	a.state.ReviewEffortReported = false
 	a.state.ReviewBaseCommit = ""
 	a.state.ReviewHeadCommit = ""
@@ -7872,6 +7885,7 @@ func (a *activeRun) clearReviewEvidence() {
 	a.outcome.ReviewResolvedModel = ""
 	a.outcome.ReviewEffort = ""
 	a.outcome.ReviewResolvedEffort = ""
+	a.outcome.ReviewEffortDescription = ""
 	a.outcome.ReviewEffortReported = false
 	a.outcome.ReviewBaseCommit = ""
 	a.outcome.ReviewHeadCommit = ""
@@ -7996,6 +8010,7 @@ func (a *activeRun) carryReviewEvidence() {
 	a.outcome.ReviewResolvedModel = state.ReviewResolvedModel
 	a.outcome.ReviewEffort = state.ReviewEffort
 	a.outcome.ReviewResolvedEffort = state.ReviewResolvedEffort
+	a.outcome.ReviewEffortDescription = state.ReviewEffortDescription
 	a.outcome.ReviewEffortReported = state.ReviewEffortReported
 	a.outcome.ReviewBaseCommit = state.ReviewBaseCommit
 	a.outcome.ReviewHeadCommit = state.ReviewHeadCommit
@@ -9233,7 +9248,9 @@ func renderOutcomeNotes(outcome Outcome) string {
 	if outcome.ProviderModel != "" {
 		lines = append(lines, "Developer model: "+renderModel(outcome.ProviderModel, outcome.ProviderResolvedModel))
 	}
-	if outcome.ProviderEffort != "" {
+	if outcome.ProviderEffortDescription != "" {
+		lines = append(lines, "Developer effort: "+outcome.ProviderEffortDescription)
+	} else if outcome.ProviderEffort != "" {
 		lines = append(lines, "Developer effort: "+outcome.ProviderEffort)
 	}
 	if outcome.Changes.Status != "" {
@@ -9387,7 +9404,9 @@ func renderFailureNotes(outcome Outcome) string {
 	if outcome.ProviderModel != "" {
 		lines = append(lines, "Developer model: "+renderModel(outcome.ProviderModel, outcome.ProviderResolvedModel))
 	}
-	if outcome.ProviderEffort != "" {
+	if outcome.ProviderEffortDescription != "" {
+		lines = append(lines, "Developer effort: "+outcome.ProviderEffortDescription)
+	} else if outcome.ProviderEffort != "" {
 		lines = append(lines, "Developer effort: "+outcome.ProviderEffort)
 	}
 	// The change summary is the run's own record of what it had done and stays
@@ -9509,7 +9528,9 @@ func renderReviewNotes(outcome Outcome) []string {
 	if outcome.ReviewModel != "" {
 		lines = append(lines, "Reviewer model: "+renderModel(outcome.ReviewModel, outcome.ReviewResolvedModel))
 	}
-	if outcome.ReviewEffort != "" {
+	if outcome.ReviewEffortDescription != "" {
+		lines = append(lines, "Reviewer effort: "+outcome.ReviewEffortDescription)
+	} else if outcome.ReviewEffort != "" {
 		lines = append(lines, "Reviewer effort: "+outcome.ReviewEffort)
 	}
 	// What the verdict was judged against, as two commits: a reader of the item

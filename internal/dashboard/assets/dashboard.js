@@ -292,9 +292,11 @@ var standingWarningAgeSeconds = 5 * 60;
     if (record.model) {
       parts.push(record.model);
     }
-    // The effort level is said beside the model it was asked of, and only where
-    // the record carries one: an agent that configured none asked for none.
-    if (record.effort) {
+    // Project the recorded level and source, retaining the level alone for
+    // records without a description.
+    if (record.effort_description) {
+      parts.push("effort " + record.effort_description);
+    } else if (record.effort) {
       parts.push(record.effort + " effort");
     }
     if (record.account) {

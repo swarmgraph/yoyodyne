@@ -809,8 +809,8 @@ type AgentConfig struct {
 	ModelVersion string `yaml:"model_version,omitempty" json:"model_version,omitempty"`
 	// Effort is the effort level every invocation of this agent asks its
 	// provider for, validated against the levels that provider accepts. Empty is
-	// an agent that names none; Codex gets its explicit model default, while
-	// Claude retains its own resolution of an omitted level; see effort.go.
+	// an agent that names none; the provider resolves its own configuration
+	// without an effort override from the harness; see effort.go.
 	Effort string `yaml:"effort,omitempty" json:"effort,omitempty"`
 	// Account is the alias of the provider account this agent runs under, from
 	// the top-level accounts mapping. The assignment is the operator's and it is

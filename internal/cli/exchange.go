@@ -299,14 +299,15 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		// The model that actually asked, which is the configured one unless the
 		// permitted alternate served the round. Recording the configured selector
 		// would leave the exchange record naming a model that refused it.
-		Model:          served.Model,
-		ResolvedModel:  result.ResolvedModel,
-		Effort:         served.Effort,
-		ResolvedEffort: result.ResolvedEffort,
-		EffortReported: result.EffortReported,
-		AccountAlias:   account.Alias,
-		ConfigRevision: v.config.Revision(),
-		Build:          buildinfo.Commit(),
+		Model:             served.Model,
+		ResolvedModel:     result.ResolvedModel,
+		Effort:            served.Effort,
+		ResolvedEffort:    result.ResolvedEffort,
+		EffortDescription: result.EffortDescription,
+		EffortReported:    result.EffortReported,
+		AccountAlias:      account.Alias,
+		ConfigRevision:    v.config.Revision(),
+		Build:             buildinfo.Commit(),
 	}
 	// The refusal is recorded before the round is failed, because it is a fact
 	// about the whole product rather than about this exchange. Failing to record

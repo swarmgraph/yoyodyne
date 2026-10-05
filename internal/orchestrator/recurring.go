@@ -213,8 +213,9 @@ type Turn struct {
 	// agent configured none.
 	Effort string `json:"effort,omitempty"`
 	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
-	ResolvedEffort string `json:"resolved_effort,omitempty"`
-	EffortReported bool   `json:"effort_reported"`
+	ResolvedEffort    string `json:"resolved_effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
+	EffortReported    bool   `json:"effort_reported"`
 	// Result is the account the role gave of the pass, where it gave one.
 	Result *sweep.Result `json:"result,omitempty"`
 	// ResultProblem names an account that could not be read, or a turn that
@@ -291,8 +292,9 @@ type Fired struct {
 	// was taken or the role's agent configured none.
 	Effort string `json:"effort,omitempty"`
 	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
-	ResolvedEffort string `json:"resolved_effort,omitempty"`
-	EffortReported bool   `json:"effort_reported"`
+	ResolvedEffort    string `json:"resolved_effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
+	EffortReported    bool   `json:"effort_reported"`
 	// Findings and SilentRepairs are what the pass found and how many of its
 	// fixes filed nothing for their root cause. They are counts here because this
 	// is the line a session prints; the whole account is in the durable report.
@@ -1228,6 +1230,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			fired.Effort = effort
 		}
 		recorded.ResolvedEffort, fired.ResolvedEffort = answered.ResolvedEffort, answered.ResolvedEffort
+		recorded.EffortDescription, fired.EffortDescription = answered.EffortDescription, answered.EffortDescription
 		recorded.EffortReported, fired.EffortReported = answered.EffortReported, answered.EffortReported
 		if conversation := strings.TrimSpace(answered.ConversationID); conversation != "" {
 			recorded.ConversationID = conversation
@@ -1262,6 +1265,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				// conversation would have asked for is not what the pass ran on.
 				recorded.Model, fired.Model = "", ""
 				recorded.Effort, fired.Effort = "", ""
+				recorded.EffortDescription, fired.EffortDescription = "", ""
 				// The refusal's own words lead, because they are what a line
 				// about the firing is cut down to.
 				problems = append(problems, fmt.Sprintf(

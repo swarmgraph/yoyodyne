@@ -20,8 +20,7 @@ package config
 // says so, rather than the crossing failing on a flag the provider refuses --
 // which would cost the turn the failover exists to save.
 //
-// Omitted Codex effort is resolved to the model's advertised default and passed
-// explicitly; Claude's existing resolution of an omitted effort is preserved.
+// Omitted effort stays empty so Codex can use its own configuration.
 
 import (
 	"fmt"
@@ -48,7 +47,7 @@ func effortProblems(providers *backend.Registry, name string, agent AgentConfig)
 			models = append(models, agent.Model)
 		}
 		// Version fallback keeps the initial invocation's effort, including an
-		// explicit default resolved for the version rather than the family.
+		// absence of an override when the agent names none.
 		level = descriptor.InvocationEffort(model, level)
 		for _, selector := range models {
 			narrowed := descriptor.ForModel(selector)
@@ -78,7 +77,7 @@ func effortRefusal(name, level string, provider domain.Backend, descriptor backe
 }
 
 // AgentEffort is the effort level one configured agent's invocations ask for,
-// including the explicit Codex default when its configuration names none.
+// empty when its configuration names none.
 func (c Config) AgentEffort(name string) string {
 	agent := c.Agents[strings.TrimSpace(name)]
 	return c.InvocationEffort(agent, agent.Model)
@@ -132,4 +131,16 @@ func (c Config) otherEffortProblems(providers *backend.Registry, name string, ag
 		}
 	}
 	return problems
+}
+
+// DescribeInvocationEffort says whether Codex's level came from the agent or
+// its own configuration. Only a provider report can supply an unrequested level.
+func (c Config) DescribeInvocationEffort(agent AgentConfig, effort, resolved string, reported bool) string {
+	providers, err := c.ProviderRegistry()
+	if err == nil {
+		if descriptor, ok := providers.Lookup(agent.Backend); ok {
+			return descriptor.DescribeInvocationEffort(effort, resolved, reported)
+		}
+	}
+	return ""
 }

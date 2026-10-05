@@ -181,11 +181,12 @@ type Result struct {
 	ResolvedModel  string
 	// RequestedEffort is the effort level this review asked the provider for,
 	// and empty where the reviewer agent configured none.
-	RequestedEffort string
-	ResolvedEffort  string
-	EffortReported  bool
-	SessionID       string
-	LastSequence    uint64
+	RequestedEffort   string
+	ResolvedEffort    string
+	EffortDescription string
+	EffortReported    bool
+	SessionID         string
+	LastSequence      uint64
 	// UsageLimit is set when the provider reported an exhausted usage limit
 	// during this invocation. A review that was declined for want of capacity was
 	// never made, so the caller can wait and ask again rather than treating the
@@ -391,16 +392,17 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	})
 	if err != nil {
 		return Result{
-			RequestedModel:   r.Model,
-			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
-			ResolvedEffort:   providerResult.ResolvedEffort,
-			EffortReported:   providerResult.EffortReported,
-			LastSequence:     lastSequence,
-			UsageLimit:       providerResult.UsageLimit,
-			ServerOverload:   providerResult.ServerOverload,
-			TransientFailure: providerResult.TransientFailure,
-			ProviderOutage:   providerResult.ProviderOutage,
-			ProcessStatus:    providerResult.Process.Status,
+			RequestedModel:    r.Model,
+			RequestedEffort:   r.invocationEffort(request.Spend.Backend),
+			ResolvedEffort:    providerResult.ResolvedEffort,
+			EffortDescription: providerResult.EffortDescription,
+			EffortReported:    providerResult.EffortReported,
+			LastSequence:      lastSequence,
+			UsageLimit:        providerResult.UsageLimit,
+			ServerOverload:    providerResult.ServerOverload,
+			TransientFailure:  providerResult.TransientFailure,
+			ProviderOutage:    providerResult.ProviderOutage,
+			ProcessStatus:     providerResult.Process.Status,
 		}, fmt.Errorf("reviewer backend failed: %w", err)
 	}
 	sequence = execution.NewSequence(lastSequence)
@@ -422,20 +424,21 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	// with it too, because a report survives a verdict the harness rejected.
 	evidence := func() Result {
 		return Result{
-			RequestedModel:   r.Model,
-			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
-			ResolvedEffort:   providerResult.ResolvedEffort,
-			EffortReported:   providerResult.EffortReported,
-			ResolvedModel:    providerResult.ResolvedModel,
-			SessionID:        providerResult.SessionID,
-			LastSequence:     lastSequence,
-			UsageLimit:       providerResult.UsageLimit,
-			ServerOverload:   providerResult.ServerOverload,
-			TransientFailure: providerResult.TransientFailure,
-			ProviderOutage:   providerResult.ProviderOutage,
-			ProcessStatus:    providerResult.Process.Status,
-			Reports:          reported,
-			ReportProblem:    reportProblem,
+			RequestedModel:    r.Model,
+			RequestedEffort:   r.invocationEffort(request.Spend.Backend),
+			ResolvedEffort:    providerResult.ResolvedEffort,
+			EffortDescription: providerResult.EffortDescription,
+			EffortReported:    providerResult.EffortReported,
+			ResolvedModel:     providerResult.ResolvedModel,
+			SessionID:         providerResult.SessionID,
+			LastSequence:      lastSequence,
+			UsageLimit:        providerResult.UsageLimit,
+			ServerOverload:    providerResult.ServerOverload,
+			TransientFailure:  providerResult.TransientFailure,
+			ProviderOutage:    providerResult.ProviderOutage,
+			ProcessStatus:     providerResult.Process.Status,
+			Reports:           reported,
+			ReportProblem:     reportProblem,
 		}
 	}
 	if providerResult.IsError {

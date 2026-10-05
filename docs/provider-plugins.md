@@ -259,12 +259,14 @@ the one that instructs.
 
 ## Codex effort
 
-Every Codex invocation passes the agent's effort explicitly with
+A Codex agent that sets an effort passes it explicitly with
 `--config 'model_reasoning_effort="high"'` for `effort: high`. The override is
 applied before `resume`, on initial and resumed invocations of every role.
-Personal Codex settings cannot select the effort. An omitted effort passes the
-invoked model's own advertised default explicitly, including `low` for `gpt-6-astra`
-and `gpt-6.1-sol`.
+An omitted or empty effort passes no effort override at all, so the Codex CLI
+resolves the level from its own configuration. Yoyo does not read the account's
+Codex home to discover that level. Read-only roles still ignore user configuration
+for isolation, as described above; their level comes from the configuration
+Codex resolves under those restrictions. Explicit effort overrides Codex settings.
 
 The accepted levels are model-specific. In codex-cli **0.159.2**, the bundled
 catalog advertises `low`, `medium`, `high`, `xhigh`, `max`, and `ultra` for Astra,
@@ -285,7 +287,12 @@ operator Codex home was needed to establish it. These are Codex's own values,
 not a translation of Claude Code levels, and a declared Codex provider inherits
 the same policy.
 
-Requested effort is recorded beside the requested model. Reported effort is
+Requested effort is recorded beside the requested model, and stays empty when
+no override was passed. Codex records also carry `effort_description`, with
+`provider_*` and `review_*` names on run records: `high, from the agent`,
+`high, from the Codex configuration` when the stream reports an unrequested
+level, or `not reported, from the Codex configuration` when it does not.
+Run notes, status, and dashboard cards use that description. Reported effort is
 separate: `effort_reported: false` says the served effort was not reported.
 The current `exec --json` stream normally omits it; a `session_configured` event
 with `reasoning_effort` supplies it. For a live check, run one harness invocation
