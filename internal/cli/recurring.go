@@ -426,6 +426,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	// and the provider charged for it exactly as it charges for one that answered.
 	evidence := session.Evidence()
 	turn := orchestrator.Turn{
+		FailureOutput:  session.FailureOutput(),
 		Replacement:    replacement,
 		ConversationID: evidence.ConversationID,
 		CostUSD:        session.TurnCostUSD(),
@@ -468,6 +469,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
 			turn.Model = servingModel(session.Evidence())
 			if recoveryErr != nil {
+				turn.FailureOutput = session.FailureOutput()
 				return turn, fmt.Errorf("the request for the missing closing report failed; the preceding reply's findings remain unrecorded: %w", recoveryErr)
 			}
 			turn.Turns++
@@ -992,7 +994,11 @@ finding raised after three failures clears only when the pass succeeds.
 A product pass that fails three times in a row also files one finding in the
 report pile. The factory-flow program manager watches and must answer it in
 her next pass and existing digest; the development manager resolves the cause.
-Without a factory-flow instance, the development manager watches too. The same
+When the development manager’s own pass fails, the factory-flow program manager
+answers and resolves it. When that program manager’s own pass fails, the Lead
+Product Manager answers and resolves it. Without a factory-flow instance, the
+development manager watches other roles’ failures too; the Lead Product Manager
+answers and resolves the development manager’s own failure. The same
 finding appears in status and the dashboard's Factory problems section, with
 its failure count kept current. Only that pass succeeding clears it, recording
 the total failures in the report handling log. A report handling naming a

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 const defaultMaxOutputBytes = 8 << 20
@@ -23,7 +24,7 @@ const defaultMaxOutputBytes = 8 << 20
 // the retained-output bound no longer causes, one layer down.
 //
 // What it bounds is what this runner passes on and nothing else. The rest of an
-// oversized line is drained and discarded rather than left in the pipe, so the
+// oversized line is drained, with a small diagnostic ending retained, so the
 // process is never blocked on a full one and every line after the long one is
 // still read.
 const maxLineBytes = 1 << 20
@@ -115,6 +116,8 @@ type Command struct {
 }
 
 type Output struct {
+	// Tail keeps the redacted end before the line or event prefix is cut.
+	Tail      string
 	Stream    Stream
 	Text      string
 	Timestamp time.Time
@@ -129,6 +132,8 @@ type Output struct {
 }
 
 type ProcessResult struct {
+	// StderrTail retains a redacted diagnostic ending before line and event cuts.
+	StderrTail string `json:",omitempty"`
 	Status     ProcessStatus
 	ExitCode   int
 	StartedAt  time.Time
@@ -372,6 +377,9 @@ drain:
 			// Any line at all is proof the process is still doing something, so
 			// the idle bound starts over from here rather than from the start.
 			idle.reset()
+			if output.Stream == StreamStderr {
+				result.StderrTail = DiagnosticTail(result.StderrTail + output.Tail + "\n")
+			}
 			lineBytes := len(output.Text) + 1
 			// A stream that has already lost a line keeps losing them, so what
 			// is retained of it is a prefix ending where its marker says rather
@@ -630,7 +638,19 @@ func scanOutput(reader io.Reader, stream Stream, clock Clock, redactor Redactor,
 
 	lines := bufio.NewReaderSize(reader, 64*1024)
 	for {
-		line, dropped, err := readLine(lines, maxLineBytes)
+		var tail []byte
+		line, dropped, err := readLineWithTail(lines, maxLineBytes, &tail, DiagnosticTailBytes+redactor.longest())
+		// Drop a partial secret at the start of a cut suffix before redacting it.
+		if len(line)+dropped > len(tail) && redactor.longest() > 0 {
+			tail = tail[redactor.longest():]
+		}
+		for len(tail) > 0 && !utf8.RuneStart(tail[0]) {
+			tail = tail[1:]
+		}
+		ending := redactor.Redact(string(tail))
+		if len(line)+dropped > DiagnosticTailBytes {
+			ending = DiagnosticTailMarker + ending
+		}
 		// A line that ended at its own newline is a line however empty it is, so
 		// a blank one is still reported. Only the end of the stream can leave
 		// nothing at all, and that is the one case with no line to report.
@@ -653,6 +673,7 @@ func scanOutput(reader io.Reader, stream Stream, clock Clock, redactor Redactor,
 			}
 			outputs <- Output{
 				Stream:        stream,
+				Tail:          ending,
 				Text:          text,
 				Timestamp:     clock.Now(),
 				LineTruncated: dropped > 0,
@@ -678,10 +699,14 @@ func scanOutput(reader io.Reader, stream Stream, clock Clock, redactor Redactor,
 // error that ended the read — nil when the line ended at its own newline, io.EOF
 // at the end of the stream, and anything else a genuine read failure.
 //
-// The tail past the bound is read and thrown away rather than left in the pipe,
+// The rest of the line is drained rather than left in the pipe,
 // which is what separates truncating a line from refusing to read it: a reader
 // that stops draining is a child blocked on a full pipe.
 func readLine(reader *bufio.Reader, bound int) ([]byte, int, error) {
+	return readLineWithTail(reader, bound, nil, 0)
+}
+
+func readLineWithTail(reader *bufio.Reader, bound int, tail *[]byte, tailBound int) ([]byte, int, error) {
 	var kept []byte
 	dropped := 0
 	for {
@@ -692,6 +717,12 @@ func readLine(reader *bufio.Reader, bound int) ([]byte, int, error) {
 		partial := errors.Is(err, bufio.ErrBufferFull)
 		if !partial {
 			chunk = dropLineEnding(chunk)
+		}
+		if tail != nil {
+			*tail = append(*tail, chunk...)
+			if len(*tail) > tailBound {
+				*tail = append([]byte(nil), (*tail)[len(*tail)-tailBound:]...)
+			}
 		}
 		if room := bound - len(kept); room > 0 {
 			take := len(chunk)
@@ -718,14 +749,10 @@ func dropLineEnding(line []byte) []byte {
 	return bytes.TrimSuffix(line, []byte{'\r'})
 }
 
-// lineTruncationMarker ends a line this runner had to cut. Unlike the marker for
-// the retained copy as a whole, it names no record holding the rest, because
-// there is none: the observer is handed the same cut line, so the bytes past the
-// bound reached nothing. Saying so plainly is the point — a reader who cannot
-// tell a cut line from a whole one reads the cut one as everything the process
-// said on it.
+// lineTruncationMarker declares the cut in the prefix passed to observers.
+// The process result separately retains a bounded stderr ending.
 func lineTruncationMarker(bound int, dropped int) string {
-	return fmt.Sprintf("…[line truncated at %d bytes; %d further bytes were not retained]", bound, dropped)
+	return fmt.Sprintf("…[line truncated at %d bytes; %d further bytes omitted from this line]", bound, dropped)
 }
 
 type Redactor struct {

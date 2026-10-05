@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
@@ -20,14 +21,17 @@ const PassFailureThreshold = 3
 // failure changes its count, never its identity; only its own pass succeeding
 // ends it. Completing the watcher's pass or handling its report does not.
 type PassFailure struct {
-	ProductID domain.ProductID `json:"product_id"`
-	Task      string           `json:"task"`
-	Failures  int              `json:"failures"`
-	FirstAt   time.Time        `json:"first_at"`
-	RaisedAt  time.Time        `json:"raised_at"`
-	LatestAt  time.Time        `json:"latest_at"`
-	Problem   string           `json:"problem"`
-	ClearedAt time.Time        `json:"cleared_at,omitempty"`
+	ProductID     domain.ProductID `json:"product_id"`
+	Task          string           `json:"task"`
+	Failures      int              `json:"failures"`
+	FirstAt       time.Time        `json:"first_at"`
+	RaisedAt      time.Time        `json:"raised_at"`
+	LatestAt      time.Time        `json:"latest_at"`
+	Role          domain.AgentRole `json:"role,omitempty"`
+	Agent         string           `json:"agent,omitempty"`
+	FailureOutput string           `json:"failure_output,omitempty"`
+	Problem       string           `json:"problem"`
+	ClearedAt     time.Time        `json:"cleared_at,omitempty"`
 }
 
 func (f PassFailure) ReportID(product domain.ProductID) string {
@@ -36,8 +40,12 @@ func (f PassFailure) ReportID(product domain.ProductID) string {
 }
 
 func (f PassFailure) Says() string {
-	return fmt.Sprintf("the product pass %s has failed %d times in a row since %s; latest: %s",
+	said := fmt.Sprintf("the product pass %s has failed %d times in a row since %s; latest: %s",
 		f.Task, f.Failures, f.FirstAt.In(time.Local).Format("2006-01-02 15:04 MST"), lastPassErrorLine(f.Problem))
+	if f.FailureOutput != "" {
+		said += "\nLast session output:\n" + f.FailureOutput
+	}
+	return said
 }
 
 func lastPassErrorLine(problem string) string {
@@ -58,6 +66,12 @@ func PassFailureOwnersSays(owner ownership.PassFailure) string {
 		watcher = "the development manager (no factory-flow program manager is configured)"
 	}
 	said := watcher + " watches and must answer this finding; the development manager resolves the cause"
+	if owner.Resolver == domain.RoleProgramManager {
+		said = watcher + " must answer this finding and resolve the cause because the development manager’s own pass is failing"
+	}
+	if owner.Resolver == domain.RoleProductManager {
+		said = "the Lead Product Manager must answer this finding and resolve the cause because the role that would answer it has its own pass failing"
+	}
 	if owner.PersonStep != "" {
 		said += "; the operator must " + strings.Join(strings.Fields(owner.PersonStep), " ")
 	}
@@ -85,6 +99,7 @@ func PassFailuresOf(passes []Sweep) []PassFailure {
 			}
 			f.Failures++
 			f.LatestAt, f.Problem = pass.StartedAt, pass.Problem
+			f.Role, f.Agent, f.FailureOutput = pass.Role, pass.Agent, pass.FailureOutput
 			for _, step := range pass.Steps {
 				if step.Outcome == StepFailed {
 					f.Problem = step.Name + ": " + step.Detail
@@ -176,7 +191,7 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 			r := report.Report{SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter,
 				RunID: f.Task + "@" + f.FirstAt.UTC().Format(time.RFC3339Nano), ProductID: s.productID,
 				RepositoryID: attribution.RepositoryID, Build: attribution.Build, Severity: report.SeverityWarning,
-				PassFailureTask: f.Task, RecordedAt: f.RaisedAt, Message: f.Says() + ". " + PassFailureOwnersSays(ownership.ResolvePassFailure(watcher, nil)) + "."}
+				PassFailureTask: f.Task, RecordedAt: f.RaisedAt, Message: f.Says() + ". " + PassFailureOwnersSays(ownership.ResolvePassFailureForRole(watcher, f.Role, f.Agent, nil)) + "."}
 			if err := reports.Append(r); err != nil {
 				return err
 			}
@@ -191,4 +206,9 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 		}
 	}
 	return nil
+}
+
+// FailureOutputTail retains a small, readable end of already redacted output.
+func FailureOutputTail(output string) string {
+	return execution.DiagnosticTail(output)
 }
