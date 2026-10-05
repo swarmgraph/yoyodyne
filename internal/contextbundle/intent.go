@@ -41,9 +41,8 @@ func AssembleIntent(repositoryRoot, directory string, revision *Revision) (strin
 // renderWorkItemIntent reads every document under the specifications directory
 // into the section a developer and a reviewer read product intent from, within
 // the budget it is given. Documents are read from the working tree, or, where a
-// revision is set, as that commit holds them. A supplied revision listing also
-// discovers documents deleted or renamed in the working tree; older callers
-// without one still discover paths there.
+// revision is set, as that commit holds them. The revision listing discovers
+// documents even when the working tree has deleted or renamed them.
 //
 // Nothing here fails the bundle for a document: one that cannot be read or does
 // not fit is named as not carried, because a run refused over a document in a
@@ -68,6 +67,22 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 	}
 
 	header := renderWorkItemIntentHeader(clean, source.revision)
+	if source.revision != nil {
+		var current []string
+		var err error
+		if source.revision.CandidateFiles != nil {
+			current, err = specificationPaths(root, &Revision{Name: "reviewed candidate", ListFiles: source.revision.CandidateFiles}, clean)
+		} else {
+			current, err = discoverSpecifications("specifications", root, clean)
+		}
+		if err != nil {
+			return "", nil, err
+		}
+		header += renderIntentPathChanges(paths, current)
+	}
+	if len(header)+longestIntentOmission(paths) > budget {
+		return intentFallback(clean), nil, nil
+	}
 	if len(paths) == 0 {
 		section := header + fmt.Sprintf("Nothing is filed under %s, so this product records no intent in writing. Say so\nrather than inferring what it must be.\n", clean)
 		return section, nil, nil
@@ -108,8 +123,11 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 }
 
 func specificationPaths(root repowrite.Root, revision *Revision, directory string) ([]string, error) {
-	if revision == nil || revision.ListFiles == nil {
+	if revision == nil {
 		return discoverSpecifications("specifications", root, directory)
+	}
+	if revision.ListFiles == nil {
+		return nil, fmt.Errorf("discover product documents at %s: revision file listing is required", revision.Name)
 	}
 	files, err := revision.ListFiles()
 	if err != nil {
@@ -191,4 +209,39 @@ func renderIntentOmission(omitted []string) string {
 // which is every document named.
 func longestIntentOmission(paths []string) int {
 	return len(renderIntentOmission(paths))
+}
+
+// Renames are shown as a removal and an addition so both paths are visible,
+// including renames that also rewrite the document's contents.
+func renderIntentPathChanges(base, current []string) string {
+	before, after := make(map[string]bool), make(map[string]bool)
+	for _, name := range base {
+		before[name] = true
+	}
+	for _, name := range current {
+		after[name] = true
+	}
+	var removed, added []string
+	for _, name := range base {
+		if !after[name] {
+			removed = append(removed, name)
+		}
+	}
+	for _, name := range current {
+		if !before[name] {
+			added = append(added, name)
+		}
+	}
+	if len(removed)+len(added) == 0 {
+		return ""
+	}
+	var text strings.Builder
+	text.WriteString("\n## Product document paths changed since the base\n\nThese paths differ in the reviewed candidate. Renames appear as a removed path and an added path. The base documents below remain the intent to review against; read the change for the added documents' contents.\n")
+	for _, name := range removed {
+		fmt.Fprintf(&text, "- Removed: %s\n", name)
+	}
+	for _, name := range added {
+		fmt.Fprintf(&text, "- Added: %s\n", name)
+	}
+	return text.String()
 }

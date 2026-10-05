@@ -166,6 +166,7 @@ func TestBranchReviewSuppliesStandingGoalsAtItsBase(t *testing.T) {
 			}
 			itemReview := activeRun{
 				pipeline: Pipeline{Repository: repository, Worktrees: reviewer.Worktrees.(WorktreeManager), Config: reviewer.Config},
+				worktree: gitworktree.Worktree{Path: repository},
 				item:     beads.WorkItem{ID: "yoyodyne-task", Title: "Record attribution", Status: "in_progress"},
 			}
 			itemContext, err := itemReview.reviewedContext(context.Background(), outcome.BaseCommit)
@@ -580,5 +581,62 @@ func TestAShadowBranchReviewIsRecordedAndApprovesNothing(t *testing.T) {
 	// process that made it and is what a later reader actually asks.
 	if !recorded[0].Shadow || recorded[0].Approved() || recorded[0].Decision != runstate.ReviewApprove {
 		t.Errorf("recorded review = %#v", recorded[0])
+	}
+}
+
+func TestReviewIntentPathChangesUseTheCandidateInsteadOfThePrimaryCheckout(t *testing.T) {
+	repository := pipelineRepository(t)
+	write := func(root, name, content string) {
+		t.Helper()
+		p := filepath.Join(root, "docs", "product", name)
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const removed = "# Removed rule\nKeep this base rule visible.\n"
+	const renamed = "# Renamed rule\nKeep the old name's intent visible.\n"
+	write(repository, "removed.md", removed)
+	write(repository, "old.md", renamed)
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "base intent")
+	base := gitLine(t, repository, "rev-parse", "HEAD")
+	runPipelineGit(t, repository, "checkout", "-b", "milestone")
+	runPipelineGit(t, repository, "rm", "docs/product/removed.md")
+	runPipelineGit(t, repository, "mv", "docs/product/old.md", "docs/product/new.md")
+	write(repository, "added.md", "# Added rule\nCandidate addition.\n")
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "candidate intent changes")
+	runPipelineGit(t, repository, "checkout", "main")
+	write(repository, "unrelated.md", "# Unrelated checkout addition\n")
+	provider := branchProvider(`{"decision":"approve","summary":"fine"}`)
+	reviewer, _, _ := newBranchReviewer(t, repository, provider)
+	if _, err := reviewer.Review(context.Background(), BranchReviewRequest{Branch: "milestone", BaseRef: "main"}); err != nil {
+		t.Fatal(err)
+	}
+	// The item candidate includes uncommitted changes, independently of main.
+	candidate := t.TempDir()
+	write(candidate, "new.md", renamed)
+	write(candidate, "added.md", "# Added rule\nUncommitted addition.\n")
+	itemReview := activeRun{
+		pipeline: Pipeline{Repository: repository, Worktrees: reviewer.Worktrees.(WorktreeManager), Config: reviewer.Config},
+		worktree: gitworktree.Worktree{Path: candidate},
+		item:     beads.WorkItem{ID: "task", Title: "Review intent"},
+	}
+	itemContext, err := itemReview.reviewedContext(context.Background(), base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for scope, text := range map[string]string{"branch": provider.Requests[0].Prompt, "item": itemContext} {
+		for _, want := range []string{removed, renamed, "Removed: docs/product/removed.md", "Removed: docs/product/old.md", "Added: docs/product/new.md", "Added: docs/product/added.md"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("%s missing %q", scope, want)
+			}
+		}
+		if strings.Contains(text, "Added: docs/product/unrelated.md") {
+			t.Errorf("%s used primary checkout", scope)
+		}
 	}
 }

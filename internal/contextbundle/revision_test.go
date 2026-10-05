@@ -14,6 +14,13 @@ import (
 func revisionOf(name string, files map[string]string) *Revision {
 	return &Revision{
 		Name: name,
+		ListFiles: func() ([]string, error) {
+			var paths []string
+			for path := range files {
+				paths = append(paths, path)
+			}
+			return paths, nil
+		},
 		Read: func(path string, maxBytes int64) (int64, []byte, error) {
 			content, ok := files[path]
 			if !ok {

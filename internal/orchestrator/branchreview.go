@@ -210,7 +210,9 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 		return outcome, invariantErr
 	}
 	outcome.Invariants = invariants.IDs()
-	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.Specifications, reviewedRevision(ctx, b.Worktrees, change.BaseCommit))
+	revision := reviewedRevision(ctx, b.Worktrees, change.BaseCommit)
+	revision.CandidateFiles = reviewedRevision(ctx, b.Worktrees, change.HeadCommit).ListFiles
+	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.Specifications, revision)
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
 	}

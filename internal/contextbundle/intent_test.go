@@ -101,6 +101,9 @@ func TestTheSpecificationHomeIsReadAtTheReviewedRevision(t *testing.T) {
 	}
 	revision := &Revision{
 		Name: "base commit abc123",
+		ListFiles: func() ([]string, error) {
+			return []string{"docs/product/brief.md", "docs/product/pricing-principles.md"}, nil
+		},
 		Read: func(path string, maxBytes int64) (int64, []byte, error) {
 			content, held := atBase[path]
 			if !held {
@@ -117,7 +120,7 @@ func TestTheSpecificationHomeIsReadAtTheReviewedRevision(t *testing.T) {
 	if !strings.Contains(bundle.Text, "As the base had it.") || strings.Contains(bundle.Text, "nobody reads today") {
 		t.Fatalf("the home was not read at the base:\n%s", bundle.Text)
 	}
-	if strings.Contains(bundle.Text, "docs/product/goals/v1-goals.md") {
+	if strings.Contains(bundle.Text, "## "+IntentHeading+": docs/product/goals/v1-goals.md") {
 		t.Fatalf("a document the base does not hold was carried:\n%s", bundle.Text)
 	}
 	if !strings.Contains(bundle.Text, "as it stands at base commit abc123") {
@@ -129,7 +132,8 @@ func TestTheStandingSetAndItsGoalStatementsReachReviewAtTheBase(t *testing.T) {
 	root := intentFixture(t)
 	const goals = "# V1 goals\n\n## Goals\n\n- Make the surfaces read clearly.\n- Run development autonomously.\n- Trace changes to intent.\n\n## Standing goals\n\nThe first two goals apply to every change, whichever goal the item serves.\n"
 	revision := &Revision{
-		Name: "base commit abc123",
+		Name:      "base commit abc123",
+		ListFiles: func() ([]string, error) { return []string{"docs/product/goals/v1-goals.md"}, nil },
 		Read: func(path string, _ int64) (int64, []byte, error) {
 			if path != "docs/product/goals/v1-goals.md" {
 				return 0, nil, ErrNotAtRevision
@@ -186,5 +190,60 @@ func TestASpecificationHomeOutsideTheRepositoryIsRefused(t *testing.T) {
 	_, err := Assemble(Request{RepositoryRoot: root, WorkItem: item, Specifications: "../elsewhere"})
 	if err == nil || errors.Is(err, ErrNotAtRevision) {
 		t.Fatalf("Assemble() error = %v, want the directory refused", err)
+	}
+}
+
+func TestIntentBundleNamesRemovedAddedAndRenamedDocuments(t *testing.T) {
+	for _, change := range []struct{ name, old, added string }{
+		{name: "removed", old: "removed.md"},
+		{name: "added", added: "added.md"},
+		{name: "renamed", old: "old-name.md", added: "new-name.md"},
+	} {
+		t.Run(change.name, func(t *testing.T) {
+			root := t.TempDir()
+			base := map[string]string{"docs/product/brief.md": "# Brief\nBase intent.\n"}
+			writeProductFile(t, root, "docs/product/brief.md", base["docs/product/brief.md"])
+			if change.old != "" {
+				base["docs/product/"+change.old] = "# Rule\nThe base rule must survive review.\n"
+			}
+			if change.added != "" {
+				writeProductFile(t, root, "docs/product/"+change.added, "# Rule\nCandidate rule.\n")
+			}
+			revision := revisionOf("base commit abc123", base)
+			bundle, err := Assemble(Request{RepositoryRoot: root, WorkItem: beads.WorkItem{ID: "task", Title: "Task"}, Specifications: "docs/product", Revision: revision})
+			if err != nil {
+				t.Fatal(err)
+			}
+			branch, err := AssembleIntent(root, "docs/product", revision)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, text := range []string{bundle.Text, branch} {
+				if change.old != "" {
+					for _, want := range []string{"The base rule must survive review.", "Removed: docs/product/" + change.old, "## " + IntentHeading + ": docs/product/" + change.old} {
+						if !strings.Contains(text, want) {
+							t.Fatalf("missing %q in %s", want, text)
+						}
+					}
+				}
+				if change.added != "" && !strings.Contains(text, "Added: docs/product/"+change.added) {
+					t.Fatalf("addition missing: %s", text)
+				}
+				if strings.Contains(text, "Candidate rule.") {
+					t.Fatal("candidate contents treated as base intent")
+				}
+			}
+		})
+	}
+}
+
+func TestIntentRevisionRequiresACompleteListing(t *testing.T) {
+	for _, revision := range []*Revision{
+		{Name: "base", Read: revisionOf("base", nil).Read},
+		{Name: "base", ListFiles: func() ([]string, error) { return nil, errors.New("listing incomplete") }},
+	} {
+		if _, err := AssembleIntent(t.TempDir(), "docs/product", revision); err == nil {
+			t.Fatal("accepted a revision without a complete listing")
+		}
 	}
 }
