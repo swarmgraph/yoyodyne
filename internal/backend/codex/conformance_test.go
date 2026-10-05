@@ -134,7 +134,7 @@ func invocationsToCheck(t *testing.T) map[string][]string {
 				Prompt:           "do the work",
 				SystemPrompt:     "the contract",
 				SessionID:        sessionID,
-				Model:            "gpt-5",
+				Model:            "gpt-6.1-sol",
 			}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
@@ -194,7 +194,7 @@ func TestEveryInvocationKeepsTheRecordedCLIsCommandContract(t *testing.T) {
 func TestTheCommandContractCheckRefusesAnOptionOnALevelThatDoesNotListIt(t *testing.T) {
 	t.Parallel()
 
-	refused := []string{"exec", "resume", "session-1", "--json", "--skip-git-repo-check", "--sandbox", sandboxWorkspaceWrite, "--model", "gpt-5", "-"}
+	refused := []string{"exec", "resume", "session-1", "--json", "--skip-git-repo-check", "--sandbox", sandboxWorkspaceWrite, "--model", "gpt-6.1-sol", "-"}
 	err := recordedContract(t).misplacedOption(refused)
 	if err == nil || !strings.Contains(err.Error(), `"--sandbox" is passed to "exec resume"`) {
 		t.Fatalf("misplacedOption() error = %v, want it to name --sandbox on exec resume", err)
@@ -251,7 +251,7 @@ func TestLocalConformance(t *testing.T) {
 	// The developer, because it is the only role the built-in Codex description
 	// can be held to a posture for: its sandbox scopes writes to a directory, and
 	// has no setting for the read-only posture the advisory roles require.
-	result, err := provider.Run(context.Background(), backendapi.RunRequest{
+	result, err := provider.Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: t.TempDir(),

@@ -75,30 +75,27 @@ func TestEveryAcceptedLevelLoadsAndEmptyRemovesAnInheritedOne(t *testing.T) {
 	}
 }
 
-// Codex is given no effort level by this harness, so a Codex agent naming one is
-// refused, saying so, rather than launched with a level its provider may reject.
-func TestACodexAgentNamingAnEffortIsRefused(t *testing.T) {
+// An unadvertised Codex effort is refused before any invocation starts.
+func TestACodexAgentNamingAnUnacceptedEffortIsRefused(t *testing.T) {
 	t.Parallel()
 
 	_, err := loadProjectError(t, minimalProjectConfig+`agents:
   developer:
     backend: codex
-    model: gpt-5-codex
-    effort: high
+    model: gpt-6-astra
+    effort: extreme
 `, nil)
 	if err == nil {
 		t.Fatal("LoadResolved() succeeded, want the Codex agent's level refused")
 	}
-	want := `agent "developer" names effort "high", and provider "codex" accepts no effort level from this harness; leave effort out for this agent`
+	want := `agent "developer" names effort "extreme", which provider "codex" does not accept; effort is one of low, medium, high, xhigh, max, or ultra`
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("error = %v, want %q", err, want)
 	}
 }
 
-// A failover that crosses onto a provider accepting no level does not stop the
-// file loading: that turn is asked with none and says so, which is the
-// failover's own business rather than a reason to refuse the configuration.
-func TestAFailoverCrossingOntoAProviderWithoutEffortLoads(t *testing.T) {
+// A failover onto Codex can retain the configured high effort.
+func TestAFailoverCrossingOntoCodexWithHighEffortLoads(t *testing.T) {
 	t.Parallel()
 
 	cfg := loadProject(t, minimalProjectConfig+`accounts:
@@ -112,11 +109,55 @@ agents:
     effort: high
     failover:
       enabled: true
-      model: gpt-5-codex
+      model: gpt-6-astra
       provider: codex
       account: codex-account
 `, nil).Config
 	if got := cfg.AgentEffort("developer"); got != "high" {
 		t.Fatalf("effort = %q, want the agent's own level kept", got)
+	}
+}
+
+func TestCodexEffortUsesTheModelsLevelsAndExplicitDefault(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct{ model, level, want string }{
+		{"gpt-6-astra", "high", "high"},
+		{"gpt-6.1-sol", "", "low"},
+		{"gpt-6-sol", "", "medium"},
+		{"gpt-6-luna", "max", "max"},
+	} {
+		cfg := loadProject(t, minimalProjectConfig+`agents:
+  developer:
+    backend: codex
+    model: `+test.model+`
+    effort: "`+test.level+`"
+`, nil).Config
+		if got := cfg.AgentEffort("developer"); got != test.want {
+			t.Fatalf("%s at %q: got %q, want %q", test.model, test.level, got, test.want)
+		}
+	}
+	_, err := loadProjectError(t, minimalProjectConfig+`agents:
+  developer:
+    backend: codex
+    model: gpt-6-luna
+    effort: ultra
+`, nil)
+	if err == nil || !strings.Contains(err.Error(), "low, medium, high, xhigh, or max") {
+		t.Fatalf("model-specific refusal = %v", err)
+	}
+}
+
+func TestTechnicalHealthProgramManagerKeepsCodexAstraHighWithoutFallback(t *testing.T) {
+	t.Parallel()
+	cfg := loadProject(t, minimalProjectConfig+`agents:
+  technical-health-pm:
+    role: program-manager
+    backend: codex
+    model: gpt-6-astra
+    effort: high
+`, nil).Config
+	agent := cfg.Agents["technical-health-pm"]
+	if agent.Backend != "codex" || agent.Model != "gpt-6-astra" || cfg.AgentEffort("technical-health-pm") != "high" || agent.Failover.Enabled || agent.ModelVersion != "" {
+		t.Fatalf("technical-health configuration = %+v", agent)
 	}
 }

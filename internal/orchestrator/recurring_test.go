@@ -44,7 +44,10 @@ type scriptedTurn struct {
 	err     error
 	cost    float64
 	// model is the model the turn says served it.
-	model string
+	model          string
+	effort         string
+	resolvedEffort string
+	effortReported bool
 	// saved, reports, and admitted are the traces the turn says it left: the
 	// memory and lane-report writes it saved, how many reports it filed, and
 	// the work it admitted.
@@ -69,6 +72,7 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 	r.answers = r.answers[1:]
 	return Turn{
 		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
+		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported,
 		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
 	}, answer.err
 }
@@ -1402,5 +1406,25 @@ func TestACapacityRefusalIsRecordedAtEachCadenceAndMissesNothing(t *testing.T) {
 	Scheduler{Now: func() time.Time { return clock.now }}.missed(context.Background(), &schedule, Pull{Recurring: trigger}, &watch)
 	if len(watch.missed) != 0 {
 		t.Errorf("missed = %v, want nothing missed on a cadence the refusals kept moving", watch.missed)
+	}
+}
+
+func TestFiringRecordsTheLastInvocationsEffortIncludingNone(t *testing.T) {
+	t.Parallel()
+	store := sweepStore(t)
+	role := &wokenRole{answers: []scriptedTurn{
+		{result: &sweep.Result{Status: sweep.StatusMore, Summary: "half"}, model: "gpt-6-astra", effort: "high", resolvedEffort: "medium", effortReported: true},
+		{result: complete("the rest"), model: "opus", effort: ""},
+	}}
+	fired, err := (Trigger{Tasks: hourlyTask("look"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}).Fire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 1 || len(fired.Fired) != 1 {
+		t.Fatalf("records=%+v fired=%+v error=%v", recorded, fired, err)
+	}
+	if recorded[0].Effort != "" || fired.Fired[0].Effort != "" || recorded[0].ResolvedEffort != "" || recorded[0].EffortReported || fired.Fired[0].EffortReported {
+		t.Fatalf("the earlier turn's effort survived the provider substitution: record=%+v fired=%+v", recorded[0], fired.Fired[0])
 	}
 }

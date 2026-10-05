@@ -431,6 +431,8 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		CostUSD:        session.TurnCostUSD(),
 		Model:          servingModel(evidence),
 		Effort:         evidence.Effort,
+		ResolvedEffort: evidence.ResolvedEffort,
+		EffortReported: evidence.EffortReported,
 		// The criticals the conversation carried in of its own accord, so a pass
 		// that ends complete over one of them is refused as complete.
 		CriticalReports: session.CriticalReportsShown(),

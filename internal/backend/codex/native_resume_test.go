@@ -64,7 +64,7 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	provider := Backend{Binary: binary, Runner: runner}
 	request := backendapi.RunRequest{
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: oldWorktree,
-		RepositoryRoot: oldRepository, AccountConfigDir: home, Model: "gpt-5",
+		RepositoryRoot: oldRepository, AccountConfigDir: home, Model: "gpt-6.1-sol",
 		Prompt:  "Execute the supplied sandbox probe, then finish.",
 		Timeout: nativeProbeSubprocessBudget, IdleTimeout: nativeProbeSubprocessBudget, AfterReplyTimeout: nativeProbeSubprocessBudget,
 	}
@@ -259,7 +259,7 @@ func TestNativeProbeReadsCommandEvidenceBeforeAdapterDiscardsRawOutput(t *testin
 			`{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
 		)}},
 	}}
-	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{
+	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "probe",
 	}, nativeProbeReply, nil)
@@ -759,7 +759,7 @@ func TestNativeProbeReadsUnifiedToolResultWithoutACommandEvent(t *testing.T) {
 			`{"type":"turn.completed","usage":{"input_tokens":2,"output_tokens":2}}`,
 		)}},
 	}}
-	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{
+	result := nativeProbeTurn(t, Backend{Runner: runner}, backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "probe",
 	}, nativeProbeReply, model)

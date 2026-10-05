@@ -183,7 +183,10 @@ type Round struct {
 	ResolvedModel string         `json:"resolved_model,omitempty"`
 	// Effort is the effort level the round asked the provider for, and absent
 	// where the answering agent configured none.
-	Effort         string `json:"effort,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string `json:"resolved_effort,omitempty"`
+	EffortReported bool   `json:"effort_reported"`
 	AccountAlias   string `json:"account_alias,omitempty"`
 	ConfigRevision string `json:"config_revision,omitempty"`
 	Build          string `json:"build,omitempty"`

@@ -585,9 +585,13 @@ type Options struct {
 // Session is one open conversation. It owns the durable record, so every turn
 // it completes is recorded before the operator sees the reply.
 type Session struct {
-	options Options
-	state   runstate.Conversation
-	resumed bool
+	lastEffortRequested string
+	lastEffortResolved  string
+	lastEffortReported  bool
+	effortInvoked       bool
+	options             Options
+	state               runstate.Conversation
+	resumed             bool
 	// pass names the recurring-task firing whose turns this session is taking,
 	// where one is, so a lane report it writes is stamped with it. It is empty on
 	// an operator's own conversation.
@@ -869,8 +873,11 @@ type Evidence struct {
 	ResolvedModel string `json:"resolved_model,omitempty"`
 	// Effort is the effort level the turns ask for, absent for an agent that
 	// configured none.
-	Effort    string `json:"effort,omitempty"`
-	SessionID string `json:"session_id,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string `json:"resolved_effort,omitempty"`
+	EffortReported bool   `json:"effort_reported"`
+	SessionID      string `json:"session_id,omitempty"`
 	// SessionBytes is how large that session has grown as the harness measures
 	// it, and SessionBudgetBytes the size past which its next turn compacts it.
 	// Both are zero on a conversation whose session was never measured.
@@ -1255,7 +1262,9 @@ func (s *Session) Evidence() Evidence {
 		// stops saying it.
 		ServedModel:        s.servedByAlternate(),
 		ResolvedModel:      s.state.ProviderResolvedModel,
-		Effort:             strings.TrimSpace(s.options.Effort),
+		Effort:             s.lastEffort(),
+		ResolvedEffort:     s.lastReportedEffort(),
+		EffortReported:     s.lastEffortWasReported(),
 		SessionID:          s.state.ProviderSessionID,
 		SessionBytes:       s.state.ProviderSessionBytes,
 		SessionBudgetBytes: s.state.ProviderSessionBudgetBytes,
@@ -1847,7 +1856,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// from the record below.
 		SessionID:    s.resumableSession(),
 		Model:        s.options.Model,
-		Effort:       strings.TrimSpace(s.options.Effort),
+		Effort:       s.invocationEffort(),
 		AllowedTools: []string{},
 		Timeout:      s.options.timeout(),
 		LastSequence: lastSequence,
@@ -1933,6 +1942,8 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// for. Wrapped the other way round, a turn the alternate served would be
 		// priced against the model that refused it.
 		result, served, err = modelfailover.Serve(ctx, provider, request, policy)
+		s.lastEffortRequested, s.lastEffortResolved = served.Effort, result.ResolvedEffort
+		s.lastEffortReported, s.effortInvoked = result.EffortReported, true
 		// Whatever happened, the event log advanced, and the record has to agree
 		// with it or the next turn would renumber events that already exist. A
 		// reissued attempt numbers its events after the refused one's, so what is
@@ -2200,6 +2211,8 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// The level the invocation that served the turn asked for, which is the
 	// agent's own unless a crossing landed on a provider that does not accept it.
 	s.state.ProviderEffort = served.Effort
+	s.state.ProviderResolvedEffort = result.ResolvedEffort
+	s.state.ProviderEffortReported = result.EffortReported
 	// And what served it besides the endpoint: the configuration in force while it
 	// was. It is rewritten with the endpoint above, so the record says what is
 	// serving this conversation now. What pins each turn rather than the last one
@@ -4419,3 +4432,40 @@ A handling that says a report is covered by work maps every request the report m
 ` + report.Contract + `
 
 You reach the operator by talking to them, so most of what you notice belongs in your prose rather than in a report. Report instead when what you noticed should outlive this conversation and reach whoever is reading later: it will still matter after this exchange is over, or after the record you are speaking from has been replaced. A report is also not a work item — work goes to the backlog through the actions above, or to the operator as a proposal.`
+
+func (s *Session) invocationEffort() string {
+	if descriptor, ok := s.options.providers().Lookup(s.options.Provider); ok {
+		model := s.options.Model
+		if s.options.ModelVersion != "" {
+			model = s.options.ModelVersion
+		}
+		return descriptor.InvocationEffort(model, s.options.Effort)
+	}
+	return strings.TrimSpace(s.options.Effort)
+}
+
+// Evidence of a completed turn uses the actual invocation, including a crossed
+// provider, instead of re-reading the configured effort for a recurring pass.
+func (s *Session) lastEffort() string {
+	if s.effortInvoked {
+		return s.lastEffortRequested
+	}
+	if s.state.Turns > 0 {
+		return s.state.ProviderEffort
+	}
+	return s.invocationEffort()
+}
+
+func (s *Session) lastReportedEffort() string {
+	if s.effortInvoked {
+		return s.lastEffortResolved
+	}
+	return s.state.ProviderResolvedEffort
+}
+
+func (s *Session) lastEffortWasReported() bool {
+	if s.effortInvoked {
+		return s.lastEffortReported
+	}
+	return s.state.ProviderEffortReported
+}

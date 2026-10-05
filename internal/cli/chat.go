@@ -665,7 +665,7 @@ func (p preparedChat) modelVersion() string {
 // whatever model the session asks for, because a task's own model moves which
 // model answers and not how hard it is asked to think.
 func (p preparedChat) effort() string {
-	return strings.TrimSpace(p.agent.Effort)
+	return p.parts.config.InvocationEffort(p.agent, p.requestedModel())
 }
 
 // prepareChat resolves everything a conversation with the role needs that does

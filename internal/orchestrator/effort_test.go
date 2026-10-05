@@ -24,6 +24,16 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/review"
 )
 
+type effortReportingBackend struct{ backend.Backend }
+
+func (b effortReportingBackend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
+	result, err := b.Backend.Run(ctx, request)
+	if request.Role == domain.RoleDeveloper {
+		result.ResolvedEffort, result.EffortReported = "medium", true
+	}
+	return result, err
+}
+
 func TestARunAsksEachRoleForItsOwnEffortAndRecordsIt(t *testing.T) {
 	t.Parallel()
 
@@ -35,6 +45,7 @@ func TestARunAsksEachRoleForItsOwnEffortAndRecordsIt(t *testing.T) {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, repairVerdict, approveVerdict)
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Backend = effortReportingBackend{provider}
 	// The item's label maps it onto another model, which moves the model and not
 	// the level: the level is the developer agent's.
 	pipeline.Config.Execution.DeveloperModels = []config.DeveloperModelRule{{Label: "docs", Model: "sonnet"}}
@@ -46,7 +57,7 @@ func TestARunAsksEachRoleForItsOwnEffortAndRecordsIt(t *testing.T) {
 	}
 	log := &recordingSpendLog{}
 	pipeline.Spend = log
-	pipeline.Reviewer = review.Reviewer{Backend: provider, Model: testReviewerModel, Effort: "xhigh", Spend: log}
+	pipeline.Reviewer = review.Reviewer{Backend: effortReportingBackend{provider}, Model: testReviewerModel, Effort: "xhigh", Spend: log}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {
@@ -82,6 +93,12 @@ func TestARunAsksEachRoleForItsOwnEffortAndRecordsIt(t *testing.T) {
 	if state.ReviewEffort != "xhigh" || outcome.ReviewEffort != "xhigh" {
 		t.Fatalf("recorded review effort = %q/%q, want xhigh", state.ReviewEffort, outcome.ReviewEffort)
 	}
+	if state.ProviderResolvedEffort != "medium" || !state.ProviderEffortReported || outcome.ProviderResolvedEffort != "medium" || !outcome.ProviderEffortReported {
+		t.Fatalf("provider-reported effort was lost: state=%+v outcome=%+v", state, outcome)
+	}
+	if state.ReviewResolvedEffort != "" || state.ReviewEffortReported || outcome.ReviewResolvedEffort != "" || outcome.ReviewEffortReported {
+		t.Fatal("an unreported review effort must not repeat the requested effort")
+	}
 	if len(log.lines) == 0 {
 		t.Fatal("the run recorded no cost line")
 	}
@@ -92,6 +109,9 @@ func TestARunAsksEachRoleForItsOwnEffortAndRecordsIt(t *testing.T) {
 		}
 		if line.Effort != want {
 			t.Fatalf("the %s cost line records effort %q, want %q", line.Role, line.Effort, want)
+		}
+		if line.EffortReported != (line.Role == domain.RoleDeveloper) {
+			t.Fatalf("cost line lost effort reporting status: %+v", line)
 		}
 	}
 }
@@ -199,5 +219,49 @@ func TestAnEffortEditedMidRunReachesNoRunInFlight(t *testing.T) {
 	}
 	if !state.EffortSettled || state.ProviderEffort != "" {
 		t.Fatalf("recorded settled=%v effort=%q, want the empty level recorded as settled", state.EffortSettled, state.ProviderEffort)
+	}
+}
+
+func TestCodexRunPinsAnExplicitDefaultThroughRepair(t *testing.T) {
+	t.Parallel()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
+	var agents map[string]config.AgentConfig
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		for name, agent := range agents {
+			if agent.Role == domain.RoleDeveloper {
+				agent.Effort = "high"
+				agents[name] = agent
+			}
+		}
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, repairVerdict, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	for name, agent := range pipeline.Config.Agents {
+		if agent.Role == domain.RoleDeveloper {
+			agent.Backend, agent.Model, agent.Effort = domain.BackendCodex, "gpt-6.1-sol", ""
+			pipeline.Config.Agents[name] = agent
+		}
+	}
+	agents = pipeline.Config.Agents
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attempts := provider.RequestsForRole(domain.RoleDeveloper)
+	if len(attempts) < 2 {
+		t.Fatal("the test needs a first attempt and a repair")
+	}
+	for _, request := range attempts {
+		if request.Model != "gpt-6.1-sol" || request.Effort != "low" {
+			t.Fatalf("the configured default changed during a live run: %+v", request)
+		}
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.EffortSettled || state.ProviderEffort != "low" || outcome.ProviderEffort != "low" {
+		t.Fatalf("default was not recorded on the run: %+v", state)
 	}
 }

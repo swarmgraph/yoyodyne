@@ -54,7 +54,7 @@ func sandboxCommand(t *testing.T, repository, worktree, session string, role dom
 	t.Helper()
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
-	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: role, WorkingDirectory: worktree,
 		RepositoryRoot: repository, Prompt: "do the work", SessionID: session,
 	})
@@ -140,7 +140,7 @@ func TestDeveloperSandboxRefusesAnEscapingWorktreeBeforeLaunchOrResume(t *testin
 	}
 	for _, session := range []string{"", "session-one"} {
 		runner := &fakeRunner{}
-		_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
+		_, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree,
 			RepositoryRoot: repository, Prompt: "do the work", SessionID: session,
 		})

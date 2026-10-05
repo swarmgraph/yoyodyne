@@ -83,11 +83,14 @@ type BranchReview struct {
 	ResolvedModel  string    `json:"resolved_model,omitempty"`
 	// Effort is the effort level the review asked the provider for, and empty
 	// where the reviewer agent configured none.
-	Effort   string    `json:"effort,omitempty"`
-	Decision string    `json:"decision,omitempty"`
-	Summary  string    `json:"summary,omitempty"`
-	Findings []Finding `json:"findings,omitempty"`
-	Failure  string    `json:"failure,omitempty"`
+	Effort string `json:"effort,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string    `json:"resolved_effort,omitempty"`
+	EffortReported bool      `json:"effort_reported"`
+	Decision       string    `json:"decision,omitempty"`
+	Summary        string    `json:"summary,omitempty"`
+	Findings       []Finding `json:"findings,omitempty"`
+	Failure        string    `json:"failure,omitempty"`
 	// Shadow marks a review made to measure the reviewer rather than to judge
 	// the branch: the same reviewer under the same contract, run again over a
 	// branch state another review already decided, so the two verdicts can be

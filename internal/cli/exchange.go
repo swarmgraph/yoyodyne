@@ -274,7 +274,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		SessionID:        question.SessionID,
 		Model:            agent.Model,
 		// The agent's effort level, kept by whichever model serves the turn.
-		Effort: strings.TrimSpace(agent.Effort),
+		Effort: v.config.InvocationEffort(agent, agent.Model),
 		// The adapter enforces the role's read-only access, as on its main
 		// conversation. The answering reply carries no authority to act.
 		AllowedTools:     []string{},
@@ -301,7 +301,9 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		// would leave the exchange record naming a model that refused it.
 		Model:          served.Model,
 		ResolvedModel:  result.ResolvedModel,
-		Effort:         strings.TrimSpace(agent.Effort),
+		Effort:         served.Effort,
+		ResolvedEffort: result.ResolvedEffort,
+		EffortReported: result.EffortReported,
 		AccountAlias:   account.Alias,
 		ConfigRevision: v.config.Revision(),
 		Build:          buildinfo.Commit(),

@@ -257,6 +257,43 @@ one verdict, or a developer told not to edit when the whole run is an edit. An
 adapter picks the mode that grants what the tool access needs and nothing else, never
 the one that instructs.
 
+## Codex effort
+
+Every Codex invocation passes the agent's effort explicitly with
+`--config 'model_reasoning_effort="high"'` for `effort: high`. The override is
+applied before `resume`, on initial and resumed invocations of every role.
+Personal Codex settings cannot select the effort. An omitted effort passes the
+invoked model's own advertised default explicitly, including `low` for `gpt-6-astra`
+and `gpt-6.1-sol`.
+
+The accepted levels are model-specific. In codex-cli **0.159.2**, the bundled
+catalog advertises `low`, `medium`, `high`, `xhigh`, `max`, and `ultra` for Astra,
+Sol 6.1, Sol 6, Sol 5.6, Terra 5.6, and both Daybreak selectors. Luna 6, Luna 5.6,
+and `codex-auto-review` stop at `max`; `gpt-5.5` stops at `xhigh`. Defaults are
+`low` for Astra, Sol 6.1, Sol 5.6, and Daybreak Blue, and `medium` for the rest.
+The [configuration guide](configuration.md#an-agents-effort-level) lists exact
+selectors. Unlisted selectors and unsupported levels are refused at load;
+refusals name accepted levels where the model is established.
+
+These values were established locally from `codex debug models --bundled`;
+`codex exec --help` and `codex exec resume --help` establish the config flag.
+Local configuration validation confirms a string value is required, but accepts
+unadvertised strings too, so Yoyo checks the model catalog rather than relying
+on the CLI parser to refuse them. The recorded catalog is
+`internal/backend/testdata/codex-cli-0.159.2-effort.json`. No provider call or
+operator Codex home was needed to establish it. These are Codex's own values,
+not a translation of Claude Code levels, and a declared Codex provider inherits
+the same policy.
+
+Requested effort is recorded beside the requested model. Reported effort is
+separate: `effort_reported: false` says the served effort was not reported.
+The current `exec --json` stream normally omits it; a `session_configured` event
+with `reasoning_effort` supplies it. For a live check, run one harness invocation
+at `codex/gpt-6-astra/high` and inspect its Codex session JSONL `turn_context`
+line: `payload.effort` and
+`payload.collaboration_mode.settings.reasoning_effort` should both be `high`.
+Deploy this support before activating live configuration that requires it.
+
 ## Writing one
 
 Providers go under a top-level `providers:` key in your configuration, keyed by

@@ -20,10 +20,8 @@ package config
 // says so, rather than the crossing failing on a flag the provider refuses --
 // which would cost the turn the failover exists to save.
 //
-// The key is optional, so a file written before it existed loads unchanged and
-// runs exactly as it did: no level passed, the provider's own resolution. The
-// shipped template states one for every agent, and `yoyo config drift` reports
-// it to such a project as available.
+// Omitted Codex effort is resolved to the model's advertised default and passed
+// explicitly; Claude's existing resolution of an omitted effort is preserved.
 
 import (
 	"fmt"
@@ -33,17 +31,25 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// effortProblems reports an effort level one agent's provider, or the provider
-// its failover alternate crosses onto, would not accept. A provider the project
+// effortProblems reports an effort level the agent's configured model
+// would not accept. A provider the project
 // does not name is reported elsewhere, and nothing is said about its levels.
 func effortProblems(providers *backend.Registry, name string, agent AgentConfig) []string {
 	level := strings.TrimSpace(agent.Effort)
-	if level == "" {
-		return nil
-	}
+
 	var problems []string
-	if descriptor, known := providers.Lookup(agent.Backend); known && !descriptor.AcceptsEffort(level) {
-		problems = append(problems, effortRefusal(name, level, agent.Backend, descriptor))
+	if descriptor, known := providers.Lookup(agent.Backend); known {
+		model := agent.Model
+		if agent.ModelVersion != "" {
+			model = agent.ModelVersion
+		}
+		narrowed := descriptor.ForModel(model)
+		if descriptor.Adapter == domain.BackendCodex && len(narrowed.EffortLevels) == 0 {
+			return []string{fmt.Sprintf("agent %q uses Codex model %q whose effort levels and default are not established by this build; use a model in the codex-cli 0.159.2 bundled catalog", name, model)}
+		}
+		if level != "" && !narrowed.AcceptsEffort(level) {
+			problems = append(problems, effortRefusal(name, level, agent.Backend, narrowed))
+		}
 	}
 	return problems
 }
@@ -58,7 +64,58 @@ func effortRefusal(name, level string, provider domain.Backend, descriptor backe
 }
 
 // AgentEffort is the effort level one configured agent's invocations ask for,
-// and empty for an agent that names none.
+// including the explicit Codex default when its configuration names none.
 func (c Config) AgentEffort(name string) string {
-	return strings.TrimSpace(c.Agents[strings.TrimSpace(name)].Effort)
+	agent := c.Agents[strings.TrimSpace(name)]
+	return c.InvocationEffort(agent, agent.Model)
+}
+
+// InvocationEffort resolves the level before constructing or recording an
+// invocation, including one whose task overrides the configured model.
+func (c Config) InvocationEffort(agent AgentConfig, model string) string {
+	if model == agent.Model && agent.ModelVersion != "" {
+		model = agent.ModelVersion
+	}
+	providers, err := c.ProviderRegistry()
+	if err == nil {
+		if descriptor, ok := providers.Lookup(agent.Backend); ok {
+			return descriptor.InvocationEffort(model, agent.Effort)
+		}
+	}
+	return strings.TrimSpace(agent.Effort)
+}
+
+// Every configured Codex selector is checked before any role can be invoked,
+// including models a mapping or a recurring task supplies to that role.
+func (c Config) otherEffortProblems(providers *backend.Registry, name string, agent AgentConfig) []string {
+	var problems []string
+	check := func(label string, target AgentConfig) {
+		if descriptor, ok := providers.Lookup(target.Backend); ok && descriptor.Adapter == domain.BackendCodex {
+			problems = append(problems, effortProblems(providers, name+" ("+label+")", target)...)
+		}
+	}
+	if agent.Failover.Enabled {
+		alternate := agent
+		alternate.Model, alternate.ModelVersion = agent.Failover.Model, ""
+		if agent.Failover.Provider != "" {
+			alternate.Backend = agent.Failover.Provider
+		}
+		check("failover", alternate)
+	}
+	if agent.Role == domain.RoleDeveloper {
+		for _, rule := range c.Execution.DeveloperModels {
+			mapped := agent
+			mapped.Model, mapped.ModelVersion = rule.Model, ""
+			check("developer model mapping", mapped)
+		}
+	}
+	for _, taskName := range c.RecurringTaskNames() {
+		task := c.RecurringTasks[taskName]
+		if task.Role == agent.Role && task.ModelSelector() != "" {
+			mapped := agent
+			mapped.Model, mapped.ModelVersion = task.ModelSelector(), ""
+			check("recurring task "+taskName, mapped)
+		}
+	}
+	return problems
 }

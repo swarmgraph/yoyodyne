@@ -538,7 +538,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		Reviewer: review.Reviewer{
 			Backend: reviewerProvider,
 			Model:   agentModel(cfg, domain.RoleReviewer),
-			Effort:  agentForRole(cfg, domain.RoleReviewer).Effort,
+			Effort:  cfg.InvocationEffort(agentForRole(cfg, domain.RoleReviewer), agentModel(cfg, domain.RoleReviewer)),
 			Persona: agentForRole(cfg, domain.RoleReviewer).Persona.Text,
 			// The reviewer's invocation is its own spend and lands in the same log
 			// the developer's does, charged to the review rather than to the change.

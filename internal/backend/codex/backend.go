@@ -383,6 +383,7 @@ func (Backend) Capabilities() backend.Capabilities {
 // conformance_test.go checks every invocation against it.
 func invocationArgs(request backend.RunRequest, sandbox string, directories []string) []string {
 	args := []string{"exec", "--sandbox", sandbox}
+	args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
 	if sandbox == sandboxWorkspaceWrite {
 		// exec resume has no --add-dir option. A config override ahead of resume
 		// applies the same confined roots on every turn and replaces user roots.
@@ -449,13 +450,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		return backend.RunResult{}, errors.New("Codex runs cannot be granted a tool list; the sandbox is what scopes what an agent may do")
 	}
 
-	// Codex accepts no effort level from this harness (see backend/effort.go),
-	// and the configuration refuses one on a Codex agent. A request carrying one
-	// anyway is refused rather than run with the level quietly dropped, for the
-	// reason a tool list is: the record would say a level was asked for that the
-	// provider was never given.
-	if strings.TrimSpace(request.Effort) != "" {
-		return backend.RunResult{}, fmt.Errorf("Codex runs cannot be given effort level %q; this provider accepts no effort level", request.Effort)
+	descriptor, _ := backend.BuiltInDescriptor(domain.BackendCodex)
+	descriptor = descriptor.ForModel(request.Model)
+	request.Effort = descriptor.InvocationEffort(request.Model, request.Effort)
+	if !descriptor.AcceptsEffort(request.Effort) {
+		return backend.RunResult{}, fmt.Errorf("Codex model %q does not accept effort %q; accepted values: %s", request.Model, request.Effort, descriptor.DescribeEffortLevels())
 	}
 
 	invocation := request

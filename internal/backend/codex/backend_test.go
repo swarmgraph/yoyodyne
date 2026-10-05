@@ -225,7 +225,7 @@ func TestAnInvocationIsGivenAnExplicitEnvironmentWithoutTheSlackTokens(t *testin
 		Stdout: lines(`{"id":"0","msg":{"type":"session_configured","session_id":"session-1"}}`,
 			`{"id":"1","msg":{"type":"task_complete","last_agent_message":"done"}}`),
 	}}}
-	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: t.TempDir(),
@@ -258,7 +258,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	t.Parallel()
 
 	stream := lines(
-		`{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-test"}}`,
+		`{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-6.1-sol"}}`,
 		`{"id":"1","msg":{"type":"task_started"}}`,
 		`{"id":"2","msg":{"type":"agent_message_delta","delta":"wor"}}`,
 		`{"id":"3","msg":{"type":"agent_message","message":"working"}}`,
@@ -269,7 +269,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	)
 	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}}
 	var events []execution.Event
-	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -282,7 +282,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if result.IsError || result.FinalText != "done" || result.SessionID != "session-1" || result.ResolvedModel != "gpt-test" {
+	if result.IsError || result.FinalText != "done" || result.SessionID != "session-1" || result.ResolvedModel != "gpt-6.1-sol" {
 		t.Fatalf("Run() result = %#v", result)
 	}
 	if result.Backend != domain.BackendCodex {
@@ -328,11 +328,11 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite,
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
 		"--config", `approval_policy="never"`,
 		"--config", "sandbox_workspace_write.writable_roots=[]",
 		"--config", "sandbox_workspace_write.network_access=false",
-		"--cd", "/worktree", "--json", "--skip-git-repo-check", "-"}
+		"--cd", "/worktree", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -349,7 +349,7 @@ func TestATerminalCarriesTokensAndNoPrice(t *testing.T) {
 	t.Parallel()
 
 	result, events := runStream(t, domain.RoleDeveloper, lines(
-		`{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-test"}}`,
+		`{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-6.1-sol"}}`,
 		`{"id":"1","msg":{"type":"token_count","input_tokens":11,"cached_input_tokens":5,"output_tokens":3}}`,
 		`{"id":"2","msg":{"type":"task_complete","last_agent_message":"done"}}`,
 	))
@@ -433,7 +433,7 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 			// all, because the only sandbox left to default to would be the
 			// developer's.
 			name:    "a name that is not a role at all",
-			request: backendapi.RunRequest{Role: "security-reviewer"},
+			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: "security-reviewer"},
 			wanted:  `does not support role "security-reviewer"`,
 		},
 		{
@@ -441,7 +441,7 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 			// set than the sandbox gives would otherwise get a wider one and be
 			// told nothing.
 			name:    "a tool list this provider cannot scope",
-			request: backendapi.RunRequest{Role: domain.RoleDeveloper, AllowedTools: []string{"Read"}},
+			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, AllowedTools: []string{"Read"}},
 			wanted:  "cannot be granted a tool list",
 		},
 	} {
@@ -474,7 +474,7 @@ func TestRunReadOnlyRolesOnFreshAndResumedInvocations(t *testing.T) {
 			t.Run(string(role)+"/"+session, func(t *testing.T) {
 				t.Parallel()
 				runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"ok"}}`)}}}
-				_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "inspect and advise", SessionID: session})
+				_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "inspect and advise", SessionID: session})
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -523,15 +523,15 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 		WorkingDirectory: "/worktree",
 		Prompt:           "carry on",
 		SessionID:        "session-1",
-		Model:            "gpt-test",
+		Model:            "gpt-6.1-sol",
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite,
+	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
 		"--config", `approval_policy="never"`,
 		"--config", "sandbox_workspace_write.writable_roots=[]",
 		"--config", "sandbox_workspace_write.network_access=false",
-		"--cd", "/worktree", "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-test", "-"}
+		"--cd", "/worktree", "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -567,7 +567,7 @@ func TestAnInvocationIsMadeUnderTheAccountItWasGiven(t *testing.T) {
 				Status: execution.ProcessSucceeded,
 				Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"done"}}`),
 			}}}
-			if _, err := (Backend{Runner: runner, Clock: fixedClock{}, ConfigDir: test.onValue}).Run(context.Background(), backendapi.RunRequest{
+			if _, err := (Backend{Runner: runner, Clock: fixedClock{}, ConfigDir: test.onValue}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 				RunID:            testRunID,
 				Role:             domain.RoleDeveloper,
 				WorkingDirectory: worktree,
@@ -596,7 +596,7 @@ func TestTheRolesContractReachesTheProvider(t *testing.T) {
 		Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"done"}}`),
 	}}}
-	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -641,7 +641,7 @@ func TestRunFailsWhenNoTerminalArrives(t *testing.T) {
 		Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"session_configured","session_id":"session-1"}}`),
 	}}}
-	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -672,7 +672,7 @@ func TestAStreamThisAdapterCannotReadNamesTheVersionAndTheFirstUnknownEvent(t *t
 		},
 		{Status: execution.ProcessSucceeded, Stdout: "codex-cli 9.9.9\n"},
 	}}
-	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -703,7 +703,7 @@ func TestAnUnreadableStreamIsReportedWhenTheVersionIsNot(t *testing.T) {
 		{Status: execution.ProcessSucceeded, Stdout: lines(`{"type":"turn.interrupted"}`)},
 		{Status: execution.ProcessFailed, ExitCode: 2},
 	}}
-	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	_, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -749,7 +749,7 @@ func runProcessFailure(t *testing.T, stream, stderr string) (backendapi.RunResul
 	result, err := (Backend{
 		Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessFailed, ExitCode: 1, Stdout: stream, Stderr: stderr}}},
 		Clock:  fixedClock{},
-	}).Run(context.Background(), backendapi.RunRequest{
+	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -870,7 +870,7 @@ func TestRunReadsProseOnlyForAProcessNothingElseAnswered(t *testing.T) {
 		{name: "a banner on stdout is not a wait", stream: "Reading prompt from stdin...\n"},
 		{
 			name:   "a refusal after an event is not read",
-			stream: `{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-5"}}` + "\n" + loginRefusedByCodex + "\n",
+			stream: `{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-6.1-sol"}}` + "\n" + loginRefusedByCodex + "\n",
 		},
 		{
 			// The terminal is the provider's account of the ending and prose does
@@ -915,7 +915,7 @@ func TestACutLineIsRecordedAsAnAnomalyAndTheStreamCarriesOn(t *testing.T) {
 			after: `{"id":"1","msg":{"type":"task_complete","last_agent_message":"done"}}`,
 		},
 		Clock: fixedClock{},
-	}).Run(context.Background(), backendapi.RunRequest{
+	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -965,7 +965,7 @@ func TestRunRedactsWhatTheProviderEchoesBack(t *testing.T) {
 				`{"id":"1","msg":{"type":"task_complete","last_agent_message":"used sk-secret-value"}}`),
 		}}},
 		Clock: fixedClock{},
-	}).Run(context.Background(), backendapi.RunRequest{
+	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -1021,7 +1021,7 @@ func TestADeclaredProviderIsRecordedUnderItsOwnName(t *testing.T) {
 		Status: execution.ProcessSucceeded,
 		Stdout: lines(`{"id":"0","msg":{"type":"task_complete","last_agent_message":"done"}}`),
 	}}}
-	result, err := (Backend{Runner: runner, Clock: fixedClock{}, Provider: "my-harness", Binary: "my-harness"}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{Runner: runner, Clock: fixedClock{}, Provider: "my-harness", Binary: "my-harness"}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
@@ -1051,7 +1051,7 @@ func runStream(t *testing.T, role domain.AgentRole, stream string) (backendapi.R
 	result, err := (Backend{
 		Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, Stdout: stream}}},
 		Clock:  fixedClock{},
-	}).Run(context.Background(), backendapi.RunRequest{
+	}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             role,
 		WorkingDirectory: "/worktree",
@@ -1153,11 +1153,11 @@ func (fixedClock) Now() time.Time {
 	return time.Date(2026, 8, 27, 12, 0, 0, 0, time.UTC)
 }
 
-// Codex accepts no effort level from this harness, and a request that carries
-// one anyway is refused before anything is launched rather than run with the
+// An effort outside the model catalog is refused, and a request carrying
+// one is refused before anything is launched rather than run with the
 // level dropped, so no record can say a level was asked of Codex that it never
 // received.
-func TestRunRefusesAnEffortLevel(t *testing.T) {
+func TestRunRefusesAnUnacceptedEffortLevel(t *testing.T) {
 	t.Parallel()
 
 	runner := &fakeRunner{}
@@ -1166,11 +1166,11 @@ func TestRunRefusesAnEffortLevel(t *testing.T) {
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
 		Prompt:           "go",
-		Model:            "gpt-test",
-		Effort:           "high",
+		Model:            "gpt-6.1-sol",
+		Effort:           "extreme",
 	})
-	if err == nil || !strings.Contains(err.Error(), "accepts no effort level") {
-		t.Fatalf("Run() error = %v, want the refusal naming that Codex accepts no effort level", err)
+	if err == nil || !strings.Contains(err.Error(), "accepted values: low, medium, high, xhigh, max, or ultra") {
+		t.Fatalf("Run() error = %v, want the refusal naming accepted levels", err)
 	}
 	if len(runner.commands) != 0 {
 		t.Fatalf("a refused request launched %d process(es)", len(runner.commands))
@@ -1191,7 +1191,7 @@ func TestReadOnlyLaunchCleanupAndRelativeRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{errors: []error{errors.New("provider failed")}}
-	_, err = (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: relative, Prompt: "review"})
+	_, err = (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: relative, Prompt: "review"})
 	if err == nil || !strings.Contains(err.Error(), "provider failed") {
 		t.Fatalf("error = %v", err)
 	}
@@ -1271,7 +1271,7 @@ func TestReadOnlyRelativeProviderHomeKeepsRepositoryResolution(t *testing.T) {
 	t.Parallel()
 	repository := t.TempDir()
 	runner := &fakeRunner{errors: []error{errors.New("provider failed")}}
-	_, _ = (Backend{Runner: runner, ConfigDir: "account-home"}).Run(context.Background(), backendapi.RunRequest{RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: repository, Prompt: "review"})
+	_, _ = (Backend{Runner: runner, ConfigDir: "account-home"}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol", RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: repository, Prompt: "review"})
 	if len(runner.commands) != 1 {
 		t.Fatal("provider did not start")
 	}

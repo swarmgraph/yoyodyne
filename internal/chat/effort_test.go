@@ -51,7 +51,7 @@ func TestAConversationTurnAsksForTheAgentsEffortAndRecordsIt(t *testing.T) {
 // provider accepts it, and is asked with none where it accepts none -- and the
 // conversation's record then says none was asked, rather than the level the
 // agent configured.
-func TestACrossedTurnKeepsTheEffortOrRecordsThatItAskedForNone(t *testing.T) {
+func TestACrossedTurnKeepsTheEffortOnBothAdapters(t *testing.T) {
 	t.Parallel()
 
 	for _, adapter := range []domain.Backend{domain.BackendClaudeCode, domain.BackendCodex} {
@@ -66,14 +66,16 @@ func TestACrossedTurnKeepsTheEffortOrRecordsThatItAskedForNone(t *testing.T) {
 		options.Providers = effortProviderRegistry(t, adapter)
 		options.UsageLimits = newTestUsageLimits(t)
 		options.Effort = "high"
+		if adapter == domain.BackendCodex {
+			options.FailoverModel = "gpt-6-astra"
+			options.FailoverEndpoint.Model = "gpt-6-astra"
+		}
 
 		if _, err := openTestSession(t, options).Send(context.Background(), "what now?"); err != nil {
 			t.Fatalf("%s: Send() error = %v, want the turn served on the other provider", adapter, err)
 		}
 		want := "high"
-		if adapter == domain.BackendCodex {
-			want = ""
-		}
+
 		if len(held.requests) != 1 || held.requests[0].Effort != "high" {
 			t.Fatalf("%s: held requests = %#v, want the refused attempt at high", adapter, held.requests)
 		}
@@ -87,6 +89,23 @@ func TestACrossedTurnKeepsTheEffortOrRecordsThatItAskedForNone(t *testing.T) {
 		if recorded.ProviderEffort != want {
 			t.Fatalf("%s: recorded effort = %q, want %q", adapter, recorded.ProviderEffort, want)
 		}
+	}
+}
+
+func TestCrossedTurnEvidenceUsesTheRequestedEffortOfTheServingInvocation(t *testing.T) {
+	t.Parallel()
+	held := &speakingBackend{results: []backendapi.RunResult{{IsError: true, UsageLimit: &backendapi.UsageLimit{Kind: "window", ResetsAt: time.Now().Add(time.Hour)}}}}
+	crossed := &speakingBackend{results: []backendapi.RunResult{{SessionID: "second-session", FinalText: "Done."}}}
+	options := crossingOptions(t, held, crossed)
+	options.Provider, options.Model, options.Effort = domain.BackendCodex, "gpt-6-astra", "ultra"
+	options.UsageLimits = newTestUsageLimits(t)
+	options.Providers = effortProviderRegistry(t, domain.BackendClaudeCode)
+	reply, err := openTestSession(t, options).Send(context.Background(), "continue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(crossed.requests) != 1 || crossed.requests[0].Effort != "" || reply.Evidence.Effort != "" {
+		t.Fatalf("the sweep's turn evidence repeated the configured ultra: requests=%+v evidence=%+v", crossed.requests, reply.Evidence)
 	}
 }
 
@@ -112,4 +131,43 @@ func effortProviderRegistry(t *testing.T, adapter domain.Backend) *backendapi.Re
 		t.Fatalf("NewRegistry() error = %v", err)
 	}
 	return registry
+}
+
+func TestCodexConversationDefaultsAndRecordsRequestedAndReportedEffortPerTurn(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{Backend: domain.BackendCodex, SessionID: "codex-session", FinalText: "First.", ResolvedEffort: "high", EffortReported: true},
+		{Backend: domain.BackendCodex, SessionID: "codex-session", FinalText: "Second."},
+	}}
+	log := &recordingSpendLog{}
+	options := testOptions(t, provider)
+	options.Provider, options.Model, options.Effort = domain.BackendCodex, "gpt-6.1-sol", ""
+	options.Spend = log
+	session := openTestSession(t, options)
+	for index := 0; index < 2; index++ {
+		reply, err := session.Send(context.Background(), "continue")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if reply.Evidence.Effort != "low" || reply.Evidence.EffortReported != (index == 0) {
+			t.Fatalf("turn %d evidence = %+v", index, reply.Evidence)
+		}
+		recorded, err := options.Store.Load(runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if recorded.ProviderEffort != "low" || recorded.ProviderEffortReported != (index == 0) {
+			t.Fatalf("turn %d record = %+v", index, recorded)
+		}
+		want := ""
+		if index == 0 {
+			want = "high"
+		}
+		if recorded.ProviderResolvedEffort != want || log.lines[index].ResolvedEffort != want || log.lines[index].EffortReported != (index == 0) || log.lines[index].Effort != "low" {
+			t.Fatalf("turn %d effort was guessed or lost: record=%+v, cost=%+v", index, recorded, log.lines[index])
+		}
+	}
+	if len(provider.requests) != 2 || provider.requests[0].Effort != "low" || provider.requests[1].Effort != "low" || provider.requests[0].SessionID != "" || provider.requests[1].SessionID != "codex-session" {
+		t.Fatalf("initial and resumed requests = %+v", provider.requests)
+	}
 }

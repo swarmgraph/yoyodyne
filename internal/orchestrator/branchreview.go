@@ -140,9 +140,12 @@ type BranchReviewOutcome struct {
 	Model          string           `json:"model,omitempty"`
 	ResolvedModel  string           `json:"resolved_model,omitempty"`
 	Effort         string           `json:"effort,omitempty"`
-	Invariants     []string         `json:"invariants,omitempty"`
-	Reports        []report.Report  `json:"reports,omitempty"`
-	ReportProblem  string           `json:"report_problem,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string          `json:"resolved_effort,omitempty"`
+	EffortReported bool            `json:"effort_reported"`
+	Invariants     []string        `json:"invariants,omitempty"`
+	Reports        []report.Report `json:"reports,omitempty"`
+	ReportProblem  string          `json:"report_problem,omitempty"`
 	// Shadow says this review was made to measure the reviewer, and gates
 	// nothing. It is carried on the outcome as well as the record so that a
 	// caller reading the verdict cannot read it as an approval either.
@@ -240,6 +243,8 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	outcome.Model = result.RequestedModel
 	outcome.ResolvedModel = result.ResolvedModel
 	outcome.Effort = result.RequestedEffort
+	outcome.ResolvedEffort = result.ResolvedEffort
+	outcome.EffortReported = result.EffortReported
 	outcome.Summary = result.Verdict.Summary
 	outcome.Findings = result.Verdict.Findings
 	// What the reviewer reported is collected before its verdict is read,
@@ -387,6 +392,8 @@ func (b BranchReviewer) record(outcome *BranchReviewOutcome, change gitworktree.
 		Model:          outcome.Model,
 		ResolvedModel:  outcome.ResolvedModel,
 		Effort:         outcome.Effort,
+		ResolvedEffort: outcome.ResolvedEffort,
+		EffortReported: outcome.EffortReported,
 		Decision:       string(outcome.Decision),
 		Summary:        outcome.Summary,
 		Findings:       durableFindings(outcome.Findings),

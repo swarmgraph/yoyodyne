@@ -10,16 +10,14 @@ package backend
 // record says. The configuration therefore names one beside the model, the
 // adapter passes it on every invocation, and the record says what was asked.
 //
-// Which levels a provider accepts is the descriptor's, as which roles it serves
-// is, so what refuses a configuration and what an adapter would pass are one
-// statement. Codex accepts none here. It has a reasoning-effort setting of its
-// own, but its accepted values and its default could not be confirmed against
-// its documentation or observed from its binary when this was written, and a
-// level passed to a provider that rejects it fails the invocation rather than
-// the configuration. So a Codex agent naming a level is refused when the file
-// loads, naming why, rather than launched with a guess.
+// Accepted levels and defaults belong to the adapter descriptor, so validation,
+// launch arguments, and durable records use the same policy. Codex's model
+// catalog is established locally from codex-cli 0.159.2, without a provider call.
 
-import "strings"
+import (
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"strings"
+)
 
 // claudeCodeEffortLevels are the levels Claude Code's --effort flag accepts, as
 // its own help states them: "Effort level for the current session (low, medium,
@@ -47,4 +45,51 @@ func (d Descriptor) DescribeEffortLevels() string {
 		return d.EffortLevels[0]
 	}
 	return strings.Join(d.EffortLevels[:len(d.EffortLevels)-1], ", ") + ", or " + d.EffortLevels[len(d.EffortLevels)-1]
+}
+
+// ModelEffort is the provider's advertised levels and default for one model.
+type ModelEffort struct {
+	Default string
+	Levels  []string
+}
+
+// codexModelEfforts was read from `codex debug models --bundled` on 0.159.2.
+// Unlike Claude's levels, Codex effort strings are model-defined. The CLI's
+// configuration parser accepts any nonempty string; the catalog is what proves
+// which values the configured model supports.
+var codexModelEfforts = map[string]ModelEffort{
+	"gpt-6-astra":              {Default: "low", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-6.1-sol":              {Default: "low", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-6-sol":                {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-6-luna":               {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh", "max"}},
+	"gpt-5.6-sol":              {Default: "low", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-5.6-terra":            {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-5.6-luna":             {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh", "max"}},
+	"gpt-daybreak-blue-latest": {Default: "low", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-daybreak-red-latest":  {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh", "max", "ultra"}},
+	"gpt-5.5":                  {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh"}},
+	"codex-auto-review":        {Default: "medium", Levels: []string{"low", "medium", "high", "xhigh", "max"}},
+}
+
+// ForModel narrows the descriptor to the levels its model advertises. An
+// unverified Codex selector has no accepted levels or established default.
+func (d Descriptor) ForModel(model string) Descriptor {
+	if d.Adapter != domain.BackendCodex {
+		return d
+	}
+	if policy, ok := codexModelEfforts[strings.TrimSpace(model)]; ok {
+		d.EffortLevels, d.DefaultEffort = policy.Levels, policy.Default
+	} else {
+		d.EffortLevels, d.DefaultEffort = nil, ""
+	}
+	return d
+}
+
+// InvocationEffort resolves an omitted effort explicitly where the provider
+// has an established default. Claude's existing empty-effort behavior is kept.
+func (d Descriptor) InvocationEffort(model, effort string) string {
+	if level := strings.TrimSpace(effort); level != "" {
+		return level
+	}
+	return d.ForModel(model).DefaultEffort
 }

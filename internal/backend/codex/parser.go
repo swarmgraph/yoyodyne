@@ -187,8 +187,9 @@ type providerMessage struct {
 	TurnError json.RawMessage `json:"error"`
 	// session_configured names the session a later invocation resumes and the
 	// model the provider resolved the requested selector to.
-	SessionID string `json:"session_id"`
-	Model     string `json:"model"`
+	SessionID       string  `json:"session_id"`
+	Model           string  `json:"model"`
+	ReasoningEffort *string `json:"reasoning_effort"`
 	// agent_message, error, and stream_error each carry their prose here.
 	Message string `json:"message"`
 	// task_complete carries the agent's last message, which is the invocation's
@@ -529,6 +530,10 @@ func (p *streamParser) parseSessionConfigured(message providerMessage) error {
 	// buried in the event payload, because a floating family alias makes the
 	// resolved identifier the only durable evidence of what really ran.
 	p.result.ResolvedModel = message.Model
+	if message.ReasoningEffort != nil && strings.TrimSpace(*message.ReasoningEffort) != "" {
+		p.result.ResolvedEffort = *message.ReasoningEffort
+		p.result.EffortReported = true
+	}
 	return p.emit(execution.EventRunStarted, map[string]any{
 		"session_id": message.SessionID,
 		"model":      message.Model,
