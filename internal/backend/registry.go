@@ -115,7 +115,8 @@ type Descriptor struct {
 	// provider's own order from least to most, and nil for a provider that
 	// accepts none. A declared provider inherits its adapter's, because the level
 	// is passed on the command line the adapter builds. See effort.go.
-	EffortLevels []string
+	EffortLevels  []string
+	DefaultEffort string
 }
 
 // Runnable reports a provider something in this build can actually launch.
@@ -178,9 +179,10 @@ func BuiltInDescriptors() []Descriptor {
 				ToolControl:       true,
 				LocalAuth:         true,
 			},
-			Roles:    domain.Roles(),
-			Postures: Postures,
-			BuiltIn:  true,
+			Roles:        domain.Roles(),
+			Postures:     Postures,
+			BuiltIn:      true,
+			EffortLevels: []string{"low", "medium", "high", "xhigh", "max", "ultra"},
 		},
 	}
 }
@@ -340,6 +342,7 @@ func DescriptorFor(id domain.Backend, plugin ProviderPlugin) (Descriptor, error)
 		Postures:       append([]Posture(nil), plugin.Postures...),
 		Dialect:        dialect,
 		EffortLevels:   append([]string(nil), adapter.EffortLevels...),
+		DefaultEffort:  adapter.DefaultEffort,
 	}, nil
 }
 

@@ -54,12 +54,12 @@ func TestRunReadsTheFinalReplyAsTheEndOfTheTurn(t *testing.T) {
 	t.Parallel()
 
 	runner := &lingeringRunner{stdout: []string{
-		`{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-test"}}`,
+		`{"id":"0","msg":{"type":"session_configured","session_id":"session-1","model":"gpt-6.1-sol"}}`,
 		`{"id":"7","msg":{"type":"task_complete","last_agent_message":"done; make test and make race are running in the background"}}`,
 	}}
 	var waiting []execution.AfterReply
 	var events []execution.Event
-	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+	result, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement",
 		AfterReplyWaiting: func(account execution.AfterReply) { waiting = append(waiting, account) },
 		EventSink: func(event execution.Event) error {

@@ -283,7 +283,7 @@ agents:
     model: fable
     failover:
       enabled: true
-      model: gpt-5-codex
+      model: gpt-6-astra
       provider: codex
 `, nil)
 	if err == nil {
@@ -310,7 +310,7 @@ agents:
     model: fable
     failover:
       enabled: true
-      model: gpt-5-codex
+      model: gpt-6-astra
       provider: codex
       account: codex-account
 `, nil).Config
@@ -405,14 +405,14 @@ agents:
     model: fable
     failover:
       enabled: false
-      model: gpt-5-codex
+      model: gpt-6-astra
       provider: codex
       account: codex-account
 `, nil).Config
 	if alternate := cfg.AgentFailoverModel("developer"); alternate != "" {
 		t.Fatalf("failover model = %q, want nothing while it is switched off", alternate)
 	}
-	if kept := cfg.AgentFailover("developer"); kept.Model != "gpt-5-codex" || kept.Provider != domain.BackendCodex {
+	if kept := cfg.AgentFailover("developer"); kept.Model != "gpt-6-astra" || kept.Provider != domain.BackendCodex {
 		t.Fatalf("kept block = %#v, want the whole choice kept so it can be switched back on", kept)
 	}
 }

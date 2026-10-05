@@ -193,6 +193,7 @@ func TestAnAgentAssignedToNoAccountTakesTheFirstThatHoldsItsProvider(t *testing.
 	cfg := pooledConfig(t, "")
 	developer := cfg.Agents["developer"]
 	developer.Backend = domain.BackendCodex
+	developer.Model = "gpt-6.1-sol"
 	cfg.Agents["developer"] = developer
 	cfg.Accounts["two"] = Account{Provider: domain.BackendCodex}
 
@@ -231,6 +232,7 @@ func TestThePoolRefusesNothingConfigurationValidationAccepted(t *testing.T) {
 	cfg := pooledConfig(t, "")
 	developer := cfg.Agents["developer"]
 	developer.Backend = domain.BackendCodex
+	developer.Model = "gpt-6.1-sol"
 	cfg.Agents["developer"] = developer
 	cfg.Accounts["two"] = Account{Provider: domain.BackendCodex}
 	// Configuration validation accepts it: the roles Codex declares and the
@@ -271,6 +273,7 @@ func TestThePoolWillNotServeAnAgentFromAnotherProvidersAccount(t *testing.T) {
 	cfg := pooledConfig(t, "")
 	developer := cfg.Agents["developer"]
 	developer.Backend = domain.BackendCodex
+	developer.Model = "gpt-6.1-sol"
 	cfg.Agents["developer"] = developer
 
 	// Both accounts have provider homes of their own under the state root, and a
@@ -322,7 +325,7 @@ agents:
   developer:
     role: developer
     backend: codex
-    model: gpt-5
+    model: gpt-6.1-sol
 `)
 	if err := lone.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v, want a single-account project on Codex accepted", err)

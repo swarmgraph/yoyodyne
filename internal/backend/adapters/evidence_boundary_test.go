@@ -62,7 +62,7 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 			if !built || adapter == nil {
 				t.Fatal("adapter not built")
 			}
-			_, err = adapter.Run(context.Background(), backend.RunRequest{RunID: "run-boundary", Role: domain.RoleReviewer, WorkingDirectory: repo, Prompt: "Review the repository.", SessionID: session})
+			_, err = adapter.Run(context.Background(), backend.RunRequest{RunID: "run-boundary", Role: domain.RoleReviewer, Model: "gpt-6.1-sol", WorkingDirectory: repo, Prompt: "Review the repository.", SessionID: session})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -71,7 +71,7 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 				t.Fatalf("binary=%q", command.Name)
 			}
 			args := strings.Join(command.Args, "\n")
-			for _, want := range []string{"--sandbox\nread-only", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
+			for _, want := range []string{"--sandbox\nread-only", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "model_reasoning_effort=\"low\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
 				if !strings.Contains(args, want) {
 					t.Errorf("launch lacks %q: %v", want, command.Args)
 				}

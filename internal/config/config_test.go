@@ -300,8 +300,9 @@ func TestValidateAllowsCodexForEveryRole(t *testing.T) {
 	t.Parallel()
 	for _, role := range domain.Roles() {
 		input := strings.Replace(validBootstrapConfig, "backend: claude-code", "backend: codex", 1)
+		input = strings.Replace(input, "model: opus", "model: gpt-6.1-sol", 1)
 		if role != domain.RoleDeveloper {
-			input += "\n  codex-role:\n    role: " + string(role) + "\n    backend: codex\n    model: gpt-test\n"
+			input += "\n  codex-role:\n    role: " + string(role) + "\n    backend: codex\n    model: gpt-6.1-sol\n"
 		}
 		if _, err := Decode(strings.NewReader(input)); err != nil {
 			t.Errorf("Decode() %q Codex error = %v", role, err)

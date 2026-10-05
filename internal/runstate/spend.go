@@ -194,6 +194,9 @@ type Spend struct {
 	// empty where its agent configured none -- which is every line written
 	// before the level was configurable, and says the provider resolved its own.
 	Effort string `json:"effort,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string `json:"resolved_effort,omitempty"`
+	EffortReported bool   `json:"effort_reported"`
 	// AdapterVersion is the compiled adapter that reached the provider. With the
 	// backend, the account alias, and the model above it, it is the whole of the
 	// endpoint identity this line was served by — see backend.Endpoint — which is

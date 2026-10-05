@@ -4462,7 +4462,7 @@ down pins the level where it was, so it does not move when the alias does, and
 makes it something a record can say. A later change of level is an edit to this
 key.
 
-The key is optional. An agent without one passes no level, and Claude Code
+The key is optional. A Claude Code agent without one passes no level, and Claude Code
 resolves its own from the environment, the machine's settings, or the model's
 default — which is how every agent ran before the key existed and how a project
 whose file predates it still runs. Stating it empty in a later layer removes an
@@ -4476,15 +4476,44 @@ maps an item to, a model a [recurring task](#a-tasks-own-model) names, a pinned
 version's fallback to its alias, and a
 [failover alternate](#serving-a-turn-from-a-permitted-alternate-model) all serve
 the turn at the agent's level. The one exception is a failover that crosses onto
-a provider that accepts no level: that turn is asked with none, and its record
+a provider that does not accept the agent's level: that turn is asked with none, and its record
 says none was asked rather than the level configured, so the failover still
 saves the turn.
 
-**Codex is given no level.** It has a reasoning-effort setting of its own, but
-its accepted values and its default were not confirmed when this was written,
-so a Codex agent naming `effort` is refused when the file loads, saying so. A
-provider a project [declares](provider-plugins.md) accepts whatever its adapter
-does.
+**Codex always receives an explicit level.** On fresh and resumed invocations,
+including developer, reviewer, conversation, and recurring turns, the adapter
+passes `--config 'model_reasoning_effort="high"'` for `effort: high`, before
+`resume` when resuming. This overrides personal Codex settings. Omitting `effort`
+or setting it empty explicitly passes the invoked model's advertised default.
+The default is model-specific:
+
+| Codex model | Accepted levels | Default |
+| --- | --- | --- |
+| `gpt-6-astra`, `gpt-6.1-sol`, `gpt-5.6-sol`, `gpt-daybreak-blue-latest` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `low` |
+| `gpt-6-sol`, `gpt-5.6-terra`, `gpt-daybreak-red-latest` | `low`, `medium`, `high`, `xhigh`, `max`, `ultra` | `medium` |
+| `gpt-6-luna`, `gpt-5.6-luna`, `codex-auto-review` | `low`, `medium`, `high`, `xhigh`, `max` | `medium` |
+| `gpt-5.5` | `low`, `medium`, `high`, `xhigh` | `medium` |
+
+Established against **codex-cli 0.159.2**: `codex exec --help` and
+`codex exec resume --help` establish the config override and its placement;
+`codex debug models --bundled` supplies these levels and defaults without a
+provider call. Local validation in an isolated `CODEX_HOME` shows that
+`model_reasoning_effort` takes a string (an integer is refused). That CLI accepts
+unadvertised strings locally too, so parsing alone cannot establish model
+support. Yoyo validates against the recorded bundled catalog in
+`internal/backend/testdata/codex-cli-0.159.2-effort.json`: an unsupported level is
+refused at configuration load with accepted values named. An unlisted selector,
+including an unverified exact model version, is refused because this build has
+no established levels or default for it. The same check covers Codex models in
+failover, developer mappings, and recurring tasks. A provider a project
+[declares](provider-plugins.md) inherits its adapter's effort policy.
+
+For the technical-health program manager, configure `backend: codex`,
+`model: gpt-6-astra`, `effort: high`, with failover disabled and no model-version
+fallback. Deploy a build carrying this support before activating that live
+configuration; activation and the first-pass proof belong to delivering the
+technical-health program manager (yoyodyne-ifd.430.13.20). This change adds no
+configuration key: it extends the existing `agents.*.effort` key.
 
 **Every record says what was asked.** A run records the developer's level at
 reservation — read back by every attempt, as its account and model are, so an
@@ -4494,12 +4523,22 @@ models. A conversation records the level of its last turn, an exchange round and
 a side thread record theirs, a recurring or program manager pass records its
 pass's, and a branch review records its reviewer's. Every line in the cost log
 carries the level its invocation asked for, so each turn is pinned to one even
-where the conversation's own record has moved on. An absent level means none was
-asked. `yoyo config show` prints the key beside the model, `yoyo agent list`
+where the conversation's own record has moved on. An absent requested level on an older record means none was asked. Codex
+invocations made by this build record their explicit default when none was
+configured. `yoyo config show` prints the key beside the model, `yoyo agent list`
 says `model opus at medium effort`, `yoyo status` says it beside the model on
 the line of each running run and each conversation in flight — `developing, on
 claude-opus-5 at medium effort` — and carries it under `--json`, and the
-dashboard shows it beside the model on a run's card. A line whose record names
+dashboard shows it beside the model on a run's card. Records keep the
+provider-reported level separately as `resolved_effort` and `effort_reported`,
+with corresponding `provider_*` and `review_*` fields on run records. A stream
+that reports no effort records `effort_reported: false`: the served effort was
+not reported, and the requested level is never copied into it. The current
+Codex `exec --json` stream normally omits effort; a `session_configured` event
+that includes `reasoning_effort` records that value. Every invocation's cost
+line preserves both facts, even when a later turn replaces the conversation's
+record. Sweep evidence uses the effort actually requested by the serving turn,
+rather than re-reading the configuration after a provider substitution. A line whose record names
 no level says nothing of one, and reads as it did before the key existed.
 
 ## Relaunching a run the provider killed
@@ -5985,8 +6024,8 @@ These are all errors, reported before any work is claimed:
 - a `recurring_tasks` entry whose `model` is written and is not a usable model
   selector, by the rule and with the reason an agent's `model` is refused;
 - an agent's `effort` that its provider does not accept — anything but `low`,
-  `medium`, `high`, `xhigh`, or `max` on Claude Code, and any level at all on
-  Codex — with the refusal naming the levels accepted;
+  `medium`, `high`, `xhigh`, or `max` on Claude Code, or a level absent from
+  the configured Codex model's catalog — with the refusal naming accepted levels;
 - any effective configuration that fails validation, even when every individual
   layer looked reasonable — for example `max_concurrent_developers` above the
   configured developer instances, or automatic integration with no checks;

@@ -212,6 +212,9 @@ type Turn struct {
 	// Effort is the effort level the turn asked for, and empty where the role's
 	// agent configured none.
 	Effort string `json:"effort,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string `json:"resolved_effort,omitempty"`
+	EffortReported bool   `json:"effort_reported"`
 	// Result is the account the role gave of the pass, where it gave one.
 	Result *sweep.Result `json:"result,omitempty"`
 	// ResultProblem names an account that could not be read, or a turn that
@@ -287,6 +290,9 @@ type Fired struct {
 	// Effort is the effort level those turns asked for, and empty where no turn
 	// was taken or the role's agent configured none.
 	Effort string `json:"effort,omitempty"`
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string `json:"resolved_effort,omitempty"`
+	EffortReported bool   `json:"effort_reported"`
 	// Findings and SilentRepairs are what the pass found and how many of its
 	// fixes filed nothing for their root cause. They are counts here because this
 	// is the line a session prints; the whole account is in the durable report.
@@ -1217,10 +1223,12 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			recorded.Model = model
 			fired.Model = model
 		}
-		if effort := strings.TrimSpace(answered.Effort); effort != "" && len(effort) <= runstate.MaxSweepModelBytes {
+		if effort := strings.TrimSpace(answered.Effort); strings.TrimSpace(answered.Model) != "" && len(effort) <= runstate.MaxSweepModelBytes {
 			recorded.Effort = effort
 			fired.Effort = effort
 		}
+		recorded.ResolvedEffort, fired.ResolvedEffort = answered.ResolvedEffort, answered.ResolvedEffort
+		recorded.EffortReported, fired.EffortReported = answered.EffortReported, answered.EffortReported
 		if conversation := strings.TrimSpace(answered.ConversationID); conversation != "" {
 			recorded.ConversationID = conversation
 		}

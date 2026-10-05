@@ -597,7 +597,11 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	// configuration, so an edit to it reaches the next run and never one already
 	// in flight. A mapped model keeps the agent's level: the mapping chooses the
 	// model, and nothing in it is a decision about how hard it is asked to think.
-	state.ProviderEffort = strings.TrimSpace(p.developer().Effort)
+	effortModel := state.DeveloperModel
+	if effortModel == "" {
+		effortModel = p.developer().Model
+	}
+	state.ProviderEffort = p.Config.InvocationEffort(p.developer(), effortModel)
 	state.EffortSettled = true
 	lease, err := p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
 	if err != nil {
@@ -714,11 +718,13 @@ type Outcome struct {
 	// ProviderSessionID identifies the developer session; ReviewSessionID
 	// identifies the separate reviewer session that judged its work. The model
 	// pairs are the requested selector and what the provider reported serving.
-	ProviderSessionID     string          `json:"provider_session_id,omitempty"`
-	ProviderModel         string          `json:"provider_model,omitempty"`
-	ProviderResolvedModel string          `json:"provider_resolved_model,omitempty"`
-	ProviderEffort        string          `json:"provider_effort,omitempty"`
-	Checks                []checks.Result `json:"checks,omitempty"`
+	ProviderSessionID      string          `json:"provider_session_id,omitempty"`
+	ProviderModel          string          `json:"provider_model,omitempty"`
+	ProviderResolvedModel  string          `json:"provider_resolved_model,omitempty"`
+	ProviderEffort         string          `json:"provider_effort,omitempty"`
+	ProviderResolvedEffort string          `json:"provider_resolved_effort,omitempty"`
+	ProviderEffortReported bool            `json:"provider_effort_reported"`
+	Checks                 []checks.Result `json:"checks,omitempty"`
 	// CheckStage is the check stage the checks above ran in: its bound and what
 	// it spent, and the narrowing every check was told. It is on the outcome so
 	// the notes the item carries say what the stage cost against what it was
@@ -801,12 +807,14 @@ type Outcome struct {
 	// invariants directory that could not be read as one, or an invariant that
 	// matched and did not fit the prompt's bound. Both mean the set the agents saw
 	// was incomplete, which is a fact for the operator rather than a run failure.
-	Invariants          []string `json:"invariants,omitempty"`
-	InvariantProblems   []string `json:"invariant_problems,omitempty"`
-	ReviewSessionID     string   `json:"review_session_id,omitempty"`
-	ReviewModel         string   `json:"review_model,omitempty"`
-	ReviewResolvedModel string   `json:"review_resolved_model,omitempty"`
-	ReviewEffort        string   `json:"review_effort,omitempty"`
+	Invariants           []string `json:"invariants,omitempty"`
+	InvariantProblems    []string `json:"invariant_problems,omitempty"`
+	ReviewSessionID      string   `json:"review_session_id,omitempty"`
+	ReviewModel          string   `json:"review_model,omitempty"`
+	ReviewResolvedModel  string   `json:"review_resolved_model,omitempty"`
+	ReviewEffort         string   `json:"review_effort,omitempty"`
+	ReviewResolvedEffort string   `json:"review_resolved_effort,omitempty"`
+	ReviewEffortReported bool     `json:"review_effort_reported"`
 	// ReviewBaseCommit and ReviewHeadCommit are the commits the reviewed change
 	// was measured between — the run's base and the branch's tip at the review —
 	// so the record of a verdict names what it was judged against.
@@ -1838,23 +1846,25 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			HarnessCommit: state.HarnessCommit,
 		},
 		outcome: Outcome{
-			RunID:                 state.RunID,
-			WorkItemID:            state.WorkItemID,
-			Status:                runstate.StatusRunning,
-			Phase:                 state.Phase,
-			Branch:                state.Branch,
-			WorktreePath:          state.WorktreePath,
-			BaseCommit:            state.BaseCommit,
-			ProviderSessionID:     state.ProviderSessionID,
-			ProviderModel:         state.ProviderModel,
-			ProviderResolvedModel: state.ProviderResolvedModel,
-			ProviderEffort:        state.ProviderEffort,
-			RepairAttempts:        state.RepairAttempts,
-			TransientRelaunches:   state.TransientRelaunches,
-			Retries:               state.Retries,
-			UsageLimitKind:        state.UsageLimitKind,
-			PauseCause:            state.PauseCause,
-			ProviderOutageChannel: state.ProviderOutageChannel,
+			RunID:                  state.RunID,
+			WorkItemID:             state.WorkItemID,
+			Status:                 runstate.StatusRunning,
+			Phase:                  state.Phase,
+			Branch:                 state.Branch,
+			WorktreePath:           state.WorktreePath,
+			BaseCommit:             state.BaseCommit,
+			ProviderSessionID:      state.ProviderSessionID,
+			ProviderModel:          state.ProviderModel,
+			ProviderResolvedModel:  state.ProviderResolvedModel,
+			ProviderEffort:         state.ProviderEffort,
+			ProviderResolvedEffort: state.ProviderResolvedEffort,
+			ProviderEffortReported: state.ProviderEffortReported,
+			RepairAttempts:         state.RepairAttempts,
+			TransientRelaunches:    state.TransientRelaunches,
+			Retries:                state.Retries,
+			UsageLimitKind:         state.UsageLimitKind,
+			PauseCause:             state.PauseCause,
+			ProviderOutageChannel:  state.ProviderOutageChannel,
 			// A resumed run keeps the pull request the interrupted process
 			// published, so the attempt it is owed updates that request rather than
 			// opening a second one for the same branch. It reports a skipped
@@ -4028,10 +4038,13 @@ func (a *activeRun) developerModel() string {
 // developer agent's configured level, settling it on that first reading.
 func (a *activeRun) developerEffort() string {
 	if a.state.EffortSettled {
-		return strings.TrimSpace(a.state.ProviderEffort)
+		agent := a.pipeline.developer()
+		agent.Backend = a.state.Backend
+		agent.Effort = a.state.ProviderEffort
+		return a.pipeline.Config.InvocationEffort(agent, a.developerModel())
 	}
 	a.state.EffortSettled = true
-	return strings.TrimSpace(a.pipeline.developer().Effort)
+	return a.pipeline.Config.InvocationEffort(a.pipeline.developer(), a.developerModel())
 }
 
 // attemptDevelopment makes one developer invocation.
@@ -4118,6 +4131,8 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	}
 	a.state.ProviderSessionID = providerResult.SessionID
 	a.state.ProviderResolvedModel = providerResult.ResolvedModel
+	a.state.ProviderResolvedEffort = providerResult.ResolvedEffort
+	a.state.ProviderEffortReported = providerResult.EffortReported
 	a.state.LastSequence = providerResult.LastEvent
 	// Whatever stopped the previous attempt is spent: this one ran, and how it
 	// ended is recorded below.
@@ -4125,6 +4140,8 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	a.state.UpdatedAt = p.clock().Now()
 	a.outcome.ProviderSessionID = providerResult.SessionID
 	a.outcome.ProviderResolvedModel = providerResult.ResolvedModel
+	a.outcome.ProviderResolvedEffort = providerResult.ResolvedEffort
+	a.outcome.ProviderEffortReported = providerResult.EffortReported
 	// The attempt that produced this reply opened with whatever the harness had
 	// refused of the developer's own earlier proposals, so those are spent: they
 	// are cleared before the reply is read, and anything this reply proposes that
@@ -7744,9 +7761,13 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	a.state.ReviewModel = result.RequestedModel
 	a.state.ReviewResolvedModel = result.ResolvedModel
 	a.state.ReviewEffort = result.RequestedEffort
+	a.state.ReviewResolvedEffort = result.ResolvedEffort
+	a.state.ReviewEffortReported = result.EffortReported
 	a.outcome.ReviewSessionID = result.SessionID
 	a.outcome.ReviewModel = result.RequestedModel
 	a.outcome.ReviewResolvedModel = result.ResolvedModel
+	a.outcome.ReviewResolvedEffort = result.ResolvedEffort
+	a.outcome.ReviewEffortReported = result.EffortReported
 	a.outcome.ReviewEffort = result.RequestedEffort
 	if result.Verdict.Summary != "" {
 		// Cut to the record's own bound as it is taken rather than as it is stored:
@@ -7839,6 +7860,8 @@ func (a *activeRun) clearReviewEvidence() {
 	a.state.ReviewModel = ""
 	a.state.ReviewResolvedModel = ""
 	a.state.ReviewEffort = ""
+	a.state.ReviewResolvedEffort = ""
+	a.state.ReviewEffortReported = false
 	a.state.ReviewBaseCommit = ""
 	a.state.ReviewHeadCommit = ""
 	a.state.ReviewDecision = ""
@@ -7850,6 +7873,8 @@ func (a *activeRun) clearReviewEvidence() {
 	a.outcome.ReviewModel = ""
 	a.outcome.ReviewResolvedModel = ""
 	a.outcome.ReviewEffort = ""
+	a.outcome.ReviewResolvedEffort = ""
+	a.outcome.ReviewEffortReported = false
 	a.outcome.ReviewBaseCommit = ""
 	a.outcome.ReviewHeadCommit = ""
 	a.outcome.ReviewDecision = ""
@@ -7972,6 +7997,8 @@ func (a *activeRun) carryReviewEvidence() {
 	a.outcome.ReviewModel = state.ReviewModel
 	a.outcome.ReviewResolvedModel = state.ReviewResolvedModel
 	a.outcome.ReviewEffort = state.ReviewEffort
+	a.outcome.ReviewResolvedEffort = state.ReviewResolvedEffort
+	a.outcome.ReviewEffortReported = state.ReviewEffortReported
 	a.outcome.ReviewBaseCommit = state.ReviewBaseCommit
 	a.outcome.ReviewHeadCommit = state.ReviewHeadCommit
 	a.outcome.ReviewDecision = review.Decision(state.ReviewDecision)

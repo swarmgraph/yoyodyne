@@ -163,10 +163,13 @@ type Spoken struct {
 	// `durable-state-is-provider-independent` asks of every provider invocation,
 	// and a voice reports them whether or not it got an answer, because they are
 	// facts about the invocation rather than about what came back.
-	Backend        domain.Backend
-	Model          string
-	ResolvedModel  string
-	Effort         string
+	Backend       domain.Backend
+	Model         string
+	ResolvedModel string
+	Effort        string
+	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
+	ResolvedEffort string `json:"resolved_effort,omitempty"`
+	EffortReported bool   `json:"effort_reported"`
 	AccountAlias   string
 	ConfigRevision string
 	Build          string
@@ -420,6 +423,8 @@ func (r Runner) Put(ctx context.Context, ask Ask) (Answer, error) {
 	// The level is written whatever it is, empty included, so a stream whose
 	// agent stopped naming one does not go on reporting the last level it had.
 	stream.ProviderEffort = spoken.Effort
+	stream.ProviderResolvedEffort = spoken.ResolvedEffort
+	stream.ProviderEffortReported = spoken.EffortReported
 	if spoken.AccountAlias != "" {
 		stream.AccountAlias = spoken.AccountAlias
 	}

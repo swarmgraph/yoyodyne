@@ -168,7 +168,7 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 		SessionID:        question.SessionID,
 		Model:            agent.Model,
 		// The agent's effort level, kept by whichever model serves the turn.
-		Effort: strings.TrimSpace(agent.Effort),
+		Effort: v.config.InvocationEffort(agent, agent.Model),
 		// The adapter enforces the role's read-only access. A side reply
 		// carries advice rather than validation results or authority to act.
 		AllowedTools:     []string{},
@@ -193,7 +193,9 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 		// would leave the stream naming a model that refused it.
 		Model:          served.Model,
 		ResolvedModel:  result.ResolvedModel,
-		Effort:         strings.TrimSpace(agent.Effort),
+		Effort:         served.Effort,
+		ResolvedEffort: result.ResolvedEffort,
+		EffortReported: result.EffortReported,
 		AccountAlias:   account.Alias,
 		ConfigRevision: v.config.Revision(),
 		Build:          buildinfo.Commit(),

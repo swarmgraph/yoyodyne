@@ -499,6 +499,7 @@ var errRebuildFailed = errors.New("the context for the substituted turn could no
 // context, which is the durable record doing the work a resumption cannot.
 func (p Policy) runAlternate(ctx context.Context, provider Invoker, request backend.RunRequest, model string) (backend.RunResult, error) {
 	request.Model = model
+	request.Effort = p.alternateEffort(request.Effort)
 	if !p.crosses() {
 		return provider.Run(ctx, request)
 	}
@@ -524,7 +525,16 @@ func (p Policy) runAlternate(ctx context.Context, provider Invoker, request back
 // own, except on a crossing onto a provider that would not accept it.
 func (p Policy) alternateEffort(effort string) string {
 	if p.crosses() && p.AlternateDropsEffort {
-		return ""
+		effort = ""
+	}
+	endpoint := p.alternateEndpoint(p.Alternate)
+	if registry, ok := p.Eligibility.(*backend.Registry); ok {
+		if descriptor, known := registry.Lookup(endpoint.Provider); known {
+			return descriptor.InvocationEffort(endpoint.Model, effort)
+		}
+	}
+	if descriptor, known := backend.BuiltInDescriptor(endpoint.Provider); known {
+		return descriptor.InvocationEffort(endpoint.Model, effort)
 	}
 	return effort
 }

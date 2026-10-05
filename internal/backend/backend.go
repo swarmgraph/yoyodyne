@@ -68,8 +68,8 @@ type RunRequest struct {
 	SessionID      string
 	Model          string
 	// Effort is the effort level this invocation asks the provider for, and
-	// empty where the agent configured none, which leaves the provider to resolve
-	// its own. A failover or a version fallback keeps it: the level is the
+	// resolved to the model default for Codex when the agent configured none.
+	// Claude retains its resolution of an omitted level. A failover or a version fallback keeps it: the level is the
 	// agent's, and a substitution moves the model rather than how hard the model
 	// is asked to think. The one exception is a failover that crosses onto a
 	// provider accepting no level, which is asked with none. See effort.go.
@@ -340,9 +340,13 @@ type RunResult struct {
 	// invocation. A requested selector may be a floating family alias, so the
 	// resolved identifier is the only durable evidence of what really ran.
 	ResolvedModel string
-	FinalText     string
-	IsError       bool
-	CostUSD       float64
+	// ResolvedEffort is what the stream reported, never inferred from the request.
+	// EffortReported is false when the provider omitted it.
+	ResolvedEffort string
+	EffortReported bool
+	FinalText      string
+	IsError        bool
+	CostUSD        float64
 	// CostReported says the provider actually told the harness what this
 	// invocation cost. It is separate from CostUSD because a float has no way to
 	// say it was never set: an invocation the provider ended without pricing and

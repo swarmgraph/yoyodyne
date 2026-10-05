@@ -52,6 +52,8 @@ var structuredStrings = map[string]string{
 	"provider_session_id":                  "the provider's session identifier",
 	"provider_model":                       "a model selector",
 	"provider_resolved_model":              "the provider's model identifier",
+	"provider_resolved_effort":             "provider-reported effort, with absence recorded separately",
+	"review_resolved_effort":               "provider-reported effort, with absence recorded separately",
 	"provider_effort":                      "an effort level from the configuration, validated against the provider's levels",
 	"developer_model":                      "a model selector from the configuration",
 	"status":                               "an enumeration",

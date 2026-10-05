@@ -22,6 +22,8 @@
           "text": "the goal this serves is changing",
           "unresolved": "whether the goal still covers this work"
         },
+        "provider_effort_reported": false,
+        "review_effort_reported": false,
         "run_id": "",
         "status": "",
         "work_item_closed": false,

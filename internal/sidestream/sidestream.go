@@ -137,9 +137,12 @@ type Stream struct {
 	ProviderModel         string         `json:"provider_model,omitempty"`
 	ProviderResolvedModel string         `json:"provider_resolved_model,omitempty"`
 	ProviderEffort        string         `json:"provider_effort,omitempty"`
-	AccountAlias          string         `json:"account_alias,omitempty"`
-	ConfigRevision        string         `json:"config_revision,omitempty"`
-	Build                 string         `json:"build,omitempty"`
+	// ProviderResolvedEffort is provider-reported; ProviderEffortReported is false when not reported.
+	ProviderResolvedEffort string `json:"provider_resolved_effort,omitempty"`
+	ProviderEffortReported bool   `json:"provider_effort_reported"`
+	AccountAlias           string `json:"account_alias,omitempty"`
+	ConfigRevision         string `json:"config_revision,omitempty"`
+	Build                  string `json:"build,omitempty"`
 	// MaxTurns is the cap this stream is held to. It is copied on when the stream
 	// opens rather than read from the configuration each time, so a configuration
 	// edit or a second process cannot lengthen a thread already in flight.

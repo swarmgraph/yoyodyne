@@ -182,6 +182,8 @@ type Result struct {
 	// RequestedEffort is the effort level this review asked the provider for,
 	// and empty where the reviewer agent configured none.
 	RequestedEffort string
+	ResolvedEffort  string
+	EffortReported  bool
 	SessionID       string
 	LastSequence    uint64
 	// UsageLimit is set when the provider reported an exhausted usage limit
@@ -378,7 +380,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		Prompt:           prompt,
 		SystemPrompt:     systemPrompt,
 		Model:            r.Model,
-		Effort:           r.Effort,
+		Effort:           r.invocationEffort(request.Spend.Backend),
 		AllowedTools:     []string{},
 		Timeout:          r.timeout(),
 		LastSequence:     sequence.Last(),
@@ -390,7 +392,9 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	if err != nil {
 		return Result{
 			RequestedModel:   r.Model,
-			RequestedEffort:  r.Effort,
+			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
+			ResolvedEffort:   providerResult.ResolvedEffort,
+			EffortReported:   providerResult.EffortReported,
 			LastSequence:     lastSequence,
 			UsageLimit:       providerResult.UsageLimit,
 			ServerOverload:   providerResult.ServerOverload,
@@ -419,7 +423,9 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	evidence := func() Result {
 		return Result{
 			RequestedModel:   r.Model,
-			RequestedEffort:  r.Effort,
+			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
+			ResolvedEffort:   providerResult.ResolvedEffort,
+			EffortReported:   providerResult.EffortReported,
 			ResolvedModel:    providerResult.ResolvedModel,
 			SessionID:        providerResult.SessionID,
 			LastSequence:     lastSequence,
@@ -1459,4 +1465,11 @@ func emptyFallback(value, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func (r Reviewer) invocationEffort(provider domain.Backend) string {
+	if descriptor, ok := backend.BuiltInDescriptor(provider); ok {
+		return descriptor.InvocationEffort(r.Model, r.Effort)
+	}
+	return strings.TrimSpace(r.Effort)
 }

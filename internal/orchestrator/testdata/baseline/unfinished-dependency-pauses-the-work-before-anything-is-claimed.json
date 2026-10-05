@@ -16,6 +16,8 @@
             "yoyodyne-blocker"
           ]
         },
+        "provider_effort_reported": false,
+        "review_effort_reported": false,
         "run_id": "",
         "status": "",
         "work_item_closed": false,
