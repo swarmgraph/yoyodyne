@@ -64,7 +64,7 @@ func TestReportsReadsTheSamePileTheConversationShows(t *testing.T) {
 		"1 of 1 collected report(s) are unhandled",
 		"the oldest filed",
 		"critical",
-		"from the developer on yoyodyne-ifd.70",
+		"from the developer on title unavailable (yoyodyne-ifd.70)",
 		"bd lint could not run",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -113,7 +113,7 @@ func TestReportsReadsTheSamePileTheConversationShows(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("reports code = %d, stderr = %q", code, stderr)
 	}
-	for _, want := range []string{"nobody is waiting on any of the 1 collected report(s)", "handled", "admitted as yoyodyne-ifd.150"} {
+	for _, want := range []string{"nobody is waiting on any of the 1 collected report(s)", "handled", "admitted as title unavailable (yoyodyne-ifd.150)"} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want it to contain %q", stdout, want)
 		}

@@ -805,7 +805,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"attention": {
 			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (8 things)</h2>`,
 			`<button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>`,
-			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>`,
+			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for (P3) Recurring tasks say when a firing was skipped (yoyodyne-ifd.222) is not finished</button>`,
 			`data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c"`, `data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"`,
 			`data-entry="conversation-carried-item:yoyodyne-ifd.188"`, `data-entry="held-work:decision"`, `data-entry="held-work:carry-out"`, `data-entry="report:"`,
 			`<span class="item-id">proposed document change</span>`, `<span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>`, `<span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>`,

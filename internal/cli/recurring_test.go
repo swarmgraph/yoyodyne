@@ -127,7 +127,7 @@ func TestSweepListingPutsQuestionsAboveTheFindings(t *testing.T) {
 	if question > finding {
 		t.Errorf("the question is shown below the findings:\n%s", rendered)
 	}
-	if !strings.Contains(rendered, "filed: yoyodyne-ifd.300") {
+	if !strings.Contains(rendered, "filed: title unavailable (yoyodyne-ifd.300)") {
 		t.Errorf("rendered = %q, want the work filed for the root cause named", rendered)
 	}
 }

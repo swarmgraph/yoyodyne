@@ -481,7 +481,7 @@ func TestAConversationalReplyOpeningWithADecisionWordIsSaidToTheProductManager(t
 	if answering.turns != 1 {
 		t.Fatalf("the product manager was asked %d time(s), want the message said to it", answering.turns)
 	}
-	if !strings.Contains(said.String(), "The resolver is yoyodyne-ifd.108.") {
+	if !strings.Contains(said.String(), "The resolver is title unavailable (yoyodyne-ifd.108).") {
 		t.Fatalf("stdout = %q, want the answer", said.String())
 	}
 	if len(resumed.Proposals()) != 1 {

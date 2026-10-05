@@ -215,7 +215,7 @@ func TestStatusNarrowsToOneItemAndSaysWhatALimitLeftOut(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("status code = %d, stderr = %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "runs of yoyodyne-ifd.41, 1 of 1 shown") {
+	if !strings.Contains(stdout, "runs of title unavailable (yoyodyne-ifd.41), 1 of 1 shown") {
 		t.Fatalf("stdout = %q", stdout)
 	}
 	if strings.Contains(stdout, "api_error") {
@@ -228,7 +228,7 @@ func TestStatusNarrowsToOneItemAndSaysWhatALimitLeftOut(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("status code = %d, stderr = %q", code, stderr)
 	}
-	if !strings.Contains(stdout, "no runs of yoyodyne-ifd.99, of the 4 run(s) recorded") {
+	if !strings.Contains(stdout, "no runs of title unavailable (yoyodyne-ifd.99), of the 4 run(s) recorded") {
 		t.Fatalf("stdout = %q", stdout)
 	}
 }
@@ -1393,7 +1393,7 @@ func TestStatusReportsWhatTriageHasSpentOnANamedItem(t *testing.T) {
 		t.Fatalf("status code = %d, stderr = %q", code, stderr)
 	}
 	for _, want := range []string{
-		"triage of yoyodyne-ifd.2.7: triage has spent nothing on it",
+		"triage of title unavailable (yoyodyne-ifd.2.7): triage has spent nothing on it",
 		"waiting, re-scoping, and escalating spend nothing and stay available; a re-arm spends only its own budget, whatever the rounds say",
 	} {
 		if !strings.Contains(stdout, want) {
@@ -1430,7 +1430,7 @@ func TestStatusReportsWhatTriageHasSpentOnANamedItem(t *testing.T) {
 	for _, want := range []string{
 		// The second pass is the fact somebody is looking for, and it is said
 		// first.
-		"triage of yoyodyne-ifd.2.7: triage has spent 2 passes on it",
+		"triage of title unavailable (yoyodyne-ifd.2.7): triage has spent 2 passes on it",
 		"review rounds: 3 spent across every run of this item, under the cap of 4",
 		"repair grants: 1 of 1 permitted; re-runs: 0 of 1; each is refused by its own budget or once no round remains",
 		"merge re-arms: 1 across every publication of this item, 1 permitted per publication",
