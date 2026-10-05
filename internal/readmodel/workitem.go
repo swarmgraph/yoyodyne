@@ -90,6 +90,7 @@ type WorkItem struct {
 	Status             string   `json:"status"`
 	Priority           int      `json:"priority"`
 	Labels             []string `json:"labels"`
+	RelevantGoals      []string `json:"relevant_goals"`
 	Parent             string   `json:"parent"`
 	Description        string   `json:"description"`
 	Design             string   `json:"design"`
@@ -178,6 +179,7 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 		Status:             found.Status,
 		Priority:           found.Priority,
 		Labels:             append([]string{}, found.Labels...),
+		RelevantGoals:      append([]string{}, found.RelevantGoals...),
 		Parent:             found.Parent,
 		Description:        found.Description,
 		Design:             found.Design,

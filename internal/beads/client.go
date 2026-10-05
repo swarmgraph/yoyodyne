@@ -30,6 +30,9 @@ const defaultTimeout = 30 * time.Second
 const MaxPriority = 4
 
 type WorkItem struct {
+	// RelevantGoals names the goals this change must not break, beside the goal it serves.
+	RelevantGoals []string
+
 	ID                 string
 	Title              string
 	Description        string
@@ -309,6 +312,8 @@ func (w WorkItem) WaitingOn(unfinished map[string]struct{}) []string {
 // creates items on someone's explicit approval, so this carries the item and
 // the provenance that explains it rather than every field bd accepts.
 type NewWorkItem struct {
+	RelevantGoals []string
+
 	Title       string
 	Description string
 	// Type is the Beads issue type. It is required: an item created with
@@ -347,6 +352,9 @@ type NewWorkItem struct {
 // applied only when it is set, so an edit says exactly what it changes and
 // leaves everything it does not name alone.
 type WorkItemChange struct {
+	// Nil leaves the list alone; an empty list clears it.
+	RelevantGoals []string
+
 	Title       string
 	Description string
 	// AppendNotes adds to the item's notes rather than replacing them, so an
@@ -637,6 +645,9 @@ func (c Client) Create(ctx context.Context, item NewWorkItem) (WorkItem, error) 
 	// rendered, because bd takes a creation's metadata as one object: a second
 	// --metadata would replace the first rather than add to it.
 	entries := map[string]string{}
+	if item.RelevantGoals != nil {
+		entries[relevantGoalsKey] = encodeRelevantGoals(item.RelevantGoals)
+	}
 	if notes := strings.TrimSpace(item.Notes); notes != "" {
 		args = append(args, "--notes="+notes)
 		if statement, records := goal.NamedIn(notes); records {
@@ -689,6 +700,9 @@ func (c Client) Create(ctx context.Context, item NewWorkItem) (WorkItem, error) 
 	if err != nil {
 		return WorkItem{}, err
 	}
+	if item.RelevantGoals != nil && !slices.Equal(created.RelevantGoals, item.RelevantGoals) {
+		return WorkItem{}, fmt.Errorf("bd created work item %s with relevant goals %v, want %v", created.ID, created.RelevantGoals, item.RelevantGoals)
+	}
 	if created.Title != item.Title {
 		return WorkItem{}, fmt.Errorf("bd created work item %s with title %q, want %q", created.ID, created.Title, item.Title)
 	}
@@ -736,6 +750,9 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 		return WorkItem{}, err
 	}
 	args := []string{"update", id}
+	if change.RelevantGoals != nil {
+		args = append(args, "--set-metadata="+relevantGoalsKey+"="+encodeRelevantGoals(change.RelevantGoals))
+	}
 	if title := strings.TrimSpace(change.Title); title != "" {
 		args = append(args, "--title="+title)
 	}
@@ -782,6 +799,9 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 	// did not take effect is a failure rather than a reported success. The parent
 	// is the exception, and knowingly so: bd's update response does not carry it,
 	// so a reparenting rests on bd's own report of success and is not read back.
+	if change.RelevantGoals != nil && !slices.Equal(item.RelevantGoals, change.RelevantGoals) {
+		return WorkItem{}, fmt.Errorf("work item %s relevant goals are %v after being updated, want %v", item.ID, item.RelevantGoals, change.RelevantGoals)
+	}
 	if title := strings.TrimSpace(change.Title); title != "" && item.Title != title {
 		return WorkItem{}, fmt.Errorf("work item %s title is %q after being updated, want %q", item.ID, item.Title, title)
 	}
@@ -1751,6 +1771,11 @@ func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
 	}
 	item.Cost = costFromMetadata(raw.Metadata)
 	item.GoalWitness = goalWitnessIn(raw.Metadata)
+	if encoded := metadataString(raw.Metadata, relevantGoalsKey); encoded != "" {
+		if err := json.Unmarshal([]byte(encoded), &item.RelevantGoals); err != nil {
+			return WorkItem{}, fmt.Errorf("work item %s relevant goals: %w", item.ID, err)
+		}
+	}
 	item.Executor = executorIn(raw.Metadata)
 	item.Parking = parkingIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
@@ -1974,6 +1999,7 @@ func (n NewWorkItem) validate() error {
 	problems = append(problems, executorProblem(n.Executor)...)
 	problems = append(problems, parkingProblem(n.Parking)...)
 	problems = append(problems, labelProblems(n.Labels)...)
+	if err := goal.ValidateRelevant(n.RelevantGoals); err != nil { problems = append(problems, err) }
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid new work item: %w", errors.Join(problems...))
 	}
@@ -1981,6 +2007,9 @@ func (n NewWorkItem) validate() error {
 }
 
 func (c WorkItemChange) validate() error {
+	if err := goal.ValidateRelevant(c.RelevantGoals); err != nil {
+		return err
+	}
 	var problems []error
 	if strings.TrimSpace(c.Title) == "" &&
 		strings.TrimSpace(c.Description) == "" &&

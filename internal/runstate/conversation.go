@@ -418,13 +418,14 @@ var ErrNoRefusalAwaitingWakeup = errors.New("the conversation has no refused tra
 // dependency may not run both ways. The field names are the ones the proposal
 // contract uses, so what is written here reads as what was proposed.
 type PendingProposal struct {
-	ID          string `json:"id"`
-	Turn        int    `json:"turn"`
-	Title       string `json:"title"`
-	Description string `json:"description"`
-	Rationale   string `json:"rationale"`
-	Goal        string `json:"goal"`
-	Parent      string `json:"parent,omitempty"`
+	ID            string   `json:"id"`
+	Turn          int      `json:"turn"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Rationale     string   `json:"rationale"`
+	Goal          string   `json:"goal"`
+	RelevantGoals []string `json:"relevant_goals,omitempty"`
+	Parent        string   `json:"parent,omitempty"`
 	// Dependencies name the items the proposed work waits for.
 	Dependencies []string `json:"dependencies,omitempty"`
 	// Class is the kind of work the proposal claims to be, where a project treats

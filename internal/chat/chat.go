@@ -2608,12 +2608,17 @@ func (s *Session) Approve(ctx context.Context, proposalID string) (CreatedItem, 
 // operator approved are otherwise the same item, placed and linked the same way.
 func (s *Session) createFromProposal(ctx context.Context, record *proposalRecord, authority string) (CreatedItem, error) {
 	proposal := record.pending.Proposal
+	relevant, err := s.options.Goals.ResolveRelevant(proposal.RelevantGoals)
+	if err != nil {
+		return CreatedItem{}, err
+	}
 	created, err := s.options.Tracker.Create(ctx, beads.NewWorkItem{
-		Title:       strings.TrimSpace(proposal.Title),
-		Description: strings.TrimSpace(proposal.Description),
-		Type:        proposedIssueType,
-		Notes:       record.pending.provenanceNotes(authority, s.options.Goals, s.state.Role, s.options.Agent),
-		Parent:      strings.TrimSpace(proposal.Parent),
+		Title:         strings.TrimSpace(proposal.Title),
+		Description:   strings.TrimSpace(proposal.Description),
+		Type:          proposedIssueType,
+		RelevantGoals: relevant,
+		Notes:         record.pending.provenanceNotes(authority, s.options.Goals, s.state.Role, s.options.Agent),
+		Parent:        strings.TrimSpace(proposal.Parent),
 		// A proposal made in a lane is created in it, in the same write, as a lane
 		// admission is.
 		Labels: proposalLabels(record.pending.Lane),

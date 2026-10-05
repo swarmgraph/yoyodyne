@@ -168,12 +168,13 @@ func (s *Session) laneNote() string {
 func (s *Session) proposeLaneCreation(ctx context.Context, outcome *TrackerOutcome, gate string) {
 	action := outcome.Action
 	proposal := Proposal{
-		Title:       strings.TrimSpace(action.Title),
-		Description: strings.TrimSpace(action.Description),
-		Rationale:   strings.TrimSpace(action.Reason),
-		Goal:        strings.TrimSpace(action.Goal),
-		Parent:      action.parent(),
-		Class:       action.Class,
+		Title:         strings.TrimSpace(action.Title),
+		Description:   strings.TrimSpace(action.Description),
+		Rationale:     strings.TrimSpace(action.Reason),
+		Goal:          strings.TrimSpace(action.Goal),
+		RelevantGoals: action.RelevantGoals,
+		Parent:        action.parent(),
+		Class:         action.Class,
 	}
 	if err := proposal.Validate(); err != nil {
 		outcome.fail(err)

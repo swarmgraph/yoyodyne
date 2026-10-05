@@ -1689,6 +1689,7 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 		rendered.WriteString(fmt.Sprintf("- %s [%s, p%d%s, %s%s%s] %s\n",
 			item.ID, item.Status, item.Priority, parked, item.IssueType, executor, labels,
 			singleLine(item.Title, maxWorkItemTitleBytes)))
+		fmt.Fprintf(&rendered, "    relevant goals: %s\n", relevantGoals(item.RelevantGoals))
 	}
 	if len(items) > len(listed) {
 		rendered.WriteString(fmt.Sprintf("\n%d further work item(s) are not listed here.\n", len(items)-len(listed)))

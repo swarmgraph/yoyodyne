@@ -845,6 +845,7 @@ ID: %s
 Title: %s
 Status: %s
 Depends on: %s
+Relevant goals — goals the change must not break: %s
 
 ## Description
 
@@ -861,7 +862,7 @@ Depends on: %s
 ## Notes
 
 %s
-`, item.ID, item.Title, item.Status, renderDependencies(item),
+`, item.ID, item.Title, item.Status, renderDependencies(item), relevantGoals(item.RelevantGoals),
 		emptyFallback(item.Description), emptyFallback(item.Design), emptyFallback(item.AcceptanceCriteria), emptyFallback(item.Notes))
 }
 
@@ -1021,4 +1022,11 @@ func uniqueSorted(values []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+func relevantGoals(named []string) string {
+	if len(named) == 0 {
+		return "none recorded"
+	}
+	return strings.Join(named, "; ")
 }
