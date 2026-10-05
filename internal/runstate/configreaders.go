@@ -375,9 +375,10 @@ func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {
 // Mismatches compares the file each running part reads, as it stands now,
 // against the keys that part's build reads, and returns every part that
 // cannot read something in it. A part whose file cannot be read is a problem
-// in the returned error rather than a part reported current.
+// in the returned error rather than a part reported current. This diagnostic
+// comparison never writes state.
 func (s *ConfigReaderStore) Mismatches() ([]ConfigMismatch, error) {
-	return s.MismatchesIn(os.ReadFile)
+	return s.mismatchesIn(os.ReadFile, false)
 }
 
 // TemplateMismatches compares newly introduced template keys against every
@@ -402,8 +403,13 @@ func (s *ConfigReaderStore) TemplateMismatches(templatePath string, added []stri
 // MismatchesIn is Mismatches with the file each part reads read by read
 // rather than from the working tree: a landing reads it as the commit it
 // landed holds it, because the checkout the parts read may not have moved onto
-// that commit yet.
+// that commit yet. It removes confirmed stale records through the confined
+// writer; diagnostic callers use the read-only Mismatches method.
 func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, error)) ([]ConfigMismatch, error) {
+	return s.mismatchesIn(read, true)
+}
+
+func (s *ConfigReaderStore) mismatchesIn(read func(string) ([]byte, error), cleanup bool) ([]ConfigMismatch, error) {
 	readers, err := s.Running()
 	problems := []error{err}
 	var mismatches []ConfigMismatch
@@ -411,9 +417,12 @@ func (s *ConfigReaderStore) MismatchesIn(read func(configPath string) ([]byte, e
 		source, readErr := read(reader.ConfigPath)
 		if readErr != nil {
 			if errors.Is(readErr, os.ErrNotExist) {
-				correction := "the product removed this stale record automatically; other parts were still checked"
-				if err := s.removeStale(reader); err != nil {
-					correction = "automatic removal could not complete: " + err.Error() + "; the product retries removal at the next configuration comparison; other parts were still checked"
+				correction := "diagnostic comparison left the record unchanged; the product removes confirmed stale records automatically during its next landing configuration comparison; other parts were still checked"
+				if cleanup {
+					correction = "the product removed this stale record automatically; other parts were still checked"
+					if err := s.removeStale(reader); err != nil {
+						correction = "automatic removal could not complete: " + err.Error() + "; the product retries removal at the next landing configuration comparison; other parts were still checked"
+					}
 				}
 				problems = append(problems, fmt.Errorf("stale configuration reader record %s: recorded configuration %s no longer exists; %s", reader.recordPath, reader.ConfigPath, correction))
 			} else {

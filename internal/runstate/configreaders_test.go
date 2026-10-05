@@ -314,7 +314,21 @@ func TestAStaleConfigurationRecordDoesNotHideOtherParts(t *testing.T) {
 	if err := os.Rename(filepath.Join(store.root, stale.InstanceID()+".json"), legacy); err != nil {
 		t.Fatal(err)
 	}
-	mismatches, err := store.Mismatches()
+	lock := filepath.Join(store.root, ".records.lock")
+	if err := os.Remove(lock); err != nil {
+		t.Fatal(err)
+	}
+	diagnostic, problem := store.Mismatches()
+	if problem == nil || !strings.Contains(problem.Error(), "diagnostic comparison left the record unchanged") || len(diagnostic) != 1 {
+		t.Fatalf("diagnostic: %+v, %v", diagnostic, problem)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("diagnostic removed record: %v", err)
+	}
+	if _, err := os.Stat(lock); !os.IsNotExist(err) {
+		t.Fatalf("diagnostic created lock: %v", err)
+	}
+	mismatches, err := store.MismatchesIn(os.ReadFile)
 	if err == nil {
 		t.Fatal("missing stale record diagnostic")
 	}
