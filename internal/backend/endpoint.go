@@ -58,7 +58,9 @@ const ClaudeCodeAdapterVersion = "claude-code/1"
 // "codex/3" adds native read-only invocations for reviewers and management roles.
 // "codex/4" admits the developer's confined cache and scratch on launch and resume.
 // "codex/5" passes effort explicitly and records provider-reported effort separately.
-const CodexAdapterVersion = "codex/5"
+// "codex/6" omits the effort override when the agent sets none and records whether
+// effort comes from the agent or from the Codex configuration.
+const CodexAdapterVersion = "codex/6"
 
 // Endpoint is one execution endpoint: which provider, read by which compiled
 // adapter, under which account, asking which model.

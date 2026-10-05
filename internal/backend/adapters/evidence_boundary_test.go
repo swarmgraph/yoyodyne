@@ -71,6 +71,9 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			if result.Backend != provider || result.AdapterVersion != backend.CodexAdapterVersion {
+				t.Fatalf("recorded endpoint = %q, %q; want %q, %q", result.Backend, result.AdapterVersion, provider, backend.CodexAdapterVersion)
+			}
 			command := runner.command
 			if command.Name != "codex-proxy" {
 				t.Fatalf("binary=%q", command.Name)
