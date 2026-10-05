@@ -446,10 +446,12 @@ func (t WatchTransition) Note() bool {
 // program manager instance, the role it wakes, what triggered it, and when it
 // began.
 type WatchPass struct {
-	Task    string           `json:"task"`
-	Role    domain.AgentRole `json:"role,omitempty"`
-	Trigger PassTrigger      `json:"trigger,omitempty"`
-	At      time.Time        `json:"at"`
+	// Concurrent means other conversations can start beside this pass.
+	Concurrent bool             `json:"concurrent,omitempty"`
+	Task       string           `json:"task"`
+	Role       domain.AgentRole `json:"role,omitempty"`
+	Trigger    PassTrigger      `json:"trigger,omitempty"`
+	At         time.Time        `json:"at"`
 }
 
 // Says is the pass in the words the watch log's reason carries.

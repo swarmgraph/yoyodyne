@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -23,6 +24,7 @@ var recurringNow = time.Date(2026, 9, 5, 9, 0, 0, 0, time.UTC)
 // wokenRole is a role's conversation as a test reaches it: what it was asked, and
 // what it was told to answer.
 type wokenRole struct {
+	mu       sync.Mutex
 	messages []string
 	// passes is the firing each turn was told it belonged to.
 	passes []string
@@ -58,6 +60,8 @@ type scriptedTurn struct {
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, _ RecurringTurnOptions) (Turn, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.messages = append(r.messages, message)
 	r.agents = append(r.agents, agent)
 	r.passes = append(r.passes, pass)
@@ -1427,4 +1431,142 @@ func TestFiringRecordsTheLastInvocationsEffortIncludingNone(t *testing.T) {
 	if recorded[0].Effort != "" || fired.Fired[0].Effort != "" || recorded[0].ResolvedEffort != "" || recorded[0].EffortReported || fired.Fired[0].EffortReported {
 		t.Fatalf("the earlier turn's effort survived the provider substitution: record=%+v fired=%+v", recorded[0], fired.Fired[0])
 	}
+}
+
+// A blocked role must not keep a different conversation from starting.
+type parallelPassRoles struct {
+	started chan domain.AgentRole
+	release chan struct{}
+}
+
+func (r parallelPassRoles) Wake(ctx context.Context, role domain.AgentRole, _, _, _, _ string, _ RecurringTurnOptions) (Turn, error) {
+	r.started <- role
+	select {
+	case <-r.release:
+		return Turn{Result: complete("nothing")}, nil
+	case <-ctx.Done():
+		return Turn{}, ctx.Err()
+	}
+}
+func TestDifferentScheduledRolesRunTogether(t *testing.T) {
+	t.Parallel()
+	store := sweepStore(t)
+	tasks := hourlyTask("sweep")
+	other := tasks["a-sweep"]
+	other.Role = domain.RoleArchitect
+	tasks["b-sweep"] = other
+	roles := parallelPassRoles{started: make(chan domain.AgentRole, 2), release: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan RecurringSweep, 1)
+	go func() {
+		fired, err := (Trigger{Tasks: tasks, Claims: store, Reports: store, Roles: roles, Clock: recurringClock{}}).Fire(ctx)
+		if err != nil {
+			t.Errorf("Fire: %v", err)
+		}
+		done <- fired
+	}()
+	seen := map[domain.AgentRole]bool{}
+	for len(seen) < 2 {
+		seen[<-roles.started] = true
+	}
+	close(roles.release)
+	if fired := <-done; len(fired.Fired) != 2 {
+		t.Fatalf("firings: %+v", fired)
+	}
+}
+func TestSameScheduledConversationWaitsForNextPull(t *testing.T) {
+	t.Parallel()
+	store := sweepStore(t)
+	tasks := hourlyTask("sweep")
+	tasks["b-sweep"] = tasks["a-sweep"]
+	roles := parallelPassRoles{started: make(chan domain.AgentRole, 2), release: make(chan struct{})}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan RecurringSweep, 1)
+	trigger := Trigger{Tasks: tasks, Claims: store, Reports: store, Roles: roles, Clock: recurringClock{}}
+	go func() { fired, _ := trigger.Fire(ctx); done <- fired }()
+	<-roles.started
+	// The second task is not claimed while the first conversation is running.
+	claim, found, err := store.Find("b-sweep")
+	if err != nil || found {
+		t.Fatalf("second claim: %+v, %v, %v", claim, found, err)
+	}
+	close(roles.release)
+	if fired := <-done; len(fired.Fired) != 1 {
+		t.Fatalf("firings: %+v", fired)
+	}
+	second, err := trigger.Fire(ctx)
+	if err != nil || len(second.Fired) != 1 || second.Fired[0].Task != "b-sweep" {
+		t.Fatalf("second: %+v, %v", second, err)
+	}
+}
+
+func TestWatchStartsANewlyDueRoleWhileAnotherPassRuns(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := sweepStore(t)
+	recorded := notifyingPasses{SweepStore: store, appended: make(chan struct{}, 10)}
+	roles := parallelPassRoles{started: make(chan domain.AgentRole, 3), release: make(chan struct{})}
+	h := newScheduleHarness()
+	h.poll = time.Millisecond
+	firstStarted := false
+	firstObserved := make(chan struct{})
+	done := make(chan Schedule, 1)
+	scheduler := Scheduler{Watching: true, Open: func(ctx context.Context) (Pull, error) {
+		pull, err := h.open(ctx)
+		if !firstStarted {
+			select {
+			case <-roles.started:
+				firstStarted = true
+				close(firstObserved)
+			default:
+			}
+		}
+		tasks := hourlyTask("sweep")
+		if firstStarted {
+			// The same conversation has another due task too. It must wait.
+			tasks["b-sweep"] = tasks["a-sweep"]
+			other := tasks["a-sweep"]
+			other.Role = domain.RoleArchitect
+			tasks["c-sweep"] = other
+		}
+		pull.Recurring = Trigger{Tasks: tasks, Claims: store, Reports: recorded, Roles: roles, Clock: recurringClock{}}
+		return pull, err
+	}}
+	go func() {
+		schedule, err := scheduler.Schedule(ctx)
+		if err != nil {
+			t.Errorf("Schedule: %v", err)
+		}
+		done <- schedule
+	}()
+	<-firstObserved
+	if role := <-roles.started; role != domain.RoleArchitect {
+		t.Fatalf("unexpected concurrent role: %s", role)
+	}
+	if _, found, err := store.Find("b-sweep"); err != nil || found {
+		t.Fatalf("same conversation started a second pass: %v, %v", found, err)
+	}
+	close(roles.release)
+	<-recorded.appended
+	<-recorded.appended
+	cancel()
+	schedule := <-done
+	if len(schedule.Fired) < 2 {
+		t.Fatalf("completed passes were not collected: %+v", schedule.Fired)
+	}
+}
+
+// Append supplies a completion signal instead of polling the sweep log.
+type notifyingPasses struct {
+	*runstate.SweepStore
+	appended chan struct{}
+}
+
+func (s notifyingPasses) Append(pass runstate.Sweep) error {
+	err := s.SweepStore.Append(pass)
+	s.appended <- struct{}{}
+	return err
 }

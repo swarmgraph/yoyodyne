@@ -22,15 +22,21 @@ func TestMissedPassRecordsSleepDowntimeAndWaitingBehindAnotherPass(t *testing.T)
 	due := now.Add(-3 * time.Hour)
 	for _, test := range []struct {
 		name, want string
+		waiting    time.Duration
 		severity   report.Severity
 	}{
-		{"sleep", "the machine was asleep", report.SeverityWarning},
-		{"down", "the harness was not watching", report.SeverityWarning},
-		{"waiting", "waiting its turn behind", report.SeverityCritical},
-		{"unknown", "no machine sleep, harness downtime or wait behind another pass was established", report.SeverityCritical},
+		{"sleep", "the machine was asleep", 0, report.SeverityWarning},
+		{"down", "the harness was not watching", 0, report.SeverityWarning},
+		{"waiting", "waiting its turn behind", 3 * time.Hour, report.SeverityCritical},
+		{"short-wait", "waiting its turn behind", 30 * time.Minute, report.SeverityWarning},
+		{"unknown", "no machine sleep, harness downtime or wait behind another pass was established", 0, report.SeverityCritical},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			sweeps := sweepStore(t)
+			due := due
+			if test.name == "short-wait" {
+				due = now.Add(-75 * time.Minute)
+			}
 			if _, err := sweeps.Claim(ctx, "owed-pass", time.Hour, due.Add(-time.Hour)); err != nil {
 				t.Fatal(err)
 			}
@@ -48,11 +54,11 @@ func TestMissedPassRecordsSleepDowntimeAndWaitingBehindAnotherPass(t *testing.T)
 				observation.Power = []runstate.PowerEvent{{At: due, Source: "pmset: Sleep"}, {At: now.Add(-time.Minute), Awake: true, Source: "pmset: Wake"}}
 			case "down":
 				observation.Watching = false
-			case "waiting":
+			case "waiting", "short-wait":
 				if err := watch.Record(runstate.WatchTransition{SchemaVersion: runstate.WatchSchemaVersion, ProductID: "example", SessionID: "watch-0123456789abcdef0123456789abcdef", State: runstate.WatchWatching, At: due, RecurringPass: &runstate.WatchPass{Task: "another-pass", At: due}}); err != nil {
 					t.Fatal(err)
 				}
-				if err := sweeps.Append(runstate.Sweep{Task: "another-pass", Role: domain.RoleArchitect, StartedAt: due, EndedAt: now, Turns: 1, Result: complete("nothing")}); err != nil {
+				if err := sweeps.Append(runstate.Sweep{Task: "another-pass", Role: domain.RoleArchitect, StartedAt: due, EndedAt: due.Add(test.waiting), Turns: 1, Result: complete("nothing")}); err != nil {
 					t.Fatal(err)
 				}
 			}

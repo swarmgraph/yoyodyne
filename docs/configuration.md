@@ -6862,9 +6862,9 @@ turns. A pass recorded before passes named their model is shown as
 
 **A firing costs what conversation turns cost.** The cadence is therefore the
 spending decision: `every: 1h` is a turn an hour for as long as a `yoyo work
---watch` session is running. At most one task fires per pull, so a schedule with
-three due tasks reaches them over three pulls rather than holding the queue
-closed for all three at once.
+--watch` session is running. At most one task per conversation fires per pull.
+Different conversations run side by side: three due tasks for three roles
+start in the same pull. Tasks for the same conversation wait for later pulls.
 
 **What bounds that spend is the session's own
 [`--budget`](#watching-instead-of-draining)**, which counts a firing's turns
@@ -6951,8 +6951,10 @@ the schedule.
 
 **A task that goes a whole interval unfired is recorded as missed, with what
 kept it.** A task is missed once it is a whole interval past the time it fell
-due. Anything shorter is the ordinary shape of a cadence: one firing per pull,
-and a firing's turns hold the pull while they are taken. A miss is found at the
+due. Different conversations run side by side; each conversation takes one
+firing per pull. A watch keeps polling while those firings run, so a different
+conversation that becomes due can start at the next poll. It collects every
+started firing before it stops. A miss is found at the
 first pull that reaches the schedule afterwards. A gap is recorded once, even across a restart:
 a session finding a gap already in the sweep log records and reports nothing.
 `yoyo sweeps` shows it as a pass that took no turn, spanning the gap, and its
@@ -6960,8 +6962,12 @@ problem names the cause. Each cause is also reported differently:
 
 - **The harness held its own cadence.** The schedule could not be fired, the
   harness could not be read, or the pull
-  that reached the task gave its one firing to another task. This is filed as the
+  did not reach a due, available conversation. This is filed as the
   harness's own report at `critical`, which puts it in front of the operator.
+- **Waiting behind other passes in an older build.** The alarm counts the
+  established wait separately from time the pass could have run. It reports
+  `warning` unless the wait exceeds the role's interval or the available time
+  reaches a whole interval. Concurrent passes do not establish such a wait.
 - **The firing was turned away before it reached the role.** The provider had
   no capacity, the provider was answering nobody, or the role's conversation was
   held by another process. The miss quotes the refusal, including the reset the
@@ -7234,8 +7240,9 @@ A [program manager instance](#a-program-manager-instance) is woken the way a
 recurring task is, by its own `triggers` block rather than by an entry here, and
 its pass **is** a recurring-task firing: everything above holds of it unchanged.
 The pause stops a pass and the intake hold does not; the claim is taken before
-the first turn; at most one firing is made per pull, a task's or an instance's,
-tasks first; a provider answering nobody is recorded as the wait; and every pass
+the first turn; at most one firing per conversation is made per pull, with
+different conversations running side by side; a provider answering nobody is
+recorded as the wait; and every pass
 ends in a durable record [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found)
 reads, filed under the instance's name — `yoyo sweeps --task reliability-pm` —
 with the model its turns ran on. A recurring task named for an instance its

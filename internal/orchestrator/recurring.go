@@ -25,12 +25,10 @@ package orchestrator
 // in trusted code exists to prevent. A recurring turn is authorized identically
 // to a conversation an operator opens by hand, because it is one.
 //
-// # One firing per pass, and turns inside it
+// # One firing per conversation, and turns inside it
 //
-// A pass fires at most one task, for the reason a pass delivers at most one
-// stoppage: a firing is conversation turns, and a pass that fired three tasks
-// would hold the queue closed for as long as all three took. The next pass takes
-// the next due task, and on a poll loop that is a minute later.
+// Due conversations run side by side. Each conversation takes at most one
+// firing per pull, and the pull waits for all of them to finish.
 //
 // Inside a firing, turns iterate. A pass with more to do than one turn holds says
 // so in its own account and is given another, up to the task's bound. That is the
@@ -85,6 +83,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -824,7 +823,33 @@ type RecurringOutages interface {
 	Standing() (runstate.ProviderOutage, bool, error)
 }
 
-// Fire wakes the first task that is due, and reports what came of it.
+// recurringFlights keeps a watch from starting a second scheduled pass in a
+// conversation while an earlier pull still runs it. Conversation turn leases
+// continue to exclude operator turns and other processes.
+type recurringFlights struct {
+	mu   sync.Mutex
+	busy map[string]bool
+}
+type recurringFlightsKey struct{}
+
+func reserveRecurring(ctx context.Context, key string) (func(), bool) {
+	flights, _ := ctx.Value(recurringFlightsKey{}).(*recurringFlights)
+	if flights == nil {
+		return func() {}, true
+	}
+	flights.mu.Lock()
+	defer flights.mu.Unlock()
+	if flights.busy[key] {
+		return nil, false
+	}
+	flights.busy[key] = true
+	return func() { flights.mu.Lock(); delete(flights.busy, key); flights.mu.Unlock() }, true
+}
+
+// ConcurrentPasses lets the watch keep polling while Fire takes its turns.
+func (t Trigger) ConcurrentPasses() {}
+
+// Fire wakes due conversations concurrently and reports what came of them.
 //
 // The order is the order the guarantees need. The pause is read before anything
 // is claimed, so a paused harness costs no task its cadence; the firing is
@@ -859,23 +884,32 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 	if err != nil {
 		problems = append(problems, err)
 	}
-	// A critical report nobody has put in front of the Lead Product Manager is
-	// delivered ahead of anything the cadence has due, as a firing of her own
-	// task: it is the one thing on this path that must not wait its turn. A
-	// provider answering nobody leaves it undelivered rather than recorded as
-	// delivered into a refusal, so it goes the first pull the provider answers.
-	if !away {
-		fired, took, err := t.deliverCriticals(ctx)
-		if err != nil {
-			problems = append(problems, err)
-		}
-		if took {
-			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
+	var pending []func() (Fired, bool, error)
+	selected := map[domain.AgentRole]bool{}
+	// Critical delivery uses the product manager's conversation; other roles
+	// can still take their scheduled passes beside it.
+	if !away && t.Pile != nil {
+		if _, task, found := t.productManagerTask(); found {
+			criticals, err := t.undeliveredCriticals()
+			if err != nil {
+				problems = append(problems, err)
+			}
+			if len(criticals) > 0 {
+				selected[task.Role] = true
+				if release, free := reserveRecurring(ctx, string(task.Role)); free {
+					pending = append(pending, func() (Fired, bool, error) { defer release(); return t.deliverCriticals(ctx) })
+				}
+			}
 		}
 	}
 	for _, name := range t.names() {
 		task := t.Tasks[name]
-		if !task.Enabled {
+		if !task.Enabled || selected[task.Role] {
+			continue
+		}
+		release, free := reserveRecurring(ctx, string(task.Role))
+		if !free {
+			selected[task.Role] = true
 			continue
 		}
 		// The claim is the due check. Asking first and claiming after would be two
@@ -883,6 +917,7 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 		// two concurrent sessions land in.
 		claimed, err := t.Claims.Claim(ctx, name, task.Every.Duration(), t.now())
 		if err != nil {
+			release()
 			// A task that is not due is the ordinary answer on almost every pull, and
 			// so is one another process claimed a moment ago. Neither is this pass's
 			// to report.
@@ -892,27 +927,52 @@ func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
 			problems = append(problems, fmt.Errorf("claim the firing of the recurring task %s: %w", name, err))
 			continue
 		}
-		if away {
-			fired := t.refuse(ctx, name, task, outage)
-			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
-		}
-		batch := t.amendmentBatch(task)
-		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, "", t.overdueFor(task), batch), batch: batch})
-		return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
+		selected[task.Role] = true
+		pending = append(pending, func() (Fired, bool, error) {
+			defer release()
+			if away {
+				return t.refuse(ctx, name, task, outage), true, nil
+			}
+			batch := t.amendmentBatch(task)
+			fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, "", t.overdueFor(task), batch), batch: batch})
+			return fired, true, nil
+		})
 	}
-	// The program manager instances come after the tasks and share their bound:
-	// at most one firing per pull, whichever of the two it is.
 	for _, agent := range t.instanceNames() {
-		fired, took, err := t.pass(ctx, agent, t.Instances[agent], outage, away)
-		if err != nil {
-			problems = append(problems, err)
+		release, free := reserveRecurring(ctx, "agent:"+agent)
+		if !free {
 			continue
 		}
-		if took {
-			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
+		pending = append(pending, func() (Fired, bool, error) {
+			defer release()
+			return t.pass(ctx, agent, t.Instances[agent], outage, away)
+		})
+	}
+	type result struct {
+		fired Fired
+		took  bool
+		err   error
+	}
+	results := make([]result, len(pending))
+	var running sync.WaitGroup
+	for i, fire := range pending {
+		running.Add(1)
+		go func() {
+			defer running.Done()
+			results[i].fired, results[i].took, results[i].err = fire()
+		}()
+	}
+	running.Wait()
+	var sweep RecurringSweep
+	for _, result := range results {
+		if result.err != nil {
+			problems = append(problems, result.err)
+		}
+		if result.took {
+			sweep.Fired = append(sweep.Fired, result.fired)
 		}
 	}
-	return RecurringSweep{}, errors.Join(problems...)
+	return sweep, errors.Join(problems...)
 }
 
 // passName is how a firing is named where a turn records it wrote something on
@@ -1125,7 +1185,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// Whoever fired this pass is told it has begun, before its first turn, so a
 	// watch session that fires passes inside its poll can say which pass it is in
 	// for as long as the pass runs.
-	announcePass(ctx, runstate.WatchPass{Task: name, Role: task.Role, Trigger: f.trigger, At: recorded.StartedAt})
+	announcePass(ctx, runstate.WatchPass{Task: name, Role: task.Role, Trigger: f.trigger, At: recorded.StartedAt, Concurrent: true})
 	// shown is every critical report the pass has been put in front of: the ones
 	// its firing was made for, and the ones its conversation carried into a turn.
 	// The pass is not accepted as complete while any of them stands unhandled.

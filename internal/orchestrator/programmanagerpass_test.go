@@ -336,20 +336,17 @@ func TestATurnInFlightStillDispatchesTheDuePassToItsConversation(t *testing.T) {
 	}
 }
 
-// At most one firing per pull, whether it is a task or an instance's pass.
-func TestATaskAndAnInstanceDueTogetherFireOnePerPull(t *testing.T) {
+// Tasks and instances with different conversations share a pull.
+func TestATaskAndAnInstanceDueTogetherFireTogether(t *testing.T) {
 	t.Parallel()
-
 	h := newPassHarness(t, instance(time.Hour))
 	h.trigger.Tasks = hourlyTask("sweep")
-
 	first := h.fire(t, recurringNow)
-	if len(first.Fired) != 1 || first.Fired[0].Task != "a-sweep" {
-		t.Fatalf("fired = %+v, want the task first and nothing beside it", first.Fired)
+	if len(first.Fired) != 2 {
+		t.Fatalf("firings: %+v", first.Fired)
 	}
-	second := h.fire(t, recurringNow.Add(time.Minute))
-	if len(second.Fired) != 1 || second.Fired[0].Task != instanceName {
-		t.Fatalf("fired = %+v, want the instance at the next pull", second.Fired)
+	if second := h.fire(t, recurringNow.Add(time.Minute)); len(second.Fired) != 0 {
+		t.Fatalf("second: %+v", second)
 	}
 }
 
