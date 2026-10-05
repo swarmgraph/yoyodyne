@@ -408,9 +408,10 @@ type RunSummary struct {
 	// CostUSD is what the provider reported for every invocation in this run's
 	// log, and UnknownCost says why there is no figure rather than reporting one
 	// of zero: a run whose evidence is gone did not cost nothing.
-	CostUSD     float64 `json:"cost_usd"`
-	Invocations int     `json:"invocations,omitempty"`
-	UnknownCost string  `json:"unknown_cost,omitempty"`
+	Tokens      TokenUsage `json:"tokens"`
+	CostUSD     float64    `json:"cost_usd"`
+	Invocations int        `json:"invocations,omitempty"`
+	UnknownCost string     `json:"unknown_cost,omitempty"`
 }
 
 // Failed reports a run that reached a terminal status without succeeding.
@@ -613,6 +614,7 @@ func (s *Store) summarize(state State) RunSummary {
 	}
 	price := s.priceRun(state)
 	summary.CostUSD = price.CostUSD
+	summary.Tokens = price.Tokens
 	summary.Invocations = price.Invocations
 	summary.UnknownCost = price.Unknown
 	return summary

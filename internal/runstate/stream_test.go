@@ -513,9 +513,9 @@ func TestSpendReportTotalsAndNarrowsByItsOwnRule(t *testing.T) {
 		t.Fatalf("the whole report totals %+v", whole)
 	}
 	if len(whole.ByKind) != 4 ||
-		whole.ByKind[0] != (KindTotal{Kind: StreamRun, Calls: 5, CostUSD: 15.5}) ||
-		whole.ByKind[1] != (KindTotal{Kind: StreamConversation, Calls: 2, CostUSD: 4}) ||
-		whole.ByKind[2] != (KindTotal{Kind: StreamReview, Calls: 1, CostUSD: 1.25}) ||
+		whole.ByKind[0] != (KindTotal{Kind: StreamRun, Calls: 5, CostUSD: 15.5, Usage: TokenUsage{InputTokens: 120, OutputTokens: 60}}) ||
+		whole.ByKind[1] != (KindTotal{Kind: StreamConversation, Calls: 2, CostUSD: 4, Usage: TokenUsage{InputTokens: 10, OutputTokens: 5}}) ||
+		whole.ByKind[2] != (KindTotal{Kind: StreamReview, Calls: 1, CostUSD: 1.25, Usage: TokenUsage{InputTokens: 1, OutputTokens: 1}}) ||
 		whole.ByKind[3] != (KindTotal{Kind: StreamExchange, Calls: 1, CostUSD: 0.5}) {
 		t.Fatalf("the whole report splits %+v, want the four kinds in the order they are priced", whole.ByKind)
 	}

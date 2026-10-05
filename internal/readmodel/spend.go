@@ -94,9 +94,11 @@ type SpendWindow struct {
 	// CostUSD is what every priced invocation in the window cost, across runs,
 	// conversations, branch reviews, side threads, and exchanges alike, and
 	// Invocations how many there were. Kinds splits both by what was invoked.
-	CostUSD     float64     `json:"cost_usd"`
-	Invocations int         `json:"invocations"`
-	Kinds       []KindSpend `json:"kinds"`
+	Tokens      runstate.TokenUsage `json:"tokens"`
+	CostText    string              `json:"cost_text"`
+	CostUSD     float64             `json:"cost_usd"`
+	Invocations int                 `json:"invocations"`
+	Kinds       []KindSpend         `json:"kinds"`
 	// Unpriced counts the records the window should cover and could not read,
 	// and Floor says in one word that the cost is therefore a lower bound, so a
 	// surface does not have to know why.
@@ -109,16 +111,20 @@ type SpendDay struct {
 	Day string `json:"day"`
 	// Reached says a priced record goes back at least this far. A day none does
 	// carries no figures at all rather than zeroes, because nothing measured it.
-	Reached     bool        `json:"reached"`
-	CostUSD     float64     `json:"cost_usd"`
-	Invocations int         `json:"invocations"`
-	Kinds       []KindSpend `json:"kinds"`
+	Reached     bool                `json:"reached"`
+	Tokens      runstate.TokenUsage `json:"tokens"`
+	CostText    string              `json:"cost_text"`
+	CostUSD     float64             `json:"cost_usd"`
+	Invocations int                 `json:"invocations"`
+	Kinds       []KindSpend         `json:"kinds"`
 }
 
 // KindSpend is one kind's share of a window's or a day's cost.
 type KindSpend struct {
 	Kind        runstate.StreamKind `json:"kind"`
 	Invocations int                 `json:"invocations"`
+	Tokens      runstate.TokenUsage `json:"tokens"`
+	CostText    string              `json:"cost_text"`
 	CostUSD     float64             `json:"cost_usd"`
 }
 
@@ -200,12 +206,12 @@ func ReadSpend(ctx context.Context, sources SpendSources) Spend {
 		day := runstate.LocalDay(startOfLocalDay(now, back+1))
 		listed := SpendDay{Day: day, Reached: report.Reaches != "" && day >= report.Reaches, Kinds: []KindSpend{}}
 		if listed.Reached {
-			listed.CostUSD, listed.Invocations, listed.Kinds = onlyDay(report, day)
+			listed.CostUSD, listed.Invocations, listed.Kinds, listed.Tokens, listed.CostText = onlyDay(report, day)
 		}
 		reading.Days = append(reading.Days, listed)
 	}
 	reading.Undated = SpendDay{Day: runstate.UndatedDay, Reached: true, Kinds: []KindSpend{}}
-	reading.Undated.CostUSD, reading.Undated.Invocations, reading.Undated.Kinds = onlyDay(report, runstate.UndatedDay)
+	reading.Undated.CostUSD, reading.Undated.Invocations, reading.Undated.Kinds, reading.Undated.Tokens, reading.Undated.CostText = onlyDay(report, runstate.UndatedDay)
 	return reading
 }
 
@@ -229,6 +235,8 @@ func spendWindows(now time.Time) []SpendWindow {
 func sumInto(window *SpendWindow, narrowed runstate.SpendReport) {
 	totals := narrowed.Totals()
 	window.CostUSD = totals.CostUSD
+	window.Tokens = totals.Usage
+	window.CostText = totals.Usage.CostText(totals.CostUSD)
 	window.Invocations = totals.Calls
 	window.Kinds = kindShares(totals)
 	window.Unpriced = len(narrowed.UnreadableExchanges)
@@ -238,7 +246,7 @@ func sumInto(window *SpendWindow, narrowed runstate.SpendReport) {
 // onlyDay is what one local day cost, added up by the same summation the
 // windows are: the report's rows are already one per stream per day, so a day
 // is the rows carrying it and nothing else.
-func onlyDay(report runstate.SpendReport, day string) (float64, int, []KindSpend) {
+func onlyDay(report runstate.SpendReport, day string) (float64, int, []KindSpend, runstate.TokenUsage, string) {
 	only := report
 	only.Rows = nil
 	for _, row := range report.Rows {
@@ -247,13 +255,18 @@ func onlyDay(report runstate.SpendReport, day string) (float64, int, []KindSpend
 		}
 	}
 	totals := only.Totals()
-	return totals.CostUSD, totals.Calls, kindShares(totals)
+	return totals.CostUSD, totals.Calls, kindShares(totals), totals.Usage, totals.Usage.CostText(totals.CostUSD)
 }
 
 func kindShares(totals runstate.SpendTotals) []KindSpend {
 	shares := make([]KindSpend, 0, len(totals.ByKind))
 	for _, share := range totals.ByKind {
-		shares = append(shares, KindSpend{Kind: share.Kind, Invocations: share.Calls, CostUSD: share.CostUSD})
+		part := KindSpend{Kind: share.Kind, Invocations: share.Calls, CostUSD: share.CostUSD}
+		if share.Usage.NoCost > 0 {
+			part.Tokens = share.Usage
+			part.CostText = share.Usage.CostText(share.CostUSD)
+		}
+		shares = append(shares, part)
 	}
 	return shares
 }

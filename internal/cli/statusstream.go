@@ -422,8 +422,8 @@ func printSweepSpend(writer io.Writer, rows []runstate.SweepModelSpend) {
 // nothing to say.
 const (
 	spendHeader   = "%-41s %-17s %6s %8s %9s %10s %11s %9s  %s\n"
-	spendRow      = "%-41s %-17s %6d %8s %9s %10s %11s %9.2f  %s\n"
-	spendSubtotal = "%-41s %-17s %6d %8d %9d %10d %11d %9.2f\n"
+	spendRow      = "%-41s %-17s %6d %8s %9s %10s %11s %9s  %s\n"
+	spendSubtotal = "%-41s %-17s %6d %8d %9d %10d %11d %9s\n"
 	spendTotal    = "%-41s %-17s %6d %8d %9d %10d %11d %9s\n"
 )
 
@@ -446,7 +446,7 @@ func printSpendRows(writer io.Writer, report runstate.SpendReport, now time.Time
 		}
 		in, out, written, read := renderSpendTokens(row.Usage)
 		fmt.Fprintf(writer, spendRow, row.StreamID, renderSpendMoment(row.At), row.Calls,
-			in, out, written, read, row.CostUSD, renderSpendStatus(row))
+			in, out, written, read, spendCostText(row), renderSpendStatus(row))
 		subtotal.Calls += row.Calls
 		subtotal.CostUSD += row.CostUSD
 		if row.Usage != nil {
@@ -481,7 +481,7 @@ func printSpendSubtotal(writer io.Writer, day string, subtotal runstate.SpendRow
 		return
 	}
 	fmt.Fprintf(writer, spendSubtotal, day+" total", "", subtotal.Calls,
-		subtotal.Usage.InputTokens, subtotal.Usage.OutputTokens, subtotal.Usage.CacheCreationTokens, subtotal.Usage.CacheReadTokens, subtotal.CostUSD)
+		subtotal.Usage.InputTokens, subtotal.Usage.OutputTokens, subtotal.Usage.CacheCreationTokens, subtotal.Usage.CacheReadTokens, subtotal.Usage.CostText(subtotal.CostUSD))
 	fmt.Fprintln(writer)
 }
 
@@ -515,8 +515,8 @@ func printSpendTotals(writer io.Writer, report runstate.SpendReport) {
 	fmt.Fprintln(writer, spendRule)
 	fmt.Fprintf(writer, spendTotal, "TOTAL"+window, "", total.Calls,
 		total.Usage.InputTokens, total.Usage.OutputTokens, total.Usage.CacheCreationTokens, total.Usage.CacheReadTokens,
-		mark+fmt.Sprintf("%.2f", total.CostUSD))
-	money := mark + fmt.Sprintf("$%.2f", total.CostUSD)
+		mark+strings.TrimPrefix(total.Usage.CostText(total.CostUSD), "$"))
+	money := mark + total.Usage.CostText(total.CostUSD)
 	tokens := total.Usage.InputTotal() + total.Usage.OutputTokens
 	// An exchange records what the provider charged and not what it used, so a
 	// report of nothing but exchanges has money and no tokens. Saying so beats
@@ -576,8 +576,11 @@ func printRoleSplit(writer io.Writer, total runstate.SpendTotals) {
 			read = groupThousands(spent.Usage.CacheReadTokens)
 			readUSD = fmt.Sprintf("$%.2f", spent.Split.CacheReadUSD)
 			share = fmt.Sprintf("%.1f%%", spent.Usage.CacheReadShare()*100)
+			if spent.Usage.NoCost > 0 {
+				writtenUSD, readUSD = "-", "-"
+			}
 		}
-		fmt.Fprintf(writer, roleSplitRow, name, spent.Calls, written, writtenUSD, read, readUSD, share, fmt.Sprintf("$%.2f", spent.CostUSD))
+		fmt.Fprintf(writer, roleSplitRow, name, spent.Calls, written, writtenUSD, read, readUSD, share, spent.Usage.CostText(spent.CostUSD))
 	}
 	fmt.Fprintln(writer, "a one-shot role reads only the prefix it shares with the invocation before it; what it writes and nothing reads back is the cache_w USD column")
 }
@@ -608,7 +611,7 @@ func renderKindSplit(total runstate.SpendTotals) string {
 		if !known {
 			wording = struct{ name, unit string }{string(share.Kind), "invocation(s)"}
 		}
-		parts = append(parts, fmt.Sprintf("%s: $%.2f from %d %s", wording.name, share.CostUSD, share.Calls, wording.unit))
+		parts = append(parts, fmt.Sprintf("%s: %s from %d %s", wording.name, share.Usage.CostText(share.CostUSD), share.Calls, wording.unit))
 	}
 	if len(parts) < 2 {
 		return ""
@@ -879,4 +882,11 @@ func reportStreamFailure(stdout, stderr io.Writer, jsonOutput bool, payload any,
 	}
 	fmt.Fprintf(stderr, "status failed: %v\n", err)
 	return 1
+}
+
+func spendCostText(row runstate.SpendRow) string {
+	if row.Usage == nil {
+		return fmt.Sprintf("$%.2f", row.CostUSD)
+	}
+	return row.Usage.CostText(row.CostUSD)
 }

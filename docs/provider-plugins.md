@@ -19,6 +19,30 @@ provider also issued a real Code Mode call: a nested shell read succeeded and
 a nested file write was denied before the CLI completed its reply. Those probes
 do not certify every future CLI version or constitute a live model review.
 
+For a Codex turn, yoyo records the input, cached input, and output tokens from
+`turn.completed.usage` on the invocation's event and spend records. Codex's
+input count includes cached input; the shared totals keep fresh input and cached
+input separately, so their sum is the reported input count. Run, work-item,
+role, and overall totals carry those counts. A missing usage object means
+“token usage not reported”; a reported count of zero remains a measurement.
+
+Codex reports no dollar price in this stream. Status and the dashboard show
+its tokens with “no cost reported”, and totals that include priced turns state
+how many turns have no reported cost. Yoyo does not estimate a price from tokens.
+Existing records are read as recorded; this does not recover token counts from
+an invocation whose stream did not preserve them.
+
+The recorded `exec --json` stream has no plan usage-window reading. Yoyo does
+not inspect the operator's Codex home to find one. To support the weekly reading
+from a session log, a person must supply a redacted `event_msg` line whose
+`payload.type` is `token_count` and whose `payload.rate_limits.secondary`
+contains `used_percent`, `window_minutes`, and `resets_at`, from
+`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-<timestamp>-<session-id>.jsonl`
+(`~/.codex` when `CODEX_HOME` is unset). Preserve those fields and the event's
+`timestamp`; remove conversation text, account identifiers, and unrelated
+usage data. A recorded example is needed before the harness can read and show
+that weekly window. No weekly reading is inferred from token counts.
+
 A project can declare a provider of its own in its configuration, without forking
 this repository or rebuilding the binary. **What a declaration supplies is the
 dialect and the executable, not a new way of launching a process.** Your provider

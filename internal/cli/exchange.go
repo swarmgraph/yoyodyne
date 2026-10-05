@@ -292,10 +292,12 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	// charged to. The build is this process's own, because a resident conducting an
 	// exchange goes on running the binary it was started with.
 	spoken := exchange.Spoken{
-		Agent:     name,
-		SessionID: result.SessionID,
-		CostUSD:   result.CostUSD,
-		Backend:   agent.Backend,
+		Agent:        name,
+		SessionID:    result.SessionID,
+		CostUSD:      result.CostUSD,
+		Usage:        result.Usage,
+		CostReported: &result.CostReported,
+		Backend:      agent.Backend,
 		// The model that actually asked, which is the configured one unless the
 		// permitted alternate served the round. Recording the configured selector
 		// would leave the exchange record naming a model that refused it.

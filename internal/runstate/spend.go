@@ -118,6 +118,7 @@ func (c SpendClassification) Valid() bool {
 // it was spent on. It is written when the invocation ends, which is the moment
 // its cost is known, and never revised.
 type Spend struct {
+	Usage         json.RawMessage  `json:"usage,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
 	At            time.Time        `json:"at"`

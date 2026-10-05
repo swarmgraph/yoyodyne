@@ -12,6 +12,7 @@ package exchange
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -88,6 +89,8 @@ type Question struct {
 
 // Spoken is what the answering side produced.
 type Spoken struct {
+	Usage        json.RawMessage `json:"usage,omitempty"`
+	CostReported *bool           `json:"cost_reported,omitempty"`
 	// Answer is the reply as the provider wrote it. It is checked by ReadAnswer
 	// before anything is recorded, so a voice never has to enforce the boundary
 	// itself.
@@ -278,6 +281,8 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	answered := c.now()
 	round.AnsweredAt = &answered
 	round.CostUSD = spoken.CostUSD
+	round.Usage = spoken.Usage
+	round.CostReported = spoken.CostReported
 	// What served the round is pinned beside what it cost, and for the same reason
 	// it is: both are facts about an invocation that happened, so a round the
 	// provider failed records them exactly as one that answered does.

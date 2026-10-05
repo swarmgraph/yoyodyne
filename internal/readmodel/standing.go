@@ -411,10 +411,12 @@ type RunningRun struct {
 	// NoProcessRemedy is what ends such a run, which is not the same for every
 	// park: runstate.DeadRunRemedy, from the sweep's own rules. It is set exactly
 	// where NoProcess is.
-	NoProcessRemedy string        `json:"no_process_remedy,omitempty"`
-	StartedAt       time.Time     `json:"started_at"`
-	Elapsed         time.Duration `json:"elapsed"`
-	CostUSD         float64       `json:"cost_usd"`
+	NoProcessRemedy string              `json:"no_process_remedy,omitempty"`
+	StartedAt       time.Time           `json:"started_at"`
+	Elapsed         time.Duration       `json:"elapsed"`
+	CostText        string              `json:"cost_text"`
+	Tokens          runstate.TokenUsage `json:"tokens"`
+	CostUSD         float64             `json:"cost_usd"`
 	// UnknownCost says why there is no figure rather than reporting one of zero: a
 	// run whose evidence cannot be read has not cost nothing.
 	UnknownCost string `json:"unknown_cost,omitempty"`
@@ -1045,6 +1047,8 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 					continue
 				}
 				run.CostUSD, run.UnknownCost = priced.CostUSD, priced.Unknown
+				run.Tokens = priced.Tokens
+				run.CostText = priced.Tokens.CostText(priced.CostUSD)
 				break
 			}
 		}

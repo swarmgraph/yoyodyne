@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -177,6 +178,8 @@ func (p *PhaseSpend) Merge(other PhaseSpend) {
 // at the write rate, and the remainder fresh -- which is what makes the share
 // below a share rather than a ratio between unrelated numbers.
 type TokenUsage struct {
+	// NoCost counts turns whose provider did not report a dollar cost.
+	NoCost int `json:"no_cost_invocations,omitempty"`
 	// InputTokens is the fresh input alone, as the provider reports it: the part
 	// of the prompt it neither served from its cache nor wrote into one.
 	InputTokens         int64 `json:"input_tokens,omitempty"`
@@ -248,6 +251,7 @@ func (t *TokenUsage) Merge(other TokenUsage) {
 	t.OutputTokens += other.OutputTokens
 	t.Measured += other.Measured
 	t.Unreported += other.Unreported
+	t.NoCost += other.NoCost
 }
 
 // The provider prices each kind of token at a fixed multiple of the model's
@@ -422,6 +426,7 @@ func (i ItemPrice) Recorded() bool { return len(i.Runs) > 0 }
 // TestAnExchangeRecordNamesNoWorkItemToAttributeItsSpendTo fails the moment the
 // record can carry one.
 type ExchangeSpend struct {
+	Tokens TokenUsage `json:"tokens"`
 	// Exchanges is how many threads the figure covers and Rounds how many
 	// provider invocations they came to between them. The two travel together for
 	// the reason a phase's invocation count travels with its money: one long
@@ -497,6 +502,9 @@ func (s *Store) ExchangeSpend() ExchangeSpend {
 		spend.Exchanges++
 		spend.Rounds += recorded.Spent()
 		spend.CostUSD += recorded.CostUSD()
+		for _, round := range recorded.Rounds {
+			spend.Tokens.Merge(exchangeTokens(round))
+		}
 	}
 	return spend
 }
@@ -942,6 +950,7 @@ type pricedEvent struct {
 		// what an invocation with no session to have resumed cost.
 		SessionID    string  `json:"session_id"`
 		TotalCostUSD float64 `json:"total_cost_usd"`
+		CostReported *bool   `json:"cost_reported"`
 		// Usage is the provider's own usage object, recorded verbatim on every
 		// terminal. It is a pointer so that a terminal carrying no usage at all is
 		// distinguishable from one that reported zeros: the first is an invocation
@@ -952,6 +961,25 @@ type pricedEvent struct {
 		// arrived after the invocation's first, which carries a cost of its own.
 		Anomaly string `json:"anomaly"`
 	} `json:"payload"`
+}
+
+func (p *pricedEvent) UnmarshalJSON(data []byte) error {
+	type plain pricedEvent
+	if err := json.Unmarshal(data, (*plain)(p)); err != nil {
+		return err
+	}
+	var presence struct {
+		Payload map[string]json.RawMessage `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &presence); err != nil {
+		return err
+	}
+	if p.Payload.CostReported == nil {
+		raw, exists := presence.Payload["total_cost_usd"]
+		reported := exists && string(raw) != "null"
+		p.Payload.CostReported = &reported
+	}
+	return nil
 }
 
 // duplicateTerminal reports the record of a second terminal to one invocation.
@@ -1006,7 +1034,7 @@ type usageTokens struct {
 func (p pricedEvent) tokens() TokenUsage {
 	usage := p.Payload.Usage
 	if usage == nil {
-		return TokenUsage{Unreported: 1}
+		return TokenUsage{Unreported: 1, NoCost: p.noCost()}
 	}
 	tokens := TokenUsage{
 		InputTokens:         usage.InputTokens,
@@ -1014,12 +1042,43 @@ func (p pricedEvent) tokens() TokenUsage {
 		CacheCreationTokens: usage.CacheCreationTokens,
 		OutputTokens:        usage.OutputTokens,
 		Measured:            1,
+		NoCost:              p.noCost(),
 	}
 	if usage.CacheCreation != nil {
 		tokens.CacheWrite5mTokens = usage.CacheCreation.Ephemeral5m
 		tokens.CacheWrite1hTokens = usage.CacheCreation.Ephemeral1h
 	}
 	return tokens
+}
+
+// noCost uses the explicit adapter flag; older events retain their recorded meaning.
+func (p pricedEvent) noCost() int {
+	if p.Payload.CostReported != nil && !*p.Payload.CostReported {
+		return 1
+	}
+	return 0
+}
+
+// CostText describes reported dollars and tokens without treating missing prices as free.
+func (t TokenUsage) CostText(cost float64) string {
+	if t.NoCost == 0 {
+		return fmt.Sprintf("$%.2f", cost)
+	}
+	turns := "turns"
+	if t.NoCost == 1 {
+		turns = "turn"
+	}
+	tokens := fmt.Sprintf("%d input tokens (%d cached), %d output tokens", t.InputTotal(), t.CacheReadTokens, t.OutputTokens)
+	if t.Measured == 0 {
+		tokens = "token usage not reported"
+	}
+	if t.Unreported > 0 && t.Measured > 0 {
+		tokens += fmt.Sprintf("; usage not reported for %d turns", t.Unreported)
+	}
+	if t.NoCost == t.Measured+t.Unreported {
+		return tokens + fmt.Sprintf("; no cost reported for %d %s", t.NoCost, turns)
+	}
+	return fmt.Sprintf("$%.2f reported; %s; no cost reported for %d %s", cost, tokens, t.NoCost, turns)
 }
 
 // role is whose invocation this terminal ended, by the rule phase applies: a
@@ -1094,4 +1153,16 @@ func carriesSpendEvidence(line []byte) bool {
 		}
 	}
 	return bytes.Contains(line, []byte(`"`+execution.DuplicateTerminalAnomaly+`"`))
+}
+
+func exchangeTokens(round exchange.Round) TokenUsage {
+	if round.CostReported == nil && len(round.Usage) == 0 {
+		return TokenUsage{}
+	}
+	var event pricedEvent
+	event.Payload.CostReported = round.CostReported
+	if len(round.Usage) > 0 {
+		_ = json.Unmarshal(round.Usage, &event.Payload.Usage)
+	}
+	return event.tokens()
 }

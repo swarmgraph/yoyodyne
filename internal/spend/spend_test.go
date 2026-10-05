@@ -2,6 +2,7 @@ package spend
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -105,13 +106,16 @@ func TestAnInvocationTheProviderDidNotPriceIsRecordedAsUnknown(t *testing.T) {
 	// added up as an invocation that was free, which is the opposite of the truth.
 	answered := &recordingLog{}
 	metered := testMetered(answered, func(backend.RunRequest) (backend.RunResult, error) {
-		return backend.RunResult{Backend: "claude-code", IsError: true, StopReason: "api_error"}, nil
+		return backend.RunResult{Backend: "codex", Usage: json.RawMessage(`{"input_tokens":3120,"cache_read_input_tokens":13184,"output_tokens":5}`), IsError: true, StopReason: "api_error"}, nil
 	})
 	if _, err := metered.Run(context.Background(), testRequest()); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if len(answered.lines) != 1 || answered.lines[0].Known() || answered.lines[0].AmountUSD != 0 {
 		t.Fatalf("recorded = %#v, want one unknown spend", answered.lines)
+	}
+	if string(answered.lines[0].Usage) != `{"input_tokens":3120,"cache_read_input_tokens":13184,"output_tokens":5}` {
+		t.Fatal(answered.lines[0].Usage)
 	}
 	if !strings.Contains(answered.lines[0].Unknown, "without reporting what it cost") {
 		t.Fatalf("the line does not say why nobody knows: %q", answered.lines[0].Unknown)

@@ -816,6 +816,7 @@ type SpendTotals struct {
 
 // KindTotal is one kind's share of a report's total.
 type KindTotal struct {
+	Usage   TokenUsage
 	Kind    StreamKind
 	Calls   int
 	CostUSD float64
@@ -849,6 +850,9 @@ func (r SpendReport) Totals() SpendTotals {
 		}
 		share.Calls += row.Calls
 		share.CostUSD += row.CostUSD
+		if row.Usage != nil {
+			share.Usage.Merge(*row.Usage)
+		}
 		for _, spent := range row.Roles {
 			part, seen := byRole[spent.Role]
 			if !seen {
@@ -1036,10 +1040,10 @@ func (s *StreamStore) spendOnExchanges(match string, since time.Time, report *Sp
 		if !recorded.Open() {
 			status = string(recorded.Outcome)
 		}
-		grouped := roundsByDay(id, status, recorded.Rounds, time.Time{})
+		grouped := roundsByDay(id, status, recorded.Answerer.Role, recorded.Rounds, time.Time{})
 		report.reaching(grouped)
 		report.take(grouped)
-		report.roll(since, func() []SpendRow { return roundsByDay(id, status, recorded.Rounds, since) })
+		report.roll(since, func() []SpendRow { return roundsByDay(id, status, recorded.Answerer.Role, recorded.Rounds, since) })
 	}
 	return nil
 }
@@ -1047,7 +1051,7 @@ func (s *StreamStore) spendOnExchanges(match string, since time.Time, report *Sp
 // roundsByDay groups an exchange's rounds into one row per local day it spent
 // on, keeping only the rounds at or after `since` where a moment is given — an
 // undated round being inside every window, as an undated invocation is.
-func roundsByDay(id, status string, rounds []exchange.Round, since time.Time) []SpendRow {
+func roundsByDay(id, status string, role domain.AgentRole, rounds []exchange.Round, since time.Time) []SpendRow {
 	var order []string
 	rows := make(map[string]*SpendRow, len(rounds))
 	for _, round := range rounds {
@@ -1070,6 +1074,17 @@ func roundsByDay(id, status string, rounds []exchange.Round, since time.Time) []
 		}
 		row.Calls++
 		row.CostUSD += round.CostUSD
+		usage := exchangeTokens(round)
+		if row.Usage == nil && (round.CostReported != nil || len(round.Usage) > 0) {
+			row.Usage = &TokenUsage{}
+		}
+		if row.Usage != nil {
+			row.Usage.Merge(usage)
+			if len(row.Roles) == 0 {
+				row.Roles = []RoleSpend{{Role: role}}
+			}
+			row.Roles[0].add(Invocation{CostUSD: round.CostUSD, Usage: usage})
+		}
 	}
 	grouped := make([]SpendRow, 0, len(order))
 	for _, day := range order {
