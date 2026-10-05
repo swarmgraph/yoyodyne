@@ -2166,6 +2166,15 @@ type RepairContinuation struct {
 	// every run of one item it is what says how much of that grant has been
 	// carried out, which is what stops one decision being acted on twice.
 	GrantedAttempts int `json:"granted_attempts"`
+	// DispatchPending says the continuation is recorded but the pipeline has not
+	// yet confirmed its acceptance. The grant and attempt are already charged;
+	// a later pass recovers this transition in its existing slot once no process
+	// holds the run.
+	DispatchPending bool `json:"dispatch_pending,omitempty"`
+	// SuccessNotePending is independent of dispatch: the continuation is recorded,
+	// but its success note on the work item has not been confirmed. A later note
+	// delivery pass retries it even after the pipeline has finished the run.
+	SuccessNotePending bool `json:"success_note_pending,omitempty"`
 	// Reason is the development manager's triage reasoning as the harness was
 	// given it, which is why this run is going again. A continuation nobody can
 	// account for is exactly the work that looks like it is happening behind
@@ -2209,6 +2218,12 @@ type RepairContinuation struct {
 // Validate reports every contract violation in the recorded continuation at once.
 func (c RepairContinuation) Validate() error {
 	var problems []error
+	if c.DispatchPending && c.ByHarness {
+		problems = append(problems, errors.New("a pending repair dispatch belongs to a decided continuation, not a harness grant"))
+	}
+	if c.SuccessNotePending && c.ByHarness {
+		problems = append(problems, errors.New("a pending repair success note belongs to a decided continuation, not a harness grant"))
+	}
 	if c.CheckStage && (c.Stall || c.ByHarness) {
 		problems = append(problems, errors.New("a decided check-stage continuation is neither a stall nor a harness grant"))
 	}
@@ -3961,15 +3976,39 @@ func (s State) CarriedOutRepairAttempts() int {
 
 // RepairContinuedSince reports a repair grant handed back to this run at or
 // after a moment: a continuation somebody decided, which the environment did
-// not refuse. It is what says a repair decided at that moment was carried out,
-// counted the way CarriedOutRepairAttempts counts it — a returned round bought
-// nothing, and the harness carrying on a stall itself spends no grant.
+// not refuse. It is what says a repair decided at that moment was carried out.
+// A pending dispatch still consumes the grant, but has not handed work back to
+// the pipeline. A returned round bought nothing, and the harness carrying on a
+// stall itself spends no grant.
 func (s State) RepairContinuedSince(decidedAt time.Time) bool {
 	for _, continuation := range s.RepairContinuations {
-		if continuation.Returned || continuation.ByHarness {
+		if continuation.Returned || continuation.ByHarness || continuation.DispatchPending {
 			continue
 		}
 		if !continuation.ContinuedAt.Before(decidedAt) {
+			return true
+		}
+	}
+	return false
+}
+
+// RepairDispatchPending reports an unserved transition on the current run. It
+// remains in flight and holds its slot; the run lease, rather than this marker,
+// decides whether another process may recover and dispatch it.
+func (s State) RepairDispatchPending() bool {
+	last := len(s.RepairContinuations) - 1
+	if s.Status != StatusRunning || last < 0 {
+		return false
+	}
+	continuation := s.RepairContinuations[last]
+	return continuation.DispatchPending && !continuation.Returned && !continuation.ByHarness
+}
+
+// RepairSuccessNotePending reports an unconfirmed note from any continuation.
+// Finishing the run or dispatching another continuation does not deliver it.
+func (s State) RepairSuccessNotePending() bool {
+	for _, continuation := range s.RepairContinuations {
+		if continuation.SuccessNotePending {
 			return true
 		}
 	}

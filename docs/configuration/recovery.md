@@ -876,13 +876,42 @@ standing between a repair and a clean worktree.
 **A repair supersedes the blocker rather than needing somebody to remember to.**
 The run that stopped blocked its item and recorded the blocker on its own state,
 which `yoyo status`, `yoyo reconcile`, and the docket all read as the fact that
-it has stopped. So re-entry clears both at the moment it happens: the item is put
-back with the decision recorded on it first, and the run's blocker is cleared onto
+it has stopped. The item first receives a preparation note citing the decision,
+and its claim for the repair is confirmed. The run's blocker is then cleared onto
 the continuation that supersedes it, which keeps the words it was recorded in and
 the grant that bought the attempt. The order is the item first, because a run
 recorded as running behind an item that still says it is blocked is the one
-half-finished state nothing else here would notice, and every refusal is asked
-before either write, so a refused re-entry leaves the grant exactly where it was.
+half-finished state nothing else here would notice. Preconditions are checked
+before the item claim, but later failures can leave the item claimed or the
+continuation and its expenditure already recorded. Success is reported, and its
+note appended, only after the continuation has been saved and read back. A refused
+claim or an unconfirmed save reports that outcome and dispatches no developer.
+A save that replaced the record but failed to confirm its durability is reported
+as uncertain, even when the continuation can be read back.
+
+Recovery reads the item and run before making another transition. It reuses an
+item already claimed and confirms a continuation already recorded for the
+standing repair decision without adding another continuation, attempt, or grant.
+The recorded continuation carries `dispatch_pending` until the pipeline confirms
+that it adopted and accepted the named run. A pause before adoption can name the
+existing run without accepting it, so its dispatch remains pending. Later
+scheduling passes offer a pending continuation whose run has no live lease
+holder, even though it has consumed its grant and still occupies a developer
+slot. Recovery confirms durability and reuses that slot before dispatching; it
+takes no new slot or grant. A live leased run is left to finish, and an accepted
+dispatch is not offered again. A repeated repair command reads and reports an
+already served continuation without another continuation or dispatch. Success
+notes carry a separate `success_note_pending` marker on their continuation.
+Accepted dispatch and a completed run leave an unconfirmed note pending: later
+pulls retry note delivery without taking a developer slot, making a new
+continuation, or charging another attempt. Recovery checks the item's existing
+notes before appending a missing success note or recognizing one whose response
+was lost, then records its confirmation. If execution has completed but its
+dispatch acknowledgement was not saved, the terminal record and completion time
+confirm that the latest continuation has ended; note recovery records both
+acknowledgements without dispatching again. It leaves live leased runs alone.
+Once the continuation is confirmed, a failed note is reported alongside it
+rather than making a recorded continuation look absent.
 
 The continuations are recorded on the run itself, under `repair_continuations` in
 its state file, and they are what the continued run's repair loop adds to

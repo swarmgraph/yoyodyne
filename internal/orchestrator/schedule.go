@@ -2401,7 +2401,7 @@ pulling:
 		var pendingCarryOuts []outrankedCarryOut
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
-			tasks, passedCarryOuts, pendingCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, waitingOn, closed, free, remaining, outranked)
+			tasks, passedCarryOuts, pendingCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked)
 		}
 		// With no slot free this pull never walks the queue, so a decision held back
 		// for outranking work is written up now, beside the ones passed over.
@@ -2413,6 +2413,7 @@ pulling:
 		}
 		firedCarryOuts := 0
 		fireCarryOut := func(task CarryOutTask) {
+			reusesSlot := task.Recover && occupied[task.WorkItemID].RunID == task.RunID && occupied[task.WorkItemID].RepairDispatchPending()
 			index := len(schedule.Started)
 			schedule.Started = append(schedule.Started, Started{
 				WorkItemID: task.WorkItemID,
@@ -2428,7 +2429,7 @@ pulling:
 			// one the action's own capacity gate refuses before it reserves anything,
 			// and a count driven negative here would offer the queue below room the
 			// harness does not have.
-			if free > 0 {
+			if free > 0 && !reusesSlot {
 				free--
 				filledByCarryOut++
 			}
@@ -4350,7 +4351,7 @@ func (s Scheduler) correct(ctx context.Context, schedule *Schedule, pull Pull) {
 // as pending, for the walk of the queue to fire at the point in the order its
 // item's priority puts it. outranked says which decisions those are; nil says
 // none are, which is every decision before yoyodyne-ifd.428.58.
-func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
+func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil
 	}
@@ -4368,21 +4369,23 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 	if slots < 1 {
 		slots = 1
 	}
-	bounded := remaining > 0 && remaining < slots
-	if bounded {
-		slots = remaining
-	}
 	var chosen []CarryOutTask
 	var pending []outrankedCarryOut
 	passed := make(map[string]string)
 	taken := make(map[string]string)
+	newSlots := make(map[string]bool)
 	for _, task := range outstanding {
-		if _, busy := occupied[task.WorkItemID]; busy {
-			if run, ours := taken[task.WorkItemID]; ours {
-				passed[task.RunID] = fmt.Sprintf("this pull was already carrying out a decision about run %s of the same item, and one item is never given two runs at once", run)
-			} else {
-				passed[task.RunID] = "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once"
-			}
+		if run, ours := taken[task.WorkItemID]; ours {
+			passed[task.RunID] = fmt.Sprintf("this pull was already carrying out a decision about run %s of the same item, and one item is never given two runs at once", run)
+			continue
+		}
+		state, busy := occupied[task.WorkItemID]
+		reusesSlot := task.Recover && state.RunID == task.RunID && state.RepairDispatchPending()
+		// A carry-out this session has already dispatched still owns the item,
+		// including the gap before the pipeline acquires the run lease.
+		_, ours := mine[task.WorkItemID]
+		if busy && (!reusesSlot || ours) {
+			passed[task.RunID] = "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once"
 			continue
 		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
@@ -4391,27 +4394,32 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 			}
 			continue
 		}
-		if len(chosen) >= slots {
-			if bounded {
-				passed[task.RunID] = fmt.Sprintf("the session was bounded to %d more run(s) by its --limit, and %d decision(s) ahead of it on the docket took them", remaining, len(chosen))
-			} else {
-				passed[task.RunID] = fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(chosen))
-			}
+		if remaining > 0 && len(chosen) >= remaining {
+			passed[task.RunID] = fmt.Sprintf("the session was bounded to %d more run(s) by its --limit, and %d decision(s) ahead of it on the docket took them", remaining, len(chosen))
 			continue
 		}
-		if outranked != nil {
+		if !reusesSlot && len(newSlots) >= slots {
+			passed[task.RunID] = fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots))
+			continue
+		}
+		// An unserved continuation already holds its slot. Recovering it does
+		// not compete with ready work for another one.
+		if outranked != nil && !reusesSlot {
 			if held, outranks := outranked(task); outranks {
 				pending = append(pending, held)
 				continue
 			}
 		}
 		chosen = append(chosen, task)
-		occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
+		if !reusesSlot {
+			occupied[task.WorkItemID] = runstate.State{WorkItemID: task.WorkItemID}
+			newSlots[task.WorkItemID] = true
+		}
 		taken[task.WorkItemID] = task.RunID
 	}
 	// The occupancy marked above is only for the choosing: the caller marks each
 	// fired decision again as it starts it, and must see the rest as it was.
-	for id := range taken {
+	for id := range newSlots {
 		delete(occupied, id)
 	}
 	return chosen, passed, pending

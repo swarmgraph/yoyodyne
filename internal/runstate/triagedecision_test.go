@@ -311,6 +311,7 @@ func TestARepairContinuedSinceItsDecisionIsCarriedOut(t *testing.T) {
 	for name, continuation := range map[string]RepairContinuation{
 		"before the decision":     {GrantedAttempts: 2, ContinuedAt: decided.Add(-time.Hour)},
 		"returned":                {GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Returned: true},
+		"awaiting dispatch":       {GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), DispatchPending: true},
 		"the harness's own stall": {ContinuedAt: decided.Add(2 * time.Minute), Stall: true, ByHarness: true},
 	} {
 		run.RepairContinuations = []RepairContinuation{continuation}
