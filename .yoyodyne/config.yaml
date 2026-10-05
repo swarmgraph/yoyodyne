@@ -245,7 +245,10 @@ recurring_tasks:
     # the operator's observation, not a provider guarantee of cache retention.
     every: 45m
     enabled: true
-    max_turns: 4
+    # 8, up from 4, at the operator's direction of 2026-10-05. A design took
+    # her several passes at 4 turns each, so P0 designs queued behind one
+    # another for days; the ceiling is MaxRecurringTurns (10).
+    max_turns: 8
     prompt: |
       Your recurring pass over what is waiting on you.
 
