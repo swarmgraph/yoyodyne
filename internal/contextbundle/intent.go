@@ -68,7 +68,13 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 
 	header := renderWorkItemIntentHeader(clean, source.revision)
 	if source.revision != nil {
-		current, err := discoverSpecifications("specifications", root, clean)
+		var current []string
+		var err error
+		if source.revision.CandidateFiles != nil {
+			current, err = specificationPaths(root, &Revision{Name: "reviewed candidate", ListFiles: source.revision.CandidateFiles}, clean)
+		} else {
+			current, err = discoverSpecifications("specifications", root, clean)
+		}
 		if err != nil {
 			return "", nil, err
 		}
@@ -230,7 +236,7 @@ func renderIntentPathChanges(base, current []string) string {
 		return ""
 	}
 	var text strings.Builder
-	text.WriteString("\n## Product document paths changed since the base\n\nThese paths differ in the checkout. Renames appear as a removed path and an added path. The base documents below remain the intent to review against; read the change for the added documents' contents.\n")
+	text.WriteString("\n## Product document paths changed since the base\n\nThese paths differ in the reviewed candidate. Renames appear as a removed path and an added path. The base documents below remain the intent to review against; read the change for the added documents' contents.\n")
 	for _, name := range removed {
 		fmt.Fprintf(&text, "- Removed: %s\n", name)
 	}

@@ -7645,7 +7645,7 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 		return a.context, nil
 	}
 	revision := reviewedRevision(ctx, p.Worktrees, baseCommit)
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}

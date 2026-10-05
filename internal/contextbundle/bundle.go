@@ -92,6 +92,9 @@ type Revision struct {
 	// it cannot establish which product documents define the standing set.
 	// Required when assembling product intent at a revision.
 	ListFiles func() ([]string, error)
+	// CandidateFiles lists the reviewed head when it is not the working tree.
+	// It must be complete, just like ListFiles. Nil compares with RepositoryRoot.
+	CandidateFiles func() ([]string, error)
 	// Read answers one repository-relative, slash-separated path as the commit
 	// holds it: its size, and its whole content where the size is within
 	// maxBytes. A path the commit does not hold as a regular file answers an

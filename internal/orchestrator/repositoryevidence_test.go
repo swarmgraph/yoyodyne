@@ -85,7 +85,7 @@ func TestReviewerGetsTheBlockersOwnReasonAndTrackerState(t *testing.T) {
 	tracker.Item.Dependencies = []beads.Dependency{{ID: "yoyodyne-design", Type: "blocks", Status: "blocked"}}
 	tracker.HoldsItem(beads.WorkItem{ID: "yoyodyne-design", Title: "Decide the conversion", Status: "blocked", Description: "The architect has not decided the conversion; implementing it would invent a design."})
 	pipeline, _ := newAutomaticPipeline(t, repository, tracker, orchestratortest.RoleBackend(writeFeature, approveVerdict), []string{"exit 0"})
-	run := activeRun{pipeline: pipeline, item: tracker.Item}
+	run := activeRun{pipeline: pipeline, item: tracker.Item, worktree: gitworktree.Worktree{Path: repository}}
 	text, err := run.reviewedContext(context.Background(), gitLine(t, repository, "rev-parse", "HEAD"))
 	if err != nil {
 		t.Fatal(err)
