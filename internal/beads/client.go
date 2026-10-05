@@ -468,8 +468,9 @@ func (c Client) Show(ctx context.Context, id string) (WorkItem, error) {
 }
 
 // unboundedListing is what bd is told so that a listing is the whole of what
-// matches rather than its first page. `bd list` caps its output at fifty rows by
-// default, and at twenty in what it takes for an agent session; zero is its
+// matches rather than its first page. `bd ready` defaults to 100; `bd list`
+// caps its output at fifty rows by default, and at twenty in what it takes for
+// an agent session; zero is its
 // word for no cap. Every reading here is a decision over the whole set — which
 // work is closed, which is open, which is blocked — and a page of it decides
 // wrongly for whatever fell past the cap, so the cap is lifted on the command
@@ -490,12 +491,9 @@ const everyStatus = "--all"
 // closes any of it. It reads the whole set: see unboundedListing. No status is
 // every status, closed included: see everyStatus.
 //
-// The flag was checked against one bd release, and a bd without it refuses
-// every listing before it opens the store — the scheduler's selection among
-// them, which is every run the harness would make. So a listing bd refuses for
-// the flag is asked again without it, and what that reading loses is the lift:
-// it is bd's own page, whole where bd lifts its cap for a pipe and the first
-// fifty rows where it does not. A refusal for anything else is the error it was.
+// A tracker that refuses the no-cap flag is asked once without it to learn how
+// many rows it returned, but that reading is refused as possibly incomplete.
+// Neither a default page nor a warning that bd cut a list is a whole-set answer.
 //
 // A listing its bound killed is asked again, twice, after a short wait: see
 // listingWaits. One that still fails is refused naming how many attempts it
@@ -539,12 +537,9 @@ func (c Client) listPatiently(ctx context.Context, filter []string) ([]WorkItem,
 	attempts := 0
 	for {
 		attempts++
-		data, err := c.run(ctx, append([]string{"list", "--json", unboundedListing}, filter...)...)
-		if err != nil && refusedFlag(err, unboundedListing) {
-			data, err = c.run(ctx, append([]string{"list", "--json"}, filter...)...)
-		}
+		items, err := c.workListing(ctx, "list", filter)
 		if err == nil {
-			return decodeWorkItems(data)
+			return items, nil
 		}
 		if !timedOut(err) || ctx.Err() != nil {
 			return nil, err
@@ -613,7 +608,8 @@ func refusedFlag(err error, flag string) bool {
 
 // Ready reports the work items the tracker itself considers ready to be worked
 // on: admitted, not already claimed, and waiting on nothing unfinished. It is
-// read-only.
+// read-only and asks for the whole list with --limit=0, preserving bd's order.
+// Cut output is refused with the count read and a missing-work warning.
 //
 // It exists because readiness is the tracker's answer to give rather than this
 // client's to infer. A dependency lives in the tracker's own graph, and a status
@@ -621,11 +617,29 @@ func refusedFlag(err error, flag string) bool {
 // blockers, therefore it can be pulled" would report a blocked item as the next
 // thing to work on wherever the listing leaves dependencies out.
 func (c Client) Ready(ctx context.Context) ([]WorkItem, error) {
-	data, err := c.run(ctx, "ready", "--json")
+	items, err := c.workListing(ctx, "ready", nil)
+	c.recordListing(ctx, err)
+	return items, err
+}
+
+// workListing lifts the row cap on both whole-set readings. The old-tracker
+// fallback is evidence about what was read, never a successful whole listing.
+func (c Client) workListing(ctx context.Context, verb string, filter []string) ([]WorkItem, error) {
+	data, err := c.run(ctx, append([]string{verb, "--json", unboundedListing}, filter...)...)
+	if err != nil && refusedFlag(err, unboundedListing) {
+		data, err = c.run(ctx, append([]string{verb, "--json"}, filter...)...)
+		if err == nil {
+			items, decodeErr := decodeWorkListing(data, verb)
+			if decodeErr != nil {
+				return nil, decodeErr
+			}
+			return nil, fmt.Errorf("bd %s could not lift its default limit: read %d work item(s), but the list may be cut and work may be missing", verb, len(items))
+		}
+	}
 	if err != nil {
 		return nil, err
 	}
-	return decodeWorkItems(data)
+	return decodeWorkListing(data, verb)
 }
 
 // Create records a new work item. Unlike every other call here it brings work
@@ -1628,6 +1642,9 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	// rather than handing half a listing to a JSON decoder, whose complaint
 	// about a stray bracket named nothing anybody could act on.
 	if result.OutputTruncation != "" {
+		if args[0] == "list" || args[0] == "ready" {
+			return nil, fmt.Errorf("bd %s output was cut: read %d complete work item(s); work may be missing: %s", args[0], completeWorkItems(result.Stdout), result.OutputTruncation)
+		}
 		return nil, fmt.Errorf("bd %s wrote more than the %d bytes this client retains, so its output was cut and is not read: %s", args[0], maxBDOutputBytes, result.OutputTruncation)
 	}
 	if result.Status != execution.ProcessSucceeded {
@@ -1636,6 +1653,11 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 			message = strings.TrimSpace(result.Stdout)
 		}
 		return nil, processFailure{verb: args[0], status: result.Status, exitCode: result.ExitCode, message: message}
+	}
+	if args[0] == "list" || args[0] == "ready" {
+		if warning := listingCutWarning(result.Stderr); warning != "" {
+			return nil, fmt.Errorf("bd %s list was cut: read %d complete work item(s); work may be missing: %s", args[0], completeWorkItems(result.Stdout), warning)
+		}
 	}
 	if command.RawStdout != nil {
 		return raw.Bytes(), nil

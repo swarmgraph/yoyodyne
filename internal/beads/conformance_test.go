@@ -1585,3 +1585,36 @@ func runCommand(t *testing.T, dir, name string, args ...string) {
 		t.Fatalf("%s %v error = %v: %s", name, args, err, output)
 	}
 }
+
+// The ready default is 100 even when stdout is a pipe. This checks that the
+// no-cap request really returns more than that against the installed tracker,
+// alongside the scheduler test that checks how all those rows are offered.
+func TestReadyListingBeyondDefaultConformance(t *testing.T) {
+	t.Parallel()
+	project := newTracker(t)
+	const total = 120
+	var rows strings.Builder
+	for index := range total {
+		fmt.Fprintf(&rows, `{"title":"Ready work %d","description":"d","issue_type":"task","priority":2,"status":"open"}`+"\n", index)
+	}
+	imported := filepath.Join(t.TempDir(), "ready.jsonl")
+	if err := os.WriteFile(imported, []byte(rows.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runCommand(t, project, "bd", "import", imported)
+	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	items, err := client.Ready(context.Background())
+	if err != nil {
+		t.Fatalf("Ready(): %v", err)
+	}
+	seen := make(map[string]bool, total)
+	for _, item := range items {
+		if seen[item.ID] {
+			t.Fatalf("Ready() returned %s twice", item.ID)
+		}
+		seen[item.ID] = true
+	}
+	if len(seen) != total {
+		t.Fatalf("Ready() returned %d items, want all %d past the default cap", len(seen), total)
+	}
+}

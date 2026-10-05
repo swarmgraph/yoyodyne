@@ -1258,8 +1258,8 @@ type Schedule struct {
 	// met one.
 	ReadsRetried int    `json:"reads_retried,omitempty"`
 	ReadProblem  string `json:"read_problem,omitempty"`
-	// ReadFailure is the reading the session finally stopped on, and how long the
-	// harness had gone on being unreadable when it did.
+	// ReadFailure is the reading the session finally stopped on. A watch also
+	// records how long the harness had gone on being unreadable when it did.
 	//
 	// It is a field of its own rather than the last value of ReadProblem because
 	// the two are facts about different moments, and only this one is why the pass
@@ -1895,6 +1895,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	unreadable := func(err error) bool {
 		if !s.Watching {
 			schedule.Stopped = ScheduleUnreadable
+			schedule.ReadFailure = err.Error()
 			failure = err
 			return false
 		}
@@ -6171,6 +6172,9 @@ func (s Schedule) Render() string {
 	}
 	if s.ReadProblem != "" && s.ReadFailure == "" {
 		fmt.Fprintf(&rendered, "the last of them: %s\n", s.ReadProblem)
+	}
+	if s.ReadFailure != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.ReadFailure)
 	}
 	// The provider answering nobody is said with what ends it rather than with
 	// a command, because there is none: the brake's remedy is the one an operator
