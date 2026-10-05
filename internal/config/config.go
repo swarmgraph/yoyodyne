@@ -1204,6 +1204,7 @@ func (c Config) Validate() error {
 		}
 	}
 	problems = append(problems, laneProblems(c.Agents)...)
+	problems = append(problems, c.slotRoutingProblems(providers)...)
 	if developers == 0 {
 		problems = append(problems, "at least one developer agent is required")
 	}
@@ -1269,7 +1270,22 @@ func developerSlotProblems(execution Execution) []string {
 		problems = append(problems, fmt.Sprintf("execution.developer_slots names %d slot(s) and max_concurrent_developers is %d; a developer slot is one unit of that capacity, so the list may be shorter than it and never longer",
 			len(execution.DeveloperSlots), execution.MaxConcurrentDevelopers))
 	}
+	seen := make(map[int]bool)
 	for index, slot := range execution.DeveloperSlots {
+		number := index + 1
+		if slot.Number != nil {
+			number = *slot.Number
+			if number < 1 || number > execution.MaxConcurrentDevelopers {
+				problems = append(problems, fmt.Sprintf("execution.developer_slots slot %d.number must be between 1 and max_concurrent_developers (%d)", index+1, execution.MaxConcurrentDevelopers))
+			}
+			if number != index+1 {
+				problems = append(problems, fmt.Sprintf("execution.developer_slots slot %d.number is %d; slot numbers must follow list order", index+1, number))
+			}
+		}
+		if seen[number] {
+			problems = append(problems, fmt.Sprintf("execution.developer_slots slot %d.number repeats slot %d", index+1, number))
+		}
+		seen[number] = true
 		for _, err := range slot.Problems() {
 			problems = append(problems, fmt.Sprintf("execution.developer_slots slot %d: %v", index+1, err))
 		}

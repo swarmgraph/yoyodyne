@@ -54,6 +54,9 @@ func effortProblems(providers *backend.Registry, name string, agent AgentConfig)
 			narrowed := descriptor.ForModel(selector)
 			if descriptor.Adapter == domain.BackendCodex && len(narrowed.EffortLevels) == 0 {
 				problems = append(problems, fmt.Sprintf("agent %q uses Codex model %q whose effort levels and default are not established by this build; use a model in the codex-cli 0.159.2 bundled catalog", name, selector))
+				if level != "" && !descriptor.AcceptsEffort(level) {
+					problems = append(problems, effortRefusal(name, level, agent.Backend, descriptor))
+				}
 				continue
 			}
 			if level != "" && !narrowed.AcceptsEffort(level) {
@@ -108,13 +111,18 @@ func (c Config) otherEffortProblems(providers *backend.Registry, name string, ag
 			problems = append(problems, effortProblems(providers, name+" ("+label+")", target)...)
 		}
 	}
-	if agent.Failover.Enabled {
+	if agent.Failover.Enabled || agent.Failover.Effort != nil {
 		alternate := agent
 		alternate.Model, alternate.ModelVersion = agent.Failover.Model, ""
 		if agent.Failover.Provider != "" {
 			alternate.Backend = agent.Failover.Provider
 		}
-		check("failover", alternate)
+		if agent.Failover.Effort != nil {
+			alternate.Effort = *agent.Failover.Effort
+			problems = append(problems, effortProblems(providers, name+" (failover)", alternate)...)
+		} else {
+			check("failover", alternate)
+		}
 	}
 	if agent.Role == domain.RoleDeveloper {
 		for _, rule := range c.Execution.DeveloperModels {

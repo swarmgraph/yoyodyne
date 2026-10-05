@@ -46,6 +46,10 @@ import (
 // without losing the endpoint they had chosen, which is what "willing to try it"
 // needs: turning it back on is one word rather than a decision made again.
 type Failover struct {
+	// Effort overrides the level in developer and reviewer run endpoint
+	// resolution. Empty requests the alternate model's default. Execution
+	// consumers are connected separately from this configuration support.
+	Effort *string `yaml:"effort,omitempty" json:"effort,omitempty"`
 	// Enabled says this agent's turn may be served by the alternate below. It is
 	// false unless the agent says otherwise, deliberately: an agent that acquired
 	// failover by inheriting a bundle or by upgrading the executable would be one
@@ -118,6 +122,9 @@ func (f Failover) CrossesProviders(own domain.Backend) bool {
 // alternate is the endpoint that is not this one.
 func (f Failover) problems(name string, agent AgentConfig) []string {
 	var problems []string
+	if f.Effort != nil && agent.Role != domain.RoleDeveloper && agent.Role != domain.RoleReviewer {
+		problems = append(problems, fmt.Sprintf("agent %q failover.effort is supported only for developer and reviewer run endpoint resolution", name))
+	}
 	alternate := strings.TrimSpace(f.Model)
 	crosses := f.CrossesProviders(agent.Backend)
 	if f.Enabled && alternate == "" {
@@ -149,6 +156,9 @@ func (f Failover) problems(name string, agent AgentConfig) []string {
 		problems = append(problems, fmt.Sprintf(
 			"agent %q failover says where an alternate would be served and names no alternate model; %s answers where and failover.model answers what",
 			name, describeFailoverPlacement(provider, account)))
+	}
+	if alternate == "" && f.Effort != nil {
+		problems = append(problems, fmt.Sprintf("agent %q failover.effort names an alternate effort but failover.model is missing", name))
 	}
 	if provider != "" {
 		if err := domain.ValidateIdentifier("failover provider", provider); err != nil {
