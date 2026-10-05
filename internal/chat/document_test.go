@@ -9,6 +9,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -585,5 +586,45 @@ func TestARepeatedDocumentRefusalWaitsDurablyForTheNextTurn(t *testing.T) {
 	}
 	if !strings.Contains(provider.requests[2].Prompt, "Document submission refused") {
 		t.Fatal("the next turn did not receive the repeated refusal")
+	}
+}
+
+func TestARepeatedDocumentRefusalSurvivesALaterTrackerRound(t *testing.T) {
+	t.Parallel()
+	answer := documentReply("create", "v2-goals", "goals", "internal/chat", "# Goals")
+	read := "\n```yoyodyne-tracker\n" + `{"actions":[{"action":"read","id":"example-1"}]}` + "\n```\n"
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: answer},
+		{SessionID: "session-1", FinalText: answer + read},
+		{SessionID: "session-1", FinalText: "I read the work item."},
+		{SessionID: "session-1", FinalText: "I will correct the directory."},
+	}}
+	options, _ := documentOptions(t, provider)
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{"example-1": {ID: "example-1", Title: "Inspect document recovery", Status: "open"}}}
+	options.Tracker = tracker
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "Write the goals.")
+	if err != nil || len(reply.DocumentRefusals) != 2 || len(provider.requests) != 3 || len(tracker.shown) != 1 {
+		t.Fatalf("Send() = %#v, %v; requests = %d; reads = %v", reply, err, len(provider.requests), tracker.shown)
+	}
+	if !strings.Contains(provider.requests[2].Prompt, "example-1") || strings.Contains(provider.requests[2].Prompt, "Document submission refused") {
+		t.Fatalf("tracker continuation = %s", provider.requests[2].Prompt)
+	}
+	identity := runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role}
+	state, err := options.Store.Load(identity)
+	if err != nil || !strings.Contains(state.PendingTrackerResults, "Document submission refused") {
+		t.Fatalf("durable results = %#v, %v", state, err)
+	}
+	// A new process must still be able to deliver the deferred refusal.
+	session = openTestSession(t, options)
+	if _, err := session.Send(context.Background(), "Continue."); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(provider.requests[3].Prompt, "Document submission refused") {
+		t.Fatal("next message lost the repeated refusal")
+	}
+	state, err = options.Store.Load(identity)
+	if err != nil || strings.Contains(state.PendingTrackerResults, "Document submission refused") {
+		t.Fatalf("delivered refusal was not cleared: %#v, %v", state, err)
 	}
 }

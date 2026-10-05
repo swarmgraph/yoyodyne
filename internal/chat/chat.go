@@ -1368,6 +1368,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		}
 	}
 	prompt := s.turnPrompt(trimmed, picture)
+	resultsInPrompt := s.state.PendingTrackerResults
 	// chargeTo is the exchange the next invocation belongs to, set when a round of
 	// asking is delivered into it. asksTaken bounds how much asking one message
 	// may set off, which is a different question from how long one thread may run.
@@ -1392,11 +1393,12 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// what that round asked for, and record nothing as the operator's.
 	operatorMessage := trimmed
 	for round := 0; ; round++ {
-		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false)
+		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false, resultsInPrompt)
 		if round == 0 && errors.Is(err, errTurnInputTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
 		}
 		operatorMessage = ""
+		resultsInPrompt = ""
 		reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 		// The invocation is charged to the exchange whose answer it was carrying,
 		// before anything is decided about what it said: it was paid for either way.
@@ -1442,6 +1444,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			}
 			reply.HandedBack = append(reply.HandedBack, refused.Error())
 			prompt = renderHandedBackTrackerBlock(refused, maxTrackerRounds-trackerRounds)
+			resultsInPrompt = renderRefusedTrackerBlock(refused)
 			continue
 		}
 		// The block was readable, so a refusal waiting on a correction has had one.
@@ -1725,7 +1728,7 @@ Carry on answering the operator using these results. Say what you did, including
 // for. It is recorded before the provider is asked, so the log holds the question
 // ahead of its answer; the prompt itself is not recorded, because the picture and
 // the notices it carries are recorded already, elsewhere, and once.
-func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool) (string, error) {
+func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, reply *Reply, savingMemory bool, resultsInPrompt string) (string, error) {
 	retryMessage := operatorMessage
 	if retryMessage == "" {
 		retryMessage = "Continue the interrupted turn using these results:\n\n" + prompt
@@ -2239,13 +2242,15 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// conversation nobody has resumed is still being held by whatever started it.
 	s.state.Build = s.options.Build
 	s.state.Turns++
-	// The activity and the results were carried into the prompt this turn
-	// answered, so neither is pending any more. A turn that failed keeps them,
-	// because a product manager that never saw them still has not been told.
+	// The activity was carried into the prompt this turn answered. Only remove
+	// results that prompt included: later rounds can leave results waiting for
+	// the next message. A failed turn keeps everything it was owed.
 	if !savingMemory {
 		s.notices = nil
 		s.noticesDropped = false
-		s.state.PendingTrackerResults = ""
+		if resultsInPrompt != "" {
+			s.state.PendingTrackerResults = strings.Replace(s.state.PendingTrackerResults, resultsInPrompt, "", 1)
+		}
 	}
 	// And of the cuts it was told about, unless it was cut again itself.
 	if cutsTold && len(s.turnCuts) == 0 {

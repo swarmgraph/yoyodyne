@@ -104,7 +104,7 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 	stream := s.stream
 	s.stream = nil
 	defer func() { s.stream = stream }()
-	answer, err := s.takeTurn(ctx, notice, "", nil, true)
+	answer, err := s.takeTurn(ctx, notice, "", nil, true, "")
 	reply.RecordCuts = append(reply.RecordCuts, s.turnCuts...)
 	s.turnCuts = nil
 	reply.SpendProblem = appendProblem(reply.SpendProblem, s.spendProblem)
