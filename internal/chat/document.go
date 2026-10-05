@@ -209,6 +209,18 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 	if len(writes) == 0 {
 		return nil
 	}
+	// Ownership is enforced here even without a configured artifact store.
+	// Its refusal belongs to the document action, just like a filing refusal.
+	authority := s.authority()
+	for _, write := range writes {
+		if err := write.Authorize(authority.Role); err != nil {
+			return &AuthorityError{
+				Role:    authority.Role,
+				Refused: "a document to be written",
+				Reason:  err.Error(),
+			}
+		}
+	}
 	if s.options.Documents == nil {
 		return errors.New("no artifact store is configured, so no document can be written from this conversation")
 	}

@@ -165,16 +165,15 @@ func TestADocumentTheRoleMayNotWriteIsRefusedBeforeAnythingIsRecorded(t *testing
 	provider := &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1", ResolvedModel: "claude-opus-5",
 		FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals"),
-	}}}
+	}, {SessionID: "session-1", FinalText: "I will leave the goals to their owner."}}}
 	options, repository := documentOptions(t, provider)
 	options.Role = domain.RoleArchitect
 	options.Agent = string(domain.RoleArchitect)
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Write the goals up.")
-	var refusal *AuthorityError
-	if err == nil || !errors.As(err, &refusal) {
-		t.Fatalf("Send() error = %v, want an authority refusal", err)
+	if err != nil || len(reply.DocumentRefusals) != 1 || !strings.Contains(reply.DocumentRefusals[0], "owns") {
+		t.Fatalf("Send() = %#v, %v, want an ownership refusal returned to the role", reply, err)
 	}
 	if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
 		t.Fatalf("a refused document was recorded: %#v", session.Writes())
