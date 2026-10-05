@@ -80,6 +80,9 @@ execution:
   # The session keeps pulling into free seats and firing its recurring tasks
   # while it drains; only the runs it hosts are what the drain is about.
   redeploy_drain_limit: 15m
+  # One block-only request recovers a missing recurring report. After this many
+  # passes still omit it, the next opens a fresh role conversation with memory.
+  missing_reports_before_fresh_conversation: 3
   # The failure-storm brake for a session left running unattended: this many runs
   # blocking in a row, with nothing landing between them, holds intake and
   # summons the development manager at once to decide what happens to it. It is

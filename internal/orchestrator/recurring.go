@@ -178,12 +178,26 @@ type RecurringConversationWork interface {
 // role does. A program manager's pass names its instance, because the role has
 // as many agents as it has lanes and each pass is one instance's.
 type RecurringRole interface {
-	Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string) (Turn, error)
+	Wake(ctx context.Context, role domain.AgentRole, agent, pass, model, message string, options RecurringTurnOptions) (Turn, error)
+}
+
+// RecurringTurnOptions selects recovery within the existing conversation path.
+// A report request is allowed once per pass, outside its work-turn bound.
+type RecurringTurnOptions struct {
+	RetryReport bool
+	FreshAfter  string
+	FreshReason string
 }
 
 // Turn is what one turn of a firing came to.
 type Turn struct {
 	ConversationID string `json:"conversation_id,omitempty"`
+	// Turns counts answered provider turns, including a recovered report. It
+	// retains the first reply when the report request fails afterwards.
+	Turns         int                                    `json:"turns,omitempty"`
+	ReportRetried bool                                   `json:"report_retried,omitempty"`
+	MissingReport bool                                   `json:"missing_report,omitempty"`
+	Replacement   *runstate.SweepConversationReplacement `json:"conversation_replacement,omitempty"`
 	// CostUSD is what the provider charged for the turn, as it reported it. It is
 	// carried back because a firing is a spend the caller made rather than one a
 	// run made, so a session counting what it has spent has no other way to see
@@ -201,9 +215,8 @@ type Turn struct {
 	// Result is the account the role gave of the pass, where it gave one.
 	Result *sweep.Result `json:"result,omitempty"`
 	// ResultProblem names an account that could not be read, or a turn that
-	// carried none. It is not a failed turn: the role answered, and what is lost
-	// is the structure rather than the work. It is also set beside a Result the
-	// turn did carry, where something about how it was carried is worth the
+	// carried none. An absent account fails the pass. It is also set beside an
+	// account the turn did carry, where something about its shape is worth the
 	// record saying — a reply with more than one block, of which the last was
 	// read — so a problem here does not by itself mean the turn's account is
 	// missing.
@@ -332,6 +345,9 @@ type Trigger struct {
 	Reports RecurringReports
 	// Roles is how the harness reaches a role's conversation. Required.
 	Roles RecurringRole
+	// MissingReportLimit is the consecutive missing-report bound. Zero uses
+	// the default; the next pass replaces the conversation through Roles.
+	MissingReportLimit int
 	// Holds is the operator's pause over everything the harness would spend.
 	// Optional, and a trigger wired without one is one nothing can pause, which
 	// is what every provider invocation was before the switch existed.
@@ -1096,6 +1112,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		Role:      task.Role,
 		StartedAt: t.now(),
 		Summoned:  f.summoned,
+		Agent:     f.agent,
 		Events:    f.events,
 		Criticals: f.criticals,
 	}
@@ -1113,6 +1130,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	var merged *sweep.Result
 	var problems []string
 	var pending []triage.WindowPosition
+	options := RecurringTurnOptions{RetryReport: true}
 	// What stopped the proposals being put to the role is on the record ahead of
 	// the turns, because it is what happened first and it explains an account
 	// that recommends on nothing.
@@ -1124,10 +1142,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// would otherwise write the same memories and report a second time.
 	// And the findings the last pass that took a turn left no trace of are named
 	// in this one's, so the role can write the trace now rather than lose them.
-	if earlier, unread, problem := t.earlierPasses(name); problem != "" {
+	if earlier, unread, recovery, problem := t.earlierPasses(name, task.Role, f.agent); problem != "" {
 		problems = append(problems, problem)
 	} else {
 		pending = unread
+		options.FreshAfter, options.FreshReason = recovery.FreshAfter, recovery.FreshReason
 		if already := savedByUnfinishedPasses(earlier); len(already) > 0 {
 			message += "\n\n" + alreadySavedMessage(already)
 		}
@@ -1155,7 +1174,24 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		if docket != nil {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
 		}
-		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message)
+		answered, err := t.Roles.Wake(ctx, task.Role, f.agent, pass, task.ModelSelector(), message, options)
+		// A recovery request asks only for the previous turn's account. It spends
+		// no work turn and is never offered again on this pass.
+		options.FreshAfter, options.FreshReason = "", ""
+		if answered.ReportRetried {
+			options.RetryReport = false
+			recorded.ReportRetried = true
+		}
+		recorded.MissingReport = recorded.MissingReport || answered.MissingReport
+		if answered.Replacement != nil {
+			recorded.ConversationReplacement = answered.Replacement
+		}
+		turns := answered.Turns
+		if turns == 0 && err == nil {
+			turns = 1
+		}
+		fired.Turns += turns
+		recorded.Turns += turns
 		// What the turn cost is carried whichever way it went, because the provider
 		// charges for a turn that failed exactly as for one that answered — and so
 		// is the model it cost that on, which is what the spend is attributed to.
@@ -1188,8 +1224,18 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		if conversation := strings.TrimSpace(answered.ConversationID); conversation != "" {
 			recorded.ConversationID = conversation
 		}
+		// A reply that did the work still delivered its docket even when the
+		// subsequent block-only request failed. Do not deliver those entries again.
+		if turns > 0 {
+			if docket != nil {
+				problems = append(problems, docket.Delivered())
+			}
+			for _, id := range answered.CriticalReports {
+				shown[id] = true
+			}
+		}
 		if err != nil {
-			if turn == 0 && errors.Is(err, runstate.ErrConversationHeld) && f.trigger.Valid() {
+			if recorded.Turns == 0 && errors.Is(err, runstate.ErrConversationHeld) && f.trigger.Valid() {
 				recorded.Missed = &runstate.MissedPass{Trigger: f.trigger, How: runstate.MissConversationHeld}
 				problems = append(problems, fmt.Sprintf("the %s of %s missed its first turn because its wait for the conversation ended: %v; nothing was asked, and the next pass carries the work", f.trigger.Describe(), name, err))
 				// No provider turn failed. Keep the instance's cursor where it was
@@ -1201,7 +1247,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			// to read as a partial pass: nothing was asked, and nothing about the
 			// next firing will be different.
 			var notStarted *NotStartedError
-			if turn == 0 && errors.As(err, &notStarted) && notStarted.Cause.Valid() {
+			if recorded.Turns == 0 && errors.As(err, &notStarted) && notStarted.Cause.Valid() {
 				recorded.NotStarted = notStarted.Cause
 				fired.NotStarted = notStarted.Cause
 				// No turn ran on anything, so the record names no model: the one the
@@ -1218,25 +1264,15 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			}
 			problems = append(problems, describeFailedTurn(name, task.Role, turn+1, err))
 			failed = true
-			if len(recorded.Saved) > 0 {
-				problems = append(problems, describeSavedBeforeFailing(name, recorded.Saved))
-			}
 			break
-		}
-		fired.Turns++
-		recorded.Turns++
-		if docket != nil {
-			problems = append(problems, docket.Delivered())
-		}
-		for _, id := range answered.CriticalReports {
-			shown[id] = true
 		}
 		if answered.ResultProblem != "" {
 			problems = append(problems, answered.ResultProblem)
 		}
 		if answered.Result == nil {
+			failed = true
 			problems = append(problems, fmt.Sprintf(
-				"turn %d of the recurring task %s produced no account of itself, so what it found is only in the %s's conversation",
+				"turn %d of the recurring task %s produced no account of itself, so the pass failed and its findings remain unrecorded outside the %s's conversation",
 				turn+1, name, task.Role))
 		} else if merged == nil {
 			merged = answered.Result
@@ -1253,9 +1289,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				merged.Status = sweep.StatusMore
 			}
 		}
-		if answered.Result == nil && !unreadDocket {
-			// Do not spend another turn asking for an account alone. Unread docket
-			// entries are work for the next turn even without a structured reply.
+		if answered.Result == nil {
+			// Work cannot complete without its account; the next pass carries any
+			// unread docket entries and all writes this pass already saved.
 			break
 		}
 		if merged != nil && merged.Status != sweep.StatusMore {
@@ -1315,6 +1351,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	}
 	if f.finish != nil {
 		problems = append(problems, f.finish(!failed && fired.Turns > 0))
+	}
+	if failed && len(recorded.Saved) > 0 {
+		problems = append(problems, describeSavedBeforeFailing(name, recorded.Saved))
 	}
 	recorded.EndedAt = t.now()
 	if failed && t.Availability != nil {
@@ -1784,16 +1823,17 @@ func describeSavedBeforeFailing(name string, saved []runstate.SavedWrite) string
 // It reports what stopped it reading them as a problem for the
 // record, and then lists nothing, since a pass told nothing reads the same as
 // one told there was nothing.
-func (t Trigger) earlierPasses(name string) ([]runstate.Sweep, []triage.WindowPosition, string) {
+func (t Trigger) earlierPasses(name string, role domain.AgentRole, agent string) ([]runstate.Sweep, []triage.WindowPosition, RecurringTurnOptions, string) {
 	if t.Reports == nil {
-		return nil, nil, ""
+		return nil, nil, RecurringTurnOptions{}, ""
 	}
 	recorded, _, err := t.Reports.List()
 	if err != nil {
-		return nil, nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told which docket entries were never delivered, what an unfinished one had already saved or which findings an earlier one left no trace of: %v", name, err)
+		return nil, nil, RecurringTurnOptions{}, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told which docket entries were never delivered, what an unfinished one had already saved or which findings an earlier one left no trace of, and its missing-report count is unknown: %v", name, err)
 	}
 	var passes []runstate.Sweep
 	var pending []triage.WindowPosition
+	var conversations []runstate.Sweep
 	for _, earlier := range recorded {
 		// The docket belongs to the product, even where two tasks wake the
 		// development manager or a task was renamed between passes.
@@ -1803,8 +1843,41 @@ func (t Trigger) earlierPasses(name string) ([]runstate.Sweep, []triage.WindowPo
 		if earlier.Task == name {
 			passes = append(passes, earlier)
 		}
+		if earlier.Role == role && (earlier.Agent == agent || (earlier.Agent == "" && earlier.Task == name)) {
+			conversations = append(conversations, earlier)
+		}
 	}
-	return passes, pending, ""
+	previous, reason := missingReportReplacement(conversations, t.MissingReportLimit)
+	return passes, pending, RecurringTurnOptions{FreshAfter: previous, FreshReason: reason}, ""
+}
+
+func missingReportReplacement(earlier []runstate.Sweep, limit int) (string, string) {
+	if limit <= 0 {
+		limit = config.DefaultMissingReportsBeforeFreshConversation
+	}
+	conversation, misses := "", 0
+	for i := len(earlier) - 1; i >= 0; i-- {
+		pass := earlier[i]
+		if pass.Turns == 0 {
+			continue
+		}
+		// Older passes recorded the absence only in this sentence. Read those
+		// too, so deploying the fix can recover a conversation already drifting.
+		missing := pass.MissingReport || strings.Contains(pass.Problem, "answered in prose without a sweep block")
+		if !missing || pass.ConversationID == "" {
+			break
+		}
+		if conversation == "" {
+			conversation = pass.ConversationID
+		} else if conversation != pass.ConversationID {
+			break
+		}
+		misses++
+	}
+	if misses < limit {
+		return "", ""
+	}
+	return conversation, fmt.Sprintf("%d consecutive passes in %s ended without their closing report; the bound is %d, so this pass opens a fresh conversation with the role's memory and briefing", misses, conversation, limit)
 }
 
 // savedByUnfinishedPasses is every memory and lane-report write a task's

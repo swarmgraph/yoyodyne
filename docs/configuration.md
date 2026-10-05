@@ -6726,7 +6726,7 @@ an hour. That observation is a reason for the setting, not a provider guarantee.
 | `every` | the cadence, measured from the last firing rather than against a wall-clock grid. The shortest accepted is `5m`, which is what keeps `1m` written where `1h` was meant from becoming sixty times the spend. |
 | `enabled` | the switch. It is explicit so a task can be turned off for a week without deleting its prompt and cadence. |
 | `prompt` | what the role is told. It is the task, not a personality. |
-| `max_turns` | how many turns one firing may take, defaulting to 3 and capped at 10. |
+| `max_turns` | how many work turns one firing may take, defaulting to 3 and capped at 10. One request for a missing closing report is outside this bound. |
 | `model` | the model this task's turns ask for. Optional: leave it out and the turns ask for the role's own configured `model`, which is what every task did before the key existed. See [a task's own model](#a-tasks-own-model). |
 
 ### A task's own model
@@ -6830,13 +6830,33 @@ to `max_turns`. A pass that still had more to do when the bound ran out is
 recorded as partial, so a truncated pass and a finished one are never the same
 short report.
 
+**A missing closing report is requested once on the same pass.** The request
+quotes the report's shape and asks for the block alone, without repeating any
+action. If it is still missing, the pass fails with its findings unrecorded;
+earlier writes and both replies' costs stand. This extra request spends no
+work-item budget and does not consume a work turn under `max_turns`. After
+consecutive passes still omit the report, the next opens a fresh conversation
+with the role's memory and briefing. This bound covers all recurring roles,
+including program manager instances:
+
+```yaml
+execution:
+  missing_reports_before_fresh_conversation: 3  # the default; zero also uses three
+```
+
+The value must be nonnegative. A recovered report resets the count, as does
+replacing the conversation. The pass record and `yoyo sweeps` name the old and
+new conversations and why the replacement happened. Existing conversations and
+their events remain durable. See
+[reading the passes](operations.md#reading-what-the-recurring-tasks-found).
+
 The development manager's continuation turns also carry the next slice of her
 live docket, through the same listing as the first turn. Entries already
 delivered on that pass are not repeated, and decisions and closed work are read
 again before each slice. The harness continues while live entries remain
-undelivered, even if a turn's account says complete or a successful reply carries
-no account. A missing account stays on the pass's record even if a later turn
-provides one. If the turn bound or a provider refusal ends the pass first, its
+undelivered, even if a turn's account says complete. A reply without an account
+must recover it through the one block-only request; otherwise the pass fails
+and continues no further work. If the turn bound or a provider refusal ends the pass first, its
 record counts the entries never delivered and names the oldest; the next pass
 puts them ahead of entries already shown.
 

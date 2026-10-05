@@ -18,7 +18,7 @@ import (
 
 type failureWatch struct{ message string }
 
-func (w *failureWatch) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string) (orchestrator.Turn, error) {
+func (w *failureWatch) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string, _ orchestrator.RecurringTurnOptions) (orchestrator.Turn, error) {
 	w.message = message
 	return orchestrator.Turn{Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "watching the failure"}}, nil
 }

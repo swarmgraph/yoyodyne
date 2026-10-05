@@ -43,7 +43,7 @@ func firePassOfProgramManager(t *testing.T, reply string) (runstate.Sweep, *runs
 	if err != nil {
 		t.Fatalf("NewLaneReportStore() error = %v", err)
 	}
-	open := func(_ context.Context, role domain.AgentRole, _, _ string) (*chat.Session, *runstate.ConversationHold, error) {
+	open := func(_ context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		session, err := chat.Open(chat.Options{
 			Role:         role,
 			Agent:        "factory",
@@ -58,7 +58,7 @@ func firePassOfProgramManager(t *testing.T, reply string) (runstate.Sweep, *runs
 			Briefing:     chat.Briefing{Text: "the product is a harness", GatheredAt: time.Now().UTC()},
 			LaneReports:  laneReports,
 		})
-		return session, nil, err
+		return session, nil, nil, err
 	}
 	sweeps, err := runstate.NewSweepStore(root, "example")
 	if err != nil {
@@ -157,7 +157,7 @@ func TestAPassThatFailsAfterSavingKeepsItsWritesAndTheNextPassIsToldOfThem(t *te
 		// The pass run after it completes.
 		"The rest of the line." + laneReportSweep,
 	}}
-	open := func(_ context.Context, role domain.AgentRole, _, _ string) (*chat.Session, *runstate.ConversationHold, error) {
+	open := func(_ context.Context, role domain.AgentRole, _, _ string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		session, err := chat.Open(chat.Options{
 			Role:         role,
 			Agent:        "factory",
@@ -173,7 +173,7 @@ func TestAPassThatFailsAfterSavingKeepsItsWritesAndTheNextPassIsToldOfThem(t *te
 			LaneReports:  laneReports,
 			Memories:     memories,
 		})
-		return session, nil, err
+		return session, nil, nil, err
 	}
 	now := time.Date(2026, 9, 28, 9, 0, 0, 0, time.UTC)
 	trigger := orchestrator.Trigger{

@@ -363,6 +363,10 @@ type Execution struct {
 	// because the roles that would notice are the ones failing; on 2026-09-29
 	// every pass failed for twelve hours and the one trace was a log nobody read.
 	FactoryStallAfter Duration `yaml:"factory_stall_after" json:"factory_stall_after"`
+	// MissingReportsBeforeFreshConversation bounds consecutive recurring passes
+	// that omit their closing report even after one request for it. Zero uses
+	// the default of three; the next pass starts a new role conversation.
+	MissingReportsBeforeFreshConversation int `yaml:"missing_reports_before_fresh_conversation" json:"missing_reports_before_fresh_conversation"`
 	// BlockedRunsBeforeIntakeHold is the failure-storm brake: this many runs
 	// blocking in a row, with nothing landing between them, holds intake and
 	// summons the development manager to decide what happens to it. It is a
@@ -1004,6 +1008,9 @@ func (c Config) Validate() error {
 	// default; only a negative limit describes nothing anybody could mean.
 	if c.Execution.FactoryStallAfter < 0 {
 		problems = append(problems, "execution.factory_stall_after cannot be negative")
+	}
+	if c.Execution.MissingReportsBeforeFreshConversation < 0 {
+		problems = append(problems, "execution.missing_reports_before_fresh_conversation cannot be negative")
 	}
 	// Zero is a choice here — never brake, let the operator be the only thing
 	// that holds intake — so only a negative bound, which describes no run

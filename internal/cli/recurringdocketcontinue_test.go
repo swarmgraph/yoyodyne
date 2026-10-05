@@ -25,7 +25,7 @@ type docketPassRole struct {
 	withoutAccount map[int]bool
 }
 
-func (r *docketPassRole) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string) (orchestrator.Turn, error) {
+func (r *docketPassRole) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string, _ orchestrator.RecurringTurnOptions) (orchestrator.Turn, error) {
 	r.messages = append(r.messages, message)
 	if len(r.messages) == r.failAt {
 		return orchestrator.Turn{}, errors.New("the provider's usage limit ended the turn")
@@ -155,56 +155,56 @@ func TestADocketLargerThanOneTurnIsDeliveredAcrossThePassInOrder(t *testing.T) {
 	}
 }
 
-func TestADocketKeepsDeliveringAfterAnAnswerWithoutAnAccount(t *testing.T) {
+func TestADocketStopsAfterAnAnswerWithoutAnAccountAndTheNextPassResumesUnreadEntries(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name    string
-		missing map[int]bool
-		turns   int
+		name     string
+		missing  map[int]bool
+		turns    int
+		answered int
 	}{
-		{"first turn", map[int]bool{1: true}, 4},
-		{"later turn", map[int]bool{2: true}, 4},
-		{"every turn", map[int]bool{1: true, 2: true, 3: true, 4: true}, 4},
-		{"turn bound", map[int]bool{1: true}, 1},
+		{"first turn", map[int]bool{1: true}, 4, 1},
+		{"later turn", map[int]bool{2: true}, 4, 2},
+		{"every turn", map[int]bool{1: true, 2: true, 3: true, 4: true}, 4, 1},
+		{"turn bound", map[int]bool{1: true}, 1, 1},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			role := &docketPassRole{withoutAccount: test.missing}
-			trigger, _, _, _ := docketPassFixture(t, 82, test.turns, role)
+			trigger, _, _, clock := docketPassFixture(t, 82, test.turns, role)
 			result, err := trigger.Fire(context.Background())
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(result.Fired) != 1 || result.Fired[0].Turns != test.turns || len(role.messages) != test.turns {
-				t.Fatalf("Fire() = %+v, messages = %d, want %d answered turns", result, len(role.messages), test.turns)
+			if len(result.Fired) != 1 || result.Fired[0].Turns != test.answered || len(role.messages) != test.answered || result.Fired[0].Truncated {
+				t.Fatalf("Fire() = %+v, messages = %d; should stop at the missing account", result, len(role.messages))
 			}
-			count := 82
-			if test.turns == 1 {
-				count = 25
-			}
+			count := test.answered * 25
 			assertDocketItems(t, role.messages, docketItemRange(1, count))
-			for turn := range role.messages {
-				last := min((turn+1)*25, count)
-				assertDocketItems(t, role.messages[turn:turn+1], docketItemRange(turn*25+1, last))
-			}
 			recorded, unreadable, err := trigger.Reports.List()
 			if err != nil || len(unreadable) > 0 || len(recorded) != 1 {
 				t.Fatalf("List() = %v, %v, %v", recorded, unreadable, err)
 			}
 			delivery := recorded[0].Docket
-			if delivery == nil || delivery.Delivered != count || len(delivery.Undelivered) != 82-count {
-				t.Fatalf("delivery = %+v, want %d delivered and %d unread", delivery, count, 82-count)
+			if !recorded[0].Failed || delivery == nil || delivery.Delivered != count || len(delivery.Undelivered) != 82-count || delivery.Oldest == nil || delivery.Oldest.WorkItemID != fmt.Sprintf("yoyodyne-ifd.430.40.%d", count+1) {
+				t.Fatalf("failed pass lost its unread docket: %+v", recorded[0])
 			}
-			if recorded[0].Failed || result.Fired[0].Truncated != (test.turns == 1) {
-				t.Fatalf("a successful reply without an account lost the pass's ending: %+v, %+v", recorded[0], result)
+			if !strings.Contains(recorded[0].Problem, fmt.Sprintf("turn %d of the recurring task development-manager-sweep produced no account", test.answered)) {
+				t.Fatalf("missing account was lost: %s", recorded[0].Problem)
 			}
-			for turn := range test.missing {
-				if !strings.Contains(recorded[0].Problem, fmt.Sprintf("turn %d of the recurring task development-manager-sweep produced no account", turn)) {
-					t.Fatalf("the missing account on turn %d was lost: %s", turn, recorded[0].Problem)
-				}
+			clock.at = clock.at.Add(time.Hour)
+			role.withoutAccount = nil
+			task := trigger.Tasks["development-manager-sweep"]
+			task.MaxTurns = 4
+			trigger.Tasks["development-manager-sweep"] = task
+			if _, err := trigger.Fire(context.Background()); err != nil {
+				t.Fatal(err)
 			}
-			if test.turns == 1 && (delivery.Oldest == nil || delivery.Oldest.WorkItemID != "yoyodyne-ifd.430.40.26") {
-				t.Fatalf("the bound lost the oldest unread entry: %+v", delivery)
+			// The first slice after the failure starts at the oldest unread entry.
+			assertDocketItems(t, role.messages[test.answered:test.answered+1], docketItemRange(count+1, min(count+25, 82)))
+			recorded, _, err = trigger.Reports.List()
+			if err != nil || len(recorded) != 2 || recorded[1].Failed || recorded[1].Docket.Delivered != 82 || len(recorded[1].Docket.Undelivered) != 0 {
+				t.Fatalf("next pass did not finish the docket: %+v, %v", recorded, err)
 			}
 		})
 	}

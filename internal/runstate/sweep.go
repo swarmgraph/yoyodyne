@@ -284,16 +284,23 @@ type Sweep struct {
 	// Role is who the pass woke. It is empty on the harness's own maintenance
 	// pass, which wakes nobody and carries Steps instead.
 	Role domain.AgentRole `json:"role,omitempty"`
+	// Agent distinguishes program manager instances; empty wakes the role's
+	// configured agent, as ordinary recurring tasks do.
+	Agent string `json:"agent,omitempty"`
 	// ConversationID is the role's own durable conversation the pass happened in,
 	// so what was actually said can be read from the conversation record rather
 	// than only from this.
-	ConversationID string    `json:"conversation_id,omitempty"`
-	StartedAt      time.Time `json:"started_at"`
-	EndedAt        time.Time `json:"ended_at"`
-	// Turns is how many turns the pass took and CostUSD what the provider charged
-	// for them. A pass that took every turn it was allowed is the signal that the
-	// bound is what ended it rather than the work, which is exactly the thing a
-	// week of these is read for.
+	ConversationID string `json:"conversation_id,omitempty"`
+	// ReportRetried records the one request for a missing closing block.
+	ReportRetried bool `json:"report_retried,omitempty"`
+	// MissingReport marks a pass that still lacked its block after that request.
+	MissingReport           bool                          `json:"missing_report,omitempty"`
+	ConversationReplacement *SweepConversationReplacement `json:"conversation_replacement,omitempty"`
+	StartedAt               time.Time                     `json:"started_at"`
+	EndedAt                 time.Time                     `json:"ended_at"`
+	// Turns is how many answered turns the pass took, including its one request
+	// for a missing closing report, and CostUSD what the provider charged. The
+	// work-turn bound excludes that request; Problem names a bound that ended work.
 	Turns   int     `json:"turns"`
 	CostUSD float64 `json:"cost_usd,omitempty"`
 	// Model is the model the pass's turns ran on, as the provider served them:
@@ -363,10 +370,10 @@ type Sweep struct {
 	// which are read by their shape instead.
 	// Independent forge findings do not complete the role's missed pass.
 	Missed *MissedPass `json:"missed,omitempty"`
-	// Failed marks a pass a turn of which failed after the firing began: it did
+	// Failed marks a pass a turn of which failed or omitted its account: it did
 	// not complete, so a program manager instance's cursor was not moved and the
 	// next pass carries the same events. It is absent on a pass whose turns were
-	// all answered, and on every record written before it existed.
+	// answered with their accounts, and on every record written before it existed.
 	Failed bool `json:"failed,omitempty"`
 	// Saved is every memory and lane-report write the pass's turns made that
 	// its store recorded, in the order they were made — on a pass that failed as
@@ -401,6 +408,13 @@ type Sweep struct {
 	// because a pass that quietly did less than it was meant to is the failure
 	// this record exists to make visible. It is empty on a role's pass.
 	Steps []SweepStep `json:"steps,omitempty"`
+}
+
+// SweepConversationReplacement records a new conversation opened after repeated
+// missing reports. The old conversation and its events remain in their store.
+type SweepConversationReplacement struct {
+	Previous string `json:"previous"`
+	Reason   string `json:"reason"`
 }
 
 // LeftATrace reports a pass whose turns left at least one trace outside its
@@ -700,6 +714,11 @@ func (s Sweep) Validate() error {
 	if err := domain.ValidateIdentifier("recurring task name", s.Task); err != nil {
 		problems = append(problems, err)
 	}
+	if s.Agent != "" {
+		if err := domain.ValidateIdentifier("recurring pass agent", s.Agent); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	// A role's pass names a role this harness has; the harness's own pass names
 	// none and carries its steps instead, and a record that does neither says
 	// nothing about who or what the pass was.
@@ -727,6 +746,14 @@ func (s Sweep) Validate() error {
 	}
 	if s.Turns < 0 {
 		problems = append(problems, fmt.Errorf("turns is %d, and a pass cannot take a negative number of them", s.Turns))
+	}
+	if s.MissingReport && !s.Failed {
+		problems = append(problems, errors.New("a pass missing its closing report must be failed"))
+	}
+	if r := s.ConversationReplacement; r != nil {
+		if strings.TrimSpace(r.Previous) == "" || strings.TrimSpace(r.Reason) == "" || s.ConversationID == "" || r.Previous == s.ConversationID || len(r.Reason) > MaxSweepTextBytes {
+			problems = append(problems, errors.New("a conversation replacement must name distinct previous and current conversations and a bounded reason"))
+		}
 	}
 	// A pass that produced neither an account nor a problem would be a firing the
 	// record can say nothing at all about, which is the one thing this must not be

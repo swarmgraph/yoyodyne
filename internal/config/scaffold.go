@@ -297,6 +297,8 @@ execution:
   # files a note when passes succeed or work is pulled again, and "yoyo status"
   # names it while it stands.
   factory_stall_after: %s
+  # Replace a recurring role conversation after this many missing closing reports.
+  missing_reports_before_fresh_conversation: %d
   # The failure-storm brake for a session left running unattended: this many runs
   # blocking in a row, with nothing landing between them, holds intake and
   # summons the development manager at once to decide what happens to it. It is
@@ -423,6 +425,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.WorkPoll),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
+		effective.Execution.MissingReportLimit(),
 		effective.Execution.BlockedRunsBeforeIntakeHold,
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),
 		effective.Execution.BrakeEscalationCycles,

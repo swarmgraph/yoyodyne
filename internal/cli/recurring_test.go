@@ -47,7 +47,7 @@ func TestAConfiguredTaskGetsATriggerOverTheProductsSweepStore(t *testing.T) {
 		t.Fatalf("NewStore() error = %v", err)
 	}
 	parts := components{
-		config: config.Config{RecurringTasks: map[string]config.RecurringTask{
+		config: config.Config{Execution: config.Execution{MissingReportsBeforeFreshConversation: 2}, RecurringTasks: map[string]config.RecurringTask{
 			"development-manager-sweep": {
 				Role:    domain.RoleDevelopmentManager,
 				Every:   config.Duration(time.Hour),
@@ -83,6 +83,9 @@ func TestAConfiguredTaskGetsATriggerOverTheProductsSweepStore(t *testing.T) {
 	}
 	if trigger.ConversationWork == nil {
 		t.Error("the trigger has no way to read the work waiting in the role's conversation")
+	}
+	if trigger.MissingReportLimit != 2 {
+		t.Errorf("missing report limit = %d, want the configured limit of 2", trigger.MissingReportLimit)
 	}
 }
 

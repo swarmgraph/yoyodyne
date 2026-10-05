@@ -133,7 +133,7 @@ func TestARecurringPassKeepsTheAgentsEffortOnTheTasksModel(t *testing.T) {
 		t.Fatalf("NewConversationStore() error = %v", err)
 	}
 	provider := &effortRecordingBackend{}
-	open := func(_ context.Context, role domain.AgentRole, _, model string) (*chat.Session, *runstate.ConversationHold, error) {
+	open := func(_ context.Context, role domain.AgentRole, _, model string, _ orchestrator.RecurringTurnOptions) (*chat.Session, *runstate.ConversationHold, *runstate.SweepConversationReplacement, error) {
 		prepared := preparedChat{
 			parts:    components{config: cfg},
 			name:     "development-manager",
@@ -141,7 +141,7 @@ func TestARecurringPassKeepsTheAgentsEffortOnTheTasksModel(t *testing.T) {
 			identity: runstate.ConversationIdentity{Agent: "development-manager", Role: role},
 		}
 		if err := prepared.onModel(model); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		session, err := chat.Open(chat.Options{
 			Role:         role,
@@ -158,7 +158,7 @@ func TestARecurringPassKeepsTheAgentsEffortOnTheTasksModel(t *testing.T) {
 			RepositoryID: "example",
 			Briefing:     chat.Briefing{Text: "the product is a harness", GatheredAt: time.Now().UTC()},
 		})
-		return session, nil, err
+		return session, nil, nil, err
 	}
 	sweeps, err := runstate.NewSweepStore(root, "example")
 	if err != nil {

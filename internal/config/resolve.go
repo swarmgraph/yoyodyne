@@ -227,22 +227,23 @@ func newResolution() *resolution {
 				// than fails on: enough that the provider dropping a connection twice
 				// running is survived, and short of a run that keeps asking a provider
 				// that is not going to answer it.
-				TransientRelaunchesBeforeBlocking: 2,
-				WorktreeRoot:                      "auto",
-				Remote:                            defaultRemote,
-				UsageLimitMaxPause:                defaultUsageLimitMaxPause,
-				UsageLimitInProcessPause:          defaultUsageLimitInProcessPause,
-				UsageLimitUnknownResetPause:       defaultUsageLimitUnknownResetPause,
-				ServerOverloadPause:               defaultServerOverloadPause,
-				CheckTimeout:                      defaultCheckTimeout,
-				CheckStageTimeout:                 defaultCheckStageTimeout,
-				LandingCheckTimeout:               defaultLandingCheckTimeout,
-				WorkPoll:                          defaultWorkPoll,
-				RedeployDrainLimit:                defaultRedeployDrainLimit,
-				FactoryStallAfter:                 defaultFactoryStallAfter,
-				BlockedRunsBeforeIntakeHold:       defaultBlockedRunsBeforeIntakeHold,
-				BrakeCooldown:                     defaultBrakeCooldown,
-				BrakeEscalationCycles:             defaultBrakeEscalationCycles,
+				TransientRelaunchesBeforeBlocking:     2,
+				WorktreeRoot:                          "auto",
+				Remote:                                defaultRemote,
+				UsageLimitMaxPause:                    defaultUsageLimitMaxPause,
+				UsageLimitInProcessPause:              defaultUsageLimitInProcessPause,
+				UsageLimitUnknownResetPause:           defaultUsageLimitUnknownResetPause,
+				ServerOverloadPause:                   defaultServerOverloadPause,
+				CheckTimeout:                          defaultCheckTimeout,
+				CheckStageTimeout:                     defaultCheckStageTimeout,
+				LandingCheckTimeout:                   defaultLandingCheckTimeout,
+				WorkPoll:                              defaultWorkPoll,
+				RedeployDrainLimit:                    defaultRedeployDrainLimit,
+				FactoryStallAfter:                     defaultFactoryStallAfter,
+				MissingReportsBeforeFreshConversation: DefaultMissingReportsBeforeFreshConversation,
+				BlockedRunsBeforeIntakeHold:           defaultBlockedRunsBeforeIntakeHold,
+				BrakeCooldown:                         defaultBrakeCooldown,
+				BrakeEscalationCycles:                 defaultBrakeEscalationCycles,
 				// The declarative path is what a new run executes unless the project
 				// says otherwise, so it is a harness default like every other value
 				// here rather than the absence of a key. A project that wrote nothing
@@ -327,6 +328,7 @@ func newResolution() *resolution {
 			"execution.work_poll":                                 OriginDefault,
 			"execution.redeploy_drain_limit":                      OriginDefault,
 			"execution.factory_stall_after":                       OriginDefault,
+			"execution.missing_reports_before_fresh_conversation": OriginDefault,
 			"execution.blocked_runs_before_intake_hold":           OriginDefault,
 			"execution.brake_cooldown":                            OriginDefault,
 			"execution.brake_escalation_cycles":                   OriginDefault,
@@ -373,6 +375,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.work_poll", execution.WorkPoll, &r.config.Execution.WorkPoll, applied.origin)
 		setValue(r.origins, "execution.redeploy_drain_limit", execution.RedeployDrainLimit, &r.config.Execution.RedeployDrainLimit, applied.origin)
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
+		setValue(r.origins, "execution.missing_reports_before_fresh_conversation", execution.MissingReportsBeforeFreshConversation, &r.config.Execution.MissingReportsBeforeFreshConversation, applied.origin)
 		setValue(r.origins, "execution.blocked_runs_before_intake_hold", execution.BlockedRunsBeforeIntakeHold, &r.config.Execution.BlockedRunsBeforeIntakeHold, applied.origin)
 		setValue(r.origins, "execution.brake_cooldown", execution.BrakeCooldown, &r.config.Execution.BrakeCooldown, applied.origin)
 		setValue(r.origins, "execution.brake_escalation_cycles", execution.BrakeEscalationCycles, &r.config.Execution.BrakeEscalationCycles, applied.origin)

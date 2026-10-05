@@ -54,7 +54,7 @@ type scriptedTurn struct {
 	wording  []terms.Finding
 }
 
-func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string) (Turn, error) {
+func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, _ RecurringTurnOptions) (Turn, error) {
 	r.messages = append(r.messages, message)
 	r.agents = append(r.agents, agent)
 	r.passes = append(r.passes, pass)
@@ -427,7 +427,7 @@ func TestAnUnreachableRoleIsRecordedRatherThanLost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(recorded) != 1 || recorded[0].Result != nil || recorded[0].Problem == "" {
+	if len(recorded) != 1 || recorded[0].Result != nil || recorded[0].Problem == "" || !recorded[0].Failed {
 		t.Errorf("recorded = %+v, want a durable record of the firing that produced nothing", recorded)
 	}
 }
@@ -465,9 +465,7 @@ func TestALaterTurnLosingTheRoleIsRecordedAsPartialRatherThanUnasked(t *testing.
 	}
 }
 
-// A turn that answered in prose without a block is not a failed turn: the role
-// answered, and what is lost is the structure. It is said out loud rather than
-// recorded as a pass that found nothing.
+// A turn without an account fails its pass even when the role answered in prose.
 func TestAnAnswerWithoutAnAccountIsSaidOutLoud(t *testing.T) {
 	t.Parallel()
 
@@ -486,8 +484,28 @@ func TestAnAnswerWithoutAnAccountIsSaidOutLoud(t *testing.T) {
 	if err != nil {
 		t.Fatalf("List() error = %v", err)
 	}
-	if len(recorded) != 1 || recorded[0].Result != nil || recorded[0].Problem == "" {
+	if len(recorded) != 1 || recorded[0].Result != nil || recorded[0].Problem == "" || !recorded[0].Failed {
 		t.Errorf("recorded = %+v, want a record saying no account came back", recorded)
+	}
+}
+
+func TestMissingReportReplacementRecognizesLegacyPassesAndResetsOnRecordedReports(t *testing.T) {
+	t.Parallel()
+	legacy := []runstate.Sweep{
+		{Turns: 1, ConversationID: "chat-old", Problem: "the architect answered in prose without a sweep block, so what the pass found is only in the conversation"},
+		{Turns: 1, ConversationID: "chat-old", Problem: "the architect answered in prose without a sweep block, so what the pass found is only in the conversation"},
+		{Turns: 1, ConversationID: "chat-old", Problem: "the architect answered in prose without a sweep block, so what the pass found is only in the conversation"},
+	}
+	if previous, reason := missingReportReplacement(legacy, 0); previous != "chat-old" || !strings.Contains(reason, "3 consecutive passes") {
+		t.Fatalf("legacy misses = %q, %q, want recovery at the default bound", previous, reason)
+	}
+	for name, next := range map[string]runstate.Sweep{
+		"recovered account": {Turns: 2, ConversationID: "chat-old", ReportRetried: true, Result: complete("recovered")},
+		"new conversation":  {Turns: 2, ConversationID: "chat-new", MissingReport: true, Failed: true},
+	} {
+		if previous, reason := missingReportReplacement(append(append([]runstate.Sweep(nil), legacy...), next), 3); previous != "" || reason != "" {
+			t.Errorf("%s did not end the old conversation's consecutive misses: %q, %q", name, previous, reason)
+		}
 	}
 }
 

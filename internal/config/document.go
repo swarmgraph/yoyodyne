@@ -111,6 +111,7 @@ type executionDocument struct {
 	WorkPoll                               *Duration `yaml:"work_poll"`
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
 	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
+	MissingReportsBeforeFreshConversation  *int      `yaml:"missing_reports_before_fresh_conversation"`
 	BlockedRunsBeforeIntakeHold            *int      `yaml:"blocked_runs_before_intake_hold"`
 	BrakeCooldown                          *Duration `yaml:"brake_cooldown"`
 	BrakeEscalationCycles                  *int      `yaml:"brake_escalation_cycles"`

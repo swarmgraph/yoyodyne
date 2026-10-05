@@ -37,6 +37,18 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
+// DefaultMissingReportsBeforeFreshConversation is the bound used when a project
+// names none, or supplies zero.
+const DefaultMissingReportsBeforeFreshConversation = 3
+
+// MissingReportLimit applies the default to configurations assembled in code too.
+func (e Execution) MissingReportLimit() int {
+	if e.MissingReportsBeforeFreshConversation <= 0 {
+		return DefaultMissingReportsBeforeFreshConversation
+	}
+	return e.MissingReportsBeforeFreshConversation
+}
+
 // The bounds a recurring task is held to.
 //
 // The minimum cadence is what keeps a typo from becoming a provider bill: every

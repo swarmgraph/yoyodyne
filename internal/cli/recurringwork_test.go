@@ -128,7 +128,7 @@ type queueChangingRole struct {
 	messages []string
 }
 
-func (r *queueChangingRole) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string) (orchestrator.Turn, error) {
+func (r *queueChangingRole) Wake(_ context.Context, _ domain.AgentRole, _, _, _, message string, _ orchestrator.RecurringTurnOptions) (orchestrator.Turn, error) {
 	r.messages = append(r.messages, message)
 	status := sweep.StatusComplete
 	if len(r.messages) == 1 {
