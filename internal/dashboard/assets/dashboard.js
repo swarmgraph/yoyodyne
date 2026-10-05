@@ -1397,7 +1397,7 @@ var standingWarningAgeSeconds = 5 * 60;
     switch (kind) {
       case "admitted":
         return listing("Admitted", "every admitted item, in the Lead Product Manager's order", standing.not_startable_problem, whatToDoAboutTheQueue(), "No work item is admitted.",
-          (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title }; }));
+          (standing.admitted_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: item.wait_reason || "" }; }));
       case "held":
         return listing("Held back", "admitted items not startable now, each with the refusal that stops it", standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is held back.", refused.map(withReason));
       case "pile":
@@ -1411,7 +1411,7 @@ var standingWarningAgeSeconds = 5 * 60;
         return listing("Startable", stalled.length > 0 ? "the harness is choosing nothing: " + stalled[0].reason
           : (standing.waiting_for_slot ? standing.waiting_for_slot.says + "; the harness pulls them in this order as slots free" : "the admitted items nothing refuses, which the harness pulls next in this order"),
           standing.not_startable_problem, whatToDoAboutTheQueue(), "No admitted item is startable.",
-          (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title }; }));
+          (standing.startable_items || []).map(function (item) { return { id: item.work_item_id, title: item.title, detail: item.wait_reason || "" }; }));
       default:
         return listing(key, "", "the page asked for a grouping it does not have", "", "", []);
     }

@@ -30,6 +30,8 @@ const defaultTimeout = 30 * time.Second
 const MaxPriority = 4
 
 type WorkItem struct {
+	SchedulingWait *SchedulingWait
+
 	ID                 string
 	Title              string
 	Description        string
@@ -1754,6 +1756,12 @@ func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
 	item.Executor = executorIn(raw.Metadata)
 	item.Parking = parkingIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
+	if saved := metadataString(raw.Metadata, schedulingWaitKey); saved != "" {
+		var wait SchedulingWait
+		if json.Unmarshal([]byte(saved), &wait) == nil && wait.Valid() {
+			item.SchedulingWait = &wait
+		}
+	}
 	return item, nil
 }
 

@@ -270,6 +270,7 @@ func BuildsOnParent(item beads.WorkItem, parent string) bool {
 // Entry is one admitted work item at the position the product manager's
 // ordering puts it in.
 type Entry struct {
+	SchedulingWait *beads.SchedulingWait `json:"scheduling_wait,omitempty"`
 	// Position is where this item sits in the order, counting from one. It is
 	// the backlog's own numbering rather than anything the tracker stores, so it
 	// describes this reading of the queue and no more.
@@ -457,15 +458,16 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 		}
 		gates := humangate.Of(item).Pending(discharged[item.ID])
 		queue.Entries = append(queue.Entries, Entry{
-			Position: position + 1,
-			ID:       item.ID,
-			Title:    item.Title,
-			Priority: item.Priority,
-			Status:   item.Status,
-			Executor: item.Executor,
-			Parking:  item.Parking,
-			Landing:  item.Landing,
-			Awaiting: awaiting,
+			SchedulingWait: item.SchedulingWait,
+			Position:       position + 1,
+			ID:             item.ID,
+			Title:          item.Title,
+			Priority:       item.Priority,
+			Status:         item.Status,
+			Executor:       item.Executor,
+			Parking:        item.Parking,
+			Landing:        item.Landing,
+			Awaiting:       awaiting,
 			// Only ever true beside a reason: a decision recorded about an item
 			// nothing is holding says nothing about why it is not being pulled, and
 			// carrying it here would put an item on the held count that no hold is on.

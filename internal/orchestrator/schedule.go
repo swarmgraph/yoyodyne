@@ -1395,7 +1395,14 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// with each sibling's first reason named a run that had failed two days
 	// earlier as what they were all still waiting on, and was read as the guard
 	// holding a developer slot on a dead run.
+	var waitTracker ScheduleTracker
+	var waitItems map[string]beads.WorkItem
 	passOver := func(workItemID, reason string) {
+		if recorder, ok := waitTracker.(schedulingWaitRecorder); ok {
+			if _, err := recorder.RecordSchedulingWait(ctx, workItemID, schedulingWaitReason(reason, waitItems), s.now()); err != nil {
+				schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
+			}
+		}
 		if index, named := deferred[workItemID]; named {
 			schedule.Deferred[index].Reason = reason
 			return
@@ -2643,6 +2650,8 @@ pulling:
 		// because it needs the queue — it reads the entries' executors — and
 		// because the entries it closes must not then be passed over on this same
 		// pull as work still waiting on somebody opening a conversation.
+		waitTracker = pull.Tracker
+		waitItems = read.items
 		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries)
 		schedule.Admitted = len(queue.Entries)
 		schedule.Pullable = queue.Ready()

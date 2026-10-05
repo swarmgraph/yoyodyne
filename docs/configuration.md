@@ -646,6 +646,15 @@ and `--json` carries both under `state_root`. The origin is
 doctor`](operations.md#checking-the-installation) reports the same two, and
 whether the checkout's marker agrees. Neither of them records a marker.
 
+## Reporting a scheduling wait that lasts too long
+
+`execution.scheduling_wait_problem_after` is the reporting threshold for an
+item's unchanged scheduling reason, default `1h`. It changes no priority,
+reservation, budget or scheduling rule. Status and the dashboard read the same
+per-item metadata and mark a reason as prolonged once that time has passed;
+a changed reason starts a new clock. The owned problem entry awaits the shared
+prolonged-conflict ownership resolver; see [operations](operations.md).
+
 ## Precedence
 
 A configuration `init` wrote has one layer: itself. Every configured value comes
@@ -663,6 +672,9 @@ The rest of this section describes what happens when a project uses `extends`,
 and what the harness still fills in when a file leaves something out.
 
 Up to three layers produce the effective configuration, later ones winning:
+
+
+
 
 1. **Harness defaults.** Values the harness fills in when nothing else supplies
    them: `product.specifications` (`docs/product`), `product.invariants`

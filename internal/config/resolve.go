@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -242,6 +243,7 @@ func newResolution() *resolution {
 				FactoryStallAfter:                     defaultFactoryStallAfter,
 				MissingReportsBeforeFreshConversation: DefaultMissingReportsBeforeFreshConversation,
 				BlockedRunsBeforeIntakeHold:           defaultBlockedRunsBeforeIntakeHold,
+				SchedulingWaitProblemAfter:            Duration(time.Hour),
 				BrakeCooldown:                         defaultBrakeCooldown,
 				BrakeEscalationCycles:                 defaultBrakeEscalationCycles,
 				// The declarative path is what a new run executes unless the project
@@ -330,6 +332,7 @@ func newResolution() *resolution {
 			"execution.factory_stall_after":                       OriginDefault,
 			"execution.missing_reports_before_fresh_conversation": OriginDefault,
 			"execution.blocked_runs_before_intake_hold":           OriginDefault,
+			"execution.scheduling_wait_problem_after":             OriginDefault,
 			"execution.brake_cooldown":                            OriginDefault,
 			"execution.brake_escalation_cycles":                   OriginDefault,
 			"execution.declarative_delivery":                      OriginDefault,
@@ -377,6 +380,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
 		setValue(r.origins, "execution.missing_reports_before_fresh_conversation", execution.MissingReportsBeforeFreshConversation, &r.config.Execution.MissingReportsBeforeFreshConversation, applied.origin)
 		setValue(r.origins, "execution.blocked_runs_before_intake_hold", execution.BlockedRunsBeforeIntakeHold, &r.config.Execution.BlockedRunsBeforeIntakeHold, applied.origin)
+		setValue(r.origins, "execution.scheduling_wait_problem_after", execution.SchedulingWaitProblemAfter, &r.config.Execution.SchedulingWaitProblemAfter, applied.origin)
 		setValue(r.origins, "execution.brake_cooldown", execution.BrakeCooldown, &r.config.Execution.BrakeCooldown, applied.origin)
 		setValue(r.origins, "execution.brake_escalation_cycles", execution.BrakeEscalationCycles, &r.config.Execution.BrakeEscalationCycles, applied.origin)
 		// A supplied slot list replaces the inherited one entirely, and is copied

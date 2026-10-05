@@ -408,12 +408,16 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 	}
 	defer lease.Release()
 
+	clearErr := r.retrySchedulingWaitClear(ctx, &state)
 	result, err := r.settle(ctx, state)
+	if clearErr != nil {
+		result.Failure = clearErr.Error()
+	}
 	if err != nil {
 		// A step that failed partway is never described as settled, however
 		// much of it succeeded. What it did achieve is still reported, because
 		// the next sweep and an operator both act on that.
-		result.Failure = err.Error()
+		result.Failure = joinProblem(result.Failure, err.Error())
 		result.Action = ActionUnsettled
 	}
 	return result

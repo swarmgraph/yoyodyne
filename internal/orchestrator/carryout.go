@@ -556,6 +556,13 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	}
 	for _, held := range candidates {
 		task := held.task
+		if task.Decision == "repair" || task.Decision == "rerun" {
+			if recorder, ok := c.Notes.(schedulingWaitRecorder); ok {
+				if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, carryOutWaitReason(ctx, c.Notes, held.why), now); err != nil {
+					problems = append(problems, err)
+				}
+			}
+		}
 		if task.Decision == DecisionContinueChecks {
 			if err := c.noteCheckStageWait(ctx, task.RunID, held.why, held.clears); err != nil {
 				problems = append(problems, err)
@@ -1302,6 +1309,11 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 	if task.Harness {
 		carried.Problem = fmt.Sprintf("the harness's own re-arm of the merge of run %s, withdrawn for its target's red check, %s %s: %s. What clears it: %s",
 			task.RunID, held, gate, strings.TrimSpace(refusal), strings.TrimSpace(clears))
+	}
+	if recorder, ok := c.Notes.(schedulingWaitRecorder); ok {
+		if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, carryOutWaitReason(ctx, c.Notes, carried.Problem), c.now()); err != nil {
+			carried.RecordProblem = fmt.Sprintf("record the scheduling wait: %v", err)
+		}
 	}
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()

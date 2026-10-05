@@ -1786,6 +1786,7 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("landing_checks.filing_problem", "landing_checks.filing_problem", &s.LandingChecks.FilingProblem, MaxRecordedTextBytes)
 		unstated("landing_checks.problem", "landing_checks.problem", &s.LandingChecks.Problem, MaxRecordedTextBytes)
 	}
+	own("scheduling_wait_clear_failure", &s.SchedulingWaitClearFailure, MaxChannelProblemBytes, channelProblemCutNote)
 	own("report_problem", &s.ReportProblem, MaxChannelProblemBytes, channelProblemCutNote)
 	own("amendment_problem", &s.AmendmentProblem, MaxChannelProblemBytes, channelProblemCutNote)
 	for index := range s.RepairContinuations {
@@ -2428,6 +2429,9 @@ type ReconcileFinding struct {
 }
 
 type State struct {
+	// SchedulingWaitClearFailure is a reporting write owed after accepted execution.
+	SchedulingWaitClearAt      *time.Time `json:"scheduling_wait_clear_at,omitempty"`
+	SchedulingWaitClearFailure string     `json:"scheduling_wait_clear_failure,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement   `json:"retirement,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
@@ -4091,6 +4095,9 @@ func (s State) OperatorHeld() time.Duration {
 // long as that merge is unresolved — the forge performs it minutes after the
 // run itself is over, and what it did with it has to be found out.
 func (s State) Outstanding() bool {
+	if s.SchedulingWaitClearFailure != "" {
+		return true
+	}
 	if s.Retirement != nil {
 		return s.Retirement.NotedAt == nil
 	}

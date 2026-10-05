@@ -358,8 +358,9 @@ type RunSummary struct {
 	// they are here because the outcome that used to be their only home is
 	// printed once and gone: without them a refused proposal reads afterwards as
 	// a proposal never made.
-	ReportProblem    string `json:"report_problem,omitempty"`
-	AmendmentProblem string `json:"amendment_problem,omitempty"`
+	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
+	ReportProblem              string `json:"report_problem,omitempty"`
+	AmendmentProblem           string `json:"amendment_problem,omitempty"`
 	// Amendments is every proposal the run's agents made, raised or dropped as a
 	// restatement of one already raised. A drop is on no other record, so this is
 	// where a fold the comparison got wrong is found.
@@ -544,34 +545,35 @@ func (s *Store) History(query RunQuery) (RunHistory, error) {
 
 func (s *Store) summarize(state State) RunSummary {
 	summary := RunSummary{
-		RunID:               state.RunID,
-		WorkItemID:          state.WorkItemID,
-		Status:              state.Status,
-		Outcome:             state.Outcome(),
-		Phase:               state.Phase,
-		StartedAt:           state.StartedAt,
-		CompletedAt:         state.CompletedAt,
-		Branch:              state.Branch,
-		WorktreePath:        state.WorktreePath,
-		BranchRemoved:       state.BranchRemoved,
-		WorktreeRemoved:     state.WorktreeRemoved,
-		ProviderSessionID:   state.ProviderSessionID,
-		ReviewFindings:      state.ReviewFindings,
-		Integrated:          state.Integration != nil,
-		Outstanding:         state.Outstanding(),
-		MergeQueued:         state.PullRequest != nil && state.PullRequest.MergeQueued,
-		ResumingIntegration: state.ResumingIntegration(),
-		AccountAlias:        state.AccountAlias,
-		ConfigRevision:      state.ConfigRevision,
-		Build:               state.Build,
-		Failure:             state.Failure,
-		StopClass:           state.RecordedStopClass(),
-		Blocker:             state.Blocker,
-		ReportProblem:       state.ReportProblem,
-		AmendmentProblem:    state.AmendmentProblem,
-		Amendments:          slices.Clone(state.Amendments),
-		PublishFailure:      state.PublishFailure,
-		CleanupFailure:      state.CleanupFailure,
+		RunID:                      state.RunID,
+		WorkItemID:                 state.WorkItemID,
+		Status:                     state.Status,
+		Outcome:                    state.Outcome(),
+		Phase:                      state.Phase,
+		StartedAt:                  state.StartedAt,
+		CompletedAt:                state.CompletedAt,
+		Branch:                     state.Branch,
+		WorktreePath:               state.WorktreePath,
+		BranchRemoved:              state.BranchRemoved,
+		WorktreeRemoved:            state.WorktreeRemoved,
+		ProviderSessionID:          state.ProviderSessionID,
+		ReviewFindings:             state.ReviewFindings,
+		Integrated:                 state.Integration != nil,
+		Outstanding:                state.Outstanding(),
+		MergeQueued:                state.PullRequest != nil && state.PullRequest.MergeQueued,
+		ResumingIntegration:        state.ResumingIntegration(),
+		AccountAlias:               state.AccountAlias,
+		ConfigRevision:             state.ConfigRevision,
+		Build:                      state.Build,
+		Failure:                    state.Failure,
+		StopClass:                  state.RecordedStopClass(),
+		Blocker:                    state.Blocker,
+		SchedulingWaitClearFailure: state.SchedulingWaitClearFailure,
+		ReportProblem:              state.ReportProblem,
+		AmendmentProblem:           state.AmendmentProblem,
+		Amendments:                 slices.Clone(state.Amendments),
+		PublishFailure:             state.PublishFailure,
+		CleanupFailure:             state.CleanupFailure,
 
 		WorkflowInstanceID: state.WorkflowInstanceID,
 		WorkflowDivergence: state.WorkflowDivergence,

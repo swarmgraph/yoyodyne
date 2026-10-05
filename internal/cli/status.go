@@ -582,6 +582,7 @@ func standingSources(configPath string) readmodel.Sources {
 	cfg := resolved.Config
 	sources.Capacity = cfg.Execution.MaxConcurrentDevelopers
 	sources.Slots = cfg.Execution.DeveloperSlots
+	sources.SchedulingWaitProblemAfter = cfg.Execution.SchedulingWaitProblemAfter.Duration()
 	// What each agent asks for and may be served by instead, read against the
 	// refusal log below for the one thing the two say together: whether the
 	// provider is holding every role at once.
@@ -1273,6 +1274,9 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// because this record is the only place they survive the run — a refused
 	// proposal that reached only the run's printed outcome was, afterwards, one
 	// nobody could tell from a proposal never made.
+	if run.SchedulingWaitClearFailure != "" {
+		fmt.Fprintf(writer, "  scheduling reason clearing pending: %s\n", singleLine(run.SchedulingWaitClearFailure))
+	}
 	if run.ReportProblem != "" {
 		fmt.Fprintf(writer, "  report not kept: %s\n", singleLine(run.ReportProblem))
 		printed = true

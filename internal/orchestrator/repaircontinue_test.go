@@ -1648,8 +1648,13 @@ func TestARepairContinuationLandsTheChangeTheStoppedRunAlreadyHad(t *testing.T) 
 	if err != nil {
 		t.Fatalf("runstate.NewIntakeHoldStore() error = %v", err)
 	}
+	tracker.Item.SchedulingWait = &beads.SchedulingWait{Reason: "waiting for a repair slot", FirstPassedOver: time.Now().Add(-time.Minute), ReasonSince: time.Now().Add(-time.Minute)}
+	tracker.SchedulingWaitClearErr = errors.New("metadata write unavailable")
 	// The continued attempt answers the findings; the reviewer then approves.
 	continuing := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if tracker.Item.SchedulingWait == nil {
+			t.Fatal("fixture did not retain metadata after refusing its clear")
+		}
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	// The development manager's decision, recorded exactly as the conversation
@@ -1733,13 +1738,37 @@ func TestARepairContinuationLandsTheChangeTheStoppedRunAlreadyHad(t *testing.T) 
 	if counters.GrantOutstanding() {
 		t.Fatal("the grant reads as outstanding after the round it bought was judged, so the docket would go on offering the stoppage a handback on it")
 	}
+	accepted, loadErr := store.Load(outcome.RunID)
+	if loadErr != nil || accepted.SchedulingWaitClearFailure == "" || !accepted.Outstanding() {
+		t.Fatalf("clearing obligation = %q, %v", accepted.SchedulingWaitClearFailure, loadErr)
+	}
+	tracker.SchedulingWaitClearErr = nil
+	reconciler := Reconciler{Store: store, Tracker: tracker}
+	if err := reconciler.retrySchedulingWaitClear(context.Background(), &accepted); err != nil {
+		t.Fatal(err)
+	}
+	cleared, err := store.Load(outcome.RunID)
+	if err != nil || cleared.SchedulingWaitClearFailure != "" || tracker.Item.SchedulingWait != nil {
+		t.Fatalf("retry did not clear metadata and saved obligation: %v", err)
+	}
+	// Retrying an older obligation must not erase a new scheduler decision.
+	older := time.Now().Add(-time.Minute)
+	accepted.SchedulingWaitClearAt = &older
+	accepted.SchedulingWaitClearFailure = "older clearing failure"
+	newWait := &beads.SchedulingWait{Reason: "a new scheduling decision", FirstPassedOver: time.Now(), ReasonSince: time.Now()}
+	tracker.Item.SchedulingWait = newWait
+	if err := reconciler.retrySchedulingWaitClear(context.Background(), &accepted); err != nil || tracker.Item.SchedulingWait != newWait {
+		t.Fatalf("retry erased a later waiting reason: %v", err)
+	}
+
 }
 
 // The item's own requirement, from yoyodyne-ifd.368: the grant counter says
 // somebody granted this item a repair, and only the decision says it was this
 // stoppage. A repair recorded about another run of the item is not one about
 // this run, so it is refused naming the record that is missing rather than
-// carried out on the strength of the counter.
+// carried out on the strength of the counters.
+
 func TestARepairOfAnotherRunIsNotCarriedOutOnThisOne(t *testing.T) {
 	t.Parallel()
 

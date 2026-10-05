@@ -234,8 +234,9 @@ type Product struct {
 }
 
 type Execution struct {
-	MaxConcurrentDevelopers    int `yaml:"max_concurrent_developers" json:"max_concurrent_developers"`
-	RepairAttemptsBeforeReplan int `yaml:"repair_attempts_before_replan" json:"repair_attempts_before_replan"`
+	SchedulingWaitProblemAfter Duration `yaml:"scheduling_wait_problem_after" json:"scheduling_wait_problem_after"`
+	MaxConcurrentDevelopers    int      `yaml:"max_concurrent_developers" json:"max_concurrent_developers"`
+	RepairAttemptsBeforeReplan int      `yaml:"repair_attempts_before_replan" json:"repair_attempts_before_replan"`
 	// IntegrationRetriesBeforeReconciliation bounds the replays of a run whose
 	// promotion lost a race — to another run, or to whoever moved the target
 	// branch mid-run — that stopped on the change: the replay conflicted, or the
@@ -1022,6 +1023,9 @@ func (c Config) Validate() error {
 	// read, so a cooldown of no time at all waits for her summoned turn and no
 	// longer, and probes at the poll after it. Only a negative one, which
 	// describes no wait anybody could take, is refused.
+	if c.Execution.SchedulingWaitProblemAfter < 0 {
+		problems = append(problems, "execution.scheduling_wait_problem_after cannot be negative")
+	}
 	if c.Execution.BrakeCooldown < 0 {
 		problems = append(problems, "execution.brake_cooldown cannot be negative")
 	}
