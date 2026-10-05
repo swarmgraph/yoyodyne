@@ -327,7 +327,12 @@ func exerciseFirstStall(t *testing.T, repairing, restarted, reviewing bool) {
 		t.Fatalf("second entry = %#v, want it the development manager's", latest)
 	}
 	rendered := latest.Render()
-	wants := []string{"its continuation is spent", "development manager's decision", "Next mover: you"}
+	wants := []string{"its continuation is spent", "development manager's decision"}
+	if restarted {
+		wants = append(wants, "Next mover: the development manager", "earlier repair decision was carried out")
+	} else {
+		wants = append(wants, "Next mover: you")
+	}
 	if !repairing {
 		wants = append(wants, "yoyo triage repair "+paused.RunID)
 	}

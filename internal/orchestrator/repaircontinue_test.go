@@ -575,7 +575,7 @@ func TestASecondRepairOfOneItemIsRefusedOnceTheGrantIsCarriedOut(t *testing.T) {
 	harness.save(t, second)
 
 	_, err := harness.continuer().Continue(context.Background(), continueRequest())
-	if err == nil || !strings.Contains(err.Error(), "the harness has carried out 2") {
+	if err == nil || !strings.Contains(err.Error(), "the repair decision about run "+second.RunID+" was already carried out") {
 		t.Fatalf("second Continue() error = %v, want a refusal naming the grant already carried out", err)
 	}
 	if len(harness.started) != 1 {

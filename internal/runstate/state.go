@@ -3959,14 +3959,13 @@ func (s State) CarriedOutRepairAttempts() int {
 	return carried
 }
 
-// RepairContinuedSince reports a repair grant handed back to this run at or
-// after a moment: a continuation somebody decided, which the environment did
-// not refuse. It is what says a repair decided at that moment was carried out,
-// counted the way CarriedOutRepairAttempts counts it — a returned round bought
-// nothing, and the harness carrying on a stall itself spends no grant.
+// RepairContinuedSince reports a repair decision carried out on this run at or
+// after a moment. A later refund changes what the grant spent, not whether the
+// decision was carried out. The harness carrying on a stall itself carries out
+// no development-manager decision.
 func (s State) RepairContinuedSince(decidedAt time.Time) bool {
 	for _, continuation := range s.RepairContinuations {
-		if continuation.Returned || continuation.ByHarness {
+		if continuation.ByHarness {
 			continue
 		}
 		if !continuation.ContinuedAt.Before(decidedAt) {

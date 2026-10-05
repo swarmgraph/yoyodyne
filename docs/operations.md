@@ -4845,6 +4845,21 @@ to carry all six. This used to be one word — `failed` — for all of them and 
 the two below it, which is how three preserved runs came to read as three
 discarded ones.
 
+**A run that stops again after a repair has a new stoppage.** The run's
+`repair_continuations` history records that the earlier repair decision was
+carried out, even if the round was later refunded because the environment
+stopped it. The docket lists the later stop with its own cause; the earlier
+decision does not authorize another repair and is not shown as still waiting
+for the harness to carry it out. The item's hold gives the same next mover.
+Where recovery policy authorizes an automatic continuation and its allowance
+remains, both name the harness and the continuation it owes; a pause, intake
+hold, or lack of a free slot can delay that continuation. Otherwise both name
+the development manager, who has a new stop to decide, including once the
+automatic continuation allowance is spent. A whole check stage stopped at its
+bound can qualify for automatic continuation; a check stopped at its individual
+timeout cannot. None of this resets the run's counters, the item's budgets, or
+the automatic continuation allowances.
+
 A blocker outranks the run's own status, `succeeded` included. The last of those
 endings is the one where that shows: a run promotes its work, records it, and
 `yoyo reconcile` then finds the target does not carry the promotion, so the item

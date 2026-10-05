@@ -752,6 +752,10 @@ func (c Counters) Decided() bool { return c.Reruns > c.RerunsCarriedOut }
 // docket carries a copy of the item's counters, and the read model has the
 // durable ledger itself — and what must not be copied is the rule.
 type Standing struct {
+	// CarriedOut is the earlier repair decision having started its continuation.
+	// A later stop needs its own decision or the recovery policy's continuation;
+	// a refunded round never makes the earlier decision outstanding again.
+	CarriedOut bool `json:"carried_out,omitempty"`
 	// Decided is a decision recorded about this stoppage at all. An item's budget
 	// having been spent is not one: the spend may have been for another run of the
 	// same item.
@@ -759,8 +763,8 @@ type Standing struct {
 	// Spends is that decision being one of the three that buy another attempt,
 	// which are the only three the harness carries out.
 	Spends bool `json:"spends,omitempty"`
-	// Repair is the decision being a repair grant, which is the one kind whose
-	// carrying out the decision itself cannot report.
+	// Repair is the decision being a repair grant, whose carry-out is proved by
+	// the named run's continuation history.
 	Repair bool `json:"repair,omitempty"`
 	// GrantOutstanding is a granted repair not handed back to its run yet: the
 	// item standing committed to rounds it has not spent, where the run's own
@@ -792,11 +796,10 @@ type Standing struct {
 // harness as its next mover would send an operator to watch for a run nothing is
 // going to start.
 //
-// A granted repair is asked of the grant rather than of the decision, because a
-// repair continues the run it was granted for: the same run stops again carrying
-// the same decision, so the decision alone would go on claiming a carry-out that
-// has already happened. The grant standing unspent is what actually says it has
-// not.
+// A repair is asked of both its grant and its run's continuation history. The
+// decision remains recorded after it is carried out, and a refunded round can
+// leave the grant unspent; neither authorizes carrying the same decision out
+// again.
 //
 // A re-run and a merge re-arm are answered from the decision itself, which is
 // sufficient because carrying either one out changes what the reading is about.
@@ -2126,6 +2129,16 @@ func (e Entry) renderReplayConflict() string {
 // because the verb a reader reaches for after an approval is the resume and the
 // resume cannot help it.
 func (e Entry) renderNextMover() string {
+	next := e.nextMover()
+	if e.Counters.Standing.CarriedOut {
+		next = strings.Replace(next, "Next mover: you", "Next mover: the development manager", 1)
+		next = strings.ReplaceAll(next, "your decision", "her decision")
+		return "      The earlier repair decision was carried out; it decides nothing about this later stop.\n" + next
+	}
+	return next
+}
+
+func (e Entry) nextMover() string {
 	gone := ""
 	if e.IntegrationStop != nil {
 		if e.integrationResumable() {
@@ -2155,7 +2168,7 @@ func (e Entry) renderNextMover() string {
 	// after a recorded decision, because a decision she made about it is what the
 	// harness carries out instead.
 	if e.HarnessContinuesChecks {
-		return "      Next mover: the harness — load stopped this run's check stage rather than the change, so the harness re-runs the checks on the change it already has at the next pull with a slot free and the load low enough; nothing here needs a decision unless you want it to go some other way.\n"
+		return "      Next mover: the harness — load stopped this run's check stage rather than the change, so the harness re-runs the checks on the change it already has at the next pull with a slot free; nothing here needs a decision unless you want it to go some other way.\n"
 	}
 	// A first silent-stream stall is continued by the harness itself, once, with
 	// nobody deciding anything; a second is the development manager's, below.
@@ -2420,7 +2433,7 @@ func (e Entry) renderGrantStanding() string {
 		return fmt.Sprintf("      A further repair grant for %s is refused by the review round budget: %d of %d round(s) are spent or committed, so there is nothing left to grant.\n",
 			e.WorkItemID, counters.Committed(), counters.ReviewRoundsCap)
 	}
-	if counters.GrantOutstanding() {
+	if counters.GrantOutstanding() && !counters.Standing.CarriedOut {
 		return fmt.Sprintf("      A repair grant of %s is recorded and its rounds are not spent, so this stoppage may be handed back on the decision that stands; deciding another would spend a further one rather than repeat it.\n",
 			e.WorkItemID)
 	}

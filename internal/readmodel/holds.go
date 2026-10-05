@@ -171,8 +171,9 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 		problem = fmt.Sprintf("the triage record belongs to %s rather than %s", counters.WorkItemID, workItemID)
 	}
 	// The docket asks the same shared rule of the same run and ledger.
-	reading := decidedStanding{carryOut: counters.AwaitingCarryOutOf(run), problem: problem}
-	if refused, found := counters.RefusedCarryOut(run.RunID); found {
+	standing := counters.StandingOf(run)
+	reading := decidedStanding{decided: standing.Decided, carryOut: triage.AwaitingCarryOut(standing), problem: problem}
+	if refused, found := counters.RefusedCarryOut(run.RunID); found && standing.Refused {
 		reading.refused = &refused
 	}
 	return reading
@@ -183,6 +184,7 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 // act on and a gate refused, which is the development manager's again and is
 // held as hers; problem is what stopped the reading.
 type decidedStanding struct {
+	decided  bool
 	carryOut bool
 	refused  *runstate.TriageCarryOut
 	problem  string
@@ -418,6 +420,9 @@ func stoppageHold(run runstate.State, decided standing, found triage.Found) back
 	reading := decided.of(run.WorkItemID, run)
 	if run.IntegrationStop != nil {
 		return heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), reading, stoppedAt(run))
+	}
+	if preserved && !reading.decided && reading.refused == nil && reading.problem == "" && run.HarnessContinuesCheckStage() {
+		return backlog.Hold{Reason: preservedChange(run, found) + "; " + run.CheckStageStopSays(), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
 	if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}

@@ -300,15 +300,19 @@ func (c TriageCounters) Standing(runID string) triage.Standing {
 // harness's to carry out on 2026-09-30 after its repair had been carried out
 // (yoyodyne-8ff). A continuation of the run made since the decision is the
 // carry-out itself, and the carry-out reads it the same way: one decision buys
-// one continuation and no more.
+// one continuation and no more. Its rounds can be refunded without undoing that
+// evidence; a later stop is no longer decided by the earlier repair.
 func (c TriageCounters) StandingOf(run State) triage.Standing {
 	standing := c.Standing(run.RunID)
-	if !standing.Repair || !standing.GrantOutstanding {
+	if !standing.Repair {
 		return standing
 	}
 	decision, _ := c.DecisionOf(run.RunID)
 	if run.RepairContinuedSince(decision.DecidedAt) {
+		standing.Decided = false
+		standing.CarriedOut = true
 		standing.GrantOutstanding = false
+		standing.Refused = false
 	}
 	return standing
 }
