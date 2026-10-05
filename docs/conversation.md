@@ -2914,7 +2914,10 @@ after endpoint selection, so failover uses the receiving endpoint's bound.
 If a provider still rejects input for size, including Codex's `input_too_large`,
 the harness tries the turn once with a shorter reconstruction and records
 `request_size_retry`; a served retry completes the same pass. This also applies
-to the memory-save turn before compaction. A second refusal ends that turn.
+to the memory-save turn before compaction. Capacity waits keep the shortened
+request and do not renew its size retry. If another turn advances the record
+while it waits, the harness rebuilds from that newer record with the reduced
+history allowance. A second size refusal ends that turn.
 A reconstruction that cannot read the durable record ends without another
 provider attempt, returns the read error, and retains the event position of
 any session replacement already recorded. If the fixed instructions and current

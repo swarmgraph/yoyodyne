@@ -4361,7 +4361,9 @@ size (`input_too_large` or `request_too_large`), the turn gets one shorter
 reconstruction before it can fail. This also applies to the memory-save turn
 before compaction and to the receiving endpoint on failover. A save refused on
 the old session retries from the durable record; its writes are recorded before
-the waiting message continues. If that reconstruction fails, the error is
+the waiting message continues. A capacity wait retains the shortened request
+and its spent size retry; an intervening turn rebuilds from the latest record
+with the reduced history allowance. If that reconstruction fails, the error is
 returned and the recorded replacement's event position is kept. These bounds
 belong to the adapters and add no configuration key.
 See [request size protection](conversation.md) for the

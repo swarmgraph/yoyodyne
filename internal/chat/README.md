@@ -100,6 +100,8 @@ and, if due, `saveBeforeCompaction` then `compact` (`compact.go`); builds the
 (`rebuild.go`). `requestBounded` (`requestsize.go`) measures the selected
 endpoint's actual prompt, shortens replayed history to leave a margin below its
 input limit, and retries a size refusal once, including the memory-save turn.
+Capacity waits retain the effective prompt and spent size retry; an intervening
+turn rebuilds from the latest record with the reduced history allowance.
 A failed reconstruction returns its error and keeps the event position after
 any recorded session replacement. It then invokes in a loop that
 handles other refusals (below), and

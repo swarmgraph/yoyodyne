@@ -736,8 +736,12 @@ type Session struct {
 	rebuiltMessageBytes int
 	rebuiltFrom         *rebuildInput
 	// sentRequest is the last attempt after endpoint selection and size checks.
-	// Session measurement must use what reached the provider, including failover.
+	// Measurement and capacity waits use what reached the provider, including
+	// failover and size recovery, rather than the request before those changes.
 	sentRequest *backend.RunRequest
+	// A size refusal gets one shorter attempt across all capacity waits for
+	// this invocation. takeTurn keeps its own copy across nested memory saves.
+	requestSizeRetried bool
 	// lastInvocationCostUSD is what the provider charged for the invocation just
 	// taken, kept apart from both totals because an exchange is charged per
 	// invocation rather than per message: the round that carried an answer back
@@ -1816,6 +1820,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	s.compacting = false
 	s.rebuiltMessageBytes, s.rebuiltFrom = 0, nil
 	s.sentRequest = nil
+	s.requestSizeRetried = false
 	defer func() { s.compacting = false }()
 	if due != nil {
 		compacted, err := s.compact(systemPrompt, prompt, *due)
@@ -1962,6 +1967,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// shrunk says this turn has already halved a rebuild the provider refused
 		// as too long, so a smaller one refused the same way ends the turn.
 		shrunk bool
+		// A capacity wait resumes the shorter attempt without renewing its
+		// allowance for another size retry, even after a nested memory save.
+		sizeRetried bool
 	)
 	// What this invocation costs is counted across the attempts it took. An
 	// exchange is charged per invocation rather than per message, and an attempt
@@ -1972,7 +1980,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// is one line in the cost log naming the model that attempt actually asked
 		// for. Wrapped the other way round, a turn the alternate served would be
 		// priced against the model that refused it.
+		s.sentRequest = nil
+		s.requestSizeRetried = sizeRetried
 		result, served, err = modelfailover.Serve(ctx, provider, request, policy)
+		sizeRetried = s.requestSizeRetried
 		s.lastEffortRequested, s.lastEffortResolved = served.Effort, result.ResolvedEffort
 		s.lastEffortReported, s.effortInvoked = result.EffortReported, true
 		// Whatever happened, the event log advanced, and the record has to agree
@@ -2027,6 +2038,18 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		if limit == nil && outage == nil {
 			break
 		}
+		// The wrapper may have shortened the request before encountering this
+		// capacity refusal. Keep that prompt without changing the routing policy's
+		// endpoint, model or account. A replaced session must stay set aside on
+		// both routes, including a policy built before the size refusal.
+		if s.sentRequest != nil {
+			request.Prompt = s.sentRequest.Prompt
+		}
+		if sizeRetried {
+			request.SessionID = ""
+			policy.AlternateSessionID = ""
+		}
+		messageBudget := s.rebuiltMessageBytes
 		// A provider that declined this turn for want of capacity is recorded
 		// before anything is decided about waiting, because the refusal is a fact
 		// about the whole product rather than about this conversation, and nothing
@@ -2079,7 +2102,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 			}
 			request.Prompt = execution.NewRedactor(s.options.RedactValues...).Redact(request.Prompt)
 			s.compacting = false
-			s.rebuiltMessageBytes, s.rebuiltFrom = 0, nil
+			s.rebuiltFrom = nil
+			if !sizeRetried {
+				s.rebuiltMessageBytes = 0
+			}
 			if !savingMemory {
 				if due := s.compactionDue(systemPrompt, request.Prompt); due != nil {
 					if s.keepsMemory() {
@@ -2099,6 +2125,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 					}
 					s.turnBegan = s.state.LastSequence
 					s.turnOperatorSequence = operatorSequence
+					if sizeRetried {
+						s.rebuiltMessageBytes = messageBudget
+					}
 					compacted, compactErr := s.compact(systemPrompt, request.Prompt, *due)
 					if compactErr != nil {
 						return "", compactErr
@@ -2114,6 +2143,20 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 				if s.alternateSession() != "" {
 					provider = s.meteredFailover(true)
 				}
+			}
+			if sizeRetried {
+				// Another turn may have advanced the session and memories while
+				// we waited. Rebuild that newer record on the reduced allowance,
+				// including for a save, rather than returning to native history.
+				s.compacting = true
+				s.rebuiltMessageBytes = messageBudget
+				request.SessionID = ""
+				policy.AlternateSessionID = ""
+				rebuilt, rebuildErr := s.rebuildFromRecord(request, sessionSetAside)
+				if rebuildErr != nil {
+					return "", rebuildErr
+				}
+				request = rebuilt
 			}
 			if !savingMemory && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
 				rebuilt, rebuildErr := s.rebuildForOwnEndpoint(request)

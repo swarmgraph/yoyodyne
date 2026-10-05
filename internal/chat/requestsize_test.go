@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backend/codex"
@@ -430,5 +431,182 @@ func TestProviderRequestSizeMemorySaveRetriesOnlyOnce(t *testing.T) {
 	}
 	if len(provider.requests) != before+3 || provider.requests[before+2].SessionID != "" {
 		t.Fatal("the next pass did not rebuild from the record")
+	}
+}
+
+func TestProviderRequestSizeRecoverySurvivesACapacityWait(t *testing.T) {
+	for _, test := range []struct {
+		name                                                 string
+		resumed, outage, changed, savingMemory, rejectsAgain bool
+	}{
+		{name: "fresh request"},
+		{name: "resumed session", resumed: true},
+		{name: "outage", resumed: true, outage: true},
+		{name: "intervening turn", resumed: true, changed: true},
+		{name: "memory save", resumed: true, savingMemory: true},
+		{name: "memory save with intervening turn", resumed: true, savingMemory: true, changed: true},
+		{name: "second size refusal", resumed: true, rejectsAgain: true},
+		{name: "second refusal after intervening turn", resumed: true, changed: true, rejectsAgain: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			provider := &sizedConversationBackend{speakingBackend: &speakingBackend{}}
+			clock := &waitingClock{now: fixedClock{}.Now()}
+			options := waitingOptions(testOptions(t, provider), clock)
+			store := options.Store.(*runstate.ConversationStore)
+			hold, err := store.Claim(context.Background(), options.identity())
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer hold.Release()
+			options.Hold = hold
+			if test.savingMemory {
+				options.Memories, err = runstate.NewMemoryStore(t.TempDir(), options.ProductID)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			session := sizeTestHistory(t, options, provider.speakingBackend)
+			if !test.resumed {
+				session.state.ProviderSessionID = ""
+			}
+			if test.savingMemory {
+				session.options.SessionBudgetBytes = 1
+			}
+			session.ForPass("test-sweep")
+			before := len(provider.requests)
+			refusal := backendapi.RunResult{IsError: true, FinalText: recordedCodexSizeRefusal}
+			capacity := refusedForCapacity(clock.now.Add(30 * time.Minute))
+			if test.outage {
+				capacity = backendapi.RunResult{IsError: true, ProviderOutage: &backendapi.ProviderOutage{Cause: domain.ProviderUnauthenticated, Detail: "Not logged in"}}
+			}
+			provider.results = append(provider.results, refusal, capacity)
+			if test.changed {
+				provider.results = append(provider.results, backendapi.RunResult{SessionID: "intervening", FinalText: "New findings from the intervening turn."})
+			}
+			continued := backendapi.RunResult{SessionID: "new", FinalText: "Pass completed."}
+			if test.savingMemory {
+				continued.FinalText = "Nothing to save."
+			}
+			if test.rejectsAgain {
+				continued = refusal
+			}
+			provider.results = append(provider.results, continued)
+			if test.savingMemory {
+				provider.results = append(provider.results, backendapi.RunResult{SessionID: "answer", FinalText: "Pass completed."})
+			}
+			waits := 0
+			session.options.Sleep = func(ctx context.Context, duration time.Duration) error {
+				waits++
+				if waits != 1 {
+					t.Fatal("size recovery waited more than once")
+				}
+				if test.changed {
+					otherHold, err := store.Claim(ctx, options.identity())
+					if err != nil {
+						t.Fatal(err)
+					}
+					defer otherHold.Release()
+					otherOptions := options
+					otherOptions.Hold = otherHold
+					otherOptions.SessionBudgetBytes = 1 << 20
+					other := openTestSession(t, otherOptions)
+					if _, err := other.Send(ctx, "Intervening message."); err != nil {
+						t.Fatal(err)
+					}
+				}
+				return clock.sleep(ctx, duration)
+			}
+			reply, err := session.Send(context.Background(), "Decide the waiting docket.")
+			if (err != nil) != test.rejectsAgain {
+				t.Fatalf("Send error=%v, second refusal=%v", err, test.rejectsAgain)
+			}
+			wantAttempts := 3
+			if test.changed {
+				wantAttempts++
+			}
+			if test.savingMemory {
+				wantAttempts++
+			}
+			if waits != 1 || len(provider.requests) != before+wantAttempts {
+				t.Fatalf("waits=%d, attempts=%d, want %d", waits, len(provider.requests)-before, wantAttempts)
+			}
+			shorter := provider.requests[before+1]
+			continuedIndex := before + 2
+			if test.changed {
+				continuedIndex++
+			}
+			continuedRequest := provider.requests[continuedIndex]
+			if !test.changed && (continuedRequest.Prompt != shorter.Prompt || continuedRequest.SessionID != shorter.SessionID) {
+				t.Fatal("capacity wait restored the size-rejected request or session")
+			}
+			if test.changed && (continuedRequest.SessionID != "" || !strings.Contains(continuedRequest.Prompt, "New findings from the intervening turn.")) {
+				t.Fatal("capacity wait did not rebuild the shortened request from the latest record")
+			}
+			if test.savingMemory && strings.Contains(continuedRequest.Prompt, "Decide the waiting docket.") {
+				t.Fatal("continued memory save replayed the waiting message")
+			}
+			if !test.rejectsAgain {
+				answer := provider.requests[len(provider.requests)-1]
+				if reply.Text != "Pass completed." || strings.Count(answer.Prompt, "Decide the waiting docket.") != 1 {
+					t.Fatal("waiting pass was not completed exactly once")
+				}
+			}
+			events, err := store.LoadEvents(session.state.ConversationID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			retries := 0
+			for i, event := range events {
+				if i > 0 && event.Sequence <= events[i-1].Sequence {
+					t.Fatal("size recovery reused event numbers")
+				}
+				if event.Type == execution.EventSessionCompacted && strings.Contains(string(event.Payload), "request_size_retry") {
+					retries++
+				}
+			}
+			if retries != 1 {
+				t.Fatalf("recorded %d size retries, want one across the capacity wait", retries)
+			}
+		})
+	}
+}
+
+func TestProviderRequestSizeAlternateRecoverySurvivesACapacityWait(t *testing.T) {
+	t.Parallel()
+	held := &speakingBackend{}
+	alternate := &sizedConversationBackend{speakingBackend: &speakingBackend{}}
+	clock := &waitingClock{now: fixedClock{}.Now()}
+	options := waitingOptions(crossingOptions(t, held, alternate), clock)
+	options.UsageLimits = newTestUsageLimits(t)
+	session := sizeTestHistory(t, options, held)
+	// A prior turn crossed providers; the alternate holds the native session
+	// that the size refusal now sets aside.
+	session.state.Backend = options.FailoverEndpoint.Provider
+	session.state.ProviderModel = options.FailoverEndpoint.Model
+	session.state.AccountAlias = options.FailoverEndpoint.AccountAlias
+	session.state.ProviderSessionID = "alternate-old"
+	held.results = append(held.results, refusedForCapacity(clock.now.Add(4*time.Hour)), refusedForCapacity(clock.now.Add(4*time.Hour)))
+	alternate.results = []backendapi.RunResult{
+		{IsError: true, FinalText: recordedCodexSizeRefusal},
+		refusedForCapacity(clock.now.Add(30 * time.Minute)),
+		{SessionID: "alternate-new", FinalText: "Pass completed."},
+	}
+	reply, err := session.Send(context.Background(), "Decide the waiting docket.")
+	if err != nil || reply.Text != "Pass completed." {
+		t.Fatalf("Send: %q, %v", reply.Text, err)
+	}
+	if len(alternate.requests) != 3 || len(clock.slept) != 1 {
+		t.Fatalf("alternate attempts=%d, waits=%d", len(alternate.requests), len(clock.slept))
+	}
+	refused, shorter, continued := alternate.requests[0], alternate.requests[1], alternate.requests[2]
+	if refused.SessionID != "alternate-old" || shorter.SessionID != "" || continued.SessionID != "" || shorter.Prompt != continued.Prompt {
+		t.Fatal("alternate's capacity wait restored the rejected session or prompt")
+	}
+	if continued.AccountAlias != options.FailoverEndpoint.AccountAlias || continued.Model != options.FailoverEndpoint.Model {
+		t.Fatal("carrying the shortened request changed endpoint routing")
+	}
+	if continued.LastSequence <= shorter.LastSequence {
+		t.Fatal("alternate's continuation reused event numbers")
 	}
 }

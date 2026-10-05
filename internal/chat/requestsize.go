@@ -33,7 +33,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 	request = prepared
 	s.sentRequest = &request
 	result, err = b.provider.Run(ctx, request)
-	if !requestRejectedForSize(result, err) {
+	if !requestRejectedForSize(result, err) || s.requestSizeRetried {
 		return result, err
 	}
 	// A provider can change its limit or count more than the adapter can see.
@@ -79,6 +79,7 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 		return backend.RunResult{LastEvent: s.state.LastSequence}, &OperatorHoldError{Hold: hold}
 	}
 	s.stream.interrupted()
+	s.requestSizeRetried = true
 	s.sentRequest = &request
 	return b.provider.Run(ctx, request)
 }
