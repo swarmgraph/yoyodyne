@@ -1492,7 +1492,9 @@ rebuilding the session, and the conversation log says the save turn happened,
 how many writes it recorded, and whether the role had nothing to save. The
 transcript and `--json` (`compaction_saves`) say the same thing. A save turn or
 memory write that fails leaves the old session in place and the waiting message
-unanswered. Program managers receive this turn too; developers and reviewers,
+unanswered, except for a memory-budget refusal: that refuses only the write,
+reports the sizes and largest memories to the role on its next turn, and lets
+the rebuild and waiting reply continue. Program managers receive this turn too; developers and reviewers,
 which keep no memory, do not.
 
 **`yoyo agent memory <name>` reads that history as text.** Every memory the
@@ -2860,7 +2862,7 @@ to (`provider_session_bytes` and `provider_session_budget_bytes`, and
 framing, encoding, and reasoning the harness never sees. Before a turn that would
 take the session past it, a role that keeps memory receives the save turn
 [described above](#what-the-management-roles-remember), on the old session.
-After its memory writes are recorded, the waiting turn is sent without the
+After its memory writes are attempted, the waiting turn is sent without the
 session: the conversation is rebuilt
 from its record in front of the turn, exactly as for a provider holding no
 session, and the provider's answer starts a new session the measure starts again
@@ -2870,6 +2872,14 @@ its size, and the budget. A rebuild that cannot be made is recorded as
 it is not a provider refusal, so nothing waits and asks again. A session recorded
 before the harness measured sessions is compacted on its next turn, since
 nobody knows how large it is.
+
+A memory write that would exceed the 32,768-byte live memory budget is refused
+whole, including a memory compaction: it changes no memory. The refusal names
+the proposed total, the current total, the budget, and the three largest current
+memories by name and size, so the role can shorten or retire one. A budget
+refusal during the save turn does not stop the session rebuild or the waiting
+reply. The role receives the refused write's result on its next turn, including
+the turn answering the waiting message after the rebuild.
 
 **The harness refreshes on its own past a threshold.** The line above turned
 out not to be enough: on 2026-09-18 the Lead Product Manager advised adding a

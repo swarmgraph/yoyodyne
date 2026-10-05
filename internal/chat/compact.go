@@ -135,10 +135,12 @@ func (s *Session) saveBeforeCompaction(ctx context.Context, due compaction, repl
 			outcomes, err = s.performMemoryWrites(ctx, writes)
 			reply.Memories = append(reply.Memories, outcomes...)
 			reply.Saved = append(reply.Saved, savedMemories(outcomes)...)
+			// A spent memory budget refuses only the write. Its result is
+			// carried to the waiting turn below, which still rebuilds.
 			for _, outcome := range outcomes {
 				if outcome.Recorded {
 					save.MemoriesRecorded++
-				} else {
+				} else if !outcome.budgetRefused {
 					err = errors.Join(err, errors.New(outcome.Failure))
 				}
 			}

@@ -96,12 +96,13 @@ type memoryDocument struct {
 // MemoryOutcome is what became of one write: the revision the store numbered it,
 // or why nothing was recorded.
 type MemoryOutcome struct {
-	ID       string      `json:"id"`
-	Turn     int         `json:"turn"`
-	Write    MemoryWrite `json:"write"`
-	Recorded bool        `json:"recorded"`
-	Sequence int         `json:"sequence,omitempty"`
-	Failure  string      `json:"failure,omitempty"`
+	ID            string      `json:"id"`
+	Turn          int         `json:"turn"`
+	Write         MemoryWrite `json:"write"`
+	Recorded      bool        `json:"recorded"`
+	Sequence      int         `json:"sequence,omitempty"`
+	Failure       string      `json:"failure,omitempty"`
+	budgetRefused bool
 }
 
 // MemoryError reports a memory block the harness could not read. Nothing in it
@@ -300,7 +301,12 @@ func (s *Session) applyMemoryWrite(ctx context.Context, registry action.Registry
 		},
 	}
 	if err := registered.Perform(ctx, write); err != nil {
+		outcome.budgetRefused = errors.Is(err, runstate.ErrMemoryBudget)
 		outcome.Failure = singleLine(err.Error(), maxTrackerFailureBytes)
+		if outcome.budgetRefused {
+			// Keep the memory names and sizes intact so the role can make room.
+			outcome.Failure = singleLine(err.Error(), len(err.Error()))
+		}
 		return
 	}
 	outcome.Recorded = true
