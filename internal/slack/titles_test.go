@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
@@ -103,5 +104,34 @@ func TestEachPostReadsTheCurrentPriorityLabelsAndTitle(t *testing.T) {
 	listing.err = errors.New("bd: database is locked")
 	if got := index.cite(context.Background(), first); got != "title unavailable (yoyodyne-ifd.1)" {
 		t.Fatalf("unreadable tracker = %q, want no stale fields", got)
+	}
+}
+
+func TestRootWorkItemsInNotificationsAreNamedWhenTheTrackerFails(t *testing.T) {
+	t.Parallel()
+	delivery := filedReport(1, report.SeverityWarning, "starting work")
+	delivery.Notification.Topic.ID = "calc-wja"
+	delivery.Notification.Event.Refs.WorkItemID = "calc-wja"
+	delivery.Notification.Event.Kind = notify.KindRunStarted
+	for _, unreadable := range []bool{false, true} {
+		listing := &listedTitles{items: []beads.WorkItem{{ID: "calc-wja", Title: "Root task", Priority: 1, Labels: []string{"reliability"}}}}
+		want := "I've picked up (P1, reliability) Root task (calc-wja) as run-a"
+		if unreadable {
+			listing.err = errors.New("tracker unavailable")
+			want = "I've picked up title unavailable (calc-wja) as run-a"
+		}
+		posts := &recordedPosts{}
+		sink := newTestSink(t, t.TempDir(), &fixedFeed{deliveries: []Delivery{delivery}}, posts)
+		sink.citing = &titleIndex{read: listing.read}
+		if err := sink.pass(t.Context()); err != nil {
+			t.Fatalf("pass() = %v", err)
+		}
+		var all strings.Builder
+		for _, request := range posts.requests {
+			all.WriteString(request.Text)
+		}
+		if !strings.Contains(all.String(), want) {
+			t.Fatalf("posts omit the root citation %q:\n%s", want, all.String())
+		}
 	}
 }

@@ -359,3 +359,38 @@ func TestRefreshingACitationKeepsItsOuterIdentifierWhenFieldsChange(t *testing.T
 		}
 	}
 }
+
+func TestRefreshingACitationPreservesALaterParenthesizedReference(t *testing.T) {
+	t.Parallel()
+	text := "(P1) First task (calc-abc). Compare (calc-def)."
+	titles := NewWorkItemTitles([]beads.WorkItem{
+		{ID: "calc-abc", Title: "Updated first task", Priority: 3},
+		{ID: "calc-def", Title: "Comparison task", Priority: 2},
+	})
+	want := "(P3) Updated first task (calc-abc). Compare ((P2) Comparison task (calc-def))."
+	if got := titles.Cite(text); got != want {
+		t.Fatalf("Cite() = %q, want %q", got, want)
+	}
+	var unreadable *WorkItemTitles
+	want = "title unavailable (calc-abc). Compare (calc-def)."
+	if got := unreadable.Cite(text); got != want {
+		t.Fatalf("unreadable Cite() = %q, want surrounding prose preserved as %q", got, want)
+	}
+}
+
+func TestUnreadableRootWorkItemsAreNamedOnTheStatusLines(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Tracker = statusTracker{fakeTracker{fail: context.DeadlineExceeded}}
+	sources.Runs = fakeRuns{incomplete: []runstate.State{{
+		RunID: "run-root", WorkItemID: "calc-wja", Status: runstate.StatusRunning,
+		Phase: runstate.PhaseDeveloping, StartedAt: moment,
+	}}}
+	standing := ReadStanding(context.Background(), sources)
+	if standing.Titles != nil {
+		t.Fatal("want an unreadable tracker")
+	}
+	if got := standing.RenderLines(); !strings.Contains(got, "  title unavailable (calc-wja) — developing") {
+		t.Fatalf("status leaves its known root item bare:\n%s", got)
+	}
+}

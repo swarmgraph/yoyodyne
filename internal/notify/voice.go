@@ -30,6 +30,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -1458,10 +1459,10 @@ func stated(value, absence string) string {
 // that has not become a tracker item still uses the title its record carries.
 func itemOf(refs Refs, topic Topic, detail Detail) string {
 	if topic.Kind == TopicWorkItem {
-		return topic.ID
+		return readmodel.WorkItemReference(topic.ID)
 	}
 	if refs.WorkItemID != "" {
-		return refs.WorkItemID
+		return readmodel.WorkItemReference(refs.WorkItemID)
 	}
 	if named := strings.TrimSpace(detail.Title); named != "" {
 		return named

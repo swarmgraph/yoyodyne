@@ -22,10 +22,11 @@ const unavailableWorkItem = "title unavailable"
 const untitledWorkItem = "no title recorded"
 
 // Rendered citations end with their own identifier. Titles can contain other
-// parenthesized identifiers, so the final one before the next citation or line
-// break identifies the item, independently of the current tracker fields.
+// parenthesized identifiers, so the final one before a sentence boundary,
+// status separator, next citation, or line break identifies the item.
 var renderedCitationStart = regexp.MustCompile(`\(P[0-4](?:, [^()\n]*)?\) |title unavailable \(`)
 var citationIdentifier = regexp.MustCompile(`\(([A-Za-z0-9][A-Za-z0-9_-]*-[a-z0-9]+(?:\.[0-9]+)*)\)`)
+var citationBoundary = regexp.MustCompile(`^(?:[.!?]\s+[A-Z]|\s+—\s+)`)
 
 func renderedCitations(text string) [][]int {
 	starts := renderedCitationStart.FindAllStringIndex(text, -1)
@@ -43,6 +44,12 @@ func renderedCitations(text string) [][]int {
 			continue
 		}
 		id := ids[len(ids)-1]
+		for _, candidate := range ids {
+			if citationBoundary.MatchString(text[start[0]+candidate[1] : end]) {
+				id = candidate
+				break
+			}
+		}
 		if strings.HasPrefix(text[start[0]:], unavailableWorkItem) {
 			id = ids[0]
 		}
@@ -176,6 +183,16 @@ func (w *WorkItemTitles) Name(id string) string {
 		}
 	}
 	return fmt.Sprintf("(P%d%s) %s (%s)", item.Priority, labels, title, id)
+}
+
+// WorkItemReference preserves a known root reference until the outgoing surface
+// reads the tracker. Dotted identifiers are already unambiguous in prose.
+func WorkItemReference(id string) string {
+	if strings.Contains(id, ".") {
+		return id
+	}
+	var titles *WorkItemTitles
+	return titles.Name(id)
 }
 
 // CitedText carries the prose a card shows beside its raw record. Identifiers

@@ -2019,8 +2019,8 @@ func TestTheStatusLinesSayTheEffortBesideTheModel(t *testing.T) {
 	}
 	rendered := standing.renderRunning() + standing.renderWorking()
 	for _, want := range []string{
-		"  item-a — developing, on opus at medium effort, ",
-		"  item-b — developing, 0s elapsed",
+		"  title unavailable (item-a) — developing, on opus at medium effort, ",
+		"  title unavailable (item-b) — developing, 0s elapsed",
 		"  architect — architect, on fable at high effort, a turn in flight",
 		"  product-manager — product-manager, a turn in flight",
 	} {

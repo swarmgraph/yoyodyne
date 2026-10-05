@@ -178,7 +178,7 @@ func (s Standing) renderRunning() string {
 		listed, further := bound(len(s.Running))
 		for _, run := range s.Running[:listed] {
 			fmt.Fprintf(&rendered, "  %s — %s%s, %s elapsed, %s%s\n",
-				run.WorkItemID, phaseOf(run), atEffort(run.Model, run.Effort), age(run.Elapsed), spendOf(run), slotOf(run))
+				s.Titles.Name(run.WorkItemID), phaseOf(run), atEffort(run.Model, run.Effort), age(run.Elapsed), spendOf(run), slotOf(run))
 		}
 		rendered.WriteString(remainder(further, "developer run"))
 	}
@@ -235,8 +235,14 @@ func (s Standing) renderPaused() string {
 	fmt.Fprintf(&rendered, "Paused, holding no developer slot (%s):\n", count(len(s.PausedRuns), "developer run"))
 	listed, further := bound(len(s.PausedRuns))
 	for _, run := range s.PausedRuns[:listed] {
+		waiting := strings.Split(run.WaitingOn, ", ")
+		for i, id := range waiting {
+			if id != "" {
+				waiting[i] = s.Titles.Name(id)
+			}
+		}
 		fmt.Fprintf(&rendered, "  %s — waiting on unfinished work it depends on: %s, paused %s\n",
-			run.WorkItemID, run.WaitingOn, pausedAgo(s.ObservedAt, run.PausedSince))
+			s.Titles.Name(run.WorkItemID), strings.Join(waiting, ", "), pausedAgo(s.ObservedAt, run.PausedSince))
 	}
 	rendered.WriteString(remainder(further, "developer run"))
 	return rendered.String()
@@ -349,7 +355,7 @@ func (s Standing) renderNotStartable() string {
 	if len(s.NotStartable) > 0 {
 		listed, further := bound(len(s.NotStartable))
 		for _, refused := range s.NotStartable[:listed] {
-			fmt.Fprintf(&rendered, "  %s — %s%s\n", refused.WorkItemID, heldSince(refused.HeldSince, s.ObservedAt), refused.Reason)
+			fmt.Fprintf(&rendered, "  %s — %s%s\n", s.Titles.Name(refused.WorkItemID), heldSince(refused.HeldSince, s.ObservedAt), refused.Reason)
 		}
 		rendered.WriteString(remainder(further, "refused item"))
 	}

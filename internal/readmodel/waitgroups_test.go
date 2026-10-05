@@ -71,7 +71,7 @@ func TestTheNotStartableLineCountsItsWorkByWhatItWaitsOn(t *testing.T) {
 		}
 		at = index
 	}
-	if !strings.Contains(rendered, "  item-decision — its refusal\n") {
+	if !strings.Contains(rendered, "  title unavailable (item-decision) — its refusal\n") {
 		t.Fatalf("the items themselves are no longer listed:\n%s", rendered)
 	}
 
