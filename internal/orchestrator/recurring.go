@@ -846,9 +846,6 @@ func reserveRecurring(ctx context.Context, key string) (func(), bool) {
 	return func() { flights.mu.Lock(); delete(flights.busy, key); flights.mu.Unlock() }, true
 }
 
-// ConcurrentPasses lets the watch keep polling while Fire takes its turns.
-func (t Trigger) ConcurrentPasses() {}
-
 // Fire wakes due conversations concurrently and reports what came of them.
 //
 // The order is the order the guarantees need. The pause is read before anything

@@ -2112,8 +2112,13 @@ pulling:
 		//
 		// A task that went a whole interval unfired is recorded as missed first,
 		// with what kept it, before the firing that resumes it; see missed.
-		s.missed(ctx, &schedule, pull, &cadence)
-		if _, concurrent := pull.Recurring.(interface{ ConcurrentPasses() }); concurrent && s.Watching {
+		// Only the built-in trigger uses the watch's conversation reservations.
+		// An adapter may embed Trigger while replacing Fire; that does not opt its
+		// replacement into background execution.
+		_, triggerValue := pull.Recurring.(Trigger)
+		_, triggerPointer := pull.Recurring.(*Trigger)
+		concurrent := s.Watching && (triggerValue || triggerPointer)
+		if concurrent {
 			for {
 				select {
 				case done := <-recurringDone:
@@ -2122,7 +2127,10 @@ pulling:
 					goto recurringCollected
 				}
 			}
-		recurringCollected:
+		}
+	recurringCollected:
+		s.missed(ctx, &schedule, pull, &cadence)
+		if concurrent {
 			recurringRunning++
 			firingContext := session.passing(recurringContext)
 			go func() {
@@ -4203,12 +4211,10 @@ func (s Scheduler) nextFiring(ctx context.Context, pull Pull) (time.Duration, bo
 // missed records every task that has gone a whole interval past the time it
 // fell due without firing, once per gap, with what kept it.
 //
-// A whole interval is the threshold because anything shorter is the ordinary
-// shape of a cadence: a pass fires one task, so a second task due alongside it
-// waits for the next pass, and a firing's turns hold the pass for as long as
-// they take. A task that has gone a whole interval unfired is a firing that
-// should have happened and did not, which is the thing the operator's own
-// maintenance job found on 2026-09-14 and the harness never said.
+// A whole interval is the threshold because ordinary polling can take a due
+// task a little past its cadence. Different conversations can run together;
+// established waits from older serial sessions are counted separately from
+// time a pass could have run.
 //
 // What kept it comes from OS sleep history, scheduler presence and the other
 // passes recorded during the gap, alongside current holds this session found.
