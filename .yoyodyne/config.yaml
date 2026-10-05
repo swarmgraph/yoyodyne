@@ -156,6 +156,10 @@ execution:
   # Two concurrent runs of the heaviest check here ("make race") finish in about
   # eighty seconds on a sixteen-core machine, so this is generous on purpose.
   check_timeout: 30m
+  # Stopgap pending the heavyweight-check capacity design (yoyodyne-ifd.429.43):
+  # changes touching many packages need more than 30 minutes for tests and race
+  # tests to finish together. Keep every check and gate in place.
+  check_stage_timeout: 60m
 
 # Conservative by default: integration and publishing are opted in to
 # separately. Automatic integration is refused unless it is actually gated by
