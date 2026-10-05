@@ -56,7 +56,7 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 	// developer names it, and the pipeline the run validates before it claims
 	// anything has to accept that.
 	pipeline.Config.Agents["developer"] = config.AgentConfig{
-		Role: domain.RoleDeveloper, Backend: domain.BackendCodex, Model: testDeveloperModel, Instances: 1,
+		Role: domain.RoleDeveloper, Backend: domain.BackendCodex, Model: "gpt-6.1-sol", Instances: 1,
 	}
 	// The real adapter over a CLI that is not there. What is under test is how the
 	// invocation is launched, so this double's answers are the least interesting
@@ -91,6 +91,9 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 	// requires — able to edit the worktree — and in the run's own worktree, which
 	// is what makes `workspace-write` a bound rather than a permission.
 	developer := cli.developerInvocation(t)
+	if !strings.Contains(strings.Join(developer.Args, "\n"), "--config\nmodel_reasoning_effort=\"low\"") {
+		t.Errorf("the developer invocation lacks explicit default effort: %v", developer.Args)
+	}
 	if got := codexSandboxOf(t, developer.Args); got != codexDeveloperSandbox {
 		t.Errorf("the developer ran under sandbox %q, want %q", got, codexDeveloperSandbox)
 	}
@@ -111,7 +114,7 @@ func TestARunNamesTheBackendWhoseCLIIsMissing(t *testing.T) {
 	pipeline, _ := newAutomaticPipeline(t, repository, tracker,
 		orchestratortest.RoleBackend(func(backend.RunRequest) error { return nil }, approveVerdict), []string{"exit 0"})
 	pipeline.Config.Agents["developer"] = config.AgentConfig{
-		Role: domain.RoleDeveloper, Backend: domain.BackendCodex, Model: testDeveloperModel, Instances: 1,
+		Role: domain.RoleDeveloper, Backend: domain.BackendCodex, Model: "gpt-6.1-sol", Instances: 1,
 	}
 	pipeline.Backend = codex.Backend{Runner: &scriptedCodexCLI{absent: true}}
 

@@ -101,5 +101,5 @@ agents:
   developer:
     role: developer
     backend: codex
-    model: gpt-5
+    model: gpt-6.1-sol
 `
