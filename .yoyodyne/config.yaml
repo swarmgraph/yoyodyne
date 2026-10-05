@@ -341,6 +341,7 @@ agents:
     role: architect
     backend: codex
     model: gpt-6-astra
+    effort: high
     failover:
       enabled: true
       model: fable
@@ -353,6 +354,7 @@ agents:
     role: developer
     backend: codex
     model: gpt-6.1-sol
+    effort: high
     # One instance per configured developer slot.
     instances: 4
     persona:
@@ -390,6 +392,7 @@ agents:
     role: development-manager
     backend: codex
     model: gpt-6-astra
+    effort: medium
     failover:
       enabled: true
       model: fable
@@ -415,6 +418,7 @@ agents:
     role: reviewer
     backend: codex
     model: gpt-6.1-sol
+    effort: high
     # Raised 1->2 alongside max_concurrent_developers: 3 so reviews don't
     # queue behind one instance when the slots fill (operator, 2026-09-04).
     instances: 2
