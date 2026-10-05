@@ -43,14 +43,7 @@ func TestSchedulerKeepsTheReasonOnEarlierReadyWork(t *testing.T) {
 		t.Fatal("notes changed")
 	}
 	h.mu.Unlock()
-	if _, err := (Scheduler{Open: h.open, Limit: 1}).Schedule(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.items[0].SchedulingWait != nil {
-		t.Fatalf("started item still waits: %+v", h.items[0].SchedulingWait)
-	}
+
 }
 
 func TestDecidedRepairLeftUnstartedKeepsItsCurrentReason(t *testing.T) {
@@ -64,12 +57,13 @@ func TestDecidedRepairLeftUnstartedKeepsItsCurrentReason(t *testing.T) {
 	if task.Decision != runstate.TriageDecisionRepair {
 		t.Fatalf("decision = %s", task.Decision)
 	}
-	why := "Later reliability work (yoyodyne-later) took the available developer slot"
+	notes.AlsoHolds = map[string]beads.WorkItem{"yoyodyne-later": {ID: "yoyodyne-later", Title: "Later reliability work"}}
+	why := (outrankedCarryOut{priority: 2, ahead: []string{"yoyodyne-later"}}).reason()
 	_, err := carrying.RecordUnattempted(context.Background(), time.Minute, map[string]string{task.RunID: why})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if notes.Item.SchedulingWait == nil || notes.Item.SchedulingWait.Reason != why {
+	if notes.Item.SchedulingWait == nil || !strings.Contains(notes.Item.SchedulingWait.Reason, "Later reliability work (yoyodyne-later)") {
 		t.Fatalf("wait = %+v", notes.Item.SchedulingWait)
 	}
 	first := notes.Item.SchedulingWait.FirstPassedOver
@@ -83,5 +77,14 @@ func TestDecidedRepairLeftUnstartedKeepsItsCurrentReason(t *testing.T) {
 	}
 	if notes.Item.Notes != "Existing notes" {
 		t.Fatal("notes changed")
+	}
+}
+
+func TestSchedulingWaitNamesAreExpandedOnceWithoutChangingRunIdentifiers(t *testing.T) {
+	items := map[string]beads.WorkItem{"yoyodyne-task": {ID: "yoyodyne-task", Title: "Earlier work"}}
+	reason := "run-yoyodyne-task holds yoyodyne-task"
+	want := "run-yoyodyne-task holds Earlier work (yoyodyne-task)"
+	if got := schedulingWaitReason(reason, items); got != want || schedulingWaitReason(got, items) != want {
+		t.Fatalf("reason = %q", got)
 	}
 }

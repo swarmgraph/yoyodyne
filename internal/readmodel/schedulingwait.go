@@ -22,3 +22,23 @@ func waitingWorkRef(entry backlog.Entry) WorkItemRef {
 	}
 	return ref
 }
+
+func schedulingWaitProlonged(wait *beads.SchedulingWait, now time.Time, after time.Duration) bool {
+	if after == 0 {
+		after = time.Hour
+	}
+	return wait != nil && wait.Valid() && now.Sub(wait.ReasonSince) >= after
+}
+
+func markSchedulingWait(ref *WorkItemRef, now time.Time, after time.Duration) {
+	ref.SchedulingWaitProlonged = schedulingWaitProlonged(ref.SchedulingWait, now, after)
+	if ref.SchedulingWaitProlonged {
+		ref.WaitReason = "same scheduling reason has stood beyond the configured time; " + ref.WaitReason
+	}
+}
+
+func waitingWorkReason(entry backlog.Entry, now time.Time, after time.Duration) string {
+	ref := waitingWorkRef(entry)
+	markSchedulingWait(&ref, now, after)
+	return ref.WaitReason
+}

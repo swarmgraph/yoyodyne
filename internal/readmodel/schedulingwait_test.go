@@ -26,3 +26,22 @@ func TestSharedStandingCarriesTheSchedulersCurrentReason(t *testing.T) {
 		t.Fatalf("dashboard reading = %s, %v", encoded, err)
 	}
 }
+
+func TestSchedulingWaitProlongedUsesTheCurrentReasonAndConfiguredTime(t *testing.T) {
+	wait := &beads.SchedulingWait{Reason: "waiting behind Later work (yoyodyne-later)", FirstPassedOver: moment.Add(-4 * time.Hour), ReasonSince: moment.Add(-90 * time.Minute)}
+	item := beads.WorkItem{ID: "yoyodyne-earlier", Title: "Earlier work", Status: "open", SchedulingWait: wait}
+	tracker := statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{"open": {item}}, ready: []beads.WorkItem{item}}}
+	for _, test := range []struct {
+		after time.Duration
+		want  bool
+	}{{0, true}, {2 * time.Hour, false}, {time.Hour, true}} {
+		standing := ReadStanding(context.Background(), Sources{Tracker: tracker, Runs: fakeRuns{}, SchedulingWaitProblemAfter: test.after, Now: func() time.Time { return moment }})
+		if got := standing.SchedulingWaits[0].SchedulingWaitProlonged; got != test.want {
+			t.Fatalf("after %s: prolonged = %t", test.after, got)
+		}
+	}
+	wait.ReasonSince = moment.Add(-time.Minute)
+	if schedulingWaitProlonged(wait, moment, time.Hour) {
+		t.Fatal("a changed reason retained the age of the earlier reason")
+	}
+}

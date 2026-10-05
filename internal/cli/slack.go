@@ -474,15 +474,16 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		// And whether the provider is answering anybody at all, which the lines
 		// carry as their banner and the feed says once when it begins and once
 		// when it ends.
-		ProviderOutages:   outages,
-		DivergedTargets:   divergences,
-		Supervision:       supervision,
-		Agents:            agentEndpoints(resolved.Config),
-		UnknownResetPause: resolved.Config.Execution.UsageLimitUnknownResetPause.Duration(),
-		FactoryStallAfter: resolved.Config.Execution.FactoryStallAfter.Duration(),
-		Capacity:          resolved.Config.Execution.MaxConcurrentDevelopers,
-		Slots:             resolved.Config.Execution.DeveloperSlots,
-		TrackerTimeout:    chatTrackerTimeout,
+		ProviderOutages:            outages,
+		DivergedTargets:            divergences,
+		Supervision:                supervision,
+		Agents:                     agentEndpoints(resolved.Config),
+		UnknownResetPause:          resolved.Config.Execution.UsageLimitUnknownResetPause.Duration(),
+		FactoryStallAfter:          resolved.Config.Execution.FactoryStallAfter.Duration(),
+		Capacity:                   resolved.Config.Execution.MaxConcurrentDevelopers,
+		Slots:                      resolved.Config.Execution.DeveloperSlots,
+		SchedulingWaitProblemAfter: resolved.Config.Execution.SchedulingWaitProblemAfter.Duration(),
+		TrackerTimeout:             chatTrackerTimeout,
 	}
 	// The program manager instances, so the hourly line counts the stale ones
 	// from the derivation `yoyo status` prints them from.

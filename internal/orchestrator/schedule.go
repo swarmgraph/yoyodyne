@@ -2726,7 +2726,6 @@ pulling:
 		started := 0
 		startedNow := make(map[string]bool)
 		start := func(entry backlog.Entry, slot developerslot.Slot, into pulledInto) bool {
-			clearSchedulingWait(ctx, pull.Tracker, entry.ID, s.now(), &schedule)
 			delete(deferred, entry.ID)
 			// The exclusion is made as the start is, and says what it is for from the
 			// first poll that meets it. A start in flight is the one state here nobody

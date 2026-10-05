@@ -1648,8 +1648,12 @@ func TestARepairContinuationLandsTheChangeTheStoppedRunAlreadyHad(t *testing.T) 
 	if err != nil {
 		t.Fatalf("runstate.NewIntakeHoldStore() error = %v", err)
 	}
+	tracker.Item.SchedulingWait = &beads.SchedulingWait{Reason: "waiting for a repair slot", FirstPassedOver: time.Now(), ReasonSince: time.Now().Add(time.Second)}
 	// The continued attempt answers the findings; the reviewer then approves.
 	continuing := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		if tracker.Item.SchedulingWait != nil {
+			t.Fatal("accepted repair still carries a scheduling wait during execution")
+		}
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
 	}, approveVerdict)
 	// The development manager's decision, recorded exactly as the conversation

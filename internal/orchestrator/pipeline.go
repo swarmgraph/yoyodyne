@@ -1473,6 +1473,9 @@ func (a *activeRun) claim(ctx context.Context) error {
 	if err := validateClaimedItem(item, a.state.WorkItemID); err != nil {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
+	if err := acceptSchedulingWait(ctx, a.pipeline.Tracker, a.state.WorkItemID, a.pipeline.clock().Now()); err != nil {
+		return fmt.Errorf("clear accepted item's scheduling wait: %w", err)
+	}
 	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
@@ -1886,6 +1889,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			ReportProblem:    state.ReportProblem,
 			AmendmentProblem: state.AmendmentProblem,
 		},
+	}
+	if err := acceptSchedulingWait(ctx, p.Tracker, state.WorkItemID, p.clock().Now()); err != nil {
+		return Outcome{}, fmt.Errorf("clear accepted item's scheduling wait: %w", err)
 	}
 	// A run resumed at its promotion carries the verdict that authorized it into
 	// the outcome it reports, because the steps past this point read the outcome:

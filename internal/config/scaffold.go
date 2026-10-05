@@ -311,6 +311,8 @@ execution:
   # itself: one run under the hold, whose landing reopens intake and whose
   # blocking keeps it held and asks her again. A hold she escalates to you
   # waits on a person; so does one the harness escalates itself, below.
+  # Report an unchanged scheduling reason as prolonged after this time.
+  scheduling_wait_problem_after: %s
   brake_cooldown: %s
   # How many of those summons-and-probe cycles the harness goes round before it
   # escalates the hold to you itself -- one direct message naming the cycles
@@ -427,6 +429,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.MissingReportLimit(),
 		effective.Execution.BlockedRunsBeforeIntakeHold,
+		renderScaffoldDuration(effective.Execution.SchedulingWaitProblemAfter),
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),
 		effective.Execution.BrakeEscalationCycles,
 		effective.Execution.DeclarativeDelivery,

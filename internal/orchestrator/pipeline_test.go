@@ -72,6 +72,7 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		AcceptanceCriteria: "feature.txt exists",
 		Status:             "open",
 	}}
+	tracker.Item.SchedulingWait = &beads.SchedulingWait{Reason: "waiting for work", FirstPassedOver: time.Now(), ReasonSince: time.Now().Add(time.Second)}
 	tracker.OnClaim = func() error {
 		if err := os.MkdirAll(filepath.Join(repository, ".beads"), 0o700); err != nil {
 			return err
@@ -79,6 +80,9 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		return os.WriteFile(filepath.Join(repository, ".beads", "issues.jsonl"), []byte("claim control state\n"), 0o600)
 	}
 	provider := &orchestratortest.Backend{Respond: func(request backend.RunRequest) (backend.RunResult, error) {
+		if tracker.Item.SchedulingWait != nil {
+			t.Fatal("accepted fresh run still carries a scheduling wait during execution")
+		}
 		if !strings.Contains(request.Prompt, "design content") {
 			return backend.RunResult{}, errors.New("prompt did not contain referenced design")
 		}
@@ -844,6 +848,8 @@ func TestPipelineEnforcesConfiguredDeveloperCapacityBeforeClaim(t *testing.T) {
 	provider := &orchestratortest.Backend{ReportedAvailability: backend.Availability{Installed: true, Authenticated: true}}
 	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
 	now := time.Now().UTC()
+	wait := &beads.SchedulingWait{Reason: "waiting for a slot", FirstPassedOver: now, ReasonSince: now}
+	tracker.Item.SchedulingWait = wait
 	active := runstate.State{
 		SchemaVersion: runstate.StateSchemaVersion,
 		RunID:         "run-fedcba9876543210fedcba9876543210",
@@ -861,6 +867,9 @@ func TestPipelineEnforcesConfiguredDeveloperCapacityBeforeClaim(t *testing.T) {
 
 	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err == nil || !strings.Contains(err.Error(), "developer capacity is full") {
 		t.Fatalf("Run() capacity error = %v", err)
+	}
+	if tracker.Item.SchedulingWait != wait {
+		t.Fatal("refused dispatch cleared the scheduling wait")
 	}
 	if tracker.Claimed {
 		t.Fatal("capacity-limited run claimed work")

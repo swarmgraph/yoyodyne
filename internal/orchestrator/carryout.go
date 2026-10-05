@@ -558,7 +558,7 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 		task := held.task
 		if task.Decision == "repair" || task.Decision == "rerun" {
 			if recorder, ok := c.Notes.(schedulingWaitRecorder); ok {
-				if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, held.why, now); err != nil {
+				if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, carryOutWaitReason(ctx, c.Notes, held.why), now); err != nil {
 					problems = append(problems, err)
 				}
 			}
@@ -960,11 +960,6 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		carried.Cause = carryOutCause(runErr)
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
-	if recorder, ok := c.Notes.(schedulingWaitRecorder); ok {
-		if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, "", c.now()); err != nil {
-			result.RecordProblem = joinProblem(result.RecordProblem, fmt.Sprintf("clear the scheduling wait: %v", err))
-		}
-	}
 	carried.Carried = true
 	carried.Reason = result.Reason
 	carried.RecordProblem = result.RecordProblem
@@ -1000,11 +995,6 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 		gate, clears := carryOutGate(runErr)
 		carried.Cause = carryOutCause(runErr)
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
-	}
-	if recorder, ok := c.Notes.(schedulingWaitRecorder); ok {
-		if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, "", c.now()); err != nil {
-			result.RecordProblem = joinProblem(result.RecordProblem, fmt.Sprintf("clear the scheduling wait: %v", err))
-		}
 	}
 	carried.Carried = true
 	carried.Reason = result.Reason
@@ -1321,7 +1311,7 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 			task.RunID, held, gate, strings.TrimSpace(refusal), strings.TrimSpace(clears))
 	}
 	if recorder, ok := c.Notes.(schedulingWaitRecorder); ok {
-		if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, carried.Problem, c.now()); err != nil {
+		if _, err := recorder.RecordSchedulingWait(ctx, task.WorkItemID, carryOutWaitReason(ctx, c.Notes, carried.Problem), c.now()); err != nil {
 			carried.RecordProblem = fmt.Sprintf("record the scheduling wait: %v", err)
 		}
 	}

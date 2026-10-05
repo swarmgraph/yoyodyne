@@ -239,6 +239,9 @@ the part is doing:
   starts fails for one that does not — so the dashboard cannot be adopted
   without a deploy reaching it.
 
+
+
+
 A part somebody started by hand, and the supervisor took back, is moved exactly
 as one the supervisor started. Every move is recorded as a restart and not as
 a death — the part's `restarts` and `restarted_at` in the record, apart from
@@ -4459,6 +4462,24 @@ present, and each says under `runs_problem` or `conversations_problem` when
 its records could not be read rather than reporting an empty list. It is not
 printed as a fifth line: it is the read model's capacity query, carried for the
 capacity panel and for scripts.
+
+## Reading why the scheduler has not started an item
+
+When a scheduling pass starts later work ahead of ready work, or leaves a decided
+repair or re-run unstarted, read its current reason in `yoyo status` or the
+dashboard's waiting-work list. The shared reading names what holds it back,
+when it was first passed over, and when its current reason began. The tracker
+holds this as mutable `yoyodyne_scheduling_wait` metadata, separate from the
+item's append-only notes. A changed reason replaces that value; confirmed run
+acceptance clears it before execution, while a refused dispatch leaves it intact.
+
+`execution.scheduling_wait_problem_after` sets how long the same reason may
+stand before the shared reading marks it as prolonged; its default is `1h`.
+This setting changes reporting only. Owned problem entries are not yet supplied:
+they require the shared ownership resolver's prolonged-conflict-wait answer,
+including the mover and next step. This change does not assign a separate owner
+or route the wait to the operator. That remaining display is waiting for
+One ownership registry and resolver (yoyodyne-ifd.432.25.1).
 
 ## When nothing happened at all
 

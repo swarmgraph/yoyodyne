@@ -336,7 +336,8 @@ type Sources struct {
 	// read off the same derivation the scheduler fills the free slots from. Empty
 	// is every slot preferring nothing, and the line then reads exactly as it did
 	// before slots could prefer anything.
-	Slots []domain.DeveloperSlot
+	SchedulingWaitProblemAfter time.Duration
+	Slots                      []domain.DeveloperSlot
 	// FactoryStallAfter is execution.factory_stall_after as the caller read it:
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
@@ -491,10 +492,11 @@ type Refused struct {
 // lists a grouping of the queue rather than counting it. It carries no more than
 // that: what an item is in full is ReadWorkItem's answer, one item at a time.
 type WorkItemRef struct {
-	SchedulingWait *beads.SchedulingWait `json:"scheduling_wait,omitempty"`
-	WaitReason     string                `json:"wait_reason,omitempty"`
-	WorkItemID     string                `json:"work_item_id"`
-	Title          string                `json:"title,omitempty"`
+	SchedulingWaitProlonged bool                  `json:"scheduling_wait_prolonged,omitempty"`
+	SchedulingWait          *beads.SchedulingWait `json:"scheduling_wait,omitempty"`
+	WaitReason              string                `json:"wait_reason,omitempty"`
+	WorkItemID              string                `json:"work_item_id"`
+	Title                   string                `json:"title,omitempty"`
 }
 
 // Standing is where the harness stands, in the four lines and nothing else.
@@ -758,6 +760,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Startable = len(waits.startable)
 	standing.StartableItems = waits.startable
 	standing.AdmittedItems = waits.admitted
+	for i := range standing.AdmittedItems {
+		ref := &standing.AdmittedItems[i]
+		markSchedulingWait(ref, now, sources.SchedulingWaitProblemAfter)
+	}
+	for i := range standing.StartableItems {
+		ref := &standing.StartableItems[i]
+		markSchedulingWait(ref, now, sources.SchedulingWaitProblemAfter)
+	}
 	standing.SchedulingWaits = []WorkItemRef{}
 	alreadyListed := make(map[string]bool)
 	for _, run := range standing.Running {
@@ -1463,7 +1473,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	for i := range refused {
 		for _, entry := range queue.Entries {
 			if entry.ID == refused[i].WorkItemID && entry.SchedulingWait != nil {
-				refused[i].Reason += "; " + SchedulingWaitSays(*entry.SchedulingWait)
+				refused[i].Reason += "; " + waitingWorkReason(entry, now, sources.SchedulingWaitProblemAfter)
 			}
 		}
 	}
