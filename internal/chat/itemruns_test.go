@@ -17,9 +17,9 @@ import (
 // was written early and the notes kept growing past it, so the read — which
 // keeps the end of the notes and cuts the front — cut the one line a decision
 // needed, and the development manager could not find the run to decide about.
-// The runs now come from the harness's records, in a section of their own after
-// the item, so the run the hold is about is in the read however long the notes
-// have grown.
+// Reads now preserve the latest stop as an excerpt. The runs still come from
+// the harness's records in a separate section, with their status, times, and
+// preservation evidence, however long the notes have grown.
 func TestAnItemReadCarriesTheRunItsHoldIsAboutWhenTheNotesAreCut(t *testing.T) {
 	t.Parallel()
 
@@ -35,9 +35,17 @@ func TestAnItemReadCarriesTheRunItsHoldIsAboutWhenTheNotesAreCut(t *testing.T) {
 	}
 	item := beads.WorkItem{ID: itemID, Title: "A stopped item", Status: "blocked", Priority: 1, IssueType: "task", Notes: notes.String()}
 
-	// The premise: the item's own rendering has cut the note that names the run.
-	if strings.Contains(renderWorkItemEvidence(item, recordedGoals(recordedGoal)), stoppedRun) {
-		t.Fatal("the notes were not cut past the run's note, so this test would prove nothing")
+	// The continuous notes view still cuts past the run's note, while the latest
+	// stop is preserved separately. Neither the cut nor that excerpt replaces
+	// the durable run list checked below.
+	if strings.Contains(boundTextTail(item.Notes, maxTrackerItemBytes), stoppedRun) {
+		t.Fatal("the continuous notes view did not cut past the run's note")
+	}
+	rendered := renderWorkItemEvidence(item, recordedGoals(recordedGoal))
+	for _, want := range []string{stoppedRun, "Stop and decision excerpts from the cut notes", "Older notes have no recorded append boundaries", "are cut; treat them as unread rather than absent"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("the item rendering does not carry %q:\n%s", want, rendered)
+		}
 	}
 
 	work := &fakeWork{price: ItemPrice{Runs: []RunPrice{

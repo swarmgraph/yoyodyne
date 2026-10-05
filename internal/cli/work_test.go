@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
@@ -280,7 +281,7 @@ func TestDirectRecordsOperatorDirectionWithoutChangingStatus(t *testing.T) {
 		t.Fatalf("tracker commands = %#v", runner.commands)
 	}
 	args := runner.commands[0].Args
-	if !contains(args, "--append-notes=prefer the smaller change") {
+	if !contains(args, "--append-notes="+beads.FrameNote("prefer the smaller change")) {
 		t.Fatalf("direction was not appended to the item's notes: %#v", args)
 	}
 	// Direction says what to do differently. Deciding the item is done, blocked,

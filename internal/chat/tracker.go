@@ -68,9 +68,9 @@ const MaxTrackerBlockBytes = 32 << 10
 // into the next turn instead of into another one now.
 const maxTrackerRounds = 4
 
-// maxTrackerItemBytes bounds one work item carried back to the product manager.
-// Detail is fetched on demand precisely so it costs context only where judgement
-// needs it, and an item that outgrows this is cut with the cut declared.
+// maxTrackerItemBytes bounds the standing text and continuous notes carried back
+// for one item. The latest stop and decisions cut from that view are quoted
+// separately, so output cannot displace the records a role has to decide from.
 const maxTrackerItemBytes = 8 << 10
 
 // minTrackerNotesBytes is what an item's notes are guaranteed of that budget,
@@ -1718,8 +1718,8 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		outcome.WorkItemID = item.ID
 		outcome.recordTarget(item)
-		// The runs go after the item and outside its bound, because the bound cuts
-		// the front of the notes and the run a stoppage is about is named there.
+		// The runs go after the item and outside its bound. They come from the
+		// harness's records, independently of the extracts of the item's notes.
 		outcome.Detail = renderWorkItemEvidence(item, s.options.Goals) + s.renderItemRuns(ctx, item.ID)
 		outcome.applied("read %s: %s", item.ID, singleLine(item.Title, maxSurveyTitleBytes))
 	case actionSurvey:
@@ -1988,8 +1988,18 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// writes a work item's priority. Everything else reads it, which is what
 		// makes "the product manager owns the order" a property of the code rather
 		// than only of the contract the product manager is given.
+		// The old priority must come from the live read, so a read that could not
+		// answer refuses this write rather than recording an invented history.
+		if outcome.target == nil {
+			outcome.fail(fmt.Errorf("cannot reprioritize %s without reading its old priority: %s", id, outcome.TargetUnread))
+			return
+		}
 		priority := *action.Priority
-		if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{Priority: &priority}); err != nil {
+		change := beads.WorkItemChange{
+			Priority:    &priority,
+			AppendNotes: s.trackerProvenance(fmt.Sprintf("Reprioritized from priority %d to %d", outcome.target.Priority, priority), action.Reason),
+		}
+		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
 			return
 		}
@@ -2720,8 +2730,8 @@ func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
 		}
 		fmt.Fprintf(&rendered, "\n%s:\n%s\n", section.label, strings.TrimSpace(section.text))
 	}
-	notes := strings.TrimSpace(item.Notes)
-	if notes == "" {
+	notes := item.Notes
+	if strings.TrimSpace(notes) == "" {
 		return boundText(rendered.String(), maxTrackerItemBytes)
 	}
 	// The notes are rendered last and cut from the front, and everything else about
@@ -2738,7 +2748,7 @@ func renderWorkItemEvidence(item beads.WorkItem, goals goal.Set) string {
 	if budget < minTrackerNotesBytes {
 		budget = minTrackerNotesBytes
 	}
-	return head + fmt.Sprintf("\nnotes:\n%s\n", boundTextTail(notes, budget))
+	return head + fmt.Sprintf("\nnotes:\n%s\n", renderTrackerNotes(notes, budget))
 }
 
 // describeAttribution says in one line what an item's goal amounts to. The five

@@ -55,7 +55,7 @@ func TestClientWorkItemLifecycle(t *testing.T) {
 	wantArgs := [][]string{
 		{"show", "yoyodyne-1", "--json"},
 		{"update", "yoyodyne-1", "--claim", "--json"},
-		{"update", "yoyodyne-1", "--append-notes=checks passed", "--json"},
+		{"update", "yoyodyne-1", "--append-notes=" + FrameNote("checks passed"), "--json"},
 		{"dep", "add", "yoyodyne-1", "yoyodyne-blocker", "--json"},
 		{"close", "yoyodyne-1", "--reason=done", "--json"},
 	}
@@ -76,7 +76,7 @@ func TestClientBlocksAnItemAndVerifiesTheStatusItApplied(t *testing.T) {
 	if item.Status != "blocked" || item.Notes != "unresolved review findings" {
 		t.Fatalf("Block() = %#v", item)
 	}
-	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=blocked", "--append-notes=unresolved review findings", "--json"}}
+	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=blocked", "--append-notes=" + FrameNote("unresolved review findings"), "--json"}}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("bd args = %#v, want %#v", runner.args, wantArgs)
 	}
@@ -107,7 +107,7 @@ func TestClientClearsABlockedStatusAndVerifiesTheStatusItApplied(t *testing.T) {
 	if item.Status != "open" || item.Notes != note {
 		t.Fatalf("Unblock() = %#v", item)
 	}
-	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=" + note, "--json"}}
+	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=" + FrameNote(note), "--json"}}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("bd args = %#v, want %#v", runner.args, wantArgs)
 	}
@@ -147,7 +147,7 @@ func TestClientReopensAnItemAndVerifiesTheStatusAndParkingItApplied(t *testing.T
 	// The parking travels in the same invocation as the status. Between two of
 	// them the item is open and unparked, which is exactly when a watch session
 	// polling the queue pulls it.
-	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=" + reason,
+	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=" + FrameNote(reason),
 		"--set-metadata=yoyodyne_parked=" + string(parking), "--json"}}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("bd args = %#v, want %#v", runner.args, wantArgs)
@@ -211,7 +211,7 @@ func TestClientReleasesAClaimAndVerifiesTheStatusItApplied(t *testing.T) {
 	if item.Status != "open" || item.Notes != "the harness gave this item back" {
 		t.Fatalf("Release() = %#v, want the item back in the queue", item)
 	}
-	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=the harness gave this item back", "--json"}}
+	wantArgs := [][]string{{"update", "yoyodyne-1", "--status=open", "--append-notes=" + FrameNote("the harness gave this item back"), "--json"}}
 	if !reflect.DeepEqual(runner.args, wantArgs) {
 		t.Fatalf("bd args = %#v, want %#v", runner.args, wantArgs)
 	}
@@ -266,7 +266,7 @@ func TestClientAppliesOnlyTheEditItWasGiven(t *testing.T) {
 	}
 
 	wantArgs := [][]string{
-		{"update", "yoyodyne-1", "--title=Readable conversations", "--description=Say who is speaking.", "--append-notes=Renamed by the product manager.", "--json"},
+		{"update", "yoyodyne-1", "--title=Readable conversations", "--description=Say who is speaking.", "--append-notes=" + FrameNote("Renamed by the product manager."), "--json"},
 		{"update", "yoyodyne-1", "--priority=0", "--parent=yoyodyne-ifd.12", "--json"},
 		{"update", "yoyodyne-1", "--parent=", "--json"},
 		{"dep", "remove", "yoyodyne-1", "yoyodyne-blocker", "--json"},
@@ -1406,7 +1406,7 @@ func TestClientRefusesANoteItCannotFindOnTheItem(t *testing.T) {
 	// It asked the tracker again before concluding anything: the update's own
 	// answer is not the only thing a loss is judged on.
 	wantArgs := [][]string{
-		{"update", "yoyodyne-1", "--append-notes=" + note, "--json"},
+		{"update", "yoyodyne-1", "--append-notes=" + FrameNote(note), "--json"},
 		{"show", "yoyodyne-1", "--json"},
 	}
 	if !reflect.DeepEqual(lost.args, wantArgs) {
