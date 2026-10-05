@@ -3,6 +3,7 @@ package orchestratortest
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -222,4 +223,19 @@ func (f *Tracker) SetItemStatus(status string) {
 // leaves.
 func (f *Tracker) ForgetSettlement() {
 	f.Blocked, f.BlockReason, f.Closed = false, "", false
+}
+
+// RecordSchedulingWait mirrors the mutable metadata without changing notes.
+func (f *Tracker) RecordSchedulingWait(ctx context.Context, id, reason string, at time.Time) (beads.WorkItem, error) {
+	item, err := f.Show(ctx, id)
+	if err != nil {
+		return beads.WorkItem{}, err
+	}
+	item.SchedulingWait, _ = beads.NextSchedulingWait(item.SchedulingWait, reason, at)
+	if id == f.Item.ID {
+		f.Item = item
+	} else {
+		f.AlsoHolds[id] = item
+	}
+	return item, nil
 }

@@ -1395,7 +1395,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// with each sibling's first reason named a run that had failed two days
 	// earlier as what they were all still waiting on, and was read as the guard
 	// holding a developer slot on a dead run.
+	var waitTracker ScheduleTracker
 	passOver := func(workItemID, reason string) {
+		if recorder, ok := waitTracker.(schedulingWaitRecorder); ok {
+			if _, err := recorder.RecordSchedulingWait(ctx, workItemID, reason, s.now()); err != nil {
+				schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
+			}
+		}
 		if index, named := deferred[workItemID]; named {
 			schedule.Deferred[index].Reason = reason
 			return
@@ -2643,6 +2649,7 @@ pulling:
 		// because it needs the queue — it reads the entries' executors — and
 		// because the entries it closes must not then be passed over on this same
 		// pull as work still waiting on somebody opening a conversation.
+		waitTracker = pull.Tracker
 		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries)
 		schedule.Admitted = len(queue.Entries)
 		schedule.Pullable = queue.Ready()
@@ -2717,6 +2724,7 @@ pulling:
 		started := 0
 		startedNow := make(map[string]bool)
 		start := func(entry backlog.Entry, slot developerslot.Slot, into pulledInto) bool {
+			clearSchedulingWait(ctx, pull.Tracker, entry.ID, s.now(), &schedule)
 			delete(deferred, entry.ID)
 			// The exclusion is made as the start is, and says what it is for from the
 			// first poll that meets it. A start in flight is the one state here nobody
@@ -2837,7 +2845,7 @@ pulling:
 				// reports the last of them rather than the first.
 				if racing, races := flight.against(read.items[entry.ID]); races {
 					racedNow[entry.ID] = true
-					passOver(entry.ID, racing.reason())
+					passOver(entry.ID, schedulingWaitReason(racing.reason(), read.items))
 					sequencedEarlier[entry.ID] = racing
 					sequenced = append(sequenced, entry.ID)
 					poll.pass(entry.ID, runstate.PassedOverSequencedBehindWork, "")
@@ -2919,12 +2927,12 @@ pulling:
 			}
 			if racing, races := flight.against(read.items[past.entry.ID]); races {
 				racedNow[past.entry.ID] = true
-				passOver(past.entry.ID, racing.reason())
+				passOver(past.entry.ID, schedulingWaitReason(racing.reason(), read.items))
 				sequencedEarlier[past.entry.ID] = racing
 				poll.pass(past.entry.ID, runstate.PassedOverSequencedBehindWork, "")
 				continue
 			}
-			passOver(past.entry.ID, leftForAnotherSlotReason(past.slot, past.took))
+			passOver(past.entry.ID, schedulingWaitReason(leftForAnotherSlotReason(past.slot, past.took), read.items))
 			poll.pass(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, "")
 		}
 		// A decision the walk never reached a slot for is written onto its item as

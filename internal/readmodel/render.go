@@ -327,7 +327,7 @@ func (s Standing) renderWaitingTurns() string {
 // step and whose it is, then one sentence on whether any of it is the
 // operator's, and then the items themselves.
 func (s Standing) renderNotStartable() string {
-	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 && s.WaitingForSlot == nil {
+	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 && s.WaitingForSlot == nil && len(s.SchedulingWaits) == 0 {
 		return unreadable("Not startable", s.NotStartableProblem)
 	}
 	var rendered strings.Builder
@@ -353,6 +353,11 @@ func (s Standing) renderNotStartable() string {
 		}
 		rendered.WriteString(remainder(further, "refused item"))
 	}
+	listedWaits, furtherWaits := bound(len(s.SchedulingWaits))
+	for _, item := range s.SchedulingWaits[:listedWaits] {
+		fmt.Fprintf(&rendered, "  %s (%s) — %s\n", item.Title, item.WorkItemID, item.WaitReason)
+	}
+	rendered.WriteString(remainder(furtherWaits, "item with a recorded scheduling wait"))
 	if s.NotStartableProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.NotStartableProblem)
 	}

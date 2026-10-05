@@ -491,8 +491,10 @@ type Refused struct {
 // lists a grouping of the queue rather than counting it. It carries no more than
 // that: what an item is in full is ReadWorkItem's answer, one item at a time.
 type WorkItemRef struct {
-	WorkItemID string `json:"work_item_id"`
-	Title      string `json:"title,omitempty"`
+	SchedulingWait *beads.SchedulingWait `json:"scheduling_wait,omitempty"`
+	WaitReason     string                `json:"wait_reason,omitempty"`
+	WorkItemID     string                `json:"work_item_id"`
+	Title          string                `json:"title,omitempty"`
 }
 
 // Standing is where the harness stands, in the four lines and nothing else.
@@ -501,6 +503,7 @@ type WorkItemRef struct {
 // and one failure standing for all four would lose three answers the caller
 // still has.
 type Standing struct {
+	SchedulingWaits []WorkItemRef `json:"scheduling_waits"`
 	// FactoryProblems is the same raised pass-failure entries the fourth line
 	// carries, projected for the dashboard's factory-problems section.
 	FactoryProblems        []Attention `json:"factory_problems"`
@@ -755,6 +758,19 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Startable = len(waits.startable)
 	standing.StartableItems = waits.startable
 	standing.AdmittedItems = waits.admitted
+	standing.SchedulingWaits = []WorkItemRef{}
+	alreadyListed := make(map[string]bool)
+	for _, run := range standing.Running {
+		alreadyListed[run.WorkItemID] = true
+	}
+	for _, item := range refused {
+		alreadyListed[item.WorkItemID] = true
+	}
+	for _, item := range waits.admitted {
+		if item.SchedulingWait != nil && !alreadyListed[item.WorkItemID] {
+			standing.SchedulingWaits = append(standing.SchedulingWaits, item)
+		}
+	}
 	standing.WaitingForSlot = waits.slotWait
 	if waits.groups != nil {
 		standing.NotStartableGroups = waits.groups
@@ -1393,7 +1409,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	var slotWait *SlotWait
 	for _, entry := range queue.Entries {
-		waits.admitted = append(waits.admitted, WorkItemRef{WorkItemID: entry.ID, Title: entry.Title})
+		waits.admitted = append(waits.admitted, waitingWorkRef(entry))
 		if _, carried := inFlight[entry.ID]; carried {
 			continue
 		}
@@ -1430,7 +1446,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 		default:
 			// Nothing refuses it: this is the work the harness starts next, now or,
 			// on a full machine, as soon as a slot frees.
-			ref := WorkItemRef{WorkItemID: entry.ID, Title: entry.Title}
+			ref := waitingWorkRef(entry)
 			waits.startable = append(waits.startable, ref)
 			if full {
 				if slotWait == nil {
@@ -1443,6 +1459,13 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	if !stalled {
 		stopped = Stall{}
+	}
+	for i := range refused {
+		for _, entry := range queue.Entries {
+			if entry.ID == refused[i].WorkItemID && entry.SchedulingWait != nil {
+				refused[i].Reason += "; " + SchedulingWaitSays(*entry.SchedulingWait)
+			}
+		}
 	}
 	oldestHoldFirst(refused)
 	if slotWait != nil {
