@@ -2884,6 +2884,31 @@ it is not a provider refusal, so nothing waits and asks again. A session recorde
 before the harness measured sessions is compacted on its next turn, since
 nobody knows how large it is.
 
+**The rebuilt request must fit the endpoint too.** A small new session can still
+start with too large a prompt: the working picture, recent exchange, memories,
+role instructions and current evidence all travel together. Before sending,
+the harness asks the selected adapter to measure what it will send, including
+its own added instructions, and reserves five percent of that endpoint's bound.
+Codex accepts at most 1,048,576 characters of input; the adapter counts UTF-8
+bytes conservatively. Claude Code's supplied text is measured with JSON
+escaping against the API's 32 MiB ceiling; its hidden native history still needs
+the session budget above.
+
+When a reconstruction is over the bound, the harness lowers the existing
+rebuild's allowance for old messages until the request fits, oldest first. The
+role is told how many messages are omitted and where they remain. Its current
+turn, role instructions, working picture, saved memories and pending results
+are kept intact. Decisions and docket entries stay in their durable stores;
+shortening a request removes no stored record. The event log records the
+shortening as `session.compacted` with reason `request_size`. The check runs
+after endpoint selection, so failover uses the receiving endpoint's bound.
+If a provider still rejects input for size, including Codex's `input_too_large`,
+the harness tries the turn once with a shorter reconstruction and records
+`request_size_retry`; a served retry completes the same pass. A second refusal
+ends that turn. If the fixed instructions and current evidence alone cannot
+fit, the harness refuses before starting the provider and says why rather than
+cutting them to obtain an answer.
+
 A memory write that would exceed the 32,768-byte live memory budget is refused
 whole, including a memory compaction: it changes no memory. The refusal names
 the proposed total, the current total, the budget, and the three largest current

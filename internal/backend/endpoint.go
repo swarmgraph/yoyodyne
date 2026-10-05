@@ -44,7 +44,8 @@ import (
 // runs on this adapter, so a declared provider's endpoints carry this version
 // too: the declaration supplies the dialect, and this is the code that reads the
 // stream with it.
-const ClaudeCodeAdapterVersion = "claude-code/1"
+// "claude-code/2" refuses supplied text past the known request ceiling before launch.
+const ClaudeCodeAdapterVersion = "claude-code/2"
 
 // CodexAdapterVersion is the version of the compiled Codex adapter, and is what
 // a record naming a Codex endpoint says read the provider's stream. It is bumped
@@ -58,7 +59,8 @@ const ClaudeCodeAdapterVersion = "claude-code/1"
 // "codex/3" adds native read-only invocations for reviewers and management roles.
 // "codex/4" admits the developer's confined cache and scratch on launch and resume.
 // "codex/5" passes effort explicitly and records provider-reported effort separately.
-const CodexAdapterVersion = "codex/5"
+// "codex/6" measures the composed input and refuses oversized input before launch.
+const CodexAdapterVersion = "codex/6"
 
 // Endpoint is one execution endpoint: which provider, read by which compiled
 // adapter, under which account, asking which model.

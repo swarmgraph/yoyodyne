@@ -24,6 +24,16 @@ import (
 // no liveness signal will ever catch.
 const defaultTimeout = 4 * time.Hour
 
+// RequestSize bounds the supplied text against the API's 32 MiB request ceiling.
+// JSON escaping is included; native history, reasoning and tool results are not
+// visible here and remain covered by conversation session compaction and refusal
+// recovery. The caller leaves room for the API's other fields.
+func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
+	prompt, _ := json.Marshal(request.Prompt)
+	system, _ := json.Marshal(request.SystemPrompt)
+	return len(prompt) + len(system), 32 << 20
+}
+
 // defaultIdleTimeout bounds the gap between one event and the next. A working
 // agent emits events continuously -- a thought, a tool call, its result -- so
 // silence for this long means nothing is happening, and it can be far shorter
@@ -373,6 +383,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 	if strings.TrimSpace(request.Prompt) == "" {
 		return backend.RunResult{}, errors.New("prompt is required")
+	}
+	if err := backend.CheckRequestSize(b, request); err != nil {
+		return backend.RunResult{}, err
 	}
 	if !supportedRole(request.Role) {
 		return backend.RunResult{}, fmt.Errorf("Claude Code backend does not support role %q", request.Role)

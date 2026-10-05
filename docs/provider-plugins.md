@@ -37,6 +37,25 @@ that validates and can never run.
 This document is what a provider plugin is, what it may and may not decide, and
 how one is written.
 
+## Request size
+
+The compiled adapter also exposes `backend.RequestSizer`: it measures the input
+it will send and states the endpoint's known limit, including adapter-added
+instructions or text encoding. A zero limit means no known bound. The shipped
+Codex adapter measures its composed prompt in UTF-8 bytes against the observed
+1,048,576-character input bound; the Claude Code adapter measures supplied text
+with JSON escaping against the API's 32 MiB ceiling. These measurements do not
+include hidden native session history, reasoning or tool results.
+
+Conversations use this adapter contract after choosing the endpoint. They leave
+five percent below the bound and shorten old replayed messages through the
+existing reconstruction, preserving the current turn and instructions. A size
+refusal gets one shorter attempt; both attempts have their own spend records.
+The adapters also refuse oversized supplied input before launching the CLI for
+callers that cannot reconstruct a conversation. A provider declaration uses its
+compiled adapter's bound; it cannot change the bound or grant authority through
+configuration.
+
 ## What yoyo needs from a provider
 
 Not very much, and deliberately so. A provider says a great many things while a

@@ -437,6 +437,9 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if strings.TrimSpace(request.Prompt) == "" {
 		return backend.RunResult{}, errors.New("prompt is required")
 	}
+	if err := backend.CheckRequestSize(b, request); err != nil {
+		return backend.RunResult{}, err
+	}
 	sandbox, err := sandboxFor(request.Role)
 	if err != nil {
 		return backend.RunResult{}, err
@@ -694,4 +697,12 @@ func composePrompt(request backend.RunRequest) string {
 		prompt = "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n" + prompt
 	}
 	return prompt
+}
+
+// RequestSize includes everything composePrompt adds. Codex turn/start refused
+// input past 1,048,576 characters in the development manager's October 5 record
+// (events 13747–13749). Counting UTF-8 bytes is conservative for that character
+// bound, and covers the CLI's fresh and resumed turns alike.
+func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
+	return len(composePrompt(request)), 1 << 20
 }

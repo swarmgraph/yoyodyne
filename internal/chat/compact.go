@@ -19,7 +19,9 @@ package chat
 // the text, and a reply's reasoning is kept in the session without ever reaching
 // the harness. That is why the budget is a quarter of the ceiling rather than
 // most of it. Provider-side inspection calls and results are also unmeasured
-// when an adapter permits read-only tools. This budget is therefore a prompt
+// when an adapter permits read-only tools. requestsize.go separately holds the
+// supplied prompt to the selected adapter's bound, including after rebuilding.
+// This budget is therefore a prompt
 // and reply estimate, not a complete bound on the resumed provider session.
 //
 // A compaction is the rebuild a crossing makes, applied to the provider that is

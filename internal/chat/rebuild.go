@@ -243,6 +243,9 @@ type rebuildInput struct {
 // rebuildMessageBudget is what this turn's rebuild may spend on what has been
 // said.
 func (s *Session) rebuildMessageBudget() int {
+	if s.rebuiltMessageBytes < 0 {
+		return 0
+	}
 	if s.rebuiltMessageBytes > 0 {
 		return s.rebuiltMessageBytes
 	}
@@ -420,6 +423,7 @@ func recordedMessages(events []execution.Event, budget int) string {
 	var rendered strings.Builder
 	if dropped > 0 {
 		rendered.WriteString(fmt.Sprintf("- %d earlier message(s) are not carried here.\n\n", dropped))
+		rendered.WriteString("Only this request is shortened. Earlier messages remain in the durable conversation log; recorded decisions, memories and docket entries remain in their stores.\n\n")
 	}
 	for _, message := range kept {
 		if message.operator {
@@ -459,7 +463,7 @@ func messageText(event execution.Event) string {
 // is too long" and its API's request_too_large, the compaction that errored,
 // Codex's context_length_exceeded — because none of them is a status a dialect
 // reads into an answer of its own: every one arrives as a refusal like any other.
-var sessionTooLong = regexp.MustCompile(`(?i)prompt is too long|conversation (is )?too long|request_too_large|request exceeds the maximum size|context_length_exceeded|exceeds (the|its) context window|context window (is )?(exceeded|full)|error during compaction|compaction failed|failed to compact`)
+var sessionTooLong = regexp.MustCompile(`(?i)prompt is too long|conversation (is )?too long|request_too_large|request exceeds the maximum size|input_too_large|input exceeds the maximum length|context_length_exceeded|exceeds (the|its) context window|context window (is )?(exceeded|full)|error during compaction|compaction failed|failed to compact`)
 
 // unflaggedTooLong is the same refusal where the provider ended the turn without
 // flagging it as a failure, which it has been seen to do with its notice as the

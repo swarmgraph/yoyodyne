@@ -4351,6 +4351,18 @@ one. The session is cleared on the record before the fresh attempt, so a fresh a
 that turn only, and the next turn rebuilds again rather than resuming the session
 that was refused. A turn is given one fresh session, not a loop of them.
 
+A rebuilt conversation is also checked against the selected adapter's input
+limit before it is sent, with five percent left for framing. Oldest replayed
+messages are dropped first and their omission is named to the role; current
+instructions and evidence, memory, decisions and docket records are preserved.
+Codex's 1,048,576-character bound includes the role contract and inspection
+instructions its adapter adds. If the endpoint nevertheless refuses for request
+size (`input_too_large` or `request_too_large`), the turn gets one shorter
+reconstruction before it can fail. This also applies to the receiving endpoint
+on failover. These bounds belong to the adapters and add no configuration key.
+See [request size protection](conversation.md) for the
+compaction and refusal behavior.
+
 ### Pinning an agent to a model version
 
 A model selector is a family alias by default — `opus`, `fable` — and an alias
