@@ -728,7 +728,8 @@ type Session struct {
 	compacting bool
 	// rebuiltMessageBytes is what the turn in flight's rebuild may spend on what
 	// has been said, and zero where it may spend the whole of
-	// maxRebuiltContextBytes (negative means none). rebuiltFrom is the turn's own prompt and the reason
+	// maxRebuiltContextBytes (negative means none). rebuiltFrom is the turn's own
+	// prompt and the reason
 	// the last rebuild was put in front of, so a rebuild the provider refused as too
 	// long can be made again smaller. Both are per-turn and cleared as each one
 	// starts; see rebuild.go.

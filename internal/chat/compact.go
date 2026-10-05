@@ -5,8 +5,8 @@ package chat
 // Every turn but the first resumes a provider session, and a resumed turn sends
 // the whole of it: everything the session has been handed and everything it has
 // said, again, with the new prompt on the end. So a session grows by every turn
-// it takes, and the provider's request has a ceiling — 32 MB on the API these
-// conversations are served from. The provider's own compaction triggers on its
+// it takes, and the provider's request has a ceiling — 32 MiB on Claude Code's
+// API. The provider's own compaction triggers on its
 // token threshold rather than on that ceiling, and compacting sends the whole
 // conversation too, so by the time it tried on chat-419cedb4a013b063f477e322a2a60466
 // the session was about 34 MB and could not be sent even to be made smaller.
@@ -21,8 +21,8 @@ package chat
 // most of it. Provider-side inspection calls and results are also unmeasured
 // when an adapter permits read-only tools. requestsize.go separately holds the
 // supplied prompt to the selected adapter's bound, including after rebuilding.
-// This budget is therefore a prompt
-// and reply estimate, not a complete bound on the resumed provider session.
+// This budget is therefore a prompt and reply estimate, not a complete bound
+// on the resumed provider session.
 //
 // A compaction is the rebuild a crossing makes, applied to the provider that is
 // already holding the conversation: the turn is sent with no session to resume,

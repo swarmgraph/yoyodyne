@@ -251,7 +251,7 @@ func TestAnEndpointIsIdentifiedByAllFourOfItsFields(t *testing.T) {
 		other Endpoint
 	}{
 		{name: "another provider", other: Endpoint{Provider: "my-harness", AdapterVersion: ClaudeCodeAdapterVersion, AccountAlias: "one", Model: "opus"}},
-		{name: "another adapter version", other: Endpoint{Provider: domain.BackendClaudeCode, AdapterVersion: "claude-code/2", AccountAlias: "one", Model: "opus"}},
+		{name: "another adapter version", other: Endpoint{Provider: domain.BackendClaudeCode, AdapterVersion: ClaudeCodeAdapterVersion + "-other", AccountAlias: "one", Model: "opus"}},
 		{name: "another account", other: Endpoint{Provider: domain.BackendClaudeCode, AdapterVersion: ClaudeCodeAdapterVersion, AccountAlias: "two", Model: "opus"}},
 		{name: "another model", other: Endpoint{Provider: domain.BackendClaudeCode, AdapterVersion: ClaudeCodeAdapterVersion, AccountAlias: "one", Model: "sonnet"}},
 	} {

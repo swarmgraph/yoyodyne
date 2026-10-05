@@ -474,6 +474,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		request.WorkingDirectory = repository
 		invocation.WorkingDirectory = launch
 	}
+	// Canonicalizing the inspection path can lengthen the composed prompt.
+	if err := backend.CheckRequestSize(b, request); err != nil {
+		return backend.RunResult{}, err
+	}
 	var directories []string
 	repository := request.RepositoryRoot
 	if repository == "" {
