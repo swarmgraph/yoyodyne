@@ -1202,8 +1202,14 @@ comes from. Every other configured agent is reachable the same way:
 The name is either the agent's configured name or the role it fills, and a role
 two agents fill is a question rather than a request: name the one you mean. The
 name you give is the agent that answers — its persona and its model, not its
-sibling's — and the role it fills is what decides its authority. `yoyo chat`
-names none, so it takes the agent filling the product-manager role.
+sibling's — and the role it fills is what decides its authority. An agent
+filling an activated
+[role definition](configuration.md#protected-role-definitions) is that
+definition's shipped role, sent that role's contract, and its row of the table
+below is derived from the definition's tool set rather than read off the role:
+what the definition removed it may not ask for, and nothing the shipped role may
+not do is ever added. `yoyo chat` names none, so it takes the agent filling the
+product-manager role.
 
 **Each agent is a durable logical identity, not a process.** The provider that
 answers a turn is started for that turn and gone afterwards; what survives it is

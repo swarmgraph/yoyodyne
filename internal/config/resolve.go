@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -48,7 +49,9 @@ type Resolved struct {
 	Sources []string          `json:"sources"`
 	Origins map[string]string `json:"origins"`
 	// RoleDefinitions are validated files, not effective authority. Loading one
-	// never changes an agent's role, capabilities, or configuration revision.
+	// changes no agent that does not name it as its role; an agent that does is
+	// bound to it (see bindRoleDefinitions), and the binding is effective only
+	// once a person's activation of the file as it stands is on record.
 	RoleDefinitions map[string]RoleDefinition `json:"role_definitions,omitempty"`
 }
 
@@ -78,8 +81,49 @@ func Load(path string) (Config, error) {
 
 // LoadResolved reads a project configuration, overlays it on the bundle it
 // extends, validates the result, and reports the provenance of every value.
+//
+// It cannot read the activation record, so an agent whose role names a role
+// definition is refused here rather than bound: a definition supplies an
+// agent's authority only through LoadResolvedActivated, which is handed the
+// record. No reader of the configuration can therefore get authority out of a
+// definition without asking whether a person activated it as it stands.
 func LoadResolved(path string) (Resolved, error) {
-	return loadResolved(path, true)
+	return loadResolved(path, loadAgents, nil)
+}
+
+// RoleActivationCheck says whether one role definition is activated as it now
+// stands — its exact content, from the file it now sits in — and why not where
+// it is not. The answer is the person's recorded decision, which is why it is
+// supplied rather than worked out here.
+type RoleActivationCheck func(RoleDefinition) error
+
+// RoleActivationReader reads the activation record for the product the
+// configuration describes. It is asked only when an agent names a definition,
+// and it is handed the configuration as resolved so far so it can find the
+// product's state; nothing in what it is handed carries a definition's
+// authority yet.
+type RoleActivationReader func(Resolved) (RoleActivationCheck, error)
+
+// LoadResolvedActivated is LoadResolved for a configuration whose agents may
+// fill role definitions. Each definition an agent names is bound only once the
+// check the reader returns says it is activated as it stands; one that is not
+// refuses the configuration whole, naming the agent and the definition. A
+// reader that cannot be read refuses it too, rather than counting as an
+// activation nobody made.
+func LoadResolvedActivated(path string, activations RoleActivationReader) (Resolved, error) {
+	if activations == nil {
+		return Resolved{}, errors.New("loading agents on role definitions needs the activation record")
+	}
+	return loadResolved(path, loadAgents, activations)
+}
+
+// LoadRoleDefinitionsBeside reads the product and the role definitions beside a
+// configuration and binds no agent to anything. It is for the commands that
+// activate and list definitions, which must work while an agent names a
+// definition nobody has activated yet. What it returns holds no agent and is
+// held to the product's rules and the definitions' own.
+func LoadRoleDefinitionsBeside(path string) (Resolved, error) {
+	return loadResolved(path, loadDefinitionsOnly, nil)
 }
 
 // RoleHistoryProduct identifies the audit's product and repository without
@@ -87,11 +131,20 @@ func LoadResolved(path string) (Resolved, error) {
 // hide its history. It returns no agent configuration or authority for a caller
 // to execute.
 func RoleHistoryProduct(path string) (Product, error) {
-	resolved, err := loadResolved(path, false)
+	resolved, err := loadResolved(path, loadProductOnly, nil)
 	return resolved.Config.Product, err
 }
 
-func loadResolved(path string, definitions bool) (Resolved, error) {
+// loadMode is how much of a configuration a reader asks for.
+type loadMode int
+
+const (
+	loadAgents loadMode = iota
+	loadDefinitionsOnly
+	loadProductOnly
+)
+
+func loadResolved(path string, mode loadMode, activations RoleActivationReader) (Resolved, error) {
 	absolute, err := filepath.Abs(path)
 	if err != nil {
 		return Resolved{}, fmt.Errorf("resolve config path %q: %w", path, err)
@@ -111,14 +164,34 @@ func loadResolved(path string, definitions bool) (Resolved, error) {
 		return Resolved{}, err
 	}
 	resolved.Path = absolute
-	if err := resolved.Config.Validate(); err != nil {
-		return Resolved{}, err
-	}
-	if definitions {
-		resolved.RoleDefinitions, err = LoadRoleDefinitions(absolute)
-		if err != nil {
+	if mode == loadProductOnly {
+		// The audit reads who activated what, including definitions whose files
+		// are broken or gone, so it neither loads today's definitions nor binds an
+		// agent to one. What it returns is the product alone, held to the product's
+		// own rules; an agent naming a definition is not refused here for a role
+		// this mode never reads.
+		if err := resolved.Config.validateProduct(); err != nil {
 			return Resolved{}, err
 		}
+		resolved.Config.Agents = nil
+		return resolved, nil
+	}
+	resolved.RoleDefinitions, err = LoadRoleDefinitions(absolute)
+	if err != nil {
+		return Resolved{}, err
+	}
+	if mode == loadDefinitionsOnly {
+		if err := resolved.Config.validateProduct(); err != nil {
+			return Resolved{}, err
+		}
+		resolved.Config.Agents = nil
+		return resolved, nil
+	}
+	if err := resolved.bindRoleDefinitions(activations); err != nil {
+		return Resolved{}, err
+	}
+	if err := resolved.Config.Validate(); err != nil {
+		return Resolved{}, err
 	}
 	return resolved, nil
 }

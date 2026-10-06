@@ -104,7 +104,7 @@ func printDriftNotice(stderr io.Writer, configPath string) {
 	if configPath == "" {
 		return
 	}
-	resolved, err := config.LoadResolved(configPath)
+	resolved, err := loadActivatedConfiguration(configPath)
 	if err != nil {
 		return
 	}

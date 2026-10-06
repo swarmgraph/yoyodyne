@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
-	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
 // What a Claude Code invocation is given beside its prompt.
@@ -69,18 +68,20 @@ var contextEnvironment = [][2]string{
 	{"ENABLE_CLAUDEAI_MCP_SERVERS", "false"},
 }
 
-// Which settings files a role reads: the developer its worktree's checked-in
-// settings, and every other role none.
+// Which settings files an invocation reads: one that writes its worktree — a
+// developer — that worktree's checked-in settings, and every other invocation
+// none, including a developer whose role definition holds it read-only.
 const (
 	developerSettingSources = "project"
 	readOnlySettingSources  = ""
 )
 
-// contextArgs are the flags every invocation carries for a role, initial and
-// resumed, beside the settings the caller passes with --settings.
-func contextArgs(role domain.AgentRole) []string {
+// contextArgs are the flags every invocation carries, initial and resumed,
+// beside the settings the caller passes with --settings. writesWorktree is
+// whether the invocation is held to worktree-write access.
+func contextArgs(writesWorktree bool) []string {
 	sources := readOnlySettingSources
-	if role == domain.RoleDeveloper {
+	if writesWorktree {
 		sources = developerSettingSources
 	}
 	return []string{"--setting-sources", sources, "--strict-mcp-config", "--disable-slash-commands"}
@@ -88,9 +89,9 @@ func contextArgs(role domain.AgentRole) []string {
 
 // settingsFor is the settings an invocation is passed with --settings: base,
 // which for a developer carries its sandbox and guard, with the context
-// settings added, and for a developer the instruction files above its
-// worktree excluded.
-func settingsFor(base string, role domain.AgentRole, directory string) (string, error) {
+// settings added, and for an invocation that writes its worktree the
+// instruction files above that worktree excluded.
+func settingsFor(base string, writesWorktree bool, directory string) (string, error) {
 	settings := map[string]any{}
 	if base != "" {
 		if err := json.Unmarshal([]byte(base), &settings); err != nil {
@@ -100,7 +101,7 @@ func settingsFor(base string, role domain.AgentRole, directory string) (string, 
 	for key, value := range contextSettings {
 		settings[key] = value
 	}
-	if role == domain.RoleDeveloper {
+	if writesWorktree {
 		settings["claudeMdExcludes"] = instructionFilesAbove(directory)
 	}
 	encoded, err := json.Marshal(settings)

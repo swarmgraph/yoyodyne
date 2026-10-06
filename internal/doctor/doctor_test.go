@@ -427,6 +427,24 @@ func TestTheDashboardServiceIsCheckedAgainstTheStoreItsEntryNames(t *testing.T) 
 // TestAHealthyInstallationSaysSo is the other half of the promise. An operator
 // who has fixed everything has to be told that in so many words, because an
 // empty list of complaints and a diagnosis that never ran read the same.
+// A project whose agent fills an activated role definition is diagnosed like
+// any other: the configuration loads, the agent's provider is checked, and a
+// running part on this build reads the file without a finding, since the
+// definition's name is a value under `role` rather than a key.
+func TestAProjectWhoseAgentFillsAnActivatedRoleDefinitionIsHealthy(t *testing.T) {
+	t.Parallel()
+
+	world := newWorld(t)
+	world.configuration = strings.Replace(healthyConfig, "    role: developer\n", "    role: narrow\n", 1)
+	world.roleDefinitions = map[string]string{"narrow": "extends: developer\ntools:\n  remove: [forge.publish]\n"}
+	world.runningPart("scheduler", 4343, currentBuild, config.SchemaKeys())
+	report := world.diagnose()
+
+	if report.Status != StatusOK || !report.Healthy() {
+		t.Fatalf("Diagnose() = %s, want an agent on an activated role definition diagnosed healthy: %s", report.Status, render(report))
+	}
+}
+
 func TestAHealthyInstallationSaysSo(t *testing.T) {
 	t.Parallel()
 
@@ -1247,6 +1265,10 @@ type world struct {
 	// alive is the processes this machine has, by pid, for the records the
 	// running parts of the product wrote about themselves.
 	alive map[int]bool
+	// roleDefinitions are files written under .yoyodyne/roles/, by name. Where
+	// there are any, the configuration is loaded as the CLI hands doctor it:
+	// with an activation record, which here calls every definition activated.
+	roleDefinitions map[string]string
 }
 
 const currentVersion = "v1.2.3"
@@ -1512,7 +1534,21 @@ func (w *world) load() (config.Resolved, error) {
 	if err := os.WriteFile(path, []byte(w.configuration), 0o644); err != nil {
 		return config.Resolved{}, err
 	}
-	return config.LoadResolved(path)
+	if len(w.roleDefinitions) == 0 {
+		return config.LoadResolved(path)
+	}
+	roles := filepath.Join(directory, "roles")
+	if err := os.MkdirAll(roles, 0o755); err != nil {
+		return config.Resolved{}, err
+	}
+	for name, body := range w.roleDefinitions {
+		if err := os.WriteFile(filepath.Join(roles, name+".yaml"), []byte(body), 0o644); err != nil {
+			return config.Resolved{}, err
+		}
+	}
+	return config.LoadResolvedActivated(path, func(config.Resolved) (config.RoleActivationCheck, error) {
+		return func(config.RoleDefinition) error { return nil }, nil
+	})
 }
 
 func findingFor(report Report, check string) (Finding, bool) {

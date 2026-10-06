@@ -212,6 +212,14 @@ A provider that declares only `read-only` is refused for a developer agent, and
 one that declares only `worktree-write` is refused for a reviewer. A declaration
 cannot change the launch policy enforced by its compiled adapter.
 
+An agent filling a [role definition](configuration.md#protected-role-definitions)
+is checked against the access its definition holds it to. That is its shipped
+role's, except that a developer whose definition removed `worktree.mutate` is
+held `read-only` — so a provider declaring only `worktree-write` is refused for
+it — and both adapters run it as they run a read-only role. No definition makes
+a read-only role a writer, and an invocation asking for wider access than its
+role has is refused before the provider starts.
+
 Both built-ins declare both kinds of access. For read-only roles, the Codex
 adapter fixes `--sandbox read-only` and `approval_policy="never"` on fresh and
 resumed invocations. It ignores user configuration and execution-policy rules,

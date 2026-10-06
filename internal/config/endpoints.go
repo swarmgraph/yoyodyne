@@ -66,7 +66,7 @@ func (c Config) EndpointFor(providers *backend.Registry, stateRoot, agentName, a
 	if err != nil {
 		return EndpointChoice{}, fmt.Errorf("resolve the endpoint agent %q runs on: %w", agentName, err)
 	}
-	if err := providers.Serves(agent.Backend, agent.Role); err != nil {
+	if err := providers.ServesAt(agent.Backend, agent.Role, agent.Posture()); err != nil {
 		return EndpointChoice{}, fmt.Errorf("agent %q cannot be served: %w", agentName, err)
 	}
 	return EndpointChoice{Endpoint: endpoint, Account: account}, nil
@@ -206,7 +206,7 @@ func (c Config) ChooseEndpoint(providers *backend.Registry, stateRoot, agentName
 	// vary by account, so it is asked once and refused before any rotation: a pool
 	// that passed over every endpoint in turn would report a budget where the
 	// answer is a posture.
-	if err := providers.Serves(agent.Backend, agent.Role); err != nil {
+	if err := providers.ServesAt(agent.Backend, agent.Role, agent.Posture()); err != nil {
 		return EndpointChoice{}, fmt.Errorf("agent %q cannot be served: %w", agentName, err)
 	}
 

@@ -19,6 +19,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -207,6 +208,16 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		return exchange.Spoken{}, fmt.Errorf("no %s agent is configured, so there is nobody to ask", question.Role)
 	}
 	agent := v.config.Agents[name]
+	// The asking side checked the role's row; the agent that would answer may
+	// fill a role definition that removed the answering end of the channel, and
+	// a definition can only narrow what its role may do.
+	if !conversationAuthority(question.Role, agent).Answers {
+		held := "its role"
+		if agent.Definition != nil {
+			held = fmt.Sprintf("role definition %q", agent.Definition.Name)
+		}
+		return exchange.Spoken{}, fmt.Errorf("the %s agent %s does not answer on this channel: %s does not hold %s", question.Role, name, held, capability.ExchangeAnswer)
+	}
 
 	prompt := execution.NewRedactor(v.redactValues...).Redact(renderQuestion(question))
 	// The round is answered on the endpoint the answering agent is configured for,
@@ -447,9 +458,8 @@ func renderQuestion(question exchange.Question) string {
 // for the roles that may ask is the same decision the triage budgets are wired
 // by: a capability a role has no authority for is not one its conversation
 // should be able to reach at all.
-func conversationExchanges(parts components, role domain.AgentRole, provider chat.Backend, runner execution.ProcessRunner) chat.Exchanges {
-	authority, known := chat.AuthorityFor(role)
-	if !known || !authority.Asks {
+func conversationExchanges(parts components, authority chat.Authority, provider chat.Backend, runner execution.ProcessRunner) chat.Exchanges {
+	if !authority.Asks {
 		return nil
 	}
 	store, err := runstate.NewExchangeStore(parts.stateRoot, parts.config.Product.ID)

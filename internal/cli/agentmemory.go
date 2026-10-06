@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -62,8 +61,7 @@ func showAgentMemory(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	authority, _ := chat.AuthorityFor(role)
-	keeps := authority.Memory
+	keeps := conversationAuthority(role, parts.config.Agents[name]).Memory
 
 	// Built with no redaction values: everything in the store was redacted on the
 	// way in, and a reader that redacted again would be a second answer to what

@@ -205,7 +205,7 @@ func (c Config) failoverEndpointProblems(providers *backend.Registry, name strin
 	// provider whose sandbox cannot express no-tools would be a configuration
 	// granting itself a weaker posture by naming a fallback, which is the one thing
 	// a fallback may never do.
-	if err := providers.Serves(alternate, agent.Role); err != nil {
+	if err := providers.ServesAt(alternate, agent.Role, agent.Posture()); err != nil {
 		problems = append(problems, fmt.Sprintf("agent %q cannot fail over to provider %q: %v", name, alternate, err))
 	}
 	// The alias is resolved exactly as AgentFailoverEndpoint resolves it, through

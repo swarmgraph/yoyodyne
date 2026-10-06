@@ -231,7 +231,7 @@ func TestEveryContextFlagIsOneTheRecordedCLINames(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
-		for _, arg := range append(contextArgs(role), "--settings", "--safe-mode") {
+		for _, arg := range append(contextArgs(role == domain.RoleDeveloper), "--settings", "--safe-mode") {
 			if strings.HasPrefix(arg, "--") && !strings.Contains(string(help), "  "+arg+" ") {
 				t.Fatalf("%s is not in %s", arg, recordedHelp)
 			}

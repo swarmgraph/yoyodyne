@@ -176,48 +176,56 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 	registry := rolecapability.MustDefault()
 	built := make(map[domain.AgentRole]Authority, len(contracts))
 	for _, role := range domain.Roles() {
-		contract, addressable := contracts[role]
-		if !addressable {
+		if _, addressable := contracts[role]; !addressable {
 			continue
 		}
 		bundle, described := registry.Bundle(role)
 		if !described {
 			continue
 		}
-		if registry.Holds(role, capability.WorkItemRead) {
-			contract += "\n\n" + reportReadClause
-		}
-		built[role] = Authority{
-			Role:           role,
-			Title:          role.Title(),
-			Owns:           bundle.Owns,
-			Contract:       contract,
-			TrackerActions: trackerActionsFor(registry, role),
-			LaneActions:    laneActionsFor(registry, role),
-			ParentRequired: registry.Holds(role, capability.WorkDecompose) && !registry.Holds(role, capability.BacklogAdmit),
-			Proposals:      registry.Holds(role, capability.ProposalRaise),
-			Concerns:       registry.Holds(role, capability.ConcernRaise),
-			Research:       registry.Holds(role, capability.ResearchCommission),
-			Evaluations:    registry.Holds(role, capability.EvaluationRecord),
-			RepositoryReads: registry.Holds(role, capability.RepositoryRead) &&
-				registry.Holds(role, capability.RepositoryList),
-			Asks:            registry.Holds(role, capability.ExchangeAsk),
-			Answers:         registry.Holds(role, capability.ExchangeAnswer),
-			Memory:          registry.Holds(role, capability.AgentContextMutate),
-			LaneReport:      registry.Holds(role, capability.LaneReportWrite),
-			RestartRequests: registry.Holds(role, capability.ServiceRequestRestart),
-		}
+		built[role] = authorityFrom(role, bundle.Owns, bundle.Holds)
 	}
 	return built
+}
+
+// authorityFrom is one row of the table, read off the capabilities the harness
+// holds for an agent rather than off its role's name. The contract, the title,
+// and what the role owns are the shipped role's; everything a row lets a turn
+// ask for is a capability in the set.
+func authorityFrom(role domain.AgentRole, owns string, holds []capability.Capability) Authority {
+	has := func(required capability.Capability) bool { return slices.Contains(holds, required) }
+	contract := contracts[role]
+	if has(capability.WorkItemRead) {
+		contract += "\n\n" + reportReadClause
+	}
+	return Authority{
+		Role:            role,
+		Title:           role.Title(),
+		Owns:            owns,
+		Contract:        contract,
+		TrackerActions:  trackerActionsFor(has),
+		LaneActions:     laneActionsFor(has),
+		ParentRequired:  has(capability.WorkDecompose) && !has(capability.BacklogAdmit),
+		Proposals:       has(capability.ProposalRaise),
+		Concerns:        has(capability.ConcernRaise),
+		Research:        has(capability.ResearchCommission),
+		Evaluations:     has(capability.EvaluationRecord),
+		RepositoryReads: has(capability.RepositoryRead) && has(capability.RepositoryList),
+		Asks:            has(capability.ExchangeAsk),
+		Answers:         has(capability.ExchangeAnswer),
+		Memory:          has(capability.AgentContextMutate),
+		LaneReport:      has(capability.LaneReportWrite),
+		RestartRequests: has(capability.ServiceRequestRestart),
+	}
 }
 
 // trackerActionsFor is the operations a role may ask for: the ones whose
 // capability it holds, unscoped or lane-scoped, in the order the contract states
 // them, so a refusal names them the way the contract does.
-func trackerActionsFor(registry rolecapability.Registry, role domain.AgentRole) []string {
+func trackerActionsFor(has func(capability.Capability) bool) []string {
 	var permitted []string
 	for _, action := range trackerActionNames {
-		if registry.Holds(role, trackerCapabilities[action]) || holdsLaneScoped(registry, role, action) {
+		if has(trackerCapabilities[action]) || holdsLaneScoped(has, action) {
 			permitted = append(permitted, action)
 		}
 	}
@@ -228,19 +236,34 @@ func trackerActionsFor(registry rolecapability.Registry, role domain.AgentRole) 
 // ones it holds through the lane-scoped name and not through the unscoped one. A
 // role holding both would hold the action everywhere, and the unscoped name is
 // the answer.
-func laneActionsFor(registry rolecapability.Registry, role domain.AgentRole) []string {
+func laneActionsFor(has func(capability.Capability) bool) []string {
 	var scoped []string
 	for _, action := range trackerActionNames {
-		if holdsLaneScoped(registry, role, action) && !registry.Holds(role, trackerCapabilities[action]) {
+		if holdsLaneScoped(has, action) && !has(trackerCapabilities[action]) {
 			scoped = append(scoped, action)
 		}
 	}
 	return scoped
 }
 
-func holdsLaneScoped(registry rolecapability.Registry, role domain.AgentRole, action string) bool {
-	scoped, has := laneCapabilities[action]
-	return has && registry.Holds(role, scoped)
+func holdsLaneScoped(has func(capability.Capability) bool, action string) bool {
+	scoped, exists := laneCapabilities[action]
+	return exists && has(scoped)
+}
+
+// AuthorityHeld is what an agent may ask for in a conversation when the harness
+// acts for it with a capability set other than its role's bundle — an agent
+// filling a role definition, whose set is the shipped role's with the
+// definition's additions and without its removals. It is the same derivation
+// as the table, so a definition that adds nothing and removes nothing reads
+// exactly the row AuthorityFor returns. The role must be one the table has a row
+// for: a definition extends a shipped role, and its contract is that role's.
+func AuthorityHeld(role domain.AgentRole, holds []capability.Capability) (Authority, bool) {
+	shipped, known := authorities[role]
+	if !known {
+		return Authority{}, false
+	}
+	return authorityFrom(role, shipped.Owns, holds), true
 }
 
 // AuthorityFor reports what a role may do in a conversation, and whether the
@@ -422,8 +445,14 @@ func (s *Session) authorize(parsed parsedReply) error {
 
 // authority is what this conversation's role may ask for. A session is never
 // opened for a role with no entry, so the lookup cannot fail by the time a turn
-// is taken.
+// is taken. Capabilities is the agent's role-definition set where it fills one;
+// the harness opens every conversation through one call that sets it from the
+// configured agent, and internal/cli holds that there is no other.
 func (s *Session) authority() Authority {
+	if s.options.Capabilities != nil {
+		authority, _ := AuthorityHeld(s.state.Role, s.options.Capabilities)
+		return authority
+	}
 	authority, _ := AuthorityFor(s.state.Role)
 	return authority
 }

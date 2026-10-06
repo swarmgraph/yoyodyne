@@ -66,6 +66,22 @@ var expresses = map[string]expression{
 		},
 		gap: "the contract and the title are still written beside the derivation: what a role is sent and what it is called are not authority anybody holds",
 	},
+	"conversation.authority-held": {
+		question: "which of these does the agent's role definition hold, and what follows from that about the conversation?",
+		asks: []capability.Capability{
+			capability.WorkItemRead, capability.WorkItemMutate, capability.BacklogAdmit,
+			capability.BacklogOrder, capability.WorkDecompose, capability.WorkTriage,
+			capability.ProposalRaise, capability.ConcernRaise, capability.ResearchCommission,
+			capability.EvaluationRecord, capability.ExchangeAsk, capability.ExchangeAnswer,
+			capability.RepositoryRead, capability.RepositoryList, capability.AgentContextMutate,
+			capability.LaneReportWrite, capability.ServiceRequestRestart,
+		},
+		gap: "the set is a definition's rather than a bundle's, and the contract and the title are still the shipped role's: a definition changes what an agent may ask for and not what it is sent or called",
+	},
+	"role-definition.activated-binding": {
+		question: "none: activation is a person's recorded decision about one file's exact content",
+		gap:      "no capability is asked, because whether a definition supplies an agent's authority at all is the operator's act and not a capability any role or the harness holds",
+	},
 	"conversation.role-is-known": {
 		question: "is there a bundle for this role at all?",
 		gap:      "the lookup is against the derived table rather than against the registry directly, because a role also needs a contract to be addressable and no bundle carries one",
@@ -435,6 +451,11 @@ var expresses = map[string]expression{
 		question: "the one role with tools is the one holding its own worktree",
 		asks:     []capability.Capability{capability.WorktreeMutate},
 		gap:      "the correspondence is not the rule: what tools a role gets is decided from its posture, and a bundle that happened to line up with it proves nothing",
+	},
+	"backend.request-posture": {
+		question: "does the set this agent is held to still hold its own worktree?",
+		asks:     []capability.Capability{capability.WorktreeMutate},
+		gap:      "it narrows the posture rather than deciding it: the posture is still the role's, and a set that lacks the worktree write only takes a writer down to read-only",
 	},
 	"backend.codex-sandbox-for-role": {
 		question: "the one role that edits a worktree is the one given a sandbox it can write in",
