@@ -1646,14 +1646,25 @@ docketed both as that stoppage and as an escalation a role raised from it is put
 to her once, as the one entry her docket folds the two into.
 
 **A pass also carries out what she decided about it.** A repair or a re-run she
-recorded is fired by the pass itself, oldest stoppage first, as many per pull as
+recorded is fired by the pass itself, oldest decision first, as many per pull as
 there are developer slots free for them — and as a session's `--limit` leaves,
 since each is a run started — against a developer slot exactly as a pulled item
-is. It goes ahead of the queue's own work at its item's priority and below, and
-behind ready work of a higher priority: a decision about a priority-3 item waits
-while a priority-0 item stands ready, takes the slot the walk of the order
-reaches its priority with, or takes a slot the queue left empty, and a pull that
-gave it none writes onto the item which ready items outranked it. Recording the
+is. **A decision about a stopped run whose branch or worktree is still there
+takes the first free developer slot ahead of fresh pulls of any priority**,
+because finishing reviewed, preserved work is cheaper than starting new work, the
+decision to continue it is already made, and a preserved worktree left waiting
+behind the order ages into conflicts. Whether the change is still there is the
+same look in the repository the hold and the docket take; a look that fails
+proves nothing and leaves the decision where the order puts it. The run's
+reason, on the run and on the item, names the ready work of higher priority it
+went ahead of, and where every slot is taken the refusal on the item and her
+docket says it is next. Every other decision goes ahead of the queue's own work
+at its item's priority and below, and behind ready work of a higher priority: a
+decision about a priority-3 item waits while a priority-0 item stands ready,
+takes the slot the walk of the order reaches its priority with, or takes a slot
+the queue left empty, and a pull that gave it none writes onto the item which
+ready items outranked it. Neither changes what a decision costs or which gate
+refuses it. Recording the
 decision is what causes it, and `yoyo triage repair` and
 `yoyo triage rerun` are what fires one now rather than at the next pull. A merge
 re-arm she recorded is fired by the same pass, whether the merge it makes is one

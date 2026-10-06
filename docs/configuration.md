@@ -2982,6 +2982,14 @@ on every pass and bury the deferrals worth reading. A pass that stopped before
 reading the queue at all — held intake, or every slot already taken — says
 nothing about the backlog rather than reporting zeroes it never looked up.
 
+A decided repair or re-run is fired by the same pass, oldest decision first, and
+one about a stopped run whose branch or worktree is still there takes the first
+free developer slot ahead of fresh pulls of any priority, naming in its reason
+the ready work it went ahead of. Every other decision waits behind ready work of
+a higher priority than its item.
+[How work flows](work.md#letting-the-harness-choose-the-work) has the whole
+rule; it changes no gate and nothing a decision costs.
+
 A thirteenth thing deliberately keeps nothing out: an item whose goal was amended
 after it was admitted is pulled exactly as it would have been, and what changed
 goes into the run's recorded reason instead. See
