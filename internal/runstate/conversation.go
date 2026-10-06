@@ -101,8 +101,8 @@ type Conversation struct {
 	// ProviderResolvedEffort is provider-reported; ProviderEffortReported is false when not reported.
 	ProviderResolvedEffort string `json:"provider_resolved_effort,omitempty"`
 	ProviderEffortReported bool   `json:"provider_effort_reported"`
-	// ProviderLoaded is the skills, plugins, and instruction files the last
-	// completed turn was given beside its prompt, by name and source. It is
+	// ProviderLoaded is the settings sources, skills, plugins, connectors, and
+	// instruction files the last completed turn was given beside its prompt, by name and source. It is
 	// rewritten by each turn as the model is.
 	ProviderLoaded *backend.Loaded `json:"provider_loaded,omitempty"`
 	// AccountAlias is the provider account the turn this record last took was
