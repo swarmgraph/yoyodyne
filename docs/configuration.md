@@ -1102,7 +1102,7 @@ approvals:
       reason: approved in conversation, with the adoption goal added
 ```
 
-A conversation-written document whose policy is automatic records
+A document written from a conversation whose policy is automatic records
 `by: harness` and `policy: approvals.designs` (or the applicable brief or goals
 policy). That confirmation opens an isolated run for the exact saved document,
 with configured checks and independent review before normal integration;

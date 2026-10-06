@@ -741,7 +741,7 @@ func (c Conversation) Validate() error {
 	}
 	for id, returns := range c.DocumentReturns {
 		if returns < 0 || returns > MaxDocumentReturns || strings.TrimSpace(id) == "" {
-			problems = append(problems, fmt.Errorf("invalid returned-run count for document %q", id))
+			problems = append(problems, fmt.Errorf("invalid count of returned runs for document %q", id))
 		}
 	}
 	if len(c.PendingNotices) > MaxPendingNotices {

@@ -111,7 +111,7 @@ what is allowed. The
 [configuration guide](configuration.md#approving-a-document) has the schema
 and what is refused.
 
-**A command-line approval is written into your checkout and stops there**, and the command
+**An approval given on the command line is written into your checkout and stops there**, and the command
 says so as it writes: the document is now an uncommitted change, a run against
 that checkout refuses to start while it is, and committing it is yours under your
 own identity. The checkout is named in so many words, because which one the write
