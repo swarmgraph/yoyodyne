@@ -238,6 +238,10 @@ type RepairContinuer struct {
 // attribution to a role that never wrote those words.
 type RepairContinueRequest struct {
 	Run string
+	// AheadOf is a sentence the pass that fired this adds to the run's reason
+	// where it put the decision ahead of higher-priority ready work, naming that
+	// work. Empty for every other repair.
+	AheadOf string
 }
 
 // RepairContinueResult is what the action did. It reports the continuation it
@@ -557,7 +561,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if result.WorktreeRestored {
 		reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
 	}
-	reason = singleLine(reason, runstate.MaxSelectionReasonBytes)
+	reason = withAheadOf(singleLine(reason, runstate.MaxSelectionReasonBytes), request.AheadOf)
 
 	// The item is put back first, because a run made live behind an item that
 	// still says it is blocked is a run nothing can resume. The note before the

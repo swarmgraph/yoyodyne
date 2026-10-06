@@ -311,6 +311,10 @@ type Rerunner struct {
 // wrote those words.
 type RerunRequest struct {
 	Run string
+	// AheadOf is a sentence the pass that fired this adds to the run's reason
+	// where it put the decision ahead of higher-priority ready work, naming that
+	// work. Empty for every other re-run.
+	AheadOf string
 }
 
 // RerunResult is what the action did. It reports the run it started and what
@@ -434,6 +438,7 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 		return result, err
 	}
 	result.Reason = rerunReason(entry, decided, taken, decision)
+	result.Reason = withAheadOf(result.Reason, request.AheadOf)
 	// The item is read before the claim, for the reason the hold below is: a fresh
 	// run starts on the item itself, so an item the pipeline would refuse must not
 	// spend the stoppage's one re-run on finding that out.
