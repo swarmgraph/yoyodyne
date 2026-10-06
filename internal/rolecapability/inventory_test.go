@@ -465,6 +465,10 @@ var expresses = map[string]expression{
 		question: "none: running the landing checks without the landing lease is refused where the harness runs them",
 		gap:      "the same as the lease above: queueing a landing is load control over the harness's own work rather than authority any role could hold",
 	},
+	"merge-queue.worker-lease": {
+		question: "no role holds it; the harness takes it in the process that works the queue",
+		gap:      "no capability names it yet: it makes one harness process the worker for a queue, and nothing in the harness takes it until a later part of the merge queue does, so there is nothing a role could be asked whether it holds",
+	},
 	"converge.catch-up-under-lease": {
 		question: "no role holds either half; the reconciler is the harness under the same lease",
 		asks:     []capability.Capability{capability.PromotionLease, capability.TargetBranchMutate},
