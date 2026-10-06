@@ -753,6 +753,9 @@ func rerunOf(entry triage.Entry, claimed []runstate.Rerun) *triage.Rerun {
 // A run that neither dockets anything and is not an error: that is every run that
 // ended for a reason nobody has to decide about, which is most of them.
 func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
+	if state.Document != nil {
+		return false, nil
+	}
 	if err := d.validate(); err != nil {
 		return false, err
 	}
@@ -1408,6 +1411,9 @@ func (d Docketer) unreadyEntry(item beads.WorkItem, unmet []readiness.Unmet, now
 // before the verb existed can carry it. So an escalation whose docket write
 // failed as the run ended is picked up by the next scan, exactly as a blocker is.
 func (d Docketer) entriesFor(state runstate.State, now time.Time, already standingDocket) ([]triage.Entry, error) {
+	if state.Document != nil {
+		return nil, nil
+	}
 	var entries []triage.Entry
 	var problems []error
 	if stoppedRun(state) && already.dockets(triage.Key(triage.ClassStoppedRun, state.RunID), stoppedAt(state)) {

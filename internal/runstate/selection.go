@@ -46,6 +46,10 @@ const (
 	// selection an intake hold lets through, and only where the hold's own
 	// record names the item as its probe — see IntakeHold.Probing.
 	SelectedByBrake = "intake brake"
+	// SelectedByConversation is a document run: the owning role's conversation
+	// supplied a document the harness confirmed under policy, and the run
+	// publishes exactly that. No scheduler read the backlog to choose it.
+	SelectedByConversation = "owning conversation"
 )
 
 // MaxSelectionReasonBytes bounds the recorded reason. It is generous enough for

@@ -144,7 +144,15 @@ role to save memories first, built by `memorySaveRequest` and
 `document.go`. A reply's writes are checked by `refuseWrites`; a refusal is
 rendered by `renderDocumentRefusal` and handed back to the role with
 `carryResults` in `Send`. Accepted writes become `PendingWrite` through
-`recordWrites`. The person decides with `ApproveWrite`, `DeclineWrite`,
+`recordWrites`. `documentpublication.go` confirms automatic-policy writes,
+saves the complete
+candidate, and calls the ordinary delivery pipeline before any prompt. Its
+`PublishDocuments` also resumes saved handoffs and carries failures to the owner,
+with three returns allowed per document per conversation. It confirms nothing
+where the publisher cannot integrate automatically, puts a saved handoff the
+publisher refuses outright back to the operator, and keeps one whose run could
+not start for the next message; none of these stops the operator's message. Other policies retain
+the person's decision with `ApproveWrite`, `DeclineWrite`,
 `DecideWrites` or, in the console, `decideWrites`. `artifactFiling` says
 which homes the role may write.
 
@@ -178,7 +186,7 @@ removes them from the record once a turn has delivered them.
 |---|---|
 | `tracker.go` | `TrackerAction`, `extractTrackerActions`, `performTrackerActions`, `applyTrackerAction`, `carryOutTrackerAction`, `TrackerOutcome`, `renderTrackerResults`, refused-block hand-back (`recordRefusedTrackerBlock`) |
 | `role.go` | role authority, `SystemPrompt`, `WithRemit` |
-| `document.go` | document writes the person approves |
+| `document.go`, `documentpublication.go` | document writes, policy confirmation, durable publication and returns to the owner |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
 | `usagelimit.go`, `providerwait.go`, `provideroutage.go`, `hold.go` | provider refusals, waits that put the conversation down, the operator hold |
 | `rebuild.go` | continuing on a provider that never held the session |

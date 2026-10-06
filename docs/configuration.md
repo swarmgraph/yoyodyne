@@ -1102,6 +1102,18 @@ approvals:
       reason: approved in conversation, with the adoption goal added
 ```
 
+A document written from a conversation whose policy is automatic records
+`by: harness` and `policy: approvals.designs` (or the applicable brief or goals
+policy). That confirmation opens an isolated run for the exact saved document,
+with configured checks and independent review before normal integration;
+it does not leave a file for you to commit. It needs `approvals.integration:
+automatic` as well; where integration is `human`, the document is put to you to
+confirm instead. A document governed by `approvals.brief` or `approvals.goals`
+— the non-goals, the operating rules, and anything filed in the specifications
+directory included — remains yours to confirm unless the owner records a
+consistent revision with its directing work item. [Writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
+describes restart recovery and failures returned to the owner.
+
 `at` is when the approval was **recorded**, which is not always when it was given
 — an approval given in conversation is written down afterwards — so say when and
 how you gave it in `--reason`, which is the half only you can attest to.
@@ -1382,12 +1394,13 @@ It holds in two places, and both are live.
 **Writing.** The package that writes an artifact refuses a role that does not own
 the kind, on creating, amending, superseding, and retiring one, and records the
 role that did in the revision log. That is the path a document written from a
-conversation takes: the owning role emits a typed action, you approve it, and the
-harness performs the write through this boundary under that role's authority —
-see [writing a document from a
+conversation takes: the owning role emits a typed action, and the harness
+confirms it under the document's approval policy or asks you where that policy
+is not automatic. Either way the write is checked against this boundary under
+that role's authority — see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). A role that
 names a kind it does not own, or a home its kind is not filed in, is refused
-before you are asked about it. There is still no `yoyo artifact create`: a
+before anything is confirmed and before you are asked about it. There is still no `yoyo artifact create`: a
 command would need the document's prose typed at a shell, which is the
 transcription the typed action exists to end.
 
@@ -1688,8 +1701,8 @@ it — proposals against the brief and the goals are carried into the Lead Produ
 Manager's conversation, and proposals against the designs, the specifications,
 and the decision records are carried into the architect's, each told in so many
 words that it cannot decide one. An owner may write its own documents, which is
-how an approved change is made: it writes the revision as a typed action, you
-approve it, and the harness performs the write — see [writing a document from a
+how an approved change is made: it writes the revision as a typed action,
+confirmation follows the document's policy, and the harness performs the write — see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). What no
 owner can do is decide the proposal from there. Both owners can now be
 asked directly: `yoyo agent chat architect` is where the argument about a design

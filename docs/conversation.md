@@ -302,11 +302,13 @@ by asking a model to look something up.
 
 The brief and the goals are the Lead Product Manager's documents and yours to
 approve. It has no way to write a file, so it hands the harness the document
-instead: you are shown what would be written and asked, and only your `y` files
-it — with the revision recorded under the Lead Product Manager and your approval
-recorded in the document. The file then sits uncommitted in your checkout, and a
-run refuses to start until you commit it. It is the same mechanism whichever
-role owns the document, and it is [writing a document from a
+instead. With a human confirmation policy, you are shown what would be written
+and asked; your `y` files it, recording the Lead Product Manager's revision and
+your approval. That file then sits uncommitted in your checkout until you commit
+it. An automatic policy confirms a revision recorded as consistent with intent
+and sends its exact content through an isolated run, checks, independent review,
+and normal integration. No operator prompt or manual commit is needed for that
+path. The policy and the owning role are recorded in the document; see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). A change that
 moves what the goals admit or refuse is still yours to decide, and it says so.
 
@@ -381,7 +383,8 @@ question is, which is the same rule a prompt answers by; with a question waiting
 beside it the `y` is refused with both named, because
 [a message answers a question by naming it](#answering-a-question-from-a-single-message)
 and must never answer one thing by deciding another. A document the
-conversation wrote is decided the same way and only by name —
+conversation wrote and whose policy requires your confirmation is decided the
+same way and only by name —
 `approve document-4.1`, `decline document-4.1 <reason>` — and a bare `y` never
 decides one; see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation).
@@ -1355,9 +1358,15 @@ development manager records itself.
 
 The architect owns the designs, the decision records, and the invariants. It
 still has no tools, and a design or a decision record it writes reaches the
-repository anyway: it emits the document as a typed action, you are shown the
-document and asked, and the harness writes it into your checkout under the
-architect's authority with your approval recorded in it — see [writing a
+repository anyway: it emits the document as a typed action. With an automatic
+design approval policy, the harness confirms it without asking you and sends
+the exact document through a run with checks and independent review before
+integration. A failed check, review refusal, or target conflict returns to the
+architect's conversation for revision; after three returned runs for that
+document in the conversation, automatic publication stops and the architect
+must revise its plan. Other policies, and a project whose
+`approvals.integration` is not automatic, retain your confirmation and the write
+into your checkout — see [writing a
 document from a conversation](artifacts.md#writing-a-document-from-a-conversation).
 An invariant is the exception and stays yours to record with `yoyo invariant`.
 Changes other roles proposed against its documents are carried into its

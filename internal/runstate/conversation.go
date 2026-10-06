@@ -287,7 +287,8 @@ type Conversation struct {
 	// It holds only the undecided ones. The write itself is an event in the log
 	// and stays there; what is kept here is what a later process may still be
 	// asked to carry out.
-	PendingWrites []PendingWrite `json:"pending_writes,omitempty"`
+	PendingWrites   []PendingWrite `json:"pending_writes,omitempty"`
+	DocumentReturns map[string]int `json:"document_returns,omitempty"`
 	// PendingNotices is the account of harness activity the agent has not been
 	// told about yet, and PendingNoticesDropped says older activity was cut to
 	// keep it bounded. They are durable for the same reason the tracker results
@@ -458,8 +459,10 @@ type PendingProposal struct {
 // field names are the ones the write contract uses, so what is written here
 // reads as what the role wrote.
 type PendingWrite struct {
-	ID   string `json:"id"`
-	Turn int    `json:"turn"`
+	Publication *DocumentPublication `json:"publication,omitempty"`
+	Intent      string               `json:"intent,omitempty"`
+	ID          string               `json:"id"`
+	Turn        int                  `json:"turn"`
 	// Action is "create" or "revise", kept as text because this record says what
 	// was waiting rather than deciding what is legal; what is legal is the
 	// artifact package's, and it judges this again when the write is carried out.
@@ -715,6 +718,14 @@ func (c Conversation) Validate() error {
 			len(c.PendingWrites), MaxPendingWrites))
 	}
 	for i, write := range c.PendingWrites {
+		if write.Publication != nil {
+			if err := write.Publication.Validate(); err != nil {
+				problems = append(problems, fmt.Errorf("pending_writes[%d]: %w", i, err))
+			}
+			if write.Publication.WriteID != write.ID || write.Publication.ConversationID != c.ConversationID || write.Publication.Owner != c.Role || write.Publication.Candidate.Artifact.ID != write.Artifact || write.Publication.Turn != write.Turn {
+				problems = append(problems, fmt.Errorf("pending_writes[%d] publication belongs to another document or conversation", i))
+			}
+		}
 		// An undecided document nobody can name is one nobody can approve, and one
 		// with nothing under it is an approval that would write an empty file.
 		if strings.TrimSpace(write.ID) == "" {
@@ -726,6 +737,11 @@ func (c Conversation) Validate() error {
 		if len(write.Body) > MaxPendingWriteBytes {
 			problems = append(problems, fmt.Errorf("pending_writes[%d] is %d bytes, limit is %d",
 				i, len(write.Body), MaxPendingWriteBytes))
+		}
+	}
+	for id, returns := range c.DocumentReturns {
+		if returns < 0 || returns > MaxDocumentReturns || strings.TrimSpace(id) == "" {
+			problems = append(problems, fmt.Errorf("invalid count of returned runs for document %q", id))
 		}
 	}
 	if len(c.PendingNotices) > MaxPendingNotices {

@@ -638,6 +638,9 @@ func UnlandedAccount(run runstate.State) string {
 // found is what the repository held of the run's change, and nil where nothing
 // looked, which answers from the run's own removal flag.
 func StoppageMover(run runstate.State, found *triage.Found, awaitingCarryOut bool) Mover {
+	if run.Document != nil {
+		return MoverOf(run.Document.Owner)
+	}
 	if run.IntegrationStop != nil && triage.IntegrationResumable(found, run.BranchRemoved) {
 		return MoverHarness
 	}

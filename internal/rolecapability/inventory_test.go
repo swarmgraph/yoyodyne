@@ -271,6 +271,20 @@ var expresses = map[string]expression{
 		question: "does the amending role hold the capability the kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 	},
+	"artifact.prepare-create": {
+		question: "does the creating role hold the capability the kind belongs to before the candidate is prepared?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+	},
+	"artifact.prepare-amend": {
+		question: "does the amending role hold the capability the existing document's kind belongs to?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+		gap:      "whether the document has ended is its recorded lifecycle rather than a role capability",
+	},
+	"artifact.confirm-under-policy": {
+		question: "does the author hold the capability the document's kind belongs to?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+		gap:      "the approval policy, filing home, and recorded claim of consistent intent are conditions on the document rather than capabilities that grant its author more authority",
+	},
 	"artifact.write-authorize": {
 		question: "does the role writing a document from its conversation hold the capability the document's kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
@@ -418,6 +432,10 @@ var expresses = map[string]expression{
 	"run.independent-invocations": {
 		question: "none: two sessions being different is separation",
 		gap:      "no statement of what a role may do distinguishes one invocation of it from another",
+	},
+	"run.independent-document-review": {
+		question: "none: the document owner and reviewer must be independent",
+		gap:      "different owning and reviewing roles, and recorded independent provider sessions, are runtime evidence rather than a capability one role can hold",
 	},
 	"runstate.independent-invocations": {
 		question: "none: the same separation, demanded of the durable record",

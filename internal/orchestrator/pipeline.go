@@ -1725,6 +1725,9 @@ func (p Pipeline) reclaimSlot(ctx context.Context, state runstate.State) (runsta
 // had reached instead of starting a second one against a fresh budget. Its
 // caller holds the run's lease for the whole of it.
 func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item beads.WorkItem, publishing bool, skipped string) (Outcome, error) {
+	if state.Document != nil {
+		return Outcome{}, errors.New("a document run is resumed from its owning conversation")
+	}
 	retired, handled, err := (RunRetirer{Runs: p.Store, Tracker: p.Tracker, Now: p.clock().Now(), ReadItem: p.readWorkItem}).Retire(ctx, state)
 	if handled {
 		if retired.Retirement == nil {
@@ -2515,6 +2518,9 @@ func appendUnique(values []string, value string) []string {
 // either kind of failure to the developer, and then integration and cleanup of
 // a change an attempt actually got approved.
 func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) {
+	if a.state.Document != nil {
+		return a.reviewDocument(ctx)
+	}
 	// A run whose integration a human still approves has no repair loop to
 	// return anything to: nothing is promoted without that person, and the
 	// worktree is preserved for them either way, so a failing check ends the
@@ -2570,7 +2576,7 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 	// An approval only authorizes integration when it demonstrably came from a
 	// second invocation. Missing or reused provider identity means the
 	// independence the policy relies on was never established.
-	if err := validateIndependentInvocations(a.outcome); err != nil {
+	if err := a.validateIndependentReview(); err != nil {
 		outcome, err := a.fail(stoppedBy(runstate.StopReview, err), runstate.StatusFailed)
 		return outcome, false, err
 	}
@@ -2825,6 +2831,10 @@ func (a *activeRun) blockOnChargedReplay(stop string) error {
 // what this always did, and carries the conflict on its record so a repair
 // triage grants afterwards hands the same developer the same disagreement.
 func (a *activeRun) continueOnRebaseConflict(ctx context.Context, cause error) (bool, error) {
+	if a.state.Document != nil {
+		a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
+		return false, cause
+	}
 	limit := a.repairBudget()
 	a.recordReplayConflict(recordedReplayConflict(a.worktree, cause, a.state.Phase, a.pipeline.clock().Now().UTC()))
 	overCharged, err := a.chargeReplayStop()
@@ -3685,6 +3695,9 @@ func (a *activeRun) blockOnRefusedPaths(refused pathRefusal, limit int) error {
 // session is what carries that work into the next attempt instead of asking a
 // developer to derive it a second time.
 func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error {
+	if a.state.Document != nil {
+		return errors.New("a document publication has no developer; its owning conversation must revise it")
+	}
 	// A change this developer proposed that the harness refused opens the prompt,
 	// ahead of the contract and of whatever this invocation is actually for. It is
 	// prepended here rather than built into each kind of prompt because here is the
@@ -5466,7 +5479,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// for the same reason and one more: a change nobody ran is one the harness is
 	// about to run for the first time, and the whole point of asking is that the
 	// harness's suite is not supposed to be the first execution of anything.
-	if err := a.gateSelfVerification(ctx); err != nil {
+	if err := a.gateCandidateVerification(ctx); err != nil {
 		return err
 	}
 	// What the change touches is worked out once, here, and told to every check:
@@ -5622,6 +5635,11 @@ var ErrIntegrationUnearned = errors.New("integration refused: the record does no
 // over, and the question is whether that is what is about to be promoted.
 func (a *activeRun) integrationEarned(ctx context.Context) error {
 	state := a.state
+	if state.Document != nil {
+		if _, err := a.gateProtectedPaths(ctx); err != nil {
+			return err
+		}
+	}
 	switch {
 	case state.PathRefusal != nil:
 		return fmt.Errorf("%w: a protected-path refusal is still recorded against the change", ErrIntegrationUnearned)
@@ -5752,8 +5770,18 @@ func (a *activeRun) gateProtectedPaths(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list the paths this change touches: %w", err)
 	}
+	if a.state.Document != nil {
+		if err := a.gateDocument(ctx, changed); err != nil {
+			return nil, err
+		}
+	}
 	protected := protectedpath.Protect(a.pipeline.Config, a.pipeline.Worktrees.CurrentExports()...)
 	granted := protectedpath.Grants(grantEvidence(a.item)...)
+	if a.state.Document != nil {
+		// The harness grants only its confirmed file. Absolute refusals such as
+		// role definitions and held tracker exports still apply below.
+		granted = []string{a.state.Document.Candidate.Artifact.Path}
+	}
 	refused := protected.Refused(changed, granted)
 	if len(refused) == 0 {
 		// The change in the worktree is within its scope now, so a refusal an
@@ -7844,6 +7872,9 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 // replay or re-adoption, and states how its binding relates to today's candidate.
 // The binding qualifies testimony; it never grants check or integration credit.
 func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, string, error) {
+	if a.state.Document != nil {
+		return a.context, "The owning role wrote this document in its conversation. The harness confirmed and copied it unchanged; there is no developer.", nil
+	}
 	summary := a.state.DeveloperSummary
 	if summary == nil {
 		return "", "No final account is saved in this run's durable record. The record may predate summary retention, or no developer invocation returned a final account.", nil

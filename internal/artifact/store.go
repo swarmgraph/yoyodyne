@@ -254,8 +254,19 @@ type Amendment struct {
 // Create records a new artifact. Only the role that owns the kind may: see
 // Authorize.
 func (s Store) Create(role domain.AgentRole, draft Draft, now time.Time) (Artifact, error) {
-	if err := Authorize(role, draft.Kind); err != nil {
+	recorded, body, err := s.prepareCreate(role, draft, now)
+	if err != nil {
 		return Artifact{}, err
+	}
+	if err := s.write(recorded.Path, recorded, body); err != nil {
+		return Artifact{}, err
+	}
+	return recorded, nil
+}
+
+func (s Store) prepareCreate(role domain.AgentRole, draft Draft, now time.Time) (Artifact, string, error) {
+	if err := Authorize(role, draft.Kind); err != nil {
+		return Artifact{}, "", err
 	}
 	created := Artifact{
 		ID:       strings.TrimSpace(draft.ID),
@@ -271,24 +282,21 @@ func (s Store) Create(role domain.AgentRole, draft Draft, now time.Time) (Artifa
 		}},
 	}
 	if err := created.Validate(); err != nil {
-		return Artifact{}, err
+		return Artifact{}, "", err
 	}
 	body := strings.TrimSpace(draft.Body)
 	if body == "" {
-		return Artifact{}, fmt.Errorf("artifact %q has no document below its frontmatter; identity is attached to a document rather than standing on its own", created.ID)
+		return Artifact{}, "", fmt.Errorf("artifact %q has no document below its frontmatter; identity is attached to a document rather than standing on its own", created.ID)
 	}
 	path, relative, err := s.path(created.ID, draft.Directory)
 	if err != nil {
-		return Artifact{}, err
+		return Artifact{}, "", err
 	}
 	if err := s.unclaimed(created.ID, path, relative); err != nil {
-		return Artifact{}, err
+		return Artifact{}, "", err
 	}
 	created.Path = relative
-	if err := s.write(relative, created, "\n"+body+"\n"); err != nil {
-		return Artifact{}, err
-	}
-	return created, nil
+	return created, "\n" + body + "\n", nil
 }
 
 // unclaimed reports whether anything already answers to an id. It looks across
@@ -322,22 +330,33 @@ func (s Store) unclaimed(id, path, relative string) error {
 // is judged: what a role is authorized over is decided by the document it is
 // changing rather than by what the caller says it is.
 func (s Store) Amend(role domain.AgentRole, id string, amendment Amendment, now time.Time) (Artifact, error) {
-	existing, body, err := s.loadOne(id)
+	recorded, body, err := s.prepareAmend(role, id, amendment, now)
 	if err != nil {
 		return Artifact{}, err
 	}
-	if err := Authorize(role, existing.Kind); err != nil {
+	if err := s.write(recorded.Path, recorded, body); err != nil {
 		return Artifact{}, err
+	}
+	return recorded, nil
+}
+
+func (s Store) prepareAmend(role domain.AgentRole, id string, amendment Amendment, now time.Time) (Artifact, string, error) {
+	existing, body, err := s.loadOne(id)
+	if err != nil {
+		return Artifact{}, "", err
+	}
+	if err := Authorize(role, existing.Kind); err != nil {
+		return Artifact{}, "", err
 	}
 	// Amending an artifact that was superseded or retired would revive replaced
 	// intent by editing it, which is not a decision anybody made. What replaces it
 	// is a later artifact, and that is a creation rather than this.
 	if ended, hasEnding := existing.Ended(); hasEnding {
-		return Artifact{}, fmt.Errorf("artifact %q was %s on %s and is not amended back into force: %s",
+		return Artifact{}, "", fmt.Errorf("artifact %q was %s on %s and is not amended back into force: %s",
 			id, ended.Action, ended.At.Format(time.RFC3339), ended.Reason)
 	}
 	if amendment.changesNothing() {
-		return Artifact{}, fmt.Errorf("amending artifact %q changes nothing; name what is being amended", id)
+		return Artifact{}, "", fmt.Errorf("amending artifact %q changes nothing; name what is being amended", id)
 	}
 	amended := existing
 	if amendment.Title != nil {
@@ -349,7 +368,7 @@ func (s Store) Amend(role domain.AgentRole, id string, amendment Amendment, now 
 	if amendment.Body != nil {
 		replacement := strings.TrimSpace(*amendment.Body)
 		if replacement == "" {
-			return Artifact{}, fmt.Errorf("amending artifact %q to an empty document would leave an identity with nothing under it; retire it instead", id)
+			return Artifact{}, "", fmt.Errorf("amending artifact %q to an empty document would leave an identity with nothing under it; retire it instead", id)
 		}
 		body = "\n" + replacement + "\n"
 	}
@@ -361,12 +380,9 @@ func (s Store) Amend(role domain.AgentRole, id string, amendment Amendment, now 
 		Intent: amendment.Intent,
 	})
 	if err := amended.Validate(); err != nil {
-		return Artifact{}, err
+		return Artifact{}, "", err
 	}
-	if err := s.write(amended.Path, amended, body); err != nil {
-		return Artifact{}, err
-	}
-	return amended, nil
+	return amended, body, nil
 }
 
 // changesNothing reports an amendment that names no change at all, which is a

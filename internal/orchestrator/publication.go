@@ -222,6 +222,7 @@ func lostPublicationRecord(state runstate.State) bool {
 // have it, because a request that moved is exactly what the arming has to be
 // able to refuse.
 func (r Reconciler) recoverPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationRecovery {
+	r = r.forDocument(recorded)
 	recovery := PublicationRecovery{
 		RunID:      recorded.RunID,
 		WorkItemID: recorded.WorkItemID,
@@ -538,6 +539,7 @@ func unsettledPublication(state runstate.State) bool {
 // act: the record that is rewritten is the record that was read, so a sweep
 // settling the same run beside this cannot lose either half.
 func (r Reconciler) refreshPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationRefresh {
+	r = r.forDocument(recorded)
 	published := *recorded.PullRequest
 	refresh := PublicationRefresh{
 		RunID:      recorded.RunID,
@@ -771,6 +773,7 @@ func unfinishedPublication(state runstate.State) bool {
 // is recorded by the sweep as a finding; repeating the same refusal adds no
 // note to the item.
 func (r Reconciler) finishPublication(ctx context.Context, answers forgeAnswers, recorded runstate.State) PublicationSettlement {
+	r = r.forDocument(recorded)
 	published := *recorded.PullRequest
 	settlement := PublicationSettlement{
 		RunID:       recorded.RunID,

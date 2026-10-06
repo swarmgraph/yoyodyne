@@ -221,6 +221,7 @@ context bundle come from `internal/contextbundle`.
 | `stallcontinue.go`, `checkstagecontinue.go`, `integrationresume.go` | the harness's own continuations of a stopped run |
 | `redeploydrain.go` | `RedeployDrain`, `drainedForRedeploy`, `pauseForRedeploy` |
 | `runretirement.go` | `RunRetirer.Retire` — retire a run whose item closed on a confirmed merge |
+| `documentpublication.go` | `PublishDocument`, exact-file gate, independent review without a developer, returns to the owning conversation |
 | `publish.go`, `publication.go` | pushing branches, pull requests, merge waits, re-asking the forge later |
 | `reconcile.go`, `reconcilewait.go`, `reconcilefinding.go` | settling what stopped runs left on disk and on the forge |
 | `selfcheck.go` | `gateSelfVerification`, `missingVerification`, `verificationRepairPrompt` |

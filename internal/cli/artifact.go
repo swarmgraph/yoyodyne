@@ -8,8 +8,9 @@ package cli
 // commands beside it, and the reason is not that the store lacks them. It has
 // them, gated by the ownership boundary, and they are reached from the place a
 // document is actually written: the owning role emits the document as a typed
-// action in its conversation, the operator approves it, and the harness performs
-// the write under that role's authority (internal/artifact/write.go). A command
+// action in its conversation, it is confirmed under the approval policy or by
+// the operator, and the harness performs the write under that role's authority
+// (internal/artifact/write.go). A command
 // here would need the document's prose typed at a shell, which is the
 // transcription that path exists to end.
 //

@@ -14,10 +14,10 @@ package artifact
 // So a document is emitted the way a proposed work item and a proposed
 // amendment already are: as a typed action in a fenced block, carrying what the
 // role decided and nothing about how it is stored. The harness does the rest —
-// it refuses what the role may not write before anything is written, puts the
-// document to the operator, performs the write under the role's own authority
-// through Authorize, generates the frontmatter the contract requires, and
-// records the operator's approval against the revision the write produced.
+// it refuses what the role may not write, generates the frontmatter, and
+// records confirmation under the configured policy. Automatic confirmation
+// opens a reviewed publication run; human confirmation retains the operator's
+// write into the checkout. Both act under the owning role's authority.
 //
 // What this is not is a way past ownership. Every write goes through the same
 // Authorize the rest of this package's mutations go through, so the action layer
@@ -86,6 +86,7 @@ func (a WriteAction) Valid() bool {
 // the lifecycle status, the revision log, the frontmatter, the file itself — is
 // absent, because that is the half a transcriber used to invent.
 type Write struct {
+	Intent Intent      `json:"intent,omitempty"`
 	Action WriteAction `json:"action"`
 	// ID is the document's identity, which is also its file name. It is required
 	// on both actions: a creation says what the new document is called, and a
@@ -129,6 +130,9 @@ type Write struct {
 // in needs the configured homes, which one action does not carry.
 func (w Write) Validate() error {
 	var problems []error
+	if w.Intent != "" && (!w.Intent.Valid() || w.Action != WriteRevise) {
+		problems = append(problems, errors.New("intent must be consistent or fundamental on a revision"))
+	}
 	if !w.Action.Valid() {
 		problems = append(problems, fmt.Errorf("action %q must be %q or %q", w.Action, WriteCreate, WriteRevise))
 	}
@@ -330,7 +334,7 @@ func (w Write) Draft() Draft {
 // mentions neither keeps both rather than replacing them with nothing.
 func (w Write) Amendment() Amendment {
 	body := strings.TrimSpace(w.Body)
-	amendment := Amendment{Body: &body, Reason: strings.TrimSpace(w.Reason)}
+	amendment := Amendment{Body: &body, Reason: strings.TrimSpace(w.Reason), Intent: w.Intent}
 	if title := strings.TrimSpace(w.Title); title != "" {
 		amendment.Title = &title
 	}
@@ -488,7 +492,7 @@ func WriteContract(role domain.AgentRole, filing []KindHome) string {
 	}
 	return `# Writing a document you own
 
-The documents you own are yours to write, and this is how one reaches the repository. You still have no tools: what you emit is an action, the operator approves it, and the harness performs the write under your authority — it generates the frontmatter, appends the revision saying you made the change, records the operator's approval against that revision, and files the document. Nothing about the transcription is yours to get right, and nothing you write here is placed unless the operator approves it.
+The documents you own are yours to write. You still have no tools: emit the action below and the harness generates the frontmatter and records the revision under your authority. Where the document's approval policy is automatic, the harness confirms it without asking the operator, records that policy, and opens a run with exactly your document. Configured checks and an independent reviewer must approve that file before normal integration. Other policies retain operator confirmation. A goals or brief revision needs operator confirmation unless you record it as consistent with intent, with the directing work item opening its reason.
 
 To write one, end your reply with exactly one block of this shape:
 
@@ -496,11 +500,11 @@ To write one, end your reply with exactly one block of this shape:
 {"documents":[{"action":"create","id":"artifact-id","kind":"` + string(filing[0].Kind) + `","title":"one line","supports":["upstream-artifact-id"],"directory":"` + filing[0].Directory + `","body":"the whole document, in Markdown, below the frontmatter","reason":"why you are recording it"}]}
 ` + "```" + `
 
-A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `. It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
+A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `. For a goals or brief revision, also record "intent":"consistent" or "intent":"fundamental". It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
 
 The kinds you may write, and where this project files each of them, are ` + strings.Join(kinds, ", ") + `. Any other kind is refused and nothing is written, and so is a document filed anywhere but the directory its own kind belongs in — being inside one of this project's ` + strings.Join(directories, " or ") + ` is not enough. The id is the file name without its extension, so it also has to be one: an id that already answers to a document is a revision rather than a creation.
 
-A document you write is placed in the operator's working tree. Nothing here commits it, pushes it, or opens a pull request for it, so do not say that it did.
+Automatic publication leaves no uncommitted document in the primary checkout. If checks fail, review refuses it, or target changes conflict, the findings return to this conversation for you to revise; no developer rewrites it and no operator decision is requested. A revision opens a fresh run. After three returned runs for one document in this conversation, automatic publication stops and you must revise your plan. Documents that need operator confirmation retain the existing write into the operator's working tree. Never claim that a document landed until the harness reports it.
 
 The body is a JSON string, so the document's own newlines and quotes are escaped in it — a Markdown document with code fences in it is carried perfectly well, and a block that is not valid JSON writes nothing at all. One reply carries ` + maxWritesPerReplyText + ` document, at most ` + fmt.Sprintf("%d", MaxWriteBodyBytes) + ` bytes of it, and leaves the block out entirely when you are not writing one, which is most replies. Never describe a document as written before the harness has told you it was.`
 }

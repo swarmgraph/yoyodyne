@@ -24,6 +24,7 @@ func (r Reconciler) recordReconcileFinding(ctx context.Context, runID string, st
 		return nil, fmt.Sprintf("record settlement finding for run %s: %v", runID, err)
 	}
 	defer lease.Release()
+	r = r.forDocument(state)
 	// Another settlement can record the forge's final answer before the refresh
 	// sweep revisits the request. That answer settles its earlier read refusal.
 	if published := state.PullRequest; published != nil && (published.Merged || published.Superseded != "" || published.HandedBack != nil || strings.EqualFold(strings.TrimSpace(published.State), "CLOSED")) {
@@ -199,6 +200,7 @@ func (r Reconciler) maintainRunFindings(ctx context.Context, recorded runstate.S
 		return result, true
 	}
 	defer lease.Release()
+	r = r.forDocument(state)
 	result.WorkItemID = state.WorkItemID
 	result.WorkItemTitle = state.WorkItemTitle
 	before := slices.Clone(state.ReconcileFindings)
