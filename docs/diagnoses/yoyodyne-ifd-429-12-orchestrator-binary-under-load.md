@@ -214,13 +214,29 @@ directly or through any package it reaches, and
 package of its own checks that each fake still satisfies the interface
 `orchestrator` asks of it.
 
-The in-package fakes are untouched. `fakeTracker`, `fakeBackend`, `fakeForge`,
-`fakePricer`, `partialWorktreeManager`, `roleBackend`, `withVerification`, and
-`connectionReset` are still declared in `pipeline_test.go` and `publish_test.go`,
-and every in-package test still uses them. So for now each fake exists twice.
-The second half of step 1 is to point the in-package tests at
-`orchestratortest` and delete the in-package copies. That is the first of the
-migrations, and it is not part of this change.
+The more specialized fakes have moved there too, with their scripted answers,
+state, and call records as exported fields. Among them are `RecoveryCheckout`
+and `ResumeOwnership` for recovery, `CheckedForge` and `PublicationAnswers` for
+publication, and the conversation, re-arm, and scheduler fakes.
+
+The in-package tests are moving onto them in two changes, split by file name
+because one change was too large to review:
+
+- **First (yoyodyne-ifd.429.13.6.1).** Every test file whose name sorts before
+  `publish_test.go` takes its fakes from `orchestratortest` and declares none of
+  its own. The old in-package `fakeTracker`, `fakeBackend`, `fakeForge`, and
+  `fakePricer` are gone, because no test uses them any more.
+- **Second (yoyodyne-ifd.429.13.6.2).** The files from `publish_test.go` on move
+  too, and the old names go with them.
+
+Until the second change lands, those later files still use some old in-package
+fakes. A few of these are declared next to the shared fixtures in those files,
+such as `checkedForge` in `queuedchecks_test.go` and the scheduler harness in
+`schedule_test.go`. An earlier file that reaches a fake through one of those
+fixtures still meets the old fake there. The others are kept in
+`inpackagefakes_test.go` under their old names, and only while a test still uses
+them: `recordingFiler`, `looked`, `answeringForge`, `publicationAnswers`, and the
+scheduler harness's `Release`.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than

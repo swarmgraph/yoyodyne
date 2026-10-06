@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -74,7 +75,7 @@ func TestAutomaticCheckContinuationKeepsArtifactsBeyondTheTailWhileDelayed(t *te
 					t.Fatal(err)
 				}
 			}
-			w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true}
+			w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true, Present: true}
 			c := checkStageRecoveryContinuer(h, w)
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
 			if err != nil || result.Continued || (gate == "intake" && result.IntakeHeld == nil) || (gate == "capacity" && result.CapacityFull == nil) {
@@ -104,7 +105,7 @@ func TestAutomaticCheckContinuationKeepsArtifactsBeyondTheTailWhileDelayed(t *te
 			if !swept || branch.Removed || !strings.Contains(branch.Kept, "automatic check continuation") {
 				t.Fatalf("branch sweep = %#v", branch)
 			}
-			if !reflect.DeepEqual(s, loadRecoveryRun(t, h.runs, s.RunID)) || len(h.started) != 0 || w.restores != 0 {
+			if !reflect.DeepEqual(s, loadRecoveryRun(t, h.runs, s.RunID)) || len(h.started) != 0 || w.Restores != 0 {
 				t.Fatal("waiting or retention changed the run or spent a continuation")
 			}
 		})
@@ -144,7 +145,7 @@ func TestDocketRefreshesAutomaticCheckRecoveryFromTheRun(t *testing.T) {
 	h := newUndecidedHarness(t, s)
 	h.docket.entries[0].HarnessContinuesChecks = false
 	d := docketerOver([]runstate.State{s}, h.docket)
-	d.Remains = &recoveryCheckout{branch: true}
+	d.Remains = &orchestratortest.RecoveryCheckout{Branch: true}
 	built, err := d.Build()
 	if err != nil || len(built.Entries) != 1 || !built.Entries[0].HarnessContinuesChecks || built.Entries[0].Artifacts.Found.WorktreeThere {
 		t.Fatalf("restorable docket = %#v, %v", built, err)
@@ -184,8 +185,8 @@ func TestAutomaticCheckContinuationRestoresTheRecordedCrossRoleRunAcrossRestart(
 			if err != nil {
 				t.Fatal(err)
 			}
-			w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true}
-			w.beforeRestore = func() {
+			w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true}
+			w.BeforeRestore = func() {
 				durable := loadRecoveryRun(t, h.runs, s.RunID)
 				if durable.ChecksPassed != nil || !durable.CheckoutRestorePending || !durable.Status.Terminal() || !reflect.DeepEqual(durable.CheckStageContinuations, s.CheckStageContinuations) {
 					t.Fatalf("before restoration = %#v", durable)
@@ -196,7 +197,7 @@ func TestAutomaticCheckContinuationRestoresTheRecordedCrossRoleRunAcrossRestart(
 				t.Fatalf("restorable continuation due = %t, %v", due, err)
 			}
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
-			if err != nil || !result.Continued || !result.WorktreeRestored || w.restores != 1 || len(h.started) != 1 || h.started[0].runID != s.RunID {
+			if err != nil || !result.Continued || !result.WorktreeRestored || w.Restores != 1 || len(h.started) != 1 || h.started[0].runID != s.RunID {
 				t.Fatalf("restored continuation = %#v, %v; starts = %#v", result, err, h.started)
 			}
 			after := loadRecoveryRun(t, h.runs, s.RunID)
@@ -226,11 +227,11 @@ func TestAutomaticCheckRestorationRestartVerifiesTheCompletedCheckout(t *testing
 			s.WorktreeRemoved, s.CheckoutRestorePending = true, true
 			s.WorktreeSweptAt = &s.UpdatedAt
 			h := newUndecidedHarness(t, s)
-			w := &recoveryCheckout{fakeOwnership: h.ownership, branch: true, present: true, dirty: dirty}
+			w := &orchestratortest.RecoveryCheckout{Ownership: h.ownership, Branch: true, Present: true, Dirty: dirty}
 			c := checkStageRecoveryContinuer(h, w)
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
 			after := loadRecoveryRun(t, h.runs, s.RunID)
-			if w.restores != 0 {
+			if w.Restores != 0 {
 				t.Fatal("restart repeated an already completed filesystem restoration")
 			}
 			if dirty {
@@ -248,20 +249,20 @@ func TestAutomaticCheckRestorationRefusesUnrecoverableStateWithoutSpending(t *te
 	t.Parallel()
 	for _, tc := range []struct {
 		name   string
-		change func(*runstate.State, *recoveryCheckout)
+		change func(*runstate.State, *orchestratortest.RecoveryCheckout)
 	}{
-		{"branch missing", func(_ *runstate.State, w *recoveryCheckout) { w.branch = false }},
-		{"path conflict", func(_ *runstate.State, w *recoveryCheckout) {
-			w.restoreErr = errors.New("worktree path already exists")
+		{"branch missing", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) { w.Branch = false }},
+		{"path conflict", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) {
+			w.RestoreErr = errors.New("worktree path already exists")
 		}},
-		{"revision changed", func(_ *runstate.State, w *recoveryCheckout) {
-			w.restoreErr = errors.New("branch is not at the recorded commit")
+		{"revision changed", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) {
+			w.RestoreErr = errors.New("branch is not at the recorded commit")
 		}},
-		{"unverifiable repository", func(_ *runstate.State, w *recoveryCheckout) {
-			w.surviveErr = errors.New("repository could not be read")
+		{"unverifiable repository", func(_ *runstate.State, w *orchestratortest.RecoveryCheckout) {
+			w.SurviveErr = errors.New("repository could not be read")
 		}},
-		{"no recorded commit", func(s *runstate.State, _ *recoveryCheckout) { s.HarnessCommit = "" }},
-		{"captured uncommitted work", func(s *runstate.State, _ *recoveryCheckout) {
+		{"no recorded commit", func(s *runstate.State, _ *orchestratortest.RecoveryCheckout) { s.HarnessCommit = "" }},
+		{"captured uncommitted work", func(s *runstate.State, _ *orchestratortest.RecoveryCheckout) {
 			s.PreservedWorkRef = gitworktree.PreservedWorkRef(s.RunID)
 		}},
 	} {
@@ -269,10 +270,10 @@ func TestAutomaticCheckRestorationRefusesUnrecoverableStateWithoutSpending(t *te
 			s := crossRoleCheckStageState()
 			s.WorktreeRemoved = true
 			s.WorktreeSweptAt = &s.UpdatedAt
-			w := &recoveryCheckout{branch: true}
+			w := &orchestratortest.RecoveryCheckout{Branch: true}
 			tc.change(&s, w)
 			h := newUndecidedHarness(t, s)
-			w.fakeOwnership = h.ownership
+			w.Ownership = h.ownership
 			c := checkStageRecoveryContinuer(h, w)
 			result, err := c.Continue(context.Background(), CheckStageContinueRequest{Run: s.RunID})
 			after := loadRecoveryRun(t, h.runs, s.RunID)

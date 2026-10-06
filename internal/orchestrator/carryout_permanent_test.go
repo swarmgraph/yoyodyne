@@ -52,7 +52,7 @@ func TestAPermanentRefusalNoteIsRetriedWithoutRetryingTheAction(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			harness := newContinueHarness(t, continuableState())
 			continuer := harness.continuer()
-			continuer.Remains = &looked{survival: gitworktree.Survival{BranchExists: true}}
+			continuer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: true}}
 			repairer := &countedRepair{RepairContinuer: continuer}
 			notes := &recoveringCarryOutNotes{Tracker: harness.tracker, failures: 1, landed: landed}
 			watch := harness.carryOut()
@@ -124,8 +124,8 @@ func TestAPermanentRepairRefusalIsRecordedOnceAndNeverRetried(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			harness := newContinueHarness(t, continuableState())
 			continuer := harness.continuer()
-			continuer.Remains = &looked{survival: test.remains}
-			harness.ownership.err = test.headError
+			continuer.Remains = &orchestratortest.Survival{Survival: test.remains}
+			harness.ownership.Err = test.headError
 			repairer := &countedRepair{RepairContinuer: continuer}
 			watch := harness.carryOut()
 			watch.Repairer = repairer

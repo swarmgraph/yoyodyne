@@ -22,50 +22,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
-// resumeOwnership stands in for the three questions a resumption asks of the
-// repository: whether the primary checkout is one a promotion can be made from,
-// whether the preserved worktree is as the harness left it, and whether the
-// change is still in it.
-type resumeOwnership struct {
-	fakeOwnership
-	readyErr error
-	asked    int
-	// restored is each retired worktree this was asked to put back, and
-	// restoreErr what stopped it where nothing could be.
-	restored   []gitworktree.Worktree
-	restoreErr error
-	// held and divergenceErr are what the target branch's catch-up would still
-	// hold on, and accessErr what the remotes still say of the credential.
-	held          string
-	divergenceErr error
-	accessErr     error
-	targetAsked   int
-	accessAsked   int
-}
-
-func (f *resumeOwnership) ValidateReady(context.Context) error {
-	f.asked++
-	return f.readyErr
-}
-
-func (f *resumeOwnership) TargetDivergence(_ context.Context, targetBranch string) (gitworktree.Catchup, error) {
-	f.targetAsked++
-	return gitworktree.Catchup{TargetBranch: targetBranch, Held: f.held}, f.divergenceErr
-}
-
-func (f *resumeOwnership) VerifyRemoteAccess(context.Context, string) error {
-	f.accessAsked++
-	return f.accessErr
-}
-
-func (f *resumeOwnership) RestoreWorktree(_ context.Context, worktree gitworktree.Worktree) (gitworktree.Worktree, error) {
-	f.restored = append(f.restored, worktree)
-	if f.restoreErr != nil {
-		return gitworktree.Worktree{}, f.restoreErr
-	}
-	return worktree, nil
-}
-
 // resumeHarness is the durable state a resumption acts on, held together so a
 // test can drive one without rebuilding four stores.
 type resumeHarness struct {
@@ -76,7 +32,7 @@ type resumeHarness struct {
 	runs      *runstate.Store
 	intake    *runstate.IntakeHoldStore
 	tracker   *orchestratortest.Tracker
-	ownership *resumeOwnership
+	ownership *orchestratortest.ResumeOwnership
 	started   []continuedRun
 	outcome   Outcome
 	failure   error
@@ -179,7 +135,7 @@ func newResumeHarness(t *testing.T, state runstate.State) *resumeHarness {
 		tracker: &orchestratortest.Tracker{Item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}},
 		// The checkout is clean again, which is the ordinary case: the operator
 		// committed the edit that stopped the run.
-		ownership: &resumeOwnership{},
+		ownership: &orchestratortest.ResumeOwnership{},
 		capacity:  2,
 		outcome:   Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: runstate.StatusSucceeded},
 		recorded:  state,
@@ -238,8 +194,8 @@ func (h *resumeHarness) assertNothingWritten(t *testing.T) {
 	if _, closed := h.closure(t); closed {
 		t.Fatal("a refused resumption closed the docket entry")
 	}
-	if len(h.ownership.restored) != 0 {
-		t.Fatalf("a refused resumption restored a worktree: %#v", h.ownership.restored)
+	if len(h.ownership.Restored) != 0 {
+		t.Fatalf("a refused resumption restored a worktree: %#v", h.ownership.Restored)
 	}
 }
 
@@ -313,8 +269,8 @@ func TestAResumptionMakesTheStoppedRunLiveAtItsPromotionChargingNothing(t *testi
 	if !closed || closure.Decision != resumedDocketDecision || !strings.Contains(closure.DecidedBy, "the harness") {
 		t.Fatalf("docket closure = %#v, want the stoppage settled as resumed by the harness, through the real store", closure)
 	}
-	if len(harness.ownership.restored) != 0 {
-		t.Fatalf("a worktree the sweep never retired was restored: %#v", harness.ownership.restored)
+	if len(harness.ownership.Restored) != 0 {
+		t.Fatalf("a worktree the sweep never retired was restored: %#v", harness.ownership.Restored)
 	}
 }
 
@@ -436,8 +392,8 @@ func TestAResumptionPutsARetiredWorktreeBackFromItsBranch(t *testing.T) {
 	if !result.Resumed || !result.WorktreeRestored {
 		t.Fatalf("result = %#v, want the run resumed in a restored worktree", result)
 	}
-	if len(harness.ownership.restored) != 1 || harness.ownership.restored[0].Branch != "yoyodyne/task/abc" || harness.ownership.restored[0].HarnessCommit != strings.Repeat("c", 40) {
-		t.Fatalf("restored = %#v, want the worktree put back on its branch at the recorded commit", harness.ownership.restored)
+	if len(harness.ownership.Restored) != 1 || harness.ownership.Restored[0].Branch != "yoyodyne/task/abc" || harness.ownership.Restored[0].HarnessCommit != strings.Repeat("c", 40) {
+		t.Fatalf("restored = %#v, want the worktree put back on its branch at the recorded commit", harness.ownership.Restored)
 	}
 	state := harness.reload(t)
 	if state.WorktreeRemoved || state.WorktreeSweptAt != nil || state.Status != runstate.StatusRunning {
@@ -455,7 +411,7 @@ func TestAResumptionRefusesARetiredWorktreeItCannotRestore(t *testing.T) {
 	t.Parallel()
 
 	harness := newResumeHarness(t, retiredState())
-	harness.ownership.restoreErr = errors.New("branch yoyodyne/task/abc is at deadbeef, not at the commit the harness recorded")
+	harness.ownership.RestoreErr = errors.New("branch yoyodyne/task/abc is at deadbeef, not at the commit the harness recorded")
 	_, err := harness.resumer().Resume(context.Background(), resumeRequest())
 	if !errors.Is(err, ErrWorktreeNotRestored) || !strings.Contains(err.Error(), "deadbeef") {
 		t.Fatalf("Resume() error = %v, want the restore refused naming what stopped it", err)
@@ -469,7 +425,7 @@ func TestAResumptionRefusesARetiredWorktreeItCannotRestore(t *testing.T) {
 	}
 
 	emptied := newResumeHarness(t, retiredState())
-	emptied.ownership.changed = []string{}
+	emptied.ownership.Changed = []string{}
 	if _, err := emptied.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrPreservedChangeMissing) {
 		t.Fatalf("Resume() error = %v, want the restored but empty worktree refused", err)
 	}
@@ -485,7 +441,7 @@ func TestAResumptionIsRefusedWhileTheCheckoutIsStillNotReady(t *testing.T) {
 	t.Parallel()
 
 	harness := newResumeHarness(t, approvedStoppedState())
-	harness.ownership.readyErr = fmt.Errorf("%w: primary repository has uncommitted changes: AGENTS.md", gitworktree.ErrPrimaryNotReady)
+	harness.ownership.ReadyErr = fmt.Errorf("%w: primary repository has uncommitted changes: AGENTS.md", gitworktree.ErrPrimaryNotReady)
 	_, err := harness.resumer().Resume(context.Background(), resumeRequest())
 	if !errors.Is(err, ErrCheckoutNotReady) || !strings.Contains(err.Error(), "AGENTS.md") {
 		t.Fatalf("Resume() error = %v, want the checkout refused naming what it carries", err)
@@ -500,14 +456,14 @@ func TestAResumptionRefusesAWorktreeThatIsNotAsTheHarnessLeftItOrIsEmpty(t *test
 	t.Parallel()
 
 	touched := newResumeHarness(t, approvedStoppedState())
-	touched.ownership.err = errors.New("worktree HEAD is deadbeef, want the commit the harness recorded")
+	touched.ownership.Err = errors.New("worktree HEAD is deadbeef, want the commit the harness recorded")
 	if _, err := touched.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrWorktreeNotAsLeft) {
 		t.Fatalf("Resume() error = %v, want the touched worktree refused", err)
 	}
 	touched.assertNothingWritten(t)
 
 	emptied := newResumeHarness(t, approvedStoppedState())
-	emptied.ownership.changed = []string{}
+	emptied.ownership.Changed = []string{}
 	if _, err := emptied.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrPreservedChangeMissing) {
 		t.Fatalf("Resume() error = %v, want the empty worktree refused", err)
 	}
@@ -650,7 +606,7 @@ func TestAResumptionOfADivergedTargetRefusesUntilTheBranchesAreSettled(t *testin
 	t.Parallel()
 
 	harness := newResumeHarness(t, divergedStoppedState())
-	harness.ownership.held = "main on origin is at abc, which does not contain the local main at def; only a person can say which history is right"
+	harness.ownership.Held = "main on origin is at abc, which does not contain the local main at def; only a person can say which history is right"
 	_, err := harness.resumer().Resume(context.Background(), resumeRequest())
 	var stands CauseStandsError
 	if !errors.Is(err, ErrCauseStands) || !errors.As(err, &stands) || stands.Cause != runstate.CauseDivergedTarget {
@@ -662,11 +618,11 @@ func TestAResumptionOfADivergedTargetRefusesUntilTheBranchesAreSettled(t *testin
 		}
 	}
 	harness.assertNothingWritten(t)
-	if harness.ownership.accessAsked != 0 {
-		t.Fatalf("a diverged-target stop asked the remotes about the credential %d time(s)", harness.ownership.accessAsked)
+	if harness.ownership.AccessAsked != 0 {
+		t.Fatalf("a diverged-target stop asked the remotes about the credential %d time(s)", harness.ownership.AccessAsked)
 	}
 
-	harness.ownership.held = ""
+	harness.ownership.Held = ""
 	result, err := harness.resumer().Resume(context.Background(), resumeRequest())
 	if err != nil || !result.Resumed || len(harness.started) != 1 {
 		t.Fatalf("Resume() = %#v, %v; want the settled stop resumed", result, err)
@@ -690,7 +646,7 @@ func TestAResumptionOfARefusedKeyRefusesUntilTheRemoteTakesIt(t *testing.T) {
 	state.IntegrationStop.Detail = state.Failure
 	harness := newResumeHarness(t, state)
 
-	harness.ownership.accessErr = fmt.Errorf("list main on origin: %w: git ls-remote exited 128: git@github.com: Permission denied (publickey).", gitworktree.ErrRemoteAuthRefused)
+	harness.ownership.AccessErr = fmt.Errorf("list main on origin: %w: git ls-remote exited 128: git@github.com: Permission denied (publickey).", gitworktree.ErrRemoteAuthRefused)
 	_, err := harness.resumer().Resume(context.Background(), resumeRequest())
 	if !errors.Is(err, ErrCauseStands) {
 		t.Fatalf("Resume() error = %v, want the refused key refused as still standing", err)
@@ -702,19 +658,19 @@ func TestAResumptionOfARefusedKeyRefusesUntilTheRemoteTakesIt(t *testing.T) {
 	}
 	harness.assertNothingWritten(t)
 
-	harness.ownership.accessErr = errors.New("list main on origin: connection reset by peer")
+	harness.ownership.AccessErr = errors.New("list main on origin: connection reset by peer")
 	if _, err := harness.resumer().Resume(context.Background(), resumeRequest()); !errors.Is(err, ErrCauseStands) || !strings.Contains(err.Error(), "could not be asked") {
 		t.Fatalf("Resume() error = %v, want an unanswered question refused rather than resumed on", err)
 	}
 	harness.assertNothingWritten(t)
 
-	harness.ownership.accessErr = nil
+	harness.ownership.AccessErr = nil
 	result, err := harness.resumer().Resume(context.Background(), resumeRequest())
 	if err != nil || !result.Resumed {
 		t.Fatalf("Resume() = %#v, %v; want the stop resumed once the key is taken", result, err)
 	}
-	if harness.ownership.targetAsked != 0 {
-		t.Fatalf("a refused-key stop asked whether the target catches up %d time(s)", harness.ownership.targetAsked)
+	if harness.ownership.TargetAsked != 0 {
+		t.Fatalf("a refused-key stop asked whether the target catches up %d time(s)", harness.ownership.TargetAsked)
 	}
 }
 
@@ -1340,12 +1296,12 @@ func TestResumeChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
 			t.Fatal(err)
 		}
 		resumer := harness.resumer()
-		resumer.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		resumer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
 		result, err := resumer.Resume(context.Background(), resumeRequest())
 		if (err == nil) != there || result.Resumed != there || (len(harness.started) > 0) != there {
 			t.Fatalf("Resume() = %#v, %v, want resumed %t", result, err, there)
 		}
-		if there && (result.WorktreeRestored || len(harness.ownership.restored) != 0) {
+		if there && (result.WorktreeRestored || len(harness.ownership.Restored) != 0) {
 			t.Fatal("a present checkout was restored because of its removal flag")
 		}
 		if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
