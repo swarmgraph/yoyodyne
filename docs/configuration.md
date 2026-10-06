@@ -1394,12 +1394,13 @@ It holds in two places, and both are live.
 **Writing.** The package that writes an artifact refuses a role that does not own
 the kind, on creating, amending, superseding, and retiring one, and records the
 role that did in the revision log. That is the path a document written from a
-conversation takes: the owning role emits a typed action, you approve it, and the
-harness performs the write through this boundary under that role's authority —
-see [writing a document from a
+conversation takes: the owning role emits a typed action, and the harness
+confirms it under the document's approval policy or asks you where that policy
+is not automatic. Either way the write is checked against this boundary under
+that role's authority — see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). A role that
 names a kind it does not own, or a home its kind is not filed in, is refused
-before you are asked about it. There is still no `yoyo artifact create`: a
+before anything is confirmed and before you are asked about it. There is still no `yoyo artifact create`: a
 command would need the document's prose typed at a shell, which is the
 transcription the typed action exists to end.
 

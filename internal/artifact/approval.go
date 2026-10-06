@@ -49,7 +49,12 @@ package artifact
 // recorded as theirs. That is also why recording one does not go through
 // Authorize, which is the boundary between roles: the operator is not one of
 // them, and holding the operator to a role's ownership would be the wrong
-// boundary in the wrong direction.
+// boundary in the wrong direction. The one other approver is the harness,
+// which records a confirmation only where the project's approval policy for
+// the document is automatic, naming that policy on the record. It never
+// records one for a change of fundamental intent: product intent is confirmed
+// that way only on its owner's recorded claim that the revision is consistent
+// with it (see publication.go).
 //
 // What requires approval at all is the project's decision rather than this
 // package's. Policy carries the `approvals` configuration into the terms this
