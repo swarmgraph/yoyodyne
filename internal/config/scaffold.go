@@ -675,7 +675,7 @@ func renderScaffoldList(values []string) string {
 // the schedule is not where that is decided.
 func renderScaffoldRecurring(builder *strings.Builder) {
 	builder.WriteString(`
-# Work the harness does on a cadence rather than because something happened.
+# Work the harness does on a schedule rather than because something happened.
 # Optional and off: a project that schedules nothing runs exactly as it did
 # before this existed. Each entry names a role to wake, how often, and what to
 # say to it -- and nothing else. There is no key here for a capability, a tool,
@@ -684,7 +684,7 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 # conversation you open by hand.
 #
 # A firing is conversation turns and costs what conversation turns cost, so the
-# cadence is the spending decision: "1h" is a turn an hour for as long as the
+# interval is the spending decision: "1h" is a turn an hour for as long as the
 # session watches. Passes of different roles are taken side by side, beside the
 # work the session pulls rather than in its way, and a pass with more to do
 # than one turn holds says so and is given another, up to max_turns. Reports are
@@ -718,7 +718,7 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       When the harness is healthy this finds nothing, and that is the report.
 #       A sweep that keeps finding things is itself the signal: say so.
 #       Then check everything that appears to wait on the operator: the
-#       needs-a-human entries whose move is his, which the pass carries beside
+#       needs-a-human entries waiting on him, which the pass carries beside
 #       the docket with how long each has waited. Only a change to the
 #       fundamental goals is truly his. Settle each other one if it is yours,
 #       send it to the role that owns it if it is not, and file a defect with

@@ -173,7 +173,7 @@ func TestTriggersOutsideTheClosedSetOrUnderTheFloorAreRefused(t *testing.T) {
 		{name: "repeated event", triggers: "      on: [landings, landings]\n",
 			want: `agent "pm" triggers.on names "landings" twice`},
 		{name: "under the floor", triggers: "      every: 1m\n",
-			want: `agent "pm" triggers.every is 1m0s, and the shortest cadence is 5m0s`},
+			want: `agent "pm" triggers.every is 1m0s, and the shortest interval allowed is 5m0s`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

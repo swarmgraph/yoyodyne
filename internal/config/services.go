@@ -267,7 +267,7 @@ func (s Services) problems(reporting Slack) []string {
 
 func (m MaintenanceService) problems() []string {
 	if m.Every.Duration() < MinMaintenanceInterval {
-		return []string{fmt.Sprintf("services.maintenance.every is %s, and the shortest cadence is %s: every pass reads the tracker and asks the forge about every unsettled publication, so a cadence below that is load rather than maintenance",
+		return []string{fmt.Sprintf("services.maintenance.every is %s, and the shortest interval allowed is %s: every pass reads the tracker and asks the forge about every unsettled publication, so a shorter interval is load rather than maintenance",
 			m.Every, Duration(MinMaintenanceInterval))}
 	}
 	return nil

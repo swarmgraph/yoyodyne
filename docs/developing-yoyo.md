@@ -478,7 +478,7 @@ Go check has ever run a line of bash.
 | A link in any Markdown file here resolving to nothing — a path that is not in the repository, or a fragment naming a heading the target does not carry — or a fragment cited from Go, YAML, or shell source naming a heading the document it names does not carry | `internal/doclink` | Fix the link, or the heading it points at. Absolute URLs are not resolved: they are somebody else's to keep working, and reaching for one would put the network in a deterministic check. The exception is a URL naming this repository's own forge home, derived from go.mod's module path — the repository root carrying a fragment, which is a link into the README because that is where the forge renders it, and a file in the blob view. That spelling is not somebody else's and it is the one a document has to use when it is read outside a checkout: `.github/release-notes-preamble.md` points at `README.md#getting-started` that way, and it is appended to the notes of every release already published, which no change here can correct. Anything else under that home — a release, a pull request, an issue — is the forge's own furniture and stays unresolved. Source is read for citations because prose is not the only thing that names a heading: `docs/configuration.md#checks` is written into every `.yoyodyne/config.yaml` `yoyo init` has ever generated, on disks this repository cannot reach. A cited path is resolved in the three spellings one is written in — from the repository root, from the citing file's own directory, and inside a forge blob URL — so `../README.md#further-reading` in a script counts like `README.md#further-reading` in a Go string. A citation naming a document this repository does not have in any of the three is passed over rather than reported — a fixture written to be broken is a path too, and guessing would be worse than saying nothing — so a fixture in a test must name a document this repository has not got, which is the convention the fixtures in `internal/doclink` keep. |
 | A report about this repository's own goals that names no place to open — a goals document that could not be read with no path beside it, a goal whose link upstream does not hold and that does not name the document it is written in, a wrapped goal with no file and line, an identity two active goals carry that does not say which documents state it, or a recorded brief the collected goals do not say where to find | `internal/goal` (`goal_test.go`) and `internal/cli` (`goals_repository_test.go`) | Carry the path, the artifact, or the line into the report. Nothing about what the documents themselves say fails here, which is [the decision below](#why-nothing-a-goals-document-says-reddens-this-build): a goal written across more than one physical line, a goal that has not said yet what it supports, a goal naming a brief claim the brief does not state, a goals document stating no goals, a repository with no active goal, a brief stating none, and a configured artifact home nobody has created are all reported by `yoyo goals list` and carried into `yoyo release`'s goals check instead. |
 | A document under `docs/product`, `docs/designs`, or `docs/decisions`, or an invariant under `docs/decisions/invariants`, that the harness's own loader refuses to read — or a load of those homes, as the configuration names them, that reads no artifact of some kind this repository ships, or no active invariant | `internal/cli` (`governed_documents_repository_test.go`) | The loader and the documents it governs disagree, and the failure names the file. If a change to the loader or to what `Validate` accepts caused it, that change is what broke: every other artifact and invariant test reads a synthetic store, so this is the only check that sees the documents this repository actually ships. If an edit to the document caused it, fix the document. What the documents say about each other — a `supports` link that does not hold, a revision recorded under a role that does not own the document — is logged here and not failed, for [the same reason](#why-nothing-a-goals-document-says-reddens-this-build) as the goals rows, and `yoyo artifact list` reports it. |
-| A coined term in a document under `docs/product`, `docs/designs`, or `docs/decisions`, or in a string literal of the command, conversation, notifier, Slack, read-model, dashboard, directive, or goal packages, or in the dashboard's assets, that [the register](terms.md) does not define — or a register entry with no definition, no place of use, or a second row for a term already listed, or a replaced term's row still excusing a document that no longer carries it | `internal/terms` | Write the ordinary word, or add the entry. The register decides and the check only reports: adding a row permits a term and removing it refuses the term again, neither of which is a change to any code; a replaced term's row may name the governed documents that still carry it while their owner amends them, and those are excused for that term and nothing else is. Frontmatter and fenced blocks are not read — a revision's recorded reason is what somebody decided in their own words, and a fenced block is code. A term of more than one word is looked for however its parts are spaced, so a hyphen, a doubled space, or a line wrap between them does not get one past the check, and a row permits every spelling of its term rather than the one the row happens to write. What no check can recognize is a word coined this morning, which is why the reviewer persona carries the same rule as a finding class. |
+| A coined term in a document under `docs/product`, `docs/designs`, or `docs/decisions`, or in a string literal of `internal/cli`, `internal/chat`, `internal/notify`, `internal/slack`, `internal/readmodel`, `internal/dashboard`, `internal/directive`, `internal/goal`, `internal/backend`, or `internal/config`, or in the dashboard's assets, that [the register](terms.md) does not define — or a compound word nothing accounts for anywhere a person or a role reads the harness's words — or a register entry with no definition, no place of use, or a second row for a term already listed, a replaced term's row still excusing a document that no longer carries it, or a compound listed as not yet read that nothing writes any more | `internal/terms` | Write the ordinary word, or add the entry. The register decides and the check only reports: adding a row permits a term and removing it refuses the term again, neither of which is a change to any code; a replaced term's row may name the governed documents that still carry it while their owner amends them, and those are excused for that term and nothing else is. Frontmatter, fenced blocks, and struct tags are not read — a revision's recorded reason is what somebody decided in their own words, a fenced block is code, and a struct tag is a key. A term of more than one word is looked for however its parts are spaced, so a hyphen, a doubled space, or a line wrap between them does not get one past the check, and a row permits every spelling of its term rather than the one the row happens to write. A new compound is refused by [the rule below](#what-the-terms-check-counts-as-a-new-term); an ordinary word given a new sense has no shape a check can see, which is why the reviewer persona carries the same rule as a finding class. |
 | The eight documents this repository carries to its own Lead Product Manager as [what the product ships](configuration.md#what-the-lead-product-manager-sees-besides-them-and-what-it-does-not) adding up to the ceiling on that set, one of them no longer being where the set names it, or the set no longer fitting the briefing beside the specifications and the bounded sections | `internal/contextbundle` (`product_test.go`) | Reaching the ceiling is a product decision rather than a documentation edit: the set is carried in full by the Lead Product Manager's decision, and the constant's comment says what carrying it costs at the ceiling and names the reduction (yoyodyne-ifd.117.4). It is the one row here that warns before it fails — `make test` prints the set's size after the suite, and a `WARNING:` line for the length of the margin under the ceiling, because `go test ./...` discards what a passing test says. A path that stops resolving is a document the Lead Product Manager silently stops being given, and a set that passes its ceiling and still does not fit the briefing is the specifications having outgrown the reserve, which the failure says. |
 | A place the harness enforces role authority that [the authority inventory](authority-inventory.md) does not list, or a listed check whose declaration has moved or been renamed | `internal/authority` | Add the row, or correct the one that moved. The inventory is the statement of what the harness authorizes today and the ground truth the capability registry re-expresses, so an authorization site nothing lists is authority nobody wrote down. The document decides and the check only reports: adding a row lists a check and moving one to the second table excuses it, neither of which is a change to any code. What the sweep can recognize is a floor — a function that names a role and refuses, a name carrying `authoriz` or `authorit`, and the `protect`, `independen`, and `lease` boundaries — so a check outside all of those is still a reviewer's to catch. |
 | A place that ends a developer run, a typed cause outside the work or stop class, or a bound's source value that [the run-stop inventory](run-stops.md) does not account for — or a listed site that moved, changed count, or disappeared | `internal/orchestrator` (`run_stops_inventory_test.go`) | Account for the new stop, its budget cost, and what remains of the change, or correct the stale row. The sweep counts ending calls and status writes per declaration, so another stop inside an already-listed function also fails; recognized syntax that does not end a run is listed separately with its reason. |
@@ -539,6 +539,59 @@ which are the ones that read a document in front of the person who owns it:
 What the two rows kept is the half that was never about the documents: a report
 naming no file, no artifact, or no line is unusable, and that is this
 repository's defect rather than the Lead Product Manager's.
+
+### What the terms check counts as a new term
+
+The register lists the terms somebody has already found. To refuse the next one
+before it reaches a person, `internal/terms` also reads the harness's own words
+wherever a person or a role reads them — every string literal holding a space in
+the Go source under `cmd` and `internal`, outside tests and test data; the
+personas under `internal/config/builtin` and `.yoyodyne/personas`; the guides;
+and the governed documents — and picks out one shape of word mechanically: a
+compound, two or more runs of letters joined by hyphens. Nothing else has a
+shape a check can tell from ordinary English.
+
+A compound is not read where it is not prose: inside a code span, a link's
+target, an HTML tag or comment, a fenced block, or frontmatter; touching a
+character that makes it part of a flag, a path, a file name, an address, or a
+key (`--stall-after`, `run-stops.md`, `docs/run-stops.md`); between a pair of quotes,
+where it is a value being named; or in a string with no space in it, which is a
+key or an identifier.
+
+What is left is ordinary English, and passes, when:
+
+- its first part is a prefix English builds words with — `re`, `non`, `self`,
+  `pre`, `co`, `un`, `mid`, `per`, `in`, and the rest listed in
+  `internal/terms/compounds.go`: `re-run`, `non-zero`, `mid-turn`;
+- its last part is one English builds adjectives with — `only`, `wide`,
+  `facing`, `based`, `local`, `relative`, `time`, and the rest listed there — or
+  ends in *-ed*: `read-only`, `operator-facing`, `hand-edited`;
+- a part is a number word or a single letter: `two-hour`, `e-mail`;
+- every part is capitalised, which is a name;
+- it starts with the harness's own name or a tool's: `yoyodyne-report`,
+  `claude-code`;
+- it is the name of a Markdown document under `docs/`, which is how a design or
+  a decision is cited;
+- it is listed under [ordinary compounds](terms.md#ordinary-compounds) in the
+  register.
+
+Otherwise it is a term of art, and passes only where the register accounts for
+it: a row in either of its tables, whose pattern matches anywhere in the
+compound; a term in the vocabulary inventory, whatever its proposed decision,
+while that decision is pending; or one of the compounds listed as not yet read
+in `internal/terms/inventory`, which are the ones already written the day this
+half of the check began, allowed by name until somebody decides each. A
+compound that passes none of these fails `make test`, naming the file and line
+and the three answers: the ordinary words, a row in the register, or a place
+on the ordinary list for a word nobody would have to look up. A word on the
+list of compounds not yet read that nothing writes any more fails too, so the
+list only shrinks.
+
+The inventory's list of terms is read from `internal/terms/inventory`, the same
+package `go run ./scripts/vocabulary` writes
+[the inventory document](vocabulary-inventory.md) from, so the check never
+depends on that document having been regenerated. Regenerating it after a
+decision changes the list is still what keeps the document true.
 
 `make dist VERSION=<tag>` builds the release archives and their checksums into
 `dist/`, and `make dist-verify VERSION=<tag>` does that and then unpacks the

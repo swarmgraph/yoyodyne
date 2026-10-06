@@ -264,7 +264,7 @@ func TestTheMaintenanceCadenceIsReadAndHasAFloor(t *testing.T) {
   maintenance:
     every: 30s
 `, nil)
-	if err == nil || !strings.Contains(err.Error(), "services.maintenance.every is 30s") || !strings.Contains(err.Error(), "the shortest cadence is 1m") {
+	if err == nil || !strings.Contains(err.Error(), "services.maintenance.every is 30s") || !strings.Contains(err.Error(), "the shortest interval allowed is 1m") {
 		t.Errorf("a 30s cadence loaded as %v, want it refused naming the floor", err)
 	}
 }

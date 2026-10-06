@@ -1,11 +1,12 @@
 // Command vocabulary writes the inventory of the harness's own vocabulary:
-// every term of art in Inventory, with where a person or a role reads it, how
+// every term of art in the inventory, with where a person or a role reads it, how
 // often, what it means, and the decision proposed for it.
 //
 //	go run ./scripts/vocabulary > docs/vocabulary-inventory.md
 //	go run ./scripts/vocabulary -candidates
 //
-// The terms, their meanings, and the proposals are data in terms.go. The counts
+// The terms, their meanings, and the proposals are data in internal/terms/inventory,
+// which the terms check reads too. The counts
 // are measured every time it runs, so the document is re-run rather than
 // edited: a term whose decision lands is changed there, and the next run says
 // so. -candidates lists the hyphenated compounds no term covers, which is where
@@ -30,6 +31,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/terms/inventory"
 )
 
 // OutputPath is where the inventory is kept, repository-relative. The guides
@@ -252,52 +254,6 @@ func withoutFrontmatter(body string) string {
 	return strings.TrimPrefix(rest, "\n")
 }
 
-var termParts = regexp.MustCompile(`[-\s]+`)
-
-// Pattern is what a term is looked for with.
-func Pattern(term Term) *regexp.Regexp {
-	return compile(term.Match, term.Exact, term.Whole)
-}
-
-func compile(matches []string, exact, whole bool) *regexp.Regexp {
-	var alternatives []string
-	for _, match := range matches {
-		if exact {
-			alternatives = append(alternatives, regexp.QuoteMeta(match))
-			continue
-		}
-		var parts []string
-		for _, part := range termParts.Split(strings.TrimSpace(match), -1) {
-			parts = append(parts, regexp.QuoteMeta(part))
-		}
-		alternatives = append(alternatives, strings.Join(parts, `[-\s]*`))
-	}
-	expression := `(?i)\b(?:` + strings.Join(alternatives, "|") + `)`
-	if whole {
-		expression += `\b`
-	}
-	return regexp.MustCompile(expression)
-}
-
-// Count is how many times term occurs in body.
-func Count(term Term, body string) int {
-	found := Pattern(term).FindAllStringIndex(body, -1)
-	if len(term.Except) == 0 {
-		return len(found)
-	}
-	excepted := make(map[int]bool)
-	for _, at := range compile(term.Except, false, false).FindAllStringIndex(body, -1) {
-		excepted[at[0]] = true
-	}
-	count := 0
-	for _, at := range found {
-		if !excepted[at[0]] {
-			count++
-		}
-	}
-	return count
-}
-
 // Place is one location a term occurs in and how often.
 type Place struct {
 	Surface Surface
@@ -307,7 +263,7 @@ type Place struct {
 
 // Measurement is one term's occurrences.
 type Measurement struct {
-	Term     Term
+	Term     inventory.Term
 	Totals   [surfaces]int
 	Places   []Place
 	Register string
@@ -323,12 +279,12 @@ func (m Measurement) Total() int {
 }
 
 // Measure counts every term in inventory across texts.
-func Measure(inventory []Term, texts []Text) []Measurement {
+func Measure(known []inventory.Term, texts []Text) []Measurement {
 	var measurements []Measurement
-	for _, term := range inventory {
+	for _, term := range known {
 		measurement := Measurement{Term: term}
 		for _, text := range texts {
-			count := Count(term, text.Body)
+			count := inventory.Count(term, text.Body)
 			if count == 0 {
 				continue
 			}
@@ -375,7 +331,7 @@ func main() {
 		os.Exit(1)
 	}
 	if *candidates {
-		WriteCandidates(os.Stdout, Inventory, texts, 5)
+		WriteCandidates(os.Stdout, inventory.Inventory, texts, 5)
 		return
 	}
 	states, err := registerStates(*root)
@@ -383,11 +339,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "vocabulary:", err)
 		os.Exit(1)
 	}
-	measurements := Measure(Inventory, texts)
+	measurements := Measure(inventory.Inventory, texts)
 	for i := range measurements {
 		measurements[i].Register = states[strings.ToLower(measurements[i].Term.Term)]
 	}
-	Render(os.Stdout, measurements, StopWords, time.Now())
+	Render(os.Stdout, measurements, inventory.StopWords, inventory.Unread, time.Now())
 }
 
 var compound = regexp.MustCompile(`(?i)\b[a-z]+(?:-[a-z]+)+\b`)
@@ -395,7 +351,7 @@ var compound = regexp.MustCompile(`(?i)\b[a-z]+(?:-[a-z]+)+\b`)
 // WriteCandidates lists the hyphenated compounds in the Go strings and the
 // personas that no term in inventory covers and that occur at least minimum
 // times, most frequent first.
-func WriteCandidates(w io.Writer, inventory []Term, texts []Text, minimum int) {
+func WriteCandidates(w io.Writer, known []inventory.Term, texts []Text, minimum int) {
 	counts := make(map[string]int)
 	for _, text := range texts {
 		// The dashboard's style and script are full of compounds that are
@@ -409,7 +365,7 @@ func WriteCandidates(w io.Writer, inventory []Term, texts []Text, minimum int) {
 	}
 	var words []string
 	for word, count := range counts {
-		if count < minimum || covered(inventory, word) {
+		if count < minimum || covered(known, word) {
 			continue
 		}
 		words = append(words, word)
@@ -425,9 +381,9 @@ func WriteCandidates(w io.Writer, inventory []Term, texts []Text, minimum int) {
 	}
 }
 
-func covered(inventory []Term, word string) bool {
-	for _, term := range inventory {
-		if Pattern(term).MatchString(word) {
+func covered(known []inventory.Term, word string) bool {
+	for _, term := range known {
+		if inventory.Pattern(term).MatchString(word) {
 			return true
 		}
 	}
@@ -435,7 +391,7 @@ func covered(inventory []Term, word string) bool {
 }
 
 // Render writes the inventory document.
-func Render(w io.Writer, measurements []Measurement, stopWords []StopWord, at time.Time) {
+func Render(w io.Writer, measurements []Measurement, stopWords []inventory.StopWord, unread []string, at time.Time) {
 	fmt.Fprintf(w, header, at.Format("2006-01-02"))
 
 	fmt.Fprintln(w, "## Summary")
@@ -459,11 +415,11 @@ func Render(w io.Writer, measurements []Measurement, stopWords []StopWord, at ti
 		fmt.Fprintf(w, "### %s\n\n", m.Term.Term)
 		fmt.Fprintf(w, "- **Means:** %s\n", m.Term.Meaning)
 		switch m.Term.Decision {
-		case Replace:
+		case inventory.Replace:
 			fmt.Fprintf(w, "- **Proposed:** replace it. Write instead: %s.\n", m.Term.Words)
-		case Register:
+		case inventory.Register:
 			fmt.Fprintf(w, "- **Proposed:** register it, with the meaning above: %s.\n", m.Term.Words)
-		case Keep:
+		case inventory.Keep:
 			fmt.Fprintf(w, "- **Proposed:** no change. It is %s.\n", m.Term.Words)
 		}
 		fmt.Fprintf(w, "- **Where:** %s\n", places(m))
@@ -478,13 +434,18 @@ func Render(w io.Writer, measurements []Measurement, stopWords []StopWord, at ti
 	fmt.Fprintln(w, "|---|---|---|")
 	for _, word := range stopWords {
 		proposed := "print instead: " + word.Words
-		if word.Decision == Keep {
+		if word.Decision == inventory.Keep {
 			proposed = word.Words
 		}
 		fmt.Fprintf(w, "| `%s` | %s | %s |\n", word.Word, cellText(word.Meaning), cellText(proposed))
 	}
 	fmt.Fprintln(w)
 	fmt.Fprint(w, footer)
+	fmt.Fprintln(w)
+	fmt.Fprint(w, unreadIntro)
+	for _, word := range unread {
+		fmt.Fprintf(w, "- `%s`\n", word)
+	}
 }
 
 // maxPlaces is how many places one term's entry names before summing the rest.
@@ -543,7 +504,7 @@ It is the inventory of the harness's coined vocabulary (yoyodyne-ifd.437.18).
 **This document is generated. Edit the script, not this file.** Run
 ` + "`go run ./scripts/vocabulary > docs/vocabulary-inventory.md`" + ` from the
 repository root. The terms, what they mean, and what is proposed for each are
-in ` + "`scripts/vocabulary/terms.go`" + `; the counts are measured each time it
+in ` + "`internal/terms/inventory`" + `; the counts are measured each time it
 runs. These were measured on %s.
 
 ## Who decides
@@ -556,8 +517,9 @@ the items admitted beside it carry the decisions out:
   personas, and pass prompts (yoyodyne-ifd.437.19);
 - replacing it in the shipped guides (yoyodyne-ifd.437.20);
 - the architect replacing it in the governed documents (yoyodyne-ifd.437.21);
-- a terms check that refuses a term that is neither registered nor replaced
-  (yoyodyne-ifd.437.22).
+- the terms check, which refuses a compound word that is neither registered,
+  replaced, a term below, ordinary English, nor on the list at the end of this
+  document (yoyodyne-ifd.437.22).
 
 Three terms are already being replaced on their own item — 'environmental
 stop', 'idle bound', and 'stall continuation' (yoyodyne-ifd.437.17) — and
@@ -617,8 +579,30 @@ const footer = `## Finding terms this list does not have
 ` + "`go run ./scripts/vocabulary -candidates`" + ` lists the hyphenated compounds in
 the Go strings and the personas that no term above covers, most frequent first.
 Nothing mechanical tells a coinage from an ordinary compound, so the list is for
-a person to read: a term found there is added to the script with its
-meaning and a proposal, and the document is run again. Keeping the vocabulary
-from growing unnoticed between readings is what the terms check that refuses
-unregistered terms (yoyodyne-ifd.437.22) is for.
+a person to read: a term found there is added to ` + "`internal/terms/inventory`" + `
+with its meaning and a proposal, and the document is run again.
+
+Between readings, the terms check keeps the vocabulary from growing unnoticed:
+it refuses a compound word written anywhere a person or a role reads the
+harness's words unless the register, this inventory, or the rules for ordinary
+English account for it. [Working on yoyo
+itself](developing-yoyo.md#what-the-terms-check-counts-as-a-new-term) states
+the rule.
+`
+
+const unreadIntro = `## Compounds not yet read
+
+The terms check began reading for new compound words on 2026-10-06. These are
+the ones it found already written that nothing accounted for: no row in the
+register, no term above, not ordinary English by the check's rules, and not on
+the register's list of ordinary compounds. Some are terms of art and some are
+ordinary English the rules do not recognise; nobody has read them yet to say
+which. The check allows each by name until somebody does.
+
+Deciding one takes it off the list in ` + "`internal/terms/inventory`" + `: an
+ordinary compound goes on the register's list of ordinary compounds, a term
+worth keeping gets a row in the register, and a term worth replacing is added
+above with its meaning and its plain words. A word nothing writes any more is
+refused by the check until it is taken off.
+
 `

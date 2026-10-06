@@ -108,15 +108,19 @@ var NotGuides = []string{"docs/diagnoses", "docs/experiments", "docs/releases"}
 
 // Sources are the Go packages whose string literals this check reads: the
 // command line, the conversation, the notifier and the Slack sink, the read
-// model every surface projects, the dashboard, and the two packages whose
-// refusals `yoyo directive` and `yoyo goals` print word for word. These are the
+// model every surface projects, the dashboard, the two packages whose
+// refusals `yoyo directive` and `yoyo goals` print word for word, and the
+// provider and configuration packages whose refusals configuration loading
+// and `yoyo doctor` print. These are the
 // strings an operator reads, so a term retired from the documents and still in
 // one of them has not been retired. Only string literals are read, and only
 // outside test files: a comment is written for whoever reads the code, and a
 // test names the wording it refuses as often as the wording it wants.
 var Sources = []string{
+	"internal/backend",
 	"internal/chat",
 	"internal/cli",
+	"internal/config",
 	"internal/dashboard",
 	"internal/directive",
 	"internal/goal",
@@ -567,10 +571,11 @@ func excusedDocuments(replacements []Replacement) map[string]map[string]bool {
 // are written that way and a term wraps across their lines as it does in a
 // document. An interpreted literal is one physical line whatever escapes it
 // carries, so its newlines are read as spaces and every match is reported on
-// the line the literal starts. Struct tags, import paths, and the like are
-// literals too and are read like any other: none of them says anything a
-// reader could take for a coined word, and the alternative is a list of
-// exceptions this check would have to be right about.
+// the line the literal starts. Import paths and the like are literals too and
+// are read like any other. A struct tag is not read: it names the key a field
+// is written under in a configuration file or a record, and a key keeps its
+// name when the words around it change — `postures` is a provider
+// configuration key, not a sentence.
 func stringsIn(root, file string) ([]passage, error) {
 	full := filepath.Join(root, filepath.FromSlash(file))
 	if !strings.HasSuffix(file, ".go") {
@@ -585,10 +590,17 @@ func stringsIn(root, file string) ([]passage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", file, err)
 	}
+	tags := make(map[*ast.BasicLit]bool)
+	ast.Inspect(parsed, func(node ast.Node) bool {
+		if field, ok := node.(*ast.Field); ok && field.Tag != nil {
+			tags[field.Tag] = true
+		}
+		return true
+	})
 	var stretches []passage
 	ast.Inspect(parsed, func(node ast.Node) bool {
 		literal, ok := node.(*ast.BasicLit)
-		if !ok || literal.Kind != token.STRING {
+		if !ok || literal.Kind != token.STRING || tags[literal] {
 			return true
 		}
 		value, err := strconv.Unquote(literal.Value)

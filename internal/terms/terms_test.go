@@ -614,6 +614,25 @@ func TestCheckReadsOnlyTheStringsOfTheSurfaces(t *testing.T) {
 	}
 }
 
+// The provider and configuration packages are read, since their refusals are
+// what configuration loading and `yoyo doctor` print; a struct tag in them is
+// not, because it names a key rather than saying anything.
+func TestCheckReadsTheProviderAndConfigurationStringsButNotTheirKeys(t *testing.T) {
+	t.Parallel()
+
+	directory := root(t, register(), map[string]string{
+		"internal/backend/one.go": "package backend\n\ntype Plugin struct {\n\tWedges []string `yaml:\"wedges\"`\n}\n",
+		"internal/config/one.go":  "package config\n\nconst refused = \"the check is wedged\"\n",
+	})
+	problems, err := Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if len(problems) != 1 || problems[0].Path != "internal/config/one.go" || problems[0].Term != "wedged" {
+		t.Fatalf("Check() reported %v, want only wedged in internal/config/one.go", problems)
+	}
+}
+
 // The dashboard's script is read whole, comments and all.
 func TestCheckReadsTheDashboardAssetsWhole(t *testing.T) {
 	t.Parallel()

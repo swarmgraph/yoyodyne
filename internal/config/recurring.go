@@ -151,7 +151,7 @@ func (t RecurringTask) problems(name string, agents map[string]AgentConfig) []st
 		problems = append(problems, fmt.Sprintf("recurring task %q wakes the %s, and no %s agent is configured, so it could never fire", name, t.Role, t.Role))
 	}
 	if t.Every.Duration() < MinRecurringInterval {
-		problems = append(problems, fmt.Sprintf("recurring task %q every is %s, and the shortest cadence is %s: every firing is a conversation turn, so a cadence below that is a bill rather than a schedule",
+		problems = append(problems, fmt.Sprintf("recurring task %q every is %s, and the shortest interval allowed is %s: every firing is a conversation turn, so a shorter interval is a bill rather than a schedule",
 			name, t.Every, Duration(MinRecurringInterval)))
 	}
 	switch prompt := strings.TrimSpace(t.Prompt); {

@@ -32,7 +32,12 @@ often, what it means, and whether it is proposed for replacing or for a row
 here — is [the vocabulary inventory](vocabulary-inventory.md), written by
 `go run ./scripts/vocabulary` so it can be measured again. A term it proposes
 to register is not registered until its row is written here, and one it
-proposes to replace is not replaced until it is listed below.
+proposes to replace is not replaced until it is listed below. Until then the
+check below allows it by name, as a term whose decision is still to be made,
+and reads the inventory's list of terms for that from
+`internal/terms/inventory` — the same list the document is written from —
+rather than from the document, so a document nobody has regenerated cannot
+make the check wrong.
 
 ## The register
 
@@ -61,8 +66,9 @@ the word readable until the architect decides otherwise, and it is retired
 when the architect does. `in force` and `posture` were two more of these until
 the operator objected to each by name: yoyodyne-ifd.418 retired `in force`, and
 yoyodyne-ifd.437.6 retired `posture` on 2026-09-25 because it was unclear to
-him. Both are now listed below as replaced, with the governed documents that
-still carry them named on their rows until the architect amends them.
+him. Both are now listed below as replaced. The architect has since amended
+every governed document that carried either, so neither row names a document
+any more, and both are refused everywhere the check reads.
 
 `environmental stop`, `idle bound`, and `stall continuation` were never
 registered. They are the harness's own names for a run ended by something
@@ -161,6 +167,52 @@ longer says.
 
 
 
+## Ordinary compounds
+
+The terms check reads for one shape of new word as well as the terms listed
+above: a compound, letters joined by hyphens. A compound is ordinary English by
+its form when its first part is a prefix English builds words with (`re-run`,
+`non-zero`, `self-hosting`), when its last part is one English builds
+adjectives with (`read-only`, `repository-wide`, `operator-facing`, and any
+ending in *-ed*), when a part is a number or a single letter, when every part is
+capitalised, when it starts with the harness's own name or a tool's
+(`yoyodyne-report`, `claude-code`), or when it is the name of a document under
+`docs/`. [What the terms check counts as a new term](developing-yoyo.md#what-the-terms-check-counts-as-a-new-term)
+states the whole rule.
+
+The compounds below are ordinary English, or names, that the rule does not
+recognise by form. A compound listed here passes wherever it is written. Adding
+one is the answer to a refusal only for a word a reader would not have to look
+up; a term of art needs a row in the register, or the ordinary words it stands
+for.
+
+`ad-hoc` `add-generic-password` `agent-to-agent` `alt-return` `amendment-id`
+`apt-get` `asked-for` `at-least-once` `base-uri` `beads-id` `before-and-after`
+`built-in` `built-ins` `by-hand` `byte-identical` `cache-read` `call-site`
+`carve-out` `cat-file` `catch-up` `cherry-pick` `cherry-picking` `clean-up`
+`closed-loop` `coined-term` `coined-terms` `compare-and-swap` `connect-src`
+`cut-off` `dead-claim` `default-src` `development-manager` `directive-id`
+`end-to-end` `exactly-once` `fan-out` `fast-forward` `fast-forwarding`
+`fast-forwards` `find-generic-password` `follow-on` `follow-up` `follow-ups`
+`form-action` `frame-ancestors` `free-form` `front-loading` `general-purpose`
+`grep-resistant` `hand-edit` `hand-written` `high-judgment` `high-risk`
+`highest-priority` `html-comment` `img-src` `input-token` `intra-document`
+`intra-file` `local-timezone` `long-running` `long-term` `low-cost` `lower-case`
+`lowest-cost` `ls-tree` `machine-readably` `merge-queue` `minute-long`
+`mirror-image` `mis-selection` `month-old` `near-autonomous` `near-misses`
+`near-term` `nearly-every` `newly-available` `operating-system` `opt-in`
+`opt-ins` `opt-out` `parent-child` `part-way` `plain-http` `plain-language`
+`plain-word` `pop-up` `pop-ups` `product-manager` `read-back` `read-write`
+`reduced-motion` `release-manager` `repo-root` `required-status-check`
+`rev-list` `rev-parse` `root-cause` `round-robin` `round-trip` `run-id` `say-so`
+`script-src` `several-turn` `shift-return` `side-effect` `skip-worktree`
+`ssh-add` `stand-in` `state-root` `status-check` `style-src` `test-data`
+`thinking-token` `tie-break` `tie-breaker` `timed-out` `tool-less` `trade-off`
+`twice-daily` `unasked-for` `union-merge` `union-merges` `unique-prefix`
+`unit-test` `unknown-flag` `url-of-your-fork` `wall-clock` `warning-or-above`
+`whole-file` `work-item` `work-item-id` `working-tree` `world-mutating`
+`write-once` `your-account` `your-name`
+
 ## Adding an entry
 
 Write the row. The register is the authority: a term with a row is permitted and
@@ -186,16 +238,20 @@ defines nothing, or names no place the term is used, fails the same check.
 It reads the strings an operator is shown as well as the documents, since
 yoyodyne-ifd.418: every string literal in the Go source of `internal/cli`,
 `internal/chat`, `internal/notify`, `internal/slack`, `internal/readmodel`,
-`internal/dashboard`, `internal/directive`, and `internal/goal` — the commands
-and their help, the conversation, the notifier's lines, the read model every
-surface projects, and the refusals `yoyo directive` and `yoyo goals` print —
-and the dashboard's own script, style, and page under
+`internal/dashboard`, `internal/directive`, `internal/goal`, `internal/backend`,
+and `internal/config` — the commands and their help, the conversation, the
+notifier's lines, the read model every surface projects, the refusals
+`yoyo directive` and `yoyo goals` print, and the provider and configuration
+refusals that loading a configuration and `yoyo doctor` print — and the
+dashboard's own script, style, and page under
 `internal/dashboard/assets`, read whole. A string there is held to the same
 register as a sentence in a document, with the one difference that nothing
 excuses it: a term retired from the documents and still in the help text has
 not been retired, which is what this is for. Only string literals are read, and
 only outside test files — a comment is written for whoever reads the code, and a
-test names the wording it refuses as often as the wording it wants. The
+test names the wording it refuses as often as the wording it wants. A struct
+tag is not read either: it is the key a field is written under in a file or a
+record, and a key keeps its name when the words around it change. The
 dashboard's script is read comments and all, because nothing cheap tells a
 comment from a string in a language the check does not parse.
 
@@ -242,8 +298,26 @@ are operator-facing too, but no sweep has been run over them and holding a
 document to an inventory nobody took over it would fail on words nobody was
 asked about.
 
-What no check can do is recognize a word coined this morning. That is the
-reviewer's, and it is written into the reviewer persona as a finding class: a
-coined term in operator-facing text with no entry here is a finding, whatever
+It also reads for terms nobody has listed yet, in one shape: a compound, letters
+joined by hyphens. It reads every string literal holding a space in the Go
+source under `cmd` and `internal`, the personas under `internal/config/builtin`
+and `.yoyodyne/personas`, the guides, and the governed documents, and refuses a
+compound nothing accounts for, naming the file and the line. A compound is
+accounted for by a row in either table above, by a term in the vocabulary
+inventory still waiting on its decision, by being ordinary English by its form
+or by the list under [ordinary compounds](#ordinary-compounds), or by being one
+of the compounds the inventory lists as not yet read — the ones already written
+when this half of the check began, each allowed by name until somebody decides
+it. So a compound written from now on is refused the first time it is written,
+and the answer to the refusal is the ordinary words, a row here, or, for a word
+nobody would have to look up, a place on the ordinary list. What it does not
+read for compounds is anything that is not prose: a code span, a link's target,
+a fenced block, a flag, a path or a file name, a value between quotes, and a
+string with no space in it.
+
+What no check can recognize is an ordinary word given a sense of its own this
+morning — a `lane`, a `docket` — because nothing in its shape says so. That is
+the reviewer's, and it is written into the reviewer persona as a finding class:
+a coined term in operator-facing text with no entry here is a finding, whatever
 else the change does. The check is the floor under it, so a term once swept out
-cannot quietly come back.
+cannot quietly come back, and a new compound cannot arrive unnoticed.
