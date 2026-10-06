@@ -27,10 +27,17 @@ const defaultTimeout = 4 * time.Hour
 // RequestSize bounds the supplied text against the API's 32 MiB request ceiling.
 // JSON escaping is included; native history, reasoning and tool results are not
 // visible here and remain covered by conversation session compaction and refusal
-// recovery. The caller leaves room for the API's other fields.
+// recovery. The caller leaves room for the API's other fields. The skills and
+// instruction files the project names are sent with the system prompt, so they
+// are counted; a named file that cannot be read counts as nothing here, because
+// Run refuses the invocation for it before anything is sent.
 func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
+	named, _, _, err := backend.ReadNamedContext(b.Context, request.Role, backend.NamedRoot(request))
+	if err != nil {
+		named = ""
+	}
 	prompt, _ := json.Marshal(request.Prompt)
-	system, _ := json.Marshal(request.SystemPrompt)
+	system, _ := json.Marshal(appendNamed(request.SystemPrompt, named))
 	return len(prompt) + len(system), 32 << 20
 }
 
@@ -249,6 +256,9 @@ type Backend struct {
 	// CheckAvailability takes no request, so the account it is asking about has to
 	// be on the value being asked. Empty is the machine's own provider home.
 	ConfigDir string
+	// Context is the skills and instruction files the project's configuration
+	// names. Nothing else the CLI could find is given to a role: see context.go.
+	Context backend.NamedContext
 }
 
 // ProviderHomeVariable is how Claude Code is told which provider home to
@@ -419,16 +429,37 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		}
 	}
 
+	// What the role is given beside its prompt is what the project named, plus,
+	// for a developer, what the CLI reads from its own worktree. Nothing from the
+	// account's home is read by any role. See context.go.
+	named, skills, instructions, err := backend.ReadNamedContext(b.Context, request.Role, backend.NamedRoot(request))
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	var settingsSources, plugins []backend.LoadedItem
+	baseSettings := ""
+	if request.Role == domain.RoleDeveloper {
+		baseSettings = developerSettings
+		var repositoryInstructions []backend.LoadedItem
+		settingsSources, plugins, repositoryInstructions = repositoryContext(request.WorkingDirectory)
+		instructions = append(repositoryInstructions, instructions...)
+	}
+	settings, err := settingsFor(baseSettings, request.Role, request.WorkingDirectory)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	loaded := backend.NewLoaded(skills, plugins, instructions).WithSettingsAndConnectors(settingsSources, nil)
+
 	args := []string{
 		"-p",
 		"--output-format", "stream-json",
 		"--verbose",
 		"--permission-mode", sessionMode,
 		"--name", "yoyodyne-" + shortRunID(request.RunID),
+		"--settings", settings,
 	}
-	if request.Role == domain.RoleDeveloper {
-		args = append(args, "--settings", developerSettings)
-	} else {
+	args = append(args, contextArgs(request.Role)...)
+	if request.Role != domain.RoleDeveloper {
 		// Repository instruction files are evidence, not harness policy. Safe
 		// mode prevents a checked-in CLAUDE.md from entering the provider's
 		// system context alongside an immutable harness contract.
@@ -441,8 +472,8 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	} else {
 		args = append(args, "--tools", "")
 	}
-	if request.SystemPrompt != "" {
-		args = append(args, "--append-system-prompt", request.SystemPrompt)
+	if systemPrompt := appendNamed(request.SystemPrompt, named); systemPrompt != "" {
+		args = append(args, "--append-system-prompt", systemPrompt)
 	}
 	if request.SessionID != "" {
 		args = append(args, "--resume", request.SessionID)
@@ -476,6 +507,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 	redactor := execution.NewRedactor(request.RedactValues...)
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
+	parser.loaded = loaded
 	var parseErrors []error
 	// The account this invocation is made under is the request's, falling back to
 	// the one this backend value was built for. A request that names neither runs
@@ -489,7 +521,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// a person's decision -- pause, resume, release, approve -- can refuse a
 	// shell this agent opens. It is under the harness's own family, which the
 	// allowlist carries through to everything the agent goes on to start.
-	environment := execution.WithAgentRole(environmentFor(configDir), request.Role)
+	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
 	if singleTurnRole(request.Role) {
 		environment = withPromptCacheLifetime(environment, singleTurnCacheLifetime)
 	}
@@ -607,6 +639,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	result := parser.Result()
 	result.Backend = b.provider()
 	result.AdapterVersion = adapterVersion()
+	result.Loaded = loaded
 	result.Process = processResult
 	if processResult.Status == execution.ProcessCancelled || processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessStalled {
 		result.IsError = true

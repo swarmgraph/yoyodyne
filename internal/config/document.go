@@ -62,8 +62,9 @@ type configDocument struct {
 	Providers *map[string]backend.ProviderPlugin `yaml:"providers"`
 	// Codex replaces an inherited section entirely, for the reason the providers
 	// mapping does: what a role is given beside its prompt is one statement.
-	Codex *backend.NamedContext `yaml:"codex"`
-	Slack *slackDocument        `yaml:"slack"`
+	Codex      *backend.NamedContext `yaml:"codex"`
+	ClaudeCode *backend.NamedContext `yaml:"claude_code"`
+	Slack      *slackDocument        `yaml:"slack"`
 	// Services is the parts of the product and whether each runs. Each entry
 	// overrides field by field, the way execution does: a layer that switches
 	// the dashboard on has said nothing about its port, and should not have to

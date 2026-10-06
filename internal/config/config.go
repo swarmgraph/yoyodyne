@@ -124,6 +124,11 @@ type Config struct {
 	// account's own provider home are kept out either way. See
 	// internal/backend/codex/context.go and docs/provider-plugins.md.
 	Codex backend.NamedContext `yaml:"codex,omitempty" json:"codex,omitempty"`
+	// ClaudeCode is the same for a Claude Code invocation. A Claude Code role is
+	// given none of the account's own settings, memory, skills, plugins,
+	// connectors, or instruction files either way. See
+	// internal/backend/claudecode/context.go and docs/provider-plugins.md.
+	ClaudeCode backend.NamedContext `yaml:"claude_code,omitempty" json:"claude_code,omitempty"`
 	// Slack configures the reporting sink. It is absent from a project that does
 	// not report to a workspace, which is every project until one opts in.
 	Slack Slack `yaml:"slack,omitempty" json:"slack,omitempty"`
@@ -931,7 +936,8 @@ func (c Config) Validate() error {
 			problems = append(problems, err.Error())
 		}
 	}
-	problems = append(problems, namedContextProblems(c.Codex)...)
+	problems = append(problems, namedContextProblems("codex", c.Codex)...)
+	problems = append(problems, namedContextProblems("claude_code", c.ClaudeCode)...)
 	if c.Execution.MaxConcurrentDevelopers < 1 {
 		problems = append(problems, "max_concurrent_developers must be at least 1")
 	}
@@ -1555,16 +1561,16 @@ func (e ValidationError) Error() string {
 // namedContextProblems refuses a skill or instruction file named with no path or
 // for a role that does not exist. Whether the file is there is asked when an
 // invocation reads it, in the repository that invocation works in.
-func namedContextProblems(named backend.NamedContext) []string {
+func namedContextProblems(section string, named backend.NamedContext) []string {
 	var problems []string
 	for kind, files := range map[string][]backend.ContextFile{"skills": named.Skills, "instructions": named.Instructions} {
 		for index, file := range files {
 			if strings.TrimSpace(file.Path) == "" {
-				problems = append(problems, fmt.Sprintf("codex.%s[%d] names no path", kind, index))
+				problems = append(problems, fmt.Sprintf("%s.%s[%d] names no path", section, kind, index))
 			}
 			for _, role := range file.Roles {
 				if !role.Valid() {
-					problems = append(problems, fmt.Sprintf("codex.%s[%d] names unknown role %q", kind, index, role))
+					problems = append(problems, fmt.Sprintf("%s.%s[%d] names unknown role %q", section, kind, index, role))
 				}
 			}
 		}

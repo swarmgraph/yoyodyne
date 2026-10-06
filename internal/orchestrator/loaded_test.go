@@ -62,3 +62,47 @@ func TestARunRecordsWhatEachInvocationLoaded(t *testing.T) {
 		t.Fatalf("review summary = %q, want %q", state.ReviewLoaded.Summary, want)
 	}
 }
+
+// A Claude Code invocation's account names its settings sources and connectors
+// as well, and the run's record keeps them, saying "none" for each that was
+// empty.
+type claudeLoadedBackend struct{ backend.Backend }
+
+func (b claudeLoadedBackend) Run(ctx context.Context, request backend.RunRequest) (backend.RunResult, error) {
+	result, err := b.Backend.Run(ctx, request)
+	if request.Role == domain.RoleDeveloper {
+		settings := backend.LoadedItem{Name: ".claude/settings.json", Source: backend.LoadedFromRepository, Path: "/worktree/.claude/settings.json"}
+		result.Loaded = backend.NewLoaded(nil, nil, nil).WithSettingsAndConnectors([]backend.LoadedItem{settings}, nil)
+	} else {
+		result.Loaded = backend.NewLoaded(nil, nil, nil).WithSettingsAndConnectors(nil, nil)
+	}
+	return result, err
+}
+
+func TestARunRecordsTheSettingsSourcesAndConnectorsAClaudeCodeInvocationLoaded(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline.Backend = claudeLoadedBackend{provider}
+	pipeline.Reviewer = review.Reviewer{Backend: claudeLoadedBackend{provider}, Model: testReviewerModel}
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if want := "settings sources: .claude/settings.json (repository, /worktree/.claude/settings.json); skills: none; plugins: none; connectors: none; instruction files: none"; state.ProviderLoaded == nil || state.ProviderLoaded.Summary != want {
+		t.Fatalf("developer loaded = %+v, want %q", state.ProviderLoaded, want)
+	}
+	if want := "settings sources: none; skills: none; plugins: none; connectors: none; instruction files: none"; state.ReviewLoaded == nil || state.ReviewLoaded.Summary != want {
+		t.Fatalf("review loaded = %+v, want %q", state.ReviewLoaded, want)
+	}
+}
