@@ -44,7 +44,7 @@ func TestAnsweringTurnsUseTheConfiguredProviderAndReadOnlyPolicy(t *testing.T) {
 				var gotModel, gotAlias, gotAnswer string
 				var err error
 				if surface == "exchange" {
-					conductor := conversationExchanges(parts, domain.RoleProductManager, asker, cli).(exchange.Conductor)
+					conductor := conversationExchanges(parts, conversationAuthority(domain.RoleProductManager, config.AgentConfig{}), asker, cli).(exchange.Conductor)
 					spoken, callErr := conductor.Voice.Answer(context.Background(), answeringQuestion())
 					gotBackend, gotModel, gotAlias, gotAnswer, err = spoken.Backend, spoken.Model, spoken.AccountAlias, spoken.Answer, callErr
 				} else {

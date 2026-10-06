@@ -137,3 +137,45 @@ func sessionModeArgument(args []string) (string, bool) {
 	}
 	return mode, found
 }
+
+// A developer agent filling a role definition that removed the worktree write
+// is held read-only: no tools, the read-only session, and safe mode, exactly as
+// a role that reasons over supplied evidence. Asking for wider access than a
+// role has is refused before anything starts.
+func TestARequestedPostureNarrowsAndNeverWidens(t *testing.T) {
+	t.Parallel()
+
+	stream := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done"}` + "\n"
+	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}}
+	request := backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleDeveloper,
+		Posture:          backendapi.PostureReadOnly,
+		WorkingDirectory: "/worktree",
+		Prompt:           "the change to make",
+	}
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	args := runner.commands[0].Args
+	if mode, _ := sessionModeArgument(args); mode != readOnlySessionMode {
+		t.Fatalf("session mode = %q, want the read-only mode", mode)
+	}
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--tools ") || strings.Contains(joined, "--allowedTools") || strings.Contains(joined, developerSettings) || !strings.Contains(joined, "--safe-mode") {
+		t.Fatalf("args = %#v, want a tool-free, safe-mode session", args)
+	}
+
+	widened := &fakeRunner{}
+	_, err := (Backend{Runner: widened, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+		RunID:            testRunID,
+		Role:             domain.RoleReviewer,
+		Posture:          backendapi.PostureWorktreeWrite,
+		WorkingDirectory: "/worktree",
+		Prompt:           "the change to judge",
+		AllowedTools:     []string{},
+	})
+	if err == nil || len(widened.commands) != 0 {
+		t.Fatalf("Run() for a reviewer asking for worktree-write = %v after %d process(es), want a refusal before any", err, len(widened.commands))
+	}
+}

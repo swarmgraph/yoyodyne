@@ -141,7 +141,7 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
     developer.md
     reviewer.md
     program-manager.md # copied for a program manager you configure later
-  roles/               # optional, protected role definitions; loaded but inert
+  roles/               # optional, protected role definitions; inert until an agent names one
     specialist.yaml
 ```
 
@@ -258,11 +258,13 @@ the vocabulary the authority is stated in rather than left to be inferred from
 the role's name. It is reported and never written: the set is read off the role
 in the harness's own registry, there is no `capabilities` key to put in a
 configuration, and a file that writes one is refused like any other key that
-does not exist. The set of role names is fixed for the same reason —
+does not exist. The set of shipped role names is fixed for the same reason —
 the tools each role may use, a reviewer's absence of any included, are derived
-from the name — so `role` must be one of the six: `product-manager`,
+from the name — so `role` is one of the six: `product-manager`,
 `architect`, `development-manager`, `developer`, `reviewer`, or
-`program-manager`, and anything else is
+`program-manager`, or the name of an activated
+[protected role definition](#protected-role-definitions), which extends one of
+them. Anything else is
 [refused when the configuration loads](#what-fails-closed).
 The sixth is the [program manager](designs/program-manager.md): an agent filling
 it watches one outcome across the others and may change work only inside its own
@@ -329,15 +331,69 @@ role's existing authority is unaffected by those addition rules.
 
 **Loading is validation, and gives no agent authority.** Configuration loading
 reads the definitions even when no agent names them, and an invalid definition
-refuses the configuration whole. A valid file remains inert: it changes no
-agent's capabilities, contract, or effective configuration revision, and an
-agent's `role` still accepts only a shipped role.
+refuses the configuration whole. A file no agent names is inert: it changes no
+agent's capabilities, contract, or effective configuration revision.
 [`yoyo role activate`](operations.md#activating-a-role-definition-and-reading-its-history)
-records a person's activation of the file's exact content digest.
-`yoyo role list` compares the current file with that decision, and
-`yoyo role history` retains every activation. Binding an agent to the activated definition is
-subsequent work, so activation changes no agent's authority yet. A persona
-grants nothing through this file or any other.
+records a person's activation of the file's exact content digest and where the
+file stood. `yoyo role list` compares the current file with that decision — an
+amended file, or one that has moved to another path, is not activated as it
+stands — and `yoyo role history` retains every activation. A persona grants
+nothing through this file or any other.
+
+**An agent fills a definition by naming it as its role.**
+
+```yaml
+agents:
+  architect:
+    role: specialist      # .yoyodyne/roles/specialist.yaml, extending architect
+    backend: claude-code
+    model: opus
+```
+
+The agent is then an agent of the shipped role the definition extends — that
+role's contract, its conversation, its place in a run, every key only that
+role's agents carry — and everything that reads what the agent may do reads the
+definition's tool set instead of the role's: the shipped role's capabilities,
+plus the definition's additions, minus its removals.
+
+- `yoyo config show` reports that set as the agent's `capabilities`, names the
+  definition under `definition` with its digest and file, and records the
+  capabilities' origin as `role-definition:<name>`. `yoyo agent list` names the
+  definition beside the role it extends.
+- The [conversation authority table](conversation.md#talking-to-the-other-agents)
+  derives the agent's row from the set, so a definition that removes
+  `exchange.ask` takes the agent off the ask channel and one that removes
+  `backlog.admit` from a Lead Product Manager takes away closing and admitting
+  while leaving decomposition underneath admitted work. The answering end of an
+  exchange reads the answering agent's set the same way.
+- The tool access the provider holds the agent to is the role's own, except
+  that a definition removing `worktree.mutate` from a developer holds it
+  read-only: no tools on Claude Code, the read-only sandbox on Codex.
+  [Capability validation](provider-plugins.md#capability-validation) asks the
+  agent's provider and its failover alternate about that narrower access.
+- An automatic-integration project refuses a reviewer agent whose definition
+  removed `review.verdict`.
+
+A definition can only narrow what its shipped role may not do. The additions
+the loader refuses above are refused whatever a definition says, and no set
+makes a read-only role a writer: a request for wider tool access than the role
+has is refused before a provider is started.
+
+**A definition supplies authority only once activated as it stands.** Every
+command that reads or runs agents — `yoyo config show`, `yoyo chat`, `yoyo run`,
+`yoyo work`, and the rest — reads the activation record and refuses the whole
+configuration while any agent names a definition nobody has activated, one
+amended since its latest activation, or one whose file is no longer the file
+that was activated. The refusal names the agent, the definition, and the
+`yoyo role activate` command that would make it effective, which is a person's
+act. The check is part of loading itself, so nothing that reads the
+configuration can give an agent a definition's tool set without asking — the
+configuration a watching `yoyo work` session re-reads at each pull included,
+which reads a definition amended after activation as refused rather than as
+the amended set. The three `yoyo role` commands read the definitions without binding any
+agent, because they are how a person activates one. A definition that no longer loads refuses the
+configuration like any invalid definition, and an agent naming a name that is
+neither a shipped role nor a definition is refused as an unknown role.
 
 Definitions live beside the configuration in `roles/`, following the same
 directory order as personas for an external or legacy configuration. Where
@@ -6168,9 +6224,14 @@ These are all errors, reported before any work is claimed:
   supervisor's maintenance pass records its passes and paces its cadence under;
 - a persona path that is absolute, traverses upward, is not Markdown, is missing,
   is empty, or resolves through a symlink to somewhere outside `.yoyodyne`;
-- a `role` that is not one of the harness's six, which is how a typo in an
+- a `role` that is neither one of the harness's six nor the name of a
+  [role definition](#protected-role-definitions), which is how a typo in an
   agents block is caught: the message names what was written and lists what could
-  have been meant. Adding a role is a change to the harness, not to this file;
+  have been meant. Adding a shipped role is a change to the harness, not to this
+  file;
+- an agent whose `role` names a role definition nobody has activated, one
+  amended since its latest activation, or one whose file has moved since — refused
+  by every command that reads or runs agents rather than by `yoyo role`;
 - a [role definition](#protected-role-definitions) with no single shipped base
   role, an unknown primitive or key, duplicate or conflicting tool lists, a
   removal the base role does not hold, or an addition of checks, review evidence,
@@ -7668,7 +7729,8 @@ offered anything. It is not in the unprompted notice. Nothing is adopted for you
 4. Run `yoyo config show --effective --origins` again and diff it against
    `before.txt`. Every origin should now be the project file, apart from the few
    a generated file leaves derived — the repository id, the triage repair grant,
-   and each agent's capability set, which is the harness's registry either way —
+   and each agent's capability set, which is the harness's registry, or the
+   role definition the agent fills where it names one —
    and no effective value should have moved except the persona sources, which are
    now paths inside your repository.
 
@@ -7724,6 +7786,7 @@ Origins use these values:
 | `derived:execution.repair_attempts_before_replan` | A triage repair grant no layer stated, which follows the effective repair budget. |
 | `derived:accounts` | An agent's `account` no layer stated, which follows the single account the mapping declares. |
 | `registry:role-capabilities` | An agent's `capabilities`, read off its role in the harness's registry. No layer states it and none may. |
+| `role-definition:<name>` | An agent's `capabilities` and `definition`, read off the activated [role definition](#protected-role-definitions) its `role` names. No layer states either and none may. |
 
 An unexpected effective value is therefore a two-command diagnosis: `--effective`
 says what the value is, and `--origins` says which layer is responsible for it.
@@ -7733,7 +7796,8 @@ value. The exceptions are the values the generated file leaves to follow
 something else: `derived:product.id` for `product.repository_id`,
 `derived:execution.repair_attempts_before_replan` for
 `triage.repair_grant_attempts`, and `registry:role-capabilities` for every
-agent's capability set, which is the harness's rather than any file's. Nothing
+agent's capability set — or `role-definition:<name>` for an agent filling a role
+definition — which is the harness's rather than any file's. Nothing
 reports `builtin:v1`, and nothing reports `harness-default`, because the
 generated file writes down every value the harness would otherwise have filled
 in. So an origin that is none of those means the configuration is inheriting

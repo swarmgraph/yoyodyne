@@ -158,6 +158,8 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
     development-manager.md
     developer.md
     reviewer.md
+  roles/               # optional, protected role definitions; inert until an agent names one
+    specialist.yaml
 ```
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
@@ -266,12 +268,17 @@ the role is allowed to do. `yoyo config show` reports each agent's
 `capabilities` — everything the harness may do on that agent's behalf, named in
 the vocabulary the authority is stated in rather than left to be inferred from
 the role's name. It is reported and never written: the set is read off the role
-in the harness's own registry, there is no `capabilities` key to put in a
+in the harness's own registry — or, for an agent filling a role definition, it
+is that definition's tool set: the shipped role's, plus the definition's
+additions, minus its removals — there is no `capabilities` key to put in a
 configuration, and a file that writes one is refused like any other key that
-does not exist. The set of role names is fixed for the same reason —
+does not exist. The set of shipped role names is fixed for the same reason —
 the tools each role may use, a reviewer's absence of any included, are derived
-from the name — so `role` must be one of `product-manager`, `architect`,
-`development-manager`, `developer`, or `reviewer`, and anything else is
+from the name — so `role` is one of `product-manager`, `architect`,
+`development-manager`, `developer`, `reviewer`, or `program-manager`, or the
+name of an activated
+[protected role definition](../configuration.md#protected-role-definitions),
+which extends one of them. Anything else is
 [refused when the configuration loads](../configuration.md#what-fails-closed).
 [Talking to the other agents](../conversation.md#talking-to-the-other-agents) states
 the table itself.
@@ -513,7 +520,8 @@ nothing else and starts level. Nothing is adopted for you; `materialize`,
 4. Run `yoyo config show --effective --origins` again and diff it against
    `before.txt`. Every origin should now be the project file, apart from the few
    a generated file leaves derived — the repository id, the triage repair grant,
-   and each agent's capability set, which is the harness's registry either way —
+   and each agent's capability set, which is the harness's registry, or the
+   role definition the agent fills where it names one —
    and no effective value should have moved except the persona sources, which are
    now paths inside your repository.
 
@@ -569,6 +577,7 @@ Origins use these values:
 | `derived:execution.repair_attempts_before_replan` | A triage repair grant no layer stated, which follows the effective repair budget. |
 | `derived:accounts` | An agent's `account` no layer stated, which follows the single account the mapping declares. |
 | `registry:role-capabilities` | An agent's `capabilities`, read off its role in the harness's registry. No layer states it and none may. |
+| `role-definition:<name>` | An agent's `capabilities` and `definition`, read off the activated [role definition](../configuration.md#protected-role-definitions) its `role` names. No layer states either and none may. |
 
 An unexpected effective value is therefore a two-command diagnosis: `--effective`
 says what the value is, and `--origins` says which layer is responsible for it.
@@ -578,7 +587,8 @@ value. The exceptions are the values the generated file leaves to follow
 something else: `derived:product.id` for `product.repository_id`,
 `derived:execution.repair_attempts_before_replan` for
 `triage.repair_grant_attempts`, and `registry:role-capabilities` for every
-agent's capability set, which is the harness's rather than any file's. Nothing
+agent's capability set — or `role-definition:<name>` for an agent filling a role
+definition — which is the harness's rather than any file's. Nothing
 reports `builtin:v1`, and nothing reports `harness-default`, because the
 generated file writes down every value the harness would otherwise have filled
 in. So an origin that is none of those means the configuration is inheriting

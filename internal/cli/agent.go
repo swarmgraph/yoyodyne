@@ -29,10 +29,13 @@ import (
 // agentReport is one configured agent as the operator reads it: what it is,
 // what it decides, and what durable state it has.
 type agentReport struct {
-	Name    string           `json:"name"`
-	Role    domain.AgentRole `json:"role"`
-	Backend domain.Backend   `json:"backend"`
-	Model   string           `json:"model"`
+	Name string           `json:"name"`
+	Role domain.AgentRole `json:"role"`
+	// Definition is the role definition the agent fills, and absent for an
+	// agent on its shipped role. Role above is then the role it extends.
+	Definition string         `json:"definition,omitempty"`
+	Backend    domain.Backend `json:"backend"`
+	Model      string         `json:"model"`
 	// ModelVersion is the exact version of that family this agent's turns ask
 	// for, and absent for every agent that pins none — which is the alias above
 	// floating to the family's current best. It is read here beside the model
@@ -366,6 +369,7 @@ func readAgents(parts components) ([]agentReport, error) {
 		report := agentReport{
 			Name:           name,
 			Role:           agent.Role,
+			Definition:     agentDefinitionName(agent),
 			Backend:        agent.Backend,
 			Model:          agent.Model,
 			ModelVersion:   parts.config.AgentModelVersion(name),
@@ -484,11 +488,22 @@ func resolveAgent(cfg config.Config, requested string) (string, domain.AgentRole
 	}
 }
 
+// agentDefinitionName is the role definition an agent fills, or empty.
+func agentDefinitionName(agent config.AgentConfig) string {
+	if agent.Definition == nil {
+		return ""
+	}
+	return agent.Definition.Name
+}
+
 func renderAgent(report agentReport) string {
 	var rendered strings.Builder
 	// A lane is named inside the parentheses beside the role, because it is what
 	// the instance is: two program managers are told apart by their lanes.
 	identity := string(report.Role)
+	if report.Definition != "" {
+		identity = "role definition " + report.Definition + ", extending " + identity
+	}
 	if report.Lane != "" {
 		identity += ", lane " + report.Lane
 	}

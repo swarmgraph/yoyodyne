@@ -3,13 +3,16 @@ package chat
 import (
 	"context"
 	"errors"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
@@ -523,5 +526,170 @@ func TestEveryContractAppliesStandingGoals(t *testing.T) {
 	if !strings.Contains(laneReportContract, terms.StandingGoals) ||
 		!strings.Contains(laneReportContract, "your lane report and post-mortems") {
 		t.Error("the lane report contract does not apply standing goals to the lane report and post-mortems")
+	}
+}
+
+// A role definition's row is the table's own derivation over the definition's
+// set: the whole bundle reads exactly the shipped row, and a removal takes
+// exactly what it names away while the contract stays the shipped role's.
+func TestAuthorityHeldIsTheTablesDerivationOverADefinitionsSet(t *testing.T) {
+	t.Parallel()
+	registry := rolecapability.MustDefault()
+	for _, role := range ConversationalRoles() {
+		bundle, _ := registry.Bundle(role)
+		shipped, _ := AuthorityFor(role)
+		held, known := AuthorityHeld(role, bundle.Holds)
+		if !known || !reflect.DeepEqual(held, shipped) {
+			t.Fatalf("AuthorityHeld(%q, its whole bundle) = %+v, want the shipped row %+v", role, held, shipped)
+		}
+	}
+	bundle, _ := registry.Bundle(domain.RoleProductManager)
+	narrowed := slices.DeleteFunc(slices.Clone(bundle.Holds), func(held capability.Capability) bool {
+		return held == capability.BacklogAdmit || held == capability.ResearchCommission
+	})
+	held, _ := AuthorityHeld(domain.RoleProductManager, narrowed)
+	shipped, _ := AuthorityFor(domain.RoleProductManager)
+	if !shipped.Research || !shipped.MayAct(actionClose) || shipped.ParentRequired {
+		t.Fatal("the shipped product manager's row changed, so this test asserts nothing")
+	}
+	// Without admission, closing goes and creating needs a parent: decomposing
+	// without admitting is what the parent requirement is.
+	if held.Research || held.MayAct(actionClose) || !held.ParentRequired || held.Contract != shipped.Contract || held.Owns != shipped.Owns {
+		t.Fatalf("narrowed product manager = %+v", held)
+	}
+	if _, known := AuthorityHeld("specialist", bundle.Holds); known {
+		t.Fatal("AuthorityHeld() answered for a role with no contract")
+	}
+}
+
+// A session opened for an agent filling a role definition is held to the
+// definition's set: a product manager whose definition removed admission is
+// refused the close its shipped role may ask for.
+func TestASessionOnARoleDefinitionIsHeldToTheDefinitionsSet(t *testing.T) {
+	t.Parallel()
+
+	closeItem := "```yoyodyne-tracker\n" +
+		`{"actions":[{"action":"close","id":"yoyodyne-ifd.4","reason":"done"}]}` +
+		"\n```"
+	tracker := &fakeTracker{items: map[string]beads.WorkItem{
+		"yoyodyne-ifd.4": {ID: "yoyodyne-ifd.4", Title: "an admitted item", Status: "open"},
+	}}
+	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5-20260514", FinalText: "That one is finished.\n\n" + closeItem},
+	}})
+	bundle, _ := rolecapability.MustDefault().Bundle(domain.RoleProductManager)
+	options.Role = domain.RoleProductManager
+	options.Capabilities = slices.DeleteFunc(slices.Clone(bundle.Holds), func(held capability.Capability) bool {
+		return held == capability.BacklogAdmit
+	})
+	options.Tracker = tracker
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	_, err = session.Send(context.Background(), "What should happen to this?")
+	var refused *AuthorityError
+	if !errors.As(err, &refused) || !strings.Contains(refused.Error(), `the "close" tracker action`) {
+		t.Fatalf("Send() error = %v, want the close refused for the definition's set", err)
+	}
+	if len(tracker.closed) != 0 {
+		t.Fatalf("the tracker closed %d item(s)", len(tracker.closed))
+	}
+}
+
+// Every caller that opens a conversation takes its turns through Send — a
+// recurring pass after naming its pass, the development manager's escalation
+// directly, the Slack conversation once Decide has found nothing to settle —
+// and each is held to the role definition's set it was opened with. The
+// harness opens all of them through one call that hands the session that set,
+// which internal/cli's TestEveryConversationOpensThroughTheCallThatCarriesTheDefinitionsToolSet
+// holds; this holds what each kind of turn then does with it.
+func TestEveryKindOfTurnIsHeldToTheDefinitionsSet(t *testing.T) {
+	t.Parallel()
+
+	without := func(role domain.AgentRole, removed capability.Capability) []capability.Capability {
+		bundle, _ := rolecapability.MustDefault().Bundle(role)
+		return slices.DeleteFunc(slices.Clone(bundle.Holds), func(held capability.Capability) bool { return held == removed })
+	}
+	create := "```yoyodyne-tracker\n" +
+		`{"actions":[{"action":"create","title":"Split it","description":"because","goal":"` + recordedGoal + `","parent":"yoyodyne-ifd.4","reason":"smaller"}]}` +
+		"\n```"
+	closeItem := "```yoyodyne-tracker\n" +
+		`{"actions":[{"action":"close","id":"yoyodyne-ifd.4","reason":"done"}]}` +
+		"\n```"
+	for _, testCase := range []struct {
+		name  string
+		role  domain.AgentRole
+		held  []capability.Capability
+		reply string
+		take  func(context.Context, *Session) error
+		want  string
+	}{
+		{
+			name:  "a recurring pass whose definition removed the ask",
+			role:  domain.RoleArchitect,
+			held:  without(domain.RoleArchitect, capability.ExchangeAsk),
+			reply: "Asking.\n\n" + askBlock(`{"ask":{"role":"product-manager","question":"what does this cost?"}}`),
+			take: func(ctx context.Context, session *Session) error {
+				session.ForPass("architect-sweep")
+				_, err := session.Send(ctx, "Take your pass.")
+				return err
+			},
+			want: "a question put to",
+		},
+		{
+			name:  "an escalation to a development manager whose definition removed decomposition",
+			role:  domain.RoleDevelopmentManager,
+			held:  without(domain.RoleDevelopmentManager, capability.WorkDecompose),
+			reply: "Splitting it.\n\n" + create,
+			take: func(ctx context.Context, session *Session) error {
+				_, err := session.Send(ctx, "This run stopped; decide what follows.")
+				return err
+			},
+			want: `the "create" tracker action`,
+		},
+		{
+			name:  "a Slack message to a Lead Product Manager whose definition removed admission",
+			role:  domain.RoleProductManager,
+			held:  without(domain.RoleProductManager, capability.BacklogAdmit),
+			reply: "That one is finished.\n\n" + closeItem,
+			take: func(ctx context.Context, session *Session) error {
+				if _, settled, err := session.Decide(ctx, "Is ifd.4 done?"); settled || err != nil {
+					t.Fatalf("Decide() settled = %v, error = %v, want the message passed to the role", settled, err)
+				}
+				_, err := session.Send(ctx, "Is ifd.4 done?")
+				return err
+			},
+			want: `the "close" tracker action`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			tracker := &fakeTracker{items: map[string]beads.WorkItem{
+				"yoyodyne-ifd.4": {ID: "yoyodyne-ifd.4", Title: "an admitted item", Status: "open"},
+			}}
+			// A role whose block was refused may be asked once to correct it; it
+			// answers with the same block, which is refused again.
+			options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
+				{SessionID: "session-1", ResolvedModel: "claude-opus-5-20260514", FinalText: testCase.reply},
+				{SessionID: "session-1", ResolvedModel: "claude-opus-5-20260514", FinalText: testCase.reply},
+			}})
+			options.Role = testCase.role
+			options.Capabilities = testCase.held
+			options.Tracker = tracker
+			session, err := Open(options)
+			if err != nil {
+				t.Fatalf("Open() error = %v", err)
+			}
+			err = testCase.take(context.Background(), session)
+			var refused *AuthorityError
+			if !errors.As(err, &refused) || !strings.Contains(refused.Error(), testCase.want) {
+				t.Fatalf("turn error = %v, want a refusal naming %q", err, testCase.want)
+			}
+			if len(tracker.created) != 0 || len(tracker.closed) != 0 {
+				t.Fatalf("the tracker was written: created %d, closed %d", len(tracker.created), len(tracker.closed))
+			}
+		})
 	}
 }

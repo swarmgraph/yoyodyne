@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -290,5 +291,35 @@ func TestTheDefaultBackendsDescriptionIsTheOneTheHarnessValidatesAgainst(t *test
 	}
 	if _, known := BuiltInDescriptor("my-harness"); known {
 		t.Fatal("BuiltInDescriptor() described a backend this build does not ship")
+	}
+}
+
+// A capability set can take a writer down to read-only and can never make a
+// read-only role a writer, and a provider is asked about the posture an agent is
+// actually held to.
+func TestPostureHeldOnlyNarrows(t *testing.T) {
+	t.Parallel()
+	for _, role := range domain.Roles() {
+		if got := PostureHeld(role, nil); got != PostureReadOnly {
+			t.Errorf("PostureHeld(%q, nothing) = %q, want read-only", role, got)
+		}
+		if got := PostureHeld(role, []capability.Capability{capability.WorktreeMutate}); got != PostureFor(role) {
+			t.Errorf("PostureHeld(%q, worktree write) = %q, want the role's own %q", role, got, PostureFor(role))
+		}
+	}
+	plugin := declaredPlugin()
+	plugin.Postures = []Posture{PostureWorktreeWrite}
+	writeOnly, err := NewRegistry(map[domain.Backend]ProviderPlugin{"writer": plugin})
+	if err != nil {
+		t.Fatalf("NewRegistry() error = %v", err)
+	}
+	if err := writeOnly.ServesAt("writer", domain.RoleDeveloper, PostureReadOnly); err == nil {
+		t.Fatal("a provider that holds only worktree-write was accepted for a developer held read-only")
+	}
+	if err := writeOnly.ServesAt("writer", domain.RoleDeveloper, PostureWorktreeWrite); err != nil {
+		t.Fatalf("ServesAt() = %v", err)
+	}
+	if _, err := RequestPosture(RunRequest{Role: domain.RoleArchitect, Posture: PostureWorktreeWrite}); err == nil {
+		t.Fatal("RequestPosture() widened a read-only role")
 	}
 }

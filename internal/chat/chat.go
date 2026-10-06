@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -205,9 +206,15 @@ type Options struct {
 	// it decides three things that must not be able to disagree: the contract
 	// sent to the provider, what the role may ask the harness for, and which
 	// durable record the conversation resumes from.
-	Role    domain.AgentRole
-	Backend Backend
-	Store   Store
+	Role domain.AgentRole
+	// Capabilities is what the harness holds for this conversation's agent when
+	// it fills a role definition rather than its shipped role, and nil for every
+	// other agent, whose authority is its role's row of the table. Where it is
+	// set, what a turn may ask for is read off this set (AuthorityHeld) while the
+	// contract and the record stay the shipped role's.
+	Capabilities []capability.Capability
+	Backend      Backend
+	Store        Store
 	// Hold is this process's claim on the conversation, already taken by the
 	// caller. An interactive conversation puts it down while the operator is
 	// typing, and any turn waiting for a provider puts it down for that wait.

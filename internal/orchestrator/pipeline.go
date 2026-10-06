@@ -33,7 +33,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/review"
-	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/selfcheck"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
@@ -4083,8 +4082,11 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		Clock:       p.Clock,
 	}
 	result, err := provider.Run(ctx, backend.RunRequest{
-		RunID:             a.state.RunID,
-		Role:              domain.RoleDeveloper,
+		RunID: a.state.RunID,
+		Role:  domain.RoleDeveloper,
+		// The developer agent's tool access, which is the role's own unless the
+		// agent fills a role definition that removed the worktree write.
+		Posture:           p.developer().Posture(),
 		WorkingDirectory:  a.worktree.Path,
 		RepositoryRoot:    p.Repository,
 		Prompt:            prompt,
@@ -8269,14 +8271,16 @@ func (p Pipeline) runsOnCompiledAdapter(named domain.Backend) bool {
 //
 // What it asks of the configured agent is whether its role returns the verdict an
 // integration is gated on, rather than whether the role is named "reviewer". The
-// two are one question today, and asking it as the capability is what keeps this
-// gate and the registry from being able to disagree about which role that is.
+// two are one question for a shipped role, and asking it as the capability is
+// what keeps this gate and the registry from being able to disagree about which
+// role that is — and what refuses a reviewer agent filling a role definition
+// that removed the verdict.
 func (p Pipeline) validateReviewPolicy() error {
 	if p.Reviewer == nil {
 		return errors.New("automatic integration requires an independent reviewer")
 	}
 	reviewer := p.reviewer()
-	if !rolecapability.MustDefault().Holds(reviewer.Role, capability.ReviewVerdict) {
+	if !reviewer.Holds(capability.ReviewVerdict) {
 		return errors.New("automatic integration requires a configured reviewer agent")
 	}
 	if !p.runsOnCompiledAdapter(reviewer.Backend) {

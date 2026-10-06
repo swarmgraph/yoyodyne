@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -26,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/research"
+	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 )
 
 const CurrentVersion = 1
@@ -870,8 +872,10 @@ type AgentConfig struct {
 	// exactly as any other unknown key is. That is the design's law rather than
 	// an omission — a role definition says what may be performed at all, and a
 	// file that could widen it would be a project granting itself authority.
-	// Operator-authored bundles are a later step of the same workstream, and they
-	// arrive protected and activated by digest rather than as a key here.
+	// Operator-authored bundles arrive protected and activated by digest rather
+	// than as a key here: an agent whose role names a role definition holds that
+	// definition's set, which is its shipped role's with the definition's
+	// additions and without its removals (see Definition).
 	//
 	// It is reported like the derived halves of a persona are, because an
 	// operator asking what an agent is has a better answer for seeing it, and it
@@ -879,6 +883,51 @@ type AgentConfig struct {
 	// default is: an executable that shipped a role a different capability set
 	// shipped a different configuration.
 	Capabilities []capability.Capability `yaml:"capabilities,omitempty" json:"capabilities,omitempty"`
+	// Definition is the role definition this agent fills, and nil for an agent
+	// on one of the shipped roles. Where it is set, the agent block's `role:`
+	// named the definition, Role above has been resolved to the shipped role the
+	// definition extends — which decides the contract, the persona's place, and
+	// everything else that is about who the role is — and Capabilities is the
+	// definition's tool set, which decides what the harness does on the agent's
+	// behalf. No layer supplies it: it is read off the definition as the
+	// configuration loads, and only once the activation record says a person
+	// activated its exact digest from where it now stands: binding and that
+	// check are one step (LoadResolvedActivated), and a loader with no record
+	// to read refuses the agent instead.
+	Definition *AgentDefinition `yaml:"-" json:"definition,omitempty"`
+}
+
+// AgentDefinition is the role definition an agent fills, pinned to the content
+// and the file it was loaded from so the activation that makes it effective can
+// be held to both.
+type AgentDefinition struct {
+	Name   string `json:"name"`
+	Digest string `json:"digest"`
+	Source string `json:"source"`
+}
+
+// Holds reports whether the harness may do one thing on this agent's behalf.
+// An agent filling a role definition holds exactly the definition's set; any
+// other agent holds its shipped role's bundle, read from the registry rather
+// than from Capabilities so an agent assembled by hand without the derived set
+// is not mistaken for one that holds nothing.
+func (a AgentConfig) Holds(required capability.Capability) bool {
+	if a.Definition != nil {
+		return slices.Contains(a.Capabilities, required)
+	}
+	registry, err := rolecapability.Default()
+	return err == nil && registry.Holds(a.Role, required)
+}
+
+// Posture is the tool access the backend running this agent is held to. It is
+// the shipped role's, narrowed to read-only for a definition that removed the
+// worktree write its role holds; a definition cannot add that write, so no
+// agent's posture is ever wider than its shipped role's.
+func (a AgentConfig) Posture() backend.Posture {
+	if a.Definition == nil {
+		return backend.PostureFor(a.Role)
+	}
+	return backend.PostureHeld(a.Role, a.Capabilities)
 }
 
 // MaxPersonaBytes bounds a persona so role guidance stays guidance rather than
@@ -904,9 +953,10 @@ func (p Persona) Defined() bool {
 	return strings.TrimSpace(p.Version) != "" || strings.TrimSpace(p.Path) != "" || strings.TrimSpace(p.Text) != ""
 }
 
-func (c Config) Validate() error {
+// productProblems is what is wrong with the version and the product section,
+// which is everything a reader of the product alone depends on.
+func (c Config) productProblems() []string {
 	var problems []string
-
 	if c.Version != CurrentVersion {
 		problems = append(problems, fmt.Sprintf("version must be %d", CurrentVersion))
 	}
@@ -936,6 +986,22 @@ func (c Config) Validate() error {
 			problems = append(problems, err.Error())
 		}
 	}
+	return problems
+}
+
+// validateProduct holds the product section alone to its rules, for a reader
+// that returns nothing else.
+func (c Config) validateProduct() error {
+	if problems := c.productProblems(); len(problems) > 0 {
+		return ValidationError{Problems: problems}
+	}
+	return nil
+}
+
+func (c Config) Validate() error {
+	var problems []string
+
+	problems = append(problems, c.productProblems()...)
 	problems = append(problems, namedContextProblems("codex", c.Codex)...)
 	problems = append(problems, namedContextProblems("claude_code", c.ClaudeCode)...)
 	if c.Execution.MaxConcurrentDevelopers < 1 {
@@ -1147,11 +1213,14 @@ func (c Config) Validate() error {
 		// and a typo in an agents block would otherwise load and fail only once
 		// work had been claimed. The known roles are named because the whole
 		// point of the refusal is that the operator can see which one was meant.
+		// A role definition's name has already been resolved to the shipped role
+		// it extends by the time this runs (roles.go), so what reaches here
+		// unknown named neither.
 		roleKnown := agent.Role.Valid()
 		if strings.TrimSpace(string(agent.Role)) == "" {
 			problems = append(problems, fmt.Sprintf("agent %q role is required", name))
 		} else if !roleKnown {
-			problems = append(problems, fmt.Sprintf("agent %q has unknown role %q; roles are %s", name, agent.Role, describeRoles()))
+			problems = append(problems, fmt.Sprintf("agent %q has unknown role %q; roles are %s, or the name of a role definition under %s/%s/", name, agent.Role, describeRoles(), DirectoryName, roleDefinitionsDirectory))
 		}
 		// Which backends exist, and what each of them serves, is one question
 		// asked of the registry rather than two asked of a switch: a provider this
@@ -1176,7 +1245,7 @@ func (c Config) Validate() error {
 			// The role is already reported above, and a backend cannot be said to
 			// support or refuse a name that is not a role at all.
 		default:
-			if refusal := descriptor.RoleRefusal(agent.Role); refusal != "" {
+			if refusal := descriptor.RoleRefusalAt(agent.Role, agent.Posture()); refusal != "" {
 				problems = append(problems, fmt.Sprintf("%s, for agent %q", refusal, name))
 			}
 		}

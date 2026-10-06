@@ -149,7 +149,18 @@ func (e Endpoint) Validate() error {
 // that is not wrong there -- which is the discriminator the reviewer's no-tools
 // posture and the developer's worktree-write actually are.
 func (d Descriptor) RoleRefusal(role domain.AgentRole) string {
-	posture := PostureFor(role)
+	return d.RoleRefusalAt(role, PostureFor(role))
+}
+
+// RoleRefusalAt is RoleRefusal for an agent held to a posture its role's
+// capability set decided, which for an agent filling a role definition can be
+// narrower than its shipped role's. A posture wider than the role's own is
+// refused rather than checked, so no caller can ask a provider to hold a role to
+// more than the role may have.
+func (d Descriptor) RoleRefusalAt(role domain.AgentRole, posture Posture) string {
+	if own := PostureFor(role); own == PostureReadOnly && posture != own {
+		return fmt.Sprintf("role %q is held to %q tool access and cannot be given %q", role, own, posture)
+	}
 	switch {
 	case !d.SupportsRole(role):
 		return fmt.Sprintf("backend %q does not support role %q", d.ID, role)
@@ -218,6 +229,14 @@ func (r *Registry) Endpoint(provider domain.Backend, accountAlias, model string)
 // decides varies by either. A pool that asked this of each endpoint in turn
 // would report the last account it tried where the answer is a posture.
 func (r *Registry) Serves(provider domain.Backend, role domain.AgentRole) error {
+	return r.ServesAt(provider, role, PostureFor(role))
+}
+
+// ServesAt is Serves for an agent held to the posture its capability set
+// decided, which is how an agent filling a role definition that removed its
+// role's worktree write is checked against a provider that must hold it
+// read-only.
+func (r *Registry) ServesAt(provider domain.Backend, role domain.AgentRole, posture Posture) error {
 	if !role.Valid() {
 		return fmt.Errorf("role %q is not one of the harness's roles", role)
 	}
@@ -226,7 +245,7 @@ func (r *Registry) Serves(provider domain.Backend, role domain.AgentRole) error 
 		return fmt.Errorf("provider %q is not one this project names; it names %s",
 			provider, describeBackends(r))
 	}
-	if refusal := descriptor.RoleRefusal(role); refusal != "" {
+	if refusal := descriptor.RoleRefusalAt(role, posture); refusal != "" {
 		return errors.New(refusal)
 	}
 	return nil

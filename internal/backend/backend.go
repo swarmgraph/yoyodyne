@@ -2,6 +2,7 @@ package backend
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -79,6 +80,11 @@ type RunRequest struct {
 	// sandbox instead and refuses any nonempty list. Empty is not a portable
 	// request for a tool-free session.
 	AllowedTools []string
+	// Posture is the tool access this invocation is held to, and empty for the
+	// role's own. An agent filling a role definition that removed its role's
+	// worktree write is held read-only here; a posture wider than the role's own
+	// is refused by every adapter (RequestPosture), so naming one widens nothing.
+	Posture Posture
 	// AccountAlias is the provider account this invocation is made under, and
 	// AccountConfigDir is where that account's authentication lives on this
 	// machine. The alias is the name a record says the invocation by; the
@@ -469,4 +475,19 @@ type Backend interface {
 	CheckAvailability(ctx context.Context) (Availability, error)
 	Capabilities() Capabilities
 	Run(ctx context.Context, request RunRequest) (RunResult, error)
+}
+
+// RequestPosture is the posture an adapter holds a request to: the role's own,
+// or the narrower one the request names. It is empty for a role nobody has
+// decided a posture for, which every adapter refuses, and an error for a request
+// asking for wider access than its role has.
+func RequestPosture(request RunRequest) (Posture, error) {
+	own := PostureFor(request.Role)
+	switch {
+	case request.Posture == "" || request.Posture == own || own == "":
+		return own, nil
+	case own == PostureWorktreeWrite && request.Posture == PostureReadOnly:
+		return PostureReadOnly, nil
+	}
+	return "", fmt.Errorf("role %q is held to %q tool access and cannot be given %q", request.Role, own, request.Posture)
 }

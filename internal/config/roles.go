@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -21,6 +22,14 @@ import (
 
 // MaxRoleDefinitionBytes bounds a role definition before YAML is decoded.
 const MaxRoleDefinitionBytes = 32 << 10
+
+// roleDefinitionsDirectory is where definitions sit beside a configuration.
+const roleDefinitionsDirectory = "roles"
+
+// OriginRoleDefinition prefixes the origin of an agent's capability set and
+// definition where a role definition supplied them; the definition's name
+// follows it.
+const OriginRoleDefinition = "role-definition:"
 
 // RoleDefinition is a validated, inert definition of a bundle. It records what
 // a file says, never what an agent may do: operator activation and an agent
@@ -74,13 +83,13 @@ func loadRoleDirectory(directory string, registry rolecapability.Registry, defin
 	defer root.Close()
 	// Lstat tells an absent directory from a dangling link. The latter is a
 	// broken instruction rather than a project that has defined no roles.
-	if _, err := root.Lstat("roles"); err != nil {
+	if _, err := root.Lstat(roleDefinitionsDirectory); err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("inspect role definitions in %s: %w", directory, err)
 	}
-	roles, err := root.OpenRoot("roles")
+	roles, err := root.OpenRoot(roleDefinitionsDirectory)
 	if err != nil {
 		return fmt.Errorf("open role definitions in %s: %w", directory, err)
 	}
@@ -94,7 +103,7 @@ func loadRoleDirectory(directory string, registry rolecapability.Registry, defin
 			continue
 		}
 		name := strings.TrimSuffix(entry.Name(), ".yaml")
-		source := filepath.Join(directory, "roles", entry.Name())
+		source := filepath.Join(directory, roleDefinitionsDirectory, entry.Name())
 		if err := domain.ValidateIdentifier("role definition name", name); err != nil {
 			return fmt.Errorf("%s: %w", source, err)
 		}
@@ -212,4 +221,111 @@ func roleToolAdditionProblem(tool capability.Capability, registry rolecapability
 		return "this run operation is not a conversation tool"
 	}
 	return ""
+}
+
+// Holds is the definition's tool set: the shipped role's bundle, plus the
+// additions, minus the removals, in the order the vocabulary declares them. The
+// loader has already refused every addition no definition may make, so this set
+// never holds what the shipped role may not do.
+func (d RoleDefinition) Holds(registry rolecapability.Registry) []capability.Capability {
+	bundle, _ := registry.Bundle(d.Extends)
+	held := make(map[capability.Capability]bool, len(bundle.Holds)+len(d.Tools.Add))
+	for _, tool := range bundle.Holds {
+		held[tool] = true
+	}
+	for _, tool := range d.Tools.Add {
+		held[tool] = true
+	}
+	for _, tool := range d.Tools.Remove {
+		delete(held, tool)
+	}
+	ordered := make([]capability.Capability, 0, len(held))
+	for _, declared := range capability.All() {
+		if held[declared] {
+			ordered = append(ordered, declared)
+		}
+	}
+	return ordered
+}
+
+// bindRoleDefinitions resolves every agent whose role names a loaded role
+// definition rather than a shipped role. The agent takes the shipped role the
+// definition extends as its role, the definition's tool set as its
+// capabilities, and the definition's name, digest, and file as the record of
+// what it fills. A role that names neither is left for Validate, which refuses
+// it naming both kinds of name.
+//
+// Binding and activation are one step. Nothing is bound until the activation
+// record has been read and says the definition is activated as it stands, and
+// with no record to read every agent naming a definition is refused: a
+// definition supplies authority only through a person's activation of its
+// exact digest from its current file.
+func (r *Resolved) bindRoleDefinitions(activations RoleActivationReader) error {
+	named := make([]string, 0)
+	for _, name := range sortedConfiguredAgents(r.Config.Agents) {
+		role := r.Config.Agents[name].Role
+		if _, found := r.RoleDefinitions[string(role)]; found && !role.Valid() {
+			named = append(named, name)
+		}
+	}
+	if len(named) == 0 {
+		return nil
+	}
+	if activations == nil {
+		problems := make([]string, 0, len(named))
+		for _, name := range named {
+			problems = append(problems, fmt.Sprintf("agent %q fills role definition %q, and this reader of the configuration cannot check the definition's activation", name, r.Config.Agents[name].Role))
+		}
+		return ValidationError{Problems: problems}
+	}
+	activated, err := activations(*r)
+	if err != nil {
+		return fmt.Errorf("read the role activations the configuration's agents depend on: %w", err)
+	}
+	registry, err := rolecapability.Default()
+	if err != nil {
+		return err
+	}
+	var problems []string
+	for _, name := range named {
+		agent := r.Config.Agents[name]
+		definition := r.RoleDefinitions[string(agent.Role)]
+		if err := activated(definition); err != nil {
+			problems = append(problems, fmt.Sprintf("agent %q fills role definition %q: %v", name, definition.Name, err))
+			continue
+		}
+		agent.Role = definition.Extends
+		agent.Capabilities = definition.Holds(registry)
+		agent.Definition = &AgentDefinition{Name: definition.Name, Digest: definition.Digest, Source: definition.Source}
+		r.Config.Agents[name] = agent
+		if r.Origins == nil {
+			r.Origins = map[string]string{}
+		}
+		r.Origins["agents."+name+".capabilities"] = OriginRoleDefinition + definition.Name
+		r.Origins["agents."+name+".definition"] = OriginRoleDefinition + definition.Name
+	}
+	if len(problems) > 0 {
+		return ValidationError{Problems: problems}
+	}
+	return nil
+}
+
+// BoundDefinitions is every role definition an agent fills, by agent name.
+func (c Config) BoundDefinitions() map[string]AgentDefinition {
+	bound := make(map[string]AgentDefinition)
+	for name, agent := range c.Agents {
+		if agent.Definition != nil {
+			bound[name] = *agent.Definition
+		}
+	}
+	return bound
+}
+
+func sortedConfiguredAgents(agents map[string]AgentConfig) []string {
+	names := make([]string, 0, len(agents))
+	for name := range agents {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

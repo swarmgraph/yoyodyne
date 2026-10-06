@@ -10,9 +10,20 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 )
+
+func rolecapabilityDefault(t *testing.T) rolecapability.Registry {
+	t.Helper()
+	registry, err := rolecapability.Default()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
 
 func TestRoleDefinitionsLoadWithoutChangingAuthority(t *testing.T) {
 	t.Parallel()
@@ -149,14 +160,121 @@ func TestRoleDefinitionsCanRemoveInheritedRunAuthority(t *testing.T) {
 	}
 }
 
-func TestRoleDefinitionsDoNotBindAnAgentBeforeActivation(t *testing.T) {
+func TestAnAgentRoleNamingADefinitionHoldsTheDefinitionsToolSet(t *testing.T) {
+	t.Parallel()
+	project := t.TempDir()
+	writeProject(t, project, minimalProjectConfig+"agents:\n  architect:\n    role: specialist\n  developer:\n    role: narrow\n", nil)
+	directory := filepath.Join(project, DirectoryName)
+	specialist := writeRoleDefinition(t, directory, "specialist",
+		"extends: architect\ntools:\n  add: [readmodel.read]\n  remove: [exchange.ask]\n")
+	writeRoleDefinition(t, directory, "narrow", "extends: developer\ntools:\n  remove: [worktree.mutate]\n")
+	path := filepath.Join(directory, FileName)
+	// The plain loader cannot read the activation record, so it binds nothing.
+	if _, err := LoadResolved(path); err == nil || !strings.Contains(err.Error(), `agent "architect" fills role definition "specialist"`) || !strings.Contains(err.Error(), "cannot check the definition's activation") {
+		t.Fatalf("LoadResolved() error = %v, want an agent on a definition refused without the activation record", err)
+	}
+	// A definition the record does not call activated refuses the whole
+	// configuration, naming the agent, and binds nobody.
+	refusing := func(Resolved) (RoleActivationCheck, error) {
+		return func(definition RoleDefinition) error {
+			if definition.Name == "narrow" {
+				return fmt.Errorf("nobody has activated it")
+			}
+			return nil
+		}, nil
+	}
+	if _, err := LoadResolvedActivated(path, refusing); err == nil || !strings.Contains(err.Error(), `agent "developer" fills role definition "narrow": nobody has activated it`) {
+		t.Fatalf("LoadResolvedActivated() with narrow unactivated = %v", err)
+	}
+	unreadable := func(Resolved) (RoleActivationCheck, error) { return nil, fmt.Errorf("record unreadable") }
+	if _, err := LoadResolvedActivated(path, unreadable); err == nil || !strings.Contains(err.Error(), "record unreadable") {
+		t.Fatalf("LoadResolvedActivated() with an unreadable record = %v, want a refusal", err)
+	}
+	if _, err := LoadResolvedActivated(path, nil); err == nil {
+		t.Fatal("LoadResolvedActivated() with no record bound an agent")
+	}
+	activated := func(Resolved) (RoleActivationCheck, error) {
+		return func(RoleDefinition) error { return nil }, nil
+	}
+	resolved, err := LoadResolvedActivated(path, activated)
+	if err != nil {
+		t.Fatalf("LoadResolvedActivated() error = %v, want an agent's role to name an activated role definition", err)
+	}
+
+	architect := resolved.Config.Agents["architect"]
+	if architect.Role != domain.RoleArchitect {
+		t.Fatalf("architect role = %q, want the shipped role the definition extends", architect.Role)
+	}
+	source, err := filepath.EvalSymlinks(specialist)
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := resolved.RoleDefinitions["specialist"]
+	if architect.Definition == nil || architect.Definition.Name != "specialist" || architect.Definition.Digest != definition.Digest || architect.Definition.Source != definition.Source {
+		t.Fatalf("architect definition = %+v, want specialist pinned to %s from %s", architect.Definition, definition.Digest, source)
+	}
+	shipped, _ := rolecapabilityDefault(t).Bundle(domain.RoleArchitect)
+	var want []capability.Capability
+	for _, declared := range capability.All() {
+		if declared == capability.ReadModelRead || (declared != capability.ExchangeAsk && slices.Contains(shipped.Holds, declared)) {
+			want = append(want, declared)
+		}
+	}
+	if !slices.Equal(architect.Capabilities, want) {
+		t.Fatalf("architect capabilities = %v, want the shipped set plus the addition minus the removal %v", architect.Capabilities, want)
+	}
+	if !architect.Holds(capability.ReadModelRead) || architect.Holds(capability.ExchangeAsk) {
+		t.Fatal("Holds() did not read the definition's set")
+	}
+	if got := resolved.Origins["agents.architect.capabilities"]; got != OriginRoleDefinition+"specialist" {
+		t.Fatalf("capabilities origin = %q, want the definition named", got)
+	}
+	if architect.Posture() != backend.PostureReadOnly {
+		t.Fatalf("architect posture = %q", architect.Posture())
+	}
+
+	developer := resolved.Config.Agents["developer"]
+	if developer.Role != domain.RoleDeveloper || developer.Holds(capability.WorktreeMutate) {
+		t.Fatalf("developer = %+v, want the developer role without the worktree write", developer)
+	}
+	if developer.Posture() != backend.PostureReadOnly {
+		t.Fatalf("developer posture = %q, want a definition that removed the worktree write held read-only", developer.Posture())
+	}
+	if shippedDeveloper := (AgentConfig{Role: domain.RoleDeveloper}); shippedDeveloper.Posture() != backend.PostureWorktreeWrite || !shippedDeveloper.Holds(capability.WorktreeMutate) {
+		t.Fatal("an agent on the shipped developer role lost its worktree write")
+	}
+	if bound := resolved.Config.BoundDefinitions(); len(bound) != 2 || bound["architect"].Name != "specialist" || bound["developer"].Name != "narrow" {
+		t.Fatalf("BoundDefinitions() = %v", bound)
+	}
+}
+
+func TestAnAgentRoleNamingNoDefinitionIsStillRefused(t *testing.T) {
 	t.Parallel()
 	project := t.TempDir()
 	writeProject(t, project, minimalProjectConfig+"agents:\n  architect:\n    role: specialist\n", nil)
-	writeRoleDefinition(t, filepath.Join(project, DirectoryName), "specialist", "extends: architect\n")
+	writeRoleDefinition(t, filepath.Join(project, DirectoryName), "other", "extends: architect\n")
 	_, err := LoadResolved(filepath.Join(project, DirectoryName, FileName))
-	if err == nil || !strings.Contains(err.Error(), `unknown role "specialist"`) {
-		t.Fatalf("LoadResolved() error = %v, want an inert definition refused as an agent's role", err)
+	if err == nil || !strings.Contains(err.Error(), `unknown role "specialist"`) || !strings.Contains(err.Error(), "role definition") {
+		t.Fatalf("LoadResolved() error = %v, want the unknown name refused naming both kinds of role", err)
+	}
+}
+
+func TestRoleHistoryReadsTheProductWhateverTheAgentsName(t *testing.T) {
+	t.Parallel()
+	project := t.TempDir()
+	writeProject(t, project, minimalProjectConfig+"agents:\n  architect:\n    role: specialist\n", nil)
+	// A definition that no longer loads must not hide who activated it.
+	writeRoleDefinition(t, filepath.Join(project, DirectoryName), "specialist", "extends: observer\n")
+	product, err := RoleHistoryProduct(filepath.Join(project, DirectoryName, FileName))
+	if err != nil || product.ID != "example" {
+		t.Fatalf("RoleHistoryProduct() = %+v, %v", product, err)
+	}
+	// The role commands list and activate definitions while an agent names one
+	// nobody has activated; that read binds no agent.
+	writeRoleDefinition(t, filepath.Join(project, DirectoryName), "specialist", "extends: architect\n")
+	beside, err := LoadRoleDefinitionsBeside(filepath.Join(project, DirectoryName, FileName))
+	if err != nil || len(beside.RoleDefinitions) != 1 || len(beside.Config.Agents) != 0 {
+		t.Fatalf("LoadRoleDefinitionsBeside() = %+v, %v", beside, err)
 	}
 }
 

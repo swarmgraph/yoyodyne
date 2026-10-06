@@ -15,6 +15,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -687,12 +688,41 @@ func argumentAt(positional []string, index int) string {
 // loadConfiguration resolves an explicit path when one is given and otherwise
 // discovers the nearest project configuration, so Yoyodyne runs from a project
 // root or any directory beneath it.
+// loadConfiguration is the configuration every command that reads or runs an
+// agent works from. An agent whose role names a role definition is bound to it
+// only where a person has activated that definition's exact content where it
+// now stands; the loader asks the activation record before it binds anything,
+// and refuses the configuration otherwise.
 func loadConfiguration(explicitPath string) (config.Resolved, error) {
 	path, err := configurationPath(explicitPath)
 	if err != nil {
 		return config.Resolved{}, err
 	}
-	return config.LoadResolved(path)
+	return loadActivatedConfiguration(path)
+}
+
+// loadActivatedConfiguration loads the configuration at a path with the
+// product's activation record, which is read only when an agent names a role
+// definition. A record that cannot be read is a refusal rather than an
+// activation nobody made.
+func loadActivatedConfiguration(path string) (config.Resolved, error) {
+	return config.LoadResolvedActivated(path, readRoleActivations)
+}
+
+func readRoleActivations(resolved config.Resolved) (config.RoleActivationCheck, error) {
+	stateRoot, err := productStateRoot(resolved)
+	if err != nil {
+		return nil, err
+	}
+	store, err := runstate.NewRoleActivationStore(stateRoot, resolved.Config.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	history, err := store.History()
+	if err != nil {
+		return nil, err
+	}
+	return readmodel.ActivationCheck(history), nil
 }
 
 func configurationPath(explicitPath string) (string, error) {

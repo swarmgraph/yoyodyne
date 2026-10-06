@@ -400,11 +400,22 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	if !supportedRole(request.Role) {
 		return backend.RunResult{}, fmt.Errorf("Claude Code backend does not support role %q", request.Role)
 	}
+	// The posture decides the session: the role's own, or the narrower one an
+	// agent filling a role definition is held to. A developer whose definition
+	// removed the worktree write runs exactly as a read-only role does.
+	posture, err := backend.RequestPosture(request)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	readOnly := posture == backend.PostureReadOnly
 
-	sessionMode := sessionModeFor(request.Role)
+	sessionMode := worktreeWriteSessionMode
+	if readOnly {
+		sessionMode = readOnlySessionMode
+	}
 	allowedTools := request.AllowedTools
 	if allowedTools == nil {
-		if readOnlyRole(request.Role) {
+		if readOnly {
 			allowedTools = readOnlyTools
 		} else {
 			allowedTools = developerTools
@@ -418,10 +429,10 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	// Advisory roles consume only the bounded supplied evidence. Refuse every
 	// tool, including nominally read-only tools that could inspect outside that
 	// evidence and send unrelated local data to the provider.
-	if readOnlyRole(request.Role) && len(allowedTools) > 0 {
+	if readOnly && len(allowedTools) > 0 {
 		return backend.RunResult{}, fmt.Errorf("%s runs cannot be granted tools; the role reasons over bounded supplied evidence", request.Role)
 	}
-	if request.Role == domain.RoleDeveloper {
+	if !readOnly {
 		for _, tool := range allowedTools {
 			if !developerWriteToolIsScoped(tool) {
 				return backend.RunResult{}, fmt.Errorf("developer write tool %q must be scoped to the worktree", tool)
@@ -430,7 +441,8 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 
 	// What the role is given beside its prompt is what the project named, plus,
-	// for a developer, what the CLI reads from its own worktree. Nothing from the
+	// for an invocation that writes its worktree, what the CLI reads from that
+	// worktree. Nothing from the
 	// account's home is read by any role. See context.go.
 	named, skills, instructions, err := backend.ReadNamedContext(b.Context, request.Role, backend.NamedRoot(request))
 	if err != nil {
@@ -438,13 +450,13 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 	var settingsSources, plugins []backend.LoadedItem
 	baseSettings := ""
-	if request.Role == domain.RoleDeveloper {
+	if !readOnly {
 		baseSettings = developerSettings
 		var repositoryInstructions []backend.LoadedItem
 		settingsSources, plugins, repositoryInstructions = repositoryContext(request.WorkingDirectory)
 		instructions = append(repositoryInstructions, instructions...)
 	}
-	settings, err := settingsFor(baseSettings, request.Role, request.WorkingDirectory)
+	settings, err := settingsFor(baseSettings, !readOnly, request.WorkingDirectory)
 	if err != nil {
 		return backend.RunResult{}, err
 	}
@@ -458,8 +470,8 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		"--name", "yoyodyne-" + shortRunID(request.RunID),
 		"--settings", settings,
 	}
-	args = append(args, contextArgs(request.Role)...)
-	if request.Role != domain.RoleDeveloper {
+	args = append(args, contextArgs(!readOnly)...)
+	if readOnly {
 		// Repository instruction files are evidence, not harness policy. Safe
 		// mode prevents a checked-in CLAUDE.md from entering the provider's
 		// system context alongside an immutable harness contract.

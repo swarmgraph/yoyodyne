@@ -1407,9 +1407,10 @@ under `<state root>/products/<product>/role-activations/`. Repeating activation
 adds a record and retains every earlier one; the latest activation for a name
 is what listing compares with its file.
 
-`list` says **not activated**, **activated**, or **amended since activation**.
-An amended file's current digest differs from the latest activated digest, even
-when the edit only changed a comment. Its listing names both digests, who last
+`list` says **not activated**, **activated**, **amended since activation**, or
+**moved since activation**. An amended file's current digest differs from the
+latest activated digest, even when the edit only changed a comment; a moved
+file has the activated content at a path other than the one activated. Its listing names both digests, who last
 activated it, and when. Read the edited definition and activate it again to
 record a decision about that content. An older matching activation does not
 stand in for the latest one. `history` keeps the records when a definition is
@@ -1418,6 +1419,15 @@ agree the state root with the configured repository's Git marker before opening
 the records; if that marker is absent, they create `.git/yoyodyne/state-root`
 and its `.git/yoyodyne/state-root.writer` record. A root that disagrees with an
 existing marker is refused.
+
+**Activation is what lets an agent fill a definition.** An agent names a
+definition as its `role:`, and until the definition is activated as it stands
+every other command that reads or runs agents refuses the configuration, naming
+the agent, the definition, and the `yoyo role activate` that would make it
+effective; [the configuration guide](configuration.md#protected-role-definitions)
+says what the agent then holds. Activating again after an edit or a move is how a
+person makes the file as it now stands effective. The `yoyo role` commands
+themselves still load, so they are always there to do it.
 
 **Activation is a person's verb.** A process the harness launched for a role
 is refused before the configuration or state is read, with the same sentence
@@ -1434,9 +1444,9 @@ removes this check. The activation records live outside the worktree, under the
 state root, like the holds. A definition remains a protected path whatever
 its activation says.
 
-Activation records the decision; binding an agent to that definition is
-subsequent work. An agent's `role` still accepts only a shipped role, and these
-verbs change no agent's capabilities or contract.
+Activation records the decision. The verbs themselves change no agent's
+capabilities or contract: an agent takes a definition's tool set by naming it
+as its `role:`, and only while the definition is activated as it stands.
 
 ## Recording a step only you can take
 

@@ -7,10 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -241,4 +246,152 @@ func roleCLIOutput(t *testing.T, verb, configPath string, args ...string) roleOu
 		t.Fatalf("%v = %d, %q, %q, %v", command, code, stdout, stderr, err)
 	}
 	return output
+}
+
+// definitionAgentsConfig configures two agents on role definitions: an
+// architect that gains the read model and loses the ask channel, and a developer
+// that loses its worktree write.
+const definitionAgentsConfig = `version: 1
+product:
+  id: yoyodyne
+  repository: .
+approvals:
+  brief: human
+  goals: human
+  designs: automatic
+  integration: human
+checks:
+  - go test ./...
+agents:
+  architect:
+    role: specialist
+    backend: claude-code
+    model: opus
+  developer:
+    role: narrow
+    backend: claude-code
+    model: opus
+`
+
+// An agent's role: may name a role definition, and every reader of what the
+// agent may do reads the definition's tool set once a person has activated it:
+// configuration validation, the conversation authority table, the tool access
+// the backend is held to, and `yoyo config show`'s capabilities.
+func TestAnAgentOnAnActivatedRoleDefinitionIsReadByEveryAuthorityReader(t *testing.T) {
+	t.Setenv(execution.AgentRoleVariable, "")
+	t.Setenv(runstate.StateHomeVariable, t.TempDir())
+	project := t.TempDir()
+	configPath := filepath.Join(project, config.FileName)
+	if err := os.WriteFile(configPath, []byte(definitionAgentsConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, project, config.DirectoryName+"/roles/specialist.yaml",
+		"extends: architect\ntools:\n  add: [readmodel.read]\n  remove: [exchange.ask]\n")
+	writeArtifact(t, project, config.DirectoryName+"/roles/narrow.yaml",
+		"extends: developer\ntools:\n  remove: [worktree.mutate]\n")
+
+	// Before activation, every command that reads or runs agents refuses the
+	// configuration, naming the definitions and how a person activates them.
+	stdout, stderr, code := runCLI(t, "config", "show", "--config", configPath)
+	if code == 0 || !strings.Contains(stderr, `role definition "specialist": nobody has activated it`) || !strings.Contains(stderr, "yoyo role activate narrow") {
+		t.Fatalf("config show before activation = %d, %q, %q", code, stdout, stderr)
+	}
+	if _, err := loadConfiguration(configPath); err == nil {
+		t.Fatal("loadConfiguration() accepted an agent on a definition nobody activated")
+	}
+	// The role commands are how a definition is activated, so they still load.
+	if listed := roleCLIOutput(t, "list", configPath); len(listed.Roles) != 2 {
+		t.Fatalf("role list = %#v", listed)
+	}
+	roleCLIOutput(t, "activate", configPath, "specialist", "--by", "Ada")
+	roleCLIOutput(t, "activate", configPath, "narrow", "--by", "Ada")
+
+	resolved, err := loadConfiguration(configPath)
+	if err != nil {
+		t.Fatalf("loadConfiguration() after activation = %v", err)
+	}
+	architect := resolved.Config.Agents["architect"]
+	developer := resolved.Config.Agents["developer"]
+	if architect.Role != domain.RoleArchitect || architect.Definition == nil || architect.Definition.Name != "specialist" {
+		t.Fatalf("architect = %+v, want the architect role filled by specialist", architect)
+	}
+
+	// yoyo config show reports the definition's tool set.
+	stdout, stderr, code = runCLI(t, "config", "show", "--json", "--config", configPath)
+	var shown struct {
+		Effective config.Config `json:"effective"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &shown); err != nil || code != 0 {
+		t.Fatalf("config show = %d, %q, %q, %v", code, stdout, stderr, err)
+	}
+	shownArchitect := shown.Effective.Agents["architect"]
+	if !slices.Contains(shownArchitect.Capabilities, capability.ReadModelRead) || slices.Contains(shownArchitect.Capabilities, capability.ExchangeAsk) ||
+		shownArchitect.Definition == nil || shownArchitect.Definition.Name != "specialist" {
+		t.Fatalf("config show architect = %+v, want the definition's tool set and name", shownArchitect)
+	}
+	if slices.Contains(shown.Effective.Agents["developer"].Capabilities, capability.WorktreeMutate) {
+		t.Fatal("config show reports the worktree write the developer's definition removed")
+	}
+
+	// The conversation authority table reads the definition's set: the
+	// shipped architect asks other roles, this one does not.
+	if shipped, _ := chat.AuthorityFor(domain.RoleArchitect); !shipped.Asks {
+		t.Fatal("the shipped architect does not ask, so this test asserts nothing")
+	}
+	authority := conversationAuthority(architect.Role, architect)
+	if authority.Asks || !authority.Answers || !authority.RepositoryReads || authority.Contract == "" {
+		t.Fatalf("architect authority = %+v, want the shipped contract without the ask", authority)
+	}
+	if conversationExchanges(components{}, authority, nil, nil) != nil {
+		t.Fatal("an agent whose definition removed the ask was wired to the ask channel")
+	}
+
+	// The tool access the backend is held to, and capability validation of it.
+	if developer.Posture() != backend.PostureReadOnly || architect.Posture() != backend.PostureReadOnly {
+		t.Fatalf("postures = %q, %q", developer.Posture(), architect.Posture())
+	}
+	providers, err := resolved.Config.ProviderRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.ServesAt(developer.Backend, developer.Role, developer.Posture()); err != nil {
+		t.Fatalf("ServesAt() = %v", err)
+	}
+	if _, err := backend.RequestPosture(backend.RunRequest{Role: developer.Role, Posture: developer.Posture()}); err != nil {
+		t.Fatalf("RequestPosture() = %v", err)
+	}
+
+	// A definition amended after activation stops binding at the next read —
+	// the read a watching session makes at every pull through buildComponents.
+	specialistPath := filepath.Join(project, config.DirectoryName, "roles", "specialist.yaml")
+	original, err := os.ReadFile(specialistPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(specialistPath, append(append([]byte{}, original...), []byte("# widened by hand\n")...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfiguration(configPath); err == nil || !strings.Contains(err.Error(), `role definition "specialist": its file has changed since Ada activated`) {
+		t.Fatalf("loadConfiguration() after an amendment = %v, want the amended definition refused", err)
+	}
+	if err := os.WriteFile(specialistPath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A file that moved since activation is not activated where it now stands,
+	// whatever its content.
+	moved := filepath.Join(project, "roles", "narrow.yaml")
+	if err := os.MkdirAll(filepath.Dir(moved), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(filepath.Join(project, config.DirectoryName, "roles", "narrow.yaml"), moved); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadConfiguration(configPath); err == nil || !strings.Contains(err.Error(), `role definition "narrow": it now sits at `+moved) {
+		t.Fatalf("loadConfiguration() after the move = %v, want the moved definition refused", err)
+	}
+	stdout, stderr, code = runCLI(t, "role", "list", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "moved since activation") {
+		t.Fatalf("role list after the move = %d, %q, %q", code, stdout, stderr)
+	}
 }
