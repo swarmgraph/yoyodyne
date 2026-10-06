@@ -337,21 +337,19 @@ path_checks:
 # default; an exact identifier such as claude-opus-5 pins a version. Persona
 # paths are relative to this .yoyodyne directory and must be Markdown inside it.
 # Delete an agent to remove it, edit one to change it.
-# The architect and development manager prefer Codex Astra, with Claude Fable
-# as fallback (operator, 2026-10-03). Product managers retain Fable with Astra
-# fallback. Cross-provider failover currently covers conversation turns only.
+# Every role runs on Claude Opus (operator, 2026-10-06: Fable's weekly
+# allowance was going too fast). The four conversation roles fall back to
+# Codex Astra; cross-provider failover currently covers conversation turns only.
 agents:
   architect:
     role: architect
-    # Fable, from Codex Astra, at the operator's direction of 2026-10-05: the
-    # Codex plan's weekly allowance carries far less work than Claude's.
     backend: claude-code
-    model: fable
-    effort: high
+    model: opus
+    effort: medium
     failover:
       enabled: true
-      model: opus
-      provider: claude-code
+      model: gpt-6-astra
+      provider: codex
     instances: 1
     persona:
       version: v2
@@ -374,8 +372,8 @@ agents:
   factory-flow-pm:
     role: program-manager
     backend: claude-code
-    model: fable
-    effort: high
+    model: opus
+    effort: medium
     failover:
       enabled: true
       model: gpt-6-astra
@@ -398,15 +396,13 @@ agents:
       on: [admissions, stoppages]
   development-manager:
     role: development-manager
-    # Fable, from Codex Astra, at the operator's direction of 2026-10-05: the
-    # Codex plan's weekly allowance carries far less work than Claude's.
     backend: claude-code
-    model: fable
-    effort: high
+    model: opus
+    effort: medium
     failover:
       enabled: true
-      model: opus
-      provider: claude-code
+      model: gpt-6-astra
+      provider: codex
     instances: 1
     persona:
       version: v2
@@ -414,8 +410,8 @@ agents:
   product-manager:
     role: product-manager
     backend: claude-code
-    model: fable
-    effort: high
+    model: opus
+    effort: medium
     failover:
       enabled: true
       model: gpt-6-astra
