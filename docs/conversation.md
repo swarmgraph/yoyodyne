@@ -2173,9 +2173,12 @@ and [the paragraph on it below](#resuming-an-approved-change-the-environment-sto
 says why there is none to carry out.
 
 Neither of the first two waits on being typed. A watching `yoyo work` session
-fires a recorded repair or re-run itself, oldest stoppage first and as many per
-pull as there are developer slots for them and behind any ready work of a higher
-priority than its item, through these same two actions and under every condition
+fires a recorded repair or re-run itself, oldest decision first and as many per
+pull as there are developer slots for them — ahead of fresh pulls of any priority
+where the stopped run's branch or worktree is still there, and otherwise behind
+any ready work of a higher priority than its item
+([how work flows](work.md#letting-the-harness-choose-the-work) says why) —
+through these same two actions and under every condition
 each of them asks — so
 recording the decision is what causes it, and the verbs are what fires one *now*
 rather than at the next pull. A re-arm is not typed either, whether of a merge

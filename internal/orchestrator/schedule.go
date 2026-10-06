@@ -2456,11 +2456,27 @@ pulling:
 		// runs again: one that ended since this pull read them leaves the gate a
 		// slot to give, and an outranked decision attempted then took it ahead of
 		// the work that outranks it.
+		//
+		// A decision about a stopped run whose change is still there — its branch or
+		// its worktree found standing, by the same look the hold and the docket take —
+		// is outranked by nothing (yoyodyne-ifd.428.81). Finishing reviewed, preserved
+		// work is cheaper than starting new work, the decision to continue it is
+		// already made, and a preserved worktree waiting behind the order ages into
+		// conflicts: on 2026-10-05 three such decisions on priority 1 and 2 items
+		// waited behind sixty-odd ready items, one for thirty-six hours. So it takes
+		// the first free slot ahead of fresh pulls of any priority, oldest decision
+		// first, under every gate it asked before; the queue is still read for it, so
+		// the run's reason can name the ready work it went ahead of.
 		var early *pulled
 		earlyAsked := false
+		preserved := preservedWork(ctx, pull, s.now)
 		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
-			if held || paused || task.Decision == DecisionContinueStall {
+			if task.Decision == DecisionContinueStall {
 				return outrankedCarryOut{}, false
+			}
+			kept := preserved(task)
+			if held || paused {
+				return outrankedCarryOut{task: task, preserved: kept}, false
 			}
 			if !earlyAsked {
 				earlyAsked = true
@@ -2469,9 +2485,11 @@ pulling:
 				}
 			}
 			if early == nil {
-				return outrankedCarryOut{}, false
+				return outrankedCarryOut{task: task, preserved: kept}, false
 			}
-			return outranking(task, *early, occupied)
+			ranked, outranks := outranking(task, *early, occupied)
+			ranked.preserved = kept
+			return ranked, outranks && !kept
 		}
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
@@ -4462,9 +4480,9 @@ func (s Scheduler) correct(ctx context.Context, schedule *Schedule, pull Pull) {
 // pull says about each is handed to RecordUnattempted, which writes it onto the
 // item once the decision has stood a poll interval.
 //
-// The oldest stoppage goes first, which is the docket's own order — the order
-// the stoppages were recorded in, not the order the decisions about them were
-// made, though the two seldom differ.
+// The oldest decision goes first, by when it was recorded, and the docket's own
+// order — the order the stoppages were recorded in — between two recorded at
+// one moment.
 //
 // A reading that failed is reported and starts nothing. That is the same
 // direction every other optional part of a pull fails in: the queue's own work is
@@ -4493,7 +4511,9 @@ func (s Scheduler) correct(ctx context.Context, schedule *Schedule, pull Pull) {
 // outranks is not fired here at all, and not passed over either: it is returned
 // as pending, for the walk of the queue to fire at the point in the order its
 // item's priority puts it. outranked says which decisions those are; nil says
-// none are, which is every decision before yoyodyne-ifd.428.58.
+// none are, which is every decision before yoyodyne-ifd.428.58. A decision about
+// a stopped run whose change is still there is never one of them: it is fired
+// here, marked Preserved, with the ready work it went ahead of in AheadOf.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil
@@ -4508,6 +4528,13 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		schedule.CarryOutReadProblem = fmt.Sprintf(
 			"what the development manager has decided and the harness has not carried out could not be read in full, so a decision may be waiting that nothing here fired: %v", err)
 	}
+	// Oldest decision first. The docket's order is the order the stoppages were
+	// recorded in, and a decision recorded late about an early stoppage is not
+	// older than one recorded early about a later one; a decision nobody recorded
+	// — the harness's own continuation of a check stage — keeps its place ahead.
+	slices.SortStableFunc(outstanding, func(a, b CarryOutTask) int {
+		return a.DecidedAt.Compare(b.DecidedAt)
+	})
 	slots := free
 	if slots < 1 {
 		slots = 1
@@ -4548,9 +4575,14 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		// An unserved continuation already holds its slot. Recovering it does
 		// not compete with ready work for another one.
 		if outranked != nil && !reusesSlot {
-			if held, outranks := outranked(task); outranks {
+			held, outranks := outranked(task)
+			if outranks {
 				pending = append(pending, held)
 				continue
+			}
+			if held.preserved {
+				task.Preserved = true
+				task.AheadOf = held.named
 			}
 		}
 		chosen = append(chosen, task)
@@ -4575,6 +4607,44 @@ type outrankedCarryOut struct {
 	task     CarryOutTask
 	priority int
 	ahead    []string
+	// named is the same ready work by what it is, each title with its
+	// identifier after it, for the sentences a person reads on the item.
+	named []string
+	// preserved says the stopped run's change is still there, so the decision is
+	// held back by nothing in the order and ahead is the work it goes ahead of.
+	preserved bool
+}
+
+// preservedWork answers whether a decision is about a stopped run whose branch
+// or worktree is still there, asked of the repository through the same look the
+// hold and the docket take. The runs are read once, and only where a decision
+// asks. A pull wired with no record of its stopped runs, a run it cannot find,
+// and a look that failed all answer no, which leaves the decision where the
+// order puts it — the ordering it had before, rather than a slot taken ahead of
+// the queue on a preservation nobody established.
+func preservedWork(ctx context.Context, pull Pull, now func() time.Time) func(CarryOutTask) bool {
+	var runs map[string]runstate.State
+	read := false
+	return func(task CarryOutTask) bool {
+		if pull.Stoppages == nil {
+			return false
+		}
+		if !read {
+			read = true
+			if recorded, err := pull.Stoppages.Recorded(); err == nil {
+				runs = make(map[string]runstate.State, len(recorded))
+				for _, run := range recorded {
+					runs[run.RunID] = run
+				}
+			}
+		}
+		run, known := runs[task.RunID]
+		if !known {
+			return false
+		}
+		found := readmodel.Looking(ctx, pull.Remains, now)(run)
+		return !found.Unknown && (found.BranchThere || found.WorktreeThere)
+	}
 }
 
 // outranking is whether ready work in the order outranks the item a decision is
@@ -4599,6 +4669,11 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 			continue
 		}
 		held.ahead = append(held.ahead, entry.ID)
+		named := entry.ID
+		if title := strings.TrimSpace(read.items[entry.ID].Title); title != "" {
+			named = fmt.Sprintf("%s (%s)", title, entry.ID)
+		}
+		held.named = append(held.named, named)
 	}
 	return held, len(held.ahead) > 0
 }
@@ -4751,8 +4826,12 @@ func carryingOutReason(task CarryOutTask) string {
 	if task.Decision == DecisionContinueStall {
 		return fmt.Sprintf("the harness stopped run %s for a silent provider stream and is continuing it itself, once, at the phase it stalled in", task.RunID)
 	}
-	return fmt.Sprintf("the development manager recorded a %q about the stoppage of run %s and the harness is carrying it out",
+	reason := fmt.Sprintf("the development manager recorded a %q about the stoppage of run %s and the harness is carrying it out",
 		task.Decision, task.RunID)
+	if ahead := aheadOfQueue(task); ahead != "" {
+		reason += ". " + ahead
+	}
+	return reason
 }
 
 // settleCarryOut takes one fired decision into the schedule and reports whether

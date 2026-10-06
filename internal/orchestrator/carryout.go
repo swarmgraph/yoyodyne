@@ -75,6 +75,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -270,6 +271,14 @@ type CarryOutTask struct {
 	// Recover continues a recorded repair whose dispatch is still pending. It
 	// reuses that run's slot and grant; the action re-reads it under its lease.
 	Recover bool `json:"recover,omitempty"`
+	// Preserved says the pass found the stopped run's branch or worktree still
+	// there when it chose this decision, which is what puts it ahead of fresh
+	// pulls of any priority; AheadOf is the ready work of higher priority it was
+	// put ahead of, each by its title with its identifier after it, which the
+	// run's reason and the item's notes name. Both are the pass's to set and
+	// empty on a decision carried out any other way.
+	Preserved bool     `json:"preserved,omitempty"`
+	AheadOf   []string `json:"ahead_of,omitempty"`
 }
 
 // CarriedOut is what one attempt came to. It reports an attempt that was stopped
@@ -872,7 +881,14 @@ func (i outstandingItem) rerunOutstanding(entry triage.Entry, decision runstate.
 // asked, and every other gate refuses inside it exactly as it refuses a carry-out
 // somebody typed; and the finding is written last, because until the attempt has
 // ended there is nothing to record about it.
-func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (CarriedOut, Outcome, error) {
+func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account CarriedOut, outcome Outcome, err error) {
+	// What a run fired ahead of the queue went ahead of is said wherever its reason
+	// is, the pass's account included, whichever action carried it out.
+	defer func() {
+		if ahead := aheadOfQueue(task); account.Carried && ahead != "" && !strings.Contains(account.Reason, ahead) {
+			account.Reason = withAheadOf(account.Reason, ahead)
+		}
+	}()
 	if err := c.validate(); err != nil {
 		return CarriedOut{}, Outcome{}, err
 	}
@@ -930,7 +946,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 			"nothing is wired to this harness to start a fresh run, so the re-run recorded against this stoppage waits on somebody running `yoyo triage rerun`",
 			"a harness wired to start re-runs itself"), Outcome{}, nil
 	}
-	result, runErr := c.Rerunner.Rerun(ctx, RerunRequest{Run: task.RunID})
+	result, runErr := c.Rerunner.Rerun(ctx, RerunRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	switch {
 	case result.IntakeHeld != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
@@ -939,7 +955,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 	case result.CapacityFull != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
 			fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit),
-			"a developer slot freeing, which needs nobody; nothing was claimed, so the stoppage keeps its re-run"), Outcome{}, nil
+			"a developer slot freeing, which needs nobody"+nextSlot(task)+"; nothing was claimed, so the stoppage keeps its re-run"), Outcome{}, nil
 	case result.PausedBeforeStarting != nil:
 		gate, clears, waiting := pausedGate(*result.PausedBeforeStarting)
 		return c.stopped(ctx, task, carried, gate, waiting,
@@ -970,7 +986,7 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 			"nothing is wired to this harness to continue a stopped run, so the repair granted against this stoppage waits on somebody running `yoyo triage repair`",
 			"a harness wired to continue stopped runs itself"), Outcome{}, nil
 	}
-	result, runErr := c.Repairer.Continue(ctx, RepairContinueRequest{Run: task.RunID})
+	result, runErr := c.Repairer.Continue(ctx, RepairContinueRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	switch {
 	case result.IntakeHeld != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateIntakeHold, true,
@@ -979,7 +995,7 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 	case result.CapacityFull != nil:
 		return c.stopped(ctx, task, carried, runstate.TriageGateCapacity, true,
 			fmt.Sprintf("every developer slot is occupied: %d active, limit %d", result.CapacityFull.Active, result.CapacityFull.Limit),
-			"a developer slot freeing, which needs nobody; nothing was spent, so the item keeps its grant"), Outcome{}, nil
+			"a developer slot freeing, which needs nobody"+nextSlot(task)+"; nothing was spent, so the item keeps its grant"), Outcome{}, nil
 	case !result.Continued:
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
 			carried.Cause = carryOutCause(runErr)
@@ -993,6 +1009,50 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 	carried.Reason = result.Reason
 	carried.RecordProblem = result.RecordProblem
 	return carried, result.Outcome, runErr
+}
+
+// aheadOfQueue is what a run fired ahead of higher-priority ready work records
+// about it: the work it was put ahead of, and the rule that put it there. It is
+// empty for every other decision, whose reason is what it always was.
+func aheadOfQueue(task CarryOutTask) string {
+	if !task.Preserved || len(task.AheadOf) == 0 {
+		return ""
+	}
+	named := task.AheadOf
+	if len(named) > readmodel.MaxPassedOverNamed {
+		named = named[:readmodel.MaxPassedOverNamed]
+	}
+	listed := strings.Join(named, ", ")
+	if further := len(task.AheadOf) - len(named); further > 0 {
+		listed += fmt.Sprintf(", and %d further", further)
+	}
+	return fmt.Sprintf("It went ahead of %s of higher priority in the Lead Product Manager's order that stood ready (%s), because the stopped run's change is still there: a decided repair or re-run of preserved work takes the first free developer slot ahead of fresh pulls of any priority.",
+		plural(len(task.AheadOf), "item", "items"), listed)
+}
+
+// withAheadOf ends a run's recorded reason with the sentence aheadOfQueue wrote,
+// shortening the reason before it rather than the sentence where the two outgrow
+// the bound a selection reason is held to, so what the run went ahead of is never
+// the part cut.
+func withAheadOf(reason, ahead string) string {
+	ahead = strings.TrimSpace(ahead)
+	if ahead == "" {
+		return reason
+	}
+	room := runstate.MaxSelectionReasonBytes - len(ahead) - 1
+	if room < 0 {
+		return singleLine(ahead, runstate.MaxSelectionReasonBytes)
+	}
+	return singleLine(reason, room) + " " + ahead
+}
+
+// nextSlot is what a decision about preserved work that found every slot taken
+// adds to what clears it: that no fresh pull goes ahead of it for the next one.
+func nextSlot(task CarryOutTask) string {
+	if !task.Preserved {
+		return ""
+	}
+	return "; the stopped run's change is still there, so it is next: the first developer slot that frees is its, ahead of fresh pulls of any priority"
 }
 
 // continueChecks continues a run the check stage bound stopped, at its checks.
@@ -1036,7 +1096,7 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	if held {
 		return waiting(runstate.TriageGateSpendingPause, fmt.Sprintf("the operator has paused everything the harness spends, since %s", hold.HeldAt.UTC().Format(time.RFC3339)))
 	}
-	result, runErr := c.CheckStages.Continue(ctx, CheckStageContinueRequest{Run: task.RunID})
+	result, runErr := c.CheckStages.Continue(ctx, CheckStageContinueRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	carried.RecordProblem = result.RecordProblem
 	switch {
 	case result.IntakeHeld != nil:

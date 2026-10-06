@@ -303,9 +303,16 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 			if err != nil || len(tasks) != 1 || tasks[0].Decision != DecisionContinueChecks || tasks[0].RunID != outcome.RunID {
 				t.Fatalf("Outstanding() = %#v, %v; want the harness's continuation of the stopped stage", tasks, err)
 			}
+			// The pass put it ahead of higher-priority ready work, because its change
+			// is preserved, and the item's record has to say what it went ahead of.
+			tasks[0].Preserved = true
+			tasks[0].AheadOf = []string{"Codex token usage display (yoyodyne-ifd.435.16)"}
 			carried, continued, err := carrying.Carry(context.Background(), tasks[0])
 			if err != nil {
 				t.Fatalf("Carry() error = %v", err)
+			}
+			if ahead := aheadOfQueue(tasks[0]); !strings.Contains(tracker.Notes, ahead) || !strings.Contains(carried.Reason, ahead) {
+				t.Fatalf("item notes = %q, pass reason = %q; want both to say it went ahead of %q", tracker.Notes, carried.Reason, ahead)
 			}
 			if !carried.Carried || continued.Status != runstate.StatusSucceeded || continued.Integration == nil {
 				t.Fatalf("carried = %#v, outcome status %s; want the continued run checked, reviewed, and promoted", carried, continued.Status)
