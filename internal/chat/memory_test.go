@@ -347,6 +347,77 @@ func TestTheMemoryContractStatesTheBoundsTheHarnessHolds(t *testing.T) {
 	}
 }
 
+// A role that writes "compacts" as text has been refused a whole reply for it,
+// so every contract that carries the memory block says what the field takes and
+// shows a compaction written the way the harness reads it.
+func TestEveryRoleThatKeepsAMemoryIsToldWhatCompactsTakes(t *testing.T) {
+	t.Parallel()
+
+	const statement = `"compacts" takes a list of revision numbers, written as numbers rather than text`
+	const example = `{"memories":[{"action":"compact","memory":"short-lowercase-name","text":"the shorter revision that replaces them","compacts":[3, 4]}]}`
+	if _, err := decodeMemoryWrites(example); err != nil {
+		t.Fatalf("the contract's example compaction is refused: %v", err)
+	}
+	keepers := 0
+	for _, role := range ConversationalRoles() {
+		authority, _ := AuthorityFor(role)
+		if !authority.Memory {
+			continue
+		}
+		keepers++
+		for _, want := range []string{statement, example} {
+			if !strings.Contains(authority.Contract, want) {
+				t.Errorf("the %s's contract does not carry %q", role, want)
+			}
+		}
+	}
+	if keepers == 0 {
+		t.Fatal("no role keeps a memory, so nothing here was checked")
+	}
+	for field := range memoryFieldTypes {
+		name := field[strings.LastIndex(field, ".")+1:]
+		if !strings.Contains(memoryContract, `"`+name+`"`) {
+			t.Errorf("the refusal describes %q, which the contract never names", name)
+		}
+	}
+}
+
+// A field of the wrong type is refused in the words the contract uses: which
+// memory, which field, what it takes, and what it was given.
+func TestAMistypedMemoryFieldIsRefusedNamingItsType(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		payload string
+		want    string
+	}{
+		"compacts as a list of text": {
+			payload: `{"memories":[{"action":"remember","memory":"a","text":"b"},{"action":"compact","memory":"c","text":"d","compacts":["3", "4"]}]}`,
+			want:    `memories[1]: "compacts" takes a list of revision numbers, such as [3, 4], and it was given ["3","4"]`,
+		},
+		"compacts as one piece of text": {
+			payload: `{"memories":[{"action":"compact","memory":"c","text":"d","compacts":"3, 4"}]}`,
+			want:    `memories[0]: "compacts" takes a list of revision numbers, such as [3, 4], and it was given "3, 4"`,
+		},
+		"text as a number": {
+			payload: `{"memories":[{"action":"remember","memory":"a","text":7}]}`,
+			want:    `memories[0]: "text" takes text, and it was given 7`,
+		},
+	} {
+		_, _, err := extractMemoryWrites("prose\n\n" + memoryBlock(test.payload))
+		if err == nil {
+			t.Errorf("%s: extractMemoryWrites() accepted %s", name, test.payload)
+			continue
+		}
+		if !strings.Contains(err.Error(), test.want) {
+			t.Errorf("%s: refusal = %q, want it to say %q", name, err, test.want)
+		}
+		if strings.Contains(err.Error(), "Go struct") {
+			t.Errorf("%s: refusal = %q, which names Go types the role never sees", name, err)
+		}
+	}
+}
+
 func TestAMemoryBlockNamedForAWorkItemIsRead(t *testing.T) {
 	t.Parallel()
 

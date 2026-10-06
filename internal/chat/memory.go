@@ -148,6 +148,10 @@ func decodeMemoryWrites(payload string) ([]MemoryWrite, error) {
 	decoder.DisallowUnknownFields()
 	var document memoryDocument
 	if err := decoder.Decode(&document); err != nil {
+		var mistyped *json.UnmarshalTypeError
+		if errors.As(err, &mistyped) {
+			return nil, fmt.Errorf("decode memory writes: %w", mistypedMemoryField(trimmed, mistyped))
+		}
 		return nil, fmt.Errorf("decode memory writes: %w", err)
 	}
 	if _, err := decoder.Token(); !errors.Is(err, io.EOF) {
@@ -169,6 +173,84 @@ func decodeMemoryWrites(payload string) ([]MemoryWrite, error) {
 		return nil, fmt.Errorf("invalid memory writes: %w", errors.Join(problems...))
 	}
 	return document.Memories, nil
+}
+
+// memoryFieldTypes says in ordinary words what each field of a memory block
+// takes, keyed by the path the JSON decoder names a mistyped field by. The
+// contract states the same types, and a test holds the two together.
+var memoryFieldTypes = map[string]string{
+	"memories":          "a list of memories",
+	"memories.action":   `text: "remember", "compact", or "retire"`,
+	"memories.memory":   "text: the memory's short lowercase name",
+	"memories.text":     "text",
+	"memories.subject":  "text",
+	"memories.compacts": "a list of revision numbers, such as [3, 4]",
+}
+
+// maxMistypedValueBytes bounds how much of a mistyped value the refusal repeats.
+const maxMistypedValueBytes = 200
+
+// mistypedMemoryField says which field of a block held a value of the wrong
+// type, what the field takes, and what it was given, in place of the decoder's
+// own message, which names Go types the role writing the block never sees and
+// leaves out the value it wrote.
+func mistypedMemoryField(payload string, mistyped *json.UnmarshalTypeError) error {
+	takes, known := memoryFieldTypes[mistyped.Field]
+	if !known {
+		return mistyped
+	}
+	name := mistyped.Field[strings.LastIndex(mistyped.Field, ".")+1:]
+	where, given := mistypedMemoryValue(payload, mistyped.Field)
+	if given == "" {
+		given = mistyped.Value
+		if given == "string" {
+			given = "text"
+		}
+	}
+	return fmt.Errorf("%s%q takes %s, and it was given %s", where, name, takes, given)
+}
+
+// mistypedMemoryValue finds the value the decoder refused, read again loosely,
+// with the memory it sits in. It returns nothing where the block cannot be read
+// that far, and the refusal then names the kind of value instead.
+func mistypedMemoryValue(payload, field string) (string, string) {
+	var document struct {
+		Memories json.RawMessage `json:"memories"`
+	}
+	if err := json.Unmarshal([]byte(payload), &document); err != nil {
+		return "", ""
+	}
+	if field == "memories" {
+		return "", mistypedValueText(document.Memories)
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(document.Memories, &entries); err != nil {
+		return "", ""
+	}
+	key := strings.TrimPrefix(field, "memories.")
+	for i, entry := range entries {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(entry, &fields); err != nil {
+			continue
+		}
+		raw, present := fields[key]
+		if !present {
+			continue
+		}
+		var probe MemoryWrite
+		if err := json.Unmarshal([]byte(`{"`+key+`":`+string(raw)+`}`), &probe); err != nil {
+			return fmt.Sprintf("memories[%d]: ", i), mistypedValueText(raw)
+		}
+	}
+	return "", ""
+}
+
+func mistypedValueText(raw json.RawMessage) string {
+	var compacted bytes.Buffer
+	if err := json.Compact(&compacted, raw); err != nil {
+		return ""
+	}
+	return singleLine(compacted.String(), maxMistypedValueBytes)
 }
 
 // validate is the shape of one write. What depends on the history — the next
@@ -510,4 +592,12 @@ To record, revise, or retire a memory, end your reply with exactly one block, af
 {"memories":[{"action":"remember","memory":"short-lowercase-name","text":"what you concluded, in a sentence or two","subject":"optional: the work item, document, or branch it is about"}]}
 ` + "```" + `
 
-"remember" records a new memory, or a new revision of one you already hold under that name. "retire" takes a memory out of what you are briefed with, and its text says why it stopped being true. "compact" replaces a memory with a shorter revision and names the earlier revisions it folds, in "compacts". A memory keeps the subject it was first recorded with, so leave "subject" out when revising or retiring one. Record at most four in one reply, each at most 8 KiB; everything you remember together is held to 32 KiB, and a write past that is refused until you compact or retire something. Reference documents, work items, and conversations by identifier rather than copying their text, and never put a secret in a memory. The harness records each write through your context actions, tells the operator, and tells you on your next turn what became of it. Leave the block out when you have nothing worth remembering, which is most replies.`
+"remember" records a new memory, or a new revision of one you already hold under that name. "retire" takes a memory out of what you are briefed with, and its text says why it stopped being true. "compact" replaces a memory with a shorter revision and names the earlier revisions it folds, in "compacts".
+
+Every field but one takes text: "action" is "remember", "retire", or "compact"; "memory" is the short lowercase name; "text" and "subject" are text. "compacts" takes a list of revision numbers, written as numbers rather than text — [3, 4], never ["3", "4"] or "3, 4" — and only a compaction carries it. A compaction looks like this:
+
+` + "```" + `yoyodyne-memory
+{"memories":[{"action":"compact","memory":"short-lowercase-name","text":"the shorter revision that replaces them","compacts":[3, 4]}]}
+` + "```" + `
+
+A block with a field of the wrong type is refused whole, and nothing in it is remembered. A memory keeps the subject it was first recorded with, so leave "subject" out when revising or retiring one. Record at most four in one reply, each at most 8 KiB; everything you remember together is held to 32 KiB, and a write past that is refused until you compact or retire something. Reference documents, work items, and conversations by identifier rather than copying their text, and never put a secret in a memory. The harness records each write through your context actions, tells the operator, and tells you on your next turn what became of it. Leave the block out when you have nothing worth remembering, which is most replies.`
