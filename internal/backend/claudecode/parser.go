@@ -21,7 +21,10 @@ type streamParser struct {
 	// terminal event so the record says whose invocation it priced rather than
 	// leaving that to be inferred from where the terminal sits in the log. See
 	// the terminal event types in internal/execution for what reads it.
-	role     domain.AgentRole
+	role domain.AgentRole
+	// loaded is what the invocation was given beside its prompt, said on the
+	// event that starts it so the run's log carries it for every role.
+	loaded   backend.Loaded
 	sequence *execution.Sequence
 	clock    execution.Clock
 	redactor execution.Redactor
@@ -342,13 +345,17 @@ func (p *streamParser) parseSystem(envelope streamEnvelope) error {
 		if !p.sawResult && envelope.Model != "" {
 			p.result.ResolvedModel = envelope.Model
 		}
-		return p.emit(execution.EventRunStarted, map[string]any{
+		payload := map[string]any{
 			"session_id":      envelope.SessionID,
 			"model":           envelope.Model,
 			"permission_mode": envelope.PermissionMode,
 			"tools":           envelope.Tools,
 			"capabilities":    envelope.Capabilities,
-		})
+		}
+		if p.loaded.Reported {
+			payload["loaded"] = p.loaded.String()
+		}
+		return p.emit(execution.EventRunStarted, payload)
 	case apiRetrySubtype:
 		// The provider is retrying by itself. The dialect is asked anyway, so the
 		// answer for a retry in progress is the contract's rather than this

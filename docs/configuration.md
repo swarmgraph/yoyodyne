@@ -4625,9 +4625,8 @@ each kind where that was nothing: a run keeps the developer's as
 last turn's as `provider_loaded`, and every Codex turn's `run.started` event
 carries the same one-line account, for example
 `skills: none; plugins: none; instruction files: AGENTS.md (repository, /path/to/worktree/AGENTS.md)`.
-A record from a Claude Code turn says `skills, plugins, and instruction files:
-not reported` rather than `none`, because that adapter does not account for
-them.
+A Claude Code turn's record also names its settings sources and connectors; see
+[the next section](#settings-memory-skills-connectors-and-instruction-files-a-claude-code-role-is-given).
 
 This adds the `codex` configuration key. A part of the product still running a
 build from before it refuses a file that carries it; `yoyo config validate` and
@@ -4635,6 +4634,62 @@ build from before it refuses a file that carries it; `yoyo config validate` and
 when it moves its parts onto the build. How the CLI is
 kept from loading the rest is in
 [provider plugins](provider-plugins.md#codex-skills-plugins-and-instruction-files).
+
+### Settings, memory, skills, connectors, and instruction files a Claude Code role is given
+
+A Claude Code role is given the skills and instruction files the project names
+in a top-level `claude_code` section, and nothing personal. From the Claude
+Code home of the account a turn runs under it reads no settings file
+(`~/.claude/settings.json`, with the hooks, permissions, and plugins it
+enables), no memory (the auto-memory index and its notes), no skill, agent, or
+plugin, no MCP server, no claude.ai connector — Gmail, Calendar, and the rest
+attached to the account on claude.ai — and no instruction file
+(`~/.claude/CLAUDE.md` and its rules). That holds whether the role is a
+developer, a reviewer, a conversation, or a recurring pass, and whether the turn
+starts a session or resumes one. Neither are skills in the repository's own
+`.claude/skills` or the CLI's built-in ones. The section has the shape of the
+[Codex one](#skills-and-instruction-files-a-codex-role-is-given), and its
+entries are read the same way:
+
+```yaml
+claude_code:
+  skills:
+    - path: .yoyodyne/skills/code-review
+      roles: [reviewer]
+  instructions:
+    - path: docs/agent-notes.md
+    # A personal file is given only when the project names it.
+    - path: ~/.claude/CLAUDE.md
+      roles: [developer]
+```
+
+A relative path is read from the harness's own checkout, `~/` is the home
+directory of whoever runs the harness, and `roles` narrows an entry. The harness
+reads each file and adds it to the role's standing instructions after its
+contract. A named file that cannot be read stops the turn before the provider
+is asked. Plugins, MCP servers, and connectors cannot be named: none is loaded.
+The `codex` and `claude_code` sections are separate, so a file named in one is
+not given to the other provider's roles.
+
+What a developer reads from its own worktree is the repository's and stays: its
+checked-in `.claude/settings.json`, which is where its project hooks come from,
+and the `CLAUDE.md` files in the worktree. A `CLAUDE.md` in a directory above
+the worktree is not the repository's and is not read. Every other role reads no
+settings file and no `CLAUDE.md` at all, so the repository it inspects cannot
+configure it. Admin-managed policy settings installed on the machine still
+apply, as they do to every Claude Code session.
+
+Every record says what was loaded, by name and source, with `none` for each
+kind that was empty, in the same places as a Codex turn's — `provider_loaded`,
+`review_loaded`, and the `run.started` event — for example
+`settings sources: .claude/settings.json (repository, /path/to/worktree/.claude/settings.json); skills: none; plugins: none; connectors: none; instruction files: CLAUDE.md (repository, /path/to/worktree/CLAUDE.md)`.
+
+This adds the `claude_code` configuration key. A part of the product still
+running a build from before it refuses a file that carries it; `yoyo config
+validate` and `yoyo doctor` name any such part, and the product restarts it on
+this build when it moves its parts onto the build. How the CLI is kept from
+loading the rest is in
+[provider plugins](provider-plugins.md#claude-code-settings-memory-skills-connectors-and-instruction-files).
 
 ## Relaunching a run the provider killed
 

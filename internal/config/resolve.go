@@ -534,6 +534,10 @@ func (r *resolution) apply(applied layer) error {
 		r.config.Codex = *document.Codex
 		r.origins["codex"] = applied.origin
 	}
+	if document.ClaudeCode != nil {
+		r.config.ClaudeCode = *document.ClaudeCode
+		r.origins["claude_code"] = applied.origin
+	}
 	// A supplied recurring-task mapping replaces the inherited one entirely, for
 	// the reason the providers mapping above does, and for one of its own: a task
 	// is a role, a cadence, and a prompt read together, so a layer that overrode

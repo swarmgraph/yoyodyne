@@ -441,6 +441,14 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.WorktreeMutate},
 		gap:      "the same gap the row above it has, and for the same reason: the sandbox a role gets is decided from its tool posture, and posture is the second axis the design settles as a typed scope on a capability. A bundle that happened to line up with the mapping would prove nothing about it",
 	},
+	"backend.claude-code-settings-sources": {
+		question: "none: which settings files the provider reads is keeping the account's own configuration out of every role, and grants no role anything",
+		gap:      "it withholds from every role alike and is decided from the developer's tool posture rather than from any capability, so a bundle has nothing to say about it",
+	},
+	"backend.claude-code-settings-for-role": {
+		question: "none: turning off the account's memory and connectors, and the instruction files above a worktree, withholds from every role and grants nothing",
+		gap:      "the same as the row above: what it withholds is the same for every role, and the developer's sandbox it keeps is the posture question the Codex sandbox row already names",
+	},
 	"promotion.lease": {
 		question: "no role holds it; the registry records it as the harness's own, with the reason",
 		asks:     []capability.Capability{capability.PromotionLease},

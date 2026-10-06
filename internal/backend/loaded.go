@@ -68,12 +68,21 @@ const (
 // for an adapter that does not account for it, which is not the same as having
 // loaded nothing: Summary says "not reported" there and "none" for an empty kind
 // of an adapter that does.
+//
+// Settings sources and connectors are kinds only some providers have: Claude
+// Code reads settings files and connects the account's claude.ai connectors,
+// and Codex has neither by those names. SettingsAndConnectors says the adapter
+// accounts for both, and only then does the summary name them, so each
+// provider's line lists the kinds it has and says "none" for an empty one.
 type Loaded struct {
-	Reported     bool         `json:"reported"`
-	Skills       []LoadedItem `json:"skills,omitempty"`
-	Plugins      []LoadedItem `json:"plugins,omitempty"`
-	Instructions []LoadedItem `json:"instructions,omitempty"`
-	Summary      string       `json:"summary,omitempty"`
+	Reported              bool         `json:"reported"`
+	SettingsAndConnectors bool         `json:"settings_and_connectors,omitempty"`
+	SettingsSources       []LoadedItem `json:"settings_sources,omitempty"`
+	Skills                []LoadedItem `json:"skills,omitempty"`
+	Plugins               []LoadedItem `json:"plugins,omitempty"`
+	Connectors            []LoadedItem `json:"connectors,omitempty"`
+	Instructions          []LoadedItem `json:"instructions,omitempty"`
+	Summary               string       `json:"summary,omitempty"`
 }
 
 // NewLoaded is an adapter's account of what it loaded, with its summary settled.
@@ -81,6 +90,15 @@ func NewLoaded(skills, plugins, instructions []LoadedItem) Loaded {
 	loaded := Loaded{Reported: true, Skills: skills, Plugins: plugins, Instructions: instructions}
 	loaded.Summary = loaded.describe()
 	return loaded
+}
+
+// WithSettingsAndConnectors is the account with the settings sources the
+// invocation read and the connectors it was given added, for an adapter whose
+// provider has both.
+func (l Loaded) WithSettingsAndConnectors(settings, connectors []LoadedItem) Loaded {
+	l.SettingsAndConnectors, l.SettingsSources, l.Connectors = true, settings, connectors
+	l.Summary = l.describe()
+	return l
 }
 
 // Recorded is the account a record keeps: a copy with its summary settled,
@@ -101,6 +119,13 @@ func (l Loaded) String() string {
 func (l Loaded) describe() string {
 	if !l.Reported {
 		return "skills, plugins, and instruction files: not reported"
+	}
+	if l.SettingsAndConnectors {
+		return "settings sources: " + describeLoaded(l.SettingsSources) +
+			"; skills: " + describeLoaded(l.Skills) +
+			"; plugins: " + describeLoaded(l.Plugins) +
+			"; connectors: " + describeLoaded(l.Connectors) +
+			"; instruction files: " + describeLoaded(l.Instructions)
 	}
 	return "skills: " + describeLoaded(l.Skills) +
 		"; plugins: " + describeLoaded(l.Plugins) +

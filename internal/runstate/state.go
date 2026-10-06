@@ -1759,7 +1759,7 @@ func (s *State) recordedTexts() []recordedText {
 		for _, kind := range []struct {
 			name  string
 			items []backend.LoadedItem
-		}{{"skills", loaded.Skills}, {"plugins", loaded.Plugins}, {"instructions", loaded.Instructions}} {
+		}{{"settings_sources", loaded.SettingsSources}, {"skills", loaded.Skills}, {"plugins", loaded.Plugins}, {"connectors", loaded.Connectors}, {"instructions", loaded.Instructions}} {
 			items := kind.items
 			for index := range items {
 				list := prefix + "." + kind.name
@@ -2604,8 +2604,8 @@ type State struct {
 	// ProviderResolvedEffort is provider-reported; ProviderEffortReported is false when not reported.
 	ProviderResolvedEffort string `json:"provider_resolved_effort,omitempty"`
 	ProviderEffortReported bool   `json:"provider_effort_reported"`
-	// ProviderLoaded is the skills, plugins, and instruction files the last
-	// developer invocation was given beside its prompt, by name and source, and
+	// ProviderLoaded is the settings sources, skills, plugins, connectors, and
+	// instruction files the last developer invocation was given beside its prompt, by name and source, and
 	// absent before one has been made. See backend.Loaded.
 	ProviderLoaded *backend.Loaded `json:"provider_loaded,omitempty"`
 	// EffortSettled says ProviderEffort was settled when this run was reserved,

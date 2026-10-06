@@ -499,7 +499,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	// What the role is given beside its prompt is what the project named, plus,
 	// for a developer, the repository's own instruction file the CLI reads from
 	// the worktree. See context.go.
-	named, skills, instructions, err := namedContext(b.Context, request.Role, namedRoot(request))
+	named, skills, instructions, err := backend.ReadNamedContext(b.Context, request.Role, backend.NamedRoot(request))
 	if err != nil {
 		return backend.RunResult{}, err
 	}
@@ -754,7 +754,7 @@ func composePrompt(request backend.RunRequest, named string) string {
 // counted; a named file that cannot be read counts as nothing here, because Run
 // refuses the invocation for it before anything is sent.
 func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
-	named, _, _, err := namedContext(b.Context, request.Role, namedRoot(request))
+	named, _, _, err := backend.ReadNamedContext(b.Context, request.Role, backend.NamedRoot(request))
 	if err != nil {
 		named = ""
 	}

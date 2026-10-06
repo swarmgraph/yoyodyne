@@ -39,3 +39,31 @@ func TestAConversationTurnRecordsWhatItLoaded(t *testing.T) {
 		}
 	}
 }
+
+// A Claude Code turn's record names its settings sources and connectors too.
+func TestAClaudeCodeConversationTurnRecordsItsSettingsSourcesAndConnectors(t *testing.T) {
+	t.Parallel()
+	notes := backendapi.LoadedItem{Name: "agent-notes.md", Source: backendapi.LoadedFromProjectConfiguration, Path: "/repository/docs/agent-notes.md"}
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: "First.", Loaded: backendapi.NewLoaded(nil, nil, []backendapi.LoadedItem{notes}).WithSettingsAndConnectors(nil, nil)},
+		{SessionID: "session-1", FinalText: "Second.", Loaded: backendapi.NewLoaded(nil, nil, nil).WithSettingsAndConnectors(nil, nil)},
+	}}
+	options := testOptions(t, provider)
+	session := openTestSession(t, options)
+	want := []string{
+		"settings sources: none; skills: none; plugins: none; connectors: none; instruction files: agent-notes.md (project configuration, /repository/docs/agent-notes.md)",
+		"settings sources: none; skills: none; plugins: none; connectors: none; instruction files: none",
+	}
+	for index := range want {
+		if _, err := session.Send(context.Background(), "continue"); err != nil {
+			t.Fatal(err)
+		}
+		recorded, err := options.Store.Load(runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if recorded.ProviderLoaded == nil || recorded.ProviderLoaded.Summary != want[index] {
+			t.Fatalf("turn %d loaded = %+v, want %q", index, recorded.ProviderLoaded, want[index])
+		}
+	}
+}

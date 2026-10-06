@@ -65,14 +65,18 @@ func providerBackend(cfg config.Config, named domain.Backend, runner execution.P
 func providerBackendIn(cfg config.Config, named domain.Backend, runner execution.ProcessRunner, configDir string) backend.Backend {
 	if descriptor, known := providerDescriptor(cfg, named); known {
 		if provider, built := adapters.For(descriptor, named, runner, configDir); built {
-			// What a Codex role is given beside its prompt is what this project
-			// names, and nothing from the account's own home. A relative path is
-			// read from the checkout the harness itself reads, which the
-			// components set as the product's repository, never from a worktree
-			// a reviewer is inspecting.
-			if codexProvider, isCodex := provider.(codex.Backend); isCodex {
-				codexProvider.Context = cfg.Codex.Anchored(cfg.Product.Repository)
-				return codexProvider
+			// What a role is given beside its prompt is what this project names
+			// for the adapter running it, and nothing from the account's own
+			// home. A relative path is read from the checkout the harness itself
+			// reads, which the components set as the product's repository, never
+			// from a worktree a reviewer is inspecting.
+			switch adapter := provider.(type) {
+			case codex.Backend:
+				adapter.Context = cfg.Codex.Anchored(cfg.Product.Repository)
+				return adapter
+			case claudecode.Backend:
+				adapter.Context = cfg.ClaudeCode.Anchored(cfg.Product.Repository)
+				return adapter
 			}
 			return provider
 		}
@@ -82,7 +86,7 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 	// second place that decides whether work may start; what refuses it is the
 	// run pipeline and the conversation, which say so in their own terms and
 	// before anything is claimed.
-	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir}
+	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository)}
 }
 
 // providerRuns reports a backend this build can actually launch: one it ships an

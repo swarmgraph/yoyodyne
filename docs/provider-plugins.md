@@ -383,6 +383,58 @@ recorded help in `internal/backend/codex/testdata/cli-help` is 0.159.2's, which
 lists `--config` and `--disable` on `exec`, and every invocation is checked
 against it.
 
+## Claude Code settings, memory, skills, connectors, and instruction files
+
+A harness Claude Code invocation loads none of the settings, memory, skills,
+plugins, MCP servers, claude.ai connectors, or instruction files of the account
+it runs under unless the project names them. That holds for every role, on
+fresh and resumed invocations, for runs, conversations, and recurring passes. A
+project names skills and instruction files in its `claude_code` section; see
+[the configuration guide](configuration.md#settings-memory-skills-connectors-and-instruction-files-a-claude-code-role-is-given).
+The harness reads each named file and adds it to the role's standing
+instructions itself. Plugins, MCP servers, and connectors cannot be named.
+
+The CLI finds these on its own, so every invocation carries, whatever its role:
+
+- `--setting-sources` naming which settings files are read: `project` for a
+  developer, which is its worktree's checked-in `.claude/settings.json` and
+  `CLAUDE.md`, and nothing for every other role. The user source is never
+  named, and it is also what gates the account home's `CLAUDE.md` and rules,
+  its skills and agents, the plugins its settings enable, and skill and plugin
+  sync from claude.ai. The local source, `.claude/settings.local.json` and
+  `CLAUDE.local.md`, is never named either.
+- `--strict-mcp-config` with no `--mcp-config`, so no MCP server is started
+  from the account's own configuration or from anywhere else.
+- `--disable-slash-commands`, which disables every skill wherever it was found.
+- In the settings passed with `--settings`, `autoMemoryEnabled: false` and
+  `disableClaudeAiConnectors: true`, and in the environment
+  `CLAUDE_CODE_DISABLE_AUTO_MEMORY=1` and `ENABLE_CLAUDEAI_MCP_SERVERS=false`,
+  replacing whatever the harness's own environment says for either. Each pair
+  is two separate switches for the same thing: the auto-memory directory is not
+  read or written, and the account's claude.ai connectors are not fetched or
+  connected.
+- For a developer, `claudeMdExcludes` in the same settings, naming the
+  `CLAUDE.md`, `CLAUDE.local.md`, `.claude/CLAUDE.md`, and `.claude/rules` of
+  every directory above the worktree. The CLI reads `CLAUDE.md` from the working
+  directory and every directory above it, so without this a file left in the
+  operator's home directory would be read as the project's.
+
+Settings passed with `--settings` and admin-managed policy settings are read
+whatever `--setting-sources` says, so the developer's sandbox and its
+`yoyo goals guard` hook are unchanged. The read-only roles keep `--safe-mode`
+and their empty tool list as before. What was loaded is recorded the way a Codex
+invocation's is, with two kinds Claude Code has and Codex does not: settings
+sources and connectors.
+
+These were established against **Claude Code 2.1.286** without a provider call:
+the flags from its `--help`, recorded in
+`internal/backend/claudecode/testdata/cli-help`, and what each one gates from
+the settings handling in the shipped executable, which reads an empty
+`--setting-sources` as no settings files and always adds the `--settings`
+source and policy to whatever it names. Every flag the adapter passes is
+checked against the recorded help. A later CLI version that drops or renames
+one of these is not caught until that help is recorded again.
+
 ## Writing one
 
 Providers go under a top-level `providers:` key in your configuration, keyed by

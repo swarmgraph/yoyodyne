@@ -25,6 +25,10 @@ import (
 
 const testRunID = "run-0123456789abcdef0123456789abcdef"
 
+// readOnlyTestSettings is what a read-only role is passed with --settings: the
+// account's memory and claude.ai connectors kept out, and nothing else.
+const readOnlyTestSettings = `{"autoMemoryEnabled":false,"disableClaudeAiConnectors":true}`
+
 func TestCheckAvailability(t *testing.T) {
 	t.Parallel()
 
@@ -175,7 +179,11 @@ func TestRunParsesStructuredSuccessAndToolActivity(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--name", "yoyodyne-01234567", "--settings", developerSettings, "--allowedTools", "Bash", "Read", "Edit(/**)", "Write(/**)", "Glob", "Grep"}
+	settings, err := settingsFor(developerSettings, domain.RoleDeveloper, "/worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "acceptEdits", "--name", "yoyodyne-01234567", "--settings", settings, "--setting-sources", "project", "--strict-mcp-config", "--disable-slash-commands", "--allowedTools", "Bash", "Read", "Edit(/**)", "Write(/**)", "Glob", "Grep"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -989,7 +997,7 @@ func TestRunKeepsReviewersReadOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
+	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -1102,7 +1110,7 @@ func TestRunKeepsTheProductManagerAdvisory(t *testing.T) {
 	}
 	// No sandbox settings, because there is nothing to sandbox: the role has no
 	// tools at all and cannot apply an edit it proposes.
-	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
+	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
@@ -1203,7 +1211,7 @@ func TestRunKeepsTheManagementRolesToolless(t *testing.T) {
 			}); err != nil {
 				t.Fatalf("Run() error = %v", err)
 			}
-			wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
+			wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
 			if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 				t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 			}
