@@ -54,7 +54,3 @@ func TestCountMatchesSpellingsAndLeavesOrdinaryUsesOut(t *testing.T) {
 		}
 	}
 }
-
-// TestCollectReadsEachSurfaceAndNothingElse measures a small repository laid
-// out the way this one is, so a surface that stopped being read, or a test file
-// or a comment that started being counted, fails here.

@@ -174,7 +174,7 @@ above: a compound, letters joined by hyphens. A compound is ordinary English by
 its form when its first part is a prefix English builds words with (`re-run`,
 `non-zero`, `self-hosting`), when its last part is one English builds
 adjectives with (`read-only`, `repository-wide`, `operator-facing`, and any
-ending in *-ed*), when a part is a number or a single letter, when every part is
+ending in *-ed*), when a part is a number or the first part a single letter, when every part is
 capitalised, when it starts with the harness's own name or a tool's
 (`yoyodyne-report`, `claude-code`), or when it is the name of a document under
 `docs/`. [What the terms check counts as a new term](developing-yoyo.md#what-the-terms-check-counts-as-a-new-term)
@@ -191,7 +191,7 @@ for.
 `built-in` `built-ins` `by-hand` `byte-identical` `cache-read` `call-site`
 `carve-out` `cat-file` `catch-up` `cherry-pick` `cherry-picking` `clean-up`
 `closed-loop` `coined-term` `coined-terms` `compare-and-swap` `connect-src`
-`cut-off` `dead-claim` `default-src` `development-manager` `directive-id`
+`ctrl-c` `cut-off` `dead-claim` `default-src` `development-manager` `directive-id`
 `end-to-end` `exactly-once` `fan-out` `fast-forward` `fast-forwarding`
 `fast-forwards` `find-generic-password` `follow-on` `follow-up` `follow-ups`
 `form-action` `frame-ancestors` `free-form` `front-loading` `general-purpose`
@@ -286,14 +286,18 @@ marks as used in the guides — today `re-arm`, and the three retired by the ite
 retiring them (yoyodyne-ifd.437.17), `environmental stop`, `idle bound`, and
 `stall continuation`, which the guides had been written with — so a guide that
 leans on a row fails once the row is gone, a guide that writes one of the
-three retired terms fails outright, and a guide is not read for any other word.
+three retired terms fails outright, and a guide is not read for any other listed
+term. Every guide is read for new compound words, which the paragraph on
+compounds below describes.
 
 Three things it deliberately does not read. A document's frontmatter is identity
 and revision history, and a revision's recorded reason is what somebody decided
 in their own words on a date — rewriting one to change a word falsifies a record
-instead of clarifying a sentence. Fenced blocks are code. And the guides for
-every other term, the records under `docs/`, the tracker's own
-items, and the Go source outside the packages named above are outside it: they
+instead of clarifying a sentence. Fenced blocks are code. And, for the terms
+listed above, the guides for every other term, the records under `docs/`, the
+tracker's own items, and the Go source outside the packages named above are
+outside it; the compound half reads more widely, and never the records or the
+tracker's items, as the paragraph on compounds below says: they
 are operator-facing too, but no sweep has been run over them and holding a
 document to an inventory nobody took over it would fail on words nobody was
 asked about.
@@ -301,12 +305,14 @@ asked about.
 It also reads for terms nobody has listed yet, in one shape: a compound, letters
 joined by hyphens. It reads every string literal holding a space in the Go
 source under `cmd` and `internal`, the personas under `internal/config/builtin`
-and `.yoyodyne/personas`, the guides, and the governed documents, and refuses a
+and `.yoyodyne/personas`, the guides (not the records under `docs/diagnoses`,
+`docs/experiments`, and `docs/releases`, this register, or the vocabulary
+inventory), and the governed documents, and refuses a
 compound nothing accounts for, naming the file and the line. A compound is
 accounted for by a row in either table above, by a term in the vocabulary
 inventory still waiting on its decision, by being ordinary English by its form
 or by the list under [ordinary compounds](#ordinary-compounds), or by being one
-of the compounds the inventory lists as not yet read — the ones already written
+of the compounds the inventory lists as still to be decided — the ones already written
 when this half of the check began, each allowed by name until somebody decides
 it. So a compound written from now on is refused the first time it is written,
 and the answer to the refusal is the ordinary words, a row here, or, for a word

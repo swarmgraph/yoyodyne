@@ -519,7 +519,7 @@ var StopWords = []StopWord{
 // reading for new ones, that nothing yet accounted for: no row in the
 // register, no term above, not ordinary English by the check's rules, and not
 // on the register's list of ordinary compounds. Some are terms of art and some
-// are ordinary; nobody has read them yet to say which. The check allows each
+// are ordinary; nobody has decided yet which. The check allows each
 // by name until somebody does, so it refuses only a compound written after it
 // began. Deciding one takes it off this list: an ordinary compound goes on the
 // register's list of ordinary compounds, a term worth keeping gets a row in
@@ -556,7 +556,7 @@ var Unread = []string{
 	"final-reply", "fixed-roles", "fixture-proven", "fixture-shape",
 	"footprint-and-dependency", "force-pushing", "force-resolves", "forge-hygiene",
 	"forge-url", "full-budget", "full-suite", "further-reading", "give-back",
-	"goal-level-approval", "goal-quality", "goals-directory", "grant-refusal", "hand-back",
+	"goal-level-approval", "goal-quality", "goals-directory", "grant-refusal", "hand-back", "has-a-disposition",
 	"hand-closer", "handed-over", "harness-error", "harness-made", "harness-run",
 	"head-behind-target", "held-back", "held-work", "human-approval", "ignore-rule",
 	"independent-reviewer", "individually-acceptable", "initialized-here",

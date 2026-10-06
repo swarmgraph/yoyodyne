@@ -590,14 +590,14 @@ itself](developing-yoyo.md#what-the-terms-check-counts-as-a-new-term) states
 the rule.
 `
 
-const unreadIntro = `## Compounds not yet read
+const unreadIntro = `## Compounds still to be decided
 
 The terms check began reading for new compound words on 2026-10-06. These are
 the ones it found already written that nothing accounted for: no row in the
 register, no term above, not ordinary English by the check's rules, and not on
 the register's list of ordinary compounds. Some are terms of art and some are
-ordinary English the rules do not recognise; nobody has read them yet to say
-which. The check allows each by name until somebody does.
+ordinary English the rules do not recognise; nobody has decided yet
+which they are. The check allows each by name until somebody does.
 
 Deciding one takes it off the list in ` + "`internal/terms/inventory`" + `: an
 ordinary compound goes on the register's list of ordinary compounds, a term

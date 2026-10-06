@@ -91,17 +91,24 @@ var compoundPattern = regexp.MustCompile(`[A-Za-z]+(?:-[A-Za-z]+)+`)
 // ordinaryCompound says whether a compound is ordinary English by its form
 // alone: a first part that is an English prefix, a last part English makes an
 // adjective with or one ending in -ed, a first part that names the harness or a
-// tool, a part that is a number word or a single letter (`e-mail`, `x-ray`), or
-// every part capitalised, which is a name (`Claude-Code`) rather than a term.
+// tool, a part that is a number word, a first part of a single letter
+// (`e-mail`, `x-ray`), or every part capitalised, which is a name
+// (`Claude-Code`) rather than a term.
 func ordinaryCompound(word string) bool {
 	parts := strings.Split(word, "-")
 	first, last := strings.ToLower(parts[0]), strings.ToLower(parts[len(parts)-1])
 	if ordinaryPrefixes[first] || ordinarySuffixes[last] || names[first] || strings.HasSuffix(last, "ed") {
 		return true
 	}
+	// Only a first part of one letter makes a word of what follows it: a one-letter
+	// part inside a phrase is an article, and `needs-a-human` is a phrase made
+	// into a term rather than ordinary English.
+	if len(parts[0]) == 1 {
+		return true
+	}
 	capitalised := true
 	for _, part := range parts {
-		if len(part) == 1 || numberWords[strings.ToLower(part)] {
+		if numberWords[strings.ToLower(part)] {
 			return true
 		}
 		if part[0] < 'A' || part[0] > 'Z' {
@@ -405,7 +412,7 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 		if !written[strings.ToLower(word)] {
 			problems = append(problems, Problem{
 				Path: UnreadPath, Term: word,
-				Reason: fmt.Sprintf("%q is listed as unread and nothing reads it as an unaccounted compound any more; take it off the list", word),
+				Reason: fmt.Sprintf("%q is listed as still to be decided and nothing writes it any more; take it off the list", word),
 			})
 		}
 	}

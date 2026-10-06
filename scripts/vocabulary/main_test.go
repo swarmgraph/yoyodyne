@@ -11,6 +11,9 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/terms/inventory"
 )
 
+// TestCollectReadsEachSurfaceAndNothingElse measures a small repository laid
+// out the way this one is, so a surface that stopped being read, or a test file
+// or a comment that started being counted, fails here.
 func TestCollectReadsEachSurfaceAndNothingElse(t *testing.T) {
 	root := t.TempDir()
 	write := func(path, body string) {
@@ -58,7 +61,7 @@ func TestRenderLinksEveryTermToItsEntry(t *testing.T) {
 		"### stoppage",
 		"- **Where:** 1 in all, in 1 place: `docs/work.md` 1.",
 		"| `recording` |",
-		"## Compounds not yet read",
+		"## Compounds still to be decided",
 		"- `merge-limbo`",
 	} {
 		if !strings.Contains(document, want) {

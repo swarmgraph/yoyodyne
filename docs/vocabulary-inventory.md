@@ -70,8 +70,8 @@ which is a key or an identifier rather than words anybody reads.
 
 | Term | Proposed | In the register today | Printed strings | Personas | Guides | Governed documents |
 |---|---|---|---:|---:|---:|---:|
-| [`stoppage`](#stoppage) | replace | — | 174 | 3 | 196 | 10 |
-| [`docket`](#docket) | replace | registered | 251 | 2 | 307 | 14 |
+| [`stoppage`](#stoppage) | replace | — | 174 | 3 | 194 | 10 |
+| [`docket`](#docket) | replace | registered | 251 | 2 | 309 | 14 |
 | [`crossing`](#crossing) | replace | — | 56 | 0 | 114 | 6 |
 | [`carry-out`](#carry-out) | replace | — | 38 | 0 | 36 | 1 |
 | [`environmental stop`](#environmental-stop) | replace | replaced | 4 | 0 | 26 | 1 |
@@ -82,7 +82,7 @@ which is a key or an identifier rather than words anybody reads.
 | [`lane`](#lane) | replace | — | 149 | 23 | 115 | 83 |
 | [`summons`](#summons) | replace | — | 38 | 2 | 53 | 1 |
 | [`park`](#park) | register | — | 134 | 0 | 233 | 11 |
-| [`pull`](#pull) | replace | — | 265 | 6 | 354 | 6 |
+| [`pull`](#pull) | replace | — | 267 | 6 | 358 | 6 |
 | [`the line`](#the-line) | replace | — | 74 | 2 | 129 | 6 |
 | [`brake`](#brake) | replace | registered | 85 | 4 | 143 | 6 |
 | [`probe`](#probe) | replace | — | 97 | 4 | 159 | 4 |
@@ -101,9 +101,9 @@ which is a key or an identifier rather than words anybody reads.
 | [`firing`](#firing) | replace | — | 59 | 1 | 98 | 4 |
 | [`pass`](#pass) | replace | — | 170 | 2 | 338 | 50 |
 | [`context bundle`](#context-bundle) | replace | — | 2 | 0 | 12 | 4 |
-| [`repair`](#repair) | register | — | 273 | 11 | 554 | 32 |
+| [`repair`](#repair) | register | — | 274 | 11 | 556 | 32 |
 | [`repair grant`](#repair-grant) | replace | — | 37 | 0 | 57 | 0 |
-| [`needs-a-human`](#needs-a-human) | replace | — | 34 | 2 | 44 | 6 |
+| [`needs-a-human`](#needs-a-human) | replace | — | 34 | 2 | 45 | 6 |
 | [`integration target`](#integration-target) | replace | — | 30 | 0 | 4 | 0 |
 | [`promotion`](#promotion) | replace | — | 141 | 2 | 460 | 73 |
 | [`lease`](#lease) | replace | — | 49 | 0 | 197 | 57 |
@@ -115,7 +115,7 @@ which is a key or an identifier rather than words anybody reads.
 | [`raise`](#raise) | replace | — | 27 | 0 | 20 | 1 |
 | [`remit`](#remit) | replace | — | 6 | 1 | 12 | 9 |
 | [`wake`](#wake) | replace | — | 40 | 0 | 41 | 4 |
-| [`gate`](#gate) | replace | — | 120 | 4 | 332 | 66 |
+| [`gate`](#gate) | replace | — | 120 | 4 | 335 | 66 |
 | [`usage window`](#usage-window) | replace | — | 25 | 0 | 48 | 2 |
 | [`sink`](#sink) | replace | registered | 94 | 1 | 237 | 19 |
 | [`heartbeat`](#heartbeat) | keep | registered | 5 | 0 | 36 | 1 |
@@ -132,13 +132,13 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A run that stopped and is waiting for the development manager to decide what happens to it.
 - **Proposed:** replace it. Write instead: a stopped run, or a run that stopped.
-- **Where:** 383 in all, in 27 places: `internal/orchestrator` 71, `docs/conversation.md` 44, `docs/work.md` 41, `docs/configuration.md` 34, `docs/operations.md` 34, `internal/runstate` 33, and 21 more.
+- **Where:** 381 in all, in 27 places: `internal/orchestrator` 71, `docs/conversation.md` 43, `docs/work.md` 40, `docs/configuration.md` 34, `docs/operations.md` 34, `internal/runstate` 33, and 21 more.
 
 ### docket
 
 - **Means:** The development manager's list of stopped runs, runs that died before they started, and items dispatch would not start; `docketed` is being put on it.
 - **Proposed:** replace it. Write instead: the development manager's list of stopped runs; for `docketed`, put in front of the development manager. The register's row is retired once the replacements land; `DocketStore` and other identifiers keep their names.
-- **Where:** 574 in all, in 31 places: `internal/orchestrator` 94, `docs/conversation.md` 73, `docs/operations.md` 71, `docs/work.md` 62, `internal/cli` 42, `docs/configuration.md` 42, and 25 more.
+- **Where:** 576 in all, in 31 places: `internal/orchestrator` 94, `docs/conversation.md` 73, `docs/operations.md` 71, `docs/work.md` 64, `internal/cli` 42, `docs/configuration.md` 42, and 25 more.
 - **Note:** Registered today. It is proposed for replacement because it is the most frequent term in this inventory and the operator asked what `docketed` meant.
 
 ### crossing
@@ -210,7 +210,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** One time the harness picks the next ready item and starts a run on it.
 - **Proposed:** replace it. Write instead: the next time the harness picks work.
-- **Where:** 631 in all, in 37 places: `docs/work.md` 84, `internal/orchestrator` 79, `docs/operations.md` 78, `docs/configuration.md` 71, `docs/configuration/runs.md` 37, `internal/notify` 36, and 31 more.
+- **Where:** 637 in all, in 37 places: `docs/work.md` 85, `internal/orchestrator` 81, `docs/operations.md` 78, `docs/configuration.md` 72, `docs/configuration/runs.md` 38, `internal/notify` 36, and 31 more.
 - **Note:** `pull request` is not counted. `git pull` and other ordinary uses are, so the counts are an upper bound.
 
 ### the line
@@ -330,7 +330,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A developer's further attempt at its own change, in the same worktree, after a failed check or review findings; `yoyo triage repair` asks for one.
 - **Proposed:** register it, with the meaning above: it is a `yoyo triage` verb and a budget the status line counts.
-- **Where:** 870 in all, in 41 places: `internal/orchestrator` 113, `docs/configuration.md` 111, `docs/operations.md` 73, `docs/configuration/recovery.md` 71, `docs/run-stops.md` 61, `docs/work.md` 60, and 35 more.
+- **Where:** 873 in all, in 41 places: `internal/orchestrator` 114, `docs/configuration.md` 112, `docs/operations.md` 73, `docs/configuration/recovery.md` 71, `docs/run-stops.md` 61, `docs/work.md` 60, and 35 more.
 - **Note:** Counts include ordinary uses such as "backlog repair", so they are an upper bound.
 
 ### repair grant
@@ -343,7 +343,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The line in `yoyo status` and the channel listing what is waiting on a person.
 - **Proposed:** replace it. Write instead: waiting on you, the operator's own words.
-- **Where:** 86 in all, in 21 places: `docs/operations.md` 26, `internal/dashboard/assets/dashboard.js` 7, `internal/orchestrator` 7, `internal/readmodel` 7, `docs/configuration.md` 6, `docs/reporting.md` 6, and 15 more.
+- **Where:** 87 in all, in 22 places: `docs/operations.md` 26, `internal/dashboard/assets/dashboard.js` 7, `internal/orchestrator` 7, `internal/readmodel` 7, `docs/configuration.md` 6, `docs/reporting.md` 6, and 16 more.
 
 ### integration target
 
@@ -417,7 +417,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A check a change has to pass before it merges: the configured checks, independent review, the protected paths.
 - **Proposed:** replace it. Write instead: name the check.
-- **Where:** 522 in all, in 58 places: `docs/configuration.md` 75, `docs/operations.md` 63, `docs/work.md` 45, `internal/cli` 40, `docs/delivery-pipeline-baseline.md` 27, `docs/conversation.md` 22, and 52 more.
+- **Where:** 525 in all, in 58 places: `docs/configuration.md` 76, `docs/operations.md` 63, `docs/work.md` 46, `internal/cli` 40, `docs/delivery-pipeline-baseline.md` 27, `docs/conversation.md` 22, and 52 more.
 - **Note:** Counts are of the whole word only, so `gates` and `gated` are not included.
 
 ### usage window
@@ -514,14 +514,14 @@ English account for it. [Working on yoyo
 itself](developing-yoyo.md#what-the-terms-check-counts-as-a-new-term) states
 the rule.
 
-## Compounds not yet read
+## Compounds still to be decided
 
 The terms check began reading for new compound words on 2026-10-06. These are
 the ones it found already written that nothing accounted for: no row in the
 register, no term above, not ordinary English by the check's rules, and not on
 the register's list of ordinary compounds. Some are terms of art and some are
-ordinary English the rules do not recognise; nobody has read them yet to say
-which. The check allows each by name until somebody does.
+ordinary English the rules do not recognise; nobody has decided yet
+which they are. The check allows each by name until somebody does.
 
 Deciding one takes it off the list in `internal/terms/inventory`: an
 ordinary compound goes on the register's list of ordinary compounds, a term
@@ -659,6 +659,7 @@ refused by the check until it is taken off.
 - `goals-directory`
 - `grant-refusal`
 - `hand-back`
+- `has-a-disposition`
 - `hand-closer`
 - `handed-over`
 - `harness-error`

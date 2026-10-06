@@ -134,3 +134,39 @@ func TestOrdinaryReadsOnlyItsOwnSection(t *testing.T) {
 		t.Errorf("ordinaryIn() = %v, want the two listed under its heading and nothing from the tables", ordinary)
 	}
 }
+
+// A one-letter part makes a compound ordinary only as its first part: further
+// in it is an article in a phrase made into a term.
+func TestCompoundsRefuseAPhraseWithAnArticleInIt(t *testing.T) {
+	t.Parallel()
+
+	directory := root(t, compoundRegister(), map[string]string{
+		"docs/operations.md": "# Operations\n\nSend an e-mail; the run is waiting-on-a-person.\n",
+	})
+	problems, err := compoundProblems(directory, nil)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(problems) != 1 || problems[0].Term != "waiting-on-a-person" {
+		t.Fatalf("compoundProblems() = %v, want only waiting-on-a-person refused", problems)
+	}
+}
+
+// The dated records under docs/ are not read for compounds: they say what was
+// true on a date in the words used then.
+func TestCompoundsDoNotReadTheRecords(t *testing.T) {
+	t.Parallel()
+
+	directory := root(t, compoundRegister(), map[string]string{
+		"docs/diagnoses/old.md":   "# Old\n\nA merge-limbo.\n",
+		"docs/releases/v0.1.0.md": "# v0.1.0\n\nA merge-limbo.\n",
+		"docs/experiments/one.md": "# One\n\nA merge-limbo.\n",
+	})
+	problems, err := compoundProblems(directory, nil)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("compoundProblems() = %v, want nothing read in the records", problems)
+	}
+}
