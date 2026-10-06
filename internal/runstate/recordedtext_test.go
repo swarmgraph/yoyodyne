@@ -18,6 +18,26 @@ import (
 // Keys name a string by its place in the record, with [] standing for any
 // element of a list.
 var structuredStrings = map[string]string{
+	"document.candidate.artifact.id":                 "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.kind":               "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.supports[]":         "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.status":             "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.revisions[].action": "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.revisions[].by":     "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.revisions[].intent": "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.approvals[].policy": "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.approvals[].by":     "validated publication identity, policy, or author attribution",
+	"document.candidate.artifact.path":               "validated publication identity, policy, or author attribution",
+	"document.candidate.before":                      "validated publication identity, policy, or author attribution",
+	"document.conversation_id":                       "validated publication identity, policy, or author attribution",
+	"document.write_id":                              "validated publication identity, policy, or author attribution",
+	"document.owner":                                 "validated publication identity, policy, or author attribution",
+	"document.author_session":                        "validated publication identity, policy, or author attribution",
+	"document.author_backend":                        "validated publication identity, policy, or author attribution",
+	"document.author_model":                          "validated publication identity, policy, or author attribution",
+	"document.author_account":                        "validated publication identity, policy, or author attribution",
+	"document.author_config_revision":                "validated publication identity, policy, or author attribution",
+
 	"retirement.run_id":                                     "the validated run whose publication superseded this run",
 	"retirement.commit":                                     "the validated confirmed merge revision",
 	"retirement.target_branch":                              "a validated local target branch",

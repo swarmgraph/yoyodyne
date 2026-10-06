@@ -267,9 +267,13 @@ type Options struct {
 }
 
 type CreateRequest struct {
-	RunID      string
-	WorkItemID string
-	BaseRef    string
+	// ResumeCreation permits the harness to recover a creation whose returned
+	// worktree was never recorded. It accepts only an unchanged checkout on the
+	// same run's branch, whose base is already contained in the target.
+	ResumeCreation bool
+	RunID          string
+	WorkItemID     string
+	BaseRef        string
 	// TargetBranch names the local branch the finished work is meant to be
 	// promoted into. It is recorded on the worktree and never changes
 	// afterwards. When it is empty the worktree can be created and inspected
@@ -1215,6 +1219,11 @@ func (m *Manager) Create(ctx context.Context, request CreateRequest) (Worktree, 
 	}
 	if err := m.ValidateReady(ctx); err != nil {
 		return Worktree{}, err
+	}
+	if request.ResumeCreation {
+		if recovered, found, err := m.resumeCreation(ctx, request); found || err != nil {
+			return recovered, err
+		}
 	}
 	baseResult, err := m.run(ctx, "-C", m.repositoryRoot, "rev-parse", "--verify", request.BaseRef+"^{commit}")
 	if err != nil {

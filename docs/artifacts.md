@@ -111,7 +111,7 @@ what is allowed. The
 [configuration guide](configuration.md#approving-a-document) has the schema
 and what is refused.
 
-**The approval is written into your checkout and stops there**, and the command
+**A command-line approval is written into your checkout and stops there**, and the command
 says so as it writes: the document is now an uncommitted change, a run against
 that checkout refuses to start while it is, and committing it is yours under your
 own identity. The checkout is named in so many words, because which one the write
@@ -198,8 +198,46 @@ content was rarely the part that went wrong — the transcription was.
 
 So a document is written the way work is proposed. Ask the Lead Product Manager
 for the goals or the architect for a design, and what comes back is prose you
-read plus a typed action carrying the document. Nothing is written yet. You are
-shown what would happen and the document itself, and asked:
+read plus a typed action carrying the document. The harness checks ownership
+and the document's home before confirming anything.
+
+With an automatic policy, such as `approvals.designs: automatic`, the harness
+confirms the saved document without asking you. It records `by: harness` and
+the policy name against the revision, then opens a run carrying exactly the
+owning role's document, with permission to change only its file. No developer
+rewrites it. The configured checks and an independent reviewer judge that
+candidate, and it lands through the normal integration path. The primary
+checkout is left clean. The run's record says it was chosen by the owning
+conversation, naming the conversation, the document, and the turn it was
+written in.
+
+That needs `approvals.integration: automatic` too, because a reviewed run lands
+only where the project integrates automatically. Where it is `human`, nothing
+is confirmed by policy and you are asked as below, whatever the document's own
+policy says. A document confirmed while integration was automatic, whose run
+had not started when the setting changed, is put to you the same way, and the
+owning role is told.
+
+A run that cannot start or finish — the primary checkout has uncommitted
+changes, say — never holds up the conversation. The confirmed document stays
+saved, the owning role is told what is holding it, and it is tried again at the
+next message without being written again.
+
+This also applies to documents already waiting in a conversation's store:
+when that conversation resumes, the harness uses their saved identities and
+content before asking the role to write anything else. Confirmation and the
+complete candidate are saved before the run starts, so a restart continues
+the same run rather than losing the document or landing it twice.
+
+A policy that is not automatic retains operator confirmation. A document of
+the product's intent — anything governed by `approvals.brief` or
+`approvals.goals`, which takes in the non-goals, the operating rules, and every
+document filed in the specifications directory — also retains it unless it is a
+revision the Lead Product Manager recorded as `intent: consistent`, with the
+directing work item opening the reason. A new document of intent is always put
+to you.
+For these documents, you are shown what would happen and the document itself,
+and asked:
 
 ```
 document document-4.1 · create v2-goals (goals) in docs/product
@@ -263,18 +301,21 @@ approval sent as a message has to name the document — a bare "yes" decides
 nothing, because a message is not an answer to a question you were just asked.
 What is left undecided when a conversation ends is named on the way out.
 
-**The write stops at your working tree, and it says so as it writes.** This is
-the settled shape, recorded in [the artifact
-contract](designs/artifact-contract.md#how-a-write-reaches-disk), and it is the
-same one [an approval](#artifact-identity) has: the document is an uncommitted
-change in the checkout the configuration pointed the write at, a run against
-that checkout refuses to start while it is, and committing it is yours, under
-your own identity. The harness commits nothing and opens no pull request for it,
-because the artifact homes are what every run reads as context and a run started
-on intent that has only half landed is worse than one that waits. The line
-printed under each written document names the checkout and the file, in the
-same words `yoyo artifact approve` uses, and `--json` carries it as
-`pending_commit`.
+**A document that does not land returns to its owner.** The owning conversation
+receives the review findings, failing check and its output, or conflicting
+paths. The owning role is named as the one to revise it; no developer or
+operator is asked to repair it. A revised submission opens a fresh run for
+that content. After three returned runs for the same document in that
+conversation, automatic publication stops. The owner receives that reason
+and must revise its plan; further submissions are saved as conversation
+events but open no more runs for that document in that conversation.
+
+**A write confirmed by you still stops at your working tree.** This is the
+existing human confirmation path: the document is an uncommitted change in
+the checkout the configuration points to, and committing it is yours under
+your own identity. The printed result names that checkout and file, and
+`--json` carries it as `pending_commit`. This does not apply to documents
+confirmed under an automatic policy.
 
 ## Goals, and what work serves them
 

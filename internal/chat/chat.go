@@ -201,6 +201,8 @@ type Tracker interface {
 // Options describes one conversation: which role answers, what it knows, and
 // where the conversation is recorded.
 type Options struct {
+	DocumentPublisher DocumentPublisher
+	DocumentPolicy    artifact.Policy
 	// Role is the logical agent this conversation is with. It is required, and
 	// it decides three things that must not be able to disagree: the contract
 	// sent to the provider, what the role may ask the harness for, and which
@@ -1322,6 +1324,9 @@ func (s *Session) servedByAlternate() string {
 // Each turn is recorded before the next begins, so a conversation interrupted
 // part way still resumes from what was actually said.
 func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
+	if err := s.PublishDocuments(ctx); err != nil {
+		return Reply{}, err
+	}
 	trimmed := strings.TrimSpace(message)
 	if trimmed == "" {
 		return Reply{}, errors.New("an operator message is required")
@@ -1558,8 +1563,11 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// The document is recorded once it has passed the gate above, so an
 		// approval arriving in a later process names something that was written
 		// down rather than something a process remembered.
-		written, err := s.recordWrites(parsed.Writes)
-		reply.Writes = append(reply.Writes, written...)
+		_, err = s.recordWrites(parsed.Writes)
+		if err == nil {
+			err = s.PublishDocuments(ctx)
+		}
+		reply.Writes = s.Writes()
 		if err != nil {
 			return reply, err
 		}
@@ -3090,6 +3098,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 	// thing, because it is something the operator asked for and has to act on
 	// rather than part of the conversation.
 	harness := s.theme.Harness(screen)
+	if err := s.PublishDocuments(ctx); err != nil {
+		return err
+	}
 	// A question nobody answered outlives the process that asked it, so a
 	// conversation that opens with one waiting puts it to the operator before
 	// anything else. Without this it would be named as unanswered when this

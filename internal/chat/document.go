@@ -1,6 +1,6 @@
 package chat
 
-// A document an owning role wrote, put to the operator, and written by the
+// A document an owning role wrote, confirmed under policy, and written by the
 // harness under that role's authority.
 //
 // The path a drafted document took to the repository used to leave the harness
@@ -12,16 +12,14 @@ package chat
 //
 // So it runs exactly as a proposal does, and for the same reasons. The role
 // emits a typed action carrying what it decided; the harness refuses what the
-// role may not write before the operator is asked anything; what survives is
-// recorded, durably, so an approval arriving in a later process still names
-// something; the operator approves it; and only then does the harness write —
-// through the store's own Authorize, under the role's authority, with the
-// frontmatter generated and the operator's approval recorded against the
-// revision the write produced.
+// role may not write and saves what survives durably. Automatic policy
+// confirms it and opens a reviewed run carrying the exact saved content.
+// Other policies retain operator confirmation and a write into the checkout.
+// Both use the store's Authorize and record confirmation against the revision
+// the write produced.
 //
 // What the role never gets is a way past its own boundary. It cannot write a
-// kind it does not own, cannot file a document anywhere but the home that kind
-// is filed in, and cannot write anything at all without the operator. A role that owns no
+// kind it does not own or file a document anywhere but its kind's home. A role that owns no
 // document is refused before any of this, and proposing a change to the owner
 // remains its only move.
 
@@ -68,7 +66,7 @@ type Documents interface {
 	Checkout() string
 }
 
-// PendingWrite is one document awaiting the operator's decision, together with
+// PendingWrite is one document awaiting confirmation or publication, together with
 // the turn it was written in, so a document that reaches the repository traces
 // back to the conversation that produced it.
 type PendingWrite struct {
@@ -77,17 +75,26 @@ type PendingWrite struct {
 	// deliberately unlike a proposal's bare turn.position: the two are decided by
 	// the same words, and an identifier that could mean either would let an
 	// approval land on the wrong thing.
-	ID             string         `json:"id"`
-	ConversationID string         `json:"conversation_id"`
-	Turn           int            `json:"turn"`
-	Write          artifact.Write `json:"write"`
+	ID             string                        `json:"id"`
+	ConversationID string                        `json:"conversation_id"`
+	Turn           int                           `json:"turn"`
+	Write          artifact.Write                `json:"write"`
+	Publication    *runstate.DocumentPublication `json:"publication,omitempty"`
 }
 
-// writeRecord is one written document and whether the operator has finished
+// writeRecord is one written document and whether confirmation and delivery finished
 // with it.
 type writeRecord struct {
 	pending PendingWrite
 	decided bool
+	// lapsed is a confirmation the publisher refused because it no longer holds;
+	// the document is put to the operator in its place, and is not confirmed by
+	// policy again in this process.
+	lapsed bool
+	// failure is the last publication failure the owning role was told about in
+	// this process, so a cause that persists is said once rather than at every
+	// message.
+	failure string
 }
 
 // WriteOutcome is what became of one document the operator decided. It is what
@@ -192,7 +199,7 @@ func (s *Session) artifactFiling() []artifact.KindHome {
 func (s *Session) Writes() []PendingWrite {
 	pending := make([]PendingWrite, 0, len(s.writes))
 	for _, record := range s.writes {
-		if !record.decided {
+		if !record.decided && record.pending.Publication == nil {
 			pending = append(pending, record.pending)
 		}
 	}
@@ -228,8 +235,14 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 	// already decided costs the record nothing, so a conversation that has
 	// written and filed two documents is not thereby a conversation that may
 	// never write a third.
-	if waiting := len(s.Writes()); waiting+len(writes) > runstate.MaxPendingWrites {
-		return fmt.Errorf("%d document(s) are already waiting on the operator and the limit is %d; decide those before writing another",
+	waiting := 0
+	for _, record := range s.writes {
+		if !record.decided {
+			waiting++
+		}
+	}
+	if waiting+len(writes) > runstate.MaxPendingWrites {
+		return fmt.Errorf("%d document(s) are already waiting for confirmation or publication and the limit is %d; finish those before writing another",
 			waiting, runstate.MaxPendingWrites)
 	}
 	for _, write := range writes {
@@ -266,7 +279,7 @@ func (s *Session) recordWrites(writes []artifact.Write) ([]PendingWrite, error) 
 			Turn:           s.state.Turns,
 			Write:          write,
 		}}
-		if err := s.emit(execution.EventDocumentDrafted, record.pending.recordedSummary()); err != nil {
+		if err := s.emit(execution.EventDocumentDrafted, record.pending); err != nil {
 			return pending, fmt.Errorf("record a written document: %w", err)
 		}
 		s.writes = append(s.writes, record)
@@ -404,6 +417,9 @@ func (s *Session) awaitingWriteDecision(writeID string) (*writeRecord, error) {
 		}
 		if record.decided {
 			return nil, fmt.Errorf("document %s has already been decided", trimmed)
+		}
+		if record.pending.Publication != nil {
+			return nil, fmt.Errorf("document %s was already confirmed under policy and is waiting for its reviewed run", trimmed)
 		}
 		return record, nil
 	}
@@ -605,16 +621,18 @@ func (p PendingWrite) recordedSummary() map[string]any {
 // be the one the operator was shown in an earlier one.
 func (p PendingWrite) recorded() runstate.PendingWrite {
 	return runstate.PendingWrite{
-		ID:        p.ID,
-		Turn:      p.Turn,
-		Action:    string(p.Write.Action),
-		Artifact:  strings.TrimSpace(p.Write.ID),
-		Kind:      string(p.Write.Kind),
-		Title:     strings.TrimSpace(p.Write.Title),
-		Supports:  p.Write.Supports,
-		Directory: strings.TrimSpace(p.Write.Directory),
-		Body:      strings.TrimSpace(p.Write.Body),
-		Reason:    strings.TrimSpace(p.Write.Reason),
+		Publication: p.Publication,
+		Intent:      string(p.Write.Intent),
+		ID:          p.ID,
+		Turn:        p.Turn,
+		Action:      string(p.Write.Action),
+		Artifact:    strings.TrimSpace(p.Write.ID),
+		Kind:        string(p.Write.Kind),
+		Title:       strings.TrimSpace(p.Write.Title),
+		Supports:    p.Write.Supports,
+		Directory:   strings.TrimSpace(p.Write.Directory),
+		Body:        p.Write.Body,
+		Reason:      strings.TrimSpace(p.Write.Reason),
 	}
 }
 
@@ -624,10 +642,12 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 // an earlier one, down to the reason it was being recorded.
 func restoredWrite(conversationID string, recorded runstate.PendingWrite) PendingWrite {
 	return PendingWrite{
+		Publication:    recorded.Publication,
 		ID:             recorded.ID,
 		ConversationID: conversationID,
 		Turn:           recorded.Turn,
 		Write: artifact.Write{
+			Intent:    artifact.Intent(recorded.Intent),
 			Action:    artifact.WriteAction(recorded.Action),
 			ID:        recorded.Artifact,
 			Kind:      artifact.Kind(recorded.Kind),

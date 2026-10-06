@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -421,6 +422,15 @@ func (r Reconciler) reconcileRun(ctx context.Context, recorded runstate.State) R
 
 // settle decides one run from its durable state and what the repository shows.
 func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconciliation, error) {
+	if state.Document != nil {
+		r.Tracker = &documentTracker{item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "in_progress"}}
+		r.Docket = nil
+		if state.Integration == nil {
+			result := reconciliationOf(state, ActionResumable)
+			result.Detail = "the owning conversation resumes this document publication; no developer is invoked"
+			return result, nil
+		}
+	}
 	if state.Retirement != nil || updatingQueuedHead(state) {
 		retired, handled, err := (RunRetirer{Runs: r.Store, Tracker: r.Tracker, Now: r.clock().Now()}).Retire(ctx, state)
 		if handled {
@@ -2076,6 +2086,9 @@ func renderReconcileBlockerNotes(state runstate.State, observation gitworktree.O
 	if state.Integration != nil && state.Integration.ThroughPullRequest {
 		lines = append(lines, fmt.Sprintf("The local %s was not moved: its target is protected, so the change lands only by the forge merging its pull request, and until then it is on its pull request and its branch and on no target branch.",
 			state.Integration.TargetBranch))
+	}
+	if state.Document != nil {
+		lines = append(lines, fmt.Sprintf("The %s must revise document %s (%s) in conversation %s and submit it again; no developer run is requested.", state.Document.Owner.Title(), state.Document.WriteID, state.Document.Candidate.Artifact.Title, state.Document.ConversationID))
 	}
 	if state.RepairAttempts > 0 {
 		lines = append(lines, "Repair attempts already spent: "+strconv.Itoa(state.RepairAttempts))

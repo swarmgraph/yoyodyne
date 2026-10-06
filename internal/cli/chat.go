@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
@@ -310,6 +311,10 @@ func converseWith(ctx context.Context, prepared preparedChat, request conversati
 // written here: a slash means the same thing in a single message as it does at
 // the prompt.
 func runChatMessage(ctx context.Context, session *chat.Session, role domain.AgentRole, message string, jsonOutput bool, stdout, stderr io.Writer) int {
+	if err := session.PublishDocuments(ctx); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	// Without this the command would be said to the agent, which has no way to
 	// carry one out and every reason to be confused by one — and the operator
 	// would pay for the turn.
@@ -989,12 +994,14 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// a request is the supervisor's maintenance pass.
 		RestartRequests: parts.restartRequests,
 		// How a document this role owns reaches the repository: the role writes it,
-		// the operator approves it, and the harness performs the write through the
+		// the harness confirms it under policy, and performs the write through the
 		// same ownership boundary every other mutation of these documents goes
 		// through. It is the harness's hand like the tracker beside it — the role
 		// still has no filesystem — and it is the same store `yoyo artifact` reads,
 		// so a document written from a conversation is one that command lists.
-		Documents: artifactStore(repository, cfg.Product),
+		Documents:         artifactStore(repository, cfg.Product),
+		DocumentPublisher: pipelineFrom(parts),
+		DocumentPolicy:    artifact.Policy{Brief: cfg.Approvals.Brief, Goals: cfg.Approvals.Goals, Designs: cfg.Approvals.Designs, SpecificationsHome: cfg.Product.Specifications},
 		// What work admitted here has to name. It is read from the repository
 		// rather than from the conversation, so a goal retired since the
 		// conversation opened stops being one work can be admitted under.

@@ -67,16 +67,17 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// Approver is who gave an approval. It is a closed set of one because the
-// approval that matters here is a person's: a harness able to record itself as
-// the approver would be approving the intent it was given, which is the one
-// signature this record exists to carry.
+// Approver names either the person who approved intent or the harness that
+// confirmed a document under the project's automatic approval policy.
 type Approver string
 
 // ApproverOperator is the person the harness works for.
 const ApproverOperator Approver = "operator"
 
-func (a Approver) Valid() bool { return a == ApproverOperator }
+// ApproverHarness confirms a revision under an automatic approval policy.
+const ApproverHarness Approver = "harness"
+
+func (a Approver) Valid() bool { return a == ApproverOperator || a == ApproverHarness }
 
 // Approval is one recorded approval: which revision of the document was
 // approved, who approved it, when, and how the approval was given.
@@ -85,6 +86,7 @@ type Approval struct {
 	// It is an index rather than a copy of the revision because the log is
 	// append-only: an index names one change for good, and a copy could disagree
 	// with the entry it claims to be.
+	Policy   string   `yaml:"policy,omitempty" json:"policy,omitempty"`
 	Revision int      `yaml:"revision" json:"revision"`
 	By       Approver `yaml:"by" json:"by"`
 	// At is when the approval was recorded. That is usually when it was given and
@@ -94,9 +96,8 @@ type Approval struct {
 	At time.Time `yaml:"at" json:"at"`
 	// Reason is how the approval was given and what it covered — the conversation
 	// it was given in, the amendment it was given for. It is required, for the
-	// same reason a revision's is and a stronger one: this record speaks for a
-	// person, and an approval nobody can trace back to how they gave it is a claim
-	// the harness made on their behalf.
+	// same reason a revision's is: a reader must be able to trace confirmation
+	// to either a person's decision or the automatic policy that authorized it.
 	Reason string `yaml:"reason" json:"reason"`
 }
 
@@ -109,7 +110,10 @@ func (a Approval) Validate() error {
 		problems = append(problems, fmt.Errorf("revision %d is not an index into a revision log", a.Revision))
 	}
 	if !a.By.Valid() {
-		problems = append(problems, fmt.Errorf("by %q must be %q; approval of what the product is for is the operator's", a.By, ApproverOperator))
+		problems = append(problems, fmt.Errorf("by %q must name the operator or harness", a.By))
+	}
+	if a.By == ApproverHarness && a.Policy != "approvals.designs" && a.Policy != "approvals.goals" && a.Policy != "approvals.brief" {
+		problems = append(problems, errors.New("harness confirmation requires a named approvals policy"))
 	}
 	if a.At.IsZero() {
 		problems = append(problems, errors.New("at is required"))

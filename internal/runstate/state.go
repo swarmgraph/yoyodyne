@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -1716,6 +1717,17 @@ func (s *State) recordedTexts() []recordedText {
 		return fmt.Sprintf("%s[%d].%s", prefix, index, field)
 	}
 
+	if s.Document != nil {
+		d := s.Document
+		nested("document.candidate.content", "document.candidate.content", &d.Candidate.Content, artifact.MaxFileBytes)
+		nested("document.candidate.artifact.title", "document.candidate.artifact.title", &d.Candidate.Artifact.Title, artifact.MaxTitleBytes)
+		for i := range d.Candidate.Artifact.Revisions {
+			nested("document.candidate.artifact.revisions[].reason", at("document.candidate.artifact.revisions", i, "reason"), &d.Candidate.Artifact.Revisions[i].Reason, artifact.MaxReasonBytes)
+		}
+		for i := range d.Candidate.Artifact.Approvals {
+			nested("document.candidate.artifact.approvals[].reason", at("document.candidate.artifact.approvals", i, "reason"), &d.Candidate.Artifact.Approvals[i].Reason, artifact.MaxReasonBytes)
+		}
+	}
 	own("work_item_title", &s.WorkItemTitle, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	if s.Retirement != nil {
 		nested("retirement.prior_failure", "retirement.prior_failure", &s.Retirement.PriorFailure, MaxBlockerBytes)
@@ -2465,6 +2477,7 @@ type ReconcileFinding struct {
 }
 
 type State struct {
+	Document *DocumentPublication `json:"document,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement   `json:"retirement,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
@@ -3353,6 +3366,11 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	if s.Document != nil {
+		if err := s.Document.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("document publication: %w", err))
+		}
+	}
 	if s.Retirement != nil {
 		if err := s.Retirement.Validate(s.RunID); err != nil {
 			problems = append(problems, fmt.Errorf("retirement: %w", err))
@@ -4475,6 +4493,15 @@ func (s State) Parks() bool {
 // declared model selector. A missing or reused session identity means nothing
 // independent was proven, so it must never appear alongside integration.
 func (s State) validateIndependentInvocations() []error {
+	if s.Document != nil {
+		if strings.TrimSpace(s.ReviewSessionID) == "" || strings.TrimSpace(s.ReviewModel) == "" {
+			return []error{errors.New("document integration requires an independent reviewer session and model")}
+		}
+		if s.Document.AuthorSession != "" && s.Document.AuthorSession == s.ReviewSessionID && s.Document.AuthorBackend == string(s.Backend) && s.Document.AuthorAccount == s.AccountAlias {
+			return []error{errors.New("document integration cannot reuse the author session")}
+		}
+		return nil
+	}
 	var problems []error
 	// Compare the normalized identifiers: two sessions that differ only in
 	// surrounding whitespace are one session, and must not read as independent.
