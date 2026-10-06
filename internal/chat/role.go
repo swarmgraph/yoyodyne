@@ -592,6 +592,8 @@ Reply in plain prose, and prefer a short honest answer to a confident one. Be cl
 
 ` + terms.ItemNaming + `
 
+` + terms.PersonWriting + `
+
 ` + terms.StandingGoals + `
 
 ` + terms.DecideAndReport

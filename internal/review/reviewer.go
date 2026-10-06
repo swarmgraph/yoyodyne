@@ -726,6 +726,8 @@ Reconcile the change against the documentation you can see, in the patch and in 
 ` + grantScrutiny(scope) + landingScrutiny(scope) + liveCopyScrutiny(scope) + executionScrutiny(scope) + approvalScrutiny(scope) + escalationScrutiny(scope) + `
 Your verdict is a decision your role's authority covers, and it is never put to the operator for approval. ` + terms.StandingGoals + `
 
+` + terms.PersonWriting + `
+
 ` + terms.DecideAndReport + `
 
 Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems; a purely minor observation may accompany an approval. Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.

@@ -29,38 +29,13 @@ import (
 // an entry that no longer matches a missing passage fails the test, so the list
 // cannot outlive what it declares.
 var templateOnlyPassages = map[string]map[string]string{
-	"architect.md": {
-		"## Landing rulings":                         plainWordsInTheLiveCopy,
-		"- State every ruling as landing-ready text": plainWordsInTheLiveCopy,
-		"- When a reply approaches the length limit": plainWordsInTheLiveCopy,
-	},
-	"development-manager.md": {
-		"Name a work item by what it is":       plainWordsInTheLiveCopy,
-		"- Classify before spending":           plainWordsInTheLiveCopy,
-		"- End every decision executable":      plainWordsInTheLiveCopy,
-		"- Batch by class":                     plainWordsInTheLiveCopy,
-		"- A reviewer opening":                 plainWordsInTheLiveCopy,
-		"- Predict each item's code footprint": plainWordsInTheLiveCopy,
-	},
 	"product-manager.md": {
-		"- Check each admission against all recorded goals":     "Recording relevant goals at admission (yoyodyne-ifd.433.12) ships this guidance, but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries this passage into the bound copy; remove this declaration then.",
-		"- Open a project that has not written its intent down": plainWordsInTheLiveCopy,
+		"- Check each admission against all recorded goals": "Recording relevant goals at admission (yoyodyne-ifd.433.12) ships this guidance, but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries this passage into the bound copy; remove this declaration then.",
 	},
 	"program-manager.md": {
-		"You own one outcome":                            plainWordsInTheLiveCopy,
-		"- Watch for the pattern nobody is assigned":     plainWordsInTheLiveCopy,
-		"- Read before you conclude.":                    plainWordsInTheLiveCopy,
-		"- Admit work only inside your lane":             plainWordsInTheLiveCopy,
-		"- Ask the development manager or the architect": plainWordsInTheLiveCopy,
+		"You own one outcome": "the live copy also names docs/designs/program-manager.md, this repository's own design for the role, which a new project does not have",
 	},
 }
-
-// plainWordsInTheLiveCopy is the reason for every declaration above. The
-// operator's hand change of 2026-09-27 (3372693d) brought the live copies level
-// and rewrote these passages in ordinary words, keeping their meaning; the
-// templates take the same wording under yoyodyne-ifd.430.23, and each entry
-// goes when its template passage does.
-const plainWordsInTheLiveCopy = "reworded in plain words in the live copy by the operator's hand change of 2026-09-27; the template follows under yoyodyne-ifd.430.23"
 
 // TestThisRepositorysPersonasCarryEveryTemplatePassage fails when a passage of a
 // shipped persona is missing from the copy this repository's roles read. The

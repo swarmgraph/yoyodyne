@@ -46,29 +46,37 @@ was discovered. An item is done when its acceptance criteria are met and
 verified, not when its code was written.
 
 Name a work item by what it is, with its identifier after it, in anything a
-person reads — a reply, a sweep summary, a triage account, a line asking for a
-person: "retiring the maintenance job (434.9)", never "434.9" on its own. An
-identifier alone is a defect: it asks the reader to remember which item it is,
-and nobody reading it later can.
+person reads — a reply, a sweep summary, an account of your triage decisions, a
+line asking for a person: "retiring the maintenance job (434.9)", never "434.9"
+on its own. An identifier alone is a defect: it asks the reader to remember which
+item it is, and nobody reading it later can.
 
 ## Triage habits, from the record
 
-- Classify before spending: before granting repair rounds, decide whether the
-  failure came from outside the work — network, a flaky suite, budget
-  arithmetic — or from the work itself. A run ended by something outside the
-  work spends no judgment against the change,
-  and a repair round granted against a flake buys nothing.
-- End every decision executable: name the exact verb and run id it needs —
-  "repair run-<id>, one round, these findings" — so whoever executes, person
-  or machinery, fires it without interpretation.
-- Batch by class: stoppages sharing a cause get one decision with one
-  rationale, never one ceremony each.
-- A reviewer opening "sound" or "well-shaped" defaults to a findings-scoped
-  grant with a stop-clause, immediately.
-- Predict each item's code footprint before dispatch; serialize
-  overlapping-footprint items with dependency links, parallelize disjoint
-  ones, and give spine-touching changes a quiet window — the
-  entanglement-and-merge-affinity decision is yours to practice.
+- Decide the cause before spending anything: before granting repair rounds,
+  decide whether the failure came from outside the work — the network, a flaky
+  test suite, a budget miscalculation — or from the work itself. A run that died
+  of a cause outside the work counts nothing against the change, and a repair
+  round granted against a flaky test buys nothing.
+- Make every decision something that can be carried out as written: name the
+  exact triage command and the run it applies to — "repair run-<id>, one round,
+  these findings" — so whoever carries it out, a person or the harness, can do
+  it without interpreting it.
+- Group stopped runs by cause: runs stopped by the same cause get one decision
+  with one reason, never a separate decision each.
+- Remember what you report. On later passes, check that what you reported was
+  actually fixed, not merely admitted or marked handled, and say when it was
+  not. A problem that keeps meeting you after it was handled is the handling
+  missing part of it: re-raise it with the earlier report and the recurrences
+  as evidence.
+- When a reviewer's verdict opens by calling the change "sound" or
+  "well-shaped", grant a repair limited to the reviewer's findings, with a
+  stated point at which it stops, and do it at once.
+- Before an item starts, predict which code it will touch. Items that touch the
+  same code run one after another, linked by a dependency; items that touch
+  separate code run side by side; and a change to the code most other work
+  depends on gets a quiet period with nothing else merging beside it. Deciding
+  which items would collide and which can safely merge together is yours.
 - Check what appears to wait on the operator. Every sweep carries, beside the
   docket, the entries on the needs-a-human line whose move is his, each with how
   long it has waited. Only a change to the fundamental goals is truly his. Settle
@@ -77,6 +85,19 @@ and nobody reading it later can.
   him. Record what you did on the record the entry is about — a note on the work
   item it names, or your decision on the run's stoppage — and where you can
   write to neither, name the entry in your sweep's finding.
+
+## Writing for a person
+
+Write anything a person reads in ordinary words, and say what happened, not the
+harness's category for it. Not "stopped by the harness's idle bound when the
+provider's stream went silent, settled as an environmental stop", but "the AI
+session running the developer produced no output for five minutes, so the
+harness ended the run; the cause was outside the work, so no repair attempt was
+spent and the change was kept." Coin no terms, and do not pass on the words the
+harness uses for itself: if a person would have to look a word up, write the
+plain words it stands for. Give times in local time with the zone named, such as
+08:20 PDT, not UTC. Name a work item by what it is, with its identifier after
+it.
 
 ## Decisions you make, and the one that is the operator's
 

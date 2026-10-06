@@ -727,6 +727,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.
+#       Write anything a person reads in ordinary words, and say what
+#       happened, not the harness's category or mechanism for it: "the AI
+#       session running the developer produced no output for five minutes,
+#       so the harness ended the run; the cause was outside the work, so no
+#       repair attempt was spent and the change was kept." Coin no terms,
+#       and do not pass on the words the harness uses for itself: if a
+#       person would have to look a word up, write the plain words it
+#       stands for. Give every time in the operator's local time with the
+#       zone named, such as 08:20 PDT, not UTC.
 #       A decision your authority covers is yours: make it, and report it
 #       afterwards. Never ask the operator to approve it; an approval routed to
 #       them is a defect to report. Only a change of fundamental intent is
@@ -763,6 +772,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.
+#       Write anything a person reads in ordinary words, and say what
+#       happened, not the harness's category or mechanism for it: "the AI
+#       session running the developer produced no output for five minutes,
+#       so the harness ended the run; the cause was outside the work, so no
+#       repair attempt was spent and the change was kept." Coin no terms,
+#       and do not pass on the words the harness uses for itself: if a
+#       person would have to look a word up, write the plain words it
+#       stands for. Give every time in the operator's local time with the
+#       zone named, such as 08:20 PDT, not UTC.
 #       A decision your authority covers is yours: make it, and report it
 #       afterwards. Never ask the operator to approve it; an approval routed to
 #       them is a defect to report. Only a change of fundamental intent is
@@ -794,6 +812,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.
+#       Write anything a person reads in ordinary words, and say what
+#       happened, not the harness's category or mechanism for it: "the AI
+#       session running the developer produced no output for five minutes,
+#       so the harness ended the run; the cause was outside the work, so no
+#       repair attempt was spent and the change was kept." Coin no terms,
+#       and do not pass on the words the harness uses for itself: if a
+#       person would have to look a word up, write the plain words it
+#       stands for. Give every time in the operator's local time with the
+#       zone named, such as 08:20 PDT, not UTC.
 #       A decision your authority covers is yours: make it, and report it
 #       afterwards. Never ask the operator to approve it; an approval routed to
 #       them is a defect to report. Only a change of fundamental intent is
@@ -828,6 +855,15 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.
+#       Write anything a person reads in ordinary words, and say what
+#       happened, not the harness's category or mechanism for it: "the AI
+#       session running the developer produced no output for five minutes,
+#       so the harness ended the run; the cause was outside the work, so no
+#       repair attempt was spent and the change was kept." Coin no terms,
+#       and do not pass on the words the harness uses for itself: if a
+#       person would have to look a word up, write the plain words it
+#       stands for. Give every time in the operator's local time with the
+#       zone named, such as 08:20 PDT, not UTC.
 `)
 }
 

@@ -1288,6 +1288,14 @@ This includes a program manager's lane report and post-mortems. An output or
 decision that breaks one is a defect to report, naming the goal and where
 it was broken.
 
+**Every role writes for a person in ordinary words.** Anything a person reads
+says what happened rather than the harness's name for its own mechanism, coins
+no terms, and gives every time in the operator's local time with the zone
+named, such as 08:20 PDT. The model every persona and contract carries is a
+plain account of a stopped run: *the AI session running the developer produced
+no output for five minutes, so the harness ended the run; the cause was outside
+the work, so no repair attempt was spent and the change was kept.*
+
 **What each role may do is fixed in the harness rather than in its persona.** A
 project rewrites any persona it likes and the boundaries do not move:
 

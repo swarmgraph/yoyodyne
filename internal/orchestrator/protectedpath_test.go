@@ -972,4 +972,7 @@ func TestTheDeveloperContractAppliesStandingGoals(t *testing.T) {
 	if !strings.Contains(developerContract(scratchForTest, nil), terms.StandingGoals) {
 		t.Fatal("the developer run contract does not apply standing goals to its own output and decisions")
 	}
+	if !strings.Contains(developerContract(scratchForTest, nil), terms.PersonWriting) {
+		t.Fatal("the developer run contract does not hold what it writes for a person to ordinary words and local time")
+	}
 }

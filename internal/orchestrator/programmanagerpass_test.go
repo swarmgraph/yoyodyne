@@ -389,6 +389,9 @@ func TestThePassMessageGroupsTheEventsByStream(t *testing.T) {
 	if !strings.Contains(message, terms.StandingGoals) {
 		t.Errorf("message = %q, want the standing goals applied to the pass output and decisions", message)
 	}
+	if !strings.Contains(message, terms.PersonWriting) {
+		t.Errorf("message = %q, want the pass output held to ordinary words and local time", message)
+	}
 	if !strings.Contains(message, terms.DecideAndReport) {
 		t.Errorf("message = %q, want the rule against routing approvals to the operator", message)
 	}

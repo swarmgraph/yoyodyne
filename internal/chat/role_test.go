@@ -519,9 +519,15 @@ func TestEveryContractAppliesStandingGoals(t *testing.T) {
 		if !strings.Contains(authority.Contract, terms.StandingGoals) {
 			t.Errorf("%s contract does not apply standing goals to its own output and decisions", role)
 		}
+		if !strings.Contains(authority.Contract, terms.PersonWriting) {
+			t.Errorf("%s contract does not hold what it writes for a person to ordinary words and local time", role)
+		}
 	}
 	if !strings.Contains(laneReportContract, terms.StandingGoals) ||
 		!strings.Contains(laneReportContract, "your lane report and post-mortems") {
 		t.Error("the lane report contract does not apply standing goals to the lane report and post-mortems")
+	}
+	if !strings.Contains(laneReportContract, terms.PersonWriting) {
+		t.Error("the lane report contract does not hold the lane report to ordinary words and local time")
 	}
 }

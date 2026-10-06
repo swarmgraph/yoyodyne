@@ -70,45 +70,45 @@ which is a key or an identifier rather than words anybody reads.
 
 | Term | Proposed | In the register today | Printed strings | Personas | Guides | Governed documents |
 |---|---|---|---:|---:|---:|---:|
-| [`stoppage`](#stoppage) | replace | — | 174 | 3 | 194 | 10 |
-| [`docket`](#docket) | replace | registered | 251 | 2 | 309 | 14 |
+| [`stoppage`](#stoppage) | replace | — | 174 | 2 | 194 | 10 |
+| [`docket`](#docket) | replace | registered | 251 | 1 | 309 | 14 |
 | [`crossing`](#crossing) | replace | — | 56 | 0 | 114 | 6 |
 | [`carry-out`](#carry-out) | replace | — | 38 | 0 | 36 | 1 |
-| [`environmental stop`](#environmental-stop) | replace | replaced | 4 | 0 | 26 | 1 |
-| [`idle bound`](#idle-bound) | replace | replaced | 4 | 0 | 0 | 0 |
-| [`provider's stream`](#providers-stream) | replace | — | 6 | 0 | 6 | 0 |
+| [`environmental stop`](#environmental-stop) | replace | replaced | 5 | 6 | 26 | 1 |
+| [`idle bound`](#idle-bound) | replace | replaced | 5 | 6 | 0 | 0 |
+| [`provider's stream`](#providers-stream) | replace | — | 8 | 12 | 6 | 0 |
 | [`stall`](#stall) | replace | — | 191 | 0 | 214 | 11 |
 | [`continuation`](#continuation) | replace | — | 89 | 0 | 119 | 20 |
 | [`lane`](#lane) | replace | — | 149 | 23 | 115 | 83 |
 | [`summons`](#summons) | replace | — | 38 | 2 | 53 | 1 |
 | [`park`](#park) | register | — | 134 | 0 | 233 | 11 |
 | [`pull`](#pull) | replace | — | 267 | 6 | 358 | 6 |
-| [`the line`](#the-line) | replace | — | 74 | 2 | 129 | 6 |
+| [`the line`](#the-line) | replace | — | 74 | 2 | 130 | 6 |
 | [`brake`](#brake) | replace | registered | 85 | 4 | 143 | 6 |
 | [`probe`](#probe) | replace | — | 97 | 4 | 159 | 4 |
 | [`watch session`](#watch-session) | replace | — | 81 | 1 | 145 | 6 |
 | [`the standing`](#the-standing) | replace | — | 35 | 14 | 39 | 12 |
-| [`settle`](#settle) | replace | — | 226 | 2 | 346 | 21 |
+| [`settle`](#settle) | replace | — | 227 | 8 | 346 | 21 |
 | [`witness`](#witness) | register | — | 21 | 0 | 35 | 1 |
 | [`drain`](#drain) | replace | — | 50 | 2 | 135 | 3 |
-| [`mover`](#mover) | replace | — | 84 | 3 | 36 | 15 |
+| [`mover`](#mover) | replace | — | 84 | 0 | 36 | 15 |
 | [`shadow review`](#shadow-review) | register | — | 36 | 0 | 18 | 0 |
-| [`landing`](#landing) | replace | — | 203 | 9 | 290 | 17 |
-| [`exchange`](#exchange) | register | — | 150 | 0 | 107 | 25 |
+| [`landing`](#landing) | replace | — | 203 | 7 | 290 | 17 |
+| [`exchange`](#exchange) | register | — | 151 | 1 | 109 | 25 |
 | [`intake hold`](#intake-hold) | register | — | 161 | 2 | 162 | 18 |
 | [`operator hold`](#operator-hold) | replace | — | 35 | 0 | 26 | 7 |
 | [`sweep`](#sweep) | register | — | 150 | 4 | 361 | 14 |
 | [`firing`](#firing) | replace | — | 59 | 1 | 98 | 4 |
 | [`pass`](#pass) | replace | — | 170 | 2 | 338 | 50 |
 | [`context bundle`](#context-bundle) | replace | — | 2 | 0 | 12 | 4 |
-| [`repair`](#repair) | register | — | 274 | 11 | 556 | 32 |
+| [`repair`](#repair) | register | — | 279 | 18 | 556 | 32 |
 | [`repair grant`](#repair-grant) | replace | — | 37 | 0 | 57 | 0 |
-| [`needs-a-human`](#needs-a-human) | replace | — | 34 | 2 | 45 | 6 |
+| [`needs-a-human`](#needs-a-human) | replace | — | 34 | 2 | 46 | 6 |
 | [`integration target`](#integration-target) | replace | — | 30 | 0 | 4 | 0 |
-| [`promotion`](#promotion) | replace | — | 141 | 2 | 460 | 73 |
-| [`lease`](#lease) | replace | — | 49 | 0 | 197 | 57 |
+| [`promotion`](#promotion) | replace | — | 141 | 2 | 461 | 73 |
+| [`lease`](#lease) | replace | — | 51 | 0 | 204 | 57 |
 | [`floor`](#floor) | replace | — | 28 | 0 | 25 | 4 |
-| [`triage`](#triage) | register | — | 346 | 4 | 319 | 15 |
+| [`triage`](#triage) | register | — | 346 | 5 | 319 | 15 |
 | [`protected path`](#protected-path) | register | — | 15 | 0 | 92 | 9 |
 | [`direct-work`](#direct-work) | register | — | 16 | 0 | 54 | 2 |
 | [`side thread`](#side-thread) | register | — | 145 | 0 | 75 | 13 |
@@ -116,7 +116,7 @@ which is a key or an identifier rather than words anybody reads.
 | [`remit`](#remit) | replace | — | 6 | 1 | 12 | 9 |
 | [`wake`](#wake) | replace | — | 40 | 0 | 41 | 4 |
 | [`gate`](#gate) | replace | — | 120 | 4 | 335 | 66 |
-| [`usage window`](#usage-window) | replace | — | 25 | 0 | 48 | 2 |
+| [`usage window`](#usage-window) | replace | — | 25 | 0 | 49 | 2 |
 | [`sink`](#sink) | replace | registered | 94 | 1 | 237 | 19 |
 | [`heartbeat`](#heartbeat) | keep | registered | 5 | 0 | 36 | 1 |
 | [`steer`](#steer) | keep | registered | 13 | 0 | 43 | 1 |
@@ -132,13 +132,13 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A run that stopped and is waiting for the development manager to decide what happens to it.
 - **Proposed:** replace it. Write instead: a stopped run, or a run that stopped.
-- **Where:** 381 in all, in 27 places: `internal/orchestrator` 71, `docs/conversation.md` 43, `docs/work.md` 40, `docs/configuration.md` 34, `docs/operations.md` 34, `internal/runstate` 33, and 21 more.
+- **Where:** 380 in all, in 27 places: `internal/orchestrator` 71, `docs/conversation.md` 43, `docs/work.md` 40, `docs/configuration.md` 34, `docs/operations.md` 34, `internal/runstate` 33, and 21 more.
 
 ### docket
 
 - **Means:** The development manager's list of stopped runs, runs that died before they started, and items dispatch would not start; `docketed` is being put on it.
 - **Proposed:** replace it. Write instead: the development manager's list of stopped runs; for `docketed`, put in front of the development manager. The register's row is retired once the replacements land; `DocketStore` and other identifiers keep their names.
-- **Where:** 576 in all, in 31 places: `internal/orchestrator` 94, `docs/conversation.md` 73, `docs/operations.md` 71, `docs/work.md` 64, `internal/cli` 42, `docs/configuration.md` 42, and 25 more.
+- **Where:** 575 in all, in 30 places: `internal/orchestrator` 94, `docs/conversation.md` 73, `docs/operations.md` 71, `docs/work.md` 64, `internal/cli` 42, `docs/configuration.md` 42, and 24 more.
 - **Note:** Registered today. It is proposed for replacement because it is the most frequent term in this inventory and the operator asked what `docketed` meant.
 
 ### crossing
@@ -158,21 +158,21 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A run ended by something outside the work — the sandbox, the network, the tracker, a provider limit — which spends none of the item's budgets.
 - **Proposed:** replace it. Write instead: stopped by something outside the work, naming what it was.
-- **Where:** 31 in all, in 4 places: `docs/run-stops.md` 26, `internal/terms/inventory` 3, `internal/terms` 1, `docs/designs/recoverable-and-terminal-failures.md` 1.
+- **Where:** 38 in all, in 10 places: `docs/run-stops.md` 26, `internal/terms/inventory` 3, `internal/terms` 2, `internal/config/builtin/v1/personas/architect.md` 1, `internal/config/builtin/v1/personas/developer.md` 1, `internal/config/builtin/v1/personas/development-manager.md` 1, and 4 more.
 - **Note:** The item replacing the three words the operator met first (yoyodyne-ifd.437.17) replaces this one. `environmental refusal` and `environmental cause` are counted with it.
 
 ### idle bound
 
 - **Means:** The harness ending a run whose AI session produced no output for a set time.
 - **Proposed:** replace it. Write instead: the time limit on a session that produces no output: "produced no output for five minutes, so the harness ended the run".
-- **Where:** 4 in all, in 2 places: `internal/terms` 2, `internal/terms/inventory` 2.
+- **Where:** 11 in all, in 8 places: `internal/terms` 3, `internal/terms/inventory` 2, `internal/config/builtin/v1/personas/architect.md` 1, `internal/config/builtin/v1/personas/developer.md` 1, `internal/config/builtin/v1/personas/development-manager.md` 1, `internal/config/builtin/v1/personas/product-manager.md` 1, and 2 more.
 - **Note:** The item replacing the three words the operator met first (yoyodyne-ifd.437.17) replaces this one.
 
 ### provider's stream
 
 - **Means:** The output of the AI session running a role; `went silent` is that output stopping.
 - **Proposed:** replace it. Write instead: the AI session's output; for `went silent`, produced no output.
-- **Where:** 12 in all, in 7 places: `internal/terms/inventory` 5, `docs/operations.md` 2, `internal/cli` 1, `docs/configuration.md` 1, `docs/configuration/publishing.md` 1, `docs/provider-plugins.md` 1, and 1 more.
+- **Where:** 26 in all, in 14 places: `internal/terms/inventory` 5, `internal/terms` 2, `internal/config/builtin/v1/personas/architect.md` 2, `internal/config/builtin/v1/personas/developer.md` 2, `internal/config/builtin/v1/personas/development-manager.md` 2, `internal/config/builtin/v1/personas/product-manager.md` 2, and 8 more.
 
 ### stall
 
@@ -217,7 +217,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The harness pictured as a production line choosing and running work, as in "the line is choosing nothing".
 - **Proposed:** replace it. Write instead: the harness, or say what is happening: "no work is starting".
-- **Where:** 211 in all, in 32 places: `docs/operations.md` 48, `internal/notify` 33, `docs/conversation.md` 16, `docs/slack/setup.md` 15, `docs/configuration.md` 14, `docs/reporting.md` 11, and 26 more.
+- **Where:** 212 in all, in 33 places: `docs/operations.md` 48, `internal/notify` 33, `docs/conversation.md` 16, `docs/slack/setup.md` 15, `docs/configuration.md` 14, `docs/reporting.md` 11, and 27 more.
 - **Note:** Counts include ordinary uses such as "the top line" of a message, so they are an upper bound.
 
 ### brake
@@ -250,7 +250,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Bringing something interrupted or half-finished to a recorded end: a run, a directive, a promotion.
 - **Proposed:** replace it. Write instead: finish, resolve, or record how it ended — whichever the sentence means.
-- **Where:** 595 in all, in 50 places: `docs/operations.md` 138, `internal/orchestrator` 59, `docs/configuration.md` 42, `docs/conversation.md` 38, `internal/cli` 31, `docs/work.md` 30, and 44 more.
+- **Where:** 602 in all, in 55 places: `docs/operations.md` 138, `internal/orchestrator` 59, `docs/configuration.md` 42, `docs/conversation.md` 38, `internal/cli` 31, `docs/work.md` 30, and 49 more.
 
 ### witness
 
@@ -268,7 +268,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Whoever an item or a stopped run is waiting on to act next.
 - **Proposed:** replace it. Write instead: who it is waiting on. The `waiting_on` field keeps its name.
-- **Where:** 138 in all, in 15 places: `internal/dashboard/assets/dashboard.js` 66, `docs/operations.md` 21, `internal/triage` 13, `docs/conversation.md` 7, `docs/designs/program-manager.md` 6, `docs/work.md` 5, and 9 more.
+- **Where:** 135 in all, in 14 places: `internal/dashboard/assets/dashboard.js` 66, `docs/operations.md` 21, `internal/triage` 13, `docs/conversation.md` 7, `docs/designs/program-manager.md` 6, `docs/work.md` 5, and 8 more.
 
 ### shadow review
 
@@ -280,13 +280,13 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A change merging onto the target branch; in a developer's reply, its claim of what that merge does to the item — closes it, lands evidence, or escalates.
 - **Proposed:** replace it. Write instead: merge, or merged change; for a developer's claim, what the change does to the item. The `yoyodyne-landing` block keeps its name.
-- **Where:** 519 in all, in 40 places: `docs/configuration.md` 99, `docs/operations.md` 91, `internal/orchestrator` 62, `internal/notify` 37, `internal/runstate` 30, `docs/work.md` 28, and 34 more.
+- **Where:** 517 in all, in 39 places: `docs/configuration.md` 99, `docs/operations.md` 91, `internal/orchestrator` 62, `internal/notify` 37, `internal/runstate` 30, `docs/work.md` 28, and 33 more.
 
 ### exchange
 
 - **Means:** A question one role puts to another, which the harness delivers by invoking the other role and records with what it cost.
 - **Proposed:** register it, with the meaning above: it is the command `yoyo exchange`.
-- **Where:** 282 in all, in 27 places: `internal/cli` 40, `internal/exchange` 38, `docs/conversation.md` 25, `internal/notify` 20, `internal/runstate` 20, `docs/configuration.md` 19, and 21 more.
+- **Where:** 286 in all, in 29 places: `internal/cli` 41, `internal/exchange` 38, `docs/conversation.md` 25, `internal/notify` 20, `internal/runstate` 20, `docs/configuration.md` 19, and 23 more.
 - **Note:** Counts include ordinary uses, so they are an upper bound.
 
 ### intake hold
@@ -330,7 +330,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** A developer's further attempt at its own change, in the same worktree, after a failed check or review findings; `yoyo triage repair` asks for one.
 - **Proposed:** register it, with the meaning above: it is a `yoyo triage` verb and a budget the status line counts.
-- **Where:** 873 in all, in 41 places: `internal/orchestrator` 114, `docs/configuration.md` 112, `docs/operations.md` 73, `docs/configuration/recovery.md` 71, `docs/run-stops.md` 61, `docs/work.md` 60, and 35 more.
+- **Where:** 885 in all, in 46 places: `internal/orchestrator` 114, `docs/configuration.md` 112, `docs/operations.md` 73, `docs/configuration/recovery.md` 71, `docs/run-stops.md` 61, `docs/work.md` 60, and 40 more.
 - **Note:** Counts include ordinary uses such as "backlog repair", so they are an upper bound.
 
 ### repair grant
@@ -343,7 +343,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The line in `yoyo status` and the channel listing what is waiting on a person.
 - **Proposed:** replace it. Write instead: waiting on you, the operator's own words.
-- **Where:** 87 in all, in 22 places: `docs/operations.md` 26, `internal/dashboard/assets/dashboard.js` 7, `internal/orchestrator` 7, `internal/readmodel` 7, `docs/configuration.md` 6, `docs/reporting.md` 6, and 16 more.
+- **Where:** 88 in all, in 23 places: `docs/operations.md` 26, `internal/dashboard/assets/dashboard.js` 7, `internal/orchestrator` 7, `internal/readmodel` 7, `docs/configuration.md` 6, `docs/reporting.md` 6, and 17 more.
 
 ### integration target
 
@@ -355,14 +355,14 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** Moving the target branch forward to include an approved change.
 - **Proposed:** replace it. Write instead: merging the change onto the target branch.
-- **Where:** 676 in all, in 44 places: `docs/operations.md` 109, `docs/configuration.md` 69, `internal/orchestrator` 58, `docs/work.md` 51, `docs/delivery-pipeline-baseline.md` 38, `docs/run-stops.md` 38, and 38 more.
+- **Where:** 677 in all, in 44 places: `docs/operations.md` 109, `docs/configuration.md` 69, `internal/orchestrator` 58, `docs/work.md` 51, `docs/delivery-pipeline-baseline.md` 38, `docs/run-stops.md` 38, and 38 more.
 - **Note:** An architectural invariant says `promotion`; its wording is the architect's.
 
 ### lease
 
 - **Means:** A lock one process holds so no other process does the same thing at the same time.
 - **Proposed:** replace it. Write instead: lock.
-- **Where:** 303 in all, in 36 places: `docs/authority-inventory.md` 54, `docs/operations.md` 53, `docs/configuration.md` 28, `internal/runstate` 15, `docs/work.md` 10, `docs/designs/management-and-supervision.md` 10, and 30 more.
+- **Where:** 312 in all, in 36 places: `docs/authority-inventory.md` 61, `docs/operations.md` 53, `docs/configuration.md` 28, `internal/runstate` 17, `docs/work.md` 10, `docs/designs/management-and-supervision.md` 10, and 30 more.
 - **Note:** `release` is a different word and is not counted.
 
 ### floor
@@ -375,7 +375,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The development manager deciding what happens to each stopped run, and `yoyo triage` carrying the decision out.
 - **Proposed:** register it, with the meaning above: it is the command `yoyo triage`.
-- **Where:** 684 in all, in 40 places: `internal/orchestrator` 118, `internal/runstate` 78, `docs/configuration.md` 77, `internal/cli` 56, `docs/configuration/recovery.md` 53, `docs/operations.md` 46, and 34 more.
+- **Where:** 685 in all, in 40 places: `internal/orchestrator` 118, `internal/runstate` 78, `docs/configuration.md` 77, `internal/cli` 56, `docs/configuration/recovery.md` 53, `docs/operations.md` 46, and 34 more.
 
 ### protected path
 
@@ -424,7 +424,7 @@ which is a key or an identifier rather than words anybody reads.
 
 - **Means:** The period a provider's usage limit applies to, after which it resets.
 - **Proposed:** replace it. Write instead: the provider's usage limit, until it resets at a named time.
-- **Where:** 75 in all, in 17 places: `docs/operations.md` 17, `docs/reporting.md` 9, `docs/run-stops.md` 8, `docs/slack/setup.md` 8, `internal/orchestrator` 7, `internal/readmodel` 6, and 11 more.
+- **Where:** 76 in all, in 18 places: `docs/operations.md` 17, `docs/reporting.md` 9, `docs/run-stops.md` 8, `docs/slack/setup.md` 8, `internal/orchestrator` 7, `internal/readmodel` 6, and 12 more.
 
 ### sink
 
@@ -723,7 +723,6 @@ refused by the check until it is taken off.
 - `operator-action`
 - `operator-activation`
 - `operator-attention`
-- `overlapping-footprint`
 - `partial-handoff`
 - `pass-and-query`
 - `past-reset`
@@ -822,7 +821,6 @@ refused by the check until it is taken off.
 - `step-attempt`
 - `still-applies`
 - `still-moving`
-- `stop-clause`
 - `stopped-run`
 - `stray-identity`
 - `structured-output`

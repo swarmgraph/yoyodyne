@@ -1771,5 +1771,8 @@ func TestTheReviewContractsApplyStandingGoals(t *testing.T) {
 		if !strings.Contains(reviewSystemPrompt(scope, ""), terms.StandingGoals) {
 			t.Errorf("the %v review contract does not apply standing goals to its own output and decisions", scope)
 		}
+		if !strings.Contains(reviewSystemPrompt(scope, ""), terms.PersonWriting) {
+			t.Errorf("the %v review contract does not hold what it writes for a person to ordinary words and local time", scope)
+		}
 	}
 }
