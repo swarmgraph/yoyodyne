@@ -24,6 +24,14 @@ A package with very large files carries a `README.md` code map
 (`internal/orchestrator`, `internal/chat`): read it before paging through
 `pipeline.go` or `chat.go`, and keep it current when you move what it names.
 
+## Code comments
+
+A comment explains the code as it is now: what it does and why. Keep
+documenting behaviour a reader would not guess from the code. Incident history
+— dates, counts, chat ids, "on 2026-09-26 this failed" — goes in the commit
+message or the work item, not the code. Explain a decision once, in the place
+that owns it, and have other places point there rather than repeat it.
+
 ## The tracker
 
 The harness reads and writes the tracker on the session's behalf.
