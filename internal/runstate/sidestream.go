@@ -36,6 +36,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/sidestream"
 )
 
@@ -56,7 +57,7 @@ func NewSideStreamStore(root string, productID domain.ProductID) (*SideStreamSto
 		return nil, err
 	}
 	return &SideStreamStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "sidestreams"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "sidestreams"),
 		productID: productID,
 	}, nil
 }

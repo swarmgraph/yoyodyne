@@ -11,6 +11,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // DirectiveStore is where user directives live: in the same operating-system
@@ -44,7 +45,7 @@ func NewDirectiveStore(root string, productID domain.ProductID) (*DirectiveStore
 		return nil, err
 	}
 	return &DirectiveStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "directives"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "directives"),
 		productID: productID,
 	}, nil
 }

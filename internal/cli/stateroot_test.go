@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -130,11 +131,15 @@ func TestAMarkerNamingADeletedRootIsClearedByTheRebindItNames(t *testing.T) {
 // The machine key sets the root when no variable does, and config show says so
 // by the file that set it.
 func TestTheMachineKeySetsTheRootAndConfigShowNamesIt(t *testing.T) {
-	configHome := t.TempDir()
-	t.Setenv("YOYODYNE_CONFIG_HOME", configHome)
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
+	t.Setenv("YOYODYNE_CONFIG_HOME", "")
 	t.Setenv("YOYODYNE_STATE_HOME", "")
 	root := t.TempDir()
-	machinePath := filepath.Join(configHome, runstate.MachineFileName)
+	machinePath := filepath.Join(userHome, ".yoyodyne", runstate.MachineFileName)
+	if err := os.MkdirAll(filepath.Dir(machinePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(machinePath, []byte("state_root: "+root+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -197,10 +202,19 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 	t.Parallel()
 
 	allowed := map[string]bool{
-		"internal/cli/run.go":       true, // productStateRoot, the guarded path
-		"internal/cli/cli.go":       true, // config show: reports, records nothing
-		"internal/doctor/doctor.go": true, // doctor: reports, reads the marker only
-		"internal/cli/stateroot.go": true, // state-root rebind: replaces only a marker whose root is gone
+		"internal/cli/run.go":         true, // productStateRoot, the guarded path
+		"internal/cli/cli.go":         true, // config show: reports, records nothing
+		"internal/doctor/doctor.go":   true, // doctor: reports, reads the marker only
+		"internal/cli/stateroot.go":   true, // state-root rebind: replaces only a marker whose root is gone
+		"internal/cli/homecommand.go": true, // yoyo home: reports, records nothing
+		"internal/cli/project.go":     true, // yoyo project: bind agrees the marker first; rename and list act on the home, not a checkout
+	}
+	// home.Resolve is the resolution runstate.ResolveRoot names; outside run
+	// state it is called only where a configuration is found or written by the
+	// binding, which opens no product's records.
+	resolvesTheHome := map[string]bool{
+		"internal/config/discover.go": true, // discovery: finds a configuration by its project's binding
+		"internal/cli/init.go":        true, // init --external: writes the configuration and binding into the project directory
 	}
 	variables := regexp.MustCompile(`Getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)|getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)`)
 	repository := filepath.Join("..", "..")
@@ -222,7 +236,7 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		if strings.HasPrefix(relative, "internal/runstate/") {
+		if strings.HasPrefix(relative, "internal/runstate/") || strings.HasPrefix(relative, "internal/home/") {
 			return nil
 		}
 		source, err := os.ReadFile(path)
@@ -233,6 +247,9 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 		if strings.Contains(text, "runstate.ResolveRoot(") && !allowed[relative] {
 			t.Errorf("%s resolves the state root with runstate.ResolveRoot and never agrees it with the checkout's marker; open it through productStateRoot", relative)
 		}
+		if strings.Contains(text, "home.Resolve(") && !resolvesTheHome[relative] {
+			t.Errorf("%s resolves the home with home.Resolve outside the surfaces that find a configuration by it; open the state root through productStateRoot", relative)
+		}
 		if variables.MatchString(text) {
 			t.Errorf("%s reads a variable that chooses the state root directly; resolve the root through runstate.ResolveRoot and the marker instead", relative)
 		}
@@ -240,5 +257,45 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A script beside the binary asks the binary where the home is. One that worked
+// it out from YOYODYNE_STATE_HOME and XDG_STATE_HOME alone would miss the
+// machine file and the earlier default, and on a machine whose home moved would
+// read and write where the harness no longer looks.
+func TestNoScriptBesideTheBinaryWorksOutTheHomeItself(t *testing.T) {
+	t.Parallel()
+
+	reads := regexp.MustCompile(`\$\{?(YOYODYNE_STATE_HOME|XDG_STATE_HOME|YOYODYNE_CONFIG_HOME|XDG_CONFIG_HOME)\b|Application Support/Yoyodyne|\.local/state/yoyodyne`)
+	scripts, err := os.ReadDir(filepath.Join("..", "..", "bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scripts) == 0 {
+		t.Fatal("bin/ holds no scripts; this check is reading the wrong directory")
+	}
+	for _, script := range scripts {
+		if script.IsDir() {
+			continue
+		}
+		content, err := os.ReadFile(filepath.Join("..", "..", "bin", script.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		// `make build` leaves the binary itself in bin/, and the binary carries
+		// these names as the strings it resolves the home with. Only a script
+		// works the home out for itself.
+		if !bytes.HasPrefix(content, []byte("#!")) {
+			continue
+		}
+		for number, line := range strings.Split(string(content), "\n") {
+			if strings.HasPrefix(strings.TrimSpace(line), "#") {
+				continue
+			}
+			if reads.MatchString(line) {
+				t.Errorf("bin/%s:%d works out the home itself (%q); ask the binary with `yoyo home --path`", script.Name(), number+1, strings.TrimSpace(line))
+			}
+		}
 	}
 }

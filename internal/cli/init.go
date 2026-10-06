@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -368,7 +371,7 @@ func initializeProject(options initializeOptions) (initialized, error) {
 		return result, err
 	}
 
-	destination, prefix, reported, err := scaffoldDestination(project, named, repository, options.External)
+	destination, prefix, reported, err := scaffoldDestination(project, named, repository, identifier, options.External)
 	if err != nil {
 		return result, err
 	}
@@ -449,16 +452,22 @@ func initializeProject(options initializeOptions) (initialized, error) {
 // of them is confined to, what a scaffold file is called inside it, and the
 // directory the operator is told the paths relative to.
 //
-// The external root is the configurations home rather than the project's own
-// directory inside it, so the `projects/<key>` path is resolved through the
-// primitive like any other: a root declared at the leaf would resolve a symlink
-// standing where that leaf goes and confine the write to wherever it pointed,
-// which is exactly the escape the primitive exists to refuse.
-func scaffoldDestination(project repowrite.Root, named, repository string, external bool) (repowrite.Root, string, string, error) {
+// An external configuration goes into the machine home's project directory for
+// the product id, `projects/<id>/`, and the project is bound to the repository
+// before anything is written: the binding is how the configuration is found
+// again, and a product id already bound to another repository is refused here,
+// with nothing written, in the words every start would refuse it in.
+//
+// The external root is the home rather than the project's directory inside it,
+// so the `projects/<id>` path is resolved through the primitive like any other:
+// a root declared at the leaf would resolve a symlink standing where that leaf
+// goes and confine the write to wherever it pointed, which is exactly the escape
+// the primitive exists to refuse.
+func scaffoldDestination(project repowrite.Root, named, repository, identifier string, external bool) (repowrite.Root, string, string, error) {
 	if !external {
 		return project, config.DirectoryName + "/", named, nil
 	}
-	home, err := config.ExternalHome(os.Getenv, os.UserHomeDir)
+	resolved, err := home.Resolve(os.Getenv, os.UserHomeDir, runtime.GOOS)
 	if err != nil {
 		return repowrite.Root{}, "", "", err
 	}
@@ -466,28 +475,31 @@ func scaffoldDestination(project repowrite.Root, named, repository string, exter
 	// through one: confinement is decided against a root that already exists, and
 	// this is the directory that root will be. Everything written inside it goes
 	// through the primitive.
-	if err := os.MkdirAll(home, externalHomePermissions); err != nil {
-		return repowrite.Root{}, "", "", fmt.Errorf("create the configurations directory %q: %w", home, err)
+	if err := os.MkdirAll(resolved.Path, externalHomePermissions); err != nil {
+		return repowrite.Root{}, "", "", fmt.Errorf("create the machine home %q: %w", resolved.Path, err)
 	}
-	root, err := repowrite.NewRoot(home)
+	if _, err := home.Agree(home.AgreeOptions{
+		Root: resolved.Path, ProductID: identifier, Checkout: repository, EvenInEarlierLayout: true,
+	}); err != nil {
+		return repowrite.Root{}, "", "", err
+	}
+	root, err := repowrite.NewRoot(resolved.Path)
 	if err != nil {
-		return repowrite.Root{}, "", "", fmt.Errorf("open the configurations directory %q: %w", home, err)
+		return repowrite.Root{}, "", "", fmt.Errorf("open the machine home %q: %w", resolved.Path, err)
 	}
-	return root, config.ExternalDirectory(repository) + "/", home, nil
+	return root, path.Join(home.ProjectsDirectoryName, identifier) + "/", resolved.Path, nil
 }
 
-// externalHomePermissions is what the configurations home is created as: the
-// mode the run-state root this machine keeps beside it is created with, because
-// it is the same kind of directory — one user's own, under their home, created
-// by the harness rather than checked out.
+// externalHomePermissions is what the machine home is created as: one user's
+// own, under their home, created by the harness rather than checked out.
 const externalHomePermissions = 0o700
 
 // describeExternalConfiguration says what an external configuration is and what
 // finds it, because the one thing an operator cannot see from the paths that
 // were just printed is that nothing has to be passed to use them.
 func describeExternalConfiguration(initialization initialized) string {
-	return fmt.Sprintf("this configuration is on this machine only and nothing was written into %s; yoyo finds it from anywhere in that repository, "+
-		"and its worktrees, without --config", initialization.repository)
+	return fmt.Sprintf("this configuration is on this machine only and nothing was written into %s; the project directory it is in is bound to that repository, "+
+		"so yoyo finds it from anywhere in the repository, and its worktrees, without --config", initialization.repository)
 }
 
 // writeArtifactHomeIndexes writes the README each artifact home gets, and

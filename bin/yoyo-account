@@ -27,6 +27,10 @@
 # would call a home left behind by a removed alias healthy. Two answers to one
 # question is a disagreement only the operator can settle.
 #
+# Answers are read from standard input. At a terminal that is you typing; run
+# with standard input redirected, the answers are taken from it, one per line,
+# and the terminal is not prompted.
+#
 #   yoyo-account                     ask for everything
 #   yoyo-account --alias personal    name the alias up front
 #   yoyo doctor                      say whether each configured account is signed in
@@ -48,22 +52,23 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Mirror runstate.SystemDefaultRoot so this agrees with the harness. An account
-# whose home this script and the harness disagreed about is one the operator
-# signs in and the harness never finds. This resolves a path and reads nothing
-# under it: what the harness has done and spent is `yoyo status`'s to derive,
-# and the shell script that used to derive it beside the binary is gone.
+# Ask the binary where the machine home is rather than working it out here. The
+# home can be moved by YOYODYNE_STATE_HOME, by state_root in the machine file,
+# or by XDG_STATE_HOME, and falls back to the earlier builds' default until the
+# migration moves it; a script that repeated any of that would, on a machine
+# whose home moved, sign an account in where the harness never looks. `yoyo home
+# --path` is the harness's own answer. YOYO names the binary to ask, for a
+# machine that has more than one.
 state_root() {
-  if [ -n "${YOYODYNE_STATE_HOME:-}" ]; then printf '%s\n' "$YOYODYNE_STATE_HOME"; return; fi
-  if [ -n "${XDG_STATE_HOME:-}" ]; then printf '%s\n' "$XDG_STATE_HOME/yoyodyne"; return; fi
-  case "$(uname -s)" in
-    Darwin) printf '%s\n' "$HOME/Library/Application Support/Yoyodyne/state" ;;
-    MINGW*|MSYS*|CYGWIN*) printf '%s\n' "${LOCALAPPDATA:-$HOME/AppData/Local}/Yoyodyne/state" ;;
-    *) printf '%s\n' "$HOME/.local/state/yoyodyne" ;;
-  esac
+  local yoyo="${YOYO:-yoyo}"
+  command -v "$yoyo" >/dev/null 2>&1 || {
+    echo "$yoyo is not on PATH; this asks it where the harness keeps its accounts, so install it first (or name it with YOYO=/path/to/yoyo)" >&2
+    exit 1
+  }
+  "$yoyo" home --path
 }
 
-root="$(state_root)"
+root="$(state_root)" || exit 1
 accounts="$root/accounts"
 
 # Mirror config.AccountConfigDirectory: the default alias is wherever this
@@ -83,10 +88,10 @@ command -v claude >/dev/null 2>&1 || {
 ask() {
   local prompt="$1" default="$2" answer
   if [ -n "$default" ]; then
-    read -r -p "$prompt [$default]: " answer </dev/tty || true
+    read -r -p "$prompt [$default]: " answer || true
     printf '%s\n' "${answer:-$default}"
   else
-    read -r -p "$prompt: " answer </dev/tty || true
+    read -r -p "$prompt: " answer || true
     printf '%s\n' "$answer"
   fi
 }

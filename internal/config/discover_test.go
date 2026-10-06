@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // machine describes the environment a discovery runs on: the variables set on
@@ -238,8 +240,10 @@ func TestASubmoduleIsAConfigurableCheckoutOfItsOwn(t *testing.T) {
 			t.Errorf("RepositoryRoot(%q) = %q, want the submodule's own checkout", submodule, root)
 		}
 	}
-	if ExternalDirectory(submodules[0]) == ExternalDirectory(submodules[1]) {
-		t.Fatalf("two submodules of one superproject share the directory %q", ExternalDirectory(submodules[0]))
+	first, _ := home.CommonGitDirectory(submodules[0])
+	second, _ := home.CommonGitDirectory(submodules[1])
+	if first == second {
+		t.Fatalf("two submodules of one superproject share the Git directory %q", first)
 	}
 
 	// End to end, which is what the mis-resolution would actually have cost: a
@@ -258,26 +262,58 @@ func TestASubmoduleIsAConfigurableCheckoutOfItsOwn(t *testing.T) {
 	}
 }
 
-// Two checkouts of the same project on one machine are two projects to
-// configure, so the key is the checkout rather than its name.
-func TestExternalConfigurationsAreKeyedByTheCheckout(t *testing.T) {
+// A configuration left where earlier builds kept one — under the configurations
+// home, keyed by where the checkout is — is no longer read, and a search that
+// finds nothing else names it and how to move it, rather than leaving the
+// operator to wonder where their configuration went.
+func TestAConfigurationLeftWhereEarlierBuildsKeptOneIsNamedAndNotRead(t *testing.T) {
 	t.Parallel()
 
-	base := t.TempDir()
-	first := filepath.Join(base, "first", "thing")
-	second := filepath.Join(base, "second", "thing")
-	for _, directory := range []string{first, second} {
-		if err := os.MkdirAll(filepath.Join(directory, ".git"), 0o700); err != nil {
-			t.Fatalf("MkdirAll() error = %v", err)
+	repository := gitRepository(t)
+	host := blank(t)
+	earlier, err := EarlierExternalPath(host.getenv, host.userHomeDir, repository)
+	if err != nil {
+		t.Fatalf("EarlierExternalPath() error = %v", err)
+	}
+	if !strings.HasPrefix(earlier, filepath.Join(host.home, ".config", "yoyodyne", "projects", "their-project-")) {
+		t.Fatalf("EarlierExternalPath() = %q, want it under the earlier configurations home, named for the checkout", earlier)
+	}
+	if err := os.MkdirAll(filepath.Dir(earlier), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(earlier, []byte(minimalProjectConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = discoverOn(host, repository)
+	var notFound NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("Discover() = %v, want NotFoundError: the earlier location is not read", err)
+	}
+	if notFound.Earlier != earlier {
+		t.Errorf("NotFoundError.Earlier = %q, want %q", notFound.Earlier, earlier)
+	}
+	for _, expected := range []string{earlier, "no longer read", home.BindCommand} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Errorf("error %q does not mention %q", err, expected)
 		}
 	}
-	if ExternalDirectory(first) == ExternalDirectory(second) {
-		t.Fatalf("two checkouts named %q share the directory %q", filepath.Base(first), ExternalDirectory(first))
+}
+
+// A bound project that keeps no configuration of its own is named as such,
+// since the binding was found and the file was not.
+func TestNotFoundNamesABoundProjectThatKeepsNoConfiguration(t *testing.T) {
+	t.Parallel()
+
+	repository := gitRepository(t)
+	host := blank(t)
+	root := filepath.Join(host.home, home.DirectoryName)
+	if _, err := home.Bind(home.AgreeOptions{Root: root, ProductID: "their-project", Checkout: repository}); err != nil {
+		t.Fatal(err)
 	}
-	// The readable half is there so an operator listing the home can tell which
-	// project a directory belongs to without opening it.
-	if !strings.HasPrefix(ExternalDirectory(first), ExternalDirectoryName+"/thing-") {
-		t.Errorf("ExternalDirectory() = %q, want the checkout's name in front of the digest", ExternalDirectory(first))
+	_, err := discoverOn(host, repository)
+	var notFound NotFoundError
+	if !errors.As(err, &notFound) || notFound.BoundProject != "their-project" {
+		t.Fatalf("Discover() = %v, want NotFoundError naming the bound project", err)
 	}
 }
 
@@ -337,22 +373,19 @@ func TestNotFoundNamesWhereThisMachineWouldKeepOne(t *testing.T) {
 	if !errors.As(err, &notFound) {
 		t.Fatalf("Discover() error = %v, want NotFoundError", err)
 	}
-	external, pathErr := ExternalPath(host.getenv, host.userHomeDir, repository)
-	if pathErr != nil {
-		t.Fatalf("ExternalPath() error = %v", pathErr)
+	projects := filepath.Join(host.home, home.DirectoryName, home.ProjectsDirectoryName)
+	if notFound.Projects != projects {
+		t.Errorf("NotFoundError.Projects = %q, want %q", notFound.Projects, projects)
 	}
-	if notFound.ExternalPath != external {
-		t.Errorf("NotFoundError.ExternalPath = %q, want %q", notFound.ExternalPath, external)
-	}
-	for _, expected := range []string{external, "yoyo init --external", EnvironmentVariable} {
+	for _, expected := range []string{projects, "yoyo init --external", EnvironmentVariable} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("error %q does not mention %q", err, expected)
 		}
 	}
 }
 
-// A directory in no repository has no key, so nothing was looked up and the
-// refusal does not name a path nothing could have read.
+// A directory in no repository has no binding to find, so nothing was looked up
+// and the refusal does not name a place nothing could have read.
 func TestNotFoundNamesNoExternalPathOutsideARepository(t *testing.T) {
 	t.Parallel()
 
@@ -361,8 +394,8 @@ func TestNotFoundNamesNoExternalPathOutsideARepository(t *testing.T) {
 	if !errors.As(err, &notFound) {
 		t.Fatalf("Discover() error = %v, want NotFoundError", err)
 	}
-	if notFound.ExternalPath != "" {
-		t.Errorf("NotFoundError.ExternalPath = %q, want nothing for a directory in no repository", notFound.ExternalPath)
+	if notFound.Projects != "" {
+		t.Errorf("NotFoundError.Projects = %q, want nothing for a directory in no repository", notFound.Projects)
 	}
 }
 
@@ -457,17 +490,17 @@ func gitRepository(t *testing.T) string {
 }
 
 // writeExternalProject puts a configuration where a machine keeps the one it
-// holds for a repository, and returns the file it wrote.
+// holds for a repository — the machine home's project directory, bound to the
+// repository — and returns the file it wrote.
 func writeExternalProject(t *testing.T, host machine, repository, contents string) string {
 	t.Helper()
 
-	path, err := ExternalPath(host.getenv, host.userHomeDir, repository)
-	if err != nil {
-		t.Fatalf("ExternalPath() error = %v", err)
+	root := filepath.Join(host.home, home.DirectoryName)
+	id := filepath.Base(repository)
+	if _, err := home.Bind(home.AgreeOptions{Root: root, ProductID: id, Checkout: repository}); err != nil {
+		t.Fatalf("Bind() error = %v", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
+	path := filepath.Join(home.ProjectDirectory(root, id), FileName)
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -549,7 +550,7 @@ func TestALandingSeparatesAStaleLegacySupervisorFromRunningParts(t *testing.T) {
 	if err := store.Record(stale); err != nil {
 		t.Fatal(err)
 	}
-	directory := filepath.Join(root, "products", "yoyodyne", "config-readers")
+	directory := filepath.Join(home.ProductDirectory(root, "yoyodyne"), "config-readers")
 	legacy := filepath.Join(directory, "supervisor.json")
 	if err := os.Rename(filepath.Join(directory, stale.InstanceID()+".json"), legacy); err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 const branchReviewID = "review-0123456789abcdef0123456789abcdef"
@@ -78,7 +79,7 @@ func TestBranchReviewStoreKeepsEveryVerdictItWasGiven(t *testing.T) {
 	if len(reviews[1].Findings) != 1 || reviews[1].Findings[0].File != "reader.go" || reviews[1].CommitsOmitted != 4 {
 		t.Errorf("recorded repair = %#v", reviews[1])
 	}
-	if !strings.HasSuffix(store.Path(), filepath.Join("products", "yoyodyne", "branch-reviews", "reviews.jsonl")) {
+	if !strings.HasSuffix(store.Path(), filepath.Join("projects", "yoyodyne", "state", "branch-reviews", "reviews.jsonl")) {
 		t.Errorf("Path() = %q", store.Path())
 	}
 }
@@ -118,7 +119,7 @@ func TestBranchReviewStoreKeepsTheEventStreamOfItsInvocation(t *testing.T) {
 	}
 	// The stream is where `yoyo status --follow` looks for it: this store's own directory,
 	// named for the review, beside the runs rather than among them.
-	expected := filepath.Join(root, "products", "yoyodyne", "branch-reviews", branchReviewID+".events.jsonl")
+	expected := filepath.Join(home.ProductDirectory(root, "yoyodyne"), "branch-reviews", branchReviewID+".events.jsonl")
 	if _, err := os.Stat(expected); err != nil {
 		t.Errorf("event log is not at %q: %v", expected, err)
 	}

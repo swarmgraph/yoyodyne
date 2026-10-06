@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -126,7 +127,7 @@ func NewClaimStore(root string, productID domain.ProductID) (*ClaimStore, error)
 		return nil, err
 	}
 	return &ClaimStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

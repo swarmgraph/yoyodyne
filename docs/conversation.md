@@ -1490,7 +1490,7 @@ the Lead Product Manager recorded memory "checks-are-slow" (revision 1)
 write is one `memory.requested` event and then one `memory.recorded` or
 `memory.failed`, carrying the memory's name and revision number; the text lives
 only in the memory store, under the state root at
-`products/<product>/memory/<agent>.memory.jsonl`, because a copy in the
+`projects/<product>/state/memory/<agent>.memory.jsonl`, because a copy in the
 conversation record would be a second store.
 
 **Before compacting a provider session, the harness gives every role that keeps
@@ -1598,7 +1598,7 @@ the rest are shown as claims with the reason ([the instance's
 status](operations.md#where-the-harness-stands-the-four-lines)).
 
 The report is kept under the state root at
-`products/<product>/program-managers/<agent>/report.json`. Beside it,
+`projects/<product>/state/program-managers/<agent>/report.json`. Beside it,
 `history.jsonl` holds the last fifty versions, oldest first. Each version is
 numbered, and each is stamped with the conversation and turn that wrote it.
 Where a recurring task's pass woke that turn, the stamp also names the pass, as

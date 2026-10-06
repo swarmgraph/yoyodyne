@@ -12,6 +12,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 )
 
@@ -378,9 +379,9 @@ operators:
 `, GrantDirectWork, exampleSlackMemberID, GrantDirectWork)
 }
 
-// MachineFileName is the machine-local configuration file in the
-// configurations home. The state root is set there and nowhere else.
-const MachineFileName = "machine.yaml"
+// MachineFileName is the machine's own settings file, `~/.yoyodyne/machine.yaml`.
+// The state root is set there and nowhere else.
+const MachineFileName = home.MachineFileName
 
 // misplacedStateRoot reports the refusal for a project file that sets the state
 // root, and the empty string for a file that failed to decode for any other
@@ -406,8 +407,8 @@ func misplacedStateRoot(source []byte) string {
 	}
 	return fmt.Sprintf("decode config: %s is not a project setting: where the harness keeps its state describes one machine, "+
 		"and a project configuration is committed and read on every machine that checks it out. "+
-		"Delete it here and set state_root in %s in the configurations home (%s, or $XDG_CONFIG_HOME/yoyodyne, or ~/.config/yoyodyne), "+
-		"or export YOYODYNE_STATE_HOME for one shell", key, MachineFileName, HomeVariable)
+		"Delete it here and set state_root in ~/%s/%s, "+
+		"or export %s for one shell", key, home.DirectoryName, MachineFileName, home.StateHomeVariable)
 }
 
 // exampleSlackMemberID is the shape of a member id, for a refusal that shows the

@@ -100,7 +100,7 @@ func TestTheSweepHonoursAStopOnAPausedRunWhoseProcessWasKilled(t *testing.T) {
 	tracker.Item.Status = "in_progress"
 
 	// A process takes the paused run up, as a `yoyo run` continuing it would.
-	stateRoot := filepath.Dir(filepath.Dir(filepath.Dir(store.Root())))
+	stateRoot := stateRootOf(store.Root())
 	child := exec.Command(os.Args[0], "-test.run=^TestRunLeaseHolderProcess$")
 	child.Env = append(os.Environ(), runHolderRootEnv+"="+stateRoot, runHolderRunEnv+"="+paused.RunID)
 	output, err := child.StdoutPipe()

@@ -327,7 +327,7 @@ but because none of them was ever written into a run's log at all. The sweep in
 
 Beside all of that there is an append-only cost log, one line per provider
 invocation, written the moment the provider says what that invocation cost. It
-lives at `<state root>/products/<product id>/spend.jsonl`, and every process the
+lives at `<state root>/projects/<product id>/state/spend.jsonl`, and every process the
 harness runs appends to it: the developer's first attempt and every repair after
 it, every review including a branch review, every management-conversation turn,
 and every round of an inter-role exchange.

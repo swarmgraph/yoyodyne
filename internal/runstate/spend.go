@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // SpendSchemaVersion is 1 and has never changed.
@@ -435,7 +436,7 @@ func NewSpendStore(root string, productID domain.ProductID) (*SpendStore, error)
 		return nil, err
 	}
 	return &SpendStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

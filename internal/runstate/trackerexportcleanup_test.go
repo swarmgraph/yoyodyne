@@ -56,7 +56,7 @@ func TestTrackerExportCleanupRecordRefusesAReplacedStateDirectory(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(t.TempDir(), filepath.Join(directory, "products")); err != nil {
+	if err := os.Symlink(t.TempDir(), filepath.Join(directory, "projects")); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Record(beads.ExportCleanup{At: time.Now(), Removed: []beads.ExportTemporary{{Path: "removed"}}}); err == nil {

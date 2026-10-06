@@ -492,7 +492,7 @@ func TestRetirementNoteDeliverySurvivesARefusedMarkerAndRestart(t *testing.T) {
 	}
 	store.refuse = false
 	// A fresh Store sees the pending delivery without any process-local state.
-	restarted, err := runstate.NewStore(strings.TrimSuffix(f.store.Root(), "/products/yoyodyne/runs"), "yoyodyne")
+	restarted, err := runstate.NewStore(stateRootOf(f.store.Root()), "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
 	}
