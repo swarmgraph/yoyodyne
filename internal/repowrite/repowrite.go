@@ -30,10 +30,9 @@
 // `docs/decisions` is would be a disagreement about which repository is being
 // worked on.
 //
-// Resolve alone does not defend against a symlink planted between resolution
-// and a later pathname-based write. Writers that must hold confinement across
-// path replacement use PinnedRoot: its directory handles, not prior path
-// checks, keep the mutation inside the declared root.
+// Resolve answers reads and diagnostics, and must never be handed to a pathname
+// writer. Every mutation pins the root and uses descriptor-relative operations
+// throughout, so replacement between resolution and mutation cannot escape it.
 package repowrite
 
 import (
@@ -74,6 +73,10 @@ func IsTemporaryFile(name string) bool {
 // through it lands inside.
 type Root struct {
 	path string
+	info fs.FileInfo
+	// beforeMutation lets replacement tests stop after resolution. Production
+	// roots leave it nil; confinement is enforced by the held directory handles.
+	beforeMutation func()
 }
 
 // NewRoot resolves the repository writes are confined to. The root is resolved
@@ -100,7 +103,7 @@ func NewRoot(repositoryRoot string) (Root, error) {
 	if !info.IsDir() {
 		return Root{}, fmt.Errorf("repository root %q is not a directory", repositoryRoot)
 	}
-	return Root{path: resolved}, nil
+	return Root{path: resolved, info: info}, nil
 }
 
 // Path is the repository every write is held inside, absolute and with its own
@@ -231,284 +234,132 @@ func (r Root) contains(candidate string) bool {
 	return relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-// OpenAppend opens the file a root-relative path names for appending, creating
-// it and any missing directories above it, and hands back the open descriptor.
-//
-// It is here for the output nobody can hold in a byte slice: a long-lived child
-// process writes its standard output and standard error into a descriptor for
-// as long as it runs, so the write-and-rename below cannot express it, and a
-// writer that reached for `os.OpenFile` itself would be a write outside this
-// package deciding its own containment. Confinement is the same and is decided
-// the same way — every existing component below the root is resolved before
-// anything is created or opened, and one that leaves the root is refused rather
-// than followed.
-//
-// The modes are the caller's, unlike the fixed ones a repository document is
-// written with, because what this opens is not a repository document: a file
-// holding what the harness is doing, under a state directory, wants the
-// permissions its own root does rather than a checkout's.
+// mutation pins the declared directory before inspecting the target. A root
+// replaced since NewRoot is refused; a later replacement cannot redirect its
+// directory handle. The absolute answer is for diagnostics and existing callers,
+// never the authority used to perform the mutation.
+func (r Root) mutation(relative string) (*PinnedRoot, string, string, error) {
+	clean, err := Relative(relative)
+	if err != nil {
+		return nil, "", "", err
+	}
+	pinned, err := OpenPinnedRoot(r.path)
+	if err != nil {
+		return nil, "", "", err
+	}
+	info, err := pinned.root.Stat(".")
+	if err != nil || r.info == nil || !os.SameFile(r.info, info) {
+		pinned.Close()
+		return nil, "", "", fmt.Errorf("repository write root was replaced: %s", r.path)
+	}
+	target, err := pinned.resolve(clean)
+	if err != nil {
+		pinned.Close()
+		return nil, "", "", err
+	}
+	if r.beforeMutation != nil {
+		r.beforeMutation()
+	}
+	return pinned, target, filepath.Join(r.path, target), nil
+}
+
+// OpenAppend creates missing parents and opens a confined append descriptor.
+// The caller supplies modes because output logs need different permissions from
+// repository documents. Closing the root does not invalidate the file handle.
+// Files with additional hard links are refused before any bytes are appended.
 func (r Root) OpenAppend(relative string, file, directory fs.FileMode) (*os.File, error) {
-	clean, target, err := r.resolve(relative)
+	pinned, target, _, err := r.mutation(relative)
 	if err != nil {
 		return nil, err
 	}
-	// Every existing component of the target was checked above and everything
-	// below the first missing one does not exist yet, so there is nothing left
-	// here for MkdirAll to follow out of the root.
-	if err := os.MkdirAll(filepath.Dir(target), directory); err != nil {
-		return nil, fmt.Errorf("create %s: %w", path.Dir(clean), err)
-	}
-	// Opened refusing to follow a link, which is this path's half of what the
-	// rename below does for a written document. The resolve above already refuses
-	// a final component that points out of the root, so what is left is the
-	// moment after that answer: a link planted at the target between the check
-	// and the open. A rename replaces such a link rather than writing through it,
-	// and there is no rename here — what is handed back is a descriptor a
-	// long-lived process writes to for as long as it runs, so following one would
-	// send everything it ever says somewhere nobody is looking.
-	opened, err := os.OpenFile(target, appendFlags, file)
+	defer pinned.Close()
+	opened, err := pinned.OpenAppend(target, file, directory)
 	if err != nil {
-		return nil, fmt.Errorf("open %s for appending: %w", clean, err)
+		return nil, fmt.Errorf("open %s for appending: %w", relative, err)
 	}
 	return opened, nil
 }
 
-// Truncate cuts the existing file a root-relative path names to size bytes and
-// syncs it, and returns where it landed.
-//
-// It is here for the append-only log that has to lose an unfinished last line:
-// the bytes before the cut are already on the disk and must stay exactly as they
-// are, so the write-and-rename below would be a rewrite of every one of them to
-// remove a handful, and a writer that reached for `os.OpenFile` and `Truncate`
-// itself would be a write outside this package deciding its own containment.
-// Confinement is decided as it is for OpenAppend, and the open refuses a link
-// standing at the target for the same reason. Nothing is created: a file that is
-// not there has nothing to cut.
+// Truncate cuts and syncs an existing confined file; it creates nothing.
+// Files with additional hard links are refused before changing their size.
 func (r Root) Truncate(relative string, size int64) (string, error) {
-	clean, target, err := r.resolve(relative)
+	pinned, target, absolute, err := r.mutation(relative)
 	if err != nil {
 		return "", err
 	}
-	opened, err := os.OpenFile(target, truncateFlags, 0)
-	if err != nil {
-		return "", fmt.Errorf("open %s to cut it: %w", clean, err)
+	defer pinned.Close()
+	if err := pinned.Truncate(target, size); err != nil {
+		return "", fmt.Errorf("cut %s to %d bytes: %w", relative, size, err)
 	}
-	if err := opened.Truncate(size); err != nil {
-		opened.Close()
-		return "", fmt.Errorf("cut %s to %d bytes: %w", clean, size, err)
-	}
-	if err := opened.Sync(); err != nil {
-		opened.Close()
-		return "", fmt.Errorf("sync %s: %w", clean, err)
-	}
-	if err := opened.Close(); err != nil {
-		return "", fmt.Errorf("close %s: %w", clean, err)
-	}
-	return target, nil
+	return absolute, nil
 }
 
-// WriteFile replaces the document a repository-relative path names and returns
-// where it landed, which is the resolved path rather than the one asked for.
-//
-// The bytes go into a temporary file beside the target and are renamed over it,
-// so an interrupted write leaves the previous document whole rather than half of
-// the new one, and a reader never sees a partial file. Renaming is also what
-// keeps a target that is itself a symlink honest: the link is replaced rather
-// than written through. It never gets that far here — a link out of the
-// repository is refused above — but the two together are why nothing this
-// package writes can appear outside the repository.
+// WriteFile atomically replaces a complete repository document. Temporary
+// creation, publication and cleanup all use the same held parent directory.
 func (r Root) WriteFile(relative string, content []byte) (string, error) {
-	clean, target, err := r.resolve(relative)
+	pinned, target, absolute, err := r.mutation(relative)
 	if err != nil {
 		return "", err
 	}
-	directory := filepath.Dir(target)
-	// Every existing component of the target was checked above and everything
-	// below the first missing one does not exist yet, so there is nothing left
-	// here for MkdirAll to follow out of the repository.
-	if err := os.MkdirAll(directory, directoryPermissions); err != nil {
-		return "", fmt.Errorf("create %s: %w", path.Dir(clean), err)
+	defer pinned.Close()
+	if err := pinned.ReplaceFile(target, content, filePermissions, directoryPermissions); err != nil {
+		return "", fmt.Errorf("replace %s: %w", relative, err)
 	}
-	temporary, err := os.CreateTemp(directory, temporaryPattern)
-	if err != nil {
-		return "", fmt.Errorf("create a temporary file beside %s: %w", clean, err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(filePermissions); err != nil {
-		temporary.Close()
-		return "", fmt.Errorf("set the permissions of %s: %w", clean, err)
-	}
-	if _, err := temporary.Write(content); err != nil {
-		temporary.Close()
-		return "", fmt.Errorf("write %s: %w", clean, err)
-	}
-	if err := temporary.Close(); err != nil {
-		return "", fmt.Errorf("close %s: %w", clean, err)
-	}
-	if err := os.Rename(temporaryPath, target); err != nil {
-		return "", fmt.Errorf("replace %s: %w", clean, err)
-	}
-	return target, nil
+	return absolute, nil
 }
 
-// CreateFile writes a document a root-relative path names only if nothing is
-// there yet, and reports whether this call was the one that wrote it.
-//
-// It is here for the record two processes may race to make first, where the
-// second must read the first one's rather than replace it: WriteFile's rename
-// would let the later writer win silently. The bytes go into a temporary file
-// beside the target exactly as they do there, and are then linked into place,
-// which the operating system refuses when the name already exists — so the
-// document is never seen half-written and exactly one of the racers creates it.
-// A target that already exists is not a failure: created is false, and the
-// caller reads what is there.
-func (r Root) CreateFile(relative string, content []byte) (target string, created bool, err error) {
-	clean, target, err := r.resolve(relative)
+// CreateFile publishes a complete document only when its name is unused.
+// Existing documents are left whole, with created false for the losing writer.
+func (r Root) CreateFile(relative string, content []byte) (string, bool, error) {
+	pinned, target, absolute, err := r.mutation(relative)
 	if err != nil {
 		return "", false, err
 	}
-	directory := filepath.Dir(target)
-	if err := os.MkdirAll(directory, directoryPermissions); err != nil {
-		return "", false, fmt.Errorf("create %s: %w", path.Dir(clean), err)
+	defer pinned.Close()
+	if err := pinned.root.MkdirAll(filepath.Dir(target), directoryPermissions); err != nil {
+		return "", false, fmt.Errorf("create parent of %s: %w", relative, err)
 	}
-	temporary, err := os.CreateTemp(directory, temporaryPattern)
-	if err != nil {
-		return "", false, fmt.Errorf("create a temporary file beside %s: %w", clean, err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(filePermissions); err != nil {
-		temporary.Close()
-		return "", false, fmt.Errorf("set the permissions of %s: %w", clean, err)
-	}
-	if _, err := temporary.Write(content); err != nil {
-		temporary.Close()
-		return "", false, fmt.Errorf("write %s: %w", clean, err)
-	}
-	if err := temporary.Close(); err != nil {
-		return "", false, fmt.Errorf("close %s: %w", clean, err)
-	}
-	if err := os.Link(temporaryPath, target); err != nil {
-		if errors.Is(err, os.ErrExist) {
-			return target, false, nil
+	if err := pinned.CreateFile(target, content, filePermissions); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			return absolute, false, nil
 		}
-		return "", false, fmt.Errorf("create %s: %w", clean, err)
+		return "", false, fmt.Errorf("create %s: %w", relative, err)
 	}
-	return target, true, nil
+	return absolute, true, nil
 }
 
-// MakeDirectory creates the directory a root-relative path names, and any
-// missing directory above it, and returns where it landed.
-//
-// It is here for the caller that needs the directory rather than anything in it:
-// a per-run scratch directory is created by the harness and written into by an
-// agent, so there is no document for the write-and-rename above to carry. A
-// caller reaching for `os.MkdirAll` itself would be a write outside this package
-// deciding its own containment, which is the one thing that has no exceptions —
-// so the entry point is here rather than the containment being restated there.
-//
-// Confinement is decided exactly as it is above: every existing component below
-// the root is resolved before anything is created, and one that points out of
-// the root is refused rather than followed. Creating is idempotent, so a caller
-// that asks twice is given the same directory rather than a failure — which is
-// what a run resumed by a second process needs.
-//
-// The mode is the caller's for the reason OpenAppend's are: what this creates is
-// not a repository document, and a directory holding what one run is doing wants
-// the permissions of the root it sits under rather than a checkout's.
+// MakeDirectory idempotently creates a confined directory and missing parents.
 func (r Root) MakeDirectory(relative string, mode fs.FileMode) (string, error) {
-	clean, target, err := r.resolve(relative)
+	pinned, target, absolute, err := r.mutation(relative)
 	if err != nil {
 		return "", err
 	}
-	if err := os.MkdirAll(target, mode); err != nil {
-		return "", fmt.Errorf("create %s: %w", clean, err)
+	defer pinned.Close()
+	if err := pinned.root.MkdirAll(target, mode); err != nil {
+		return "", fmt.Errorf("create %s: %w", relative, err)
 	}
-	return target, nil
+	return absolute, nil
 }
 
-// RemoveDirectory removes the directory a root-relative path names, and
-// everything in it, and returns where it removed from.
-//
-// It is here for the same reason MakeDirectory is: a caller reaching for
-// `os.RemoveAll` itself would be a repository-scoped mutation outside this
-// package deciding its own containment, and that has no exceptions. What needs
-// it is bookkeeping the harness has to take back out of a repository — a
-// worktree registration a killed `git worktree add` left half-written, which
-// Git's own prune does not reach and which fails every later command that walks
-// the registrations.
-//
-// Confinement is decided exactly as it is above, and two refusals are added on
-// top of it, because removal is the one operation here that destroys what was
-// already there. A final component that is a symlink is refused rather than
-// removed: the link would go and its target would stay, which is a removal that
-// did not remove what the caller named. And a final component that is not a
-// directory is refused, because every caller for this asks for a directory by
-// name and a file standing where one was is not the thing they meant. Removing
-// what is not there is not a refusal but a removal already made, so a sweep that
-// runs twice is not a sweep that fails the second time.
+// RemoveDirectory removes a directory and its contents, never following links
+// planted during traversal. A missing target is a removal already made.
 func (r Root) RemoveDirectory(relative string) (string, error) {
-	clean, target, err := r.resolve(relative)
-	if err != nil {
-		return "", err
-	}
-	info, err := os.Lstat(target)
-	if errors.Is(err, os.ErrNotExist) {
-		return target, nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("inspect %s: %w", clean, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("refusing to remove %s: it is a symlink rather than a directory", clean)
-	}
-	if !info.IsDir() {
-		return "", fmt.Errorf("refusing to remove %s: it is not a directory", clean)
-	}
-	// RemoveAll below this point removes each entry through its own parent
-	// directory rather than by re-walking the path, and never follows a link at
-	// the component it is removing, so what a link planted underneath it now
-	// points at is not removed with it.
-	if err := os.RemoveAll(target); err != nil {
-		return "", fmt.Errorf("remove %s: %w", clean, err)
-	}
-	return target, nil
+	return r.remove(relative, true)
 }
 
-// RemoveFile removes the file a root-relative path names, and returns where it
-// removed from.
-//
-// It is RemoveDirectory's counterpart for a single file, here for the same
-// reason: a caller reaching for `os.Remove` itself would be a mutation outside
-// this package deciding its own containment. What needs it is a file the harness
-// takes back out of a directory it does not own — a launchd job's property list
-// the supervisor retires, under the user's LaunchAgents directory.
-//
-// The refusals are RemoveDirectory's turned round: a final component that is a
-// symlink is refused, because the link would go and what it names would stay,
-// and one that is a directory is refused, because the caller named a file.
-// Removing what is not there is a removal already made.
+// RemoveFile removes one file, refusing a directory at the requested name.
 func (r Root) RemoveFile(relative string) (string, error) {
-	clean, target, err := r.resolve(relative)
+	return r.remove(relative, false)
+}
+
+func (r Root) remove(relative string, directory bool) (string, error) {
+	pinned, target, absolute, err := r.mutation(relative)
 	if err != nil {
 		return "", err
 	}
-	info, err := os.Lstat(target)
-	if errors.Is(err, os.ErrNotExist) {
-		return target, nil
+	defer pinned.Close()
+	if err := pinned.remove(target, directory); err != nil {
+		return "", fmt.Errorf("remove %s: %w", relative, err)
 	}
-	if err != nil {
-		return "", fmt.Errorf("inspect %s: %w", clean, err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return "", fmt.Errorf("refusing to remove %s: it is a symlink rather than a file", clean)
-	}
-	if info.IsDir() {
-		return "", fmt.Errorf("refusing to remove %s: it is a directory", clean)
-	}
-	if err := os.Remove(target); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", fmt.Errorf("remove %s: %w", clean, err)
-	}
-	return target, nil
+	return absolute, nil
 }

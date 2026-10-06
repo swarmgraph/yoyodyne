@@ -16,6 +16,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 const (
@@ -103,6 +104,9 @@ type Lease struct {
 	// one. It is empty on the rest: a lease nobody has to watch from outside
 	// carries nothing to keep in step with the lock.
 	holder string
+	// Conversation leases retain the directory that contains both lock and stamp.
+	// Release must clear the stamp through this handle, even after replacement.
+	holderRoot *repowrite.PinnedRoot
 }
 
 // releaseStateFile drops a lock and closes the file it was taken on, in that
@@ -138,10 +142,20 @@ func (l *Lease) Release() error {
 	l.file = nil
 	var cleared error
 	if l.holder != "" {
-		if err := os.Remove(l.holder); err != nil && !errors.Is(err, os.ErrNotExist) {
+		var err error
+		if l.holderRoot != nil {
+			err = l.holderRoot.Remove(filepath.Base(l.holder))
+		} else {
+			err = os.Remove(l.holder)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			cleared = fmt.Errorf("clear the %s holder: %w", l.label, err)
 		}
 		l.holder = ""
+	}
+	if l.holderRoot != nil {
+		cleared = errors.Join(cleared, l.holderRoot.Close())
+		l.holderRoot = nil
 	}
 	if err := errors.Join(cleared, releaseStateFile(file)); err != nil {
 		return fmt.Errorf("release %s lease: %w", l.label, err)

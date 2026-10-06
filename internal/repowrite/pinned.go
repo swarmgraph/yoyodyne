@@ -21,7 +21,7 @@ type PinnedRoot struct {
 }
 
 func OpenPinnedRoot(path string) (*PinnedRoot, error) {
-	if runtime.GOOS == "js" || runtime.GOOS == "plan9" {
+	if runtime.GOOS == "js" || runtime.GOOS == "plan9" || runtime.GOOS == "wasip1" {
 		return nil, errors.New("this platform cannot pin a repository directory across replacement")
 	}
 	absolute, err := filepath.Abs(path)
@@ -150,7 +150,10 @@ func (r *PinnedRoot) CreateFile(relative string, content []byte, mode fs.FileMod
 		return err
 	}
 	defer parent.root.Remove(temporary)
-	_, err = file.Write(content)
+	err = file.Chmod(mode)
+	if err == nil {
+		_, err = file.Write(content)
+	}
 	if err == nil {
 		err = file.Sync()
 	}
@@ -203,6 +206,9 @@ func (r *PinnedRoot) FileWriter(relative string, mode fs.FileMode, exclusive boo
 			parent.Close()
 			return nil, err
 		}
+		if err := file.Chmod(mode); err != nil {
+			return nil, errors.Join(err, file.Close(), parent.root.Remove(temporary), parent.Close())
+		}
 		return &pinnedReplacementWriter{file: file, parent: parent, temporary: temporary, target: filepath.Base(clean)}, nil
 	}
 	parent.Close()
@@ -250,6 +256,9 @@ func (w *pinnedReplacementWriter) Close() error {
 		// Rename changes the directory entry, never the previous inode's bytes.
 		// Both names are relative to the same held parent directory throughout.
 		w.closeErr = w.parent.root.Rename(w.temporary, w.target)
+		if w.closeErr == nil {
+			w.closeErr = w.parent.Sync()
+		}
 	}
 	if w.closeErr != nil {
 		if err := w.parent.root.Remove(w.temporary); err != nil && !errors.Is(err, fs.ErrNotExist) {

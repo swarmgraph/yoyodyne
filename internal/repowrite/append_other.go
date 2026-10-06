@@ -4,10 +4,14 @@ package repowrite
 
 import "os"
 
-// Refusing to follow a link at the final component is O_NOFOLLOW on the Unix
-// hosts Yoyodyne supports. Elsewhere the resolution above is the whole of the
-// answer, which leaves the link-planted-after-the-check case open on a platform
-// this harness is not run on.
+// os.Root confines traversal on supported platforms. In-place writes also need
+// a descriptor-based hard link count; without it these flags are never used.
 const appendFlags = os.O_CREATE | os.O_WRONLY | os.O_APPEND
 
 const truncateFlags = os.O_WRONLY
+
+// Platforms without descriptor-based link counts refuse in-place writes before
+// opening or creating their target. Replacement writers still use new inodes.
+const inPlaceWritesSupported = false
+
+func singleLinkFile(*os.File) error { return errInPlaceWritesUnsupported }

@@ -39,6 +39,10 @@ func confinedStateRoot(root string) (stateRoot, anchor string, err error) {
 }
 
 func pinStateRoot(stateRoot, anchor string) (*repowrite.PinnedRoot, error) {
+	return openStateRoot(stateRoot, anchor, true)
+}
+
+func openStateRoot(stateRoot, anchor string, create bool) (*repowrite.PinnedRoot, error) {
 	root, err := repowrite.OpenPinnedRoot(anchor)
 	if err != nil {
 		return nil, err
@@ -50,9 +54,11 @@ func pinStateRoot(stateRoot, anchor string) (*repowrite.PinnedRoot, error) {
 	}
 	if relative != "." {
 		for _, component := range strings.Split(relative, string(filepath.Separator)) {
-			if err := root.MakeDirectory(component, 0o700); err != nil {
-				root.Close()
-				return nil, err
+			if create {
+				if err := root.MakeDirectory(component, 0o700); err != nil {
+					root.Close()
+					return nil, err
+				}
 			}
 			child, err := root.OpenDirectory(component)
 			root.Close()
