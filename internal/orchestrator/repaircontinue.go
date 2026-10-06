@@ -11,7 +11,9 @@ package orchestrator
 // wrote the change is the one to act on them. So nothing starts over: the same
 // run continues, on the branch and in the worktree it stopped in, in the
 // developer session that already holds the context, with the findings handed
-// back exactly as the reviewer wrote them.
+// back exactly as the reviewer wrote them. A run that recorded no developer
+// session is continued the same way in a fresh session, which is handed the
+// work item and the run's record as well (see freshSessionWhy).
 //
 // It carries out one other stoppage, and the two differ in what they hand the
 // developer rather than in what they do. A run the harness stopped on time
@@ -282,6 +284,10 @@ type RepairContinueResult struct {
 	Stall bool `json:"stall,omitempty"`
 	// Checks says a stage stopped at its bound was continued at the checks.
 	Checks bool `json:"checks,omitempty"`
+	// FreshSession says the run recorded no developer session to re-enter, so the
+	// repair starts a fresh one on the preserved change, and is why it recorded
+	// none. Empty where the repair re-enters the session the run recorded.
+	FreshSession string `json:"fresh_session,omitempty"`
 	// ResumesAt is the step the continued run was put back at. A stage bound
 	// continues its checks, and a stall at the checks or
 	// the review is continued at that step, on the change the attempt left, with
@@ -465,6 +471,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	result.Checks = prior.StoppedAtStageBound()
 	result.Stall = !result.Checks && continuableStall(prior)
 	result.ResumesAt = continuedPhase(prior, result.Stall)
+	result.FreshSession = freshSessionWhy(prior)
 	// The architect's condition, asked before anything is written: the change a
 	// continued developer is handed back is whatever is in that worktree.
 	if found.WorktreeThere {
@@ -558,6 +565,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 
 	reason := continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
+	if result.FreshSession != "" {
+		reason = fmt.Sprintf("Fresh developer session: %s. ", result.FreshSession) + reason
+	}
 	if result.WorktreeRestored {
 		reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
 	}
@@ -570,7 +580,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err := c.supersedeOnItem(ctx, item, prior, granted); err != nil {
 		return c.unconfirmedContinuation(ctx, result, err)
 	}
-	continued, err := c.supersedeOnRun(prior, granted, reason, result.Stall)
+	continued, err := c.supersedeOnRun(prior, granted, reason, result.Stall, result.FreshSession)
 	if err != nil {
 		return c.unconfirmedContinuation(ctx, result, fmt.Errorf("record the continuation on run %s, whose item claim was confirmed: %w", prior.RunID, err))
 	}
@@ -644,6 +654,7 @@ func (c RepairContinuer) confirmedContinuation(result *RepairContinueResult, con
 	result.Granted = continuation.GrantedAttempts
 	result.Stall = continuation.Stall
 	result.Checks = continuation.CheckStage
+	result.FreshSession = continuation.FreshSession
 	result.ResumesAt = continued.Phase
 	result.SupersededBlocker = continuation.SupersededBlocker
 	result.RepairBudget = continued.RepairBudget(c.ConfiguredAttempts)
@@ -1000,8 +1011,13 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 			return permanentCarryOut(triage.CarryOutWorktreeGone, fmt.Errorf("run %s's missing checkout cannot be recovered from its branch: the run has no recorded completed commit, captured work remains at %q, or an interrupted developer may have left uncommitted work; missing uncommitted work is not recovered by checking out a branch, so the development manager must decide what follows", prior.RunID, prior.PreservedWorkRef))
 		}
 	}
-	if prior.ProviderSessionID == "" {
-		return fmt.Errorf("run %s recorded no developer session, so a continuation could not be the same developer carrying on with the change it made", prior.RunID)
+	// A run with no developer session to re-enter is still repaired where a
+	// failure was returned about its change: a fresh session is started on the
+	// preserved change instead (see freshSessionWhy). A stall or a check-stage
+	// continuation has nothing to hand a fresh developer, so it still needs the
+	// session it stopped in.
+	if prior.ProviderSessionID == "" && !(handedBackRepair(prior) && !prior.StoppedAtStageBound()) {
+		return fmt.Errorf("run %s recorded no developer session, and no failure was returned about its change for a fresh developer to repair, so there is no attempt to carry on with", prior.RunID)
 	}
 	// A stall or a check-stage timeout owes the run the step the harness stopped,
 	// rather than a repair of a change nobody complained about.
@@ -1010,6 +1026,33 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 			prior.RunID, prior.RunID)
 	}
 	return nil
+}
+
+// freshSessionWhy says why a repair of this run starts a fresh developer
+// session, and is empty where the run recorded a session to re-enter.
+//
+// A run reaches a decided repair with no session in three ways: its developer's
+// session ran out of budget before the provider reported it, the provider never
+// returned one, or the harness carried the run on itself past a silent session at
+// a step with no developer and a later step failed. In each the change is in the
+// preserved worktree and the failure about it is on the record; only the session
+// is missing. Refusing the repair for that left a decision nobody could carry
+// out, so the repair starts a fresh developer on the change instead, handed the
+// work item, the repair input, and the run's record (freshSessionRepairPrompt),
+// and spends the grant exactly as re-entering a session does.
+func freshSessionWhy(prior runstate.State) string {
+	if prior.ProviderSessionID != "" {
+		return ""
+	}
+	for _, continuation := range prior.RepairContinuations {
+		if continuation.ByHarness {
+			return fmt.Sprintf("run %s recorded no developer session to re-enter: the harness carried it on itself past a silent session at a step with no developer, so no developer session was ever recorded on it", prior.RunID)
+		}
+	}
+	if len(prior.CheckStageContinuations) > 0 {
+		return fmt.Sprintf("run %s recorded no developer session to re-enter: the harness carried it on itself at its checks, with no developer, so no developer session was ever recorded on it", prior.RunID)
+	}
+	return fmt.Sprintf("run %s recorded no developer session to re-enter: its developer's session ended before the provider reported one, as a session whose budget ran out or a provider that never returned one leaves it", prior.RunID)
 }
 
 // Older handbacks kept the forge reading on the publication alone, sometimes
@@ -1118,7 +1161,7 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, item beads.WorkIte
 // has not made yet. What is still spent is the item's grant: the continuation
 // records what it was worth, so the decision that authorized it is carried out
 // once and a second is a second decision.
-func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGrant, reason string, stalled bool) (runstate.State, error) {
+func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGrant, reason string, stalled bool, fresh string) (runstate.State, error) {
 	continued := prior
 	// Also correct stale flags when a process restored and verified the checkout
 	// but died before its final save. Captured work still keeps its ref and sweep
@@ -1140,6 +1183,7 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 			SupersededCheckFailure: prior.CheckFailure,
 			Stall:                  stalled,
 			CheckStage:             prior.StoppedAtStageBound(),
+			FreshSession:           fresh,
 			DispatchPending:        true,
 			SuccessNotePending:     true,
 		})
@@ -1364,6 +1408,8 @@ func (result RepairContinueResult) Render() string {
 		fmt.Fprintf(&rendered, "continued run %s at the %s phase, the step it stalled in, on the change it already has, with no developer attempt\n", result.RunID, result.ResumesAt)
 	case result.Stall:
 		fmt.Fprintf(&rendered, "continued run %s in the developer session it stalled in, at the attempt the harness stopped it in\n", result.RunID)
+	case result.FreshSession != "":
+		fmt.Fprintf(&rendered, "started a fresh developer session on the change run %s already has, because %s\n", result.RunID, result.FreshSession)
 	default:
 		fmt.Fprintf(&rendered, "re-entered the repair loop of run %s on the change it already has\n", result.RunID)
 	}
