@@ -1497,9 +1497,9 @@ func renderSummaryCost(run runstate.RunSummary) string {
 		return "cost unknown"
 	}
 	if !run.Status.Terminal() {
-		return fmt.Sprintf("$%.2f so far", run.CostUSD)
+		return run.Tokens.CostText(run.CostUSD) + " so far"
 	}
-	return fmt.Sprintf("$%.2f", run.CostUSD)
+	return run.Tokens.CostText(run.CostUSD)
 }
 
 func reportStatusFailure(stdout, stderr io.Writer, jsonOutput bool, err error) int {

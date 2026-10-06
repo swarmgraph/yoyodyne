@@ -227,6 +227,7 @@ func (m Metered) line(request backend.RunRequest, result backend.RunResult, err 
 		ResolvedEffort: result.ResolvedEffort,
 		EffortReported: result.EffortReported,
 		SessionID:      result.SessionID,
+		Usage:          result.Usage,
 		Build:          processBuild,
 	}
 	// The provider names the backend that served the invocation, which is the

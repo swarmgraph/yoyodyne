@@ -285,7 +285,7 @@ func TestStreamStoreSpendsByTheDayTheMoneyWasSpent(t *testing.T) {
 	if report.Rows[1].Calls != 2 || report.Rows[1].CostUSD != 2.75 {
 		t.Fatalf("today's row = %+v, want both of today's invocations priced", report.Rows[1])
 	}
-	if report.Rows[1].Usage == nil || *report.Rows[1].Usage != (TokenUsage{InputTokens: 6, OutputTokens: 7, CacheCreationTokens: 8, CacheReadTokens: 9, Measured: 2}) {
+	if report.Rows[1].Usage == nil || *report.Rows[1].Usage != (TokenUsage{Priced: 2, InputTokens: 6, OutputTokens: 7, CacheCreationTokens: 8, CacheReadTokens: 9, Measured: 2}) {
 		t.Fatalf("today's usage = %+v", report.Rows[1].Usage)
 	}
 	// The row for the day the work opened says when it opened; a later day says
@@ -513,10 +513,10 @@ func TestSpendReportTotalsAndNarrowsByItsOwnRule(t *testing.T) {
 		t.Fatalf("the whole report totals %+v", whole)
 	}
 	if len(whole.ByKind) != 4 ||
-		whole.ByKind[0] != (KindTotal{Kind: StreamRun, Calls: 5, CostUSD: 15.5}) ||
-		whole.ByKind[1] != (KindTotal{Kind: StreamConversation, Calls: 2, CostUSD: 4}) ||
-		whole.ByKind[2] != (KindTotal{Kind: StreamReview, Calls: 1, CostUSD: 1.25}) ||
-		whole.ByKind[3] != (KindTotal{Kind: StreamExchange, Calls: 1, CostUSD: 0.5}) {
+		whole.ByKind[0] != (KindTotal{Kind: StreamRun, Calls: 5, CostUSD: 15.5, Usage: TokenUsage{InputTokens: 120, OutputTokens: 60}}) ||
+		whole.ByKind[1] != (KindTotal{Kind: StreamConversation, Calls: 2, CostUSD: 4, Usage: TokenUsage{InputTokens: 10, OutputTokens: 5}}) ||
+		whole.ByKind[2] != (KindTotal{Kind: StreamReview, Calls: 1, CostUSD: 1.25, Usage: TokenUsage{InputTokens: 1, OutputTokens: 1}}) ||
+		whole.ByKind[3] != (KindTotal{Kind: StreamExchange, Calls: 1, CostUSD: 0.5, Usage: TokenUsage{Priced: 1}}) {
 		t.Fatalf("the whole report splits %+v, want the four kinds in the order they are priced", whole.ByKind)
 	}
 

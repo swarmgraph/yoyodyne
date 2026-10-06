@@ -12,6 +12,7 @@ package exchange
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -88,6 +89,11 @@ type Question struct {
 
 // Spoken is what the answering side produced.
 type Spoken struct {
+	// Usage is the answering invocation's token usage as its result carried it,
+	// and CostReported whether its provider reported a dollar cost at all; see
+	// Round, which records both.
+	Usage        json.RawMessage `json:"usage,omitempty"`
+	CostReported *bool           `json:"cost_reported,omitempty"`
 	// Answer is the reply as the provider wrote it. It is checked by ReadAnswer
 	// before anything is recorded, so a voice never has to enforce the boundary
 	// itself.
@@ -278,6 +284,8 @@ func (c Conductor) Put(ctx context.Context, ask Ask, asker Party) (Exchange, err
 	answered := c.now()
 	round.AnsweredAt = &answered
 	round.CostUSD = spoken.CostUSD
+	round.Usage = spoken.Usage
+	round.CostReported = spoken.CostReported
 	// What served the round is pinned beside what it cost, and for the same reason
 	// it is: both are facts about an invocation that happened, so a round the
 	// provider failed records them exactly as one that answered does.
@@ -526,7 +534,7 @@ func (c Conductor) escalate(recorded Exchange, at time.Time) error {
 	}
 	message := fmt.Sprintf("%s closed unresolved after %d round(s), the limit it was opened with. The %s asked the %s %q and the two did not settle it; the exchange cost %s. Read it with `yoyo exchange show %s` and decide it, or say what neither of them could.",
 		recorded.ID, recorded.Spent(), recorded.Asker.Role.Title(), recorded.Answerer.Role.Title(),
-		singleLine(recorded.Question), money(recorded.CostUSD()), recorded.ID)
+		singleLine(recorded.Question), recorded.CostText(), recorded.ID)
 	collected, err := report.Collect(
 		[]report.Entry{{Severity: report.SeverityWarning, Message: message}},
 		report.Attribution{

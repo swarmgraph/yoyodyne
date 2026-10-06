@@ -609,3 +609,50 @@ func TestCostReadsPreservationFromTheRepositoryForTextAndJSON(t *testing.T) {
 		t.Fatalf("retired checkout = %v", err)
 	}
 }
+
+func TestCostLedgerTotalIncludesUncostedCodexSideThread(t *testing.T) {
+	usage := runstate.TokenUsage{InputTokens: 10, CacheReadTokens: 20, OutputTokens: 3, Measured: 1, NoCost: 1}
+	sides := runstate.SideStreamSpend{Streams: 1, Invocations: 1, Tokens: usage}
+	var output bytes.Buffer
+	printPrices(&output, nil, nil, &sides, false)
+	for _, line := range strings.Split(output.String(), "\n") {
+		if strings.HasPrefix(line, "TOTAL") {
+			if !strings.Contains(line, "30 input tokens (20 cached), 3 output tokens") || !strings.Contains(line, "no cost reported for 1 turn") {
+				t.Fatal(line)
+			}
+			return
+		}
+	}
+	t.Fatalf("no total: %s", output.String())
+}
+
+// The side thread note attributes each conversation's share the way the row
+// above it does: a conversation whose threads carry no reported cost is shown
+// by its tokens with no cost reported, and one mixing priced and unpriced turns
+// says how many carry no cost, rather than either reading as $0.00.
+func TestCostSideNoteShowsUnpricedAndMixedConversationsByTheirTokens(t *testing.T) {
+	t.Parallel()
+	unpriced := runstate.TokenUsage{InputTokens: 10, CacheReadTokens: 20, OutputTokens: 3, Measured: 1, NoCost: 1}
+	mixed := runstate.TokenUsage{InputTokens: 100, OutputTokens: 7, Measured: 2, Priced: 1, NoCost: 1}
+	sides := runstate.SideStreamSpend{
+		Streams: 2, Invocations: 3, CostUSD: 1.5,
+		Conversations: []runstate.ConversationSideSpend{
+			{Conversation: "chat-codex", Streams: 1, Invocations: 1, Tokens: unpriced},
+			{Conversation: "chat-mixed", Streams: 1, Invocations: 2, CostUSD: 1.5, Tokens: mixed},
+		},
+	}
+	var output bytes.Buffer
+	printSideNote(&output, &sides)
+	text := output.String()
+	for _, want := range []string{
+		"chat-codex  30 input tokens (20 cached), 3 output tokens; no cost reported for 1 turn from 1 side conversation(s)",
+		"chat-mixed  $1.50 reported; 100 input tokens (0 cached), 7 output tokens; no cost reported for 1 turn from 1 side conversation(s)",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("note = %q, want it to contain %q", text, want)
+		}
+	}
+	if strings.Contains(text, "$0.00") {
+		t.Fatalf("note = %q, want no conversation shown as costing nothing", text)
+	}
+}

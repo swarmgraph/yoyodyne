@@ -142,12 +142,14 @@ type ItemRun struct {
 	// is the reason as every surface prints it: that class as its first word, then
 	// the run's own words. Reason is the run history's derivation, so the card and
 	// `yoyo status` cannot word one stop two ways.
-	StopClass   runstate.StopClass `json:"stop_class,omitempty"`
-	Reason      string             `json:"reason,omitempty"`
-	StartedAt   time.Time          `json:"started_at"`
-	CompletedAt *time.Time         `json:"completed_at,omitempty"`
-	Elapsed     time.Duration      `json:"elapsed,omitempty"`
-	CostUSD     float64            `json:"cost_usd"`
+	StopClass   runstate.StopClass  `json:"stop_class,omitempty"`
+	Reason      string              `json:"reason,omitempty"`
+	StartedAt   time.Time           `json:"started_at"`
+	CompletedAt *time.Time          `json:"completed_at,omitempty"`
+	Elapsed     time.Duration       `json:"elapsed,omitempty"`
+	CostText    string              `json:"cost_text"`
+	Tokens      runstate.TokenUsage `json:"tokens"`
+	CostUSD     float64             `json:"cost_usd"`
 	// UnknownCost says why there is no figure rather than reporting one of
 	// zero: a run whose evidence is gone did not cost nothing.
 	UnknownCost string `json:"unknown_cost,omitempty"`
@@ -229,6 +231,8 @@ func readLatestRun(ctx context.Context, sources WorkItemSources, id string, now 
 		StartedAt:           latest.StartedAt,
 		CompletedAt:         latest.CompletedAt,
 		CostUSD:             latest.CostUSD,
+		CostText:            latest.Tokens.CostText(latest.CostUSD),
+		Tokens:              latest.Tokens,
 		UnknownCost:         latest.UnknownCost,
 	}
 	if run.InFlight {

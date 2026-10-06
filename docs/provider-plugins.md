@@ -19,6 +19,30 @@ provider also issued a real Code Mode call: a nested shell read succeeded and
 a nested file write was denied before the CLI completed its reply. Those probes
 do not certify every future CLI version or constitute a live model review.
 
+For a Codex turn, yoyo records the input, cached input, and output tokens from
+`turn.completed.usage` on the invocation's event and spend records. Codex's
+input count includes cached input; the shared totals keep fresh input and cached
+input separately, so their sum is the reported input count. Run, work-item,
+role, and overall totals carry those counts. A missing usage object means
+“token usage not reported”; a reported count of zero remains a measurement.
+
+Codex reports no dollar price in this stream. `yoyo status`, `yoyo cost`,
+`yoyo exchange`, and the dashboard show its tokens with “no cost reported”, and
+totals that include priced turns state how many turns have no reported cost. An
+exchange round records the same usage and whether a cost was reported. Yoyo does not estimate a price from tokens.
+Existing records are read as recorded; this does not recover token counts from
+an invocation whose stream did not preserve them.
+
+The recorded `exec --json` stream has no plan usage-window reading. Yoyo does
+not inspect the operator's Codex home to find one. Recording the weekly reading needs
+a person-supplied redacted record of that reading, with its exact source file
+name and line number. The sample must preserve the event type, field names,
+percent used, window length, reset time and its format, and observation time;
+conversation text, credentials, and account identifiers should be removed.
+No such sample was supplied for this change, so where Codex's own session log keeps it and its
+field shape remain unverified and the weekly reading is not displayed. No
+weekly reading is inferred from token counts.
+
 A project can declare a provider of its own in its configuration, without forking
 this repository or rebuilding the binary. **What a declaration supplies is the
 dialect and the executable, not a new way of launching a process.** Your provider

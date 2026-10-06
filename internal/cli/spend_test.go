@@ -116,3 +116,16 @@ func (l *recordingSpendLog) ReportedSessionTotal(sessionID string) (float64, boo
 	}
 	return total, found, nil
 }
+
+func TestCodexSpendNamesTokensAndMissingPrices(t *testing.T) {
+	usage := runstate.TokenUsage{InputTokens: 3120, CacheReadTokens: 13184, OutputTokens: 5, Measured: 1, NoCost: 1}
+	row := runstate.SpendRow{Calls: 1, Usage: &usage}
+	if text := spendCostText(row); strings.Contains(text, "$0") || !strings.Contains(text, "16304 input tokens (13184 cached), 5 output tokens") || !strings.Contains(text, "no cost reported") {
+		t.Fatal(text)
+	}
+	usage.Merge(runstate.TokenUsage{InputTokens: 20, OutputTokens: 3, Measured: 1})
+	row.CostUSD = 2
+	if text := spendCostText(row); !strings.Contains(text, "$2.00 reported") || !strings.Contains(text, "no cost reported for 1 turn") {
+		t.Fatal(text)
+	}
+}
