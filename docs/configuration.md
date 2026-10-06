@@ -371,8 +371,8 @@ plus the definition's additions, minus its removals.
   read-only: no tools on Claude Code, the read-only sandbox on Codex.
   [Capability validation](provider-plugins.md#capability-validation) asks the
   agent's provider and its failover alternate about that narrower access.
-- An automatic-integration project refuses a reviewer agent whose definition
-  removed `review.verdict`.
+- A project that integrates without asking a person refuses a reviewer agent
+  whose definition removed `review.verdict`.
 
 A definition can only narrow what its shipped role may not do. The additions
 the loader refuses above are refused whatever a definition says, and no set
