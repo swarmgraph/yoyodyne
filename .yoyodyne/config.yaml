@@ -100,7 +100,7 @@ services:
     token: file
 
 execution:
-  max_concurrent_developers: 4  # temporary extra slots, operator 2026-10-02; return to 2 after stuck-slot recovery (yoyodyne-9j7, yoyodyne-ifd.428.68)
+  max_concurrent_developers: 3  # slot 1 reliability, slot 2 product, slot 3 general (operator, 2026-10-06)
   # One developer slot prefers the reliability label, per the operator's
   # direction of 2026-09-19: bugs, anything that keeps the system from
   # stalling, and anything that keeps the system from making mistakes. The
@@ -112,11 +112,11 @@ execution:
   # change: it selects what a slot pulls first, and never what it may do.
   developer_slots:
     - prefer: [reliability]   # slot 1 pulls reliability-labelled work first
-    # Slot 2 pulls product-labelled work first: usability and product
-    # features, such as the dashboard, that P0 fixes would otherwise crowd
-    # out (operator, 2026-10-06).
-    - prefer: [product]
-    # slots 3 and 4 are not named, so they prefer nothing
+    # Slot 2 pulls product- and performance-labelled work first: usability,
+    # product features such as the dashboard, and delivery metrics, which P0
+    # fixes would otherwise crowd out (operator, 2026-10-06).
+    - prefer: [product, performance]
+    # slot 3 is not named, so it prefers nothing
   repair_attempts_before_replan: 2
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
@@ -364,7 +364,7 @@ agents:
     model: opus
     effort: medium
     # One instance per configured developer slot.
-    instances: 4
+    instances: 3
     persona:
       version: v2
       path: personas/developer.md
