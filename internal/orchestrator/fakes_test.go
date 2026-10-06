@@ -5,14 +5,11 @@ import (
 	"errors"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
-	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 )
 
-// The old names below are kept while a test file that has not yet moved onto
-// orchestratortest's fakes uses one: these are used only by files sorting from
-// publish_test.go on. Each goes when nothing uses it, and this file goes when
-// the last of those files has moved.
+// Old names still used by test files from publish_test.go on, kept until those
+// files move onto orchestratortest's fakes.
 
 // looked is a repository that answers for the one stopped run: whether its
 // branch and its checkout are there.
@@ -53,5 +50,3 @@ func (f *answeringForge) Close(context.Context, publish.CloseRequest) (publish.C
 }
 
 var _ ReconcilePullRequests = (*answeringForge)(nil)
-
-type publicationAnswers = orchestratortest.PublicationAnswers

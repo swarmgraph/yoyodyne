@@ -108,7 +108,7 @@ func TestReconcileRefreshesOtherItemsWhenOneForgeAnswerCannotBeRead(t *testing.T
 	if err := fixture.store.Create(other); err != nil {
 		t.Fatal(err)
 	}
-	forge := &unreadableOneRequest{branch: first.Branch, ReconcilePullRequests: publicationAnswers{other.Branch: {Number: 2, State: "MERGED", Merged: true}}}
+	forge := &unreadableOneRequest{branch: first.Branch, ReconcilePullRequests: orchestratortest.PublicationAnswers{other.Branch: {Number: 2, State: "MERGED", Merged: true}}}
 	refreshed := fixture.refresh(t, forge)
 	if len(refreshed) != 2 {
 		t.Fatalf("refresh = %#v", refreshed)

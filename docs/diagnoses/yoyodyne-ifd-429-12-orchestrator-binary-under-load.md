@@ -229,10 +229,9 @@ because one change was too large to review:
 - **Second (yoyodyne-ifd.429.13.6.2).** The files from `publish_test.go` on move
   too, and the old names go with them.
 
-The shared fixtures the earlier files reach, such as the scheduler harness and
-the queued-checks and re-arm fixtures, already use the exported fakes. Until the
-second change lands, `fakes_test.go` keeps `looked`, `answeringForge`, and
-`publicationAnswers` under their old names for the later files that use them.
+The shared fixtures the earlier files reach already use the exported fakes.
+Until the second change, `fakes_test.go` keeps `looked` and `answeringForge` for
+the later files that use them.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than
