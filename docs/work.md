@@ -2022,10 +2022,11 @@ carries on exactly as it was — polling, pulling into free seats, firing its
 recurring tasks — because the drain is about the runs it hosts and not about the
 scheduler's other duties. The wait is bounded, by
 [`execution.redeploy_drain_limit`](configuration.md#watching-instead-of-draining),
-fifteen minutes by default: past it the session restarts anyway, stopping each
-run it still hosts at a developer attempt, its checks, or a review where it is and
-preserving it whole for the session that comes back to re-adopt, with every
-counter as it was. A running check stage is stopped at the drain limit even
+fifteen minutes by default: past it the session restarts anyway, and at once,
+stopping each run it still hosts at a developer attempt, its checks, or a review
+where it is and preserving it whole for the session that comes back to re-adopt,
+with every counter as it was. A run it has stopped no longer counts as one it
+hosts, so nothing it stopped holds the restart back. A running check stage is stopped at the drain limit even
 when load has extended the stage's own limit; the session that comes back runs
 it again from the start. A stage that has already finished gets a brief grace
 to record its verdict. A run at its promotion is waited out past the bound

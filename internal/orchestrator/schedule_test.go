@@ -2709,6 +2709,179 @@ func TestTheDrainBoundStopsTheHostedRunsAndRestartsAnyway(t *testing.T) {
 	}
 }
 
+// Once the bound has stopped every run the session hosts, the restart is made
+// in the same step: no further pull is opened and no recurring pass is fired
+// first. On 2026-10-05 the runs stopped at the bound ended within a second,
+// and the session went from stopping them straight into two recurring passes
+// that kept it from reading their endings for forty minutes, pulling nothing
+// all the while, until it was restarted by hand. The session that comes back
+// then picks up the runs it preserved, as it always has, and pulls new work
+// into the seats beside them.
+func TestTheDrainBoundRestartsAtOnceAndTheSessionThatComesBackCarriesOn(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+	harness.capacity = 3
+	harness.developersMeet(2)
+	harness.drainLimit = 20 * time.Millisecond
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	pastTheBound := func() bool {
+		for _, transition := range sessions.recorded() {
+			if transition.draining != nil && transition.draining.BoundReached {
+				return true
+			}
+		}
+		return false
+	}
+	var pullsPastTheBound, firedPastTheBound atomic.Int32
+	harness.onPull = func(*scheduleHarness, int) {
+		if pastTheBound() {
+			pullsPastTheBound.Add(1)
+		}
+	}
+	// A recurring pass is due at every pull, as the architect's was on the
+	// afternoon this is about.
+	harness.fire = func(*scheduleHarness, int) (RecurringSweep, error) {
+		if pastTheBound() {
+			firedPastTheBound.Add(1)
+		}
+		return RecurringSweep{Fired: []Fired{{Task: "architect-pass", Role: domain.RoleArchitect, Turns: 1}}}, nil
+	}
+	var secondSession atomic.Bool
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		if secondSession.Load() {
+			return h.complete(id), nil
+		}
+		deployment.deploy()
+		h.mu.Lock()
+		state := h.inFlight[id]
+		state.Phase = runstate.PhaseDeveloping
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		<-ctx.Done()
+		var drained RedeployDrain
+		if !errors.As(context.Cause(ctx), &drained) {
+			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+		}
+		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseDeveloping, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
+	}
+
+	first := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, SessionID: "watch-before", Deployment: deployment}
+	schedule, err := first.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleRedeployed || !sessions.restarted() {
+		t.Fatalf("stopped = %q, want the session restarted once the bound ran out: %s", schedule.Stopped, schedule.Render())
+	}
+	if got := schedule.Drain.Stopped; len(got) != 2 || got[0] != "yoyodyne-one" || got[1] != "yoyodyne-two" {
+		t.Fatalf("drain stopped = %v, want both hosted runs stopped and preserved", got)
+	}
+	if pulls, fired := pullsPastTheBound.Load(), firedPastTheBound.Load(); pulls != 0 || fired != 0 {
+		t.Fatalf("past the bound the session opened %d pull(s) and fired %d pass(es) before restarting, want the restart made at once", pulls, fired)
+	}
+	// Both stops were heard back before the restart, so nothing is unaccounted for.
+	for _, started := range schedule.Started {
+		if !started.Outcome.Paused || started.Outcome.RedeployStop == nil {
+			t.Fatalf("%s = %#v, want a run stopped and preserved", started.WorkItemID, started)
+		}
+	}
+	if len(schedule.Drain.Unreported) != 0 {
+		t.Fatalf("unreported = %v, want every stopped run heard back from", schedule.Drain.Unreported)
+	}
+
+	// The session that comes back, on the build deployed over the last one.
+	secondSession.Store(true)
+	harness.admit(readyItems("yoyodyne-three")...)
+	harness.mu.Lock()
+	harness.order = nil
+	harness.onPull = nil
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+	harness.mu.Unlock()
+	second := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, SessionID: "watch-after"}
+	next, err := second.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	readopted := map[string]bool{}
+	fresh := []string{}
+	for _, started := range next.Started {
+		if started.Readopted != "" {
+			readopted[started.WorkItemID] = true
+			continue
+		}
+		fresh = append(fresh, started.WorkItemID)
+	}
+	if !readopted["yoyodyne-one"] || !readopted["yoyodyne-two"] {
+		t.Fatalf("started = %#v, want both preserved runs re-adopted", next.Started)
+	}
+	if len(fresh) != 1 || fresh[0] != "yoyodyne-three" {
+		t.Fatalf("started fresh = %v, want the new item pulled into the free seat beside them", fresh)
+	}
+}
+
+// A run the bound has stopped has no process behind it, so it is not counted
+// as one the session hosts. A stopped run that never reports back is not
+// waited on for the restart: the session restarts once the short grace a stop
+// takes to record has passed, and names the run it did not hear from.
+func TestARunStoppedByTheDrainBoundIsNotCountedAsHostedForTheRestart(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-silent")...)
+	harness.drainLimit = 20 * time.Millisecond
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	// The run's stop is recorded, and then its goroutine never returns: what the
+	// session holds of it is a record, with nothing behind it.
+	never := make(chan struct{})
+	t.Cleanup(func() { close(never) })
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		deployment.deploy()
+		h.mu.Lock()
+		state := h.inFlight[id]
+		state.Phase = runstate.PhaseReviewing
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		<-ctx.Done()
+		<-never
+		return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+	}
+	if live := liveHosted(map[string]int{"stopped": 0, "live": 1}, map[int]context.CancelCauseFunc{1: func(error) {}}); live != 1 {
+		t.Fatalf("liveHosted = %d, want only the run still hosted counted", live)
+	}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment, stoppedRunGrace: 50 * time.Millisecond}
+	done := make(chan Schedule, 1)
+	go func() {
+		schedule, err := scheduler.Schedule(context.Background())
+		if err != nil {
+			t.Errorf("Schedule() error = %v", err)
+		}
+		done <- schedule
+	}()
+	var schedule Schedule
+	select {
+	case schedule = <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the session went on waiting for a run it had stopped rather than restarting")
+	}
+	if schedule.Stopped != ScheduleRedeployed || !sessions.restarted() {
+		t.Fatalf("stopped = %q, want the session restarted: %s", schedule.Stopped, schedule.Render())
+	}
+	if got := schedule.Drain.Stopped; len(got) != 1 || got[0] != "yoyodyne-silent" {
+		t.Fatalf("drain stopped = %v, want the run stopped at the bound", got)
+	}
+	if got := schedule.Drain.Unreported; len(got) != 1 || got[0] != "yoyodyne-silent" {
+		t.Fatalf("unreported = %v, want the stopped run that never reported back named", got)
+	}
+	if reason := sessions.said(runstate.WatchStopped); !strings.Contains(reason, "had not reported back") || !strings.Contains(reason, "yoyodyne-silent") {
+		t.Fatalf("stopped reason = %q, want the run not heard back from named", reason)
+	}
+}
+
 // A running check stage is stopped at the restart drain limit, even when load
 // has scaled the stage's own limit to five hours. The clock reaches the drain
 // deadline while the check stays running; no wall-clock allowance decides

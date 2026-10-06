@@ -229,7 +229,7 @@ func stallMover(stall Stall, held switches) Mover {
 	switch stall.Reason {
 	case ReasonIntakeHold:
 		return intakeHoldAttention(held.intake).Mover
-	case ReasonStoreUnreadable:
+	case ReasonStoreUnreadable, ReasonDrainOverrun:
 		return MoverHarness
 	case ReasonProviderWindow, ReasonTrackerWait, ReasonNoCapacity, ReasonRedeploying:
 		return MoverNobody

@@ -119,6 +119,15 @@ const (
 	// that reported it as either would send somebody to start a session that is
 	// already on its way back.
 	ReasonRedeploying Reason = "redeploying"
+	// ReasonDrainOverrun is a session whose drain bound ran out more than
+	// DrainOverrunAfter ago and which has recorded no restart since. Past the
+	// bound the session stops the runs it hosts and restarts at once, waiting
+	// only on a run at its promotion, so one still there this long is a session
+	// that stopped restarting rather than one on its way back: it pulls no new
+	// work until it does. It is the harness's, because nothing anybody
+	// configured keeps it there. On 2026-10-05 a session sat like this for
+	// forty minutes, pulling nothing, while every surface read it as working.
+	ReasonDrainOverrun Reason = "drain-overrun"
 	// ReasonNoWatchSession is a product that was being watched and is not any more.
 	ReasonNoWatchSession Reason = "stopped"
 	// ReasonUnwatched is a product no session has ever watched. It is not a line
@@ -142,6 +151,7 @@ func Reasons() []Reason {
 		ReasonStoreUnreadable,
 		ReasonSessionBlocked,
 		ReasonSessionIdle,
+		ReasonDrainOverrun,
 		ReasonRedeploying,
 		ReasonNoWatchSession,
 		ReasonUnwatched,
@@ -183,6 +193,8 @@ func (r Reason) Whose() string {
 		return "the operator's — a queue with ready work and an idle session is a stall rather than a rest"
 	case ReasonRedeploying:
 		return "nobody's — the session restarts into the deployed build on its own, and the session that comes back re-adopts the runs it stopped"
+	case ReasonDrainOverrun:
+		return "the harness's — the session should have restarted when its drain bound ran out, and nothing new starts until it does; restarting the watch session takes up the deployed build, and the session that comes back picks up the runs it stopped"
 	case ReasonNoWatchSession, ReasonUnwatched:
 		return "the operator's — nothing pulls the queue until `yoyo work --watch` starts a session"
 	default:
@@ -313,6 +325,11 @@ func (s Stall) Waiting() (Attention, bool) {
 		// way, and a test holds the two together.
 		stall := s
 		return Attention{Kind: AttentionStall, ID: string(s.Reason), Mover: MoverOperator, Stall: &stall}, true
+	case ReasonDrainOverrun:
+		// A session that stopped restarting is a factory problem rather than a
+		// wait: nobody configured it, and it is the harness's to fix.
+		stall := s
+		return Attention{Kind: AttentionStall, ID: string(s.Reason), Mover: MoverHarness, Stall: &stall}, true
 	default:
 		return Attention{}, false
 	}
@@ -339,7 +356,8 @@ func (s Stall) Mark() string {
 const RestartGrace = 2 * time.Minute
 
 // DrainOverrunGrace is how long past its latest line a session whose drain
-// bound has run out is read as on its way back. Past the bound the session
+// bound has run out is read as on its way back, for as long as the bound ran
+// out less than DrainOverrunAfter ago; past that it is read as stuck. Past the bound the session
 // restarts the moment it hosts nothing, and what it can still be hosting is a
 // promotion being waited out — minutes, ordinarily — or a run a moment short of
 // its claim. It writes nothing while that wait is unchanged, so this is longer
@@ -347,6 +365,13 @@ const RestartGrace = 2 * time.Minute
 // either, and past this it is read as whatever its latest line otherwise says
 // rather than as a restart nobody is making.
 const DrainOverrunGrace = 30 * time.Minute
+
+// DrainOverrunAfter is how long past its drain bound a session that has not
+// restarted is read as stuck rather than on its way back. Past the bound the
+// restart follows at once unless a run is at its promotion, which takes
+// minutes, so a session still draining this long after its bound is reported
+// as a factory problem whatever its latest line says.
+const DrainOverrunAfter = 10 * time.Minute
 
 // WhyNothingStarts is the one derivation of what has stopped the choosing.
 //
@@ -387,6 +412,18 @@ func WhyNothingStarts(conditions Conditions) Stall {
 		// other beside it.
 		return divergedTargetStall(conditions.Diverged[0])
 	case conditions.Capacity > 0 && conditions.Running >= conditions.Capacity:
+		// A session stuck past its drain bound is said even over a full machine,
+		// because the runs it stopped keep their seats in flight: on 2026-10-05
+		// the slots read as taken by runs that had no process behind them. The
+		// watch log is read here only when the machine is full, and a log that
+		// cannot be read leaves the answer the capacity gives.
+		if conditions.Sessions != nil {
+			if sessions, err := conditions.Sessions(); err == nil {
+				if overrun, over := DrainOverrunOf(sessions, conditions.now()); over {
+					return overrun
+				}
+			}
+		}
 		return Stall{
 			Reason: ReasonNoCapacity,
 			Says: fmt.Sprintf("every developer slot is taken: %d of %d in flight",
@@ -423,6 +460,12 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 	}
 	// Live is newest first, so the first idle session it holds is the latest one.
 	live := Live(sessions)
+	// A session whose drain ran out long enough ago that it should have
+	// restarted is answered first of all: every other record reads it as a live
+	// session, and the one thing that must be said about it is that it is stuck.
+	if overrun, over := DrainOverrunOf(sessions, now); over {
+		return overrun
+	}
 	// A session whose drain has run out has stopped the runs it hosts and is
 	// restarting as soon as it hosts nothing, and one within a poll of that bound
 	// has declined to pull into a free seat on purpose. Both are answered ahead
@@ -430,9 +473,11 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 	// live session choosing nothing, and the one thing that must not be said
 	// about either is that it wants looking at. Neither is read that way for
 	// ever: a skip only while the bound it was declined for is near, and a bound
-	// that has run out only for DrainOverrunGrace past the session's latest line.
-	// Past those the session either stopped — which its own later lines say — or
-	// died, and a dead session must not go on reading as one on its way back.
+	// that has run out only for DrainOverrunGrace past the session's latest line,
+	// and never past DrainOverrunAfter beyond the bound itself, where it is read
+	// as stuck above. Past those the session either stopped — which its own later
+	// lines say — or died, and a dead session must not go on reading as one on
+	// its way back.
 	// A session waiting out a check stage past its bound names the latest moment
 	// that stage can run to, and is read as on its way back until then as well.
 	if len(live) > 0 && live[0].Draining != nil &&
@@ -516,6 +561,34 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 		Clears: "`yoyo work --watch` starts one",
 		Since:  stopped.At,
 	}
+}
+
+// DrainOverrunOf is the latest live session in the watch log having drained
+// past its bound without restarting, where it has: the reading every surface
+// takes of a session stuck there, as a factory problem and as why nothing
+// starts.
+func DrainOverrunOf(sessions []runstate.WatchTransition, now time.Time) (Stall, bool) {
+	live := Live(sessions)
+	if len(live) == 0 {
+		return Stall{}, false
+	}
+	return drainOverrun(live[0], now)
+}
+
+// drainOverrun is a live session's drain having run out DrainOverrunAfter or
+// more ago with no restart recorded since. An older record waiting out a check
+// stage past the bound is left to the reading of it below until its deadline.
+func drainOverrun(latest runstate.WatchTransition, now time.Time) (Stall, bool) {
+	drain := latest.Draining
+	if drain == nil || !drain.BoundReached || drain.Checking > 0 || now.Before(drain.Until.Add(DrainOverrunAfter)) {
+		return Stall{}, false
+	}
+	return Stall{
+		Reason: ReasonDrainOverrun,
+		Says: fmt.Sprintf("the watch session %s has been draining past its bound since %s: the bound of %s ran out with the runs it hosted stopped and preserved, and it has not restarted into the build deployed over it, so it pulls no new work",
+			latest.SessionID, localMoment(drain.Until), drain.Bound()),
+		Since: drain.Until,
+	}, true
 }
 
 // divergedTargetStall is a diverged target as the stall says it: the record's

@@ -1227,7 +1227,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     var entries = standing.factory_problems || [];
     if (entries.length === 0) {
-      section("factory", "empty", "No product pass has failed three times in a row.");
+      section("factory", "empty", "No product pass has failed three times in a row, and no watch session is stuck draining past its bound.");
       return;
     }
     var list = document.getElementById("factory-list");

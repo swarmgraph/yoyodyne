@@ -311,6 +311,11 @@ func options(reason readmodel.Reason) []string {
 			"leave it; the watch retries starts at each poll when the reported condition clears",
 			"hold intake while the reported start failure is investigated",
 		}
+	case readmodel.ReasonDrainOverrun:
+		return []string{
+			"restart the watch session; the runs it stopped are preserved and the session that comes back picks them up",
+			"leave it; a run at its promotion is still going and the session restarts once that ends",
+		}
 	case readmodel.ReasonSessionIdle:
 		return []string{
 			"what is ready is blocked on something; look at the queue before anything else is admitted",

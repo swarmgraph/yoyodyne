@@ -588,11 +588,12 @@ func (a Attention) What() string {
 	case AttentionStall:
 		if a.Stall != nil {
 			what := a.Stall.Says
-			// The provider answering nobody and a diverged target already say since
-			// when in their own sentences; the two session states do not, and how
+			// The provider answering nobody, a diverged target, and a session
+			// draining past its bound already say since when in their own
+			// sentences; the two session states do not, and how
 			// long a queue has been unpulled is half of what makes it worth acting
 			// on.
-			if a.Stall.Reason != ReasonProviderAway && a.Stall.Reason != ReasonDivergedTarget && !a.Stall.Since.IsZero() {
+			if a.Stall.Reason != ReasonProviderAway && a.Stall.Reason != ReasonDivergedTarget && a.Stall.Reason != ReasonDrainOverrun && !a.Stall.Since.IsZero() {
 				what += ", since " + a.Stall.Since.UTC().Format(time.RFC3339)
 			}
 			return what

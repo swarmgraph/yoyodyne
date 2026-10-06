@@ -2513,7 +2513,14 @@ work in it — rather than looking like a poll that found nothing.
 
 **The drain is bounded.** It restarts the moment it hosts no run, and otherwise
 waits at most `execution.redeploy_drain_limit` — fifteen minutes by default,
-minutes rather than hours on purpose. Past that it restarts anyway:
+minutes rather than hours on purpose. Past that it restarts anyway, and at
+once: in the same step that stops the runs it hosts, before any further pull
+or recurring pass. A run it has stopped is not a run it hosts, because its
+process is gone; the session waits only the seconds each stopped run takes to
+record its stop, up to two minutes for one that never reports back, which is
+then named in the restart's line and left to its own record. Only a run at its
+promotion, or a check stage a moment from recording its verdict, is still
+hosted past the bound:
 
 - Each run it still hosts at its developer attempt, its checks, or its review is
   stopped where it is and **preserved whole** — worktree, branch, claim,
@@ -2594,9 +2601,15 @@ check stages are stopped at the drain limit and preserved for the next session
 to run again from the start. A session waiting out a promotion, or giving an
 already-finished check stage its brief grace to record its verdict, writes
 nothing while that wait is unchanged. The bound having run out reads that way
-for thirty minutes past the session's latest line; a session killed while it
-waited writes nothing either, and past that its line reads as what it
-otherwise says. The stop
+for ten minutes past the bound. A session still draining after that has
+stopped restarting — stuck, or killed while it waited — and is reported as a
+factory problem rather than as a session on its way back: `yoyo status`, the
+dashboard's **Factory problems** section, and the channel's heartbeat name the
+session and say since when it has been draining past its bound, whose move is
+the harness's, and that restarting the watch session takes up the deployed
+build with the runs it stopped picked up by the session that comes back. It is
+said even when every developer slot reads as taken, because the runs it
+stopped keep their seats. The stop
 recorded as a restart reads that way for two minutes, which is the minute the
 re-execution is given plus slack: a new build that dies in its own startup
 after the exec writes nothing, and past that it reads as the ending it was —
@@ -5266,7 +5279,10 @@ slowly or not at all`.
    and who resolves its cause. An unreadable sweep or handling log says so in
    this section. The finding ends when its own pass next carries out its work,
    finished or with more waiting, as described
-   [under maintenance](#the-supervisors-maintenance-pass).
+   [under maintenance](#the-supervisors-maintenance-pass). A watch session
+   that has been draining past its bound for ten minutes without restarting
+   is listed here too, naming the session and since when, until a session
+   running the deployed build takes over.
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),

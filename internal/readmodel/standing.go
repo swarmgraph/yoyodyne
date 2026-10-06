@@ -913,6 +913,19 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		raised[entry.ID] = true
 		needs = append(needs, entry)
 	}
+	// A watch session draining past its bound without restarting is a factory
+	// problem whatever the queue holds: it pulls nothing until it restarts, and
+	// from every other record it reads as a session at work. It is on the
+	// attention line already where it is also what stops ready work.
+	if overrun, problem := readDrainOverrun(sources, now); overrun != nil {
+		entry, _ := overrun.Waiting()
+		standing.FactoryProblems = append(standing.FactoryProblems, entry)
+		if stall.Reason != ReasonDrainOverrun {
+			needs = append(needs, entry)
+		}
+	} else if problem != "" {
+		standing.FactoryProblemsProblem = joinProblems(standing.FactoryProblemsProblem, problem)
+	}
 	needsProblem = joinProblems(needsProblem, standing.FactoryProblemsProblem)
 	failing, failingProblem := ReadFailingTasks(sources)
 	for _, task := range failing {
@@ -1536,6 +1549,23 @@ func (h *heldWork) count(entry backlog.Entry) {
 	default:
 		h.awaitingDecision++
 	}
+}
+
+// readDrainOverrun reads the watch log for a session draining past its bound
+// without restarting.
+func readDrainOverrun(sources Sources, now time.Time) (*Stall, string) {
+	if sources.Sessions == nil {
+		return nil, ""
+	}
+	sessions, err := sources.Sessions.List()
+	if err != nil {
+		return nil, fmt.Sprintf("whether a watch session is draining past its bound could not be read: %v", err)
+	}
+	overrun, over := DrainOverrunOf(sessions, now)
+	if !over {
+		return nil, ""
+	}
+	return &overrun, ""
 }
 
 // whyNothingStarts is the pass-level stall: the reason a pullable item with

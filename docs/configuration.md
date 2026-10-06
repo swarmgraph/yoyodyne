@@ -3373,8 +3373,9 @@ the configuration rather than a reading that failed.
 
 **Beyond the three: a watching session takes up a build deployed over it.** When
 the `yoyo` it is running is written over — you rebuild it, you install it — the
-session drains: it restarts into what you deployed the moment it hosts no run,
-and until then it goes on polling, pulling into free seats, and firing its
+session drains: it restarts into what you deployed the moment it hosts no run —
+past the bound, a run it has stopped is not one it hosts — and until then it
+goes on polling, pulling into free seats, and firing its
 recurring tasks, because the drain is about the runs it hosts and not about the
 scheduler's other duties. A deploy is the whole of the instruction; what is
 configured is only how long the wait may last:

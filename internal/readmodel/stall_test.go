@@ -122,15 +122,15 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 	}
 	// A session still waiting out a promotion past its bound writes nothing while
 	// the wait is unchanged, so its bound-reached line is read as the restart for
-	// a grace past it rather than at once.
-	if stall := WhyNothingStarts(Conditions{Sessions: held(drained), Now: drained.At.Add(DrainOverrunGrace - time.Second)}); stall.Reason != ReasonRedeploying {
-		t.Fatalf("stall = %+v, want a bound-reached line inside the grace read as the session restarting", stall)
+	// a while past the bound rather than at once.
+	overrunAt := drained.Draining.Until.Add(DrainOverrunAfter)
+	if stall := WhyNothingStarts(Conditions{Sessions: held(drained), Now: overrunAt.Add(-time.Second)}); stall.Reason != ReasonRedeploying {
+		t.Fatalf("stall = %+v, want a bound-reached line shortly past the bound read as the session restarting", stall)
 	}
-	// But a session killed while it waited writes nothing either, and past the
-	// grace its line reads as what it otherwise says — here an idle session —
-	// rather than as a restart nobody is making.
-	if stall := WhyNothingStarts(Conditions{Sessions: held(drained), Now: drained.At.Add(DrainOverrunGrace + time.Second)}); stall.Reason != ReasonSessionIdle {
-		t.Fatalf("stall = %+v, want a bound-reached line past the grace read as an idle session", stall)
+	// But past that it is a session that should have restarted and has not —
+	// stuck, or killed while it waited — and not one on its way back.
+	if stall := WhyNothingStarts(Conditions{Sessions: held(drained), Now: overrunAt}); stall.Reason != ReasonDrainOverrun {
+		t.Fatalf("stall = %+v, want a bound-reached line long past the bound read as a session draining past its bound", stall)
 	}
 	// A session waiting out a check stage past its bound names when that stage
 	// can run to, and is read as restarting until then even past the grace, and
@@ -186,6 +186,72 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1}}
 	if stall := WhyNothingStarts(Conditions{Sessions: held(watching)}); stall.Stopped() {
 		t.Fatalf("stall = %+v, want a draining session inside its bound read as choosing", stall)
+	}
+}
+
+// A session that has been draining past its bound without restarting is a
+// factory problem, said in plain words with since when, and the harness's to
+// move. It is said even over a full machine, because the runs it stopped keep
+// their seats in flight: on 2026-10-05 the slots read as taken by runs that had
+// no process behind them, and nothing said the session was stuck.
+func TestASessionDrainingPastItsBoundIsAFactoryProblem(t *testing.T) {
+	t.Parallel()
+	since := moment.Add(-time.Hour)
+	until := since.Add(15 * time.Minute)
+	stuck := runstate.WatchTransition{SessionID: "watch-8b54", State: runstate.WatchWatching, At: until.Add(time.Minute),
+		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: until, Hosting: 3, BoundReached: true}}
+	// A recurring pass the session took since is a note, and leaves it stuck.
+	pass := runstate.WatchTransition{SessionID: "watch-8b54", State: runstate.WatchWatching, At: until.Add(2 * time.Minute),
+		RecurringPass: &runstate.WatchPass{Task: "architect-pass", At: until.Add(2 * time.Minute)}}
+	stall := WhyNothingStarts(Conditions{Running: 3, Capacity: 3, Sessions: held(stuck, pass), Now: moment})
+	if stall.Reason != ReasonDrainOverrun || !stall.Since.Equal(until) {
+		t.Fatalf("stall = %+v, want the session named as draining past its bound since the bound ran out", stall)
+	}
+	for _, want := range []string{"watch-8b54", "draining past its bound since " + localMoment(until), "has not restarted", "pulls no new work"} {
+		if !strings.Contains(stall.Says, want) {
+			t.Fatalf("says = %q, want %q in it", stall.Says, want)
+		}
+	}
+	entry, waiting := stall.Waiting()
+	if !waiting || entry.Mover != MoverHarness || entry.Kind != AttentionStall {
+		t.Fatalf("entry = %+v, want a factory problem for the harness to move", entry)
+	}
+	if said := entry.What(); strings.Count(said, "since") != 1 {
+		t.Fatalf("entry says = %q, want since when said once, in local time", said)
+	}
+	if whose := entry.Whose(); !strings.HasPrefix(whose, "the harness's") {
+		t.Fatalf("whose = %q, want the harness's move", whose)
+	}
+
+	// And the standing reading carries it under its factory problems and on the
+	// attention line, once, with nothing admitted for it to hold back.
+	sources := quietSources()
+	sources.Sessions = fakeSessions{transitions: []runstate.WatchTransition{stuck, pass}}
+	standing := ReadStanding(context.Background(), sources)
+	found := 0
+	for _, problem := range standing.FactoryProblems {
+		if problem.Stall != nil && problem.Stall.Reason == ReasonDrainOverrun {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("factory problems = %+v, want the session draining past its bound among them", standing.FactoryProblems)
+	}
+	found = 0
+	for _, need := range standing.NeedsHuman {
+		if need.Stall != nil && need.Stall.Reason == ReasonDrainOverrun {
+			found++
+		}
+	}
+	if found != 1 {
+		t.Fatalf("attention = %+v, want the session draining past its bound said once", standing.NeedsHuman)
+	}
+
+	// A session that restarted is no problem at all: the new session's line is
+	// the latest live one.
+	restarted := runstate.WatchTransition{SessionID: "watch-f0bd", State: runstate.WatchWatching, At: moment.Add(-time.Minute)}
+	if _, over := DrainOverrunOf([]runstate.WatchTransition{stuck, pass, restarted}, moment); over {
+		t.Fatal("a session that has restarted was read as one stuck draining")
 	}
 }
 
