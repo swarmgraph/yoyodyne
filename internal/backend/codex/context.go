@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
@@ -37,16 +38,27 @@ import (
 // unchanged; codex-cli 0.160.0 was seen to save auth.json through a link rather
 // than replace it, so a login refreshed during a run lands in the account's home.
 //
+// The account's config.toml can carry instruction text too, and a developer's
+// turn still reads that file. `developer_instructions` is overridden with an
+// empty value on every turn, which the same rendering showed removes it.
+// `model_instructions_file`, which replaces Codex's own base instructions, and
+// the compaction prompt keys cannot be reset from the command line — an empty
+// file path is refused — so where the account's file sets one at its top level,
+// the home the harness makes carries a copy of config.toml without those lines.
+//
 // What the project names is put in front of the role by the harness rather than
 // left for the CLI to find: each skill's SKILL.md and each instruction file is
 // read and added to the prompt, so what a role was given is what the
-// configuration says, and the run records it.
+// configuration says, and the run records it. A relative path is read from the
+// harness's own checkout and never from a worktree under review: a reviewer's
+// standing instructions read from the candidate would be instructions the
+// candidate's author wrote.
 
 // contextArgs are the settings every invocation carries, initial and resumed,
 // whatever its role. They go on `exec` ahead of `resume`, which is the level
 // whose help lists them.
 func contextArgs() []string {
-	args := []string{"--config", "skills.include_instructions=false"}
+	args := []string{"--config", "skills.include_instructions=false", "--config", `developer_instructions=""`}
 	for _, feature := range []string{"skill_search", "skill_mcp_dependency_install", "plugins", "remote_plugin", "apps"} {
 		args = append(args, "--disable", feature)
 	}
@@ -77,11 +89,52 @@ func providerHome(configDir, workingDirectory string) (string, error) {
 	return home, nil
 }
 
+// configInstructionKeys are the top-level config.toml keys that put instruction
+// text in front of the model and cannot be reset from the command line.
+var configInstructionKeys = []string{"model_instructions_file", "experimental_compact_prompt_file", "compact_prompt"}
+
+// withoutInstructionKeys is config.toml without the top-level lines that set an
+// instruction key, a multi-line string value included, and whether any were
+// there. Tables are left alone: a key under a table header is not the top-level
+// setting, and a profile applies only to an invocation that names it.
+func withoutInstructionKeys(content string) (string, bool) {
+	var kept []string
+	removed, skipping, closing, topLevel := false, false, "", true
+	for _, line := range strings.SplitAfter(content, "\n") {
+		if skipping {
+			if strings.Contains(line, closing) {
+				skipping = false
+			}
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "[") {
+			topLevel = false
+		}
+		if topLevel {
+			if key, value, found := strings.Cut(trimmed, "="); found && slices.Contains(configInstructionKeys, strings.Trim(strings.TrimSpace(key), `"'`)) {
+				removed = true
+				value = strings.TrimSpace(value)
+				for _, quote := range []string{`"""`, "'''"} {
+					if strings.HasPrefix(value, quote) && !strings.Contains(value[len(quote):], quote) {
+						skipping, closing = true, quote
+					}
+				}
+				continue
+			}
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, ""), removed
+}
+
 // prepareProviderHome is the provider home an invocation runs under. Where the
-// account's home holds no instruction file it is that home and nothing is made;
-// otherwise it is a temporary directory linking every other entry of the
-// account's home, which the caller removes when the invocation ends. Removing it
-// removes the links and never what they point at.
+// account's home holds no instruction file and its config.toml sets no
+// instruction key it is that home and nothing is made; otherwise it is a
+// temporary directory linking every other entry of the account's home, with a
+// copy of config.toml that leaves the instruction keys out, which the caller
+// removes when the invocation ends. Removing it removes the links and the copy
+// and never what the links point at.
 func prepareProviderHome(home string) (prepared string, made bool, err error) {
 	personal := false
 	for _, name := range instructionFileNames {
@@ -91,7 +144,13 @@ func prepareProviderHome(home string) (prepared string, made bool, err error) {
 			return "", false, fmt.Errorf("inspect the Codex provider home: %w", err)
 		}
 	}
-	if !personal {
+	config, filtered := "", false
+	if content, err := os.ReadFile(filepath.Join(home, "config.toml")); err == nil {
+		config, filtered = withoutInstructionKeys(string(content))
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", false, fmt.Errorf("read the Codex provider home's configuration: %w", err)
+	}
+	if !personal && !filtered {
 		return home, false, nil
 	}
 	entries, err := os.ReadDir(home)
@@ -114,6 +173,13 @@ func prepareProviderHome(home string) (prepared string, made bool, err error) {
 	defer root.Close()
 	for _, entry := range entries {
 		if isPersonalInstructionFile(entry.Name()) {
+			continue
+		}
+		if entry.Name() == "config.toml" && filtered {
+			if err := root.WriteFile("config.toml", []byte(config), 0o600, true); err != nil {
+				_ = os.RemoveAll(prepared)
+				return "", false, fmt.Errorf("write the Codex provider home's configuration: %w", err)
+			}
 			continue
 		}
 		if err := root.Symlink(filepath.Join(home, entry.Name()), entry.Name()); err != nil {
@@ -196,6 +262,21 @@ func namedContext(named backend.NamedContext, role domain.AgentRole, repository 
 	return text, skills, instructions, nil
 }
 
+// namedRoot is where a relative named path is read from for this invocation:
+// the harness's own checkout when the request names it, and for a developer, its
+// worktree otherwise. A read-only role is never pointed at the directory it is
+// inspecting, which for a reviewer is the candidate; with no checkout named, a
+// relative path is refused for it instead.
+func namedRoot(request backend.RunRequest) string {
+	if strings.TrimSpace(request.RepositoryRoot) != "" {
+		return request.RepositoryRoot
+	}
+	if backend.PostureFor(request.Role) == backend.PostureWorktreeWrite {
+		return request.WorkingDirectory
+	}
+	return ""
+}
+
 // namedPath is where a named file is: an absolute path as written, "~/" under
 // the home directory of whoever runs the harness, and anything else in the
 // repository the invocation works in.
@@ -212,6 +293,8 @@ func namedPath(path, repository string) (string, error) {
 		return filepath.Join(user, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/")), nil
 	case filepath.IsAbs(path):
 		return filepath.Clean(path), nil
+	case repository == "":
+		return "", fmt.Errorf("the project configuration names %q by a relative path, which a role that inspects a repository is never given from the repository it inspects; it is read from the harness's own checkout, which this invocation was not given", path)
 	default:
 		return filepath.Join(repository, filepath.FromSlash(path)), nil
 	}

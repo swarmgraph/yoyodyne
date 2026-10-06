@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"path/filepath"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -119,4 +120,30 @@ func describeLoaded(items []LoadedItem) string {
 		described = append(described, entry+")")
 	}
 	return strings.Join(described, ", ")
+}
+
+// Anchored is the named context with every relative path made absolute under
+// root, the checkout the harness itself reads. A path starting "~" or already
+// absolute is left as written. A root that is not absolute anchors nothing,
+// and the adapter then refuses a relative path for any role that inspects a
+// repository rather than read it from the one it is inspecting.
+func (n NamedContext) Anchored(root string) NamedContext {
+	if !filepath.IsAbs(root) {
+		return n
+	}
+	anchor := func(files []ContextFile) []ContextFile {
+		if files == nil {
+			return nil
+		}
+		anchored := make([]ContextFile, len(files))
+		for index, file := range files {
+			path := strings.TrimSpace(file.Path)
+			if path != "" && !strings.HasPrefix(path, "~") && !filepath.IsAbs(path) {
+				file.Path = filepath.Join(root, filepath.FromSlash(path))
+			}
+			anchored[index] = file
+		}
+		return anchored
+	}
+	return NamedContext{Skills: anchor(n.Skills), Instructions: anchor(n.Instructions)}
 }

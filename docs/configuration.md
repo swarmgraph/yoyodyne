@@ -4584,9 +4584,11 @@ codex:
       roles: [developer]
 ```
 
-A relative path is read from the repository the turn works in — the run's
-worktree for a developer — and `~/` is the home directory of whoever runs the
-harness. `roles` narrows an entry to those roles; without it every role gets
+A relative path is read from the harness's own checkout of the repository,
+for every role — never from a run's worktree, so a change under review cannot
+rewrite the instructions its reviewer is given — and `~/` is the home
+directory of whoever runs the harness. A file named for a reviewer therefore
+takes effect once the change that edits it has landed. `roles` narrows an entry to those roles; without it every role gets
 it. The harness reads each file and puts it in the prompt between the role's
 contract and its task, with a skill's own directory named so the role can read
 the files the skill refers to. A named file that cannot be read stops the turn
@@ -4598,7 +4600,11 @@ Two things are not personal and stay. A developer's turn still reads the
 repository's own `AGENTS.md` (or `AGENTS.override.md`) from its worktree, as
 Codex always has. And the account's `config.toml` still applies to a
 developer's turn where nothing overrides it, so the
-[effort rule](#an-agents-effort-level) is unchanged.
+[effort rule](#an-agents-effort-level) is unchanged — except for the settings in
+it that carry instructions: `developer_instructions` is emptied on every turn,
+and `model_instructions_file`, `experimental_compact_prompt_file`, and
+`compact_prompt` set at the top of the file are left out of what the turn
+reads.
 
 Every record says what was loaded, by name and source, and says `none` for
 each kind where that was nothing: a run keeps the developer's as
@@ -4612,7 +4618,8 @@ them.
 
 This adds the `codex` configuration key. A part of the product still running a
 build from before it refuses a file that carries it; `yoyo config validate` and
-`yoyo doctor` name any such part, which has to be restarted. How the CLI is
+`yoyo doctor` name any such part, and the product restarts it on this build
+when it moves its parts onto the build. How the CLI is
 kept from loading the rest is in
 [provider plugins](provider-plugins.md#codex-skills-plugins-and-instruction-files).
 

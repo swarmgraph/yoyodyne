@@ -215,11 +215,8 @@ func TestTheSkillsAndInstructionFilesTheProjectNamesAreLoaded(t *testing.T) {
 			if strings.Contains(prompt, "PERSONAL_SKILL_MARKER") || strings.Contains(prompt, "PERSONAL_AGENTS_MARKER") {
 				t.Fatalf("%s: a personal file reached the prompt", role)
 			}
-			// A read-only role reads the repository by its resolved path.
-			directory := worktree
-			if role == domain.RoleReviewer {
-				directory = resolved(t, worktree)
-			}
+			// Named files are read from the harness's own checkout.
+			directory := repository
 			notes := backend.LoadedItem{Name: "agent-notes.md", Source: backend.LoadedFromProjectConfiguration, Path: filepath.Join(directory, "docs", "agent-notes.md")}
 			if !slices.Equal(result.Loaded.Instructions, []backend.LoadedItem{notes}) {
 				t.Fatalf("%s: instructions = %+v", role, result.Loaded.Instructions)
@@ -247,15 +244,130 @@ func TestTheSkillsAndInstructionFilesTheProjectNamesAreLoaded(t *testing.T) {
 	}
 }
 
-// resolved is a test directory as the read-only launch sees it, which is with
-// the temporary directory's own links resolved.
-func resolved(t *testing.T, path string) string {
+// writeFiles writes each file under root.
+func writeFiles(t *testing.T, root string, files map[string]string) {
 	t.Helper()
-	real, err := filepath.EvalSymlinks(path)
-	if err != nil {
+	for file, body := range files {
+		path := filepath.Join(root, filepath.FromSlash(file))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// A reviewer's named files come from the checkout the harness reads, never from
+// the worktree it is reviewing: the candidate's author could otherwise write the
+// reviewer's standing instructions by editing the named file in the change.
+func TestAReviewerIsGivenTheTrustedCopyOfANamedFileNotTheCandidates(t *testing.T) {
+	t.Parallel()
+	repository, worktree := sandboxRepository(t, true)
+	files := func(body string) map[string]string {
+		return map[string]string{
+			".yoyodyne/skills/review/SKILL.md": "---\nname: careful-review\n---\n" + body + "_SKILL\n",
+			"docs/agent-notes.md":              body + "_NOTES\n",
+		}
+	}
+	writeFiles(t, repository, files("TRUSTED"))
+	writeFiles(t, worktree, files("CANDIDATE"))
+	named := backend.NamedContext{
+		Skills:       []backend.ContextFile{{Path: ".yoyodyne/skills/review"}},
+		Instructions: []backend.ContextFile{{Path: "docs/agent-notes.md"}},
+	}
+	for _, session := range []string{"", "session-1"} {
+		// As the harness builds it: the configured paths anchored to its own
+		// checkout, and a review request that names no checkout of its own.
+		runner := &fakeRunner{results: completedTurn()}
+		result, err := (Backend{Runner: runner, ConfigDir: personalHome(t), Context: named.Anchored(repository)}).Run(context.Background(), backend.RunRequest{
+			RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree,
+			Prompt: "review", Model: "gpt-6-astra", SessionID: session,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		prompt := runner.prompts[0]
+		if !strings.Contains(prompt, "TRUSTED_SKILL") || !strings.Contains(prompt, "TRUSTED_NOTES") || strings.Contains(prompt, "CANDIDATE") {
+			t.Fatalf("session %q: the reviewer was not given the trusted copies:\n%s", session, prompt)
+		}
+		if len(result.Loaded.Instructions) != 1 || result.Loaded.Instructions[0].Path != filepath.Join(repository, "docs", "agent-notes.md") {
+			t.Fatalf("loaded = %+v", result.Loaded)
+		}
+	}
+}
+
+// A relative path that reaches the adapter unanchored is refused for a role that
+// inspects a repository, rather than read from the repository it inspects.
+func TestAnUnanchoredNamedPathIsNeverReadFromTheRepositoryAReviewerInspects(t *testing.T) {
+	t.Parallel()
+	_, worktree := sandboxRepository(t, true)
+	writeFiles(t, worktree, map[string]string{"docs/agent-notes.md": "CANDIDATE_NOTES\n"})
+	runner := &fakeRunner{results: completedTurn()}
+	_, err := (Backend{Runner: runner, ConfigDir: personalHome(t), Context: backend.NamedContext{
+		Instructions: []backend.ContextFile{{Path: "docs/agent-notes.md"}},
+	}}).Run(context.Background(), backend.RunRequest{
+		RunID: testRunID, Role: domain.RoleReviewer, WorkingDirectory: worktree, Prompt: "review", Model: "gpt-6-astra",
+	})
+	if err == nil || !strings.Contains(err.Error(), "docs/agent-notes.md") || len(runner.commands) != 0 {
+		t.Fatalf("err = %v, invoked %d times", err, len(runner.commands))
+	}
+}
+
+// Instruction text the account's config.toml carries is kept out of every role
+// too: developer_instructions is emptied on the command line, and the keys the
+// command line cannot reset are left out of the configuration the made home
+// carries, while everything else in it stays.
+func TestInstructionKeysInTheAccountsConfigurationAreKeptOut(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(t.TempDir(), "codex-home")
+	writeFiles(t, home, map[string]string{
+		"auth.json": `{"auth_mode":"chatgpt"}`,
+		"config.toml": "model_reasoning_effort = \"high\"\n" +
+			"developer_instructions = \"PERSONAL_DEVELOPER_MARKER\"\n" +
+			"model_instructions_file = \"/elsewhere/model.md\"\n" +
+			"compact_prompt = \"\"\"\nPERSONAL_COMPACT_MARKER\n\"\"\"\n" +
+			"[profiles.mine]\nmodel_instructions_file = \"/elsewhere/profile.md\"\n",
+	})
+	repository, worktree := sandboxRepository(t, true)
+	var config string
+	runner := &configRunner{read: func(home string) {
+		content, _ := os.ReadFile(filepath.Join(home, "config.toml"))
+		config = string(content)
+	}, fakeRunner: fakeRunner{results: completedTurn()}}
+	if _, err := (Backend{Runner: runner, ConfigDir: home}).Run(context.Background(), backend.RunRequest{
+		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: worktree, RepositoryRoot: repository,
+		Prompt: "work", Model: "gpt-6-astra",
+	}); err != nil {
 		t.Fatal(err)
 	}
-	return real
+	args := runner.commands[0].Args
+	if index := slices.Index(args, `developer_instructions=""`); index < 1 || args[index-1] != "--config" {
+		t.Fatalf("developer_instructions is not emptied: %v", args)
+	}
+	want := "model_reasoning_effort = \"high\"\ndeveloper_instructions = \"PERSONAL_DEVELOPER_MARKER\"\n[profiles.mine]\nmodel_instructions_file = \"/elsewhere/profile.md\"\n"
+	if config != want {
+		t.Fatalf("the made home's config.toml =\n%s\nwant\n%s", config, want)
+	}
+	if content, _ := os.ReadFile(filepath.Join(home, "config.toml")); !strings.Contains(string(content), "model_instructions_file = \"/elsewhere/model.md\"") {
+		t.Fatal("the account's own config.toml was changed")
+	}
+}
+
+// configRunner hands the provider home the invocation was given to read while
+// the invocation is running.
+type configRunner struct {
+	fakeRunner
+	read func(home string)
+}
+
+func (r *configRunner) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	for _, entry := range command.Env {
+		if home, found := strings.CutPrefix(entry, ProviderHomeVariable+"="); found {
+			r.read(home)
+		}
+	}
+	return r.fakeRunner.Run(ctx, command, observer)
 }
 
 func TestANamedFileThatCannotBeReadRefusesTheInvocation(t *testing.T) {

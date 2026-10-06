@@ -66,9 +66,12 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 	if descriptor, known := providerDescriptor(cfg, named); known {
 		if provider, built := adapters.For(descriptor, named, runner, configDir); built {
 			// What a Codex role is given beside its prompt is what this project
-			// names, and nothing from the account's own home.
+			// names, and nothing from the account's own home. A relative path is
+			// read from the checkout the harness itself reads, which the
+			// components set as the product's repository, never from a worktree
+			// a reviewer is inspecting.
 			if codexProvider, isCodex := provider.(codex.Backend); isCodex {
-				codexProvider.Context = cfg.Codex
+				codexProvider.Context = cfg.Codex.Anchored(cfg.Product.Repository)
 				return codexProvider
 			}
 			return provider

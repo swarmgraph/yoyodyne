@@ -342,11 +342,26 @@ The CLI finds these on its own, so each is turned off on the command line, on
   home — authentication, sessions, configuration — and leaving those two out.
   It is removed when the invocation ends; removing it removes the links, never
   what they point at. A home that holds neither is used as it is.
+- The account's `config.toml` can carry instruction text as well.
+  `--config developer_instructions=""` empties that setting on every turn.
+  `model_instructions_file`, which replaces Codex's own base instructions, and
+  the compaction prompt keys `experimental_compact_prompt_file` and
+  `compact_prompt` cannot be reset on the command line — an empty file path is
+  refused — so where the file sets one at its top level, the home the harness
+  makes carries a copy of `config.toml` without those lines, and everything
+  else in it unchanged. Only read-only roles ignore the file altogether.
 
 The repository's own `AGENTS.md` in a developer's worktree is not personal and
 is still read. Hooks, browser and computer use, and the other integrations the
 read-only roles disable are unchanged by this; so is the effort rule above, and
-a developer's turn still reads the account's `config.toml`.
+a developer's turn still reads the account's `config.toml` apart from the
+instruction settings above.
+
+A relative path a project names is read from the harness's own checkout, for
+every role. A reviewer is never given a named file from the worktree it is
+reviewing, so the change under review cannot write its reviewer's
+instructions; where no checkout is known, a relative path is refused for a
+role that inspects a repository.
 
 What was loaded is recorded on the run and the conversation turn, by name and
 source, and on every Codex invocation's `run.started` event, with `none` for
@@ -355,7 +370,11 @@ each kind that was empty.
 These were established against **codex-cli 0.160.0** without a provider call.
 `codex debug prompt-input` renders the input a model would be given; a provider
 home holding a marked skill and a marked `AGENTS.md` showed both in it, and with
-the settings above neither appeared, nor did any skill list or plugin text. The
+the settings above neither appeared, nor did any skill list or plugin text.
+A marked `developer_instructions` in the home's `config.toml` showed in the same
+rendering and was gone with the empty override; a marked
+`model_instructions_file` showed as the session's base instructions in the
+session record Codex writes before it reaches the provider. The
 setting names were read from the CLI's own help and its list of configuration
 keys, and `codex features list` lists the features. Codex was also seen to save
 `auth.json` through a link rather than replace it, so a login refreshed during

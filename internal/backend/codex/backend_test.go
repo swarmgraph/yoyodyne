@@ -329,7 +329,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
 	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
-		"--config", "skills.include_instructions=false",
+		"--config", "skills.include_instructions=false", "--config", `developer_instructions=""`,
 		"--disable", "skill_search", "--disable", "skill_mcp_dependency_install",
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--config", `approval_policy="never"`,
@@ -531,7 +531,7 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
-		"--config", "skills.include_instructions=false",
+		"--config", "skills.include_instructions=false", "--config", `developer_instructions=""`,
 		"--disable", "skill_search", "--disable", "skill_mcp_dependency_install",
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--config", `approval_policy="never"`,
