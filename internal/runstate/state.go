@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -1743,6 +1744,30 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("review_finding_details[].message", at("review_finding_details", index, "message"), &finding.Message, MaxRecordedTextBytes)
 		unstated("review_finding_details[].file", at("review_finding_details", index, "file"), &finding.File, MaxRecordedTextBytes)
 	}
+	// What an invocation loaded names files a project chose, so their names,
+	// paths, and the summary of them are held to a bound; the source is one of
+	// the adapter's fixed words.
+	for _, recorded := range []struct {
+		prefix string
+		loaded *backend.Loaded
+	}{{"provider_loaded", s.ProviderLoaded}, {"review_loaded", s.ReviewLoaded}} {
+		prefix, loaded := recorded.prefix, recorded.loaded
+		if loaded == nil {
+			continue
+		}
+		unstated(prefix+".summary", prefix+".summary", &loaded.Summary, MaxRecordedTextBytes)
+		for _, kind := range []struct {
+			name  string
+			items []backend.LoadedItem
+		}{{"skills", loaded.Skills}, {"plugins", loaded.Plugins}, {"instructions", loaded.Instructions}} {
+			items := kind.items
+			for index := range items {
+				list := prefix + "." + kind.name
+				unstated(list+"[].name", at(list, index, "name"), &items[index].Name, MaxRecordedTextBytes)
+				unstated(list+"[].path", at(list, index, "path"), &items[index].Path, MaxRecordedTextBytes)
+			}
+		}
+	}
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 	}
@@ -2579,6 +2604,10 @@ type State struct {
 	// ProviderResolvedEffort is provider-reported; ProviderEffortReported is false when not reported.
 	ProviderResolvedEffort string `json:"provider_resolved_effort,omitempty"`
 	ProviderEffortReported bool   `json:"provider_effort_reported"`
+	// ProviderLoaded is the skills, plugins, and instruction files the last
+	// developer invocation was given beside its prompt, by name and source, and
+	// absent before one has been made. See backend.Loaded.
+	ProviderLoaded *backend.Loaded `json:"provider_loaded,omitempty"`
 	// EffortSettled says ProviderEffort was settled when this run was reserved,
 	// so an empty one means the developer agent named no level then rather than
 	// that the run predates the field. It is what keeps an edit to the level from
@@ -2737,6 +2766,8 @@ type State struct {
 	ReviewEffort         string `json:"review_effort,omitempty"`
 	ReviewResolvedEffort string `json:"review_resolved_effort,omitempty"`
 	ReviewEffortReported bool   `json:"review_effort_reported"`
+	// ReviewLoaded is what the review was given beside its prompt.
+	ReviewLoaded *backend.Loaded `json:"review_loaded,omitempty"`
 	// ReviewBaseCommit and ReviewHeadCommit are the two commits the change the
 	// reviewer was shown was measured between: the base it was cut from, and
 	// the branch's tip at the moment of the review, with the uncommitted

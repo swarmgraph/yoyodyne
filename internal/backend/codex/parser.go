@@ -264,7 +264,10 @@ type streamParser struct {
 	// role is who this invocation was made as, and it is written onto the
 	// terminal event so the record says whose invocation it priced rather than
 	// leaving that to be inferred from where the terminal sits in the log.
-	role     domain.AgentRole
+	role domain.AgentRole
+	// loaded is what the invocation was given beside its prompt, said on the
+	// event that starts it so the run's log carries it for every role.
+	loaded   backend.Loaded
 	sequence *execution.Sequence
 	clock    execution.Clock
 	redactor execution.Redactor
@@ -534,10 +537,19 @@ func (p *streamParser) parseSessionConfigured(message providerMessage) error {
 		p.result.ResolvedEffort = *message.ReasoningEffort
 		p.result.EffortReported = true
 	}
-	return p.emit(execution.EventRunStarted, map[string]any{
+	return p.emit(execution.EventRunStarted, p.withLoaded(map[string]any{
 		"session_id": message.SessionID,
 		"model":      message.Model,
-	})
+	}))
+}
+
+// withLoaded adds what the invocation loaded to a starting event's payload,
+// where the adapter accounted for it.
+func (p *streamParser) withLoaded(payload map[string]any) map[string]any {
+	if p.loaded.Reported {
+		payload["loaded"] = p.loaded.String()
+	}
+	return payload
 }
 
 // parseThreadStarted is the newer vocabulary's session: the thread a later
@@ -545,9 +557,9 @@ func (p *streamParser) parseSessionConfigured(message providerMessage) error {
 // rather than being taken from the request.
 func (p *streamParser) parseThreadStarted(message providerMessage) error {
 	p.result.SessionID = message.ThreadID
-	return p.emit(execution.EventRunStarted, map[string]any{
+	return p.emit(execution.EventRunStarted, p.withLoaded(map[string]any{
 		"session_id": message.ThreadID,
-	})
+	}))
 }
 
 // parseNotice reads a newer-vocabulary `error`, which is the CLI saying what

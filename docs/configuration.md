@@ -4560,6 +4560,62 @@ record. Sweep evidence uses the effort actually requested by the serving turn,
 rather than re-reading the configuration after a provider substitution. A line whose record names
 no level says nothing of one, and reads as it did before the key existed.
 
+### Skills and instruction files a Codex role is given
+
+A Codex role is given the skills and instruction files the project names in a
+top-level `codex` section, and nothing else. Skills, plugins, and instruction
+files in the Codex home of the account a turn runs under — `~/.codex/skills`,
+`~/.codex/AGENTS.md`, the plugins its `config.toml` enables, and the like — are
+not loaded, whether the role is a developer, a reviewer, a conversation, or a
+recurring pass, and whether the turn starts a session or resumes one. Neither
+are skills under `~/.agents/skills` or the repository's own `.agents/skills`. To
+give a role one of them, name it:
+
+```yaml
+codex:
+  skills:
+    # A directory holding SKILL.md, or the SKILL.md itself.
+    - path: .yoyodyne/skills/code-review
+      roles: [reviewer]
+  instructions:
+    - path: docs/agent-notes.md
+    # A personal file is given only when the project names it.
+    - path: ~/.codex/AGENTS.md
+      roles: [developer]
+```
+
+A relative path is read from the repository the turn works in — the run's
+worktree for a developer — and `~/` is the home directory of whoever runs the
+harness. `roles` narrows an entry to those roles; without it every role gets
+it. The harness reads each file and puts it in the prompt between the role's
+contract and its task, with a skill's own directory named so the role can read
+the files the skill refers to. A named file that cannot be read stops the turn
+before the provider is asked, with the path in the error, rather than running
+the role without it. An entry with no path, or a role that does not exist, is
+refused when the file loads. Plugins cannot be named: none is loaded.
+
+Two things are not personal and stay. A developer's turn still reads the
+repository's own `AGENTS.md` (or `AGENTS.override.md`) from its worktree, as
+Codex always has. And the account's `config.toml` still applies to a
+developer's turn where nothing overrides it, so the
+[effort rule](#an-agents-effort-level) is unchanged.
+
+Every record says what was loaded, by name and source, and says `none` for
+each kind where that was nothing: a run keeps the developer's as
+`provider_loaded` and the review's as `review_loaded`, a conversation keeps its
+last turn's as `provider_loaded`, and every Codex turn's `run.started` event
+carries the same one-line account, for example
+`skills: none; plugins: none; instruction files: AGENTS.md (repository, /path/to/worktree/AGENTS.md)`.
+A record from a Claude Code turn says `skills, plugins, and instruction files:
+not reported` rather than `none`, because that adapter does not account for
+them.
+
+This adds the `codex` configuration key. A part of the product still running a
+build from before it refuses a file that carries it; `yoyo config validate` and
+`yoyo doctor` name any such part, which has to be restarted. How the CLI is
+kept from loading the rest is in
+[provider plugins](provider-plugins.md#codex-skills-plugins-and-instruction-files).
+
 ## Relaunching a run the provider killed
 
 Not every way a provider ends an invocation is a refusal it names in advance.

@@ -184,8 +184,10 @@ type Result struct {
 	RequestedEffort string
 	ResolvedEffort  string
 	EffortReported  bool
-	SessionID       string
-	LastSequence    uint64
+	// Loaded is what the review was given beside its prompt.
+	Loaded       backend.Loaded
+	SessionID    string
+	LastSequence uint64
 	// UsageLimit is set when the provider reported an exhausted usage limit
 	// during this invocation. A review that was declined for want of capacity was
 	// never made, so the caller can wait and ask again rather than treating the
@@ -395,6 +397,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
 			ResolvedEffort:   providerResult.ResolvedEffort,
 			EffortReported:   providerResult.EffortReported,
+			Loaded:           providerResult.Loaded,
 			LastSequence:     lastSequence,
 			UsageLimit:       providerResult.UsageLimit,
 			ServerOverload:   providerResult.ServerOverload,
@@ -426,6 +429,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
 			ResolvedEffort:   providerResult.ResolvedEffort,
 			EffortReported:   providerResult.EffortReported,
+			Loaded:           providerResult.Loaded,
 			ResolvedModel:    providerResult.ResolvedModel,
 			SessionID:        providerResult.SessionID,
 			LastSequence:     lastSequence,

@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backend/adapters"
 	"github.com/mason-bryant/yoyodyne/internal/backend/claudecode"
+	"github.com/mason-bryant/yoyodyne/internal/backend/codex"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -64,6 +65,12 @@ func providerBackend(cfg config.Config, named domain.Backend, runner execution.P
 func providerBackendIn(cfg config.Config, named domain.Backend, runner execution.ProcessRunner, configDir string) backend.Backend {
 	if descriptor, known := providerDescriptor(cfg, named); known {
 		if provider, built := adapters.For(descriptor, named, runner, configDir); built {
+			// What a Codex role is given beside its prompt is what this project
+			// names, and nothing from the account's own home.
+			if codexProvider, isCodex := provider.(codex.Backend); isCodex {
+				codexProvider.Context = cfg.Codex
+				return codexProvider
+			}
 			return provider
 		}
 	}

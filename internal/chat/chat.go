@@ -2327,6 +2327,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	s.state.ProviderEffort = served.Effort
 	s.state.ProviderResolvedEffort = result.ResolvedEffort
 	s.state.ProviderEffortReported = result.EffortReported
+	s.state.ProviderLoaded = result.Loaded.Recorded()
 	// And what served it besides the endpoint: the configuration in force while it
 	// was. It is rewritten with the endpoint above, so the record says what is
 	// serving this conversation now. What pins each turn rather than the last one
