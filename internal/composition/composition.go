@@ -98,7 +98,7 @@ var Classes = []Class{
 		ID:         ShellClass,
 		Extensions: []string{".sh"},
 		Checks:     []string{"make test"},
-		Exercised:  "parsed by a shell in composition's own repository test, so no shell file reaches a reviewer unparsed; executed where it has a suite — the release verb, the notes writer and the release page body, and the status tool — each run from a Go test rather than from a CI step after integration, and the adoption walkthrough for the one refusal of it that needs no tracker; and read by internal/doclink for the documentation fragments it cites.",
+		Exercised:  "parsed by a shell in composition's own repository test, so no shell file reaches a reviewer unparsed; executed where it has a suite — the release verb, the notes writer and the release page body, and the install script — each run from a Go test rather than from a CI step after integration, and the adoption walkthrough for the one refusal of it that needs no tracker; and read by internal/doclink for the documentation fragments it cites.",
 	},
 	{
 		ID:        "makefile",

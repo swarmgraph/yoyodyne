@@ -42,11 +42,13 @@ your target branch — or a pull request, [if you ask for
 one](#optional-publishing-and-auto-merge). The other commands (`yoyo help`
 lists them) are for administration and recovery.
 
-**Quick start.** With [Beads](https://github.com/gastownhall/beads) and
-[Claude Code](https://code.claude.com/docs) installed, and Go 1.25 or newer:
+**Quick start.** One script installs `yoyo`, tells you where it put it, and
+checks the two things it needs — [Beads](https://github.com/gastownhall/beads)
+(`bd`) and [Claude Code](https://code.claude.com/docs):
 
 ```sh
-go install github.com/mason-bryant/yoyodyne/cmd/yoyo@latest
+curl -fsSL https://raw.githubusercontent.com/swarmgraph/yoyodyne/main/scripts/install.sh | bash
+yoyo version  # not found? the script printed the PATH line to add
 cd path/to/your/project
 yoyo setup    # asks before each step, and ends with `yoyo doctor`
 yoyo chat
@@ -54,7 +56,7 @@ yoyo chat
 
 `yoyo setup` walks the configuration steps as questions. [Getting
 started](#getting-started) is the same path typed by hand, with what each step
-is for.
+is for; [Install](#install) has what the script does and the other routes.
 
 **What is bounded today**, worth knowing before you start:
 
@@ -86,6 +88,37 @@ is for.
 [github.com/swarmgraph/yoyodyne](https://github.com/swarmgraph/yoyodyne); its
 Go module path is still `github.com/mason-bryant/yoyodyne`, which installs
 through GitHub's redirect.
+
+**With the install script:**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/swarmgraph/yoyodyne/main/scripts/install.sh | bash
+```
+
+[`scripts/install.sh`](scripts/install.sh) detects your platform, downloads that
+platform's release binary and checks it against the release's `checksums.txt`
+(or builds it with `go install` where no release binary exists for your
+platform), and installs it into `/usr/local/bin` if you can write there, or
+`~/.local/bin` if not. It runs the binary to print its version, prints the
+`PATH` line for your shell if that directory is not on your `PATH`, and names
+`bd` or `claude` if either is missing.
+
+It does not edit your shell profile, use `sudo`, or touch any project: it writes
+the binary and nothing else, and prints every other change for you to run.
+Flags, passed through the pipe with `bash -s --`:
+
+- `--dir <path>` installs somewhere else.
+- `--version <tag>` installs that release instead of the newest.
+- `--from-source` builds with Go instead of downloading.
+- `--install-prereqs` installs a missing `claude` (with `npm install -g
+  @anthropic-ai/claude-code`, or `claude.ai/install.sh` where there is no
+  `npm`). `bd` is always named, never installed.
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/swarmgraph/yoyodyne/main/scripts/install.sh | bash -s -- --dir ~/bin --version v0.3.0
+```
+
+The script only automates the routes below.
 
 **With Go 1.25 or newer:**
 
@@ -163,9 +196,11 @@ or repairs an installation from what `yoyo setup --json` and `yoyo doctor
 **What you need.** Git and a repository with at least one commit;
 [Beads](https://github.com/gastownhall/beads) (`bd`), the tracker every role
 reads and writes; and [Claude Code](https://code.claude.com/docs), installed and
-signed in. Go 1.25 or newer only if you install with `go install` or build from
-source. For pull requests, also a Git remote and [`gh`](https://cli.github.com)
-signed in with `gh auth login`; without them nothing is pushed.
+signed in. The install script checks for `bd` and `claude` and names whichever
+is missing. Go 1.25 or newer only if you install with `go install` or build from
+source, which the script also does on a platform with no release binary. For
+pull requests, also a Git remote and [`gh`](https://cli.github.com) signed in
+with `gh auth login`; without them nothing is pushed.
 
 CI executes this section on every change via
 [`scripts/walk-adoption.sh`](scripts/walk-adoption.sh), against a throwaway
@@ -174,12 +209,15 @@ Python project; `make adoption` runs it locally.
 ### 1. Install `yoyo`
 
 ```sh
-go install github.com/mason-bryant/yoyodyne/cmd/yoyo@latest
+curl -fsSL https://raw.githubusercontent.com/swarmgraph/yoyodyne/main/scripts/install.sh | bash
 yoyo version
 ```
 
-If `yoyo version` is not found, [Install](#install) has the `PATH` fix and
-other routes. Then change into your project:
+If `yoyo version` is not found, the install directory is not on your `PATH`;
+the script printed the line that adds it, and [Install](#install) has the other
+routes. The script ends by printing the next steps; it names `yoyo setup` and
+`yoyo doctor` only if the binary it installed has them. Then change into your
+project:
 
 ```sh
 cd path/to/your/project
