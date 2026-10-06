@@ -2,8 +2,10 @@ package repowrite
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -335,5 +337,41 @@ func TestPinnedWritesRefuseAnEscapingIntermediateSymlink(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(outside); err != nil || len(entries) != 0 {
 		t.Fatalf("outside files = %v, %v", entries, err)
+	}
+}
+
+func TestPinnedLockOpenedByManyAtOnceIsOpenedByEach(t *testing.T) {
+	t.Parallel()
+	// Openers racing to create one lock are the ordinary case for a lock, and
+	// the one that loses the create must still be given the file.
+	path, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for round := range 20 {
+		name := fmt.Sprintf("round-%d.lock", round)
+		errs := make([]error, 16)
+		var wait sync.WaitGroup
+		for i := range errs {
+			wait.Add(1)
+			go func() {
+				defer wait.Done()
+				root, err := OpenPinnedRoot(path)
+				if err != nil {
+					errs[i] = err
+					return
+				}
+				defer root.Close()
+				file, err := root.OpenLock(name, 0o600)
+				if err == nil {
+					err = file.Close()
+				}
+				errs[i] = err
+			}()
+		}
+		wait.Wait()
+		if err := errors.Join(errs...); err != nil {
+			t.Fatalf("OpenLock() racing to create %s error = %v", name, err)
+		}
 	}
 }
