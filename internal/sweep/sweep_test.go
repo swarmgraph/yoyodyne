@@ -413,3 +413,16 @@ func TestContractAppliesStandingGoals(t *testing.T) {
 		t.Fatal("the pass report contract does not apply standing goals to its own output and decisions")
 	}
 }
+
+// A pass asks for its report block once, at the end of its answer, and says the
+// last block is the account if more than one is written.
+func TestTheContractAsksForTheBlockOnceAtTheEnd(t *testing.T) {
+	t.Parallel()
+
+	contract := Contract()
+	for _, wanted := range []string{"Write this block once, at the very end of your answer", "the last one is your account"} {
+		if !strings.Contains(contract, wanted) {
+			t.Fatalf("the contract is missing %q:\n%s", wanted, contract)
+		}
+	}
+}

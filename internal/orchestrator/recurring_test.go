@@ -249,7 +249,7 @@ func TestATurnWithAnAccountAndANoteRecordsBoth(t *testing.T) {
 	store := sweepStore(t)
 	role := &wokenRole{answers: []scriptedTurn{{
 		result:  complete("twelve decided, nothing behind them", sweep.Finding{Issue: "a stale report", Disposition: sweep.DispositionFiled, Filed: []string{"yoyodyne-ifd.400"}}),
-		problem: "the development-manager answered with more than one sweep block: the reply carried 2 sweep blocks where the contract asks for one, and the last of them is the account recorded",
+		problem: "the development-manager answered with more than one sweep block: the reply carried 2 sweep blocks, and the last of them is the account recorded; extra blocks are not a failure",
 	}}}
 	trigger := Trigger{Tasks: hourlyTask("sweep"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}
 

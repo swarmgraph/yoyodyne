@@ -968,6 +968,10 @@ type Reply struct {
 	HandedBack []string `json:"handed_back,omitempty"`
 	// DocumentRefusals are action results returned to the role without failing the turn.
 	DocumentRefusals []string `json:"document_refusals,omitempty"`
+	// RefusedAsks are questions put to a role the asker may not ask, said in
+	// ordinary words. Each was handed back to the asking role, and the rest of
+	// the reply that carried it was carried out.
+	RefusedAsks []string `json:"refused_asks,omitempty"`
 	// Reports are what the product manager noticed and filed for the operator
 	// while it answered. They are collected rather than acted on: a report
 	// changes nothing about the turn that carried it, exactly as it changes
@@ -1469,6 +1473,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		if err != nil {
 			return reply, err
 		}
+		// A question put to a role this one may not ask is refused alone: it is
+		// handed back to the role below, and the reply's other blocks are judged
+		// and carried out as if it had not been there. Nothing else in the reply
+		// depends on the question, so refusing the rest with it would throw away
+		// work the role was entitled to.
+		var refusedAsk *exchange.Ask
+		var askRefusal error
+		if authority := s.authority(); parsed.Ask != nil && authority.Asks {
+			if err := refuseUnauthorizedAsk(authority, parsed); err != nil {
+				refusedAsk, askRefusal = parsed.Ask, err
+				parsed.Ask = nil
+			}
+		}
 		// What this role has no authority for is refused before any of it is
 		// recorded or carried out. The answer is readable and the turn was paid
 		// for, so both are returned; what the role asked for is simply not done.
@@ -1673,6 +1690,23 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		}
 		if undelivered != "" {
 			continuation = undelivered + continueAfterResults
+		}
+		if refusedAsk != nil {
+			said := refusedAskSays(s.state.Role, *refusedAsk)
+			reply.RefusedAsks = append(reply.RefusedAsks, said)
+			reply.Exchanges = append(reply.Exchanges, ExchangeRound{Asked: refusedAsk.Role, Question: oneLineAsk(*refusedAsk), Problem: said})
+			// The refusal is handed back as a further round, counted against the
+			// message's asks so a role that keeps asking the same refused role
+			// cannot go round for ever. Past that bound it waits for the next turn.
+			if asksTaken >= s.options.askRounds() {
+				reply.ResultsCarriedOver = true
+				if err := s.carryResults(undelivered + askRefused(askRefusal)); err != nil {
+					return reply, err
+				}
+				break
+			}
+			asksTaken++
+			continuation += askRefused(askRefusal)
 		}
 		if parsed.Ask != nil {
 			if asksTaken >= s.options.askRounds() {

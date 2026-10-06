@@ -409,16 +409,28 @@ The dashboard's **Factory problems** section and `yoyo status` carry the same
 finding from the shared read model. Further failures raise its count without
 filing another report, and the status line names it even after reaching its
 ordinary listing limit. Completing the watching role's pass or handling the
-report does not clear it: only a later successful maintenance pass does. The
+report does not clear it: only a later maintenance pass that carries out its work does. The
 harness records the clearing in the report's handling log with the total
 number of consecutive failures. A later run of failures is a new finding.
 If filing or recording the clearing fails, a later pass retries both from the
 sweep log, even if the affected pass succeeded before the finding was filed.
 This applies to the recurring role passes recorded in the same sweep log too,
-including failures before their first turn and failures during a turn. A
-partial account, a held conversation, or a cadence that never fired does not
-clear an existing finding; missed cadences and provider waits do not count as
-failed executions.
+including failures before their first turn and failures during a turn. A role's
+pass counts as failed only when a turn's actions were not carried out, it never
+started, it was stopped under it, or it gave no account at all. A pass that
+carried out its actions and says more work is waiting is partial, not failed:
+it ends a run of failures and clears an existing finding as a finished pass
+does, because a role whose queue is never empty would otherwise hold a finding
+that can never clear. A reply that wrote its report block more than once is
+read by its last block and is not a failure either. A held conversation or a
+cadence that never fired neither counts nor clears; missed cadences and
+provider waits do not count as failed executions.
+
+Each line about a failing pass, on the dashboard and in `yoyo status`, starts
+with what went wrong in ordinary words — for example "the architect asked the
+developer a question, which it may not do, so the actions of turn 4 were not
+carried out" — and then gives the count, the start time, and the record's own
+text.
 
 An error does not by itself make the finding the operator's. If the Lead
 Product Manager records a report handling as needing a step only a person can
@@ -5252,7 +5264,8 @@ slowly or not at all`.
    `standing.factory_problems`, with the pass, its current consecutive failure
    count, the local time the failures began, the latest error, who watches it,
    and who resolves its cause. An unreadable sweep or handling log says so in
-   this section. The finding ends when its own pass succeeds, as described
+   this section. The finding ends when its own pass next carries out its work,
+   finished or with more waiting, as described
    [under maintenance](#the-supervisors-maintenance-pass).
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo

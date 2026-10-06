@@ -63,7 +63,7 @@ func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 		}
 		owner := ownership.ResolvePassFailure(watcher, remedy)
 		failure := FailingTask{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, RaisedAt: f.RaisedAt,
-			LatestAt: f.LatestAt, Problem: f.Problem, ProductPass: true, Ownership: &owner, ReportID: id}
+			LatestAt: f.LatestAt, Problem: f.Problem, WentWrong: f.WentWrong, ProductPass: true, Ownership: &owner, ReportID: id}
 		entries = append(entries, failingTaskAttention(failure))
 		if owner.Mover == MoverOperator {
 			actions = append(actions, OperatorAction{
@@ -74,7 +74,7 @@ func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 				RecordedIn: fmt.Sprintf("the handling of %s recorded in %s, for the product pass %s",
 					id, handling.RunID, f.Task),
 				FoundBy: fmt.Sprintf("the %s, handling the report", handling.Role.Title()),
-				Ends:    fmt.Sprintf("the product pass %s next succeeding clears the finding", f.Task),
+				Ends:    fmt.Sprintf("the product pass %s next carrying out its work clears the finding", f.Task),
 				Since:   handling.RecordedAt,
 			})
 		}
@@ -111,7 +111,7 @@ func RenderPassFailures(sources Sources, role domain.AgentRole, agent string) st
 			continue
 		}
 		if rendered.Len() == 0 {
-			rendered.WriteString("## Product passes failing\n\nAnswer each finding in this pass's account. The factory-flow program manager also carries it in her existing digest and lane report. The development manager resolves the cause; only the affected pass succeeding clears it.\n\n")
+			rendered.WriteString("## Product passes failing\n\nAnswer each finding in this pass's account. The factory-flow program manager also carries it in her existing digest and lane report. The development manager resolves the cause; only the affected pass carrying out its work, finished or with more waiting, clears it.\n\n")
 		}
 		fmt.Fprintf(&rendered, "- %s: %s; %s\n", entry.FailingTask.ReportID, entry.What(), runstate.PassFailureOwnersSays(*owner))
 	}

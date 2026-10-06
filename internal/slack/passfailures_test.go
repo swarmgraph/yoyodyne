@@ -88,7 +88,7 @@ func TestAPassFailurePersonOnlyStepIsSaidOnceUntilThePassSucceeds(t *testing.T) 
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, want := range []string{remedy.Step, id, "maintenance", "the development manager, handling the report", "succeeding"} {
+			for _, want := range []string{remedy.Step, id, "maintenance", "the development manager, handling the report", "next carrying out its work clears the finding"} {
 				if !strings.Contains(message.Body, want) {
 					t.Fatalf("notification %q does not name %q", message.Body, want)
 				}

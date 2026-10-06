@@ -68,7 +68,7 @@ func TestAPassFailureKeepsTheLastErrorOnOneLineWithoutCuttingACharacter(t *testi
 	}
 }
 
-func TestSkippedAndPartialPassesDoNotCountAsFailuresOrClearOne(t *testing.T) {
+func TestSkippedPassesNeitherCountNorClearButAPartialPassClears(t *testing.T) {
 	t.Parallel()
 	start := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
 	var passes []Sweep
@@ -77,11 +77,78 @@ func TestSkippedAndPartialPassesDoNotCountAsFailuresOrClearOne(t *testing.T) {
 	}
 	passes = append(passes,
 		Sweep{Task: "role-pass", Role: domain.RoleArchitect, StartedAt: start.Add(3 * time.Hour), EndedAt: start.Add(3*time.Hour + time.Minute), Problem: "waiting for the provider"},
-		Sweep{Task: "role-pass", Role: domain.RoleArchitect, StartedAt: start.Add(4 * time.Hour), EndedAt: start.Add(4*time.Hour + time.Minute), Missed: &MissedPass{Trigger: PassTriggerSchedule, How: MissUnfired}, Problem: "unfired"},
-		Sweep{Task: "role-pass", Role: domain.RoleArchitect, StartedAt: start.Add(5 * time.Hour), EndedAt: start.Add(5*time.Hour + time.Minute), Result: &sweep.Result{Status: sweep.StatusMore, Summary: "progress"}})
+		Sweep{Task: "role-pass", Role: domain.RoleArchitect, StartedAt: start.Add(4 * time.Hour), EndedAt: start.Add(4*time.Hour + time.Minute), Missed: &MissedPass{Trigger: PassTriggerSchedule, How: MissUnfired}, Problem: "unfired"})
 	findings := PassFailuresOf(passes)
 	if len(findings) != 1 || findings[0].Failures != 3 || !findings[0].ClearedAt.IsZero() {
-		t.Fatalf("finding = %+v", findings)
+		t.Fatalf("finding = %+v, want three failures standing through a wait and a miss", findings)
+	}
+	// A pass that carried out its actions and says more work waits did its
+	// work: it ends the run and clears the finding, as a finished pass does.
+	partialEnd := start.Add(5*time.Hour + time.Minute)
+	passes = append(passes, Sweep{Task: "role-pass", Role: domain.RoleArchitect, StartedAt: start.Add(5 * time.Hour), EndedAt: partialEnd, Turns: 4, Result: &sweep.Result{Status: sweep.StatusMore, Summary: "progress"}})
+	findings = PassFailuresOf(passes)
+	if len(findings) != 1 || findings[0].Failures != 3 || !findings[0].ClearedAt.Equal(partialEnd) {
+		t.Fatalf("finding = %+v, want it cleared by the partial pass", findings)
+	}
+}
+
+// The architect's passes of 2026-10-04 and 05: every working pass wrote its
+// report block several times in a reply and ended "more", and the few that
+// failed were hours apart. Those were counted as 14 failures in a row, and the
+// finding could never clear. Failures separated by working passes are not a run.
+func TestWorkingPassesWithSeveralBlocksBreakARunOfFailures(t *testing.T) {
+	t.Parallel()
+	start := time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC)
+	several := "the architect answered with more than one sweep block: the reply carried 4 sweep blocks, and the last of them is the account recorded; extra blocks are not a failure"
+	var passes []Sweep
+	for i := 0; i < 12; i++ {
+		at := start.Add(time.Duration(i) * time.Hour)
+		pass := Sweep{Task: "architect-pass", Role: domain.RoleArchitect, StartedAt: at, EndedAt: at.Add(time.Minute), Turns: 4,
+			Result: &sweep.Result{Status: sweep.StatusMore, Summary: "progress"}, Problem: several}
+		if i%3 == 0 {
+			pass.Failed = true
+			pass.Problem = several + "; turn 4 of the recurring task architect-pass failed, so its pass is partial: the architect asked for a question put to the developer, which that role has no authority for; nothing was carried out"
+		}
+		passes = append(passes, pass)
+	}
+	if findings := PassFailuresOf(passes); len(findings) != 0 {
+		t.Fatalf("findings = %+v, want none: no two failures were in a row", findings)
+	}
+	// Nor does a pass that only wrote several blocks count as failed at all.
+	if failed, worked := passFailedOrWorked(passes[1]); failed || !worked {
+		t.Fatalf("a pass with several blocks and more waiting: failed %v, worked %v", failed, worked)
+	}
+}
+
+// A line about a failing pass leads with what went wrong in ordinary words, and
+// the record's own text follows it.
+func TestAFailingPassLineLeadsWithWhatWentWrong(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 5, 16, 24, 0, 0, time.UTC)
+	for _, c := range []struct {
+		pass Sweep
+		says string
+	}{
+		{Sweep{Role: domain.RoleArchitect, Turns: 3, Failed: true, Result: &sweep.Result{Status: sweep.StatusMore},
+			Problem: "turn 4 of the recurring task architect-pass failed, so its pass is partial: the architect asked for a question put to the developer, which that role has no authority for; nothing was carried out"},
+			"the architect asked the developer a question, which it may not do, so the actions of turn 4 were not carried out"},
+		{Sweep{Role: domain.RoleArchitect, Turns: 2, Failed: true, Problem: "turn 3 of the recurring task architect-pass failed, so its pass is partial: an ask the harness cannot read: invalid ask"},
+			"the architect wrote a question for another role that the harness could not read, so the actions of turn 3 were not carried out"},
+		{Sweep{Role: domain.RoleArchitect, Turns: 1, Problem: "the architect answered in prose without a sweep block"},
+			"the architect gave no account of the pass, so what it found is only in its conversation"},
+		{Sweep{Role: domain.RoleDevelopmentManager, NotStarted: PreTurnMessageRefused, Problem: "message too large"},
+			"the harness refused the message it composed for the pass, so nothing was asked of the development manager"},
+		{Sweep{Role: domain.RoleArchitect, Turns: 2, Failed: true, Problem: "turn 2 of the recurring task architect-pass failed: the provider stopped"},
+			"turn 2 of the architect's pass stopped before its actions were carried out"},
+	} {
+		if got := PassWentWrong(c.pass); got != c.says {
+			t.Errorf("PassWentWrong() = %q, want %q", got, c.says)
+		}
+	}
+	failure := PassFailure{Task: "architect-pass", Failures: 3, FirstAt: at, WentWrong: PassWentWrong(Sweep{Role: domain.RoleArchitect, Turns: 1}), Problem: "the architect answered in prose without a sweep block"}
+	line := failure.Says()
+	if !strings.HasPrefix(line, "the architect gave no account of the pass") || !strings.Contains(line, "has failed 3 times in a row") || !strings.HasSuffix(line, "the architect answered in prose without a sweep block") {
+		t.Fatalf("line = %q", line)
 	}
 }
 
