@@ -298,6 +298,14 @@ type Sweep struct {
 	ConversationReplacement *SweepConversationReplacement `json:"conversation_replacement,omitempty"`
 	StartedAt               time.Time                     `json:"started_at"`
 	EndedAt                 time.Time                     `json:"ended_at"`
+	// DueAt is when the pass fell due, where the harness knew: its cadence's due
+	// time, when the events that woke it had settled, or when the oldest critical
+	// report it delivered was filed. Waited reads it against StartedAt, which is
+	// how long the pass stood due before it was taken. It is absent on a task's
+	// first pass, which was due from the moment it was configured; on a summoned
+	// pass; on a missed pass, whose StartedAt already is the due time; and on
+	// every record written before passes carried it.
+	DueAt time.Time `json:"due_at,omitempty"`
 	// Turns is how many answered turns the pass took, including its one request
 	// for a missing closing report, and CostUSD what the provider charged. The
 	// work-turn bound excludes that request; Problem names a bound that ended work.
@@ -411,6 +419,15 @@ type Sweep struct {
 	// because a pass that quietly did less than it was meant to is the failure
 	// this record exists to make visible. It is empty on a role's pass.
 	Steps []SweepStep `json:"steps,omitempty"`
+}
+
+// Waited is how long the pass stood due before it was taken, and false where
+// the record does not say when it fell due.
+func (s Sweep) Waited() (time.Duration, bool) {
+	if s.DueAt.IsZero() || s.StartedAt.IsZero() {
+		return 0, false
+	}
+	return max(s.StartedAt.Sub(s.DueAt), 0), true
 }
 
 // SweepConversationReplacement records a new conversation opened after repeated

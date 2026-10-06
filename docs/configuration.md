@@ -3373,12 +3373,17 @@ the configuration rather than a reading that failed.
 
 **Beyond the three: a watching session takes up a build deployed over it.** When
 the `yoyo` it is running is written over — you rebuild it, you install it — the
-session drains: it restarts into what you deployed the moment it hosts no run —
-past the bound, a run it has stopped is not one it hosts — and until then it
-goes on polling, pulling into free seats, and firing its
-recurring tasks, because the drain is about the runs it hosts and not about the
-scheduler's other duties. A deploy is the whole of the instruction; what is
-configured is only how long the wait may last:
+session drains: it restarts into what you deployed the moment it hosts no run
+and no recurring pass is taking its turns — past the bound, a run it has
+stopped is not one it hosts — and until then it goes on polling, pulling into
+free seats, and, while it still hosts a run, firing its recurring tasks,
+because the drain is about the runs it hosts and not about the scheduler's
+other duties. Once it hosts no run it starts no new pass, since a pass begun
+then would only hold the restart; the session that comes back takes it at its
+first pull. A pass already taking its turns is waited out like a run until the
+bound below; when the session restarts past the bound, every pass still taking
+its turns is stopped and recorded as a missed pass. A deploy is the whole of
+the instruction; what is configured is only how long the wait may last:
 
 ```yaml
 execution:
@@ -6944,9 +6949,29 @@ turns. A pass recorded before passes named their model is shown as
 
 **A firing costs what conversation turns cost.** The cadence is therefore the
 spending decision: `every: 1h` is a turn an hour for as long as a `yoyo work
---watch` session is running. At most one task fires per pull, so a schedule with
-three due tasks reaches them over three pulls rather than holding the queue
-closed for all three at once.
+--watch` session is running.
+
+**Firings of different roles do not wait on one another, and none holds the
+pull.** A pull claims the firings that are due and takes their turns beside
+itself, each in its role's own conversation — a program manager instance's in
+the instance's own — so the queue is read and started from, stopped work is
+delivered, and other roles are woken while a pass is still taking its turns. A
+multi-turn pass holds its own role's conversation and nothing else: a second
+task of the same role waits for it, because a conversation takes one turn at a
+time, and a stopped run's delivery to the development manager waits while her
+pass is in flight. At most four firings are in flight at once, a bound that is
+the harness's and not configured. Where it is reached, the firing that has
+waited longest since it fell due goes next, whatever kind it is; a [critical
+report's delivery](#working-the-report-pile-on-a-cadence) waits by when the
+oldest report it carries was filed, so it never takes a firing from another
+role that fell due before it. [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found)
+says how long each pass waited after it fell due. Before 2026-09-30 a pull made
+one firing, tasks first, and took its turns inside the pull: on 2026-09-29 the
+Lead Product Manager's several-turn sweep kept the development manager's sweep
+and a program manager's pass unfired for more than an hour, four times, and the
+critical reports of those misses woke her into the one firing they were waiting
+for; on 2026-09-30 one pass that spanned a machine sleep held every pull for
+three and a half hours.
 
 **What bounds that spend is the session's own
 [`--budget`](#watching-instead-of-draining)**, which counts a firing's turns
@@ -7025,24 +7050,29 @@ something you can find.
 run of its own goes back round to the schedule when the next task falls due,
 fires it, and returns to waiting. Before this, the wait ended only when the run
 did: on 2026-09-13 one run took twenty hours and the development manager's hourly
-task fired nothing in all of them. A session waiting out a redeploy is no
-exception: it goes on firing its tasks on their cadence until the moment it
-restarts, because the
-[drain](#watching-instead-of-draining) is about the runs it hosts and not about
-the schedule.
+task fired nothing in all of them. A session waiting out a redeploy goes on
+firing its tasks on their cadence for as long as it still hosts a run, because
+the [drain](#watching-instead-of-draining) is about the runs it hosts and not
+about the schedule. Once it hosts none it starts no new pass — the session that
+comes back takes it at its first pull, since the cadence is claimed durably —
+and it waits for a pass still taking its turns before it restarts, until the
+drain bound: a session restarting past the bound stops every pass still taking
+its turns and records each as a missed pass.
 
 **A task that goes a whole interval unfired is recorded as missed, with what
 kept it.** A task is missed once it is a whole interval past the time it fell
-due. Anything shorter is the ordinary shape of a cadence: one firing per pull,
-and a firing's turns hold the pull while they are taken. A miss is found at the
+due. Anything shorter is the ordinary shape of a cadence: a task waits while
+its role's conversation is taking another pass's turns, or while every firing a
+session takes at once is in flight. A miss is found at the
 first pull that reaches the schedule afterwards. A gap is recorded once, even across a restart:
 a session finding a gap already in the sweep log records and reports nothing.
 `yoyo sweeps` shows it as a pass that took no turn, spanning the gap, and its
 problem names the cause. Each cause is also reported differently:
 
 - **The harness held its own cadence.** The schedule could not be fired, the
-  harness could not be read, or the pull
-  that reached the task gave its one firing to another task. This is filed as the
+  harness could not be read, or the task was kept behind another firing — its
+  conversation taking another pass's turns, named, or every firing a session
+  takes at once in flight, named. This is filed as the
   harness's own report at `critical`, which puts it in front of the operator.
 - **The firing was turned away before it reached the role.** The provider had
   no capacity, the provider was answering nobody, or the role's conversation was
@@ -7122,7 +7152,15 @@ later over the same ground — and `yoyo sweeps` shows it as summoned, naming
 what tripped the brake. A project that schedules no such task gets no summons;
 its brake is decided by the cooldown's probe rather than by her, and the hold
 says so. The provider answering nobody refuses a summons exactly as it refuses
-a scheduled firing, and the pause covers both.
+a scheduled firing, and the pause covers both. A trip that finds a pass of hers
+still taking turns in her conversation does not summon her into it — the
+summons claims her task's firing before it asks her anything, so it would spend
+that claim on a turn her own pass holds the conversation against — and summons
+her at the first pull after that pass ends, provided the brake's hold still
+stands and has not been escalated; a stopped run's delivery to her waits for
+her pass the same way. A wake for a tracker block the harness refused is
+already refused by a conversation mid-turn before it claims anything, and is
+made at a later pass.
 
 **A development manager's pass also reads the forge.** On every firing of a
 task whose role is `development-manager`, and only that role's, the harness
@@ -7223,8 +7261,9 @@ that every listing of the pile now leads with.
 
 This task is also what a critical report is delivered through. The first
 enabled task that wakes the product manager, in name order, is fired out of its
-cadence on the pull after a critical is filed, with that report in the message;
-its passes are refused as complete while a critical they were shown stands
+cadence on the pull after a critical is filed, with that report in the message
+— a firing of her conversation alone, so it never holds up a pass of another
+role that fell due before it; its passes are refused as complete while a critical they were shown stands
 unhandled; and they name a program manager's warnings and notes left unhandled
 through two passes as overdue. What each of those does is in
 [the reporting guide](reporting.md#who-reads-them-and-what-became-of-each-one).
@@ -7316,8 +7355,10 @@ A [program manager instance](#a-program-manager-instance) is woken the way a
 recurring task is, by its own `triggers` block rather than by an entry here, and
 its pass **is** a recurring-task firing: everything above holds of it unchanged.
 The pause stops a pass and the intake hold does not; the claim is taken before
-the first turn; at most one firing is made per pull, a task's or an instance's,
-tasks first; a provider answering nobody is recorded as the wait; and every pass
+the first turn; an instance's pass is taken beside the pull and beside other
+roles' firings, in the instance's own conversation, and where the bound on
+firings in flight is reached it waits its turn by how long it has stood due like
+a task's; a provider answering nobody is recorded as the wait; and every pass
 ends in a durable record [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found)
 reads, filed under the instance's name — `yoyo sweeps --task reliability-pm` —
 with the model its turns ran on. A recurring task named for an instance its

@@ -15,9 +15,12 @@ package orchestrator
 //
 //   - A critical nobody has put in front of her is delivered as a turn of its
 //     own on the next pull, as a firing of her report task out of its cadence,
-//     ahead of anything the cadence has due. The pull is the harness's one
+//     ahead of anything her own cadence has due. The pull is the harness's one
 //     place for invoking a role, so "the moment it is filed" is the next pull
 //     after it — a minute on a watching session — rather than her next pass.
+//     It takes her conversation and no other role's: a missed pass reported at
+//     critical once woke her into the one firing the starved roles were
+//     waiting for, so the report of a starved pass starved them again.
 //   - A pass whose account says complete while a critical it was shown stands
 //     unhandled is refused as complete: it is marked as having more to do, and
 //     the next turn is asked for those reports by name.
@@ -79,9 +82,33 @@ func (t Trigger) productManagerTask() (string, config.RecurringTask, bool) {
 	return "", config.RecurringTask{}, false
 }
 
-// deliverCriticals fires the Lead Product Manager's task now, with every
-// critical report nobody has yet put in front of her as a turn of its own. It
-// reports whether it fired.
+// criticalsWaiting is the Lead Product Manager's task a critical report is
+// delivered through, and every critical nobody has yet put in front of her,
+// oldest first. It claims nothing: whether and when the delivery is made is the
+// caller's, which orders it against the other firings due by how long each has
+// waited.
+func (t Trigger) criticalsWaiting() (string, config.RecurringTask, []report.Report, error) {
+	if t.Pile == nil {
+		return "", config.RecurringTask{}, nil, nil
+	}
+	name, task, found := t.productManagerTask()
+	if !found {
+		return "", config.RecurringTask{}, nil, nil
+	}
+	pending, err := t.undeliveredCriticals()
+	if err != nil {
+		return "", config.RecurringTask{}, nil, err
+	}
+	return name, task, pending, nil
+}
+
+// deliverCriticals claims a firing of the Lead Product Manager's task now, with
+// the critical reports nobody has yet put in front of her as a turn of its own,
+// and hands back the turns to take. It is a firing of her conversation and of
+// nobody else's, so it never takes a due firing from another role: firings of
+// different roles are taken side by side, and where the bound on them is reached
+// the delivery waits its turn by the time its oldest report was filed, like any
+// other firing.
 //
 // What has been delivered is read from the sweep log, where each such firing
 // records the reports it carried, for the reason the forge's requests are: the
@@ -89,40 +116,28 @@ func (t Trigger) productManagerTask() (string, config.RecurringTask, bool) {
 // then failed has still delivered, so a provider that refuses the turn is not
 // asked again every pull; what keeps the critical in front of her from then on
 // is her next pass carrying it and refusing to end complete over it.
-func (t Trigger) deliverCriticals(ctx context.Context) (Fired, bool, error) {
-	if t.Pile == nil {
-		return Fired{}, false, nil
-	}
-	name, task, found := t.productManagerTask()
-	if !found {
-		return Fired{}, false, nil
-	}
-	pending, err := t.undeliveredCriticals()
-	if err != nil {
-		return Fired{}, false, err
-	}
-	if len(pending) == 0 {
-		return Fired{}, false, nil
-	}
+func (t Trigger) deliverCriticals(ctx context.Context, name string, task config.RecurringTask, pending []report.Report, due time.Time) (claimedFiring, error) {
 	carried := fitCriticals(pending)
 	claimed, err := t.Claims.Summon(ctx, name, t.now())
 	if err != nil {
-		return Fired{}, false, fmt.Errorf("claim the firing of the recurring task %s for a critical report: %w", name, err)
+		return claimedFiring{}, fmt.Errorf("claim the firing of the recurring task %s for a critical report: %w", name, err)
 	}
 	ids := make([]string, 0, len(carried))
 	for _, reported := range carried {
 		ids = append(ids, reported.ID)
 	}
-	fired := t.run(ctx, firing{
-		name:      name,
-		pass:      passName(claimed),
-		task:      task,
-		trigger:   runstate.PassTriggerSummons,
-		message:   criticalMessage(name, task, carried, len(pending)-len(carried), t.overdueFor(task)),
-		summoned:  boundedProblem([]string{"a critical report, " + strings.Join(ids, ", ")}),
-		criticals: ids,
-	})
-	return fired, true, nil
+	return claimedFiring{take: func(ctx context.Context) Fired {
+		return t.run(ctx, firing{
+			name:      name,
+			pass:      passName(claimed),
+			task:      task,
+			trigger:   runstate.PassTriggerSummons,
+			message:   criticalMessage(name, task, carried, len(pending)-len(carried), t.overdueFor(task)),
+			summoned:  boundedProblem([]string{"a critical report, " + strings.Join(ids, ", ")}),
+			criticals: ids,
+			due:       due,
+		})
+	}}, nil
 }
 
 // undeliveredCriticals is every unhandled critical report no firing has yet

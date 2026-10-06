@@ -392,8 +392,10 @@ type WatchTransition struct {
 	// neighbour's cleanup (yoyodyne-ifd.429.33).
 	WorktreeCrossing *WorktreeCrossing `json:"worktree_crossing,omitempty"`
 	// RecurringPass is a recurring pass this session has begun, recorded as the
-	// pass starts. The session fires its passes inside its poll, one at a time, so
-	// from here until its next line it pulls nothing: on 2026-09-29 one pass that
+	// pass starts. A session whose schedule can fire beside its poll takes its
+	// passes there and goes on pulling (see WatchPass.Beside); one whose schedule
+	// cannot fires them inside its poll, one at a time, and from here until its
+	// next line pulls nothing: on 2026-09-29 one pass that
 	// spanned the machine's sleep held the poll for three and a half hours, and
 	// the log said nothing at all from its last line before the pass until the
 	// morning (docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md).
@@ -450,6 +452,11 @@ type WatchPass struct {
 	Role    domain.AgentRole `json:"role,omitempty"`
 	Trigger PassTrigger      `json:"trigger,omitempty"`
 	At      time.Time        `json:"at"`
+	// Beside marks a pass taken beside the session's poll rather than inside
+	// it, which is how a session takes every pass of a schedule that can fire
+	// that way: the poll goes on pulling while it runs. A pass without it was
+	// taken inside the poll, which pulls nothing until it ends.
+	Beside bool `json:"beside,omitempty"`
 }
 
 // Says is the pass in the words the watch log's reason carries.
@@ -457,6 +464,9 @@ func (p WatchPass) Says() string {
 	said := fmt.Sprintf("taking the recurring pass of %s since %s", p.Task, p.At.UTC().Format(time.RFC3339))
 	if p.Trigger != "" {
 		said += fmt.Sprintf(", fired by its %s", p.Trigger)
+	}
+	if p.Beside {
+		return said + "; it is taken beside the session's poll, which goes on pulling while it runs"
 	}
 	return said + "; the session fires its passes inside its poll, so it pulls nothing more until this pass ends"
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -83,7 +84,7 @@ func TestProductionMachineAvailabilityPreservesCurrentHoldsAndSeparatesReadProbl
 				current = due.Add(-time.Minute)
 			}
 			task := "development-manager-sweep"
-			cadence := &machineCadence{Trigger: wired, due: due, firing: orchestrator.Fired{Task: task, Role: domain.RoleDevelopmentManager, Problem: test.refusal}}
+			cadence := &machineCadence{trigger: wired, due: due, firing: orchestrator.Fired{Task: task, Role: domain.RoleDevelopmentManager, Problem: test.refusal}}
 			if test.name == "schedule" {
 				cadence.problem = errors.New(test.refusal)
 			}
@@ -128,8 +129,12 @@ func TestProductionMachineAvailabilityPreservesCurrentHoldsAndSeparatesReadProbl
 	}
 }
 
+// machineCadence is the production trigger's miss reading with the firing
+// stubbed. It holds the trigger rather than embedding it, so it fires in place
+// through Fire and the scheduler does not take the trigger's own firings beside
+// the pull.
 type machineCadence struct {
-	*orchestrator.Trigger
+	trigger *orchestrator.Trigger
 	due     time.Time
 	firing  orchestrator.Fired
 	problem error
@@ -138,6 +143,10 @@ type machineCadence struct {
 
 func (c *machineCadence) Fire(context.Context) (orchestrator.RecurringSweep, error) {
 	return orchestrator.RecurringSweep{Fired: []orchestrator.Fired{c.firing}}, c.problem
+}
+
+func (c *machineCadence) MissCause(from, to time.Time, task string) readmodel.GapCause {
+	return c.trigger.MissCause(from, to, task)
 }
 
 func (c *machineCadence) Cadence(context.Context) ([]orchestrator.RecurringDue, error) {

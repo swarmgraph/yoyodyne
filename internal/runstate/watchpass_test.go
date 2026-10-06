@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,5 +33,19 @@ func TestAPassNoteIsReadPastByTheSessionsLatestWord(t *testing.T) {
 	latest, found, err := store.Latest()
 	if err != nil || !found || latest.State != WatchIdle {
 		t.Fatalf("Latest() = %+v, %v, %v; want the idle line the note was written after", latest, found, err)
+	}
+}
+
+// A pass taken beside the poll says the poll goes on pulling, and one taken
+// inside it says the session pulls nothing until it ends.
+func TestAPassNoteSaysWhetherThePollGoesOnPulling(t *testing.T) {
+	t.Parallel()
+	pass := WatchPass{Task: "development-manager-sweep", Trigger: PassTriggerSchedule, At: time.Date(2026, 9, 30, 4, 52, 8, 0, time.UTC)}
+	if said := pass.Says(); !strings.Contains(said, "pulls nothing more until this pass ends") {
+		t.Fatalf("inside the poll: %q", said)
+	}
+	pass.Beside = true
+	if said := pass.Says(); !strings.Contains(said, "goes on pulling while it runs") || strings.Contains(said, "pulls nothing") {
+		t.Fatalf("beside the poll: %q", said)
 	}
 }

@@ -25,12 +25,13 @@ package orchestrator
 // in trusted code exists to prevent. A recurring turn is authorized identically
 // to a conversation an operator opens by hand, because it is one.
 //
-// # One firing per pass, and turns inside it
+// # Firings beside the pull, and turns inside them
 //
-// A pass fires at most one task, for the reason a pass delivers at most one
-// stoppage: a firing is conversation turns, and a pass that fired three tasks
-// would hold the queue closed for as long as all three took. The next pass takes
-// the next due task, and on a poll loop that is a minute later.
+// A watching session claims what is due at each pull and takes each firing's
+// turns in a goroutine of its own, one per conversation and a bounded number at
+// once, so no role's pass holds another role's and none holds the queue; see
+// recurringfirings.go for what that replaced and why. Fire is the same claim
+// with the turns taken before it returns, for a caller with nothing else to do.
 //
 // Inside a firing, turns iterate. A pass with more to do than one turn holds says
 // so in its own account and is given another, up to the task's bound. That is the
@@ -824,95 +825,18 @@ type RecurringOutages interface {
 	Standing() (runstate.ProviderOutage, bool, error)
 }
 
-// Fire wakes the first task that is due, and reports what came of it.
-//
-// The order is the order the guarantees need. The pause is read before anything
-// is claimed, so a paused harness costs no task its cadence; the firing is
-// claimed before the first turn is taken, so a process that dies between the two
-// has recorded a firing that produced nothing rather than made one nothing paces;
-// and the account is written after, because until the role has answered there is
-// nothing to write.
+// Fire claims the firing that has waited longest since it fell due and takes
+// its turns before returning, and reports what came of it. It is Start with room
+// for one firing and nothing in flight, taken synchronously: what a caller that
+// has nothing else to do while the turns are taken asks for. A watching session
+// asks Start instead, and takes the turns beside its poll.
 func (t Trigger) Fire(ctx context.Context) (RecurringSweep, error) {
-	if err := t.validate(); err != nil {
-		return RecurringSweep{}, err
+	start, err := t.Start(ctx, nil, 1)
+	fired := RecurringSweep{Paused: start.Paused, Fired: start.Settled}
+	for _, started := range start.Started {
+		fired.Fired = append(fired.Fired, started.Take(ctx))
 	}
-	hold, held, err := t.paused()
-	if err != nil {
-		return RecurringSweep{}, err
-	}
-	if held {
-		return RecurringSweep{Paused: &hold}, nil
-	}
-	var problems []error
-	// Recover a report or clearing whose write was interrupted after its pass
-	// reached the sweep log, including a cancelled instance pass.
-	if t.RecordFailures != nil {
-		if err := t.RecordFailures(ctx); err != nil {
-			problems = append(problems, fmt.Errorf("record product pass failure findings: %w", err))
-		}
-	}
-	// Whether the provider is answering anybody is read once, before any task is
-	// claimed. A firing made into a login nobody has renewed spends a claim on a
-	// turn that cannot be served and records a turn that failed, which over three
-	// days reads as a schedule that is broken rather than a provider that is away.
-	outage, away, err := t.providerAway()
-	if err != nil {
-		problems = append(problems, err)
-	}
-	// A critical report nobody has put in front of the Lead Product Manager is
-	// delivered ahead of anything the cadence has due, as a firing of her own
-	// task: it is the one thing on this path that must not wait its turn. A
-	// provider answering nobody leaves it undelivered rather than recorded as
-	// delivered into a refusal, so it goes the first pull the provider answers.
-	if !away {
-		fired, took, err := t.deliverCriticals(ctx)
-		if err != nil {
-			problems = append(problems, err)
-		}
-		if took {
-			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
-		}
-	}
-	for _, name := range t.names() {
-		task := t.Tasks[name]
-		if !task.Enabled {
-			continue
-		}
-		// The claim is the due check. Asking first and claiming after would be two
-		// reads and a write with a window between them, which is exactly the window
-		// two concurrent sessions land in.
-		claimed, err := t.Claims.Claim(ctx, name, task.Every.Duration(), t.now())
-		if err != nil {
-			// A task that is not due is the ordinary answer on almost every pull, and
-			// so is one another process claimed a moment ago. Neither is this pass's
-			// to report.
-			if errors.Is(err, runstate.ErrSweepNotDue) {
-				continue
-			}
-			problems = append(problems, fmt.Errorf("claim the firing of the recurring task %s: %w", name, err))
-			continue
-		}
-		if away {
-			fired := t.refuse(ctx, name, task, outage)
-			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
-		}
-		batch := t.amendmentBatch(task)
-		fired := t.run(ctx, firing{name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule, message: wakeMessage(name, task, "", t.overdueFor(task), batch), batch: batch})
-		return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
-	}
-	// The program manager instances come after the tasks and share their bound:
-	// at most one firing per pull, whichever of the two it is.
-	for _, agent := range t.instanceNames() {
-		fired, took, err := t.pass(ctx, agent, t.Instances[agent], outage, away)
-		if err != nil {
-			problems = append(problems, err)
-			continue
-		}
-		if took {
-			return RecurringSweep{Fired: []Fired{fired}}, errors.Join(problems...)
-		}
-	}
-	return RecurringSweep{}, errors.Join(problems...)
+	return fired, err
 }
 
 // passName is how a firing is named where a turn records it wrote something on
@@ -1086,6 +1010,9 @@ type firing struct {
 	task     config.RecurringTask
 	message  string
 	summoned string
+	// due is when the firing fell due, where that is known, which the record
+	// keeps so `yoyo sweeps` can say how long the pass waited to be taken.
+	due time.Time
 	// trigger is what fired the pass, which a pass cancelled before it
 	// completed is recorded as missed under.
 	trigger runstate.PassTrigger
@@ -1123,9 +1050,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		Criticals: f.criticals,
 	}
 	// Whoever fired this pass is told it has begun, before its first turn, so a
-	// watch session that fires passes inside its poll can say which pass it is in
-	// for as long as the pass runs.
+	// watch session can say which pass it is in for as long as the pass runs.
 	announcePass(ctx, runstate.WatchPass{Task: name, Role: task.Role, Trigger: f.trigger, At: recorded.StartedAt})
+	if !f.due.IsZero() && !f.due.After(recorded.StartedAt) {
+		recorded.DueAt = f.due
+	}
 	// shown is every critical report the pass has been put in front of: the ones
 	// its firing was made for, and the ones its conversation carried into a turn.
 	// The pass is not accepted as complete while any of them stands unhandled.
