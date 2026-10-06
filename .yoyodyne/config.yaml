@@ -112,7 +112,11 @@ execution:
   # change: it selects what a slot pulls first, and never what it may do.
   developer_slots:
     - prefer: [reliability]   # slot 1 pulls reliability-labelled work first
-    # slots 2 through 4 are not named, so they prefer nothing
+    # Slot 2 pulls product-labelled work first: usability and product
+    # features, such as the dashboard, that P0 fixes would otherwise crowd
+    # out (operator, 2026-10-06).
+    - prefer: [product]
+    # slots 3 and 4 are not named, so they prefer nothing
   repair_attempts_before_replan: 2
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
