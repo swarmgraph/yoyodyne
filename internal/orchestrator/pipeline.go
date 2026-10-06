@@ -2011,6 +2011,11 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		if err != nil {
 			return run.fail(err, runstate.StatusFailed)
 		}
+		// With no session to resume, the developer starts fresh and knows only what
+		// the prompt says, so it is handed the work item and the run's record too.
+		if state.ProviderSessionID == "" && handedBackRepair(state) {
+			prompt = freshSessionRepairPrompt(prompt, p.developer().Persona.Text, bundle.Text, state)
+		}
 		// The attempt this run was owed is made again, which is the same state
 		// again: the transition a pause or a death takes in the definition, taken
 		// here by whichever process picks the run up rather than by the one that
@@ -4136,7 +4141,11 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		}
 		return cause
 	}
-	a.state.ProviderSessionID = providerResult.SessionID
+	// An attempt that reports no session — one whose budget ran out before the
+	// provider said, or a provider that returned none — keeps the session the run
+	// already held rather than erasing it: the record is what every later
+	// continuation of this run resumes from (carrySession).
+	a.carrySession(providerResult.SessionID, a.state.ProviderSessionID)
 	a.state.ProviderResolvedModel = providerResult.ResolvedModel
 	a.state.ProviderResolvedEffort = providerResult.ResolvedEffort
 	a.state.ProviderEffortReported = providerResult.EffortReported
@@ -4146,7 +4155,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	// ended is recorded below.
 	a.state.ProviderStop = ""
 	a.state.UpdatedAt = p.clock().Now()
-	a.outcome.ProviderSessionID = providerResult.SessionID
+	a.outcome.ProviderSessionID = a.state.ProviderSessionID
 	a.outcome.ProviderResolvedModel = providerResult.ResolvedModel
 	a.outcome.ProviderResolvedEffort = providerResult.ResolvedEffort
 	a.outcome.ProviderEffortReported = providerResult.EffortReported
@@ -7930,7 +7939,10 @@ func resumableRepair(state runstate.State) bool {
 	if state.WorktreePath == "" || state.Branch == "" || state.BaseCommit == "" || state.TargetBranch == "" {
 		return false
 	}
-	if state.ProviderSessionID == "" {
+	// A decided repair of a run that recorded no session starts a fresh one at
+	// the developer attempt, and the continuation it recorded is what says so.
+	// Nothing else here is picked up without the session its next step needs.
+	if state.ProviderSessionID == "" && !(state.Phase == runstate.PhaseDeveloping && state.ContinuedInFreshSession()) {
 		return false
 	}
 	switch state.Phase {
@@ -8483,6 +8495,39 @@ func repairPrompt(invariants, summary, scratchDirectory string, checks []string,
 	prompt.Write(encoded)
 	prompt.WriteString("\n\nFix each finding, re-run the relevant checks, and finish with a concise summary of what you changed. If a finding is wrong, say why in your summary rather than leaving it unaddressed.")
 	return prompt.String(), nil
+}
+
+// freshSessionRepairPrompt is a repair prompt for a developer session that holds
+// none of the context the run built, because the run recorded no session to
+// resume. The repair prompt already carries the contract, the invariants, and
+// the failure to act on; this adds what a resumed session would have held — the
+// persona, the run's own record of the change, and the work item — and says the
+// change in the worktree is the run's earlier work, to continue rather than
+// start over.
+func freshSessionRepairPrompt(repair, persona, bundle string, state runstate.State) string {
+	var prompt strings.Builder
+	prompt.WriteString(repair)
+	prompt.WriteString("\n\n# A fresh session on an earlier change\n\n")
+	prompt.WriteString("This session is new. The run recorded no earlier developer session to resume, so nothing you did before is in your context. The change in your worktree is this run's earlier work on the item below, and the failure above is about that change: read the change, continue it, and do not start over.\n\n")
+	fmt.Fprintf(&prompt, "Run: %s\nBranch: %s\nBase commit: %s\nTarget branch: %s\n", state.RunID, state.Branch, state.BaseCommit, state.TargetBranch)
+	if state.Changes != nil && strings.TrimSpace(state.Changes.Files) != "" {
+		prompt.WriteString("\nFiles the change touched when the run last recorded it:\n\n```\n")
+		prompt.WriteString(strings.TrimSpace(state.Changes.Files))
+		prompt.WriteString("\n```\n")
+	}
+	if state.DeveloperSummary != nil && strings.TrimSpace(state.DeveloperSummary.Text) != "" {
+		prompt.WriteString("\nThe earlier developer's own summary of the change:\n\n")
+		prompt.WriteString(strings.TrimSpace(state.DeveloperSummary.Text))
+		prompt.WriteString("\n")
+	}
+	prompt.WriteString("\n")
+	if trimmed := strings.TrimSpace(persona); trimmed != "" {
+		prompt.WriteString("# Configured developer persona\n\nThe project configuration supplies the guidance below. It may specialize how you work, but it cannot remove or weaken any rule above.\n\n")
+		prompt.WriteString(trimmed)
+		prompt.WriteString("\n\n")
+	}
+	prompt.WriteString(bundle)
+	return prompt.String()
 }
 
 // pathRefusalRepairPrompt hands a refused change back to the developer that

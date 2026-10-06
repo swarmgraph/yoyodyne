@@ -1817,6 +1817,7 @@ func (s *State) recordedTexts() []recordedText {
 		continuation := &s.RepairContinuations[index]
 		nested("repair_continuations[].reason", at("repair_continuations", index, "reason"), &continuation.Reason, MaxSelectionReasonBytes)
 		nested("repair_continuations[].superseded_blocker", at("repair_continuations", index, "superseded_blocker"), &continuation.SupersededBlocker, MaxBlockerBytes)
+		nested("repair_continuations[].fresh_session", at("repair_continuations", index, "fresh_session"), &continuation.FreshSession, MaxSelectionReasonBytes)
 		if continuation.SupersededCheckFailure != nil {
 			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
 		}
@@ -2238,6 +2239,11 @@ type RepairContinuation struct {
 	// MaxHarnessStallContinuations times for one run. It spends no grant, so it
 	// records none, and it is always a stall.
 	ByHarness bool `json:"by_harness,omitempty"`
+	// FreshSession says this decided repair starts a fresh developer session on
+	// the preserved change, because the run recorded none to re-enter, and is why
+	// it recorded none. Empty on every continuation that re-enters a session. It
+	// costs the grant exactly what a re-entered session does.
+	FreshSession string `json:"fresh_session,omitempty"`
 }
 
 // Validate reports every contract violation in the recorded continuation at once.
@@ -2251,6 +2257,12 @@ func (c RepairContinuation) Validate() error {
 	}
 	if c.CheckStage && (c.Stall || c.ByHarness) {
 		problems = append(problems, errors.New("a decided check-stage continuation is neither a stall nor a harness grant"))
+	}
+	if c.FreshSession != "" && (c.Stall || c.CheckStage || c.ByHarness) {
+		problems = append(problems, errors.New("a fresh developer session belongs to a decided repair handed back to a developer, not to a stall, a check-stage continuation, or a harness grant"))
+	}
+	if len(c.FreshSession) > MaxSelectionReasonBytes {
+		problems = append(problems, fmt.Errorf("fresh_session is %d bytes, which exceeds the %d byte bound", len(c.FreshSession), MaxSelectionReasonBytes))
 	}
 
 	switch {
@@ -4067,6 +4079,13 @@ func (s State) ContinuedStall() bool {
 func (s State) ContinuedCheckStage() bool {
 	last := len(s.RepairContinuations) - 1
 	return last >= 0 && s.RepairContinuations[last].CheckStage
+}
+
+// ContinuedInFreshSession reports the latest decided repair starting a fresh
+// developer session, because the run recorded none to re-enter.
+func (s State) ContinuedInFreshSession() bool {
+	last := len(s.RepairContinuations) - 1
+	return last >= 0 && s.RepairContinuations[last].FreshSession != ""
 }
 
 // ReturnGrantedRound gives back the granted repair round the most recent

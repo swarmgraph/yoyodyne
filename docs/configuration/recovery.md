@@ -747,7 +747,17 @@ a thing to go and correct.
 `yoyo triage repair <run-id>` is the other half of the same pair, and it starts
 nothing over. It re-enters the stopped run's
 own repair loop: the same branch, the same worktree, the same developer session,
-and the reviewer's findings handed back exactly as they were written.
+and the reviewer's findings handed back exactly as they were written. A run
+whose record holds no developer session — its session's budget ran out before
+the provider reported one, the provider never returned one, or the harness
+carried the run on itself at a step with no developer — is not refused for it:
+the repair starts a fresh developer session in the same worktree on the same
+change, hands it the failure, the run's record, and the work item, and spends
+the grant exactly as re-entering a session would. The run's record says the
+repair started a fresh session and why. A stall or a check-stage continuation
+still needs the session it stopped in. A developer attempt whose provider
+reports no session keeps the session the run already held on its record, so a
+run the harness continues past a silent session does not lose it.
 
 An outstanding recovery decision or automatic continuation at checks or after a
 silent provider stall keeps that checkout and branch out of the maintenance
