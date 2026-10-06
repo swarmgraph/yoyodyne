@@ -3185,7 +3185,7 @@ reviewer alternates are validated too.
 source layer. The run endpoint resolvers additionally return the selected
 provider, adapter version, model, account alias, effective effort, field origins
 and configuration revision for later persistence. They do not read authentication
-files or include provider-home paths. The configuration reload API loads and
+files or include the path of any provider's home directory. The configuration reload API loads and
 validates a complete replacement before accepting it; rejection returns an error
 and preserves the last valid configuration and any previously resolved selection.
 The caller serializes reload and records the error. Connecting this API to live
