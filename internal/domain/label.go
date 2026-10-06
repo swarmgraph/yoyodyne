@@ -58,10 +58,61 @@ func ValidateLabel(label string) error {
 // same reviewer: configuration selects what a slot pulls first and never widens
 // what it may do, which is the invariant configuration-never-grants-authority.
 type DeveloperSlot struct {
+	// Number, when stated, confirms this entry's one-based position. Keeping
+	// identities in slot order preserves existing work preferences.
+	Number *int `yaml:"number,omitempty" json:"number,omitempty"`
 	// Prefer is the labels this slot pulls first, any one of which on an item is
 	// enough. Empty is a slot with no preference, which is how a project says
 	// slot 1 prefers nothing and slot 2 prefers something.
-	Prefer []string `yaml:"prefer,omitempty" json:"prefer,omitempty"`
+	Prefer  []string      `yaml:"prefer,omitempty" json:"prefer,omitempty"`
+	Routing *EndpointPair `yaml:"routing,omitempty" json:"routing,omitempty"`
+}
+
+// EndpointSpec selects an existing provider, model and account. Omitted
+// placement inherits the role's defaults; an explicit empty effort clears the
+// inherited level. It contains no credentials or machine-local paths.
+type EndpointSpec struct {
+	Provider     Backend `yaml:"provider,omitempty" json:"provider,omitempty"`
+	Model        string  `yaml:"model,omitempty" json:"model,omitempty"`
+	ModelVersion string  `yaml:"model_version,omitempty" json:"model_version,omitempty"`
+	Account      string  `yaml:"account,omitempty" json:"account,omitempty"`
+	Effort       *string `yaml:"effort,omitempty" json:"effort,omitempty"`
+}
+
+// EndpointPair is the ordered choice for one slot. A complete pair remains
+// validated while disabled so enabling it cannot expose an unchecked endpoint.
+type EndpointPair struct {
+	Enabled   bool          `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Primary   *EndpointSpec `yaml:"primary,omitempty" json:"primary,omitempty"`
+	Alternate *EndpointSpec `yaml:"alternate,omitempty" json:"alternate,omitempty"`
+}
+
+// Clone gives configuration resolution its own copy of the slot's choices.
+func (s DeveloperSlot) Clone() DeveloperSlot {
+	s.Prefer = append([]string(nil), s.Prefer...)
+	if s.Number != nil {
+		number := *s.Number
+		s.Number = &number
+	}
+	if s.Routing != nil {
+		pair := *s.Routing
+		pair.Primary = cloneEndpointSpec(pair.Primary)
+		pair.Alternate = cloneEndpointSpec(pair.Alternate)
+		s.Routing = &pair
+	}
+	return s
+}
+
+func cloneEndpointSpec(spec *EndpointSpec) *EndpointSpec {
+	if spec == nil {
+		return nil
+	}
+	copy := *spec
+	if spec.Effort != nil {
+		effort := *spec.Effort
+		copy.Effort = &effort
+	}
+	return &copy
 }
 
 // Preferring reports a slot that pulls labelled work first.

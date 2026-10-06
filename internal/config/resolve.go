@@ -386,7 +386,7 @@ func (r *resolution) apply(applied layer) error {
 		if execution.DeveloperSlots != nil {
 			r.config.Execution.DeveloperSlots = make([]domain.DeveloperSlot, 0, len(*execution.DeveloperSlots))
 			for _, slot := range *execution.DeveloperSlots {
-				r.config.Execution.DeveloperSlots = append(r.config.Execution.DeveloperSlots, domain.DeveloperSlot{Prefer: append([]string(nil), slot.Prefer...)})
+				r.config.Execution.DeveloperSlots = append(r.config.Execution.DeveloperSlots, slot.Clone())
 			}
 			r.origins["execution.developer_slots"] = applied.origin
 		}
@@ -672,6 +672,10 @@ func (r *resolution) applyAgent(name string, document agentDocument, applied lay
 		}
 		if document.Failover.Account != nil {
 			failover.Account = strings.TrimSpace(*document.Failover.Account)
+		}
+		if document.Failover.Effort != nil {
+			effort := strings.TrimSpace(*document.Failover.Effort)
+			failover.Effort = &effort
 		}
 		agent.config.Failover = failover
 		agent.origins["failover"] = applied.origin

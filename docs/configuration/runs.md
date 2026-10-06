@@ -646,6 +646,13 @@ pulled ahead of the item: the item waits on nothing about itself, and what
 takes it is the next slot with no preference to come free, or slot 1 once its
 label's work is exhausted.
 
+The same slot entries may also carry a `routing` endpoint pair and an optional
+`number` confirming their position. [Developer slot endpoints](../configuration.md#developer-slot-endpoints)
+states precedence, defaults, validation and reviewer selection. These fields
+currently support configuration resolution; actual run dispatch and automatic
+switching require the subsequent execution work. Label preferences keep their
+existing behavior.
+
 ### Watching instead of draining
 
 `yoyo work` returns when nothing more is ready. `yoyo work --watch` does not: it

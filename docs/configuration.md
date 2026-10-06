@@ -3113,12 +3113,97 @@ pulled ahead of the item: the item waits on nothing about itself, and what
 takes it is the next slot with no preference to come free, or slot 1 once its
 label's work is exhausted.
 
+### Developer slot endpoints
+
+The configuration loader and endpoint resolver accept an ordered pair under
+`execution.developer_slots[].routing`. This is configuration support: developer
+and reviewer run dispatch, durable slot assignment, automatic provider switching,
+and live application of the four-slot mapping are separate work. Accepting or
+printing a pair does not mean a run has used it.
+
+```yaml
+execution:
+  max_concurrent_developers: 2
+  developer_slots:
+    - number: 1
+      prefer: [reliability]
+      routing:
+        enabled: true
+        primary: {provider: codex, model: gpt-6.1-sol, account: codex-account}
+        alternate: {provider: claude-code, model: opus, account: default}
+    - number: 2
+      routing:
+        enabled: true
+        primary: {provider: claude-code, model: opus, account: default}
+        alternate: {provider: codex, model: gpt-6.1-sol, account: codex-account}
+accounts:
+  default:
+    provider: claude-code
+  codex-account:
+    provider: codex
+agents:
+  developer:
+    instances: 2
+```
+
+The list still names slots in order. An optional `number` must equal the entry's
+one-based position and fit within `max_concurrent_developers`; duplicates, zero,
+negative numbers and reordered numbers are refused. Unlisted slots retain their
+existing defaults. `prefer` continues to choose work and does not choose an
+endpoint.
+
+An explicit `routing` pair takes precedence over shared developer defaults and
+`execution.developer_models` label rules. Without a pair, the first matching
+label rule still wins, followed by the shared developer model. Both `primary`
+and `alternate` blocks are required. The primary inherits omitted provider,
+model, account, model version and effort from the developer agent. An explicit
+model clears an inherited version pin; `model_version` may supply its own pin.
+The alternate must name a model, inherits provider and account from the resolved
+primary, and inherits effort from the developer agent rather than from the
+primary's override. It may also name its own `model_version` or `effort`.
+
+`enabled` controls fallback and defaults to false. A disabled pair still selects
+its primary, retains its alternate, and validates both. A same-provider alternate
+with a different supported model is allowed. Identical resolved endpoints,
+unknown providers or accounts, incompatible authentication, unsupported roles
+or access, and incompatible model versions or effort are refused. Validation
+collects the invalid fields rather than reverting to shared defaults. Capacity
+and credential availability are checked at launch, not by this resolver.
+
+The reviewer uses its own `agents.<reviewer>.backend`, `model`, `account`,
+`model_version` and `effort`, plus its own `failover` block for the alternate.
+It never inherits the developer slot pair or label models. `failover.effort` is
+accepted only for developer and reviewer run endpoint resolution. The alternate
+retains the existing `enabled`, `provider`, `model` and `account` keys and also accepts
+`effort`. For these run endpoint pairs, inherited effort is validated separately
+on each endpoint; an explicit `effort: ""` requests that endpoint's model default.
+An incompatible inherited level is refused rather than silently dropped, and a
+reviewer alternate must support the reviewer's read-only access. Disabled
+reviewer alternates are validated too.
+
+`yoyo config show --effective --origins` prints the configured pairs and their
+source layer. The run endpoint resolvers additionally return the selected
+provider, adapter version, model, account alias, effective effort, field origins
+and configuration revision for later persistence. They do not read authentication
+files or include the path of any provider's home directory. The configuration reload API loads and
+validates a complete replacement before accepting it; rejection returns an error
+and preserves the last valid configuration and any previously resolved selection.
+The caller serializes reload and records the error. Connecting this API to live
+run routing remains execution work.
+
+These new keys require a compatible build: `execution.developer_slots[].number`,
+`execution.developer_slots[].routing` and its endpoint fields, and
+`agents.*.failover.effort`. Restart running parts on that build before adding them
+to a project's file. `yoyo config validate` and `yoyo doctor` name running parts
+whose recorded schema cannot read the keys.
+
 ### A developer model chosen by the item's label
 
 The slot preference above says which work a seat pulls first. This says what
 that work costs to do. **Model spend follows the work rather than the role**: a
 documentation item and a change to the scheduler are both developer runs, and
-only one of them needs the developer's own model. `execution.developer_models`
+only one of them needs the developer's own model. For slots without an explicit
+[endpoint pair](#developer-slot-endpoints), `execution.developer_models`
 is how a project says so — the tracker's own labels, the ones
 [a slot prefers](#a-developer-slot-that-prefers-a-label), mapped to the model a
 run over such an item asks for:
@@ -4507,7 +4592,9 @@ value.
 maps an item to, a model a [recurring task](#a-tasks-own-model) names, a pinned
 version's fallback to its alias, and a
 [failover alternate](#serving-a-turn-from-a-permitted-alternate-model) all serve
-the turn at the agent's level. The one exception is a failover that crosses onto
+the turn at the agent's level. The [run endpoint pair resolver](#developer-slot-endpoints)
+also accepts an explicit alternate effort and refuses incompatible inherited
+levels. For existing conversation failover, the one exception is a failover that crosses onto
 a provider that does not accept the agent's level: that turn is asked with none, and its record
 says none was asked rather than the level configured, so the failover still
 saves the turn.

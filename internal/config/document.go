@@ -297,6 +297,7 @@ type personaDocument struct {
 }
 
 type failoverDocument struct {
+	Effort  *string `yaml:"effort"`
 	Enabled *bool   `yaml:"enabled"`
 	Model   *string `yaml:"model"`
 	// Provider and Account say where the alternate is served. Both are optional
