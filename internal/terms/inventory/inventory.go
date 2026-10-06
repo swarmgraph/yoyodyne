@@ -1,4 +1,17 @@
-package main
+// Package inventory is the harness's own vocabulary: every term of art a person
+// or a role reads, what it means, and the decision proposed for it. Two things
+// read it. `go run ./scripts/vocabulary` measures each term and writes
+// docs/vocabulary-inventory.md from it, and the terms check in internal/terms
+// allows a term listed here by name while its decision is pending, so a term
+// already found is not refused as a new coinage. Keeping the list in one
+// package both read is what keeps the check from going stale with the
+// document: the check reads the list, never the document generated from it.
+package inventory
+
+import (
+	"regexp"
+	"strings"
+)
 
 // Decision is what the inventory proposes for one term. The Lead Product
 // Manager records the decision that stands on yoyodyne-ifd.437.18; this is the
@@ -500,4 +513,140 @@ var StopWords = []StopWord{
 	{"environmental", "Something outside the work refused the run, which spends none of its budgets.", Replace, "stopped by something outside the work"},
 	{"cancelled", "The operator asked the run to stop, or its context was cancelled.", Keep, "an ordinary word; keep it"},
 	{"harness", "One of the harness's own steps around the work failed: saving state, writing the tracker, making a scratch directory.", Replace, "the harness's own step failed"},
+}
+
+// Unread are the compound words the terms check found, the day it began
+// reading for new ones, that nothing yet accounted for: no row in the
+// register, no term above, not ordinary English by the check's rules, and not
+// on the register's list of ordinary compounds. Some are terms of art and some
+// are ordinary; nobody has decided yet which. The check allows each
+// by name until somebody does, so it refuses only a compound written after it
+// began. Deciding one takes it off this list: an ordinary compound goes on the
+// register's list of ordinary compounds, a term worth keeping gets a row in
+// the register, a term worth replacing is reworded wherever it is written —
+// and a word nothing writes any more is refused here until it is taken off.
+var Unread = []string{
+	"account-pooling", "account-selection", "action-count", "activation-digest",
+	"admission-trigger", "advisory-once", "agent-context", "agent-continuity",
+	"agent-memory", "allow-list", "already-made", "already-runnable", "already-running",
+	"already-spent", "amended-since", "application-support", "approval-forgeability",
+	"approved-and-amended-since", "architect-amendments", "architect-pass",
+	"artifact-changing", "artifact-home", "at-act", "attach-detach", "authority-model",
+	"authority-relevant", "authorization-by-capability", "back-link", "base-revision",
+	"bespoke-per-specialist", "bounce-when-idle", "branch-publication", "broken-sandbox",
+	"browser-profile", "bulk-clear", "bundle-improvement", "candidate-bound",
+	"capability-and-scope", "capacity-wait", "carried-out", "carry-back", "changed-file",
+	"changed-path", "channel-nobody-reads", "chat-spawns-subprocesses", "check-set",
+	"check-stage", "check-to-use", "checked-in", "checked-shape", "claim-audit",
+	"clean-tree", "cli-help", "closed-list", "closed-reason", "closed-status",
+	"code-implementation", "coding-agent", "configuration-file", "configuration-guide",
+	"configuration-home", "configured-check", "conflict-avoidance", "conflict-handling",
+	"content-security", "context-reconstruction", "context-size", "contributor-mode",
+	"control-plane", "conversation-held", "conversation-holding", "cumulative-report",
+	"cut-replies", "decide-and-report", "decided-change", "deciders-stop", "default-deny",
+	"delivery-pipeline", "dependency-test", "description-not-intent", "developer-session",
+	"developer-slot", "developer-written", "diagnosis-class", "directory-sync",
+	"disable-auto-merge", "display-identity", "diverged-target", "done-condition",
+	"done-conditions", "done-means", "dropped-merge", "duplicate-admission",
+	"duplicate-run", "durable-state", "effective-configuration", "empty-delivery",
+	"empty-tool", "endpoint-plus-invocation", "endpoint-switch", "event-recording",
+	"evidence-confinement", "evidence-not-instruction", "execution-evidence",
+	"execution-policy", "execution-termination", "factory-flow", "factory-health",
+	"factory-problems", "failure-storm", "fast-forward-or-nothing", "file-granularity",
+	"final-reply", "fixed-roles", "fixture-proven", "fixture-shape",
+	"footprint-and-dependency", "force-pushing", "force-resolves", "forge-hygiene",
+	"forge-url", "full-budget", "full-suite", "further-reading", "give-back",
+	"goal-level-approval", "goal-quality", "goals-directory", "grant-refusal", "hand-back", "has-a-disposition",
+	"hand-closer", "handed-over", "harness-error", "harness-made", "harness-run",
+	"head-behind-target", "held-back", "held-work", "human-approval", "ignore-rule",
+	"independent-reviewer", "individually-acceptable", "initialized-here",
+	"integrated-work", "integration-resume", "integration-stop", "interrupted-review",
+	"introduction-then-goals", "invalid-record", "invariants-index", "label-model",
+	"launch-preparation", "legacy-migration", "long-held", "machine-read",
+	"machine-too-busy", "management-conversation", "management-conversion",
+	"management-loop", "management-request", "management-role", "mechanical-low-risk",
+	"memory-budget", "memory-save", "merge-back", "merge-rather-than-move",
+	"merge-semantics", "minimum-interval", "missing-report", "missing-target",
+	"model-dependent", "model-provider", "model-selection", "model-unavailable",
+	"model-version", "moved-anchor", "named-account", "native-resume", "new-file",
+	"new-format", "newer-run", "no-fallback", "no-hosted-control-plane", "no-schema-change",
+	"no-side-conversations", "no-stub", "not-startable", "nothing-running", "once-per-item",
+	"once-per-publication", "operator-action", "operator-activation", "operator-attention",
+	"overlapping-footprint", "partial-handoff", "pass-and-query", "past-reset",
+	"path-string", "pinned-candidate", "pinned-install", "plan-mode", "preserved-run",
+	"preserved-work", "private-identifier", "product-document", "product-management",
+	"product-pass", "product-role", "product-to-global", "project-state", "protected-file",
+	"protected-home", "protected-source", "provider-adapter", "provider-call",
+	"provider-general", "provider-hold", "provider-outage", "provider-plugin",
+	"provider-policy", "provider-refusal", "provider-stop", "provider-unavailable",
+	"provider-wait", "queue-record", "queue-worker", "queued-head", "read-model",
+	"readme-split", "ready-work", "reboot-class", "recent-activity", "records-store",
+	"recoverable-failure", "recoverable-versus-terminal", "recovery-policy",
+	"recurring-task", "red-target", "registered-assessor", "release-and-record",
+	"release-readiness", "released-claim", "remote-boundary", "remote-target",
+	"repeated-failure", "replay-test", "reportable-event", "repository-setting",
+	"resolve-then-write", "restart-requests", "restart-surviving", "retire-raise",
+	"review-independence", "review-input", "review-round", "revision-bound", "revision-log",
+	"role-capability", "role-contract", "role-definition", "role-definitions", "role-name",
+	"rolled-back", "run-activity", "run-by-run", "run-ending", "run-state", "run-status",
+	"run-stop", "runs-on", "runtime-internal", "runtime-state", "safe-write", "same-cell",
+	"same-path", "same-provider", "same-run", "scheduled-pass", "security-coordinator",
+	"security-review", "shipped-surface", "silent-stream", "slack-reporting",
+	"software-delivery-bound", "spend-follows-the-work", "spine-touching", "split-era",
+	"stale-build", "state-schema", "step-attempt", "still-applies", "still-moving",
+	"stop-clause", "stopped-run", "stray-identity", "structured-output",
+	"subject-continuity", "symlink-escape", "sync-window", "target-failure",
+	"target-position", "team-mode", "technical-health", "terminal-result", "terminal-run",
+	"timing-flake", "token-efficiency", "tool-access", "tool-control", "traceable-chain",
+	"tracker-action", "tracker-sync", "tree-listing", "turn-boundary", "turn-size",
+	"uncertain-save", "unmeetable-item-returns", "unowned-entry", "unresolved-at-cap",
+	"unresolved-escalation", "usage-limit", "usage-pause", "vanished-process",
+	"web-security", "web-service", "whole-content", "whole-spine", "whole-stage",
+	"work-turn", "worktree-write", "wrap-in-actions", "writable-root", "write-shell",
+}
+
+var termParts = regexp.MustCompile(`[-\s]+`)
+
+// Pattern is what a term is looked for with.
+func Pattern(term Term) *regexp.Regexp {
+	return compile(term.Match, term.Exact, term.Whole)
+}
+
+func compile(matches []string, exact, whole bool) *regexp.Regexp {
+	var alternatives []string
+	for _, match := range matches {
+		if exact {
+			alternatives = append(alternatives, regexp.QuoteMeta(match))
+			continue
+		}
+		var parts []string
+		for _, part := range termParts.Split(strings.TrimSpace(match), -1) {
+			parts = append(parts, regexp.QuoteMeta(part))
+		}
+		alternatives = append(alternatives, strings.Join(parts, `[-\s]*`))
+	}
+	expression := `(?i)\b(?:` + strings.Join(alternatives, "|") + `)`
+	if whole {
+		expression += `\b`
+	}
+	return regexp.MustCompile(expression)
+}
+
+// Count is how many times term occurs in body.
+func Count(term Term, body string) int {
+	found := Pattern(term).FindAllStringIndex(body, -1)
+	if len(term.Except) == 0 {
+		return len(found)
+	}
+	excepted := make(map[int]bool)
+	for _, at := range compile(term.Except, false, false).FindAllStringIndex(body, -1) {
+		excepted[at[0]] = true
+	}
+	count := 0
+	for _, at := range found {
+		if !excepted[at[0]] {
+			count++
+		}
+	}
+	return count
 }

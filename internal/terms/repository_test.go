@@ -107,3 +107,27 @@ func TestThisRepositoryRefusesPosture(t *testing.T) {
 		}
 	}
 }
+
+// The compound half of the check, over this repository: every compound word a
+// person or a role reads is accounted for — registered, replaced, a term the
+// inventory is waiting on, ordinary English by form or by the register's list,
+// or one of the compounds the inventory lists as unread — and every word listed
+// as unread is still written somewhere.
+func TestThisRepositoryCoinsNoCompoundNothingDefines(t *testing.T) {
+	t.Parallel()
+
+	personas, err := PersonaFiles(repositoryRoot)
+	if err != nil {
+		t.Fatalf("PersonaFiles() error = %v", err)
+	}
+	if len(personas) == 0 {
+		t.Fatal("no personas were found in this repository; the walk is looking in the wrong place")
+	}
+	problems, err := Compounds(repositoryRoot)
+	if err != nil {
+		t.Fatalf("Compounds() error = %v", err)
+	}
+	for _, problem := range problems {
+		t.Errorf("%s", problem)
+	}
+}

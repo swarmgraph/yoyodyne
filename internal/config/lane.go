@@ -123,7 +123,7 @@ func (a AgentConfig) instanceKeys() []string {
 func (t Triggers) problems(name string) []string {
 	var problems []string
 	if t.Every != 0 && t.Every.Duration() < MinRecurringInterval {
-		problems = append(problems, fmt.Sprintf("agent %q triggers.every is %s, and the shortest cadence is %s: every pass is a conversation turn, so a cadence below that is a bill rather than a schedule",
+		problems = append(problems, fmt.Sprintf("agent %q triggers.every is %s, and the shortest interval allowed is %s: every pass is a conversation turn, so a shorter interval is a bill rather than a schedule",
 			name, t.Every, Duration(MinRecurringInterval)))
 	}
 	seen := make(map[TriggerEvent]struct{}, len(t.On))
