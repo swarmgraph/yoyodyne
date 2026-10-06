@@ -275,12 +275,26 @@ func (r *PinnedRoot) Lstat(relative string) (fs.FileInfo, error) {
 // OpenLock creates or opens an advisory lock in the held directory, refusing a
 // final symlink. The descriptor is read-only: flock needs no content write, and
 // an existing inode's bytes must stay untouched even if it has other hard links.
+//
+// Two openers creating the same lock at once can be told it does not exist:
+// os.Root's create, at least on darwin, reports ENOENT to the one that loses
+// the race to create it. A lock file is only ever opened to be shared, so the
+// open is retried a bounded number of times; a directory that has really gone
+// still fails once the retries are spent.
 func (r *PinnedRoot) OpenLock(relative string, mode fs.FileMode) (*os.File, error) {
 	if _, err := Relative(relative); err != nil {
 		return nil, err
 	}
-	return r.root.OpenFile(relative, appendFlags & ^(os.O_WRONLY|os.O_APPEND), mode)
+	for attempt := 1; ; attempt++ {
+		file, err := r.root.OpenFile(relative, appendFlags & ^(os.O_WRONLY|os.O_APPEND), mode)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) || attempt == openLockAttempts {
+			return file, err
+		}
+	}
 }
+
+// openLockAttempts bounds OpenLock's retries of a create that lost a race.
+const openLockAttempts = 50
 
 func (r *PinnedRoot) Remove(relative string) error { return r.root.Remove(relative) }
 
