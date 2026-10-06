@@ -897,7 +897,13 @@ func (r *RunRouting) PlanSwitch(operationID string, request SwitchRequest, at ti
 		if !ok || source.Choice != EndpointPrimary {
 			return false, conflict("a usage-limit switch names the primary attempt that reached the limit")
 		}
-		if source.Ended != nil && source.Ended.Classification != UsageLimitClassification {
+		// The classification is what permits the switch, so it has to be known
+		// before the allowance is spent: a source still running has not been
+		// classified, and nothing after this point asks why it stopped.
+		if source.Ended == nil {
+			return false, conflict("attempt %s has not ended, so nothing has classified it as a usage limit", source.ID)
+		}
+		if source.Ended.Classification != UsageLimitClassification {
 			return false, conflict("attempt %s ended as %s, which is not a usage limit", source.ID, source.Ended.Classification)
 		}
 	case SwitchPrimaryLimited:

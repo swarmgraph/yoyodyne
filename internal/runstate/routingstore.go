@@ -126,8 +126,8 @@ func (s *Store) MigrateRouting(ctx context.Context, held State, capacity int, sn
 	if slot == 0 {
 		taken := map[int]bool{}
 		for _, existing := range active {
-			if existing.RunID != held.RunID {
-				taken[existing.RecordedSlot()] = true
+			if slot := existing.RecordedSlot(); existing.RunID != held.RunID && slot != 0 {
+				taken[slot] = true
 			}
 		}
 		for number := 1; number <= capacity; number++ {

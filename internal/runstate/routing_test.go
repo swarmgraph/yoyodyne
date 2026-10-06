@@ -287,18 +287,25 @@ func TestASwitchWaitsWhileItsSourceMayStillBeExecuting(t *testing.T) {
 	state := routedRun(t, store)
 	state = route(t, store, state, openDevelop("op-1"))
 	state = route(t, store, state, prepare("op-1", "att-1"))
+	// A source still running has not been classified, so no switch is planned
+	// on it and the allowance stays unspent.
+	if _, err := store.UpdateRouting(context.Background(), state, planSwitch("op-1", "sw-1", "att-1", "att-2")); !errors.Is(err, ErrRoutingConflict) {
+		t.Fatalf("planning a switch on a source still running: error = %v, want it refused", err)
+	}
+	if operation, _ := load(t, store, state.RunID).Routing.Operation("op-1"); operation.SwitchAllowance != 1 || operation.Switch != nil {
+		t.Fatalf("a refused switch changed the operation: %+v", operation)
+	}
+	// Classified as a usage limit but not known to have stopped: the switch is
+	// committed and its destination waits.
+	state = route(t, store, state, end("op-1", "att-1", UsageLimitClassification, TerminationUncertain))
 	state = route(t, store, state, planSwitch("op-1", "sw-1", "att-1", "att-2"))
 	for name, step := range map[string]func(*RunRouting) (bool, error){
 		"reconcile":           func(r *RunRouting) (bool, error) { return r.ReconcileSource("op-1", "sw-1", routingAt) },
 		"prepare destination": prepare("op-1", "att-2"),
 	} {
 		if _, err := store.UpdateRouting(context.Background(), state, step); !errors.Is(err, ErrRoutingConflict) {
-			t.Fatalf("%s with the source still running: error = %v", name, err)
+			t.Fatalf("%s with the source's termination uncertain: error = %v", name, err)
 		}
-	}
-	state = route(t, store, state, end("op-1", "att-1", UsageLimitClassification, TerminationUncertain))
-	if _, err := store.UpdateRouting(context.Background(), state, func(r *RunRouting) (bool, error) { return r.ReconcileSource("op-1", "sw-1", routingAt) }); !errors.Is(err, ErrRoutingConflict) {
-		t.Fatalf("reconciling a source whose termination is uncertain: error = %v", err)
 	}
 	if _, err := store.UpdateRouting(context.Background(), state, func(r *RunRouting) (bool, error) { return r.CompleteOperation("op-1", "done", routingAt) }); !errors.Is(err, ErrRoutingConflict) {
 		t.Fatalf("completing with uncertain termination: error = %v", err)
@@ -317,6 +324,10 @@ func TestOnlyAUsageLimitOnThePrimaryPermitsASwitch(t *testing.T) {
 	state = route(t, store, state, end("op-1", "att-1", "authentication_refused", TerminationConfirmed))
 	if _, err := store.UpdateRouting(context.Background(), state, planSwitch("op-1", "sw-1", "att-1", "att-2")); !errors.Is(err, ErrRoutingConflict) {
 		t.Fatalf("switching on an authentication refusal: error = %v", err)
+	}
+	// A late report cannot reclassify the refusal as a usage limit to unlock one.
+	if _, err := store.UpdateRouting(context.Background(), state, end("op-1", "att-1", UsageLimitClassification, TerminationConfirmed)); !errors.Is(err, ErrRoutingConflict) {
+		t.Fatalf("reclassifying an ended attempt: error = %v", err)
 	}
 	if _, err := store.UpdateRouting(context.Background(), state, func(r *RunRouting) (bool, error) {
 		return r.PlanSwitch("op-1", SwitchRequest{ID: "sw-1", Trigger: "unknown_error", Evidence: "x", DestinationAttempt: "att-2"}, routingAt)
@@ -573,9 +584,16 @@ func TestMigrationWaitsRatherThanCreatingAWorkerBeyondCapacity(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshotFor := func(slot int) (RoutingSnapshot, error) { return developerSnapshot(slot, "cfg-0123abcd"), nil }
+	// A second legacy run with no recorded slot is in flight too; it occupies no
+	// numbered slot and is not counted as one.
+	unnumbered := testState(t, StatusRunning)
+	unnumbered.WorkItemID = "yoyodyne-unnumbered"
+	if err := store.Create(unnumbered); err != nil {
+		t.Fatal(err)
+	}
 	var full CapacityError
-	if _, err := store.MigrateRouting(context.Background(), legacy, 2, snapshotFor, nil, routingAt); !errors.As(err, &full) {
-		t.Fatalf("migrating with every slot recorded: error = %v, want a capacity wait", err)
+	if _, err := store.MigrateRouting(context.Background(), legacy, 2, snapshotFor, nil, routingAt); !errors.As(err, &full) || full.Active != 2 || full.Limit != 2 {
+		t.Fatalf("migrating with every slot recorded: error = %v, want a capacity wait naming the two recorded slots", err)
 	}
 	if stored := load(t, store, legacy.RunID); stored.Routing != nil {
 		t.Fatalf("a refused migration recorded %+v", stored.Routing)
