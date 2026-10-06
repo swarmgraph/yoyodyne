@@ -12,7 +12,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
-	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -506,7 +506,7 @@ func TestReconcileFinishesOtherPublicationsBesideARefusedDeletion(t *testing.T) 
 	}
 	runPipelineGit(t, fixture.remote, "update-ref", "refs/heads/"+other.Branch, outcome.Integration.SourceCommit)
 	reconciler := fixture.reconciler(t)
-	reconciler.Publisher = publicationAnswers{first.Branch: {Number: 1, Merged: true}, other.Branch: {Number: 2, Merged: true}}
+	reconciler.Publisher = orchestratortest.PublicationAnswers{first.Branch: {Number: 1, Merged: true}, other.Branch: {Number: 2, Merged: true}}
 	settled, err := reconciler.FinishPublications(context.Background())
 	if err != nil || len(settled) != 2 {
 		t.Fatalf("FinishPublications() = %#v, %v", settled, err)
@@ -548,18 +548,6 @@ func (r *refusingBranch) DeleteRemoteBranch(ctx context.Context, worktree gitwor
 		return fmt.Errorf("remote branch %s is at an unexpected tip, want the published commit %s", worktree.Branch, commit)
 	}
 	return r.ReconcileWorktrees.DeleteRemoteBranch(ctx, worktree, commit)
-}
-
-type publicationAnswers map[string]publish.PullRequest
-
-func (p publicationAnswers) State(_ context.Context, branch string) (publish.PullRequest, error) {
-	return p[branch], nil
-}
-func (p publicationAnswers) Merge(context.Context, publish.MergeRequest) (publish.MergeResult, error) {
-	panic("settlement must not merge")
-}
-func (p publicationAnswers) Close(context.Context, publish.CloseRequest) (publish.Closure, error) {
-	panic("settlement must not close")
 }
 
 func TestReconcileSettlesAnOutstandingPublicationWhoseMovedTipReachedTheTarget(t *testing.T) {

@@ -32,37 +32,6 @@ var continueCaps = runstate.TriageCaps{ReviewRounds: 6, RepairGrants: 1, Reruns:
 // in these tests, which is what the development manager's decision spends.
 const continueGrantRounds = 2
 
-// fakeOwnership stands in for the two questions a re-entry asks of the preserved
-// worktree: whether it is as the harness left it, and whether the change is
-// still in it. What each was asked about, and what each says.
-type fakeOwnership struct {
-	err   error
-	asked []gitworktree.Worktree
-	// changed is what the preserved worktree holds. A nil value is the ordinary
-	// case — the change is still there — so a test about anything else is the only
-	// one that has to say so; an empty non-nil slice is the worktree a handback
-	// must refuse. readErr is what stopped the reading where nothing could be read.
-	changed []string
-	readErr error
-	read    []gitworktree.Worktree
-}
-
-func (f *fakeOwnership) VerifyOwnedHead(_ context.Context, worktree gitworktree.Worktree) error {
-	f.asked = append(f.asked, worktree)
-	return f.err
-}
-
-func (f *fakeOwnership) ChangedPaths(_ context.Context, worktree gitworktree.Worktree) ([]string, error) {
-	f.read = append(f.read, worktree)
-	if f.readErr != nil {
-		return nil, f.readErr
-	}
-	if f.changed == nil {
-		return []string{"internal/orchestrator/repaircontinue.go"}, nil
-	}
-	return f.changed, nil
-}
-
 // continueHarness is the durable state a repair-continue acts on, held together
 // so a test can drive one decision without rebuilding four stores.
 type continueHarness struct {
@@ -70,7 +39,7 @@ type continueHarness struct {
 	runs      *runstate.Store
 	intake    *runstate.IntakeHoldStore
 	tracker   *orchestratortest.Tracker
-	ownership *fakeOwnership
+	ownership *orchestratortest.Ownership
 	// started is the continuations the carry-out dispatched.
 	started []continuedRun
 	outcome Outcome
@@ -154,7 +123,7 @@ func newUndecidedHarness(t *testing.T, state runstate.State) *continueHarness {
 		runs:      runs,
 		intake:    intake,
 		tracker:   &orchestratortest.Tracker{Item: beads.WorkItem{ID: state.WorkItemID, Title: state.WorkItemTitle, Status: "blocked"}},
-		ownership: &fakeOwnership{},
+		ownership: &orchestratortest.Ownership{},
 		capacity:  2,
 		outcome:   Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: runstate.StatusSucceeded, continuationAccepted: true},
 	}
@@ -346,25 +315,25 @@ func TestAStalledAttemptIsCarriedOnIntoAWorktreeThatHoldsNothingYet(t *testing.T
 	t.Parallel()
 
 	harness := newContinueHarness(t, stalledState())
-	harness.ownership.changed = []string{}
+	harness.ownership.Changed = []string{}
 	result, err := harness.continuer().Continue(context.Background(), continueRequest())
 	if err != nil {
 		t.Fatalf("Continue() error = %v, want a stalled first attempt carried on into the worktree it had not written to", err)
 	}
-	if !result.Continued || len(harness.ownership.read) != 0 {
+	if !result.Continued || len(harness.ownership.Read) != 0 {
 		t.Fatalf("continued = %t, change reads = %#v, want the continuation made without asking for a change nobody made",
-			result.Continued, harness.ownership.read)
+			result.Continued, harness.ownership.Read)
 	}
 	// The worktree is still proved to be the one the harness left, which is the
 	// architect's condition and is asked of every continuation.
-	if len(harness.ownership.asked) != 1 {
-		t.Fatalf("ownership checks = %#v, want the preserved worktree still proved to be the harness's", harness.ownership.asked)
+	if len(harness.ownership.Asked) != 1 {
+		t.Fatalf("ownership checks = %#v, want the preserved worktree still proved to be the harness's", harness.ownership.Asked)
 	}
 
 	// A repair of a change is unchanged: an empty worktree there is refused
 	// before the grant is spent.
 	repairing := newContinueHarness(t, continuableState())
-	repairing.ownership.changed = []string{}
+	repairing.ownership.Changed = []string{}
 	if _, err := repairing.continuer().Continue(context.Background(), continueRequest()); !errors.Is(err, ErrPreservedChangeMissing) {
 		t.Fatalf("Continue() error = %v, want a handback onto an empty worktree still refused", err)
 	}
@@ -1126,7 +1095,7 @@ func TestARepairRefusesAWorktreeThatIsNotAsTheHarnessLeftIt(t *testing.T) {
 	t.Parallel()
 
 	harness := newContinueHarness(t, continuableState())
-	harness.ownership.err = errors.New("worktree HEAD is 9f9f9f, want the commit the harness recorded (aaaaaa)")
+	harness.ownership.Err = errors.New("worktree HEAD is 9f9f9f, want the commit the harness recorded (aaaaaa)")
 
 	_, err := harness.continuer().Continue(context.Background(), continueRequest())
 	if !errors.Is(err, ErrWorktreeNotAsLeft) {
@@ -1153,8 +1122,8 @@ func TestARepairRefusesAWorktreeThatIsNotAsTheHarnessLeftIt(t *testing.T) {
 	}
 	// The gate was asked about this run's own worktree, from the run's record
 	// rather than from the docket entry that describes it.
-	if len(harness.ownership.asked) != 1 || harness.ownership.asked[0].RunID != docketedRunID {
-		t.Fatalf("ownership asked about %#v, want the stopped run's own worktree", harness.ownership.asked)
+	if len(harness.ownership.Asked) != 1 || harness.ownership.Asked[0].RunID != docketedRunID {
+		t.Fatalf("ownership asked about %#v, want the stopped run's own worktree", harness.ownership.Asked)
 	}
 }
 
@@ -1266,7 +1235,7 @@ func TestARepairRefusesAWorktreeThatHoldsNoneOfThePreservedChange(t *testing.T) 
 	harness := newContinueHarness(t, continuableState())
 	// As the harness left it, and empty: the ownership gate passes and this is the
 	// only thing that catches it.
-	harness.ownership.changed = []string{}
+	harness.ownership.Changed = []string{}
 
 	_, err := harness.continuer().Continue(context.Background(), continueRequest())
 	if !errors.Is(err, ErrPreservedChangeMissing) {
@@ -1291,8 +1260,8 @@ func TestARepairRefusesAWorktreeThatHoldsNoneOfThePreservedChange(t *testing.T) 
 	}
 	// The change was read from the stopped run's own worktree, from the run's
 	// record rather than from the docket entry that describes it.
-	if len(harness.ownership.read) != 1 || harness.ownership.read[0].RunID != docketedRunID {
-		t.Fatalf("the change was read from %#v, want the stopped run's own worktree", harness.ownership.read)
+	if len(harness.ownership.Read) != 1 || harness.ownership.Read[0].RunID != docketedRunID {
+		t.Fatalf("the change was read from %#v, want the stopped run's own worktree", harness.ownership.Read)
 	}
 }
 
@@ -1303,7 +1272,7 @@ func TestARepairRefusesAPreservedWorktreeItCannotRead(t *testing.T) {
 	t.Parallel()
 
 	harness := newContinueHarness(t, continuableState())
-	harness.ownership.readErr = errors.New("worktree is not registered with the expected branch")
+	harness.ownership.ReadErr = errors.New("worktree is not registered with the expected branch")
 
 	_, err := harness.continuer().Continue(context.Background(), continueRequest())
 	if !errors.Is(err, ErrPreservedChangeMissing) {

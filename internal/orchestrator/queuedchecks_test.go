@@ -22,47 +22,13 @@ import (
 // run that ends with its merge queued on a protected target, and a forge that
 // then reports the head's checks.
 
-// checkedForge is the fabricated forge with check state: what it reports about
-// the head's checks, and every queued merge it was asked to withdraw. Withdrawing
-// one is the forge no longer holding it.
-type checkedForge struct {
-	queuedForge
-	reading   publish.CheckReading
-	readError error
-	withdrawn []int
-	// reruns are the check runs it was asked to run again; refuseRerun, where
-	// set, is its answer to every such request.
-	reruns      []int64
-	refuseRerun error
-}
-
-func (f *checkedForge) RerunCheck(_ context.Context, checkRun int64) error {
-	if f.refuseRerun != nil {
-		return f.refuseRerun
-	}
-	f.reruns = append(f.reruns, checkRun)
-	return nil
-}
-
-func (f *checkedForge) Checks(_ context.Context, number int, _ string) (publish.CheckReading, error) {
-	if f.readError != nil {
-		return publish.CheckReading{}, f.readError
-	}
-	reading := f.reading
-	if reading.HeadCommit == "" {
-		merges := f.MergeRequests()
-		reading.HeadCommit = merges[len(merges)-1].HeadCommit
-	}
-	return reading, nil
-}
-
 func TestAQueuedMergeRecordsAnUnreadCheckStateAndReadsItAgain(t *testing.T) {
 	t.Parallel()
 	for _, message := range []string{"HTTP 403: Resource not accessible by integration", "decode the comparison: unexpected end of JSON input"} {
 		t.Run(message, func(t *testing.T) {
 			fixture, forge, _ := queuedOnProtectedTarget(t)
 			reconciler := fixture.sweep(t, forge, false)
-			forge.readError = errors.New(message)
+			forge.ReadError = errors.New(message)
 			if _, err := reconciler.Reconcile(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -73,13 +39,13 @@ func TestAQueuedMergeRecordsAnUnreadCheckStateAndReadsItAgain(t *testing.T) {
 			if initial.PullRequest.Checks == nil || initial.PullRequest.Checks.ReadError != message || initial.PullRequest.Checks.HeadCommit != "" {
 				t.Fatalf("first failed read = %#v", initial.PullRequest.Checks)
 			}
-			forge.readError = nil
+			forge.ReadError = nil
 			// Re-run accounting must survive a failed read of the same head.
-			forge.reading = jobFailure(41)
+			forge.Reading = jobFailure(41)
 			if _, err := reconciler.Reconcile(context.Background()); err != nil {
 				t.Fatal(err)
 			}
-			forge.readError = errors.New(message)
+			forge.ReadError = errors.New(message)
 			results, err := reconciler.Reconcile(context.Background())
 			if err != nil || len(results) != 1 || results[0].Action != ActionQueued {
 				t.Fatalf("Reconcile() = %#v, %v", results, err)
@@ -92,10 +58,10 @@ func TestAQueuedMergeRecordsAnUnreadCheckStateAndReadsItAgain(t *testing.T) {
 			if checks == nil || checks.ReadError != message || checks.Red() || checks.Reruns != 1 {
 				t.Fatalf("recorded checks = %#v", checks)
 			}
-			if !recorded.PullRequest.MergeQueued || len(forge.withdrawn) != 0 || fixture.tracker.Record().Blocked {
+			if !recorded.PullRequest.MergeQueued || len(forge.Withdrawn) != 0 || fixture.tracker.Record().Blocked {
 				t.Fatal("an unread state withdrew or handed back the merge")
 			}
-			forge.readError = nil
+			forge.ReadError = nil
 			if _, err := reconciler.Reconcile(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -110,15 +76,9 @@ func TestAQueuedMergeRecordsAnUnreadCheckStateAndReadsItAgain(t *testing.T) {
 	}
 }
 
-func (f *checkedForge) DisableAutoMerge(_ context.Context, number int) error {
-	f.withdrawn = append(f.withdrawn, number)
-	f.DropQueuedMerge()
-	return nil
-}
-
 // queuedOnProtectedTarget is a run that landed through its pull request and
 // finished with the forge holding the merge.
-func queuedOnProtectedTarget(t *testing.T) (queuedFixture, *checkedForge, Outcome) {
+func queuedOnProtectedTarget(t *testing.T) (queuedFixture, *orchestratortest.CheckedForge, Outcome) {
 	t.Helper()
 	fixture := newQueuedFixture(t)
 	fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "ruleset"})
@@ -126,13 +86,13 @@ func queuedOnProtectedTarget(t *testing.T) (queuedFixture, *checkedForge, Outcom
 	if outcome.Integration == nil || !outcome.Integration.ThroughPullRequest {
 		t.Fatalf("integration = %#v, want a landing through the pull request", outcome.Integration)
 	}
-	return fixture, &checkedForge{queuedForge: fixture.forge}, outcome
+	return fixture, &orchestratortest.CheckedForge{Forge: fixture.forge}, outcome
 }
 
 // sweep is the reconciler the reconcile verb builds: the forge's checks read,
 // a free slot, and — where hosts is set — the run it makes
 // live continued through the same pipeline a run is.
-func (f queuedFixture) sweep(t *testing.T, forge *checkedForge, hosts bool) Reconciler {
+func (f queuedFixture) sweep(t *testing.T, forge *orchestratortest.CheckedForge, hosts bool) Reconciler {
 	t.Helper()
 	reconciler := f.reconciler(t)
 	reconciler.Publisher = forge
@@ -157,7 +117,7 @@ func TestAQueuedHeadBehindItsTargetFailingUnrelatedChecksIsUpdatedAndRequeued(t 
 
 	fixture, forge, outcome := queuedOnProtectedTarget(t)
 	driftRemoteTarget(t, fixture.remote, "main")
-	forge.reading = publish.CheckReading{
+	forge.Reading = publish.CheckReading{
 		Files:    []string{"feature.txt"},
 		Failing:  []publish.FailedCheck{{Name: "go test", Paths: []string{"internal/elsewhere/elsewhere_test.go"}}},
 		Passing:  3,
@@ -172,8 +132,8 @@ func TestAQueuedHeadBehindItsTargetFailingUnrelatedChecksIsUpdatedAndRequeued(t 
 	if len(results) != 1 || results[0].Action != ActionUpdating || results[0].Failure != "" {
 		t.Fatalf("reconciliation = %#v, want the queued head put back at its promotion", results)
 	}
-	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
-		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn before the head is rewritten", forge.withdrawn, forge.HoldsQueuedMerge())
+	if len(forge.Withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn before the head is rewritten", forge.Withdrawn, forge.HoldsQueuedMerge())
 	}
 	resumed, err := fixture.store.Load(pipelineRunID)
 	if err != nil {
@@ -229,7 +189,7 @@ func TestAQueuedHeadFailingACheckOnItsOwnChangeIsHandedBack(t *testing.T) {
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = publish.CheckReading{
+	forge.Reading = publish.CheckReading{
 		Files:    []string{"feature.txt"},
 		Failing:  []publish.FailedCheck{{Name: "lint", Paths: []string{"feature.txt"}}},
 		BehindBy: 4,
@@ -244,8 +204,8 @@ func TestAQueuedHeadFailingACheckOnItsOwnChangeIsHandedBack(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionBlocked {
 		t.Fatalf("reconciliation = %#v, want the red merge handed back", results)
 	}
-	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
-		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn so nothing lands it", forge.withdrawn, forge.HoldsQueuedMerge())
+	if len(forge.Withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn so nothing lands it", forge.Withdrawn, forge.HoldsQueuedMerge())
 	}
 	if !fixture.tracker.Record().Blocked {
 		t.Fatal("the red change was left queued rather than handed back")
@@ -280,7 +240,7 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUnrelatedCheckIsHandedBackOnTheFi
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = publish.CheckReading{
+	forge.Reading = publish.CheckReading{
 		Files:   []string{"feature.txt"},
 		Failing: []publish.FailedCheck{{Name: "build", Paths: []string{"internal/backend/codex/codex_test.go"}}},
 		Passing: 2,
@@ -295,8 +255,8 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUnrelatedCheckIsHandedBackOnTheFi
 	if len(results) != 1 || results[0].Action != ActionBlocked {
 		t.Fatalf("reconciliation = %#v, want the held merge handed back on the first sweep", results)
 	}
-	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
-		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.withdrawn, forge.HoldsQueuedMerge())
+	if len(forge.Withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.Withdrawn, forge.HoldsQueuedMerge())
 	}
 	for _, want := range []string{"build (on internal/backend/codex/codex_test.go, which this change does not touch)", "level with main", "needs a person"} {
 		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
@@ -342,7 +302,7 @@ func TestAQueuedHeadWhoseJobTheForgeEndedIsRunAgainBeforeItIsHandedBack(t *testi
 
 	for sweep := 1; sweep <= runstate.MaxCheckReruns; sweep++ {
 		checkRun := int64(4214 + sweep)
-		forge.reading = jobFailure(checkRun)
+		forge.Reading = jobFailure(checkRun)
 		results, err := reconciler.Reconcile(context.Background())
 		if err != nil {
 			t.Fatalf("sweep %d: Reconcile() error = %v", sweep, err)
@@ -350,11 +310,11 @@ func TestAQueuedHeadWhoseJobTheForgeEndedIsRunAgainBeforeItIsHandedBack(t *testi
 		if len(results) != 1 || results[0].Action != ActionQueued || !strings.Contains(results[0].Detail, "asked it to run them again") {
 			t.Fatalf("sweep %d: reconciliation = %#v, want the job run again and the merge left queued", sweep, results)
 		}
-		if len(forge.reruns) != sweep || forge.reruns[sweep-1] != checkRun {
-			t.Fatalf("sweep %d: re-runs = %v, want check run %d run again", sweep, forge.reruns, checkRun)
+		if len(forge.Reruns) != sweep || forge.Reruns[sweep-1] != checkRun {
+			t.Fatalf("sweep %d: re-runs = %v, want check run %d run again", sweep, forge.Reruns, checkRun)
 		}
-		if len(forge.withdrawn) != 0 || !forge.HoldsQueuedMerge() || fixture.tracker.Record().Blocked {
-			t.Fatalf("sweep %d: withdrawn = %v, blocked = %t; a job being run again is not withdrawn or handed back", sweep, forge.withdrawn, fixture.tracker.Record().Blocked)
+		if len(forge.Withdrawn) != 0 || !forge.HoldsQueuedMerge() || fixture.tracker.Record().Blocked {
+			t.Fatalf("sweep %d: withdrawn = %v, blocked = %t; a job being run again is not withdrawn or handed back", sweep, forge.Withdrawn, fixture.tracker.Record().Blocked)
 		}
 		recorded, err := fixture.store.Load(pipelineRunID)
 		if err != nil {
@@ -370,18 +330,18 @@ func TestAQueuedHeadWhoseJobTheForgeEndedIsRunAgainBeforeItIsHandedBack(t *testi
 		if err != nil {
 			t.Fatalf("sweep %d again: Reconcile() error = %v", sweep, err)
 		}
-		if len(results) != 1 || results[0].Action != ActionQueued || !strings.Contains(results[0].Detail, "has not yet started the re-run") || len(forge.reruns) != sweep {
-			t.Fatalf("sweep %d again: reconciliation = %#v, re-runs = %v; want a stale reading to spend no re-run", sweep, results, forge.reruns)
+		if len(results) != 1 || results[0].Action != ActionQueued || !strings.Contains(results[0].Detail, "has not yet started the re-run") || len(forge.Reruns) != sweep {
+			t.Fatalf("sweep %d again: reconciliation = %#v, re-runs = %v; want a stale reading to spend no re-run", sweep, results, forge.Reruns)
 		}
 	}
 
-	forge.reading = jobFailure(9999)
+	forge.Reading = jobFailure(9999)
 	results, err := reconciler.Reconcile(context.Background())
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.reruns) != runstate.MaxCheckReruns {
-		t.Fatalf("reconciliation = %#v, re-runs = %v; want it handed back once the re-runs are spent", results, forge.reruns)
+	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.Reruns) != runstate.MaxCheckReruns {
+		t.Fatalf("reconciliation = %#v, re-runs = %v; want it handed back once the re-runs are spent", results, forge.Reruns)
 	}
 	for _, want := range []string{"adoption (the forge cancelled the job before any step failed, naming no file)", "ended that way again on each of 2 re-run(s)", "The forge's account of each, read under the harness's forge access, is in this item's notes", "needs a person"} {
 		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
@@ -401,7 +361,7 @@ func TestAFailedStepAnnotatedOnlyOnDotGithubIsNotRunAgain(t *testing.T) {
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = publish.CheckReading{
+	forge.Reading = publish.CheckReading{
 		Files:   []string{"feature.txt"},
 		Failing: []publish.FailedCheck{{Name: "build", Paths: []string{".github"}, ID: 606, Conclusion: "failure"}},
 		Passing: 1,
@@ -411,8 +371,8 @@ func TestAFailedStepAnnotatedOnlyOnDotGithubIsNotRunAgain(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.reruns) != 0 {
-		t.Fatalf("reconciliation = %#v, re-runs = %v; want a failed step handed back, not run again", results, forge.reruns)
+	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.Reruns) != 0 {
+		t.Fatalf("reconciliation = %#v, re-runs = %v; want a failed step handed back, not run again", results, forge.Reruns)
 	}
 	blocker := fixture.tracker.Record().BlockReason
 	if !strings.Contains(blocker, "build (a step failed without naming a file; the forge filed it on .github, and the forge's account of it on the item says which step)") {
@@ -431,18 +391,18 @@ func TestAJobThatPassesWhenRunAgainLeavesTheMergeQueued(t *testing.T) {
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = jobFailure(4215)
+	forge.Reading = jobFailure(4215)
 	reconciler := fixture.sweep(t, forge, true)
 	if results, err := reconciler.Reconcile(context.Background()); err != nil || len(results) != 1 || results[0].Action != ActionQueued {
 		t.Fatalf("Reconcile() = %#v, %v; want the job run again", results, err)
 	}
-	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 2}
+	forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 2}
 	results, err := reconciler.Reconcile(context.Background())
 	if err != nil || len(results) != 1 || results[0].Action != ActionQueued {
 		t.Fatalf("Reconcile() = %#v, %v; want the merge left queued once the re-run passed", results, err)
 	}
-	if len(forge.withdrawn) != 0 || !forge.HoldsQueuedMerge() || fixture.tracker.Record().Blocked || len(forge.reruns) != 1 {
-		t.Fatalf("withdrawn = %v, re-runs = %v, blocked = %t; want the merge left to land", forge.withdrawn, forge.reruns, fixture.tracker.Record().Blocked)
+	if len(forge.Withdrawn) != 0 || !forge.HoldsQueuedMerge() || fixture.tracker.Record().Blocked || len(forge.Reruns) != 1 {
+		t.Fatalf("withdrawn = %v, re-runs = %v, blocked = %t; want the merge left to land", forge.Withdrawn, forge.Reruns, fixture.tracker.Record().Blocked)
 	}
 }
 
@@ -453,15 +413,15 @@ func TestAJobTheForgeWillNotRunAgainIsHandedBackSayingSo(t *testing.T) {
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = jobFailure(4215)
-	forge.refuseRerun = errors.New("HTTP 403: Resource not accessible by integration")
+	forge.Reading = jobFailure(4215)
+	forge.RefuseRerun = errors.New("HTTP 403: Resource not accessible by integration")
 	fixture.docket = &memoryDocket{}
 	results, err := fixture.sweep(t, forge, true).Reconcile(context.Background())
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.withdrawn) != 1 {
-		t.Fatalf("reconciliation = %#v, withdrawn = %v; want the merge withdrawn and handed back", results, forge.withdrawn)
+	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.Withdrawn) != 1 {
+		t.Fatalf("reconciliation = %#v, withdrawn = %v; want the merge withdrawn and handed back", results, forge.Withdrawn)
 	}
 	for _, want := range []string{"the forge would not run them again", "HTTP 403: Resource not accessible by integration"} {
 		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
@@ -477,7 +437,7 @@ func TestAStuckQueuedMergeIsDocketedWithItsChecks(t *testing.T) {
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = publish.CheckReading{
+	forge.Reading = publish.CheckReading{
 		Files:    []string{"feature.txt"},
 		Failing:  []publish.FailedCheck{{Name: "go test", Paths: []string{"internal/elsewhere/elsewhere_test.go"}}},
 		BehindBy: 31,
@@ -489,8 +449,8 @@ func TestAStuckQueuedMergeIsDocketedWithItsChecks(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionQueued || !strings.Contains(results[0].Detail, "left queued for the next sweep") {
 		t.Fatalf("reconciliation = %#v, want the merge left queued for a sweep that hosts runs", results)
 	}
-	if len(forge.withdrawn) != 0 || !forge.HoldsQueuedMerge() {
-		t.Fatalf("withdrawn = %v; a merge nothing will update is not withdrawn", forge.withdrawn)
+	if len(forge.Withdrawn) != 0 || !forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v; a merge nothing will update is not withdrawn", forge.Withdrawn)
 	}
 
 	docket := &memoryDocket{}
@@ -574,7 +534,7 @@ func TestAQueuedLandingKeepsItsBranchAndWorktreeUntilTheForgesMergeIsConfirmed(t
 	}
 
 	// A sweep that finds the merge still held, its checks passing, leaves it all.
-	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3}
+	forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3}
 	reconciler := fixture.sweep(t, forge, true)
 	if results, err := reconciler.Reconcile(context.Background()); err != nil || len(results) != 1 || results[0].Action != ActionQueued {
 		t.Fatalf("Reconcile() = %#v, %v; want the merge left queued", results, err)
@@ -584,7 +544,7 @@ func TestAQueuedLandingKeepsItsBranchAndWorktreeUntilTheForgesMergeIsConfirmed(t
 	// The forge drops it with its head level with main: nothing to bring up to
 	// date, so it is a person's — with the artifacts there and said to be.
 	forge.DropQueuedMerge()
-	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3}
+	forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3}
 	results, err := reconciler.Reconcile(context.Background())
 	if err != nil || len(results) != 1 || results[0].Action != ActionBlocked {
 		t.Fatalf("Reconcile() = %#v, %v; want the dropped merge handed back", results, err)
@@ -625,7 +585,7 @@ func TestADroppedMergeWithUnreadChecksStaysQueuedUntilASuccessfulRetry(t *testin
 				driftRemoteTarget(t, fixture.remote, "main")
 			}
 			forge.DropQueuedMerge()
-			forge.readError = errors.New("decode the comparison: unexpected end of JSON input")
+			forge.ReadError = errors.New("decode the comparison: unexpected end of JSON input")
 			reconciler := fixture.sweep(t, forge, true)
 			for sweep := 0; sweep < 2; sweep++ {
 				results, err := reconciler.Reconcile(context.Background())
@@ -636,7 +596,7 @@ func TestADroppedMergeWithUnreadChecksStaysQueuedUntilASuccessfulRetry(t *testin
 				if err != nil {
 					t.Fatal(err)
 				}
-				if !recorded.PullRequest.MergeQueued || recorded.MergeDrop != nil || recorded.PublishFailure != "" || recorded.PullRequest.Checks == nil || recorded.PullRequest.Checks.ReadError != forge.readError.Error() {
+				if !recorded.PullRequest.MergeQueued || recorded.MergeDrop != nil || recorded.PublishFailure != "" || recorded.PullRequest.Checks == nil || recorded.PullRequest.Checks.ReadError != forge.ReadError.Error() {
 					t.Fatalf("unread sweep %d: publication = %#v, drop = %#v, failure = %q", sweep, recorded.PullRequest, recorded.MergeDrop, recorded.PublishFailure)
 				}
 				standing := readmodel.ReadStanding(context.Background(), readmodel.Sources{Runs: fixture.store})
@@ -653,8 +613,8 @@ func TestADroppedMergeWithUnreadChecksStaysQueuedUntilASuccessfulRetry(t *testin
 					t.Fatal("an unread drop disappeared or was handed back")
 				}
 			}
-			forge.readError = nil
-			forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: tc.behind}
+			forge.ReadError = nil
+			forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: tc.behind}
 			results, err := reconciler.Reconcile(context.Background())
 			if err != nil || len(results) != 1 || results[0].Action != tc.want {
 				t.Fatalf("successful retry: Reconcile() = %#v, %v, want %s", results, err, tc.want)
@@ -688,7 +648,7 @@ func TestADroppedMergeWhoseHeadFellBehindIsReplayedFromTheKeptBranch(t *testing.
 	fixture, forge, outcome := queuedOnProtectedTarget(t)
 	driftRemoteTarget(t, fixture.remote, "main")
 	forge.DropQueuedMerge()
-	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: 1}
+	forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: 1}
 	reconciler := fixture.sweep(t, forge, true)
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -698,8 +658,8 @@ func TestADroppedMergeWhoseHeadFellBehindIsReplayedFromTheKeptBranch(t *testing.
 	if len(results) != 1 || results[0].Action != ActionUpdating || results[0].Failure != "" {
 		t.Fatalf("reconciliation = %#v, want the dropped landing put back at its promotion", results)
 	}
-	if len(forge.withdrawn) != 0 {
-		t.Errorf("withdrawn = %v, want nothing withdrawn from a merge the forge no longer holds", forge.withdrawn)
+	if len(forge.Withdrawn) != 0 {
+		t.Errorf("withdrawn = %v, want nothing withdrawn from a merge the forge no longer holds", forge.Withdrawn)
 	}
 	record := fixture.tracker.Record()
 	if record.Blocked || record.Closed {

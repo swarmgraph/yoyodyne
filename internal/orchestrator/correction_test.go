@@ -8,12 +8,11 @@ import (
 	"testing"
 	"time"
 
-	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
-	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -551,15 +550,15 @@ func TestARefusalIsCorrectedWithNoHumanInBetween(t *testing.T) {
 
 			root := t.TempDir()
 			store := conversationStore(t, root)
-			tracker := &parkingTracker{}
+			tracker := &orchestratortest.ParkingTracker{}
 
 			// The turn that loses the batch. Nobody is told but the record.
 			losing, _ := correctionChat(t, store, tracker, trackerBlock("Parking it.", incident.refused))
 			if _, err := losing.Send(context.Background(), "park ifd.311"); err == nil {
 				t.Fatalf("Send() error = nil, want the block refused")
 			}
-			if len(tracker.parked) != 0 {
-				t.Fatalf("parked = %#v, want a refused block to have changed nothing", tracker.parked)
+			if len(tracker.Parked) != 0 {
+				t.Fatalf("parked = %#v, want a refused block to have changed nothing", tracker.Parked)
 			}
 
 			// The harness's own pass. It reads the refusal off the record, wakes the
@@ -585,8 +584,8 @@ func TestARefusalIsCorrectedWithNoHumanInBetween(t *testing.T) {
 			}
 			// And the action the block lost is on the tracker, with nobody having
 			// carried the refusal to the product manager.
-			if len(tracker.parked) != 1 || tracker.parked[0] != "yoyodyne-ifd.311" {
-				t.Fatalf("parked = %#v, want the re-issued park to have landed", tracker.parked)
+			if len(tracker.Parked) != 1 || tracker.Parked[0] != "yoyodyne-ifd.311" {
+				t.Fatalf("parked = %#v, want the re-issued park to have landed", tracker.Parked)
 			}
 			// Nothing is owed after it, so no later pass wakes the same conversation
 			// again.
@@ -606,13 +605,13 @@ func TestARefusalIsCorrectedWithNoHumanInBetween(t *testing.T) {
 type sendingRole struct {
 	session *chat.Session
 	prompt  string
-	backend *replayBackend
+	backend *orchestratortest.ReplayBackend
 }
 
 func (r *sendingRole) Wake(ctx context.Context, _ runstate.ConversationIdentity, message string) (CorrectionTurn, error) {
 	reply, err := r.session.Send(ctx, message)
-	if len(r.backend.prompts) > 0 {
-		r.prompt = r.backend.prompts[0]
+	if len(r.backend.Prompts) > 0 {
+		r.prompt = r.backend.Prompts[0]
 	}
 	turn := CorrectionTurn{ConversationID: r.session.Evidence().ConversationID}
 	for _, action := range reply.Actions {
@@ -630,10 +629,10 @@ func (r *sendingRole) Wake(ctx context.Context, _ runstate.ConversationIdentity,
 
 // correctionChat is a real conversation over a scripted provider, recorded in the
 // store the corrector reads.
-func correctionChat(t *testing.T, store *runstate.ConversationStore, tracker chat.Tracker, replies ...string) (*chat.Session, *replayBackend) {
+func correctionChat(t *testing.T, store *runstate.ConversationStore, tracker chat.Tracker, replies ...string) (*chat.Session, *orchestratortest.ReplayBackend) {
 	t.Helper()
 
-	backend := &replayBackend{replies: replies}
+	backend := &orchestratortest.ReplayBackend{Replies: replies}
 	session, err := chat.Open(chat.Options{
 		Role:         domain.RoleProductManager,
 		Agent:        string(domain.RoleProductManager),
@@ -658,65 +657,6 @@ func correctionChat(t *testing.T, store *runstate.ConversationStore, tracker cha
 
 func trackerBlock(prose string, actions ...string) string {
 	return prose + "\n\n```yoyodyne-tracker\n{\"actions\":[" + strings.Join(actions, ",") + "]}\n```\n"
-}
-
-// replayBackend answers scripted turns and keeps the prompts it was given, which
-// is what says the refusal reached the woken turn.
-type replayBackend struct {
-	replies []string
-	prompts []string
-}
-
-func (b *replayBackend) Run(_ context.Context, request backendapi.RunRequest) (backendapi.RunResult, error) {
-	index := len(b.prompts)
-	b.prompts = append(b.prompts, request.Prompt)
-	if index >= len(b.replies) {
-		return backendapi.RunResult{LastEvent: request.LastSequence + 1}, errors.New("unexpected conversation turn")
-	}
-	return backendapi.RunResult{
-		Backend:   domain.BackendClaudeCode,
-		SessionID: "session-1",
-		FinalText: b.replies[index],
-		LastEvent: request.LastSequence + 1,
-	}, nil
-}
-
-// parkingTracker is the work tracker as this replay needs it: the parks that were
-// actually carried out, and enough of an item to park.
-type parkingTracker struct {
-	parked []string
-}
-
-func (t *parkingTracker) Show(_ context.Context, id string) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: id, Title: "an admitted item", Status: "open"}, nil
-}
-
-func (t *parkingTracker) List(_ context.Context, _ string) ([]beads.WorkItem, error) { return nil, nil }
-
-func (t *parkingTracker) Create(_ context.Context, item beads.NewWorkItem) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: "yoyodyne-new", Title: item.Title, Status: "open"}, nil
-}
-
-func (t *parkingTracker) Update(_ context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error) {
-	if change.Parking != nil {
-		t.parked = append(t.parked, id)
-	}
-	return beads.WorkItem{ID: id, Status: "open"}, nil
-}
-
-func (t *parkingTracker) Block(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: id, Status: "open"}, nil
-}
-
-func (t *parkingTracker) Unblock(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: id, Status: "open"}, nil
-}
-
-func (t *parkingTracker) AddBlocker(_ context.Context, _, _ string) error    { return nil }
-func (t *parkingTracker) RemoveBlocker(_ context.Context, _, _ string) error { return nil }
-
-func (t *parkingTracker) Complete(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	return beads.WorkItem{ID: id, Status: "closed"}, nil
 }
 
 var _ execution.Clock = correctionClock{}

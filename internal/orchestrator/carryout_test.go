@@ -1165,7 +1165,7 @@ func TestAPreservedWorktreeSomebodyHasBeenInStopsTheCarryOutAndSaysWhy(t *testin
 
 	harness := newUndecidedHarness(t, continuableState())
 	grantedAgainstTheStoppage(t, harness)
-	harness.ownership.err = errors.New("HEAD is a commit the harness did not make")
+	harness.ownership.Err = errors.New("HEAD is a commit the harness did not make")
 	carrying := harness.carryOut()
 	carried, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying))
 	if err != nil {

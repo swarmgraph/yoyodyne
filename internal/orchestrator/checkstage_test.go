@@ -867,7 +867,7 @@ func TestAnOverdueCheckStageContinuationNamesItsGateAcrossWatcherRestarts(t *tes
 	build := func() CarryOut {
 		return CarryOut{Docket: h.docket, Decisions: h.runs.Triage(), Reruns: h.reruns, Runs: h.runs,
 			CheckStages: CheckStageContinuer{Docket: h.docket, Runs: h.runs, Intake: h.intake, Items: tracker,
-				Worktrees: &fakeOwnership{}, Capacity: 1, Clock: clock,
+				Worktrees: &orchestratortest.Ownership{}, Capacity: 1, Clock: clock,
 				Load: func() (float64, int, bool) { return 160, 8, true },
 				Start: func(context.Context, string, string) (Outcome, error) {
 					started++

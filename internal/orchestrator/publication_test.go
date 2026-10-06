@@ -24,7 +24,7 @@ func TestReconcileRecordsThatTheForgeMergedAFailedRunsPullRequest(t *testing.T) 
 	t.Parallel()
 
 	fixture, before := newPublicationFixture(t)
-	forge := &answeringForge{answer: publish.PullRequest{
+	forge := &orchestratortest.AnsweringForge{Answer: publish.PullRequest{
 		Number: before.PullRequest.Number,
 		URL:    before.PullRequest.URL,
 		State:  "MERGED",
@@ -39,8 +39,8 @@ func TestReconcileRecordsThatTheForgeMergedAFailedRunsPullRequest(t *testing.T) 
 	if refreshed[0].Recorded != "OPEN" || refreshed[0].State != "MERGED" || !refreshed[0].Merged {
 		t.Fatalf("refresh = %#v, want the disagreement it settled reported from both sides", refreshed[0])
 	}
-	if len(forge.heads) != 1 || forge.heads[0] != before.PullRequest.Branch {
-		t.Fatalf("forge asked about %v, want the branch the run published", forge.heads)
+	if len(forge.Heads) != 1 || forge.Heads[0] != before.PullRequest.Branch {
+		t.Fatalf("forge asked about %v, want the branch the run published", forge.Heads)
 	}
 
 	after := loadRun(t, fixture.store, before.RunID)
@@ -66,7 +66,7 @@ func TestReconcileStopsAskingAboutAPublicationTheForgeMerged(t *testing.T) {
 	t.Parallel()
 
 	fixture, before := newPublicationFixture(t)
-	forge := &answeringForge{answer: publish.PullRequest{
+	forge := &orchestratortest.AnsweringForge{Answer: publish.PullRequest{
 		Number: before.PullRequest.Number,
 		URL:    before.PullRequest.URL,
 		State:  "MERGED",
@@ -79,8 +79,8 @@ func TestReconcileStopsAskingAboutAPublicationTheForgeMerged(t *testing.T) {
 	if again := fixture.refresh(t, forge); len(again) != 0 {
 		t.Fatalf("second refresh = %#v, want a settled publication left alone", again)
 	}
-	if forge.asked != 1 {
-		t.Fatalf("the forge was asked %d time(s), want the settled question asked once", forge.asked)
+	if forge.Asked != 1 {
+		t.Fatalf("the forge was asked %d time(s), want the settled question asked once", forge.Asked)
 	}
 }
 
@@ -122,7 +122,7 @@ func TestReconcileRecordsEachAnswerTheForgeGivesAboutAPublication(t *testing.T) 
 			answer.Number = before.PullRequest.Number
 			answer.URL = before.PullRequest.URL
 
-			refreshed := fixture.refresh(t, &answeringForge{answer: answer})
+			refreshed := fixture.refresh(t, &orchestratortest.AnsweringForge{Answer: answer})
 			if len(refreshed) != 1 || refreshed[0].Failure != "" || refreshed[0].Kept != "" {
 				t.Fatalf("refresh = %#v, want the record asked about and answered", refreshed)
 			}
@@ -148,7 +148,7 @@ func TestReconcileLeavesARecordAloneWhenTheForgeAnswersForAnotherRequest(t *test
 	t.Parallel()
 
 	fixture, before := newPublicationFixture(t)
-	forge := &answeringForge{answer: publish.PullRequest{
+	forge := &orchestratortest.AnsweringForge{Answer: publish.PullRequest{
 		Number: before.PullRequest.Number + 41,
 		URL:    "https://example.invalid/pull/99",
 		State:  "MERGED",
@@ -177,7 +177,7 @@ func TestReconcileReportsAPublicationTheForgeCouldNotBeAskedAbout(t *testing.T) 
 	t.Parallel()
 
 	fixture, before := newPublicationFixture(t)
-	forge := &answeringForge{err: errors.New("the forge is unreachable")}
+	forge := &orchestratortest.AnsweringForge{Err: errors.New("the forge is unreachable")}
 
 	refreshed := fixture.refresh(t, forge)
 	if len(refreshed) != 1 || refreshed[0].Updated {
@@ -200,7 +200,7 @@ func TestReconcileLeavesAQueuedMergeToTheSettlePath(t *testing.T) {
 
 	fixture := newQueuedFixture(t)
 	fixture.run(t)
-	forge := &answeringForge{answer: publish.PullRequest{Number: 1, State: "MERGED", Merged: true}}
+	forge := &orchestratortest.AnsweringForge{Answer: publish.PullRequest{Number: 1, State: "MERGED", Merged: true}}
 
 	refreshed, err := Reconciler{
 		Tracker:   fixture.tracker,
@@ -211,8 +211,8 @@ func TestReconcileLeavesAQueuedMergeToTheSettlePath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("RefreshPublications() error = %v", err)
 	}
-	if len(refreshed) != 0 || forge.asked != 0 {
-		t.Fatalf("refresh = %#v after %d question(s), want the queued merge left to the settle path", refreshed, forge.asked)
+	if len(refreshed) != 0 || forge.Asked != 0 {
+		t.Fatalf("refresh = %#v after %d question(s), want the queued merge left to the settle path", refreshed, forge.Asked)
 	}
 	held := loadRun(t, fixture.store, pipelineRunID)
 	if held.PullRequest == nil || !held.PullRequest.MergeQueued {
@@ -282,39 +282,4 @@ func loadRun(t *testing.T, store *runstate.Store, runID string) runstate.State {
 	return state
 }
 
-// answeringForge is the forge reduced to the one question this sweep asks. It
-// is separate from orchestratortest.Forge because a refresh needs answers no run
-// of the harness produces — a request somebody closed unmerged, a branch some
-// other request answers for — and because counting the questions is how a test
-// proves a settled record is never asked about twice.
-type answeringForge struct {
-	answer publish.PullRequest
-	err    error
-	asked  int
-	heads  []string
-}
-
-func (f *answeringForge) State(_ context.Context, head string) (publish.PullRequest, error) {
-	f.asked++
-	f.heads = append(f.heads, head)
-	if f.err != nil {
-		return publish.PullRequest{}, f.err
-	}
-	return f.answer, nil
-}
-
-// Merge is never reached from a refresh or a finish: only the recovery of a
-// promotion that recorded no request arms a merge, and none of the records these
-// tests write is one.
-func (f *answeringForge) Merge(context.Context, publish.MergeRequest) (publish.MergeResult, error) {
-	return publish.MergeResult{}, errors.New("answeringForge merges nothing: a refresh only asks")
-}
-
-// Close is the write the refresh never makes. A refresh that reached it would
-// be closing a request on the strength of an answer, which is the orphan
-// sweep's decision and not this one's.
-func (f *answeringForge) Close(context.Context, publish.CloseRequest) (publish.Closure, error) {
-	return publish.Closure{}, errors.New("a refresh closes nothing")
-}
-
-var _ ReconcilePullRequests = (*answeringForge)(nil)
+var _ ReconcilePullRequests = (*orchestratortest.AnsweringForge)(nil)
