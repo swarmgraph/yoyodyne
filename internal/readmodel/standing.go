@@ -365,6 +365,9 @@ type RunningRun struct {
 	// claim, and empty on a run recorded before labels were carried. They are
 	// what the slot below is read from.
 	Labels []string `json:"labels,omitempty"`
+	// recordedSlot is the developer slot the run's record names, and zero where
+	// it names none; the slot below is read from it before the labels.
+	recordedSlot int
 	// Backend, Model, and Account are what the run is spending: the provider it
 	// runs on, the model it asked for (the resolved identifier where the provider
 	// reported one), and the account alias it runs under. The alias is exactly
@@ -1027,6 +1030,7 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 			WorkItemID:          state.WorkItemID,
 			Title:               state.WorkItemTitle,
 			Labels:              append([]string(nil), state.WorkItemLabels...),
+			recordedSlot:        state.RecordedSlot(),
 			Backend:             state.Backend,
 			Model:               modelOf(state.ProviderModel, state.ProviderResolvedModel),
 			Effort:              strings.TrimSpace(state.ProviderEffort),
@@ -1121,6 +1125,7 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 			WorkItemID: run.WorkItemID,
 			Labels:     run.Labels,
 			StartedAt:  run.StartedAt,
+			Slot:       run.recordedSlot,
 		})
 	}
 	assignment := developerslot.Assign(sources.Capacity, sources.Slots, inFlight)

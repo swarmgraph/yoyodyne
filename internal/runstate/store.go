@@ -482,6 +482,12 @@ func (s *Store) Create(state State) error {
 	return nil
 }
 
+// Save replaces a run's whole record. Under the run's write lock it compares
+// the routing the caller holds with the routing stored, and refuses the write
+// if they differ: routing changes only through UpdateRouting, so a difference
+// is either a copy read before a routing change or an attempt to change
+// routing here, and writing either would lose or forge it. Every other field is
+// the caller's, as it always was.
 func (s *Store) Save(state State) error {
 	state, err := state.withRecordedTextsBounded()
 	if err != nil {
@@ -490,6 +496,20 @@ func (s *Store) Save(state State) error {
 	if err := s.validateState(state); err != nil {
 		return err
 	}
+	unlock, err := s.lockRunWrites(context.Background(), state.RunID)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if err := s.checkRoutingWrite(state); err != nil {
+		return err
+	}
+	return s.writeState(state)
+}
+
+// writeState durably replaces a run record that exists. Its callers hold the
+// run's write lock and have already validated the record.
+func (s *Store) writeState(state State) error {
 	if err := os.MkdirAll(s.root, 0o700); err != nil {
 		return fmt.Errorf("create run state directory: %w", err)
 	}
@@ -573,6 +593,10 @@ func (s *Store) load(runID string, tolerateUnknownFields bool) (State, error) {
 		noteUnknownFields("run record", unknown)
 	} else if err := decodeStrictly(encoded, &state); err != nil {
 		return State{}, fmt.Errorf("decode run state %s: %w", runID, err)
+	} else if state.Routing != nil && state.Routing.Version > RoutingVersion {
+		// A caller of the strict door is about to act on the run, and cannot act
+		// on routing it does not understand.
+		return State{}, fmt.Errorf("%w: run %s has routing version %d and this build reads %d", ErrUnsupportedRouting, runID, state.Routing.Version, RoutingVersion)
 	}
 	if state.RunID != runID {
 		return State{}, fmt.Errorf("run state file %s belongs to run %s", runID, state.RunID)

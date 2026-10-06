@@ -4,10 +4,11 @@
 // A developer slot is one unit of execution.max_concurrent_developers: the
 // capacity one developer run takes. The slots are numbered from 1, and a project
 // may say what each one prefers — a label whose work that slot pulls first, and
-// the rest of the backlog only when none of it is ready. Nothing records which
-// slot a run was started in, and nothing has to: the slots are interchangeable
-// capacity, so which of them a run is "in" is a reading of what is in flight
-// against what the slots prefer, made the same way every time. A run over
+// the rest of the backlog only when none of it is ready. A run whose record
+// names its slot (runstate.RunRouting) is in that slot and no other: its number
+// is never re-derived from labels, start order, or a lowered capacity. For a
+// run whose record names none, which slot it is "in" is a reading of what is in
+// flight against what the slots prefer, made the same way every time. A run over
 // labelled work sits in a slot that prefers its label while one is unassigned;
 // everything else sits in a slot with no preference first, and in a preferring
 // slot only once those are full, which is that slot having fallen back.
@@ -38,6 +39,8 @@ type Run struct {
 	WorkItemID string
 	Labels     []string
 	StartedAt  time.Time
+	// Slot is the slot the run's record names, and zero where it names none.
+	Slot int
 }
 
 // Slot is one developer slot as assigned: its number, what it prefers, and the
@@ -99,9 +102,11 @@ type Assignment struct {
 	Slots []Slot
 	// Overflow is the runs in flight beyond the configured capacity: the
 	// operator lowered it under runs already going, or two processes raced for
-	// the last slot and both reserved. They are named rather than dropped, so a
-	// count of what is in flight and a count of what the slots hold can be
-	// reconciled by whoever reads both.
+	// the last slot and both reserved. A run whose recorded slot lies beyond the
+	// capacity, or is recorded by an earlier run too, is here as well, keeping
+	// its number, rather than moved into a slot it was never given. They are
+	// named rather than dropped, so a count of what is in flight and a count of
+	// what the slots hold can be reconciled by whoever reads both.
 	Overflow []Run
 }
 
@@ -112,9 +117,10 @@ type Assignment struct {
 // because the configuration has already refused it.
 //
 // The reading is deterministic: runs are taken oldest first and by run id
-// among equals, and each is put in the first slot in configured order that
-// holds it — a slot preferring one of its labels, then a slot preferring
-// nothing, then any slot at all. Labelled runs are placed before unlabelled
+// among equals. A run naming its slot is put in that slot first. Each of the
+// rest is put in the first slot in configured order that holds it — a slot
+// preferring one of its labels, then a slot preferring nothing, then any slot
+// at all. Labelled runs are placed before unlabelled
 // ones so that an unlabelled run started earlier never takes the preferring
 // slot from the labelled run that slot was configured for.
 func Assign(capacity int, preferences []domain.DeveloperSlot, inFlight []Run) Assignment {
@@ -136,8 +142,23 @@ func Assign(capacity int, preferences []domain.DeveloperSlot, inFlight []Run) As
 		return runs[first].RunID < runs[second].RunID
 	})
 	placed := make([]bool, len(runs))
-	// Labelled runs first, into the slots configured for their labels.
+	// Recorded slots first: they are identities, not a reading.
 	for index, run := range runs {
+		if run.Slot == 0 {
+			continue
+		}
+		placed[index] = true
+		if run.Slot <= capacity && assignment.Slots[run.Slot-1].Free() {
+			assignment.Slots[run.Slot-1].take(run)
+			continue
+		}
+		assignment.Overflow = append(assignment.Overflow, run)
+	}
+	// Labelled runs next, into the slots configured for their labels.
+	for index, run := range runs {
+		if placed[index] {
+			continue
+		}
 		if slot := assignment.freeSlot(func(slot Slot) bool { return slot.Preferring() && slot.Prefers(run.Labels) }); slot != nil {
 			slot.take(run)
 			placed[index] = true

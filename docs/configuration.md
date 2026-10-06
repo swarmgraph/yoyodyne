@@ -3108,9 +3108,14 @@ document, loads it as a configuration, and drives the scheduler over it, so the
 example is held to doing what these three points say rather than described as
 doing it.
 
-Which slot a run is in is not written down; it is read off what is in flight
-against what the slots prefer, the same way every time, by the scheduler and by
-`yoyo status` alike. A run over labelled work is in a slot that prefers its
+A run's record can name the slot it occupies. Where it does, that is the run's
+slot and no other: a change of labels, a different start order, a restart, or a
+lowered `max_concurrent_developers` never moves it, and a run whose recorded
+slot lies beyond the capacity is reported beyond the slots, keeping its number.
+Runs do not record a slot yet — the dispatch that writes it is separate work —
+so for now, and for every run recorded before it, which slot a run is in is
+read off what is in flight against what the slots prefer, the same way every
+time, by the scheduler and by `yoyo status` alike. A run over labelled work is in a slot that prefers its
 label while one is unassigned, and everything else is in a slot with no
 preference first and in a preferring slot only once those are full — which is
 that slot having fallen back. Labels are read from what each run recorded at
@@ -3130,8 +3135,10 @@ label's work is exhausted.
 
 The configuration loader and endpoint resolver accept an ordered pair under
 `execution.developer_slots[].routing`. This is configuration support: developer
-and reviewer run dispatch, durable slot assignment, automatic provider switching,
-and live application of the four-slot mapping are separate work. Accepting or
+and reviewer run dispatch, automatic provider switching, and live application
+of the four-slot mapping are separate work. The run record can hold a run's
+slot, the pair it was pinned to, and every operation, attempt and switch made
+under it (`internal/runstate/routing.go`), but no dispatch writes them yet. Accepting or
 printing a pair does not mean a run has used it.
 
 ```yaml

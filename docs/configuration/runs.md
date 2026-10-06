@@ -628,9 +628,14 @@ and not the one above, because the split has not reduced that document to an
 index yet and both still carry the section; the two blocks are identical, and
 the tranche that makes it an index points the test here.
 
-Which slot a run is in is not written down; it is read off what is in flight
-against what the slots prefer, the same way every time, by the scheduler and by
-`yoyo status` alike. A run over labelled work is in a slot that prefers its
+A run's record can name the slot it occupies. Where it does, that is the run's
+slot and no other: a change of labels, a different start order, a restart, or a
+lowered `max_concurrent_developers` never moves it, and a run whose recorded
+slot lies beyond the capacity is reported beyond the slots, keeping its number.
+Runs do not record a slot yet — the dispatch that writes it is separate work —
+so for now, and for every run recorded before it, which slot a run is in is
+read off what is in flight against what the slots prefer, the same way every
+time, by the scheduler and by `yoyo status` alike. A run over labelled work is in a slot that prefers its
 label while one is unassigned, and everything else is in a slot with no
 preference first and in a preferring slot only once those are full — which is
 that slot having fallen back. Labels are read from what each run recorded at
