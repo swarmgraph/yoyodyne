@@ -34,12 +34,12 @@ Existing records are read as recorded; this does not recover token counts from
 an invocation whose stream did not preserve them.
 
 The recorded `exec --json` stream has no plan usage-window reading. Yoyo does
-not inspect the operator's Codex home to find one. Weekly-window support needs
+not inspect the operator's Codex home to find one. Recording the weekly reading needs
 a person-supplied redacted record of that reading, with its exact source file
 name and line number. The sample must preserve the event type, field names,
 percent used, window length, reset time and its format, and observation time;
 conversation text, credentials, and account identifiers should be removed.
-No such sample was supplied for this change, so the session-log location and
+No such sample was supplied for this change, so where Codex's own session log keeps it and its
 field shape remain unverified and the weekly reading is not displayed. No
 weekly reading is inferred from token counts.
 
