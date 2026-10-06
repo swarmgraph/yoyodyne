@@ -36,6 +36,16 @@ const (
 	repositoryConfigPath = "../../.yoyodyne/config.yaml"
 )
 
+// installScriptSuitePath is the install script's own suite. It runs
+// scripts/install.sh against a fabricated release and a fabricated machine —
+// curl and uname are stubs on PATH, the releases are files in a temporary
+// directory, HOME and the install directory are inside it — so it reaches no
+// network, needs no published release, and writes nothing outside its root.
+// The script is the first thing a newcomer runs and the one part of the install
+// path that is not the binary, and until this ran from here the only thing
+// that had executed it was a CI step after review.
+const installScriptSuitePath = "../../scripts/install-test.sh"
+
 // adoptionWalkthroughPath is the README's "Getting started" executed against a
 // throwaway project. `make adoption` runs the whole of it; what is run from
 // here is its refusal of a scratch root inside a git repository, which needs
@@ -130,6 +140,47 @@ func TestEveryWorkflowInThisRepositoryPinsWhatItInstalls(t *testing.T) {
 	}
 	for _, problem := range WorkflowVersionPins(repositoryRoot, workflows) {
 		t.Errorf("a workflow in this repository installs a tool at a version somebody else decides: %s", problem)
+	}
+}
+
+// TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing runs the install
+// script's suite, for the same reason the release verb's and the notes writer's suites are
+// run from Go: the script is shell, what it claims is the README's first line, and a suite that runs only
+// in CI is evidence that arrives after the change was reviewed. The suite's
+// Makefile-coupling checks are the part worth having here in particular — a
+// platform dropped from PLATFORMS or an archive renamed in `dist` would
+// otherwise pass every Go check and break every real install.
+func TestTheInstallScriptDoesWhatItSaysOnAMachineThatHasNothing(t *testing.T) {
+	t.Parallel()
+
+	requireTool(t, "bash")
+	requireTool(t, "tar")
+	path, err := filepath.Abs(installScriptSuitePath)
+	if err != nil {
+		t.Fatalf("Abs(%s) error = %v", installScriptSuitePath, err)
+	}
+	// The suite fabricates its machine under a temporary root of its own; it is
+	// given a fresh one rather than the process's so that two suites running
+	// beside each other cannot share a name. It is also run from that root
+	// rather than from this package's directory: the suite is heredocs on
+	// heredocs, and bash before 5.1 writes each one to a scratch file in /tmp
+	// with no regard for TMPDIR, falling back to the current directory where
+	// /tmp is not writable -- which is what an agent sandbox on macOS is. A
+	// scratch file that lands here, however briefly, is one the census in
+	// TestEveryStructuredFileInThisRepositoryDecodes can list and then fail to
+	// open.
+	root := t.TempDir()
+	suite := exec.Command("bash", path)
+	suite.Dir = root
+	suite.Env = append(os.Environ(), "TMPDIR="+root)
+	report, err := suite.CombinedOutput()
+	if err != nil {
+		t.Fatalf("%s did not pass (%v):\n%s", installScriptSuitePath, err, report)
+	}
+	// The suite exits 0 on a machine that produced every case; a closing line
+	// that says anything else would be a pass recorded against nothing.
+	if !strings.Contains(string(report), "install.sh does what it says") {
+		t.Fatalf("%s exited 0 without its closing line:\n%s", installScriptSuitePath, report)
 	}
 }
 

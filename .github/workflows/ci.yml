@@ -76,6 +76,16 @@ jobs:
       - name: Check a release's notes and the body they are published as
         run: bash scripts/release-notes-test.sh
 
+      # The install script runs on machines nobody here controls, and the states
+      # worth testing -- a platform with no release binary, a download that is
+      # not what the release published, a PATH the binary is not on, a missing
+      # prerequisite -- are none of them this runner's. They are fabricated
+      # instead, so this needs no network and no published release. `make test`
+      # runs the same suite from a Go test, so a run applies it too; this step
+      # is the one that prints its own report on the pull request.
+      - name: Check that the install script works on a machine that has nothing
+        run: bash scripts/install-test.sh
+
   # The README's "Getting started" is a claim a stranger acts on, and until this
   # job existed the only thing standing behind it was somebody remembering to
   # run `make adoption` before merging a change to those sections. That is an
