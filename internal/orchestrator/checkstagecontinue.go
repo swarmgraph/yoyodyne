@@ -87,6 +87,10 @@ type CheckStageContinuer struct {
 // CheckStageContinueRequest names the run the docket entry is about.
 type CheckStageContinueRequest struct {
 	Run string
+	// AheadOf is a sentence the pass that fired this adds to the reason the run
+	// and the item record, where it put the continuation ahead of higher-priority
+	// ready work, naming that work. Empty for every other continuation.
+	AheadOf string
 }
 
 // CheckStageContinueResult is what the action did, and just as carefully what
@@ -245,6 +249,9 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 	result.Reason = checkStageContinueReason(prior)
 	if result.WorktreeRestored {
 		result.Reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
+	}
+	if strings.TrimSpace(request.AheadOf) != "" {
+		result.Reason = withAheadOf(result.Reason, request.AheadOf)
 	}
 	if _, err := c.Items.RecordOutcome(ctx, entry.WorkItemID, result.Reason); err != nil {
 		return result, fmt.Errorf("record the continuation on %s: %w", entry.WorkItemID, err)

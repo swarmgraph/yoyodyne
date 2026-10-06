@@ -4582,7 +4582,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 			}
 			if held.preserved {
 				task.Preserved = true
-				task.AheadOf = held.ahead
+				task.AheadOf = held.named
 			}
 		}
 		chosen = append(chosen, task)
@@ -4607,6 +4607,9 @@ type outrankedCarryOut struct {
 	task     CarryOutTask
 	priority int
 	ahead    []string
+	// named is the same ready work by what it is, each title with its
+	// identifier after it, for the sentences a person reads on the item.
+	named []string
 	// preserved says the stopped run's change is still there, so the decision is
 	// held back by nothing in the order and ahead is the work it goes ahead of.
 	preserved bool
@@ -4666,6 +4669,11 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 			continue
 		}
 		held.ahead = append(held.ahead, entry.ID)
+		named := entry.ID
+		if title := strings.TrimSpace(read.items[entry.ID].Title); title != "" {
+			named = fmt.Sprintf("%s (%s)", title, entry.ID)
+		}
+		held.named = append(held.named, named)
 	}
 	return held, len(held.ahead) > 0
 }

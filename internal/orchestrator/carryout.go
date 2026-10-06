@@ -274,7 +274,8 @@ type CarryOutTask struct {
 	// Preserved says the pass found the stopped run's branch or worktree still
 	// there when it chose this decision, which is what puts it ahead of fresh
 	// pulls of any priority; AheadOf is the ready work of higher priority it was
-	// put ahead of, which the run's reason names. Both are the pass's to set and
+	// put ahead of, each by its title with its identifier after it, which the
+	// run's reason and the item's notes name. Both are the pass's to set and
 	// empty on a decision carried out any other way.
 	Preserved bool     `json:"preserved,omitempty"`
 	AheadOf   []string `json:"ahead_of,omitempty"`
@@ -1095,7 +1096,7 @@ func (c CarryOut) continueChecks(ctx context.Context, task CarryOutTask, carried
 	if held {
 		return waiting(runstate.TriageGateSpendingPause, fmt.Sprintf("the operator has paused everything the harness spends, since %s", hold.HeldAt.UTC().Format(time.RFC3339)))
 	}
-	result, runErr := c.CheckStages.Continue(ctx, CheckStageContinueRequest{Run: task.RunID})
+	result, runErr := c.CheckStages.Continue(ctx, CheckStageContinueRequest{Run: task.RunID, AheadOf: aheadOfQueue(task)})
 	carried.RecordProblem = result.RecordProblem
 	switch {
 	case result.IntakeHeld != nil:

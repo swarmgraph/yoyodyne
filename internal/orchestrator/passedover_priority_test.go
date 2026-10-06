@@ -250,7 +250,7 @@ func TestADecisionAboutPreservedWorkTakesTheNextFreeSlotAheadOfHigherPriorityWor
 	// What it went ahead of is named: on the task the action records the run's
 	// reason from, and on the pass's own account of the start.
 	ahead := strings.Join(harness.carried[0].AheadOf, ",")
-	for _, want := range []string{"yoyodyne-p0-0", "yoyodyne-p1-0"} {
+	for _, want := range []string{"Fresh priority-0 work (yoyodyne-p0-0)", "Fresh priority-1 work (yoyodyne-p1-0)"} {
 		if !strings.Contains(ahead, want) {
 			t.Fatalf("ahead of = %q, want it to name %s", ahead, want)
 		}
