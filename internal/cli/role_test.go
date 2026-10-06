@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -393,5 +394,38 @@ func TestAnAgentOnAnActivatedRoleDefinitionIsReadByEveryAuthorityReader(t *testi
 	stdout, stderr, code = runCLI(t, "role", "list", "--config", configPath)
 	if code != 0 || !strings.Contains(stdout, "moved since activation") {
 		t.Fatalf("role list after the move = %d, %q, %q", code, stdout, stderr)
+	}
+}
+
+// The Slack process reads the configuration the way every other command does:
+// a project whose agent fills a role definition is refused until a person
+// activates it, and accepted once they have — by `yoyo slack ensure` and by the
+// sink's reading of what the template has improved alike.
+func TestTheSlackProcessReadsAnAgentOnAnActivatedRoleDefinition(t *testing.T) {
+	t.Setenv(execution.AgentRoleVariable, "")
+	t.Setenv(runstate.StateHomeVariable, t.TempDir())
+	project := t.TempDir()
+	configPath := filepath.Join(project, config.FileName)
+	if err := os.WriteFile(configPath, []byte(definitionAgentsConfig), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeArtifact(t, project, config.DirectoryName+"/roles/specialist.yaml",
+		"extends: architect\ntools:\n  add: [readmodel.read]\n  remove: [exchange.ask]\n")
+	writeArtifact(t, project, config.DirectoryName+"/roles/narrow.yaml",
+		"extends: developer\ntools:\n  remove: [worktree.mutate]\n")
+
+	stdout, stderr, code := runCLI(t, "slack", "ensure", "--config", configPath)
+	if code == 0 || !strings.Contains(stderr, "nobody has activated it") {
+		t.Fatalf("slack ensure before activation = %d, %q, %q, want the unactivated definition refused", code, stdout, stderr)
+	}
+	roleCLIOutput(t, "activate", configPath, "specialist", "--by", "Ada")
+	roleCLIOutput(t, "activate", configPath, "narrow", "--by", "Ada")
+
+	stdout, stderr, code = runCLI(t, "slack", "ensure", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("slack ensure after activation = %d, %q, %q, want the project accepted", code, stdout, stderr)
+	}
+	if _, err := (configImprovements{path: configPath}).Offered(context.Background()); err != nil {
+		t.Fatalf("the sink's configuration read refused an activated definition: %v", err)
 	}
 }

@@ -372,3 +372,29 @@ func TestStaleConfigurationCleanupPreservesAChangedRecord(t *testing.T) {
 		t.Fatalf("current startup lost: %+v, %v", readers, err)
 	}
 }
+
+// A running part reads a configuration whose agent names a role definition as
+// it reads any other: the name is a value under `role`, so it adds no key a
+// build could fail to read, and no part is reported over it.
+func TestConfigReaderReadsAnAgentOnARoleDefinitionLikeAnyOther(t *testing.T) {
+	root := t.TempDir()
+	configPath := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("agents:\n  architect:\n    role: specialist\n    backend: claude-code\n    model: opus\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewConfigReaderStore(root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	started := time.Date(2026, 10, 6, 9, 0, 0, 0, time.UTC)
+	if err := store.Record(ConfigReader{Service: "scheduler", PID: 201, Build: "fedcba9876543210", ConfigPath: configPath, StartedAt: started, Keys: config.SchemaKeys()}); err != nil {
+		t.Fatal(err)
+	}
+	if mismatches, err := store.Mismatches(); err != nil || len(mismatches) != 0 {
+		t.Fatalf("Mismatches() = %+v, %v, want an agent on a definition read like any other", mismatches, err)
+	}
+	if mismatches, err := store.MismatchesIn(os.ReadFile); err != nil || len(mismatches) != 0 {
+		t.Fatalf("MismatchesIn() = %+v, %v, want an agent on a definition read like any other", mismatches, err)
+	}
+}

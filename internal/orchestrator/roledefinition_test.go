@@ -5,7 +5,9 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -14,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // The developer invocation carries the tool access the developer agent is held
@@ -81,4 +84,46 @@ func withNarrowedDeveloper(t *testing.T, agents map[string]config.AgentConfig) m
 		t.Fatal("the fixture configures no developer agent")
 	}
 	return narrowed
+}
+
+// A landing whose project has an agent filling a role definition compares the
+// configuration with the running parts as it compares any other: the name is a
+// value under `role`, so a part on this build reads the file and nothing is
+// said of it.
+func TestALandingReadsAnAgentOnARoleDefinitionLikeAnyOther(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"true"})
+	pipeline.Config.Agents = withNarrowedDeveloper(t, pipeline.Config.Agents)
+
+	stateRoot := t.TempDir()
+	configPath := filepath.Join(stateRoot, "config.yaml")
+	if err := os.WriteFile(configPath, []byte("agents:\n  developer:\n    role: narrow\n    backend: claude-code\n    model: opus\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := runstate.NewConfigReaderStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store = store.WithProcessCheck(func(int) (bool, error) { return true, nil })
+	if err := store.Record(runstate.ConfigReader{Service: "scheduler", PID: 4343, Build: "9870df6a1b2c3d4e", ConfigPath: configPath, StartedAt: time.Date(2026, 10, 6, 9, 0, 0, 0, time.UTC), Keys: config.SchemaKeys()}); err != nil {
+		t.Fatal(err)
+	}
+	pipeline.ConfigReaders = store
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || outcome.Integration == nil {
+		t.Fatalf("outcome = %#v, want the run landed", outcome)
+	}
+	if len(outcome.ConfigMismatches) != 0 || strings.Contains(strings.Join(tracker.NoteRecords, "\n"), "cannot read the configuration") {
+		t.Fatalf("outcome names %+v and notes %v, want an agent on a definition read like any other", outcome.ConfigMismatches, tracker.NoteRecords)
+	}
 }
