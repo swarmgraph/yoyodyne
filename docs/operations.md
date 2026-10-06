@@ -2011,15 +2011,22 @@ kept awake — on power, with system sleep disabled; on a Mac laptop whose lid i
 closed that takes `sudo pmset -a disablesleep 1`, which `caffeinate` does not
 do — and nothing the harness does replaces that.
 
-**The watch log says which pass the session is in.** A watching session fires
-its recurring passes inside its poll, one at a time, so while a pass runs the
-session pulls nothing. Until yoyodyne-ifd.433.20 it also wrote nothing: the log
-went from its last line before that pass to 09:48 PDT the next morning with not
-a word. Now each pass the session begins is a line in `watch.jsonl` as it starts:
+**The watch log says which pass the session is in.** A watching session used
+to fire its recurring passes inside its poll, one at a time, so while a pass ran
+the session pulled nothing. Until yoyodyne-ifd.433.20 it also wrote nothing: the
+log went from its last line before that pass to 09:48 PDT the next morning with
+not a word. Now each pass the session begins is a line in `watch.jsonl` as it
+starts. Since the fix for one role's pass holding another's (yoyodyne-ifd.428.56)
+a session takes its passes beside its poll, so the line says the poll goes on
+pulling:
 
 ```text
-taking the recurring pass of development-manager-sweep since 2026-09-30T04:52:08Z, fired by its schedule; the session fires its passes inside its poll, so it pulls nothing more until this pass ends
+taking the recurring pass of development-manager-sweep since 2026-09-30T04:52:08Z, fired by its schedule; it is taken beside the session's poll, which goes on pulling while it runs
 ```
+
+A schedule that can only fire inside the poll still does, and its line still
+ends "the session fires its passes inside its poll, so it pulls nothing more
+until this pass ends".
 
 carried as `recurring_pass` — the task or instance, its role, what fired it,
 and when it began. It is a note about what the session is doing inside its
@@ -2027,10 +2034,10 @@ poll rather than a change of the session's state, like a dispatch's wait: the
 session line on `yoyo status` and the stall reading still name the session's
 own last word, so a session idle over an empty queue that begins a pass is not
 read as one choosing work. The session's next line after the pass is the
-account of the poll that pass was part of. A pass that holds the poll for hours
-is therefore said as the pass, with its start, rather than left as silence; the
-pass still holds the poll, and running passes beside the poll rather than
-inside it is not done here.
+account of the poll that pass was part of. A pass that runs for hours is
+therefore said as the pass, with its start, rather than left as silence; and
+since it runs beside the poll it holds only its own role's conversation, so the
+session goes on pulling and firing other roles' passes meanwhile.
 
 ## When a provider stalls or runs out of budget
 
@@ -2503,22 +2510,26 @@ learned by looking.
 **A drain stops nothing but the wait on the runs it hosts.** A draining session
 still polls, still pulls ready work into any free seat, still puts stopped work
 in front of the development manager, and still fires every recurring task as
-its cadence comes due — a firing already under way when the bound runs out is
-finished first. The one thing it declines is a pull made with the bound less
+its cadence comes due for as long as it hosts a run. Once it hosts none it
+starts no new pass, since a pass begun then would only hold the restart; the
+session that comes back takes it. The one thing it declines is a pull made with the bound less
 than one poll away, which would start a run only to stop it — a development
 manager's decision it would otherwise carry out included, which the session
 that comes back carries out instead; that pull is skipped, and the skip is said in the watch log and in `yoyo status` — which
 names it as the session restarting, not as an idle session over a queue with
 work in it — rather than looking like a poll that found nothing.
 
-**The drain is bounded.** It restarts the moment it hosts no run, and otherwise
+**The drain is bounded.** It restarts the moment it hosts no run and no recurring
+pass is taking its turns, and otherwise
 waits at most `execution.redeploy_drain_limit` — fifteen minutes by default,
 minutes rather than hours on purpose. Past that it restarts anyway, and at
 once: in the same step that stops the runs it hosts, before any further pull
 or recurring pass. A run it has stopped is not a run it hosts, because its
 process is gone; the session waits only the seconds each stopped run takes to
 record its stop, up to two minutes for one that never reports back, which is
-then named in the restart's line and left to its own record. Only a run at its
+then named in the restart's line and left to its own record. A recurring pass
+still taking its turns is stopped in the same step and waited for only while it
+records itself as a missed pass. Only a run at its
 promotion, or a check stage a moment from recording its verdict, is still
 hosted past the bound:
 
@@ -2566,12 +2577,16 @@ hosted past the bound:
   unverified with its reason naming the redeploy, and nothing is filed. The
   landing budget allows hours a check, which is exactly the wait the bound
   refuses.
-- No recurring task is ever skipped for the drain, so the sweep record has
-  nothing to carry: a firing already under way when the bound runs out is
-  finished, a firing due while a promotion is waited out is made, and a firing
-  due in the moment the session restarts is made by the session that comes
-  back at its first pull, because the cadence is claimed durably and the
-  restart takes a minute.
+- A recurring pass falling due during the drain is not skipped. One due while
+  the session still hosts a run — a promotion or a check stage waited out
+  included — is made then, and one due once it hosts none is made by the
+  session that comes back at its first pull, because the cadence is claimed
+  durably and the restart takes a minute. A pass already taking its turns is
+  waited out like a run until the bound. The pass the drain costs is one still
+  taking its turns when the session restarts past the bound: it is stopped, and
+  recorded in `yoyo sweeps` as a missed pass cancelled before it completed, so
+  what it would have looked at waits for that task's next pass rather than
+  holding the restart past the bound.
 - A run the bound stops **before it recorded anything a continuation could pick
   up** — no developer session yet — is not held with a marker nothing can act
   on. It is recorded as cancelled, with its branch and worktree preserved and
@@ -5900,6 +5915,15 @@ Each pass's header names the model its turns ran on — the task's own
 configured model where it does not, and the alternate where a failover answered
 — and `--json` carries it as `model`. A pass recorded before passes named their
 model, or one that took no turn, has none.
+
+Under the header a pass says how long it stood due before it was taken —
+`fell due at 2026-09-29T16:43:47Z and waited 1h1m0s before it was taken` — and
+`--json` carries the due time as `due_at`. A pass waits while its role's
+conversation is taking another pass's turns, or while every firing a session
+takes at once is in flight; firings of different roles are taken side by side,
+so a wait of more than a poll or two on a busy cadence is the thing to look at.
+A task's first pass, a summoned pass, and one recorded before passes carried it
+say nothing about waiting.
 
 Each entry leads with **the questions the pass could not settle itself**, because
 that is the one part of a report that asks for anything: a report with no

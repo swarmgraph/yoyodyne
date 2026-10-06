@@ -810,6 +810,12 @@ func renderSweep(recorded runstate.Sweep) string {
 		fmt.Fprintf(&rendered, ", on %s", recorded.Model)
 	}
 	rendered.WriteString("\n")
+	// How long the pass stood due before it was taken, so a pass that waited on
+	// another's reads as one that waited rather than as one that was on time.
+	if waited, known := recorded.Waited(); known && recorded.Missed == nil {
+		fmt.Fprintf(&rendered, "  fell due at %s and waited %s before it was taken\n",
+			recorded.DueAt.UTC().Format(time.RFC3339), waited.Round(time.Second))
+	}
 	// A summoned pass is said as one before anything it found: it is the pass
 	// that ran because the line stopped, and a reader scanning the log for why
 	// the hourly cadence has an extra entry in it is owed the answer first.

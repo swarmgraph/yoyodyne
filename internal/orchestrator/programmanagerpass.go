@@ -7,7 +7,8 @@ package orchestrator
 // and it is built on the recurring-task machinery rather than beside it, so
 // every rule that file states holds here unchanged: the operator's pause stops
 // a pass and the intake hold does not, the claim is taken before the first turn
-// is asked, at most one firing is made per pull, a provider answering nobody is
+// is asked, its turns are taken beside the pull and beside other roles'
+// firings (recurringfirings.go), a provider answering nobody is
 // recorded as the wait rather than as a turn that failed, and every pass ends in
 // the same durable record `yoyo sweeps` reads. What is added is three things.
 //
@@ -184,14 +185,16 @@ func (t Trigger) instanceNames() []string {
 	return names
 }
 
-// pass considers one instance for a pass at this pull, and takes it where the
+// pass considers one instance for a pass at this pull, and claims it where the
 // schedule is due or an armed wake has settled. It reports whether a pass was
-// taken; an error is something that stopped the instance being considered at
-// all, said beside the pull rather than recorded as a pass.
-func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentConfig, outage runstate.ProviderOutage, away bool) (Fired, bool, error) {
+// claimed, with the turns to take where there are any; an error is something
+// that stopped the instance being considered at all, said beside the pull rather
+// than recorded as a pass. The due time is when the pass fell due, where the
+// caller knows, and it rides the pass's record.
+func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentConfig, outage runstate.ProviderOutage, away bool, dueAt time.Time) (claimedFiring, bool, error) {
 	triggers := instance.Triggers
 	if !triggers.Defined() {
-		return Fired{}, false, nil
+		return claimedFiring{}, false, nil
 	}
 	// A pass that was claimed and never ended is recorded as missed before the
 	// next one is claimed over it.
@@ -199,7 +202,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 	now := t.now()
 	wake, err := t.readWake(ctx, agent, triggers, now)
 	if err != nil {
-		return Fired{}, false, errors.Join(unfinished, err)
+		return claimedFiring{}, false, errors.Join(unfinished, err)
 	}
 	readProblem := unfinished
 	if len(wake.problems) > 0 {
@@ -215,23 +218,23 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			due = true
 		case errors.Is(err, runstate.ErrSweepNotDue):
 		default:
-			return Fired{}, false, errors.Join(readProblem, fmt.Errorf("claim the scheduled pass of the program manager instance %s: %w", agent, err))
+			return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the scheduled pass of the program manager instance %s: %w", agent, err))
 		}
 	}
 	if !due {
 		if !wake.armed() || !wake.settled(now) || away {
-			return Fired{}, false, readProblem
+			return claimedFiring{}, false, readProblem
 		}
 		last, fired, err := t.Claims.Find(agent)
 		if err != nil {
-			return Fired{}, false, errors.Join(readProblem, fmt.Errorf("read when the program manager instance %s last passed: %w", agent, err))
+			return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("read when the program manager instance %s last passed: %w", agent, err))
 		}
 		if fired && now.Before(last.FiredAt.Add(config.MinRecurringInterval)) {
-			return Fired{}, false, readProblem
+			return claimedFiring{}, false, readProblem
 		}
 		claimed, err = t.Claims.Summon(ctx, agent, now)
 		if err != nil {
-			return Fired{}, false, errors.Join(readProblem, fmt.Errorf("claim the pass of the program manager instance %s: %w", agent, err))
+			return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the pass of the program manager instance %s: %w", agent, err))
 		}
 	}
 
@@ -249,28 +252,31 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 	if away {
 		fired := t.refuse(ctx, agent, task, outage)
 		fired.Problem = appendProblem(fired.Problem, unrecorded)
-		return fired, true, nil
+		return claimedFiring{settled: &fired}, true, nil
 	}
 	trigger := runstate.PassTriggerSchedule
 	if !due {
 		trigger = runstate.PassTriggerEvents
 	}
-	fired := t.run(ctx, firing{
-		name:    agent,
-		pass:    passName(claimed),
-		task:    task,
-		trigger: trigger,
-		message: instanceMessage(agent, instance, due, wake),
-		agent:   agent,
-		events:  wake.counts(),
-		finish: func(answered bool) string {
-			problems := append([]string(nil), wake.problems...)
-			problems = append(problems, t.advance(ctx, agent, wake, answered, now))
-			return boundedProblem(problems)
-		},
-	})
-	fired.Problem = appendProblem(fired.Problem, unrecorded)
-	return fired, true, nil
+	return claimedFiring{take: func(ctx context.Context) Fired {
+		fired := t.run(ctx, firing{
+			name:    agent,
+			pass:    passName(claimed),
+			task:    task,
+			trigger: trigger,
+			message: instanceMessage(agent, instance, due, wake),
+			agent:   agent,
+			events:  wake.counts(),
+			due:     dueAt,
+			finish: func(answered bool) string {
+				problems := append([]string(nil), wake.problems...)
+				problems = append(problems, t.advance(ctx, agent, wake, answered, now))
+				return boundedProblem(problems)
+			},
+		})
+		fired.Problem = appendProblem(fired.Problem, unrecorded)
+		return fired
+	}}, true, nil
 }
 
 // readWake reads what each stream the instance watches holds past its cursor.

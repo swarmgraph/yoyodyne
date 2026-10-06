@@ -444,8 +444,9 @@ type SessionState struct {
 	// about that dispatch in the same way a dispatch wait is; see
 	// runstate.WatchTransition.WorktreeCrossing.
 	WorktreeCrossing *runstate.WorktreeCrossing
-	// RecurringPass is a recurring pass the session has begun inside its poll,
-	// written as the pass starts. It is a note in the same way a dispatch wait
+	// RecurringPass is a recurring pass the session has begun, beside its poll
+	// or, for a schedule that can only fire there, inside it, written as the pass
+	// starts. It is a note in the same way a dispatch wait
 	// is; see runstate.WatchTransition.RecurringPass.
 	RecurringPass *runstate.WatchPass
 	// Draining marks every transition the session makes while it waits out the
@@ -576,8 +577,11 @@ type ScheduleCarryOutNotes interface {
 	DeliverNotes(context.Context) error
 }
 
-// ScheduleRecurring fires the configured recurring tasks, at most one per pass.
-// It is satisfied by Trigger.
+// ScheduleRecurring fires the configured recurring tasks, at most one per pass,
+// taking the firing's turns inside the pull. It is satisfied by Trigger, which
+// also satisfies ScheduleRecurringConcurrent, and a pull whose schedule does is
+// fired through that instead: its turns are taken beside the pull, and firings
+// of different roles side by side.
 //
 // It is optional, and a pull wired without one pulls exactly the same work: what
 // is lost is the schedule, so standing work waits on a person remembering to
@@ -1379,7 +1383,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	var ended []freedSlot
 	// cadence is what this pass knows about why a recurring task might not have
 	// fired when it fell due; see recurringWatch.
-	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}}
+	cadence := recurringWatch{opened: s.now(), missed: map[string]time.Time{}, waiting: map[string]recurringHold{}}
+	// firings is the recurring firings this session has in flight, each taking
+	// its turns in a goroutine of its own and holding its own conversation and
+	// nothing else; see recurringfirings.go. They are collected at the top of
+	// every pull and waited out when the session ends, like its runs.
+	firings := newRecurringFirings(session.passingBeside(ctx))
+	defer firings.cancel()
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
 	// reading: nothing is ever removed, because a run that ends without moving the
@@ -1672,7 +1682,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		// the hold, a blocking keeps it and puts the question to the development
 		// manager again, and anything else leaves the cooldown to decide.
 		if started.Probe {
-			s.settleProbe(ctx, &schedule, brake, summons, cooldown, cycleBound, *started)
+			s.settleProbe(ctx, &schedule, firings, brake, summons, cooldown, cycleBound, *started)
 		}
 	}
 
@@ -1974,6 +1984,10 @@ pulling:
 			retries = readRetries{}
 		}
 		retries.failed = false
+		// Firings whose turns ended since the last pull are taken into the schedule
+		// here, before anything reads what the session has spent or whether it
+		// still hosts anything.
+		s.collectFirings(&schedule, firings, &cadence, false)
 		if s.Limit > 0 && schedule.Chosen() >= s.Limit {
 			schedule.Stopped = ScheduleLimitReached
 			break
@@ -2025,10 +2039,16 @@ pulling:
 		if drain.active {
 			// The restart is made the moment the session hosts nothing: the window
 			// an external restart could never find is one this makes rather than
-			// waits for, and nothing is pulled into it first.
-			if running == 0 {
+			// waits for, and nothing is pulled into it first. A firing still taking
+			// its turns is hosted too — a restart under it would cut its pass off
+			// part-way — so it is waited out, and past the bound it is stopped, which
+			// records it as a missed pass the next session owes.
+			if running == 0 && firings.idle() {
 				schedule.Stopped = ScheduleRedeployed
 				break
+			}
+			if running == 0 && drain.expired(s.now()) {
+				firings.cancel()
 			}
 			// Past the bound the session hosts nothing more. The runs still going
 			// are stopped where they are — each at a phase the session that comes
@@ -2116,18 +2136,41 @@ pulling:
 		// her judgment about work that has already stopped, which is exactly what a
 		// held or braked queue is usually waiting on. What it delivers is bounded to
 		// one stoppage per pass; see Escalator.
-		s.escalate(ctx, &schedule, pull)
-		// The schedule is fired here for the same reasons, and it is placed after
-		// the escalation deliberately: both spend a turn and both are bounded to one
-		// per pass, and a pass that did both did as much waking as it is going to.
-		// Stopped work goes first because it is a specific thing that has already
-		// gone wrong and is waiting on a judgment, where a recurring pass is the
-		// standing look that runs whether or not anything happened.
+		// A delivery is a turn in the development manager's conversation, so it
+		// waits while a firing of hers is taking turns there, and is made at the
+		// first pull after that ends.
+		if _, busy := firings.holding(roleConversationKey(domain.RoleDevelopmentManager)); !busy {
+			s.escalate(ctx, &schedule, pull)
+			s.summonWaiting(ctx, &schedule, firings, pull)
+		}
+		// The schedule is fired here for the same reasons: it chooses nothing and
+		// starts no run, so neither the brake nor the hold below stops it. It is
+		// placed after the escalation, which goes first because stopped work is a
+		// specific thing that has already gone wrong and is waiting on a
+		// judgment, where a recurring pass is the standing look that runs whether
+		// or not anything happened.
 		//
 		// A task that went a whole interval unfired is recorded as missed first,
 		// with what kept it, before the firing that resumes it; see missed.
+		//
+		// The two are not bounded alike. The escalation delivers at most one
+		// stoppage per pass and takes its turn inside the pull. A schedule that
+		// can fire beside the pull does: the firings due are claimed here, in the
+		// order of how long each has waited, and their turns are taken in
+		// goroutines of their own, one per conversation and at most
+		// MaxConcurrentFirings at once, so no role's pass holds another role's
+		// and none holds the pull — the queue below is read and started from
+		// while they run. A schedule that cannot is fired in place, one firing
+		// per pass, as it always was. A session draining to restart that hosts
+		// no run starts no new firing, so the restart is not put off by one.
 		s.missed(ctx, &schedule, pull, &cadence)
-		cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
+		if concurrent, beside := pull.Recurring.(ScheduleRecurringConcurrent); beside {
+			if !drain.active || running > 0 {
+				cadence.hold(s.startFirings(ctx, &schedule, concurrent, firings, &cadence))
+			}
+		} else {
+			cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
+		}
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to
 		// be late with: the refusal is already in that conversation's next turn
@@ -2228,7 +2271,7 @@ pulling:
 		// is the point: a brake that stopped the line by its own separate path
 		// would be a second account of a rule that already has one.
 		if s.Watching && blockedInARow > 0 && pull.BlockedRunsBeforeIntakeHold > 0 && blockedInARow >= pull.BlockedRunsBeforeIntakeHold {
-			s.brake(ctx, &schedule, pull, session, running, blockedInARow, storm)
+			s.brake(ctx, &schedule, firings, pull, session, running, blockedInARow, storm)
 			blockedInARow = 0
 			storm = nil
 		}
@@ -3111,6 +3154,15 @@ collecting:
 			break collecting
 		}
 	}
+	// And every firing it started, for the same reason: its pass is recorded by
+	// the goroutine taking it, and what it cost is this session's spend. A
+	// session restarting past its drain bound stops the firings still taking
+	// their turns first, as it stopped its runs, so the restart waits only for
+	// each to record itself as a missed pass rather than for its turns to end.
+	if schedule.Stopped == ScheduleRedeployed && drain.boundReached {
+		firings.cancel()
+	}
+	s.collectFirings(&schedule, firings, &cadence, true)
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
 	// restarted into the build deployed over it is waiting on nothing and nobody,
@@ -3470,7 +3522,7 @@ func fingerprint(item beads.WorkItem) string {
 // two itself, and a reason that also named the holder is what stacked three
 // accounts of one hold into a line nobody could read. The runs that blocked
 // ride the hold's own record, which is what the summons puts in front of her.
-func (s Scheduler) brake(ctx context.Context, schedule *Schedule, pull Pull, session *watchSession, running, blocked int, storm []runstate.BrakeBlockedRun) {
+func (s Scheduler) brake(ctx context.Context, schedule *Schedule, firings *recurringFirings, pull Pull, session *watchSession, running, blocked int, storm []runstate.BrakeBlockedRun) {
 	reason := fmt.Sprintf("%d run(s) blocked in a row with nothing landing between them, which is the configured brake at %d",
 		blocked, pull.BlockedRunsBeforeIntakeHold)
 	if pull.Brake == nil {
@@ -3499,7 +3551,7 @@ func (s Scheduler) brake(ctx context.Context, schedule *Schedule, pull Pull, ses
 	// stopping — which is what a channel wakes somebody over — whether or not
 	// her turn releases it a moment later.
 	session.enter(runstate.WatchBraked, account{reason: brakedReason(held), running: running, mover: brakedMover(held)})
-	s.summon(ctx, schedule, pull.Brake, pull.Summons, held)
+	s.summon(ctx, schedule, firings, pull.Brake, pull.Summons, held)
 }
 
 // summon puts the brake's hold in front of the development manager at once,
@@ -3512,9 +3564,23 @@ func (s Scheduler) brake(ctx context.Context, schedule *Schedule, pull Pull, ses
 // about is probed by the harness exactly as one she left undecided, so the line
 // is released or kept on evidence either way, and what is lost is her judgment
 // rather than the release.
-func (s Scheduler) summon(ctx context.Context, schedule *Schedule, brake ScheduleBrake, summons ScheduleSummons, held runstate.IntakeHold) {
+//
+// A summons is a turn in the development manager's conversation, so one that
+// finds a recurring pass of hers still taking turns there is not made into it:
+// the summons claims her task's firing before it asks her anything, and a turn
+// her own pass holds the conversation for would be refused after that claim,
+// spending it on a failed firing and leaving the hold to the cooldown's probe
+// for nothing. It waits instead, and is made at the first pull after her pass
+// ends while the brake's hold still stands; see summonWaiting.
+func (s Scheduler) summon(ctx context.Context, schedule *Schedule, firings *recurringFirings, brake ScheduleBrake, summons ScheduleSummons, held runstate.IntakeHold) {
 	if brake == nil {
 		return
+	}
+	if summons != nil && firings != nil {
+		if _, busy := firings.holding(roleConversationKey(domain.RoleDevelopmentManager)); busy {
+			firings.summoning = &waitingSummons{brake: brake, summons: summons}
+			return
+		}
 	}
 	var problem string
 	if summons == nil {
@@ -3707,7 +3773,7 @@ func (s Scheduler) recordNoProbe(schedule *Schedule, pull Pull, found string) {
 // run per cooldown must not go round all night on a machine that stays broken,
 // with nothing getting louder because the one role who could escalate it has
 // not.
-func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, brake ScheduleBrake, summons ScheduleSummons, cooldown time.Duration, cycleBound int, started Started) {
+func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, firings *recurringFirings, brake ScheduleBrake, summons ScheduleSummons, cooldown time.Duration, cycleBound int, started Started) {
 	if brake == nil {
 		return
 	}
@@ -3785,7 +3851,7 @@ func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, brake Sc
 			schedule.BrakeEscalated = revised.Brake.Escalation
 			return
 		}
-		s.summon(ctx, schedule, brake, summons, revised)
+		s.summon(ctx, schedule, firings, brake, summons, revised)
 	default:
 		revise("the probe's ending", func(trip *runstate.IntakeBrake) {
 			trip.Probe.EndedAt = &now
@@ -4181,6 +4247,11 @@ type recurringWatch struct {
 	// task and the trigger that owed it, so one gap is recorded once however many
 	// passes find it standing.
 	missed map[string]time.Time
+	// waiting is what kept each task that was due and not claimed at the last
+	// pull that reached the schedule: its conversation taking another firing's
+	// turns, or every firing the session takes at once in flight. It is replaced
+	// at every such pull, so it says what is true now rather than what once was.
+	waiting map[string]recurringHold
 }
 
 func (w *recurringWatch) hold(held recurringHold) {
@@ -4235,16 +4306,16 @@ func (s Scheduler) nextFiring(ctx context.Context, pull Pull) (time.Duration, bo
 // fell due without firing, once per gap, with what kept it.
 //
 // A whole interval is the threshold because anything shorter is the ordinary
-// shape of a cadence: a pass fires one task, so a second task due alongside it
-// waits for the next pass, and a firing's turns hold the pass for as long as
-// they take. A task that has gone a whole interval unfired is a firing that
-// should have happened and did not, which is the thing the operator's own
-// maintenance job found on 2026-09-14 and the harness never said.
+// shape of a cadence: a task waits while its conversation is taking another
+// pass's turns, or while every firing the session takes at once is in flight. A
+// task that has gone a whole interval unfired is a firing that should have
+// happened and did not, which is the thing the operator's own maintenance job
+// found on 2026-09-14 and the harness never said.
 //
 // What kept it comes from OS sleep history, scheduler presence and the other
-// passes recorded during the gap, alongside current holds this session found.
-// An operator's pause is still quiet. The previous firing's failure is not
-// evidence about this gap.
+// passes recorded during the gap, alongside current holds this session found
+// and the firing this session kept it behind. An operator's pause is still
+// quiet. The previous firing's failure is not evidence about this gap.
 // The harness holding its own schedule is breakage and is
 // said at critical, which is what puts it in front of the operator; no session
 // running is a warning, since whoever stopped the harness knows; and the
@@ -4284,6 +4355,10 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 		}); ok {
 			observed = reader.MissCause(due.At, now, due.Task)
 		}
+		// What kept this task behind another firing is the task's own, and it is
+		// the harness holding its cadence, so it is said at critical.
+		behind, waited := watch.waiting[due.Task]
+		waited = waited && behind.why != "" && !behind.at.Before(due.At)
 		switch {
 		case held:
 			miss.Why = watch.held.why
@@ -4293,6 +4368,12 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 			}
 			if observed.Waiting && !watch.held.quiet {
 				miss.Severity = report.SeverityCritical
+			}
+		case waited:
+			miss.Why = behind.why
+			miss.Severity = behind.said()
+			if observed.Why != "" {
+				miss.Why += "; " + observed.Why
 			}
 		case observed.Why != "":
 			miss.Why = observed.Why
@@ -5753,8 +5834,9 @@ func (w *watchSession) dispatching(ctx context.Context, workItemID string) conte
 }
 
 // passing hands a firing the means to say, as each recurring pass begins,
-// which pass the session is inside and since when. The session fires its passes
-// inside its poll, so for as long as one runs the session pulls nothing and,
+// which pass the session is inside and since when. It is for a schedule that
+// can only fire inside the poll — one that fires beside it is given
+// passingBeside — and such a session fires its passes inside its poll, so for as long as one runs the session pulls nothing and,
 // until this, wrote nothing either: a pass that spanned the machine's sleep on
 // 2026-09-29 left the log silent for twelve hours
 // (docs/diagnoses/yoyodyne-ifd-433-20-tracker-listing-timeouts.md). The line is
@@ -5768,6 +5850,27 @@ func (w *watchSession) passing(ctx context.Context) context.Context {
 	return withPassStarting(ctx, func(pass runstate.WatchPass) {
 		w.record(SessionState{
 			State:         runstate.WatchWatching,
+			Reason:        pass.Says(),
+			RecurringPass: &pass,
+		})
+	})
+}
+
+// passingBeside is passing for the passes a session takes beside its poll
+// rather than inside it: each pass's note is written from the pass's own
+// goroutine as it begins, the way a dispatch's wait is, so it touches nothing
+// of the session's but the log, and it says the poll goes on pulling while the
+// pass runs.
+func (w *watchSession) passingBeside(ctx context.Context) context.Context {
+	if w.to == nil {
+		return ctx
+	}
+	to := w.to
+	return withPassStarting(ctx, func(pass runstate.WatchPass) {
+		pass.Beside = true
+		_ = to.Record(SessionState{
+			State:         runstate.WatchWatching,
+			At:            pass.At,
 			Reason:        pass.Says(),
 			RecurringPass: &pass,
 		})

@@ -647,8 +647,9 @@ func (w watchSessionLog) Record(transition orchestrator.SessionState) error {
 		// A Git command a dispatch ran again over another worktree's creation or
 		// removal, which the re-run otherwise absorbs without a trace.
 		WorktreeCrossing: transition.WorktreeCrossing,
-		// The recurring pass the session has begun inside its poll, which is what
-		// the session is doing — and not pulling — until its next line.
+		// The recurring pass the session has begun, beside its poll or, for a
+		// schedule that can only fire there, inside it — where it is what the
+		// session is doing, and not pulling, until its next line.
 		RecurringPass: transition.RecurringPass,
 		// The drain and its bound, on every line the session writes while it
 		// waits out its runs to restart, so a reader is told what stops the wait

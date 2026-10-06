@@ -685,7 +685,8 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #
 # A firing is conversation turns and costs what conversation turns cost, so the
 # cadence is the spending decision: "1h" is a turn an hour for as long as the
-# session watches. At most one task fires per pull, and a pass with more to do
+# session watches. Passes of different roles are taken side by side, beside the
+# work the session pulls rather than in its way, and a pass with more to do
 # than one turn holds says so and is given another, up to max_turns. Reports are
 # durable -- "yoyo sweeps" reads them -- and "yoyo pause" stops firings exactly
 # as it stops everything else the harness spends.

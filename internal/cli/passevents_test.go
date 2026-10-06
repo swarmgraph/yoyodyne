@@ -157,6 +157,29 @@ func TestASweepListingSaysWhatAPassCarried(t *testing.T) {
 	}
 }
 
+// `yoyo sweeps` says how long each pass stood due before it was taken, and says
+// nothing of it for a pass whose record does not know when it fell due.
+func TestASweepListingSaysHowLongAPassWaitedAfterItFellDue(t *testing.T) {
+	t.Parallel()
+
+	waited := renderSweep(runstate.Sweep{
+		Task:      "development-manager-sweep",
+		Role:      "development-manager",
+		DueAt:     passWindowStart.Add(-64 * time.Minute),
+		StartedAt: passWindowStart,
+		Turns:     1,
+		Problem:   "the role answered in prose",
+	})
+	want := "fell due at " + passWindowStart.Add(-64*time.Minute).UTC().Format(time.RFC3339) + " and waited 1h4m0s before it was taken"
+	if !strings.Contains(waited, want) {
+		t.Fatalf("rendered = %q, want %q", waited, want)
+	}
+	unknown := renderSweep(runstate.Sweep{Task: "development-manager-sweep", Role: "development-manager", StartedAt: passWindowStart, Turns: 1, Problem: "the role answered in prose"})
+	if strings.Contains(unknown, "fell due") {
+		t.Fatalf("rendered = %q, want no wait said where the record has no due time", unknown)
+	}
+}
+
 // A program manager's pass opens the instance's own conversation, by the
 // agent's name, rather than whichever agent fills the role first.
 func TestAnInstancesPassOpensTheInstancesOwnConversation(t *testing.T) {

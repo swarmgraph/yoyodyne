@@ -1804,8 +1804,10 @@ beside what actually stopped the run.
 
 **A pass also fires whichever [recurring task](configuration.md#recurring-tasks)
 is due**, where a project has configured any — a role woken on a cadence to look
-at its own domain, rather than because something happened. At most one per pass,
-and every firing ends in a durable report that
+at its own domain, rather than because something happened. Its turns are taken
+beside the pass rather than inside it, in the role's own conversation, so a long
+pass holds neither the queue nor another role's firing, and every firing ends in
+a durable report that
 [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found) reads. A
 firing of a development manager's task carries the [triage
 docket](conversation.md#roles-asking-each-other-things) as it stands, read for
@@ -2017,16 +2019,19 @@ it dispatches is spent without — which reads as agents failing rather than as 
 process nobody restarted. It had already cost three review rounds against a bug
 dead before they started, and then a session was found forty-three changes old.
 So when the `yoyo` it is running is written over, the session drains: it
-restarts into what you deployed the moment it hosts no run, and until then it
-carries on exactly as it was — polling, pulling into free seats, firing its
-recurring tasks — because the drain is about the runs it hosts and not about the
-scheduler's other duties. The wait is bounded, by
+restarts into what you deployed the moment it hosts no run and no recurring
+pass is taking its turns, and until then it carries on — polling, pulling into
+free seats, and, while it still hosts a run, firing its recurring tasks —
+because the drain is about the runs it hosts and not about the scheduler's
+other duties. Once it hosts no run it starts no new pass; the session that
+comes back takes it. The wait is bounded, by
 [`execution.redeploy_drain_limit`](configuration.md#watching-instead-of-draining),
 fifteen minutes by default: past it the session restarts anyway, and at once,
 stopping each run it still hosts at a developer attempt, its checks, or a review
 where it is and preserving it whole for the session that comes back to re-adopt,
 with every counter as it was. A run it has stopped no longer counts as one it
-hosts, so nothing it stopped holds the restart back. A running check stage is stopped at the drain limit even
+hosts, so nothing it stopped holds the restart back, and a recurring pass still
+taking its turns is stopped too and recorded as a missed pass. A running check stage is stopped at the drain limit even
 when load has extended the stage's own limit; the session that comes back runs
 it again from the start. A stage that has already finished gets a brief grace
 to record its verdict. A run at its promotion is waited out past the bound

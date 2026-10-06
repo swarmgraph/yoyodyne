@@ -676,8 +676,12 @@ it.
 **A critical report does not wait for a turn to come round.** The pull after it
 is filed — within a minute on a watching session — the harness wakes the Lead
 Product Manager for it as a turn of its own: a firing of her report task out of
-its cadence, ahead of anything else the schedule has due, with the critical
-report in the message rather than somewhere in the pile. Each critical is
+its cadence, ahead of anything else her own cadence has due, with the critical
+report in the message rather than somewhere in the pile. It holds her
+conversation and nobody else's, so other roles' passes are taken beside it; and
+where every firing a session takes at once is in flight, a pass that fell due
+before the report was filed goes first — a missed pass reported at critical
+cannot wake her into the place of the pass it was about. Each critical is
 delivered that way once, and the pass records which it carried. From then on the
 pass holds her to it: an account that says the pass is complete while any
 critical it was shown — in that message, or carried into a turn ahead of the
