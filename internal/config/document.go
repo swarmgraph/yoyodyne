@@ -60,7 +60,10 @@ type configDocument struct {
 	// from a project is a dialect nobody wrote. It decodes straight into the
 	// effective type because there is no per-field override to distinguish.
 	Providers *map[string]backend.ProviderPlugin `yaml:"providers"`
-	Slack     *slackDocument                     `yaml:"slack"`
+	// Codex replaces an inherited section entirely, for the reason the providers
+	// mapping does: what a role is given beside its prompt is one statement.
+	Codex *backend.NamedContext `yaml:"codex"`
+	Slack *slackDocument        `yaml:"slack"`
 	// Services is the parts of the product and whether each runs. Each entry
 	// overrides field by field, the way execution does: a layer that switches
 	// the dashboard on has said nothing about its port, and should not have to

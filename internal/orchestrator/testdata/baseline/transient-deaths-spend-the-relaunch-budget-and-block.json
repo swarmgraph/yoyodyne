@@ -64,6 +64,10 @@
     "phase": "developing",
     "product_id": "yoyodyne",
     "provider_effort_reported": false,
+    "provider_loaded": {
+      "reported": false,
+      "summary": "skills, plugins, and instruction files: not reported"
+    },
     "provider_model": "opus",
     "provider_session_id": "developer-session",
     "repository_id": "yoyodyne",

@@ -112,6 +112,9 @@ type Backend struct {
 	// takes no request, so the account it is asking about has to be on the value
 	// being asked. Empty is the machine's own provider home.
 	ConfigDir string
+	// Context is the skills and instruction files the project's configuration
+	// names. Nothing else the CLI could find is given to a role: see context.go.
+	Context backend.NamedContext
 }
 
 // ProviderHomeVariable is how Codex is told which provider home to read. It is
@@ -194,11 +197,12 @@ func readOnlyArgs(directory string) []string {
 	} {
 		args = append(args, "--config", setting)
 	}
+	// Skills, plugins, and apps are kept out of every role by contextArgs.
 	for _, feature := range []string{
-		"apps", "plugins", "remote_plugin", "hooks", "browser_use",
+		"hooks", "browser_use",
 		"browser_use_external", "browser_use_full_cdp_access", "computer_use",
-		"in_app_browser", "image_generation", "workspace_dependencies", "skill_search",
-		"skill_mcp_dependency_install", "goals", "shell_snapshot", "multi_agent", "multi_agent_v2",
+		"in_app_browser", "image_generation", "workspace_dependencies",
+		"goals", "shell_snapshot", "multi_agent", "multi_agent_v2",
 	} {
 		args = append(args, "--disable", feature)
 	}
@@ -384,6 +388,7 @@ func (Backend) Capabilities() backend.Capabilities {
 func invocationArgs(request backend.RunRequest, sandbox string, directories []string) []string {
 	args := []string{"exec", "--sandbox", sandbox}
 	args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
+	args = append(args, contextArgs()...)
 	if sandbox == sandboxWorkspaceWrite {
 		// exec resume has no --add-dir option. A config override ahead of resume
 		// applies the same confined roots on every turn and replaces user roots.
@@ -491,6 +496,18 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	}
 	args := invocationArgs(invocation, sandbox, directories)
 
+	// What the role is given beside its prompt is what the project named, plus,
+	// for a developer, the repository's own instruction file the CLI reads from
+	// the worktree. See context.go.
+	named, skills, instructions, err := namedContext(b.Context, request.Role, namedRoot(request))
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	if sandbox == sandboxWorkspaceWrite {
+		instructions = append(repositoryInstructions(invocation.WorkingDirectory), instructions...)
+	}
+	loaded := backend.NewLoaded(skills, nil, instructions)
+
 	timeout := request.Timeout
 	if timeout == 0 {
 		timeout = defaultTimeout
@@ -510,6 +527,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 
 	redactor := execution.NewRedactor(request.RedactValues...)
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
+	parser.loaded = loaded
 	var parseErrors []error
 	// The account this invocation is made under is the request's, falling back to
 	// the one this backend value was built for. A request that names neither runs
@@ -530,6 +548,24 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			configDir = filepath.Join(request.WorkingDirectory, configDir)
 		}
 		environment = readOnlyEnvironment(configDir)
+	}
+	// The provider home's own instruction files are kept out by running under a
+	// home that leaves them out, where it has any.
+	home, err := providerHome(configDir, request.WorkingDirectory)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	home, madeHome, err := prepareProviderHome(home)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	if madeHome {
+		defer func() {
+			if err := os.RemoveAll(home); err != nil {
+				runErr = errors.Join(runErr, fmt.Errorf("remove the Codex provider home made for this invocation: %w", err))
+			}
+		}()
+		environment = withProviderHome(environment, home)
 	}
 	environment = execution.WithAgentRole(environment, request.Role)
 	if sandbox == sandboxWorkspaceWrite {
@@ -555,7 +591,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		// -- pause, resume, release, approve -- can refuse a shell this agent
 		// opens.
 		Env:   environment,
-		Stdin: strings.NewReader(composePrompt(request)),
+		Stdin: strings.NewReader(composePrompt(request, named)),
 		// The stream this invocation is asked for is the liveness signal: every
 		// line the process writes is an event, so the gap between lines is
 		// exactly the gap between events.
@@ -649,6 +685,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	result := parser.Result()
 	result.Backend = b.provider()
 	result.AdapterVersion = adapterVersion()
+	result.Loaded = loaded
 	result.Process = processResult
 	if processResult.Status == execution.ProcessCancelled || processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessStalled {
 		result.IsError = true
@@ -691,8 +728,14 @@ func (b Backend) installedVersion(ctx context.Context, configDir string) string 
 // context and the evidence cannot reach it — here the two arrive as one message,
 // so evidence that tried to talk its way past the contract is arguing with text
 // in the same message rather than with something above it.
-func composePrompt(request backend.RunRequest) string {
+//
+// What the project named for the role goes between the contract and the prompt,
+// so it reads as part of the role's standing instructions rather than the task.
+func composePrompt(request backend.RunRequest, named string) string {
 	prompt := request.Prompt
+	if strings.TrimSpace(named) != "" {
+		prompt = named + "\n\n" + prompt
+	}
 	if strings.TrimSpace(request.SystemPrompt) != "" {
 		prompt = request.SystemPrompt + "\n\n" + prompt
 	}
@@ -706,7 +749,14 @@ func composePrompt(request backend.RunRequest) string {
 // RequestSize includes everything composePrompt adds. Codex turn/start refused
 // input past 1,048,576 characters in the development manager's October 5 record
 // (events 13747–13749). Counting UTF-8 bytes is conservative for that character
-// bound, and covers the CLI's fresh and resumed turns alike.
+// bound, and covers the CLI's fresh and resumed turns alike. The skills and
+// instruction files the project names are part of what is sent, so they are
+// counted; a named file that cannot be read counts as nothing here, because Run
+// refuses the invocation for it before anything is sent.
 func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
-	return len(composePrompt(request)), 1 << 20
+	named, _, _, err := namedContext(b.Context, request.Role, namedRoot(request))
+	if err != nil {
+		named = ""
+	}
+	return len(composePrompt(request, named)), 1 << 20
 }

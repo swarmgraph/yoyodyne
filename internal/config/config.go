@@ -118,6 +118,12 @@ type Config struct {
 	// are what the usage_limit settings and a run's safety properties rest on.
 	// See docs/provider-plugins.md.
 	Providers map[string]backend.ProviderPlugin `yaml:"providers,omitempty" json:"providers,omitempty"`
+	// Codex is the skills and instruction files a Codex invocation is given beside
+	// its prompt. It is absent from a project that names none, and then a Codex
+	// role is given none: the skills, plugins, and instruction files in the
+	// account's own provider home are kept out either way. See
+	// internal/backend/codex/context.go and docs/provider-plugins.md.
+	Codex backend.NamedContext `yaml:"codex,omitempty" json:"codex,omitempty"`
 	// Slack configures the reporting sink. It is absent from a project that does
 	// not report to a workspace, which is every project until one opts in.
 	Slack Slack `yaml:"slack,omitempty" json:"slack,omitempty"`
@@ -925,6 +931,7 @@ func (c Config) Validate() error {
 			problems = append(problems, err.Error())
 		}
 	}
+	problems = append(problems, namedContextProblems(c.Codex)...)
 	if c.Execution.MaxConcurrentDevelopers < 1 {
 		problems = append(problems, "max_concurrent_developers must be at least 1")
 	}
@@ -1543,4 +1550,25 @@ type ValidationError struct {
 
 func (e ValidationError) Error() string {
 	return "invalid configuration: " + strings.Join(e.Problems, "; ")
+}
+
+// namedContextProblems refuses a skill or instruction file named with no path or
+// for a role that does not exist. Whether the file is there is asked when an
+// invocation reads it, in the repository that invocation works in.
+func namedContextProblems(named backend.NamedContext) []string {
+	var problems []string
+	for kind, files := range map[string][]backend.ContextFile{"skills": named.Skills, "instructions": named.Instructions} {
+		for index, file := range files {
+			if strings.TrimSpace(file.Path) == "" {
+				problems = append(problems, fmt.Sprintf("codex.%s[%d] names no path", kind, index))
+			}
+			for _, role := range file.Roles {
+				if !role.Valid() {
+					problems = append(problems, fmt.Sprintf("codex.%s[%d] names unknown role %q", kind, index, role))
+				}
+			}
+		}
+	}
+	sort.Strings(problems)
+	return problems
 }

@@ -4140,6 +4140,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	a.state.ProviderResolvedModel = providerResult.ResolvedModel
 	a.state.ProviderResolvedEffort = providerResult.ResolvedEffort
 	a.state.ProviderEffortReported = providerResult.EffortReported
+	a.state.ProviderLoaded = providerResult.Loaded.Recorded()
 	a.state.LastSequence = providerResult.LastEvent
 	// Whatever stopped the previous attempt is spent: this one ran, and how it
 	// ended is recorded below.
@@ -7761,6 +7762,7 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 	a.state.ReviewEffort = result.RequestedEffort
 	a.state.ReviewResolvedEffort = result.ResolvedEffort
 	a.state.ReviewEffortReported = result.EffortReported
+	a.state.ReviewLoaded = result.Loaded.Recorded()
 	a.outcome.ReviewSessionID = result.SessionID
 	a.outcome.ReviewModel = result.RequestedModel
 	a.outcome.ReviewResolvedModel = result.ResolvedModel
@@ -7860,6 +7862,7 @@ func (a *activeRun) clearReviewEvidence() {
 	a.state.ReviewEffort = ""
 	a.state.ReviewResolvedEffort = ""
 	a.state.ReviewEffortReported = false
+	a.state.ReviewLoaded = nil
 	a.state.ReviewBaseCommit = ""
 	a.state.ReviewHeadCommit = ""
 	a.state.ReviewDecision = ""

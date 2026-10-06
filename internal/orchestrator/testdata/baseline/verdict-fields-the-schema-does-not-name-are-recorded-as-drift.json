@@ -130,6 +130,10 @@
     "phase": "complete",
     "product_id": "yoyodyne",
     "provider_effort_reported": false,
+    "provider_loaded": {
+      "reported": false,
+      "summary": "skills, plugins, and instruction files: not reported"
+    },
     "provider_model": "opus",
     "provider_resolved_model": "claude-opus-5-developer",
     "provider_session_id": "developer-session",
@@ -139,6 +143,10 @@
     "review_decision": "approve",
     "review_effort_reported": false,
     "review_head_commit": "\u003ccommit-2\u003e",
+    "review_loaded": {
+      "reported": false,
+      "summary": "skills, plugins, and instruction files: not reported"
+    },
     "review_model": "opus",
     "review_resolved_model": "claude-opus-5-reviewer",
     "review_rounds": 1,

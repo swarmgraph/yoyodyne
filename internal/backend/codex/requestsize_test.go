@@ -3,6 +3,8 @@ package codex
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,8 +18,8 @@ func TestRequestSizeMeasuresTheComposedPromptOnFreshAndResumedTurns(t *testing.T
 		for _, session := range []string{"", "old-session"} {
 			request := backendapi.RunRequest{Role: role, WorkingDirectory: "/repo with spaces", SystemPrompt: "Follow the role contract.", Prompt: "Current evidence: 世界 🐝", SessionID: session}
 			size, limit := (Backend{}).RequestSize(request)
-			if size != len(composePrompt(request)) || limit != 1<<20 {
-				t.Fatalf("size=%d, limit=%d, composed=%d", size, limit, len(composePrompt(request)))
+			if size != len(composePrompt(request, "")) || limit != 1<<20 {
+				t.Fatalf("size=%d, limit=%d, composed=%d", size, limit, len(composePrompt(request, "")))
 			}
 			if size <= len(request.Prompt) {
 				t.Fatal("system instructions and adapter text were not counted")
@@ -37,5 +39,19 @@ func TestRequestSizeRefusesAnOversizedPromptBeforeLaunchingCodex(t *testing.T) {
 	}
 	if tooLarge.Bytes <= tooLarge.LimitBytes {
 		t.Fatal("adapter-added instructions did not count toward the limit")
+	}
+}
+
+func TestRequestSizeCountsWhatTheProjectNames(t *testing.T) {
+	t.Parallel()
+	repository := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repository, "notes.md"), []byte(strings.Repeat("n", 4096)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	request := backendapi.RunRequest{Role: domain.RoleDeveloper, WorkingDirectory: repository, Prompt: "work"}
+	bare, _ := (Backend{}).RequestSize(request)
+	named, _ := (Backend{Context: backendapi.NamedContext{Instructions: []backendapi.ContextFile{{Path: "notes.md"}}}}).RequestSize(request)
+	if named < bare+4096 {
+		t.Fatalf("named instruction file was not counted: bare=%d named=%d", bare, named)
 	}
 }
