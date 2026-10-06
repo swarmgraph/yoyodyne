@@ -132,10 +132,16 @@ func (p Party) validate(what string) error {
 // leaves a round that was spent rather than one that was taken and never
 // counted — the same direction every other durable budget here fails in.
 type Round struct {
-	Number   int    `json:"number"`
-	Question string `json:"question"`
-	Context  string `json:"context,omitempty"`
-	Answer   string `json:"answer,omitempty"`
+	// Usage is the answering invocation's token usage, absent where its stream
+	// reported none. CostReported is false where the provider reported no dollar
+	// cost, so the round's CostUSD of zero is not a price; it is absent on a
+	// round recorded before it was kept, which is read as priced.
+	Usage        json.RawMessage `json:"usage,omitempty"`
+	CostReported *bool           `json:"cost_reported,omitempty"`
+	Number       int             `json:"number"`
+	Question     string          `json:"question"`
+	Context      string          `json:"context,omitempty"`
+	Answer       string          `json:"answer,omitempty"`
 	// Holder names the process that was taking this round, so a later pass
 	// reading a round nobody answered can say who was carrying it. It is what
 	// turns "this round was interrupted" into something an operator can act on:

@@ -807,7 +807,7 @@ func TestStoreReadsTheCacheReadShareOfEveryPricedInvocation(t *testing.T) {
 	}
 	// 700 cached of 1000 input for the attempt, and nothing of 1000 for the
 	// review: 700 of 2000 across the run.
-	if got := price.Runs[0].Tokens; got != (TokenUsage{InputTokens: 1100, CacheReadTokens: 700, CacheCreationTokens: 200, OutputTokens: 4500, Measured: 2}) {
+	if got := price.Runs[0].Tokens; got != (TokenUsage{Priced: 2, InputTokens: 1100, CacheReadTokens: 700, CacheCreationTokens: 200, OutputTokens: 4500, Measured: 2}) {
 		t.Fatalf("run tokens = %#v, want every invocation in the run", got)
 	}
 	if share := price.Runs[0].Tokens.CacheReadShare(); share != 0.35 {
@@ -927,7 +927,7 @@ func TestStoreReadsTheProvidersUsageObjectAsItIsActuallyRecorded(t *testing.T) {
 		t.Fatalf("Price() error = %v", err)
 	}
 	tokens := price.Runs[0].Tokens
-	if tokens != (TokenUsage{InputTokens: 114, CacheReadTokens: 7796697, CacheCreationTokens: 187181, CacheWrite1hTokens: 187181, OutputTokens: 58231, Measured: 1}) {
+	if tokens != (TokenUsage{Priced: 1, InputTokens: 114, CacheReadTokens: 7796697, CacheCreationTokens: 187181, CacheWrite1hTokens: 187181, OutputTokens: 58231, Measured: 1}) {
 		t.Fatalf("tokens = %#v, want the object's own top-level figures, the write split by lifetime, and nothing counted twice", tokens)
 	}
 	if price.Runs[0].CostUSD != 9.41 {
@@ -1004,7 +1004,7 @@ func TestStoreTellsAMeasuredNoughtApartFromNoMeasurement(t *testing.T) {
 		t.Fatalf("Price() error = %v", err)
 	}
 	measured := price.Runs[0].Tokens
-	if measured != (TokenUsage{Measured: 1}) {
+	if measured != (TokenUsage{Priced: 1, Measured: 1}) {
 		t.Fatalf("tokens = %#v, want one invocation measured at nothing", measured)
 	}
 	if !measured.Reported() || measured.CacheReadShare() != 0 {

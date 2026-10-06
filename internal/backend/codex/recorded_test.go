@@ -3,11 +3,13 @@ package codex
 import (
 	"bufio"
 	"encoding/json"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -324,5 +326,46 @@ func TestARecordedSuccessfulTurnRunsToAReply(t *testing.T) {
 	}
 	if payload.Usage == nil || *payload.Usage != (usageRow{InputTokens: 3120, OutputTokens: 5, CacheReadTokens: 13184}) {
 		t.Fatalf("terminal usage = %+v", payload.Usage)
+	}
+	store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	state := runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: testRunID, ProductID: "yoyodyne", RepositoryID: "yoyodyne", WorkItemID: "codex-usage", Backend: domain.BackendCodex, Status: runstate.StatusSucceeded, StartedAt: now, UpdatedAt: now, CompletedAt: &now}
+	if err := store.Create(state); err != nil {
+		t.Fatal(err)
+	}
+	for _, event := range events {
+		if err := store.AppendEvent(event); err != nil {
+			t.Fatal(err)
+		}
+	}
+	price, err := store.Price(state.WorkItemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if price.Tokens.InputTotal() != 16304 || price.Tokens.CacheReadTokens != 13184 || price.Tokens.OutputTokens != 5 || price.Tokens.NoCost != 1 || len(price.Runs) != 1 || price.Runs[0].Tokens != price.Tokens {
+		t.Fatalf("price = %+v", price)
+	}
+	if text := price.Tokens.CostText(price.TotalUSD); strings.Contains(text, "$0") || !strings.Contains(text, "no cost reported") {
+		t.Fatal(text)
+	}
+
+}
+
+func TestCompletedCodexStreamWithoutUsage(t *testing.T) {
+	result, events := runStream(t, domain.RoleDeveloper, "{\"type\":\"turn.completed\"}\n")
+	if len(result.Usage) != 0 || result.CostReported {
+		t.Fatalf("result = %+v", result)
+	}
+	var payload struct {
+		Usage json.RawMessage `json:"usage"`
+	}
+	if err := json.Unmarshal(events[len(events)-1].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Usage) != 0 && string(payload.Usage) != "null" {
+		t.Fatalf("usage = %s", payload.Usage)
 	}
 }

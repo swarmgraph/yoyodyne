@@ -86,11 +86,7 @@ func listExchanges(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "exchanges: no role has asked another one anything.")
 		return 0
 	}
-	var spent float64
-	for _, one := range recorded {
-		spent += one.CostUSD()
-	}
-	fmt.Fprintf(stdout, "%d exchange(s) for %s, costing $%.4f in total:\n", len(recorded), productID, spent)
+	fmt.Fprintf(stdout, "%d exchange(s) for %s, costing %s in total:\n", len(recorded), productID, exchange.TotalCostText(recorded))
 	for _, one := range recorded {
 		fmt.Fprintln(stdout)
 		fmt.Fprint(stdout, one.Render())
@@ -292,10 +288,12 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	// charged to. The build is this process's own, because a resident conducting an
 	// exchange goes on running the binary it was started with.
 	spoken := exchange.Spoken{
-		Agent:     name,
-		SessionID: result.SessionID,
-		CostUSD:   result.CostUSD,
-		Backend:   agent.Backend,
+		Agent:        name,
+		SessionID:    result.SessionID,
+		CostUSD:      result.CostUSD,
+		Usage:        result.Usage,
+		CostReported: &result.CostReported,
+		Backend:      agent.Backend,
 		// The model that actually asked, which is the configured one unless the
 		// permitted alternate served the round. Recording the configured selector
 		// would leave the exchange record naming a model that refused it.

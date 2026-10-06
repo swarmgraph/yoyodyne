@@ -380,3 +380,15 @@ func TestSpendPricesTheSameRecordsTheSpendReportPrices(t *testing.T) {
 		t.Fatalf("the oldest priced day is %+v, want the $40 run", listed)
 	}
 }
+
+func TestSpendShowsTokensAndMissingPrices(t *testing.T) {
+	usage := runstate.TokenUsage{InputTokens: 3120, CacheReadTokens: 13184, OutputTokens: 5, Measured: 1, NoCost: 1}
+	// Exercise the same projection used by both surfaces without asking either
+	// surface to calculate its own totals.
+	window := SpendWindow{}
+	report := runstate.SpendReport{Rows: []runstate.SpendRow{{Calls: 1, Usage: &usage, Kind: runstate.StreamRun}}}
+	sumInto(&window, report)
+	if window.Tokens != usage || !strings.Contains(window.CostText, "no cost reported") || strings.Contains(window.CostText, "$0") {
+		t.Fatalf("window = %+v", window)
+	}
+}

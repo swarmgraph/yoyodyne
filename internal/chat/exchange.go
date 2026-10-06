@@ -277,13 +277,13 @@ func refusedAskSays(asker domain.AgentRole, ask exchange.Ask) string {
 // in a fresh thread and spends the whole limit twice.
 func askExhausted(recorded exchange.Exchange) string {
 	return fmt.Sprintf("# Your ask\n\nExchange %s has spent all %d of the rounds it was opened with and is closed as unresolved, costing %s. The operator has been told, with the question left unsettled. Carry on answering them without an answer to it, say plainly what was not settled, and do not open another exchange about the same question in this reply.\n",
-		recorded.ID, recorded.MaxRounds, money(recorded.CostUSD()))
+		recorded.ID, recorded.MaxRounds, recorded.CostText())
 }
 
 // askClosed is what the asking role is told when it closed an exchange itself.
 func askClosed(recorded exchange.Exchange) string {
 	return fmt.Sprintf("# Your ask\n\nExchange %s is closed after %d round(s), costing %s. Carry on answering the operator.\n",
-		recorded.ID, recorded.Spent(), money(recorded.CostUSD()))
+		recorded.ID, recorded.Spent(), recorded.CostText())
 }
 
 // oneLineAsk names what an ask asked for, for a listing the operator reads.

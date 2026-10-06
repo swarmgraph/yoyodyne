@@ -9,6 +9,7 @@ package exchange
 // only answerable from the two side by side.
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -40,7 +41,86 @@ func (e Exchange) State() string {
 func (e Exchange) Summary() string {
 	return fmt.Sprintf("%s  %s asked %s, %s, %d/%d round(s), %s",
 		e.ID, e.Asker.Role.Title(), e.Answerer.Role.Title(), e.State(),
-		e.Spent(), e.MaxRounds, money(e.CostUSD()))
+		e.Spent(), e.MaxRounds, e.CostText())
+}
+
+// CostText is what the exchange cost as it is read anywhere: the dollars the
+// provider reported, or, where a round's provider reported no dollar cost, the
+// tokens the rounds used and how many rounds carry no cost. A round with no
+// reported cost is never shown as costing nothing, and no price is estimated
+// from its tokens.
+func (e Exchange) CostText() string { return costText(e.Rounds) }
+
+// TotalCostText is CostText across several exchanges, read as one set of
+// rounds so a total that mixes priced and unpriced rounds says how many carry
+// no cost.
+func TotalCostText(exchanges []Exchange) string {
+	var rounds []Round
+	for _, one := range exchanges {
+		rounds = append(rounds, one.Rounds...)
+	}
+	return costText(rounds)
+}
+
+// costText is CostText over any set of rounds, which is what lets one round of
+// a thread read the same way the exchange it belongs to does.
+func costText(rounds []Round) string {
+	var total float64
+	var input, cached, output int64
+	uncosted, measured, unmeasured := 0, 0, 0
+	for _, round := range rounds {
+		total += round.CostUSD
+		reported := round.CostReported == nil || *round.CostReported
+		if !reported {
+			uncosted++
+		}
+		usage, ok := round.tokens()
+		switch {
+		case ok:
+			measured++
+			input += usage.InputTokens + usage.CacheReadTokens + usage.CacheCreationTokens
+			cached += usage.CacheReadTokens
+			output += usage.OutputTokens
+		case !reported:
+			unmeasured++
+		}
+	}
+	if uncosted == 0 {
+		return money(total)
+	}
+	tokens := fmt.Sprintf("%d input tokens (%d cached), %d output tokens", input, cached, output)
+	if measured == 0 {
+		tokens = "token usage not reported"
+	} else if unmeasured > 0 {
+		tokens += fmt.Sprintf("; usage not reported for %d round(s)", unmeasured)
+	}
+	if uncosted == len(rounds) {
+		return tokens + "; no cost reported"
+	}
+	return fmt.Sprintf("%s reported; %s; no cost reported for %d of %d round(s)", money(total), tokens, uncosted, len(rounds))
+}
+
+// roundUsage is a round's usage under the names the answering invocation's
+// usage is recorded with: input is fresh input, with cache reads beside it.
+type roundUsage struct {
+	InputTokens         int64 `json:"input_tokens"`
+	OutputTokens        int64 `json:"output_tokens"`
+	CacheReadTokens     int64 `json:"cache_read_input_tokens"`
+	CacheCreationTokens int64 `json:"cache_creation_input_tokens"`
+}
+
+// tokens reads the round's recorded usage, and reports false where the round
+// carries none, which is a round nobody measured rather than one measured at
+// nothing.
+func (r Round) tokens() (roundUsage, bool) {
+	if len(r.Usage) == 0 || string(r.Usage) == "null" {
+		return roundUsage{}, false
+	}
+	var usage roundUsage
+	if err := json.Unmarshal(r.Usage, &usage); err != nil {
+		return roundUsage{}, false
+	}
+	return usage, true
 }
 
 // Render is one exchange as an operator reads it in a listing: the line above,
@@ -81,7 +161,7 @@ func (e Exchange) RenderThread() string {
 		fmt.Fprintf(&rendered, "answered by %s\n", agent)
 	}
 	for _, round := range e.Rounds {
-		fmt.Fprintf(&rendered, "\nround %d of %d (%s)\n", round.Number, e.MaxRounds, money(round.CostUSD))
+		fmt.Fprintf(&rendered, "\nround %d of %d (%s)\n", round.Number, e.MaxRounds, costText([]Round{round}))
 		rendered.WriteString(indent(e.Asker.Role.Title() + ": " + strings.TrimSpace(round.Question)))
 		if context := strings.TrimSpace(round.Context); context != "" {
 			rendered.WriteString(indent("context: " + context))

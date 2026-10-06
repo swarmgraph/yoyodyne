@@ -281,7 +281,7 @@ var standingWarningAgeSeconds = 5 * 60;
     if (run.unknown_cost) {
       return "cost unknown (" + run.unknown_cost + ")";
     }
-    return money(run.cost_usd || 0) + " so far";
+    return (run.cost_text || money(run.cost_usd || 0)) + " so far";
   }
 
   function provenance(record) {
@@ -321,7 +321,7 @@ var standingWarningAgeSeconds = 5 * 60;
   function splitOf(kinds) {
     var split = (kinds || []).map(function (kind) {
       var noun = kindNouns[kind.kind] || kind.kind;
-      return money(kind.cost_usd) + " on " + kind.invocations + " " + plural(kind.invocations, noun);
+      return (kind.cost_text || money(kind.cost_usd)) + " on " + kind.invocations + " " + plural(kind.invocations, noun);
     });
     return split.length ? split.join(", ") : "nothing priced";
   }
@@ -640,7 +640,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     var day = windowNamed(spend, "last 24 hours");
     var week = windowNamed(spend, "last 7 days");
-    return tile("Cost", (day.floor ? "≥ " : "") + money(day.cost_usd), "in the last 24 hours", (week.floor ? "at least " : "") + money(week.cost_usd) + " in the last 7 days", null, "spend:days");
+    return tile("Cost", (day.floor ? "≥ " : "") + (day.cost_text || money(day.cost_usd)), "in the last 24 hours", (week.floor ? "at least " : "") + (week.cost_text || money(week.cost_usd)) + " in the last 7 days", null, "spend:days");
   }
 
   // ---- section 2: what the harness is spending ----------------------------
@@ -655,7 +655,7 @@ var standingWarningAgeSeconds = 5 * 60;
     column.appendChild(el("h3", "window-label", period.label));
     column.appendChild(el("p", "window-span", period.rolling ? "rolling, from " + dayAndClock(period.since) : "from " + period.since_day + ", local days"));
     var figures = el("dl", "figures");
-    figures.appendChild(figureRow("Cost", (period.floor ? "at least " : "") + money(period.cost_usd) + " from " + count(period.invocations, "invocation"), "figure-cost"));
+    figures.appendChild(figureRow("Cost", (period.floor ? "at least " : "") + (period.cost_text || money(period.cost_usd)) + " from " + count(period.invocations, "invocation"), "figure-cost"));
     figures.appendChild(figureRow("Of which", splitOf(period.kinds)));
     if (period.unpriced) {
       figures.appendChild(figureRow("Not priced", count(period.unpriced, "exchange record") + " could not be read, so the cost is a floor", "figure-unreadable"));
@@ -1454,7 +1454,7 @@ var standingWarningAgeSeconds = 5 * 60;
       if (day.reached) {
         detail = day.invocations === 0
           ? "nothing spent"
-          : money(day.cost_usd) + " from " + count(day.invocations, "invocation") + " — " + splitOf(day.kinds);
+          : (day.cost_text || money(day.cost_usd)) + " from " + count(day.invocations, "invocation") + " — " + splitOf(day.kinds);
       }
       return { day: day.day, title: day.day, detail: detail, className: day.reached ? null : "grouping-day-unreached" };
     });
@@ -1462,7 +1462,7 @@ var standingWarningAgeSeconds = 5 * 60;
       lines.push({
         day: spend.undated.day,
         title: "undated",
-        detail: money(spend.undated.cost_usd) + " from " + count(spend.undated.invocations, "invocation") + " whose moment could not be read, counted in every window above and on no day here"
+        detail: (spend.undated.cost_text || money(spend.undated.cost_usd)) + " from " + count(spend.undated.invocations, "invocation") + " whose moment could not be read, counted in every window above and on no day here"
       });
     }
     if (spend.unpriced) {
@@ -1596,7 +1596,7 @@ var standingWarningAgeSeconds = 5 * 60;
       var ending = run.outcome + (run.phase ? ", " + phaseOf(run) : "") + " — " + (run.remains || "no artifacts recorded");
       lines.push(run.preserved ? "preserved: " + ending : "nothing is in flight or preserved; the latest run " + ending);
       facts.push("run " + run.run_id + ", started " + dayAndClock(run.started_at) + (run.completed_at ? ", ended " + dayAndClock(run.completed_at) : ""));
-      facts.push(run.unknown_cost ? "cost unknown (" + run.unknown_cost + ")" : "cost " + money(run.cost_usd || 0));
+      facts.push(run.unknown_cost ? "cost unknown (" + run.unknown_cost + ")" : "cost " + (run.cost_text || money(run.cost_usd || 0)));
     }
     if (run.reason) {
       facts.push("reason: " + run.reason);

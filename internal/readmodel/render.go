@@ -516,7 +516,7 @@ func spendOf(run RunningRun) string {
 	if run.UnknownCost != "" {
 		return "cost unknown (" + run.UnknownCost + ")"
 	}
-	return fmt.Sprintf("$%.2f so far", run.CostUSD)
+	return run.Tokens.CostText(run.CostUSD) + " so far"
 }
 
 // count says a number with the noun it counts, in the three forms that read

@@ -196,6 +196,7 @@ func printPrices(writer io.Writer, prices []runstate.ItemPrice, exchanges *runst
 	if recordedExchanges(exchanges) {
 		printAskRow(writer, *exchanges)
 		total += exchanges.CostUSD
+		tokens.Merge(exchanges.Tokens)
 		floor = !exchanges.Known()
 	}
 	// The side threads are a row for the same reason: money the harness spent,
@@ -203,6 +204,7 @@ func printPrices(writer io.Writer, prices []runstate.ItemPrice, exchanges *runst
 	if recordedSideStreams(sides) {
 		printSideRow(writer, *sides)
 		total += sides.CostUSD
+		tokens.Merge(sides.Tokens)
 		floor = floor || !sides.Known()
 	}
 	// The rule above the total is the shape `yoyo status --spend` closes its
@@ -246,7 +248,7 @@ func printSideRow(writer io.Writer, sides runstate.SideStreamSpend) {
 	unreadable, cost := "-", "unknown"
 	if sides.Enumerated() {
 		unreadable = strconv.Itoa(sides.Unreadable)
-		cost = renderFloor(sides.CostUSD, !sides.Known())
+		cost = renderTokenCost(sides.Tokens, sides.CostUSD, !sides.Known())
 	}
 	fmt.Fprintf(writer, ledgerRow, sideLedgerLabel, "-", unreadable, "-", "-", "-", cost, renderCacheShare(sides.Tokens), "")
 }
@@ -271,7 +273,7 @@ func printSideNote(writer io.Writer, sides *runstate.SideStreamSpend) {
 			name = "(record unreadable, conversation unknown)"
 		}
 		fmt.Fprintf(writer, "  %s  %s from %d side conversation(s) over %d invocation(s)\n",
-			name, renderFloor(part.CostUSD, false), part.Streams, part.Invocations)
+			name, renderTokenCost(part.Tokens, part.CostUSD, false), part.Streams, part.Invocations)
 	}
 	if sides.Unreadable > 0 {
 		fmt.Fprintf(writer, "%d side conversation log(s) could not be read and are left out of that figure (%s),\n",
@@ -302,7 +304,7 @@ func printAskRow(writer io.Writer, exchanges runstate.ExchangeSpend) {
 	unreadable, cost := "-", "unknown"
 	if exchanges.Enumerated() {
 		unreadable = strconv.Itoa(exchanges.Unreadable)
-		cost = renderFloor(exchanges.CostUSD, !exchanges.Known())
+		cost = renderTokenCost(exchanges.Tokens, exchanges.CostUSD, !exchanges.Known())
 	}
 	fmt.Fprintf(writer, ledgerRow, askLedgerLabel, "-", unreadable, "-", "-", "-", cost, "-", "")
 }
@@ -357,10 +359,10 @@ func printLedgerRow(writer io.Writer, label string, runs, unpriced int, total fl
 		label,
 		strconv.Itoa(runs),
 		strconv.Itoa(unpriced),
-		renderTotal(phases.Development.CostUSD, unpriced),
-		renderTotal(phases.Review.CostUSD, unpriced),
-		renderTotal(phases.Repair.CostUSD, unpriced),
-		renderFloor(total, floor || unpriced > 0),
+		renderTokenCost(phases.Development.Tokens, phases.Development.CostUSD, unpriced > 0),
+		renderTokenCost(phases.Review.Tokens, phases.Review.CostUSD, unpriced > 0),
+		renderTokenCost(phases.Repair.Tokens, phases.Repair.CostUSD, unpriced > 0),
+		renderTokenCost(tokens, total, floor || unpriced > 0),
 		renderCacheShare(tokens),
 		renderWait(phases.Waits.Total()),
 	)
@@ -384,7 +386,7 @@ func printPriceBreakdown(writer io.Writer, price runstate.ItemPrice) {
 		fmt.Fprintf(writer, "%s: the harness has no recorded run of it, so it has no price rather than a price of nothing\n", price.WorkItemID)
 		return
 	}
-	fmt.Fprintf(writer, "%s: %s across %d run(s)\n", price.WorkItemID, renderTotal(price.TotalUSD, price.UnknownRuns), len(price.Runs))
+	fmt.Fprintf(writer, "%s: %s across %d run(s)\n", price.WorkItemID, renderTokenCost(price.Tokens, price.TotalUSD, price.UnknownRuns > 0), len(price.Runs))
 	fmt.Fprintf(writer, "  %s\n", renderPhaseSplit(price.Phases, price.UnknownRuns))
 	if tokens := renderTokenSplit(price.Tokens); tokens != "" {
 		fmt.Fprintf(writer, "  %s\n", tokens)
@@ -426,12 +428,12 @@ func printPriceBreakdown(writer io.Writer, price runstate.ItemPrice) {
 // be free, which is the opposite of what it says.
 func renderPhaseSplit(phases runstate.PhaseSpend, unpriced int) string {
 	split := fmt.Sprintf("development %s from %d invocation(s), review %s from %d, repair %s from %d",
-		renderTotal(phases.Development.CostUSD, unpriced), phases.Development.Invocations,
-		renderTotal(phases.Review.CostUSD, unpriced), phases.Review.Invocations,
-		renderTotal(phases.Repair.CostUSD, unpriced), phases.Repair.Invocations)
+		renderTokenCost(phases.Development.Tokens, phases.Development.CostUSD, unpriced > 0), phases.Development.Invocations,
+		renderTokenCost(phases.Review.Tokens, phases.Review.CostUSD, unpriced > 0), phases.Review.Invocations,
+		renderTokenCost(phases.Repair.Tokens, phases.Repair.CostUSD, unpriced > 0), phases.Repair.Invocations)
 	if phases.Unattributed.Invocations > 0 {
 		split += fmt.Sprintf(", unattributed %s from %d",
-			renderTotal(phases.Unattributed.CostUSD, unpriced), phases.Unattributed.Invocations)
+			renderTokenCost(phases.Unattributed.Tokens, phases.Unattributed.CostUSD, unpriced > 0), phases.Unattributed.Invocations)
 	}
 	if waits := renderWaits(phases.Waits); waits != "" {
 		split += "; " + waits
@@ -677,9 +679,9 @@ func renderRunPrice(run runstate.RunPrice) string {
 		return "unknown: " + run.Unknown
 	}
 	if !run.Status.Terminal() {
-		return fmt.Sprintf("$%.2f so far from %d invocation(s)", run.CostUSD, run.Invocations)
+		return fmt.Sprintf("%s so far from %d invocation(s)", run.Tokens.CostText(run.CostUSD), run.Invocations)
 	}
-	return fmt.Sprintf("$%.2f from %d invocation(s)", run.CostUSD, run.Invocations)
+	return fmt.Sprintf("%s from %d invocation(s)", run.Tokens.CostText(run.CostUSD), run.Invocations)
 }
 
 func reportCostFailure(stdout, stderr io.Writer, jsonOutput bool, err error) int {
@@ -720,4 +722,11 @@ Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --record          write each price onto its work item in the tracker
   --json            emit machine-readable JSON`)
+}
+
+func renderTokenCost(tokens runstate.TokenUsage, cost float64, floor bool) string {
+	if tokens.NoCost == 0 {
+		return renderFloor(cost, floor)
+	}
+	return tokens.CostText(cost)
 }

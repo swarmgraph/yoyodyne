@@ -265,7 +265,7 @@ func TestStatusSpendPricesExchangesBesideTheStreams(t *testing.T) {
 	for _, want := range []string{
 		"cost: $2.00",
 		"conversations: $1.00 from 1 turn(s)   exchanges: $1.00 from 2 round(s)",
-		"an exchange records what the provider charged and not what it used, so its rows carry no tokens",
+		"2 of 2 exchange round(s) carry no token usage, because they were recorded before exchanges kept it or their provider reported none",
 	} {
 		if !strings.Contains(stdout, want) {
 			t.Fatalf("stdout = %q, want it to contain %q", stdout, want)
@@ -1062,5 +1062,62 @@ func TestLogTailEmitsOnlyWholeLinesAndSurvivesReplacement(t *testing.T) {
 	}
 	if lines, err = tail.read(); err != nil || len(lines) != 1 || string(lines[0]) != "replaced" {
 		t.Fatalf("read() after truncation = %q, %v", lines, err)
+	}
+}
+
+// An exchange round whose provider reported its usage and no dollar cost is
+// shown by its tokens with no cost reported, never as $0.00, and is not named
+// among the rounds that carry no token usage.
+func TestStatusSpendShowsATokenBearingExchangeRound(t *testing.T) {
+	// Not parallel: the state root the command addresses is set here.
+	stateRoot := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
+	configPath := writeConfig(t, validConfig)
+
+	store, err := runstate.NewExchangeStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewExchangeStore() error = %v", err)
+	}
+	answered := time.Now()
+	unreported := false
+	recorded := exchange.Exchange{
+		SchemaVersion: exchange.SchemaVersion,
+		ID:            "exchange-" + strings.Repeat("c", 32),
+		ProductID:     "yoyodyne",
+		RepositoryID:  "yoyodyne",
+		Asker:         exchange.Party{Role: domain.RoleProductManager, Agent: "product-manager"},
+		Answerer:      exchange.Party{Role: domain.RoleArchitect, Agent: "architect"},
+		Question:      "what does this cost?",
+		MaxRounds:     10,
+		OpenedAt:      answered.Add(-2 * time.Minute),
+		Rounds: []exchange.Round{{
+			Number:       1,
+			Question:     "and then?",
+			Answer:       "this much",
+			Usage:        json.RawMessage(`{"input_tokens":3120,"cache_read_input_tokens":13184,"output_tokens":5}`),
+			CostReported: &unreported,
+			AskedAt:      answered.Add(-time.Minute),
+			AnsweredAt:   &answered,
+		}},
+	}
+	recorded.Outcome, recorded.ClosedAt, recorded.UpdatedAt = exchange.OutcomeResolved, &answered, answered
+	if err := store.Save(recorded); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	stdout, stderr, code := runCLI(t, "status", "--spend", "--config", configPath)
+	if code != 0 {
+		t.Fatalf("code = %d, stderr = %q", code, stderr)
+	}
+	for _, want := range []string{
+		"tokens: 16,309 total",
+		"16304 input tokens (13184 cached), 5 output tokens; no cost reported for 1 turn",
+	} {
+		if !strings.Contains(stdout, want) {
+			t.Fatalf("stdout = %q, want it to contain %q", stdout, want)
+		}
+	}
+	if strings.Contains(stdout, "carry no token usage") || strings.Contains(stdout, "$0.00") {
+		t.Fatalf("stdout = %q, want the round's tokens shown and no cost of nothing", stdout)
 	}
 }
