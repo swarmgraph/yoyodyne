@@ -1146,8 +1146,8 @@ func TestAnIntegrationStoppedRunIsNeitherReleasedNorRestartedAndItsResumePromote
 	queue := newScheduleHarness()
 	queue.now = audited
 	queue.finished = []runstate.State{stopped}
-	queue.items = []beads.WorkItem{claimedItem(tracker.Item.ID, tracker.Item.Title)}
-	queue.ready = map[string]bool{}
+	queue.Items = []beads.WorkItem{claimedItem(tracker.Item.ID, tracker.Item.Title)}
+	queue.ReadyItems = map[string]bool{}
 	queue.stoppages = haltedWork{runs: []runstate.State{stopped}}
 	queue.claims = ClaimAuditor{
 		Tracker: queue, Runs: queue, Releases: &claimLog{},

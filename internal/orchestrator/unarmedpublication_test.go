@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -73,12 +74,12 @@ func newUnarmedHarness(t *testing.T) (*rearmHarness, *checksStub, DocketBuild) {
 		docket: docket,
 		runs:   runs,
 		leases: &leasedRuns{Store: runs},
-		forge: &forgeStub{
-			observed: publish.PullRequest{Number: state.PullRequest.Number, URL: state.PullRequest.URL, State: "OPEN", HeadCommit: rearmedCommit},
-			status:   "CLEAN",
-			result:   publish.MergeResult{Queued: true},
+		forge: &orchestratortest.RearmForge{
+			Observed: publish.PullRequest{Number: state.PullRequest.Number, URL: state.PullRequest.URL, State: "OPEN", HeadCommit: rearmedCommit},
+			Status:   "CLEAN",
+			Result:   publish.MergeResult{Queued: true},
 		},
-		worktrees: &remoteTargetStub{},
+		worktrees: &orchestratortest.RemoteTarget{},
 		state:     state,
 	}
 	checks := &checksStub{reading: publish.CheckReading{HeadCommit: rearmedCommit, Passing: 4}}
@@ -119,11 +120,11 @@ func TestAPublicationNothingAskedTheForgeToMergeIsDocketedAndArmedByTheHarness(t
 		t.Fatalf("Rearm() error = %v", err)
 	}
 	want := publish.MergeRequest{Number: 92, HeadCommit: rearmedCommit, Method: mergeMethod}
-	if len(harness.forge.requested) != 1 || harness.forge.requested[0] != want {
-		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.requested, want)
+	if len(harness.forge.Requested) != 1 || harness.forge.Requested[0] != want {
+		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.Requested, want)
 	}
-	if checks.asked != 1 || len(harness.worktrees.verified) != 1 || len(harness.leases.promoted) != 1 {
-		t.Fatalf("checks read %d, remote target verified %d, leases %v; want each once before the merge", checks.asked, len(harness.worktrees.verified), harness.leases.promoted)
+	if checks.asked != 1 || len(harness.worktrees.Verified) != 1 || len(harness.leases.promoted) != 1 {
+		t.Fatalf("checks read %d, remote target verified %d, leases %v; want each once before the merge", checks.asked, len(harness.worktrees.Verified), harness.leases.promoted)
 	}
 	if !result.FirstArm || !result.Rearmed || result.Method != string(mergeMethod) {
 		t.Fatalf("result = %+v, want a first arming by the run's own method", result)
@@ -165,8 +166,8 @@ func TestArmingAnUnaskedPublicationIsRefusedAtTheLandingGates(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), test.want) {
 				t.Fatalf("Rearm() error = %v, want it refused naming %q", err, test.want)
 			}
-			if len(harness.forge.requested) != 0 {
-				t.Fatalf("a refused arming asked the forge for %#v", harness.forge.requested)
+			if len(harness.forge.Requested) != 0 {
+				t.Fatalf("a refused arming asked the forge for %#v", harness.forge.Requested)
 			}
 			if left := harness.reload(t); left.PullRequest.MergeRearms != 0 || !left.PublicationUnarmed() {
 				t.Fatalf("a refused arming changed the record: %+v", left.PullRequest)
@@ -181,8 +182,8 @@ func TestArmingAnUnaskedPublicationIsRefusedAtTheLandingGates(t *testing.T) {
 		!strings.Contains(err.Error(), "armed only on a reading of them") {
 		t.Fatalf("Rearm() without a checks reading error = %v, want it refused", err)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("an unchecked arming asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("an unchecked arming asked the forge for %#v", harness.forge.Requested)
 	}
 }
 
@@ -309,8 +310,8 @@ func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
 	watch := harness.carryOut(checks)
 
 	held, err := watch.CarryRearms(context.Background(), true)
-	if err != nil || len(held) != 1 || held[0].Carried || held[0].Gate != runstate.TriageGateIntakeHold || len(harness.forge.requested) != 0 {
-		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing asked of the forge and the hold named", held, err, harness.forge.requested)
+	if err != nil || len(held) != 1 || held[0].Carried || held[0].Gate != runstate.TriageGateIntakeHold || len(harness.forge.Requested) != 0 {
+		t.Fatalf("CarryRearms() under the intake hold = %+v, %v with requests %#v; want nothing asked of the forge and the hold named", held, err, harness.forge.Requested)
 	}
 
 	carried, err := watch.CarryRearms(context.Background(), false)
@@ -321,16 +322,16 @@ func TestTheWatchArmsAnUnaskedPublicationItsDecisionNames(t *testing.T) {
 		t.Fatalf("carried = %+v, want the one re-arm carried out", carried)
 	}
 	want := publish.MergeRequest{Number: 92, HeadCommit: rearmedCommit, Method: mergeMethod}
-	if len(harness.forge.requested) != 1 || harness.forge.requested[0] != want {
-		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.requested, want)
+	if len(harness.forge.Requested) != 1 || harness.forge.Requested[0] != want {
+		t.Fatalf("merge requests = %#v, want the run's own merge request %#v", harness.forge.Requested, want)
 	}
 	if armed := harness.reload(t); !armed.PullRequest.MergeQueued || armed.PullRequest.MergeRearms != 1 {
 		t.Fatalf("recorded publication = %+v, want the merge queued and the decision spent", armed.PullRequest)
 	}
 
 	again, err := watch.CarryRearms(context.Background(), false)
-	if err != nil || len(again) != 0 || len(harness.forge.requested) != 1 {
-		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.requested)
+	if err != nil || len(again) != 0 || len(harness.forge.Requested) != 1 {
+		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.Requested)
 	}
 }
 
@@ -352,8 +353,8 @@ func TestTheWatchRecordsARefusedArmingOnTheItem(t *testing.T) {
 	if len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "head-behind-target gate") {
 		t.Fatalf("carried = %+v, want the arming refused naming the gate", carried)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a refused arming asked the forge for %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a refused arming asked the forge for %#v", harness.forge.Requested)
 	}
 	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
 	if err != nil {

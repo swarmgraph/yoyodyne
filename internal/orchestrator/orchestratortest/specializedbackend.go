@@ -2,9 +2,9 @@ package orchestratortest
 
 import (
 	"context"
+	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
-	"sync"
 )
 
 // LoginProbe stands in for the developer's provider as a watch asks it one

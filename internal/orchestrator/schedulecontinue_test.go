@@ -124,12 +124,12 @@ func deferredSaying(schedule Schedule, workItemID, says string) bool {
 func closeBlocker(harness *realScheduleHarness, workItemID string) {
 	harness.mu.Lock()
 	defer harness.mu.Unlock()
-	for index := range harness.items {
-		if harness.items[index].ID != workItemID {
+	for index := range harness.Items {
+		if harness.Items[index].ID != workItemID {
 			continue
 		}
-		for dependency := range harness.items[index].Dependencies {
-			harness.items[index].Dependencies[dependency].Status = "closed"
+		for dependency := range harness.Items[index].Dependencies {
+			harness.Items[index].Dependencies[dependency].Status = "closed"
 		}
 	}
 }

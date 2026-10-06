@@ -3,9 +3,9 @@ package orchestratortest
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
-	"sync"
 )
 
 // ScheduleTracker holds the queue shared by scheduler tests and their pipelines.

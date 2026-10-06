@@ -20,11 +20,11 @@ package orchestrator
 
 import (
 	"context"
-	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )

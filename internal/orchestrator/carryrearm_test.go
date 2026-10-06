@@ -32,8 +32,8 @@ func TestTheWatchRearmsADroppedMergeItsDecisionNames(t *testing.T) {
 		t.Fatalf("carried = %+v, want the re-arm of the dropped merge carried out", carried)
 	}
 	want := publish.MergeRequest{Number: 92, HeadCommit: rearmedCommit, Method: publish.MergeMethod(rearmedMethod)}
-	if len(harness.forge.requested) != 1 || harness.forge.requested[0] != want {
-		t.Fatalf("merge requests = %#v, want the dropped request repeated as %#v", harness.forge.requested, want)
+	if len(harness.forge.Requested) != 1 || harness.forge.Requested[0] != want {
+		t.Fatalf("merge requests = %#v, want the dropped request repeated as %#v", harness.forge.Requested, want)
 	}
 	if len(harness.leases.promoted) != 1 || harness.leases.promoted[0] != "main" {
 		t.Fatalf("promotion leases = %#v, want the re-arm made under main's", harness.leases.promoted)
@@ -44,8 +44,8 @@ func TestTheWatchRearmsADroppedMergeItsDecisionNames(t *testing.T) {
 	}
 
 	again, err := watch.CarryRearms(context.Background(), false)
-	if err != nil || len(again) != 0 || len(harness.forge.requested) != 1 {
-		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.requested)
+	if err != nil || len(again) != 0 || len(harness.forge.Requested) != 1 {
+		t.Fatalf("a second pull carried %+v (%v) with requests %#v; want nothing left to carry out", again, err, harness.forge.Requested)
 	}
 }
 
@@ -56,7 +56,7 @@ func TestTheWatchRecordsARefusedRearmOfADroppedMergeOnTheItem(t *testing.T) {
 	t.Parallel()
 
 	harness := newRearmHarness(t)
-	harness.forge.status = "BLOCKED"
+	harness.forge.Status = "BLOCKED"
 	harness.decide(t)
 	watch := harness.carryOut(nil)
 
@@ -67,8 +67,8 @@ func TestTheWatchRecordsARefusedRearmOfADroppedMergeOnTheItem(t *testing.T) {
 	if len(carried) != 1 || carried[0].Carried || !strings.Contains(carried[0].Problem, "only a person can satisfy") {
 		t.Fatalf("carried = %+v, want the re-arm refused naming what holds the merge", carried)
 	}
-	if len(harness.forge.requested) != 0 {
-		t.Fatalf("a refused re-arm asked the forge to merge %#v", harness.forge.requested)
+	if len(harness.forge.Requested) != 0 {
+		t.Fatalf("a refused re-arm asked the forge to merge %#v", harness.forge.Requested)
 	}
 	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
 	if err != nil {
@@ -114,8 +114,8 @@ func TestASwitchShutForEverythingIsWrittenOnceOnARearmAndTheFirstPullAfterFiresI
 			if len(held) != 1 || held[0].Carried || !held[0].Waiting || held[0].Gate != test.gate {
 				t.Fatalf("held = %+v, want the re-arm said to wait on %s", held, test.gate)
 			}
-			if len(harness.forge.requested) != 0 {
-				t.Fatalf("a re-arm under %s asked the forge for %#v", test.gate, harness.forge.requested)
+			if len(harness.forge.Requested) != 0 {
+				t.Fatalf("a re-arm under %s asked the forge for %#v", test.gate, harness.forge.Requested)
 			}
 			counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
 			if err != nil {
@@ -135,8 +135,8 @@ func TestASwitchShutForEverythingIsWrittenOnceOnARearmAndTheFirstPullAfterFiresI
 			if err != nil {
 				t.Fatalf("CarryRearms() after the switch opened error = %v", err)
 			}
-			if len(carried) != 1 || !carried[0].Carried || len(harness.forge.requested) != 1 {
-				t.Fatalf("carried = %+v with requests %#v, want the re-arm made on the first pull after the switch opened", carried, harness.forge.requested)
+			if len(carried) != 1 || !carried[0].Carried || len(harness.forge.Requested) != 1 {
+				t.Fatalf("carried = %+v with requests %#v, want the re-arm made on the first pull after the switch opened", carried, harness.forge.Requested)
 			}
 		})
 	}
@@ -177,8 +177,8 @@ func TestARearmOfAPublicationItsRunNeverPromotedIsRefusedAloudAtTheNextPull(t *t
 		!strings.Contains(carried[0].Problem, "recorded no promotion") || !strings.Contains(carried[0].Problem, "re-run") {
 		t.Fatalf("carried = %+v, want the re-arm refused naming the missing promotion and the re-run that applies", carried)
 	}
-	if len(harness.forge.requested) != 0 || len(harness.leases.promoted) != 0 {
-		t.Fatalf("a refused re-arm asked the forge for %#v under leases %#v", harness.forge.requested, harness.leases.promoted)
+	if len(harness.forge.Requested) != 0 || len(harness.leases.promoted) != 0 {
+		t.Fatalf("a refused re-arm asked the forge for %#v under leases %#v", harness.forge.Requested, harness.leases.promoted)
 	}
 	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
 	if err != nil {
@@ -276,25 +276,25 @@ func TestARefusedRearmReachesTheDocketAndLeavesItOnceTheMergeIsMade(t *testing.T
 	t.Parallel()
 
 	harness := newRearmHarness(t)
-	harness.forge.status = "DIRTY"
+	harness.forge.Status = "DIRTY"
 	harness.decide(t)
 	harness.docket.close(harness.publication(), runstate.TriageDecisionRearm, docketedNow)
 	watch := harness.carryOut(nil)
 	watch.Clock = laterClock{after: time.Minute}
 
 	refused, err := watch.CarryRearms(context.Background(), false)
-	if err != nil || len(refused) != 1 || refused[0].Carried || len(harness.forge.requested) != 0 {
-		t.Fatalf("CarryRearms() = %+v, %v with requests %#v; want the re-arm refused and nothing asked", refused, err, harness.forge.requested)
+	if err != nil || len(refused) != 1 || refused[0].Carried || len(harness.forge.Requested) != 0 {
+		t.Fatalf("CarryRearms() = %+v, %v with requests %#v; want the re-arm refused and nothing asked", refused, err, harness.forge.Requested)
 	}
 	if docketed := refusedOnTheDocket(t, harness); !strings.Contains(docketed.CarryOut.Refusal, "only a person can satisfy") {
 		t.Fatalf("docketed = %+v, want the forge's refusal on the entry", docketed.CarryOut)
 	}
 
-	harness.forge.status = "CLEAN"
+	harness.forge.Status = "CLEAN"
 	watch.Clock = laterClock{after: time.Minute + runstate.TriageCarryOutRetryDelay + time.Second}
 	carried, err := watch.CarryRearms(context.Background(), false)
-	if err != nil || len(carried) != 1 || !carried[0].Carried || carried[0].RecordProblem != "" || len(harness.forge.requested) != 1 {
-		t.Fatalf("CarryRearms() once the refusal cooled = %+v, %v with requests %#v; want the merge made and the record clean", carried, err, harness.forge.requested)
+	if err != nil || len(carried) != 1 || !carried[0].Carried || carried[0].RecordProblem != "" || len(harness.forge.Requested) != 1 {
+		t.Fatalf("CarryRearms() once the refusal cooled = %+v, %v with requests %#v; want the merge made and the record clean", carried, err, harness.forge.Requested)
 	}
 	counters, err := harness.runs.Triage().Counters(harness.state.WorkItemID)
 	if err != nil {
@@ -351,8 +351,8 @@ func TestARearmHeldBehindARunInFlightIsRecordedAsUnattempted(t *testing.T) {
 	watch := harness.carryOut(nil)
 
 	carried, err := watch.CarryRearms(context.Background(), false)
-	if err != nil || len(carried) != 0 || len(harness.forge.requested) != 0 {
-		t.Fatalf("CarryRearms() = %+v, %v with requests %#v; want nothing attempted beside a run in flight", carried, err, harness.forge.requested)
+	if err != nil || len(carried) != 0 || len(harness.forge.Requested) != 0 {
+		t.Fatalf("CarryRearms() = %+v, %v with requests %#v; want nothing attempted beside a run in flight", carried, err, harness.forge.Requested)
 	}
 
 	watch.Clock = laterClock{after: 2 * time.Minute}

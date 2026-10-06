@@ -3,7 +3,6 @@ package orchestrator
 import (
 	"context"
 	"errors"
-	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 )
 
 // landingRepository is a checkout with the recommended artifact layout and one

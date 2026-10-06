@@ -23,7 +23,7 @@ const supersedingRun = "run-abcdef0123456789abcdef0123456789"
 // the older request remains queued in the forge's answer.
 func recordSupersedingMerge(t *testing.T, f queuedFixture, old runstate.State) runstate.State {
 	t.Helper()
-	if err := f.forge.(*orchestratortest.Forge).MergeIntoRemote("main", old.Branch); err != nil {
+	if err := f.forge.MergeIntoRemote("main", old.Branch); err != nil {
 		t.Fatal(err)
 	}
 	merge, err := f.forge.Git("rev-parse", "main")
@@ -112,14 +112,14 @@ func TestAQueuedReplayRetiresARunWhoseItemMergedThroughAnotherRun(t *testing.T) 
 	old := loadRun(t, f.store, pipelineRunID)
 	by := recordSupersedingMerge(t, f, old)
 	closeRetirementItem(f)
-	forge.reading = retirementReading()
+	forge.Reading = retirementReading()
 	r := f.sweep(t, forge, true)
 	results, err := r.Reconcile(context.Background())
 	if err != nil || len(results) != 1 || results[0].Action != ActionRetired || results[0].Failure != "" {
 		t.Fatalf("reconcile = %+v, %v", results, err)
 	}
 	assertRunRetired(t, f, old, by)
-	if len(forge.withdrawn) != 0 {
+	if len(forge.Withdrawn) != 0 {
 		t.Fatal("an obsolete run was put back at its promotion")
 	}
 	notes := len(f.tracker.Record().NoteRecords)
@@ -142,10 +142,10 @@ func TestAQueuedReplayRetiresARunWhoseItemMergedThroughAnotherRun(t *testing.T) 
 
 // This is the observed stale record: a previous sweep already withdrew the
 // merge and made the run live, so no publication settlement selects it now.
-func updatingRetirementFixture(t *testing.T) (queuedFixture, *checkedForge, Reconciler, runstate.State) {
+func updatingRetirementFixture(t *testing.T) (queuedFixture, *orchestratortest.CheckedForge, Reconciler, runstate.State) {
 	t.Helper()
 	f, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = retirementReading()
+	forge.Reading = retirementReading()
 	r := f.sweep(t, forge, true)
 	if results, err := r.Reconcile(context.Background()); err != nil || len(results) != 1 || results[0].Action != ActionUpdating {
 		t.Fatalf("prepare replay = %+v, %v", results, err)
@@ -387,7 +387,7 @@ func TestRetirementSettlesOtherItemsOnTheSamePass(t *testing.T) {
 	old := loadRun(t, f.store, pipelineRunID)
 	by := recordSupersedingMerge(t, f, old)
 	closeRetirementItem(f)
-	forge.reading = retirementReading()
+	forge.Reading = retirementReading()
 	other := runstate.State{
 		SchemaVersion: runstate.StateSchemaVersion, RunID: "run-ffffffffffffffffffffffffffffffff",
 		ProductID: old.ProductID, RepositoryID: old.RepositoryID, WorkItemID: "other-item",
@@ -465,7 +465,7 @@ func TestRetirementNoteDeliverySurvivesARefusedMarkerAndRestart(t *testing.T) {
 	old := loadRun(t, f.store, pipelineRunID)
 	by := recordSupersedingMerge(t, f, old)
 	closeRetirementItem(f)
-	forge.reading = retirementReading()
+	forge.Reading = retirementReading()
 	r := f.sweep(t, forge, true)
 	tracker := &durableFindingNotes{Tracker: f.tracker.(*orchestratortest.Tracker)}
 	r.Tracker = tracker

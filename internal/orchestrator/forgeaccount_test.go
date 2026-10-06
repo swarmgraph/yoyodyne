@@ -48,7 +48,7 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = redOnTheChange()
+	forge.Reading = redOnTheChange()
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
 	logs := &orchestratortest.JobLogs{Tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
@@ -58,8 +58,8 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
 	}
-	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.withdrawn) != 1 {
-		t.Fatalf("reconciliation = %#v, withdrawn = %v; want the merge withdrawn and handed back", results, forge.withdrawn)
+	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.Withdrawn) != 1 {
+		t.Fatalf("reconciliation = %#v, withdrawn = %v; want the merge withdrawn and handed back", results, forge.Withdrawn)
 	}
 	if len(logs.Asked) != 1 || logs.Asked[0] != 77 {
 		t.Errorf("job logs asked = %v, want the failing job's log read under the harness's access", logs.Asked)
@@ -100,8 +100,8 @@ func TestAForgeThatRefusesTheHarnessesTokenIsNamedOnTheItemAsTheOperatorsToGrant
 	t.Parallel()
 
 	fixture, forge, _ := queuedOnProtectedTarget(t)
-	forge.reading = jobFailure(4215)
-	forge.refuseRerun = fmt.Errorf("ask the forge to run check 4215 again: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)
+	forge.Reading = jobFailure(4215)
+	forge.RefuseRerun = fmt.Errorf("ask the forge to run check 4215 again: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
 	logs := &orchestratortest.JobLogs{Err: fmt.Errorf("read the forge's log of check 4215: exit code 1: gh: Resource not accessible by integration (HTTP 403): %w", publish.ErrForgeAccessRefused)}
@@ -128,7 +128,7 @@ func TestAForgeThatRefusesTheHarnessesTokenIsNamedOnTheItemAsTheOperatorsToGrant
 	if blocker := fixture.tracker.Record().BlockReason; !strings.Contains(blocker, "the forge would not let the harness's token run the job again") || !strings.Contains(blocker, "granting it that is the operator's") {
 		t.Errorf("blocker does not name the re-run refusal as the operator's to grant:\n%s", blocker)
 	}
-	if !errors.Is(forge.refuseRerun, publish.ErrForgeAccessRefused) {
+	if !errors.Is(forge.RefuseRerun, publish.ErrForgeAccessRefused) {
 		t.Fatal("the fixture's refusal is not the forge refusing the token")
 	}
 }

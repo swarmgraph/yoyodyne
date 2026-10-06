@@ -455,7 +455,7 @@ func TestWatchingPullsASequencedItemOnceTheRunItWouldRaceEnds(t *testing.T) {
 		if sleeps == 2 {
 			h.mu.Lock()
 			delete(h.inFlight, "yoyodyne-epic")
-			h.items[1].Status = "closed"
+			h.Items[1].Status = "closed"
 			h.mu.Unlock()
 		}
 		return sleeps < 4

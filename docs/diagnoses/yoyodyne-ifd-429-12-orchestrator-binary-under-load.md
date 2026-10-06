@@ -229,14 +229,10 @@ because one change was too large to review:
 - **Second (yoyodyne-ifd.429.13.6.2).** The files from `publish_test.go` on move
   too, and the old names go with them.
 
-Until the second change lands, those later files still use some old in-package
-fakes. A few of these are declared next to the shared fixtures in those files,
-such as `checkedForge` in `queuedchecks_test.go` and the scheduler harness in
-`schedule_test.go`. An earlier file that reaches a fake through one of those
-fixtures still meets the old fake there. The others are kept in
-`inpackagefakes_test.go` under their old names, and only while a test still uses
-them: `recordingFiler`, `looked`, `answeringForge`, `publicationAnswers`, and the
-scheduler harness's `Release`.
+The shared fixtures the earlier files reach, such as the scheduler harness and
+the queued-checks and re-arm fixtures, already use the exported fakes. Until the
+second change lands, `fakes_test.go` keeps `looked`, `answeringForge`, and
+`publicationAnswers` under their old names for the later files that use them.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than

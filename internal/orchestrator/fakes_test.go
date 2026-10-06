@@ -3,57 +3,16 @@ package orchestrator
 import (
 	"context"
 	"errors"
-	"fmt"
 
-	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 )
 
 // The old names below are kept while a test file that has not yet moved onto
-// orchestratortest's fakes uses one: the files from publish_test.go on, and the
-// fixtures they declare that the moved files share. Each goes when nothing uses
-// it, and this file goes when the last of those files has moved.
-
-// recordingFiler records created items and lists them as open work.
-type recordingFiler struct {
-	filed  []beads.NewWorkItem
-	open   []beads.WorkItem
-	refuse error
-}
-
-func (f *recordingFiler) Create(_ context.Context, item beads.NewWorkItem) (beads.WorkItem, error) {
-	if f.refuse != nil {
-		return beads.WorkItem{}, f.refuse
-	}
-	f.filed = append(f.filed, item)
-	created := beads.WorkItem{ID: fmt.Sprintf("yoyodyne-red-%d", len(f.filed)), Title: item.Title, Notes: item.Notes, Status: "open"}
-	f.open = append(f.open, created)
-	return created, nil
-}
-
-func (f *recordingFiler) List(_ context.Context, status string) ([]beads.WorkItem, error) {
-	if status != "open" {
-		return nil, nil
-	}
-	return f.open, nil
-}
-
-// Release gives a claimed item back to the harness's queue, exactly as the
-// tracker does: the item is open, and pullable again.
-func (h *scheduleHarness) Release(_ context.Context, id, _ string) (beads.WorkItem, error) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for index, item := range h.items {
-		if item.ID == id {
-			h.items[index].Status = "open"
-			h.ready[id] = true
-			return h.items[index], nil
-		}
-	}
-	return beads.WorkItem{}, fmt.Errorf("no such work item %s", id)
-}
+// orchestratortest's fakes uses one: these are used only by files sorting from
+// publish_test.go on. Each goes when nothing uses it, and this file goes when
+// the last of those files has moved.
 
 // looked is a repository that answers for the one stopped run: whether its
 // branch and its checkout are there.

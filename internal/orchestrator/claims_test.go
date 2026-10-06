@@ -10,7 +10,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -649,7 +649,7 @@ func TestDeadRunsFillingTheMachineAreSettledAndTheirItemsPulledAgain(t *testing.
 	harness.now = auditMoment
 	harness.inFlight["yoyodyne-ifd.209.7"] = deadRun("run-209-7", "yoyodyne-ifd.209.7")
 	harness.inFlight["yoyodyne-ifd.264"] = deadRun("run-264", "yoyodyne-ifd.264")
-	harness.items = []beads.WorkItem{
+	harness.Items = []beads.WorkItem{
 		claimedItem("yoyodyne-ifd.209.7", "The first of the pair"),
 		claimedItem("yoyodyne-ifd.264", "The second of the pair"),
 	}
@@ -715,7 +715,7 @@ func TestAHeldIntakeStillAuditsTheClaims(t *testing.T) {
 	harness := newScheduleHarness()
 	harness.held = &runstate.IntakeHold{HeldAt: auditMoment.Add(-time.Hour), Reason: "runs kept blocking"}
 	harness.inFlight["yoyodyne-ifd.264"] = deadRun("run-264", "yoyodyne-ifd.264")
-	harness.items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while intake is held")}
+	harness.Items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while intake is held")}
 	log := &claimLog{}
 	harness.claims = ClaimAuditor{
 		Tracker:   harness,
@@ -757,7 +757,7 @@ func TestAProviderAnsweringNobodyStillAuditsTheClaims(t *testing.T) {
 	}
 	harness.outages, harness.provider = outages, &orchestratortest.LoginProbe{}
 	harness.inFlight["yoyodyne-ifd.264"] = deadRun("run-264", "yoyodyne-ifd.264")
-	harness.items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while the provider is away")}
+	harness.Items = []beads.WorkItem{claimedItem("yoyodyne-ifd.264", "Stuck while the provider is away")}
 	log := &claimLog{}
 	harness.claims = ClaimAuditor{
 		Tracker:   harness,

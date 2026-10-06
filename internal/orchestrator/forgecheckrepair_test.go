@@ -21,7 +21,7 @@ func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *
 	t.Parallel()
 	for _, test := range []struct {
 		name    string
-		fixture func(*testing.T) (queuedFixture, *checkedForge, Outcome)
+		fixture func(*testing.T) (queuedFixture, *orchestratortest.CheckedForge, Outcome)
 	}{
 		{name: "through the pull request", fixture: queuedOnProtectedTarget},
 		{name: "locally promoted evidence with preserved artifacts", fixture: queuedLocalEvidenceWithPreservedArtifacts},
@@ -33,7 +33,7 @@ func TestAForgeCheckHandbackContinuesThePreservedChangeThroughRepairCarryOut(t *
 	}
 }
 
-func queuedLocalEvidenceWithPreservedArtifacts(t *testing.T) (queuedFixture, *checkedForge, Outcome) {
+func queuedLocalEvidenceWithPreservedArtifacts(t *testing.T) (queuedFixture, *orchestratortest.CheckedForge, Outcome) {
 	t.Helper()
 	fixture := newQueuedFixture(t)
 	provider := orchestratortest.RoleBackend(writeFeature, approveEvidenceVerdict)
@@ -51,15 +51,15 @@ func queuedLocalEvidenceWithPreservedArtifacts(t *testing.T) (queuedFixture, *ch
 	if outcome.WorkItemClosed || fixture.tracker.Record().Item.Status == "closed" || outcome.ReviewApproves != "evidence" {
 		t.Fatal("the evidence landing closed its item")
 	}
-	return fixture, &checkedForge{queuedForge: fixture.forge}, outcome
+	return fixture, &orchestratortest.CheckedForge{Forge: fixture.forge}, outcome
 }
 
-func forgeCheckRepairCarryOut(t *testing.T, makeFixture func(*testing.T) (queuedFixture, *checkedForge, Outcome)) {
+func forgeCheckRepairCarryOut(t *testing.T, makeFixture func(*testing.T) (queuedFixture, *orchestratortest.CheckedForge, Outcome)) {
 	t.Helper()
 	ctx := context.Background()
 	fixture, forge, original := makeFixture(t)
 	fixture.docket = &memoryDocket{}
-	forge.reading = redOnTheChange()
+	forge.Reading = redOnTheChange()
 	reconciler := fixture.sweep(t, forge, false)
 	reconciler.JobLogs = &orchestratortest.JobLogs{Tail: "feature.txt:3: line is longer than 100 characters"}
 	if _, err := reconciler.Reconcile(ctx); err != nil {
@@ -175,7 +175,7 @@ func TestAnOlderForgeCheckHandbackNamesTheSupportedRepairAlternative(t *testing.
 		t.Fatal(err)
 	}
 	fixture.docket = &memoryDocket{}
-	forge.reading = redOnTheChange()
+	forge.Reading = redOnTheChange()
 	if _, err := fixture.sweep(t, forge, false).Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestAForgeCheckHandbackRecoversAWithdrawnMergeAndKeepsClosedItemsClosed(t *
 	for _, closed := range []bool{false, true} {
 		t.Run(map[bool]string{false: "withdrawn before settlement", true: "item already closed"}[closed], func(t *testing.T) {
 			fixture, forge, original := queuedOnProtectedTarget(t)
-			forge.reading = redOnTheChange()
+			forge.Reading = redOnTheChange()
 			if closed {
 				fixture.tracker.(*orchestratortest.Tracker).Item.Status = "closed"
 			} else {
@@ -277,7 +277,7 @@ func TestADroppedMergeRecordsItsOwnForgeFailureEvenWhenItCannotBeReplayed(t *tes
 	t.Parallel()
 	for _, test := range []struct {
 		name    string
-		fixture func(*testing.T) (queuedFixture, *checkedForge, Outcome)
+		fixture func(*testing.T) (queuedFixture, *orchestratortest.CheckedForge, Outcome)
 		change  func(*runstate.State)
 		gone    bool
 	}{
@@ -302,10 +302,10 @@ func TestADroppedMergeRecordsItsOwnForgeFailureEvenWhenItCannotBeReplayed(t *tes
 		{
 			name: "local promotion already cleaned up",
 			gone: true,
-			fixture: func(t *testing.T) (queuedFixture, *checkedForge, Outcome) {
+			fixture: func(t *testing.T) (queuedFixture, *orchestratortest.CheckedForge, Outcome) {
 				fixture := newQueuedFixture(t)
 				original := fixture.run(t)
-				return fixture, &checkedForge{queuedForge: fixture.forge}, original
+				return fixture, &orchestratortest.CheckedForge{Forge: fixture.forge}, original
 			},
 		},
 	} {
@@ -331,7 +331,7 @@ func TestADroppedMergeRecordsItsOwnForgeFailureEvenWhenItCannotBeReplayed(t *tes
 			}
 			fixture.docket = &memoryDocket{}
 			forge.DropQueuedMerge()
-			forge.reading = redOnTheChange()
+			forge.Reading = redOnTheChange()
 			if _, err := fixture.sweep(t, forge, false).Reconcile(ctx); err != nil {
 				t.Fatal(err)
 			}
@@ -397,8 +397,8 @@ func TestAnUnreplayableDroppedMergeKeepsItsRecoveryForUnrelatedFailures(t *testi
 		t.Fatal(err)
 	}
 	forge.DropQueuedMerge()
-	forge.reading = redOnTheChange()
-	forge.reading.Failing[0].Paths = []string{"unrelated.txt"}
+	forge.Reading = redOnTheChange()
+	forge.Reading.Failing[0].Paths = []string{"unrelated.txt"}
 	if _, err := fixture.sweep(t, forge, false).Reconcile(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -450,12 +450,12 @@ func TestAnUnreplayableDroppedMergeRecordsUnannotatedFailuresAttributedToItsChan
 				}
 				fixture.docket = &memoryDocket{}
 				forge.DropQueuedMerge()
-				forge.reading = pullRequest907Reading()
-				if recordedChecks(forge.reading, prior.UpdatedAt).ChangeFails() {
+				forge.Reading = pullRequest907Reading()
+				if recordedChecks(forge.Reading, prior.UpdatedAt).ChangeFails() {
 					t.Fatal("the fixture attributed the failure by annotation paths")
 				}
 				reconciler := fixture.sweep(t, forge, false)
-				filer := &recordingFiler{}
+				filer := &orchestratortest.RecordingFiler{}
 				// Attribution also works where nothing is wired to file target work.
 				if missing {
 					reconciler.Filer = filer
@@ -512,7 +512,7 @@ func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t 
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			ctx := context.Background()
-			filer := &recordingFiler{}
+			filer := &orchestratortest.RecordingFiler{}
 			fixture, forge, _, reconciler, logs := redTargetSweep(t, filer)
 			prior := loadRun(t, fixture.store, pipelineRunID)
 			for range runstate.MaxIntegrationResumptions {
@@ -524,13 +524,13 @@ func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t 
 				t.Fatal(err)
 			}
 			forge.DropQueuedMerge()
-			forge.reading = pullRequest907Reading()
+			forge.Reading = pullRequest907Reading()
 			main := &orchestratortest.TargetChecks{Reading: publish.BranchCheckReading{HeadCommit: prior.BaseCommit, Pending: []string{"build"}}}
 			if confirmed {
 				main.Reading.Pending, main.Reading.Failing = nil, []string{"build"}
 				// The target's own failure takes precedence even if the log names
 				// a package this change also touches.
-				logs.tail = pullRequest907Log
+				logs.Tail = pullRequest907Log
 			}
 			reconciler.TargetChecks = main
 			results, err := reconciler.Reconcile(ctx)
@@ -541,8 +541,8 @@ func TestAnUnreplayableLevelHeadKeepsDroppedMergeRecoveryForUnrelatedFailures(t 
 			if stopped.CheckFailure != nil || stopped.Integration == nil || stopped.MergeDrop == nil || stopped.PullRequest.MergeQueued || stopped.PullRequest.TargetRed != nil {
 				t.Fatal("an unrelated failure lost its existing dropped-merge recovery")
 			}
-			if len(filer.filed) != 0 || len(main.Asked) != 1 {
-				t.Fatalf("filed = %#v, target checks asked = %v; want attribution only, with no new target wait", filer.filed, main.Asked)
+			if len(filer.Filed) != 0 || len(main.Asked) != 1 {
+				t.Fatalf("filed = %#v, target checks asked = %v; want attribution only, with no new target wait", filer.Filed, main.Asked)
 			}
 			if _, _, err := rearmablePublication(stopped); err != nil {
 				t.Fatalf("re-arm eligibility for an unrelated failure = %v", err)

@@ -3,11 +3,11 @@ package orchestrator
 import (
 	"context"
 	"fmt"
-	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )

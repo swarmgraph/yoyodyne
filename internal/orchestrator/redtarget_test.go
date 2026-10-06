@@ -35,21 +35,10 @@ func redTargetReading() publish.CheckReading {
 	}
 }
 
-// jobLogs is the forge's log of a job, as the harness reads its tail.
-type jobLogs struct {
-	tail  string
-	asked []int64
-}
-
-func (l *jobLogs) JobLogTail(_ context.Context, checkRun int64, _ int) (string, error) {
-	l.asked = append(l.asked, checkRun)
-	return l.tail, nil
-}
-
 // redTargetSweep is a run whose merge is queued on a protected main, whose item
 // names the goal it served, swept by a reconciler that can file work and read
 // a job's log.
-func redTargetSweep(t *testing.T, filer *recordingFiler) (queuedFixture, *checkedForge, *orchestratortest.Tracker, Reconciler, *jobLogs) {
+func redTargetSweep(t *testing.T, filer *orchestratortest.RecordingFiler) (queuedFixture, *orchestratortest.CheckedForge, *orchestratortest.Tracker, Reconciler, *orchestratortest.JobLogs) {
 	t.Helper()
 	fixture := newQueuedFixture(t)
 	tracker := fixture.tracker.(*orchestratortest.Tracker)
@@ -59,11 +48,11 @@ func redTargetSweep(t *testing.T, filer *recordingFiler) (queuedFixture, *checke
 	if outcome.Integration == nil || !outcome.Integration.ThroughPullRequest {
 		t.Fatalf("integration = %#v, want a landing through the pull request", outcome.Integration)
 	}
-	forge := &checkedForge{queuedForge: fixture.forge}
-	forge.reading = redTargetReading()
+	forge := &orchestratortest.CheckedForge{Forge: fixture.forge}
+	forge.Reading = redTargetReading()
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
-	logs := &jobLogs{tail: "--- FAIL: TestAdoption (0.01s)\n    adoption_test.go:12: bd is not installed"}
+	logs := &orchestratortest.JobLogs{Tail: "--- FAIL: TestAdoption (0.01s)\n    adoption_test.go:12: bd is not installed"}
 	reconciler.Filer = filer
 	reconciler.JobLogs = logs
 	return fixture, forge, tracker, reconciler, logs
@@ -77,7 +66,7 @@ func redTargetSweep(t *testing.T, filer *recordingFiler) (queuedFixture, *checke
 func TestAQueuedHeadLevelWithItsTargetFailingAnUntouchedFileWaitsOnTheTargetsFiledItem(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -87,16 +76,16 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUntouchedFileWaitsOnTheTargetsFil
 	if len(results) != 1 || results[0].Action != ActionWaitingOnTarget || results[0].Failure != "" {
 		t.Fatalf("reconciliation = %#v, want the merge waiting on the target's red check", results)
 	}
-	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
-		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.withdrawn, forge.HoldsQueuedMerge())
+	if len(forge.Withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.Withdrawn, forge.HoldsQueuedMerge())
 	}
 
 	// Filed once, as a red landing is: a p0 bug naming the branch, the commit,
 	// the check, and the request that met it, under the item's goal.
-	if len(filer.filed) != 1 {
-		t.Fatalf("filed = %#v, want one item for main's red check", filer.filed)
+	if len(filer.Filed) != 1 {
+		t.Fatalf("filed = %#v, want one item for main's red check", filer.Filed)
 	}
-	filed := filer.filed[0]
+	filed := filer.Filed[0]
 	if filed.Type != "bug" || filed.Priority == nil || *filed.Priority != 0 {
 		t.Errorf("filed type %q priority %v, want a p0 bug", filed.Type, filed.Priority)
 	}
@@ -113,12 +102,12 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUntouchedFileWaitsOnTheTargetsFil
 	}
 	// The log is read to decide whose failure it is, and again for the account
 	// the item carries; nothing else is read.
-	if len(logs.asked) == 0 {
-		t.Errorf("job logs asked = %v, want the failing job's log read", logs.asked)
+	if len(logs.Asked) == 0 {
+		t.Errorf("job logs asked = %v, want the failing job's log read", logs.Asked)
 	}
-	for _, asked := range logs.asked {
+	for _, asked := range logs.Asked {
 		if asked != 4215 {
-			t.Errorf("job logs asked = %v, want only the failing job's log read", logs.asked)
+			t.Errorf("job logs asked = %v, want only the failing job's log read", logs.Asked)
 		}
 	}
 
@@ -173,8 +162,8 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUntouchedFileWaitsOnTheTargetsFil
 	if len(waiting) != 1 || waiting[0].Action != ActionWaitingOnTarget || !strings.Contains(waiting[0].Detail, "still waits on yoyodyne-red-1") {
 		t.Fatalf("resumptions = %#v, want the publication still waiting on its open item", waiting)
 	}
-	if len(filer.filed) != 1 {
-		t.Errorf("filed = %d items, want nothing filed again while the first is open", len(filer.filed))
+	if len(filer.Filed) != 1 {
+		t.Errorf("filed = %d items, want nothing filed again while the first is open", len(filer.Filed))
 	}
 }
 
@@ -183,7 +172,7 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUntouchedFileWaitsOnTheTargetsFil
 func TestALaterRequestMeetingTheSameRedCheckIsNotedOnTheOpenItem(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{open: []beads.WorkItem{{
+	filer := &orchestratortest.RecordingFiler{Open: []beads.WorkItem{{
 		ID:     "yoyodyne-red-earlier",
 		Status: "open",
 		Notes:  "Filed by the harness for adoption red on main.\n" + redTargetMarker("main", "adoption"),
@@ -197,11 +186,11 @@ func TestALaterRequestMeetingTheSameRedCheckIsNotedOnTheOpenItem(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionWaitingOnTarget {
 		t.Fatalf("reconciliation = %#v, want the merge waiting on the target's red check", results)
 	}
-	if len(filer.filed) != 0 {
-		t.Fatalf("filed = %#v, want the open item noted rather than a second filed", filer.filed)
+	if len(filer.Filed) != 0 {
+		t.Fatalf("filed = %#v, want the open item noted rather than a second filed", filer.Filed)
 	}
-	if len(forge.withdrawn) != 1 {
-		t.Errorf("withdrawn = %v, want the queued merge withdrawn", forge.withdrawn)
+	if len(forge.Withdrawn) != 1 {
+		t.Errorf("withdrawn = %v, want the queued merge withdrawn", forge.Withdrawn)
 	}
 	if !strings.Contains(tracker.Record().Notes, "Red again on main") {
 		t.Errorf("the open item was not told about this request:\n%s", tracker.Record().Notes)
@@ -221,7 +210,7 @@ func TestALaterRequestMeetingTheSameRedCheckIsNotedOnTheOpenItem(t *testing.T) {
 func TestAFilingThatFailsLeavesTheMergeQueuedForTheNextSweep(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{refuse: errors.New("bd create timed out")}
+	filer := &orchestratortest.RecordingFiler{Refuse: errors.New("bd create timed out")}
 	fixture, forge, tracker, reconciler, _ := redTargetSweep(t, filer)
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -231,8 +220,8 @@ func TestAFilingThatFailsLeavesTheMergeQueuedForTheNextSweep(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionQueued || !strings.Contains(results[0].Detail, "could not be filed") {
 		t.Fatalf("reconciliation = %#v, want the merge left queued saying the filing failed", results)
 	}
-	if len(forge.withdrawn) != 0 || !forge.HoldsQueuedMerge() || tracker.Record().Blocked {
-		t.Fatalf("withdrawn = %v, blocked = %t; a filing that failed withdraws nothing and hands nothing back", forge.withdrawn, tracker.Record().Blocked)
+	if len(forge.Withdrawn) != 0 || !forge.HoldsQueuedMerge() || tracker.Record().Blocked {
+		t.Fatalf("withdrawn = %v, blocked = %t; a filing that failed withdraws nothing and hands nothing back", forge.Withdrawn, tracker.Record().Blocked)
 	}
 	if recorded := loadRun(t, fixture.store, pipelineRunID); !recorded.PullRequest.MergeQueued || recorded.PullRequest.TargetRed != nil {
 		t.Errorf("record = queued %t, target red %#v; want the merge still recorded as queued", recorded.PullRequest.MergeQueued, recorded.PullRequest.TargetRed)
@@ -246,7 +235,7 @@ func TestAFilingThatFailsLeavesTheMergeQueuedForTheNextSweep(t *testing.T) {
 func TestAWaitOnTheTargetWhoseItemClosedIsBroughtUpToDateWhereTheFixLeftTheHeadBehind(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, _ := redTargetSweep(t, filer)
 	if _, err := reconciler.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -259,7 +248,7 @@ func TestAWaitOnTheTargetWhoseItemClosedIsBroughtUpToDateWhereTheFixLeftTheHeadB
 	for index := range tracker.Item.Dependencies {
 		tracker.Item.Dependencies[index].Status = "closed"
 	}
-	forge.reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 4, BehindBy: 1}
+	forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 4, BehindBy: 1}
 
 	resumed, err := reconciler.ResumeRedTargets(context.Background())
 	if err != nil {
@@ -292,7 +281,7 @@ func TestAWaitOnTheTargetWhoseItemClosedIsBroughtUpToDateWhereTheFixLeftTheHeadB
 // redTargetRearmForge is the forge a re-arm reads: nothing unmet on the request,
 // and the head's checks as the fixture sets them.
 type redTargetRearmForge struct {
-	*checkedForge
+	*orchestratortest.CheckedForge
 }
 
 func (redTargetRearmForge) MergeState(context.Context, int) (string, error) {
@@ -310,7 +299,7 @@ func TestAClosedRedTargetWaitReplacesUnreadChecksBeforeTheWatchRearms(t *testing
 			name = "new head"
 		}
 		t.Run(name, func(t *testing.T) {
-			fixture, forge, tracker, reconciler, _ := redTargetSweep(t, &recordingFiler{})
+			fixture, forge, tracker, reconciler, _ := redTargetSweep(t, &orchestratortest.RecordingFiler{})
 			if _, err := reconciler.Reconcile(context.Background()); err != nil {
 				t.Fatal(err)
 			}
@@ -321,22 +310,22 @@ func TestAClosedRedTargetWaitReplacesUnreadChecksBeforeTheWatchRearms(t *testing
 				t.Fatal(err)
 			}
 			tracker.AlsoHolds = map[string]beads.WorkItem{"yoyodyne-red-1": {ID: "yoyodyne-red-1", Status: "closed"}}
-			forge.readError = errors.New("decode the comparison: unexpected end of JSON input")
+			forge.ReadError = errors.New("decode the comparison: unexpected end of JSON input")
 			resumed, err := reconciler.ResumeRedTargets(context.Background())
 			if err != nil || len(resumed) != 1 || resumed[0].Action != ActionWaitingOnTarget {
 				t.Fatalf("failed reading: ResumeRedTargets() = %#v, %v", resumed, err)
 			}
 			unread := loadRun(t, fixture.store, pipelineRunID)
-			if unread.PullRequest.Checks.ReadError != forge.readError.Error() || !unread.WaitingOnRedTarget() {
+			if unread.PullRequest.Checks.ReadError != forge.ReadError.Error() || !unread.WaitingOnRedTarget() {
 				t.Fatalf("failed reading = %#v, want the error recorded and the wait kept", unread.PullRequest)
 			}
 
-			forge.readError = nil
+			forge.ReadError = nil
 			head := prior.PullRequest.Checks.HeadCommit
 			if !sameHead {
 				head = strings.Repeat("b", 40)
 			}
-			forge.reading = publish.CheckReading{HeadCommit: head, Files: []string{"feature.txt"}, Passing: 4}
+			forge.Reading = publish.CheckReading{HeadCommit: head, Files: []string{"feature.txt"}, Passing: 4}
 			resumed, err = reconciler.ResumeRedTargets(context.Background())
 			if err != nil || len(resumed) != 1 || resumed[0].Action != ActionWaitingOnTarget || !strings.Contains(resumed[0].Detail, "re-arm carry-out") {
 				t.Fatalf("passing reading: ResumeRedTargets() = %#v, %v", resumed, err)
@@ -366,7 +355,7 @@ func TestAClosedRedTargetWaitReplacesUnreadChecksBeforeTheWatchRearms(t *testing
 func TestTheWatchRearmsAMergeWaitingOnTheTargetOnceItsItemClosesWithNoDecision(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, _ := redTargetSweep(t, filer)
 	if _, err := reconciler.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -404,7 +393,7 @@ func TestTheWatchRearmsAMergeWaitingOnTheTargetOnceItsItemClosesWithNoDecision(t
 
 	// The item closes and the head, still level, passes.
 	tracker.AlsoHolds["yoyodyne-red-1"] = beads.WorkItem{ID: "yoyodyne-red-1", Status: "closed"}
-	forge.reading = publish.CheckReading{HeadCommit: forge.reading.HeadCommit, Files: []string{"feature.txt"}, Passing: 4}
+	forge.Reading = publish.CheckReading{HeadCommit: forge.Reading.HeadCommit, Files: []string{"feature.txt"}, Passing: 4}
 	merges := len(forge.MergeRequests())
 	carried, err := carry.CarryRearms(context.Background(), false)
 	if err != nil {
@@ -434,7 +423,7 @@ func TestTheWatchRearmsAMergeWaitingOnTheTargetOnceItsItemClosesWithNoDecision(t
 func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, _ := redTargetSweep(t, filer)
 	if _, err := reconciler.Reconcile(context.Background()); err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -443,7 +432,7 @@ func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T)
 
 	for sweep := 1; sweep <= runstate.MaxCheckReruns; sweep++ {
 		checkRun := int64(5300 + sweep)
-		forge.reading = jobFailure(checkRun)
+		forge.Reading = jobFailure(checkRun)
 		resumed, err := reconciler.ResumeRedTargets(context.Background())
 		if err != nil {
 			t.Fatalf("sweep %d: ResumeRedTargets() error = %v", sweep, err)
@@ -451,15 +440,15 @@ func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T)
 		if len(resumed) != 1 || resumed[0].Action != ActionWaitingOnTarget || !strings.Contains(resumed[0].Detail, "asked it to run them again") {
 			t.Fatalf("sweep %d: resumptions = %#v, want the ended job run again and the wait kept", sweep, resumed)
 		}
-		if len(forge.reruns) != sweep || forge.reruns[sweep-1] != checkRun {
-			t.Fatalf("sweep %d: re-runs = %v, want check run %d run again", sweep, forge.reruns, checkRun)
+		if len(forge.Reruns) != sweep || forge.Reruns[sweep-1] != checkRun {
+			t.Fatalf("sweep %d: re-runs = %v, want check run %d run again", sweep, forge.Reruns, checkRun)
 		}
 		if waiting := loadRun(t, fixture.store, pipelineRunID); !waiting.WaitingOnRedTarget() || tracker.Record().Blocked {
 			t.Fatalf("sweep %d: waiting = %t, blocked = %t; a job being run again keeps the wait and hands nothing back", sweep, waiting.WaitingOnRedTarget(), tracker.Record().Blocked)
 		}
 	}
 
-	forge.reading = jobFailure(5399)
+	forge.Reading = jobFailure(5399)
 	resumed, err := reconciler.ResumeRedTargets(context.Background())
 	if err != nil {
 		t.Fatalf("ResumeRedTargets() error = %v", err)
@@ -467,8 +456,8 @@ func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T)
 	if len(resumed) != 1 || resumed[0].Action != ActionBlocked {
 		t.Fatalf("resumptions = %#v, want the merge handed back once the re-runs are spent", resumed)
 	}
-	if len(forge.reruns) != runstate.MaxCheckReruns || len(filer.filed) != 1 {
-		t.Errorf("re-runs = %v, filed = %d; want no re-run past the bound and nothing filed again", forge.reruns, len(filer.filed))
+	if len(forge.Reruns) != runstate.MaxCheckReruns || len(filer.Filed) != 1 {
+		t.Errorf("re-runs = %v, filed = %d; want no re-run past the bound and nothing filed again", forge.Reruns, len(filer.Filed))
 	}
 	handed := loadRun(t, fixture.store, pipelineRunID)
 	if handed.WaitingOnRedTarget() || handed.PullRequest.TargetRed != nil || handed.MergeDrop == nil {
@@ -482,19 +471,6 @@ func TestAClosedWaitWhoseHeadTheForgeEndedIsRunAgainThenHandedBack(t *testing.T)
 // These drive yoyodyne-c02: a check red on a level head is filed as the
 // target's only once it is confirmed the target's, so a failing test the change
 // itself adds goes back to the change rather than being filed against main.
-
-// targetChecks is the forge's reading of the target branch's own head, or its
-// refusal to give one.
-type targetChecks struct {
-	reading publish.BranchCheckReading
-	refuse  error
-	asked   []string
-}
-
-func (c *targetChecks) BranchChecks(_ context.Context, branch string) (publish.BranchCheckReading, error) {
-	c.asked = append(c.asked, branch)
-	return c.reading, c.refuse
-}
 
 // pullRequest907Reading is pull request 907's shape on 2026-09-29, for the
 // machine home (yoyodyne-ifd.434.12): the head level with main, and the build
@@ -525,16 +501,16 @@ const pullRequest907Log = "--- FAIL: TestTheMachineHomeIsResolvedOnce (0.00s)\n"
 // assertHandedBackToTheChange asserts the case of pull request 907 settled as
 // the change's own failure: the merge withdrawn and handed back to be repaired,
 // nothing filed, and no wait on the target recorded.
-func assertHandedBackToTheChange(t *testing.T, fixture queuedFixture, forge *checkedForge, tracker *orchestratortest.Tracker, filer *recordingFiler, results []Reconciliation, wants ...string) {
+func assertHandedBackToTheChange(t *testing.T, fixture queuedFixture, forge *orchestratortest.CheckedForge, tracker *orchestratortest.Tracker, filer *orchestratortest.RecordingFiler, results []Reconciliation, wants ...string) {
 	t.Helper()
 	if len(results) != 1 || results[0].Action != ActionBlocked {
 		t.Fatalf("reconciliation = %#v, want the red merge handed back to its change", results)
 	}
-	if len(filer.filed) != 0 {
-		t.Fatalf("filed = %#v, want nothing filed against main", filer.filed)
+	if len(filer.Filed) != 0 {
+		t.Fatalf("filed = %#v, want nothing filed against main", filer.Filed)
 	}
-	if len(forge.withdrawn) != 1 || forge.HoldsQueuedMerge() {
-		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.withdrawn, forge.HoldsQueuedMerge())
+	if len(forge.Withdrawn) != 1 || forge.HoldsQueuedMerge() {
+		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.Withdrawn, forge.HoldsQueuedMerge())
 	}
 	if len(tracker.Blockers) != 0 {
 		t.Errorf("the item waits on %v, want it waiting on nothing filed for main", tracker.Blockers)
@@ -563,10 +539,10 @@ func assertHandedBackToTheChange(t *testing.T, fixture queuedFixture, forge *che
 func TestAFailingTestInAPackageTheChangeAddsIsHandedBackToTheChangeAndNothingIsFiled(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
-	forge.reading = pullRequest907Reading()
-	logs.tail = pullRequest907Log
+	forge.Reading = pullRequest907Reading()
+	logs.Tail = pullRequest907Log
 
 	results, err := reconciler.Reconcile(context.Background())
 	if err != nil {
@@ -575,16 +551,16 @@ func TestAFailingTestInAPackageTheChangeAddsIsHandedBackToTheChangeAndNothingIsF
 	assertHandedBackToTheChange(t, fixture, forge, tracker, filer, results,
 		"nothing is wired to this harness to read the target's own checks",
 		"the forge's account of build names internal/machinehome, which this change adds or modifies")
-	if len(logs.asked) == 0 || logs.asked[0] != 9070 {
-		t.Errorf("job logs asked = %v, want the build job's log read", logs.asked)
+	if len(logs.Asked) == 0 || logs.Asked[0] != 9070 {
+		t.Errorf("job logs asked = %v, want the build job's log read", logs.Asked)
 	}
 
 	// A forge that refuses the target's reading is the same case.
-	filer = &recordingFiler{}
+	filer = &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, logs = redTargetSweep(t, filer)
-	forge.reading = pullRequest907Reading()
-	logs.tail = pullRequest907Log
-	reconciler.TargetChecks = &targetChecks{refuse: errors.New("gh: HTTP 502")}
+	forge.Reading = pullRequest907Reading()
+	logs.Tail = pullRequest907Log
+	reconciler.TargetChecks = &orchestratortest.TargetChecks{Refuse: errors.New("gh: HTTP 502")}
 	results, err = reconciler.Reconcile(context.Background())
 	if err != nil {
 		t.Fatalf("Reconcile() error = %v", err)
@@ -597,11 +573,11 @@ func TestAFailingTestInAPackageTheChangeAddsIsHandedBackToTheChangeAndNothingIsF
 func TestACheckThatPassesOnTheTargetsOwnHeadIsTheChangesAndNothingIsFiled(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	fixture, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
-	forge.reading = pullRequest907Reading()
-	logs.tail = "##[error]Process completed with exit code 2."
-	main := &targetChecks{reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Passing: []string{"build", "vet"}}}
+	forge.Reading = pullRequest907Reading()
+	logs.Tail = "##[error]Process completed with exit code 2."
+	main := &orchestratortest.TargetChecks{Reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Passing: []string{"build", "vet"}}}
 	reconciler.TargetChecks = main
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -609,8 +585,8 @@ func TestACheckThatPassesOnTheTargetsOwnHeadIsTheChangesAndNothingIsFiled(t *tes
 		t.Fatalf("Reconcile() error = %v", err)
 	}
 	assertHandedBackToTheChange(t, fixture, forge, tracker, filer, results, "build passes on main's own head, 90cac74d0000")
-	if len(main.asked) != 1 || main.asked[0] != "main" {
-		t.Errorf("target checks asked of %v, want main's", main.asked)
+	if len(main.Asked) != 1 || main.Asked[0] != "main" {
+		t.Errorf("target checks asked of %v, want main's", main.Asked)
 	}
 }
 
@@ -620,11 +596,11 @@ func TestACheckThatPassesOnTheTargetsOwnHeadIsTheChangesAndNothingIsFiled(t *tes
 func TestACheckRedOnTheTargetsOwnHeadIsFiledAsTheTargetsSayingSo(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	_, forge, tracker, reconciler, logs := redTargetSweep(t, filer)
-	forge.reading = pullRequest907Reading()
-	logs.tail = pullRequest907Log
-	reconciler.TargetChecks = &targetChecks{reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Failing: []string{"build"}, Passing: []string{"vet"}}}
+	forge.Reading = pullRequest907Reading()
+	logs.Tail = pullRequest907Log
+	reconciler.TargetChecks = &orchestratortest.TargetChecks{Reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Failing: []string{"build"}, Passing: []string{"vet"}}}
 
 	results, err := reconciler.Reconcile(context.Background())
 	if err != nil {
@@ -633,8 +609,8 @@ func TestACheckRedOnTheTargetsOwnHeadIsFiledAsTheTargetsSayingSo(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionWaitingOnTarget {
 		t.Fatalf("reconciliation = %#v, want the merge waiting on main's red check", results)
 	}
-	if len(filer.filed) != 1 || !strings.Contains(filer.filed[0].Notes, "The forge reports build red on main's own head, 90cac74d0000, as well.") {
-		t.Fatalf("filed = %#v, want one item for main saying the forge confirmed it on main's head", filer.filed)
+	if len(filer.Filed) != 1 || !strings.Contains(filer.Filed[0].Notes, "The forge reports build red on main's own head, 90cac74d0000, as well.") {
+		t.Fatalf("filed = %#v, want one item for main saying the forge confirmed it on main's head", filer.Filed)
 	}
 	if tracker.Record().Blocked {
 		t.Error("main's failure was handed back to the change")
@@ -647,9 +623,9 @@ func TestACheckRedOnTheTargetsOwnHeadIsFiledAsTheTargetsSayingSo(t *testing.T) {
 func TestAnUnconfirmedCheckWhoseLogNamesNothingOfTheChangeIsFiledSayingSo(t *testing.T) {
 	t.Parallel()
 
-	filer := &recordingFiler{}
+	filer := &orchestratortest.RecordingFiler{}
 	_, _, tracker, reconciler, _ := redTargetSweep(t, filer)
-	reconciler.TargetChecks = &targetChecks{reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Pending: []string{"adoption"}}}
+	reconciler.TargetChecks = &orchestratortest.TargetChecks{Reading: publish.BranchCheckReading{HeadCommit: "90cac74d0000000000000000000000000000beef", Pending: []string{"adoption"}}}
 
 	results, err := reconciler.Reconcile(context.Background())
 	if err != nil {
@@ -658,8 +634,8 @@ func TestAnUnconfirmedCheckWhoseLogNamesNothingOfTheChangeIsFiledSayingSo(t *tes
 	if len(results) != 1 || results[0].Action != ActionWaitingOnTarget || tracker.Record().Blocked {
 		t.Fatalf("reconciliation = %#v, want the merge waiting on main's red check", results)
 	}
-	if len(filer.filed) != 1 || !strings.Contains(filer.filed[0].Notes, "Whether adoption is red on main's own head was not confirmed, because adoption has not finished on main's own head") {
-		t.Fatalf("filed = %#v, want the item to say the check was not confirmed on main's head", filer.filed)
+	if len(filer.Filed) != 1 || !strings.Contains(filer.Filed[0].Notes, "Whether adoption is red on main's own head was not confirmed, because adoption has not finished on main's own head") {
+		t.Fatalf("filed = %#v, want the item to say the check was not confirmed on main's head", filer.Filed)
 	}
 }
 

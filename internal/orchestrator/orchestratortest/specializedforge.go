@@ -68,11 +68,11 @@ type NoticingForge struct {
 	Err      error
 }
 
-func (f *NoticingForge) Notice(_ context.Context, Reported map[int]bool) ([]runstate.ForgeNotice, error) {
-	f.Reported = append(f.Reported, Reported)
+func (f *NoticingForge) Notice(_ context.Context, reported map[int]bool) ([]runstate.ForgeNotice, error) {
+	f.Reported = append(f.Reported, reported)
 	var fresh []runstate.ForgeNotice
 	for _, notice := range f.Notices {
-		if !Reported[notice.Number] {
+		if !reported[notice.Number] {
 			fresh = append(fresh, notice)
 		}
 	}

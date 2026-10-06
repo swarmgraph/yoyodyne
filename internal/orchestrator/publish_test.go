@@ -2005,7 +2005,7 @@ type queuedFixture struct {
 	worktreeRoot string
 	store        *runstate.Store
 	tracker      recordingTracker
-	forge        queuedForge
+	forge        *orchestratortest.Forge
 	// worktrees wraps the repository access the settlement makes, so a test can
 	// drop the connection at one step of it. A fixture that sets none settles
 	// through the real observer.

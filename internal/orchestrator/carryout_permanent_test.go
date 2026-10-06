@@ -188,7 +188,7 @@ func TestAnUnmakeableRearmWaitsForANewDecision(t *testing.T) {
 	harness := newRearmHarness(t)
 	harness.decide(t)
 	harness.docket.close(harness.publication(), runstate.TriageDecisionRearm, docketedNow)
-	harness.forge.statusErr = UnrearmablePublicationError{RunID: harness.state.RunID, Number: 92, Why: "this publication cannot be made from its recorded promotion"}
+	harness.forge.StatusErr = UnrearmablePublicationError{RunID: harness.state.RunID, Number: 92, Why: "this publication cannot be made from its recorded promotion"}
 	rearmer := &countedRearmer{Rearmer: harness.rearmer()}
 	watch := harness.carryOut(nil)
 	watch.Rearmer = rearmer
@@ -198,7 +198,7 @@ func TestAnUnmakeableRearmWaitsForANewDecision(t *testing.T) {
 		t.Fatalf("CarryRearms() = %+v, %v; want a permanent forge refusal", carried, err)
 	}
 	// Even a changed environment cannot revive the old decision.
-	harness.forge.statusErr = nil
+	harness.forge.StatusErr = nil
 	watch.Clock = laterClock{after: 7 * 24 * time.Hour}
 	if again, err := watch.CarryRearms(context.Background(), false); err != nil || len(again) != 0 || rearmer.attempts != 1 {
 		t.Fatalf("later pull = %+v, %v, attempts %d; want no second attempt", again, err, rearmer.attempts)
