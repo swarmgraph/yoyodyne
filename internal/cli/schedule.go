@@ -1066,8 +1066,8 @@ what was deployed the moment it hosts no run, and until then it carries on
 polling, pulling into free seats, and firing its recurring tasks, because the
 drain is about the runs it hosts and not about its other duties. The drain is
 bounded by execution.redeploy_drain_limit (fifteen minutes by default): past
-it the session restarts anyway, and each run it still hosts is stopped where it
-is and preserved -- worktree, branch, claim, developer session, every counter --
+it the session restarts anyway, and at once, and each run it still hosts is
+stopped where it is and preserved -- worktree, branch, claim, developer session, every counter --
 for the session that comes back to re-adopt at its first pull, ahead of anything
 new. A run at its promotion is the one exception and is waited out. A pull the
 session declines because the bound is less than a poll away says so, and the

@@ -899,6 +899,10 @@ type Scheduler struct {
 	// consulted only while watching, because a drain is a command somebody is
 	// waiting on the return of rather than a process that outlives a deploy.
 	Deployment ScheduleDeployment
+	// stoppedRunGrace is how long a session restarting past its drain bound
+	// waits for the runs it stopped to report back; zero is stoppedRunGrace's
+	// default. It is a field only so a test can shorten it.
+	stoppedRunGrace time.Duration
 	// Watchdog notices that this product has started nothing at all while work
 	// was ready, and records it where every surface reads it back. It is called
 	// once per pull, from this loop's own goroutine and before anything is
@@ -1294,6 +1298,11 @@ type ScheduleDrain struct {
 	// check stages past the drain bound. New sessions stop those stages at the
 	// bound and leave this list empty.
 	ChecksWaited []string `json:"checks_waited,omitempty"`
+	// Unreported names the work items whose runs the bound stopped and which had
+	// not reported back within stoppedRunGrace when the session restarted. The
+	// restart does not wait on them: a stopped run has no process left to wait
+	// for, and the session that comes back reads each run's own record.
+	Unreported []string `json:"unreported,omitempty"`
 	// Skipped counts the pulls the session declined to make into a free seat
 	// because the bound was closer than one poll interval away, and Problem
 	// names a reading of the hosted runs that failed while the bound was being
@@ -1344,6 +1353,18 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// anything: each has its own worktree, its own reservation, and its own
 	// pipeline built from the configuration its pull read.
 	completions := make(chan completed)
+	// deliver is how a run's goroutine hands its ending to completions. A session
+	// restarting past its drain bound stops waiting for runs it stopped that have
+	// not reported back, and a delivery made after that is dropped rather than
+	// left blocked on a channel nobody reads any more.
+	abandoned := make(chan struct{})
+	defer close(abandoned)
+	deliver := func(done completed) {
+		select {
+		case completions <- done:
+		case <-abandoned:
+		}
+	}
 	// mine is the items this pass has started and not yet collected, by work
 	// item. It exists because a run does not appear in the durable state until it
 	// reserves, which is several steps after it is started, and a pull that
@@ -2046,6 +2067,18 @@ pulling:
 					session.note("the watch session is "+reached.Says(), running)
 				}
 			}
+			// Past the bound, a run the session has stopped is not one it hosts:
+			// its process is gone and what is left is a record, so the restart
+			// follows in this same step once nothing it hosts is still live. It is
+			// not left to a later look. On 2026-10-05 three runs stopped at the
+			// bound had ended within a second, but this loop went straight on into
+			// two recurring passes before it read their endings, and the session
+			// went on pulling nothing for forty minutes until it was restarted by
+			// hand. The stopped runs are collected below, after the loop.
+			if drain.boundReached && liveHosted(mine, hosted) == 0 {
+				schedule.Stopped = ScheduleRedeployed
+				break
+			}
 		}
 		pull, err := s.Open(ctx)
 		if err != nil {
@@ -2279,7 +2312,7 @@ pulling:
 				}
 				mine[id] = index
 				running++
-				s.host(session.dispatching(ctx, id), pull, id, index, selection, hosted, landings, completions)
+				s.host(session.dispatching(ctx, id), pull, id, index, selection, hosted, landings, deliver)
 			}
 		}
 		for id := range mine {
@@ -2444,7 +2477,7 @@ pulling:
 			hosted[index] = cancel
 			go func(task CarryOutTask) {
 				carried, outcome, err := pull.CarryOut.Carry(runCtx, task)
-				completions <- completed{index: index, outcome: outcome, err: err, carriedOut: &carried}
+				deliver(completed{index: index, outcome: outcome, err: err, carriedOut: &carried})
 			}(task)
 		}
 		for _, task := range tasks {
@@ -2490,7 +2523,7 @@ pulling:
 				}
 				// Hosted like any run this session starts, so a drain bound that runs
 				// out stops a continued run exactly as it stops a chosen one.
-				s.host(session.dispatching(ctx, workItemID), pull, workItemID, index, selection, hosted, landings, completions)
+				s.host(session.dispatching(ctx, workItemID), pull, workItemID, index, selection, hosted, landings, deliver)
 			}
 		}
 
@@ -2758,7 +2791,7 @@ pulling:
 			startedNow[entry.ID] = true
 			running++
 			started++
-			s.host(session.dispatching(ctx, entry.ID), pull, entry.ID, index, selection, hosted, landings, completions)
+			s.host(session.dispatching(ctx, entry.ID), pull, entry.ID, index, selection, hosted, landings, deliver)
 			return true
 		}
 		// firedInWalk is the slots the walk gave to a decision held back above for
@@ -3049,10 +3082,34 @@ pulling:
 	// returned with runs still going would leave work in flight that nothing in
 	// the schedule accounts for, which is the state this whole package exists to
 	// keep the harness out of.
+	//
+	// A session restarting past its drain bound is the one exception, and only
+	// for the runs it stopped: each records its stop and reports back within
+	// seconds, and it is waited for so that what it recorded is on the schedule
+	// and its stop is durable before the process is replaced. One that has not
+	// reported back within the grace is named and left. Its process is gone, and
+	// its own record is what the session that comes back reads, so the restart
+	// does not wait on it.
+	var grace <-chan time.Time
+	if schedule.Stopped == ScheduleRedeployed && drain.boundReached && running > 0 {
+		timer := time.NewTimer(s.stopGrace())
+		defer timer.Stop()
+		grace = timer.C
+	}
+collecting:
 	for running > 0 {
-		done := <-completions
-		running--
-		settle(done)
+		select {
+		case done := <-completions:
+			running--
+			delete(mine, schedule.Started[done.index].WorkItemID)
+			settle(done)
+		case <-grace:
+			for id := range mine {
+				schedule.Drain.Unreported = append(schedule.Drain.Unreported, id)
+			}
+			slices.Sort(schedule.Drain.Unreported)
+			break collecting
+		}
 	}
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
@@ -3103,6 +3160,10 @@ func stopping(schedule Schedule) string {
 		if len(schedule.Drain.Landings) > 0 {
 			said += fmt.Sprintf("; the landing checks of %d run(s) that had already landed were stopped, so each landing is recorded as unverified: %s",
 				len(schedule.Drain.Landings), strings.Join(schedule.Drain.Landings, ", "))
+		}
+		if len(schedule.Drain.Unreported) > 0 {
+			said += fmt.Sprintf("; %d stopped run(s) had not reported back in the time a stop takes to record and were not waited for, so the session that comes back reads what each one's own record says: %s",
+				len(schedule.Drain.Unreported), strings.Join(schedule.Drain.Unreported, ", "))
 		}
 		return said
 	}
@@ -5312,14 +5373,43 @@ func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
 // host starts one run under a context of its own, so the drain bound can stop
 // it without stopping the session, and carries what became of it back to the
 // scheduling goroutine.
-func (s Scheduler) host(ctx context.Context, pull Pull, workItemID string, index int, selection runstate.Selection, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, completions chan<- completed) {
+func (s Scheduler) host(ctx context.Context, pull Pull, workItemID string, index int, selection runstate.Selection, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, deliver func(completed)) {
 	runCtx, cancel := context.WithCancelCause(ctx)
 	runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
 	hosted[index] = cancel
 	go func() {
 		outcome, err := pull.Start(runCtx, workItemID, selection)
-		completions <- completed{index: index, outcome: outcome, err: err}
+		deliver(completed{index: index, outcome: outcome, err: err})
 	}()
+}
+
+// liveHosted is how many of the session's runs are still live: started and
+// not yet collected, and not stopped by the drain bound. stopHosted takes a run
+// it stops out of hosted, so a run in mine and no longer in hosted is one the
+// session stopped and is only waiting to hear back from.
+func liveHosted(mine map[string]int, hosted map[int]context.CancelCauseFunc) int {
+	live := 0
+	for _, index := range mine {
+		if _, hosting := hosted[index]; hosting {
+			live++
+		}
+	}
+	return live
+}
+
+// stoppedRunGrace is how long a session restarting past its drain bound waits
+// for the runs it stopped to report back. A stopped run records its stop and
+// returns within seconds — the slowest part, the commit a developer attempt
+// is given of what it left, is bounded at redeployCommitTimeout — so this is
+// a backstop against a run that never reports rather than a wait anybody
+// ordinarily sees.
+const stoppedRunGrace = 2 * time.Minute
+
+func (s Scheduler) stopGrace() time.Duration {
+	if s.stoppedRunGrace > 0 {
+		return s.stoppedRunGrace
+	}
+	return stoppedRunGrace
 }
 
 // stopHosted applies the drain bound to the runs this session hosts: each one
@@ -6245,6 +6335,10 @@ func (s Schedule) Render() string {
 		if s.Drain.BoundReached && len(s.Drain.Landings) > 0 {
 			fmt.Fprintf(&rendered, "the landing checks of %d run(s) that had already landed were stopped at the drain bound, so each landing is recorded as unverified: %s\n",
 				len(s.Drain.Landings), strings.Join(s.Drain.Landings, ", "))
+		}
+		if len(s.Drain.Unreported) > 0 {
+			fmt.Fprintf(&rendered, "%d stopped run(s) had not reported back when the session restarted and were not waited for: %s\n",
+				len(s.Drain.Unreported), strings.Join(s.Drain.Unreported, ", "))
 		}
 		if s.Drain.Skipped > 0 {
 			fmt.Fprintf(&rendered, "%d poll(s) pulled nothing into a free seat because the bound was less than one poll away\n", s.Drain.Skipped)
