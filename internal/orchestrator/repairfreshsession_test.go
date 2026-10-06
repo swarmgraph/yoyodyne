@@ -29,6 +29,15 @@ import (
 func sessionlessState() runstate.State {
 	state := stoppedState()
 	state.ProviderSessionID = ""
+	state.StopClass = runstate.StopProviderBudget
+	return state
+}
+
+// unreturnedSessionState is a run whose provider never returned a session for
+// its developer: nothing on its record says a budget ran out.
+func unreturnedSessionState() runstate.State {
+	state := stoppedState()
+	state.ProviderSessionID = ""
 	return state
 }
 
@@ -36,7 +45,7 @@ func sessionlessState() runstate.State {
 // carried it on itself past a silent session at its review, with no developer,
 // and the checks then failed on the change it had.
 func harnessContinuedState() runstate.State {
-	state := sessionlessState()
+	state := unreturnedSessionState()
 	state.ReviewSummary = ""
 	state.ReviewFindings = 0
 	state.ReviewFindingDetails = nil
@@ -58,7 +67,8 @@ func TestADecidedRepairOfARunWithNoSessionStartsAFreshSessionRatherThanBeingRefu
 		state runstate.State
 		why   string
 	}{
-		{name: "the session's budget ran out", state: sessionlessState(), why: "budget ran out"},
+		{name: "the session's budget ran out", state: sessionlessState(), why: "ran out of budget"},
+		{name: "the provider never returned a session", state: unreturnedSessionState(), why: "never returned one"},
 		{name: "the harness continued it past a silent session", state: harnessContinuedState(), why: "past a silent session"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -292,5 +302,96 @@ func TestARepairOfASessionlessRunLandsTheChangeInAFreshSession(t *testing.T) {
 	}
 	if landed.ProviderSessionID == "" || landed.RepairContinuations[len(landed.RepairContinuations)-1].FreshSession == "" {
 		t.Fatalf("run = %#v, want the fresh session recorded and the continuation saying it started one", landed)
+	}
+}
+
+// The harness's own continuation past a silent session keeps the developer
+// session the run held, even where the continued attempt's provider reports
+// none: the record is what any later repair of the run re-enters, so it must not
+// lose the session in the first place.
+func TestAHarnessContinuationKeepsTheSessionItContinuesUnder(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	stopping := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("incomplete\n"), 0o600)
+	}, repairVerdict)
+	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, stopping, []string{"test -f feature.txt"}), stopping)
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err == nil {
+		t.Fatal("Run() succeeded, want the repair budget spent")
+	}
+	stalled, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stalled.ProviderSessionID != stopping.DeveloperSession {
+		t.Fatalf("session = %q, want the developer's %q on the stopped run", stalled.ProviderSessionID, stopping.DeveloperSession)
+	}
+	// Make the stopped run a first silent-stream stall in its developer attempt,
+	// settled by the sweep, which is what the harness continues itself.
+	stalled.Phase = runstate.PhaseDeveloping
+	stalled.StopClass = runstate.StopProviderIdle
+	stalled.Environmental = &runstate.EnvironmentalRefusal{
+		Cause:        runstate.CauseProcessVanished,
+		Detail:       "the harness stopped its provider because it produced no output for longer than the harness allows",
+		RecordedAt:   time.Now().Add(-time.Hour),
+		ProviderStop: runstate.ProviderStopStalled,
+		Settled:      true,
+	}
+	if err := store.Save(stalled); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	if !stalled.HarnessContinuesStall() {
+		t.Fatalf("run = %#v, want a stall the harness continues itself", stalled)
+	}
+	docket := &memoryDocket{}
+	docketer := docketerOverStore(docket, store, pipeline.Config)
+	if _, err := docketer.RecordStoppedRun(stalled); err != nil {
+		t.Fatalf("RecordStoppedRun() error = %v", err)
+	}
+	worktrees, err := gitworktree.New(gitworktree.Options{Runner: execution.OSProcessRunner{}, RepositoryRoot: repository, WorktreeRoot: worktreeRoot, Timeout: testGitBudget})
+	if err != nil {
+		t.Fatalf("gitworktree.New() error = %v", err)
+	}
+	// The continued attempt fixes the change, and its provider reports no session.
+	continuing := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	respond := continuing.Respond
+	continuing.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		result, err := respond(request)
+		if request.Role == domain.RoleDeveloper {
+			result.SessionID = ""
+		}
+		return result, err
+	}
+	tracker.Item.Status = "in_progress"
+	continuer := StallContinuer{
+		Docket: docket, Redocket: docketer, Runs: store, Intake: newIntakeHoldStore(t), Items: tracker, Worktrees: worktrees,
+		Capacity: pipeline.Config.Execution.MaxConcurrentDevelopers,
+		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+			return automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, continuing, []string{"test -f feature.txt"}), continuing).
+				Continue(ctx, workItemID, runID)
+		},
+	}
+	result, err := continuer.Continue(context.Background(), StallContinueRequest{Run: outcome.RunID})
+	if err != nil || !result.Continued {
+		t.Fatalf("Continue() = %#v, %v; want the harness to continue the stall", result, err)
+	}
+	developerRequests := continuing.RequestsForRole(domain.RoleDeveloper)
+	if len(developerRequests) != 1 || developerRequests[0].SessionID != stopping.DeveloperSession {
+		t.Fatalf("developer requests = %#v, want one attempt continued in the run's own session", developerRequests)
+	}
+	continued, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if continued.ProviderSessionID != stopping.DeveloperSession {
+		t.Fatalf("session after the continuation = %q, want the session %q it continued under kept on the record", continued.ProviderSessionID, stopping.DeveloperSession)
+	}
+	if result.Outcome.Integration == nil {
+		t.Fatalf("outcome = %#v, want the continued change landed", result.Outcome)
 	}
 }

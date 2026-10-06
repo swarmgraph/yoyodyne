@@ -5441,7 +5441,9 @@ the repair starts a fresh developer session in the same worktree on the same
 change, hands it the failure, the run's record, and the work item, and spends
 the grant exactly as re-entering a session would. The run's record says the
 repair started a fresh session and why. A stall or a check-stage continuation
-still needs the session it stopped in.
+still needs the session it stopped in. A developer attempt whose provider
+reports no session keeps the session the run already held on its record, so a
+run the harness continues past a silent session does not lose it.
 
 **What it may hand the run is the grant the development manager already
 recorded**, and it spends nothing of its own. Deciding `repair` is what takes the

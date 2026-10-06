@@ -4141,7 +4141,11 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		}
 		return cause
 	}
-	a.state.ProviderSessionID = providerResult.SessionID
+	// An attempt that reports no session — one whose budget ran out before the
+	// provider said, or a provider that returned none — keeps the session the run
+	// already held rather than erasing it: the record is what every later
+	// continuation of this run resumes from (carrySession).
+	a.carrySession(providerResult.SessionID, a.state.ProviderSessionID)
 	a.state.ProviderResolvedModel = providerResult.ResolvedModel
 	a.state.ProviderResolvedEffort = providerResult.ResolvedEffort
 	a.state.ProviderEffortReported = providerResult.EffortReported
@@ -4151,7 +4155,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	// ended is recorded below.
 	a.state.ProviderStop = ""
 	a.state.UpdatedAt = p.clock().Now()
-	a.outcome.ProviderSessionID = providerResult.SessionID
+	a.outcome.ProviderSessionID = a.state.ProviderSessionID
 	a.outcome.ProviderResolvedModel = providerResult.ResolvedModel
 	a.outcome.ProviderResolvedEffort = providerResult.ResolvedEffort
 	a.outcome.ProviderEffortReported = providerResult.EffortReported

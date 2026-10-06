@@ -1052,7 +1052,19 @@ func freshSessionWhy(prior runstate.State) string {
 	if len(prior.CheckStageContinuations) > 0 {
 		return fmt.Sprintf("run %s recorded no developer session to re-enter: the harness carried it on itself at its checks, with no developer, so no developer session was ever recorded on it", prior.RunID)
 	}
-	return fmt.Sprintf("run %s recorded no developer session to re-enter: its developer's session ended before the provider reported one, as a session whose budget ran out or a provider that never returned one leaves it", prior.RunID)
+	if budgetStopped(prior) {
+		return fmt.Sprintf("run %s recorded no developer session to re-enter: its developer's session ran out of budget before the provider reported one", prior.RunID)
+	}
+	return fmt.Sprintf("run %s recorded no developer session to re-enter: the provider never returned one for its developer", prior.RunID)
+}
+
+// budgetStopped reports a run whose record says its session's budget ran out,
+// by the stop it ended on or the provider stop the harness recorded.
+func budgetStopped(state runstate.State) bool {
+	if state.StopClass == runstate.StopProviderBudget || state.ProviderStop == runstate.ProviderStopBudgetExhausted {
+		return true
+	}
+	return state.Environmental != nil && state.Environmental.ProviderStop == runstate.ProviderStopBudgetExhausted
 }
 
 // Older handbacks kept the forge reading on the publication alone, sometimes
