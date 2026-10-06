@@ -749,7 +749,14 @@ func composePrompt(request backend.RunRequest, named string) string {
 // RequestSize includes everything composePrompt adds. Codex turn/start refused
 // input past 1,048,576 characters in the development manager's October 5 record
 // (events 13747–13749). Counting UTF-8 bytes is conservative for that character
-// bound, and covers the CLI's fresh and resumed turns alike.
+// bound, and covers the CLI's fresh and resumed turns alike. The skills and
+// instruction files the project names are part of what is sent, so they are
+// counted; a named file that cannot be read counts as nothing here, because Run
+// refuses the invocation for it before anything is sent.
 func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
-	return len(composePrompt(request)), 1 << 20
+	named, _, _, err := namedContext(b.Context, request.Role, request.WorkingDirectory)
+	if err != nil {
+		named = ""
+	}
+	return len(composePrompt(request, named)), 1 << 20
 }
