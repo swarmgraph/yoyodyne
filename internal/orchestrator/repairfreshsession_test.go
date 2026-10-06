@@ -217,6 +217,9 @@ func TestARepairOfASessionlessRunLandsTheChangeInAFreshSession(t *testing.T) {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("incomplete\n"), 0o600)
 	}, repairVerdict)
 	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, stopping, []string{"test -f feature.txt"}), stopping)
+	// No repair attempts, so the run stops after its first review: what matters
+	// here is a stopped run carrying findings, not the rounds spent reaching it.
+	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err == nil || !strings.Contains(err.Error(), "independent review requires repair") {
@@ -265,8 +268,9 @@ func TestARepairOfASessionlessRunLandsTheChangeInAFreshSession(t *testing.T) {
 		ConfiguredAttempts: pipeline.Config.Execution.RepairAttemptsBeforeReplan,
 		Capacity:           pipeline.Config.Execution.MaxConcurrentDevelopers,
 		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
-			return automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, continuing, []string{"test -f feature.txt"}), continuing).
-				Continue(ctx, workItemID, runID)
+			continued := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, continuing, []string{"test -f feature.txt"}), continuing)
+			continued.Config.Execution.RepairAttemptsBeforeReplan = 0
+			return continued.Continue(ctx, workItemID, runID)
 		},
 	}
 
@@ -318,6 +322,9 @@ func TestAHarnessContinuationKeepsTheSessionItContinuesUnder(t *testing.T) {
 		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("incomplete\n"), 0o600)
 	}, repairVerdict)
 	pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, stopping, []string{"test -f feature.txt"}), stopping)
+	// No repair attempts, so the run stops after its first review: what matters
+	// here is a stopped run carrying findings, not the rounds spent reaching it.
+	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err == nil {
 		t.Fatal("Run() succeeded, want the repair budget spent")
@@ -372,8 +379,9 @@ func TestAHarnessContinuationKeepsTheSessionItContinuesUnder(t *testing.T) {
 		Docket: docket, Redocket: docketer, Runs: store, Intake: newIntakeHoldStore(t), Items: tracker, Worktrees: worktrees,
 		Capacity: pipeline.Config.Execution.MaxConcurrentDevelopers,
 		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
-			return automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, continuing, []string{"test -f feature.txt"}), continuing).
-				Continue(ctx, workItemID, runID)
+			continued := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, continuing, []string{"test -f feature.txt"}), continuing)
+			continued.Config.Execution.RepairAttemptsBeforeReplan = 0
+			return continued.Continue(ctx, workItemID, runID)
 		},
 	}
 	result, err := continuer.Continue(context.Background(), StallContinueRequest{Run: outcome.RunID})
