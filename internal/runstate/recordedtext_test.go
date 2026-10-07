@@ -277,6 +277,8 @@ var structuredStrings = map[string]string{
 	"routing.operations[].effects[].attempt":                        "an attempt of the operation, checked when the effect is recorded",
 	"routing.operations[].effects[].state":                          "an enumeration",
 	"routing.operations[].attempts[].usage[]":                       "matched against the routing reference pattern",
+	"routing.operations[].attempts[].execution.machine":             "matched against the machine identifier pattern",
+	"routing.operations[].attempts[].unreleased[].machine":          "matched against the machine identifier pattern",
 	"routing.operations[].attempts[].execution.host":                "the host name, bounded where the execution is validated",
 	"routing.operations[].attempts[].execution.boot":                "the operating system's boot identifier, bounded where the execution is validated",
 	"routing.operations[].attempts[].execution.launcher":            "the launcher generation, bounded where the execution is validated",
