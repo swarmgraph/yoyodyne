@@ -3327,10 +3327,10 @@ and configuration revision for later persistence. They do not read authenticatio
 files or include the path of any provider's home directory. The configuration reload API loads and
 validates a complete replacement before accepting it; rejection returns an error
 and preserves the last valid configuration and any previously resolved selection.
-The caller serializes reload and records the error. A running watch session
-still reads its configuration once, when it starts; a run pins its pair from
-that reading, and nothing a later reload accepts changes a pair a run has
-already pinned.
+The caller serializes reload and records the error. A watching session reads
+the configuration again at every pull, so a run it starts pins its pair from
+the configuration that pull read, and nothing a later pull or reload reads
+changes a pair a run has already pinned.
 
 #### What a developer run does with its slot's pair
 

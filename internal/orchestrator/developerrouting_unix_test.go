@@ -313,11 +313,16 @@ func TestAUsageLimitOnThePrimaryMovesTheOperationToItsAlternateOnce(t *testing.T
 				refusal.ResetsAt = time.Time{}
 			}
 			// The primary's first attempt writes part of the work before it is
-			// refused, and the alternate checks it is still there.
+			// refused, and the alternate checks it is there and committed on the
+			// run's branch, which is what its prompt tells it.
 			develop := func(request backend.RunRequest) error {
 				if request.Model != test.limited {
 					if _, err := os.Stat(filepath.Join(request.WorkingDirectory, "partial.txt")); err != nil {
 						return fmt.Errorf("the alternate found the primary's work gone: %w", err)
+					}
+					committed, err := exec.Command("git", "-C", request.WorkingDirectory, "show", "HEAD:partial.txt").Output()
+					if err != nil || string(committed) != "begun\n" {
+						return fmt.Errorf("the primary's partial work is not committed on the branch the alternate starts from: %q, %v", committed, err)
 					}
 				}
 				return writeRoutedFeature(request)
