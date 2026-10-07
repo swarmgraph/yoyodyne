@@ -418,6 +418,12 @@ type Pipeline struct {
 	// run wired without one runs exactly as it would have, and every refusal then
 	// stands until its quoted reset.
 	CapacityServed CapacityServedRecorder
+	// EndpointLimits says whether an account and model are already known to
+	// have reached a usage limit, which is what lets a run pinned to a developer
+	// slot's endpoint pair start on its alternate without first being refused on
+	// its primary (developerrouting.go). It is optional: a run wired without one
+	// tries its primary and switches only once the provider refuses it.
+	EndpointLimits EndpointLimits
 	// DivergedTargets is the product's record of the target branches the harness
 	// will not catch up to the remote's, written by the run whose promotion is
 	// refused on one and lifted by the convergence sweep that finds the branches
@@ -1313,8 +1319,13 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// is answered first: a dirty checkout is a refusal a newcomer meets whether or
 	// not they have installed Claude Code, and it names the files they have to
 	// commit. Only now is the provider asked, and still before anything is
-	// reserved, claimed, or cut.
-	if err := p.requireBackendReady(ctx, workItemID, p.Backend, p.developer().Backend); err != nil {
+	// reserved, claimed, or cut. A slot with an endpoint pair is asked about the
+	// provider its primary runs on, which is the one its first attempt asks.
+	dispatchProvider, dispatchNamed, err := p.dispatchBackend(ctx)
+	if err != nil {
+		return Outcome{}, err
+	}
+	if err := p.requireBackendReady(ctx, workItemID, dispatchProvider, dispatchNamed); err != nil {
 		return Outcome{}, err
 	}
 	// An automatic run is written against exactly the branch it will be promoted
@@ -1403,6 +1414,12 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// refusing is free: nothing has been claimed, no worktree exists, and no
 	// provider has been paid.
 	if err := run.beginDeliveryTrial(); err != nil {
+		return run.fail(err, runstate.StatusFailed)
+	}
+	// A run reserved for a developer slot with an endpoint pair records the slot
+	// and the pair before it claims anything, and starts on the pair's primary
+	// (developerrouting.go). Every other run is left exactly as reserved.
+	if err := run.pinDeveloperRouting(ctx); err != nil {
 		return run.fail(err, runstate.StatusFailed)
 	}
 
@@ -2346,6 +2363,10 @@ type activeRun struct {
 	// at a pause this run has already served. The zero time means the deadline
 	// was written by an earlier process, which no release can predate.
 	pausedAt time.Time
+	// launchGate is the gate the developer attempt about to be made is started
+	// behind, on a run pinned to an endpoint pair (developerrouting.go), and nil
+	// for every other invocation.
+	launchGate *execution.LaunchGate
 	// charger is the identity this process charges the item's review rounds
 	// under, minted on first use and kept for the rest of the run so the charge
 	// and the settle that may return it agree. It is deliberately not durable: a
@@ -3734,6 +3755,23 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		a.observeDevelopEnded(ctx, err)
 		return err
 	}
+	// A run pinned to an endpoint pair makes every attempt under one recorded
+	// logical operation, on the endpoint that operation has selected, and
+	// started behind a launch gate (developerrouting.go). route is nil for
+	// every other run, which is invoked exactly as before.
+	route, err := a.beginDeveloperOperation(ctx)
+	if err != nil {
+		a.observeDevelopEnded(ctx, err)
+		return err
+	}
+	if route != nil {
+		// The operation may have moved to its alternate before this process
+		// picked the run up, so the backend is asked for again.
+		if _, _, err := a.pipeline.developerBackendFor(a.state); err != nil {
+			a.observeDevelopEnded(ctx, err)
+			return err
+		}
+	}
 	reasked := false
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
@@ -3750,8 +3788,24 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			a.observeDevelopEnded(ctx, err)
 			return err
 		}
+		if route != nil {
+			var prepareErr error
+			prompt, sessionID, prepareErr = a.prepareDeveloperAttempt(ctx, route, prompt, sessionID)
+			if prepareErr != nil {
+				a.observeDevelopEnded(ctx, prepareErr)
+				return prepareErr
+			}
+		}
 		responseStarted := a.pipeline.clock().Now()
 		providerResult, err := a.attemptDevelopment(ctx, prompt, sessionID)
+		// How a routed attempt ended is recorded before anything below reads
+		// it, with whether its process tree is confirmed stopped.
+		if route != nil {
+			if finishErr := a.finishDeveloperAttempt(ctx, route, providerResult, err); finishErr != nil {
+				a.observeDevelopEnded(ctx, finishErr)
+				return finishErr
+			}
+		}
 		// A run its hosting watch session stopped for a redeploy keeps what the
 		// attempt left: the session it established, which is what the session that
 		// comes back continues in, and the worktree committed under a context the
@@ -3862,6 +3916,9 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 				}
 				if retried {
 					sessionID = a.carrySession(providerResult.SessionID, sessionID)
+					if route != nil {
+						route.relaunch = true
+					}
 					a.observe(ctx, deliveryDevelop, "reissued")
 					continue
 				}
@@ -3921,6 +3978,14 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			// every other one — so what happens here is the push and the pull
 			// request, and it happens on the accepted path because that is the
 			// change the checks and the reviewer are about to judge.
+			//
+			// The developer has answered the operation, so a routed run closes it
+			// here: what follows is publishing, the checks and the reviewer, and the
+			// next thing asked of the developer is a new operation.
+			if err := a.completeDeveloperOperation(ctx, route, "the developer answered it"); err != nil {
+				a.observeDevelopEnded(ctx, err)
+				return err
+			}
 			published := stoppedBy(runstate.StopPublish, a.publishAttempt(ctx))
 			a.observeDevelopEnded(ctx, published)
 			return published
@@ -3934,6 +3999,26 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		// interval into a limit that has hours left would spend the budget on
 		// attempts the account cannot serve.
 		if refusedForLimit {
+			// A routed operation still on its primary moves to its alternate once,
+			// automatically, when the alternate can serve; the refused attempt's
+			// session stays with the primary. Otherwise the limit is waited out on
+			// the endpoint the operation has selected, exactly as below.
+			if route != nil {
+				evidence := fmt.Sprintf("developer attempt %s on %s was refused for its usage limit", route.attempt, describeEndpoint(a.selectedDeveloperEndpoint()))
+				if limit.Kind != "" {
+					evidence += " (" + limit.Kind + ")"
+				}
+				switched, switchErr := a.switchDeveloperEndpoint(ctx, route, runstate.SwitchUsageLimit, route.attempt, evidence)
+				if switchErr != nil {
+					a.observeDevelopEnded(ctx, switchErr)
+					return switchErr
+				}
+				if switched {
+					sessionID = ""
+					a.observe(ctx, deliveryDevelop, "reissued")
+					continue
+				}
+			}
 			if err := a.pauseForUsageLimit(ctx, limit); err != nil {
 				a.observeDevelopEnded(ctx, err)
 				return err
@@ -3959,6 +4044,9 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		if err := a.recordRelaunch(); err != nil {
 			a.observeDevelopEnded(ctx, err)
 			return err
+		}
+		if route != nil {
+			route.relaunch = true
 		}
 		a.observe(ctx, deliveryDevelop, "reissued")
 	}
@@ -4172,6 +4260,10 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 		AfterReplyWaiting: a.recordAfterReplyWaiting,
 		AccountAlias:      account.Alias,
 		AccountConfigDir:  account.Directory,
+		// A routed attempt is started behind its launch gate, so its process is
+		// on the run's record before the provider can begin work; nil for an
+		// invocation nothing reserved (developerrouting.go).
+		LaunchGate: a.launchGate,
 	})
 	// What became of a session that outlived its reply is this attempt's, and
 	// replaces the waiting account the record carried while it lasted. An

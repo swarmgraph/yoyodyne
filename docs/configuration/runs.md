@@ -644,9 +644,11 @@ A run's record can name the slot it occupies. Where it does, that is the run's
 slot and no other: a change of labels, a different start order, a restart, or a
 lowered `max_concurrent_developers` never moves it, and a run whose recorded
 slot lies beyond the capacity is reported beyond the slots, keeping its number.
-Runs do not record a slot yet — the dispatch that writes it is separate work —
-so for now, and for every run recorded before it, which slot a run is in is
-read off what is in flight against what the slots prefer, the same way every
+A run records its slot only in a project that names an endpoint pair for at
+least one slot ([developer slot endpoints](../configuration.md#developer-slot-endpoints)):
+it records the slot it was pulled into, or the lowest free one where that was
+taken or it was started by name. In every other project, and for every run
+recorded before slots were, which slot a run is in is read off what is in flight against what the slots prefer, the same way every
 time, by the scheduler and by `yoyo status` alike. A run over labelled work is in a slot that prefers its
 label while one is unassigned, and everything else is in a slot with no
 preference first and in a preferring slot only once those are full — which is
@@ -665,10 +667,9 @@ label's work is exhausted.
 
 The same slot entries may also carry a `routing` endpoint pair and an optional
 `number` confirming their position. [Developer slot endpoints](../configuration.md#developer-slot-endpoints)
-states precedence, defaults, validation and reviewer selection. These fields
-currently support configuration resolution; actual run dispatch and automatic
-switching require the subsequent execution work. Label preferences keep their
-existing behavior.
+states precedence, defaults, validation and reviewer selection. A developer run pulled into a slot with a pair starts on its
+primary and moves to its alternate once per operation on a usage limit, as that
+section describes. Label preferences keep their existing behavior.
 
 ### Watching instead of draining
 
