@@ -1395,8 +1395,19 @@ to them directly and tagged to them by member id**, at `warning` severity:
 
 It is never said again on a later pass: the hourly line above carries the hold
 from there, tagged as any hold that waits on a person is, and the release says
-the hold lifted. `yoyo status` reads the same record and names the hold on its
-"Needs a human" line as the operator's by the harness's escalation.
+the hold lifted. `yoyo status` reads the same record and names the hold once on
+its "Needs a human" line as the operator's by the harness's escalation.
+
+This and the development manager's escalation are one message, not two. A
+brake hold is said to the operators as escalated once, whichever of the two
+escalated it first: her escalating a hold the harness already escalated, the
+harness reaching its bound on a hold she escalated, and her deciding to
+escalate it a second time all say nothing more. Her escalation is said in the
+hold's own account of who decided it rather than in the words above, and where
+both stand, `yoyo status` names her escalation. A hold the channel first sees
+already escalated is said once, by
+[the trip's own message](#a-finding-that-needs-your-hand), which already names
+the operator as the one to move.
 
 ### The provider holding every role
 
@@ -1659,10 +1670,12 @@ are told it happened:
 > `yoyo release`, or `/release` in the conversation,
 > lifts it sooner. Next: the development manager's — …
 
-When she escalates it to you, that hold is said to you once more, directly and
-tagged, in its own account of who decided it; the harness escalating it at the
-bound on its loop is [said the same way](#a-brake-hold-the-harness-escalates).
-While a hold stands the [heartbeat](#reporting-into-slack) says intake is held
+When the hold is escalated to you — by her, in its own account of who decided
+it, or by the harness at the bound on its loop — it is said to you once more,
+directly and tagged, and only once for that hold whichever of the two
+escalated it and however many times
+([one message, not two](#a-brake-hold-the-harness-escalates)); `yoyo status`
+names it once under `Needs a human`. While a hold stands the [heartbeat](#reporting-into-slack) says intake is held
 every hour, runs in flight or not: a held intake is the one state said over a
 run, because the runs are the ones that were already going when the line
 stopped, and a free slot idle beside one is exactly the shape the 2026-09-19
@@ -1685,13 +1698,14 @@ state fitting neither class does not get one:
   work: something only a person fixes. The shipped states are the ones
   above — a session running a build the harness has moved well past, the
   harness having started nothing at all while work was ready, the provider
-  holding every role with nothing configured to fail over to, the brake's own
-  hold handed to them by the harness at the bound on its summons-and-probe
-  loop, a recurring task that has failed before its first turn for two hours
-  (its critical message), an item that
+  holding every role with nothing configured to fail over to, a recurring task
+  that has failed before its first turn for two hours (its critical message),
+  an item that
   sat claimed with nothing working on it until the harness gave it back, the
-  brake having held intake (its trip, once), a brake hold the development
-  manager escalated to you, and **the line choosing
+  brake having held intake (its trip, once), the brake's hold escalated to
+  you — by the development manager, or by the harness at the bound on its
+  summons-and-probe loop, said once for the hold whichever it was — and
+  **the line choosing
   nothing over ready work**, which is the one state that is
   asked rather than reported and is below. The released claim is a fix rather
   than a request, and it is still in this class:

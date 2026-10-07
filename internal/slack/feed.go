@@ -103,16 +103,21 @@ func conversationLog(conversation runstate.Conversation) string {
 const (
 	intakeMark = "intake:"
 	holdMark   = "hold:"
-	// brakeEscalationMark records having told the operators that the harness
-	// escalated the brake's hold to them at its cycle bound. It is marked with
-	// the moment of the escalation rather than of the hold, so a hold that is
-	// released and a later one escalated afresh is a second thing to say, and
-	// it is forgotten with the hold's own mark when the hold lifts.
+	// brakeEscalationMark records having told the operators that the brake's
+	// hold was escalated to them, by the development manager or by the harness
+	// at its cycle bound. It is marked with the moment the hold was placed, so
+	// one hold is said escalated once whoever escalated it and however often, a
+	// later hold escalated afresh is a second thing to say, and it is forgotten
+	// with the hold's own mark when the hold lifts. A cursor written before the
+	// two escalations were one message carries this mark under the moment of the
+	// harness's escalation instead, which saidEscalated reads.
 	brakeEscalationMark = "brake-escalated:"
-	// brakeDecisionMark records having told the operators that the development
-	// manager escalated the brake's hold to them. It is marked with the moment
-	// of her decision, and forgotten with the hold's own mark.
-	brakeDecisionMark = "brake-decided-escalate:"
+	// legacyBrakeDecisionMark is how a cursor written before the two
+	// escalations were one message recorded having said the development
+	// manager's, under the moment of her decision. Nothing writes it now; it is
+	// read so an upgraded sink does not say a standing escalation again, and is
+	// forgotten with the hold.
+	legacyBrakeDecisionMark = "brake-decided-escalate:"
 	// outcomeMark records having said what became of one directive somebody
 	// asked for in a thread. It names the directive, because a directive is
 	// settled once and what settled it is said once.
@@ -1237,8 +1242,9 @@ func (f *HarnessFeed) logDeliveries(stream, log string, cursor Cursor, records i
 // hold it is not his to move, and the message's next-move clause says whose
 // it is; he can still lift it sooner. The moment it becomes his — her
 // escalation, or the harness's at the bound on its loop — is said to him
-// directly once more, unless the trip was first read already escalated and
-// said that in the same message. His own hold is said to the channel alone,
+// directly once more, and only once for the hold whichever of the two came
+// first or whether both did, unless the trip was first read already escalated
+// and said that in the same message. His own hold is said to the channel alone,
 // because he placed it.
 //
 // A release names who lifted it where the store recorded one, which it does
@@ -1263,40 +1269,24 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 				Notification: notify.FromIntakeHold(intake),
 			})
 		}
-		// The brake's hold handed to the operator by the development manager. The
-		// trip was said to the channel when it happened, asking nobody for
-		// anything; her escalation is the moment it became his, and it is said
-		// to him directly, once, in the hold's own account of who decided it.
-		if intake.Braked() && intake.Brake.Decision == runstate.BrakeDecisionEscalate && intake.Brake.DecidedAt != nil {
-			if mark := brakeDecisionMark + stamp(*intake.Brake.DecidedAt); !advanced.Has(mark) {
+		// The brake's hold handed to the operator: by the development manager's
+		// decision, or by the harness at the bound on its summons-and-probe loop.
+		// The trip asked nobody for anything; the escalation is the moment the
+		// hold became his, and it is said to him directly once per hold, whoever
+		// escalated it and however many times the record is escalated again —
+		// her deciding to escalate a hold the harness already escalated, or
+		// deciding it twice, is the same hold waiting on the same person, and
+		// the hourly line carries it from the first message on.
+		if intake.Braked() && intake.Brake.Escalated() {
+			if mark := brakeEscalationMark + stamp(intake.HeldAt); !advanced.Has(mark) && !saidEscalated(advanced, intake) {
 				advanced = advanced.With(mark)
+				notification, err := notify.FromBrakeEscalation(intake)
 				// A hold first read already escalated was said to him directly
-				// just above, in the same account; it is marked, not said twice.
-				if saidDirectly {
+				// just above, in an account that already names who escalated it;
+				// it is marked, not said twice.
+				if saidDirectly || err != nil {
 					deliveries = append(deliveries, Delivery{Stream: productStream, Cursor: advanced})
 				} else {
-					deliveries = append(deliveries, Delivery{
-						Stream:       productStream,
-						Cursor:       advanced,
-						Direct:       true,
-						Tag:          true,
-						Notification: notify.FromIntakeHold(intake),
-					})
-				}
-			}
-		}
-		// The brake's hold handed to the operators by the harness, at the bound on
-		// its summons-and-probe loop. It is said once, when the record first shows
-		// it, and it is the one message about a brake hold that goes to them
-		// directly and by name: the hold asked nobody for anything while the
-		// harness was working it, and this is the moment it became theirs — after
-		// a loop that on a broken machine would otherwise have gone round all
-		// night, spending a turn and a run per cooldown, with nothing here getting
-		// louder than the hourly note.
-		if intake.Braked() && intake.Brake.EscalatedByHarness() {
-			if mark := brakeEscalationMark + stamp(intake.Brake.Escalation.At); !advanced.Has(mark) {
-				if notification, err := notify.FromIntakeEscalation(intake); err == nil {
-					advanced = advanced.With(mark)
 					deliveries = append(deliveries, Delivery{
 						Stream:       productStream,
 						Cursor:       advanced,
@@ -1309,18 +1299,19 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		}
 	} else {
 		// The escalation is forgotten with the hold, and said nowhere: the release
-		// is what says the hold lifted, whichever way it was standing.
-		// The two marks are named apart because the second reading shadows the
-		// first's `said`: an escalation mark forgotten with no intake mark beside
-		// it still has to move the reading on, and a branch testing the inner
-		// answer would never run.
-		escalated, escalationSaid := advanced.Marked(brakeEscalationMark)
-		if escalationSaid {
-			advanced = advanced.Without(escalated)
-		}
-		if decided, decisionSaid := advanced.Marked(brakeDecisionMark); decisionSaid {
-			advanced = advanced.Without(decided)
-			escalationSaid = true
+		// is what says the hold lifted, whichever way it was standing. The
+		// escalation's marks are dropped first, and a forgotten one with no intake
+		// mark beside it still has to move the reading on.
+		escalationSaid := false
+		for _, prefix := range []string{brakeEscalationMark, legacyBrakeDecisionMark} {
+			for {
+				marked, said := advanced.Marked(prefix)
+				if !said {
+					break
+				}
+				advanced = advanced.Without(marked)
+				escalationSaid = true
+			}
 		}
 		if mark, said := advanced.Marked(intakeMark); said {
 			advanced = advanced.Without(mark)
@@ -1354,6 +1345,21 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 		})
 	}
 	return deliveries
+}
+
+// saidEscalated reports a cursor written before the two escalations were one
+// message having already said this hold's escalation: the harness's under the
+// moment it escalated, or the development manager's under the moment she
+// decided. Either is this hold said escalated to the operator, so neither is
+// said again.
+func saidEscalated(cursor Cursor, intake runstate.IntakeHold) bool {
+	if escalation := intake.Brake.Escalation; escalation != nil && cursor.Has(brakeEscalationMark+stamp(escalation.At)) {
+		return true
+	}
+	if decided := intake.Brake.DecidedAt; decided != nil && cursor.Has(legacyBrakeDecisionMark+stamp(*decided)) {
+		return true
+	}
+	return false
 }
 
 // releaseOf is the recorded release of the hold placed at one moment, or
