@@ -155,9 +155,9 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
 control. Run state, provider event streams, locks, worktrees, and the reports
-agents file while their work carries on live outside the repository under an
-operating-system state directory, so nothing there depends on where the project
-is checked out. Where that directory is can be set for the machine and never in
+agents file while their work carries on live outside the repository in the
+machine home, `~/.yoyodyne` by default, so nothing there depends on where the
+project is checked out. Where that directory is can be set for the machine and never in
 this file; see [`state_root`](#where-the-harness-keeps-its-state-state_root).
 
 Committing it is the default rather than a requirement, and a contributor to a
@@ -5368,7 +5368,7 @@ decision that would spend more than the item is allowed.
 figure on an entry — the rounds spent, each decision recorded, and each cap
 beside it — comes from the [per-item counters](#what-one-work-item-has-been-given)
 a decision spends, and the re-runs already carried out come from the per-stoppage
-re-run records under `<state root>/products/<product id>/reruns/`. It
+re-run records under `<state root>/projects/<product id>/state/reruns/`. It
 is read as the docket is read rather than written into the entry: the entry is
 recorded once as the work stops and every decision about it is made afterwards,
 so an entry frozen at docket time could only ever show every decision as absent.
@@ -5513,7 +5513,7 @@ the settle could not classify: a claim given back twice is one decision starting
 two runs.
 
 The re-run is recorded beside the counters, one file per docketed stoppage at
-`<state root>/products/<product id>/reruns/`, and it carries what the stopped
+`<state root>/projects/<product id>/state/reruns/`, and it carries what the stopped
 run preserved. Its branch and worktree are **kept** while the fresh run has not
 integrated — that is what a development manager's guidance points at when it says
 what to cherry-pick — and **retired** explicitly once it has. Anything that could
@@ -5952,7 +5952,7 @@ stands per stopped run. Concurrent updates are serialized per item, so no increm
 record that cannot be read is a refusal rather than an empty budget: an
 unreadable budget read as empty is every cap in it stopping to mean anything.
 Recovery from one is a decision, not a repair: the record is one JSON file per
-item at `<state root>/products/<product id>/triage/`, named by a slugged
+item at `<state root>/projects/<product id>/state/triage/`, named by a slugged
 rendering of the item id with a digest suffix (so a listing reads which item
 each file belongs to, and two ids that render alike still get their own files
 — match on the slug). Read it and fix what is malformed if the history is
@@ -6961,7 +6961,7 @@ web-security conventions made configuration:
   can read it. `keychain` and `file` are the two stores the Slack tokens already
   use, under names that carry the product: the keychain item
   `yoyo-dashboard.<product id>` under the account `yoyo`, or the file
-  `<state root>/products/<product id>/dashboard.token`. `yoyo dashboard`
+  `<state root>/projects/<product id>/state/dashboard.token`. `yoyo dashboard`
   reads the one named and serves under it, printing where it was read from
   and never the value, so a stored token outlives a restart; a store that does
   not hold it refuses to start with the command that stores it.
@@ -7597,7 +7597,7 @@ agents:
 
 **A burst wakes an instance once.** Each instance keeps a cursor per stream —
 the run records and the tracker — under the state root, at
-`products/<product id>/program-managers/<agent>/cursor.json`, beside its lane
+`projects/<product id>/state/program-managers/<agent>/cursor.json`, beside its lane
 report. An event past the cursor arms one wake. The wake is taken at the next
 pull once the streams have been quiet for **two minutes**, or at once where
 `every` is due, whichever comes first; the pass is handed everything between the
