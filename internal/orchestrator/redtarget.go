@@ -52,6 +52,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
@@ -386,6 +387,7 @@ func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State
 		Type:        "bug",
 		Notes:       notes,
 		Priority:    &priority,
+		Origin:      domain.WorkItemOrigin{Asker: domain.AskerHarness},
 	})
 	if err != nil {
 		return runstate.TargetRedCheck{}, err

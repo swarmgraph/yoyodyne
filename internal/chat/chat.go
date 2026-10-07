@@ -2744,6 +2744,9 @@ func (s *Session) createFromProposal(ctx context.Context, record *proposalRecord
 		RelevantGoals: relevant,
 		Notes:         record.pending.provenanceNotes(authority, s.options.Goals, s.state.Role, s.options.Agent),
 		Parent:        strings.TrimSpace(proposal.Parent),
+		// Who asked for the work goes on in the same write as the admission, so the
+		// item never reads as of unknown origin; see domain.WorkItemOrigin.
+		Origin: record.pending.origin(s.state.Role),
 		// A proposal made in a lane is created in it, in the same write, as a lane
 		// admission is.
 		Labels: proposalLabels(record.pending.Lane),
@@ -2828,6 +2831,7 @@ func (s *Session) recordProposals(proposals []Proposal, resembling []string) ([]
 			// nothing; a resemblance is about the work, so it is written down under
 			// either policy.
 			Asking: s.proposalGate(proposal, resemblanceAt(resembling, i)),
+			Asker:  s.admissionAsker(),
 		}}
 		if err := s.emit(execution.EventProposalRecorded, record.pending); err != nil {
 			return pending, fmt.Errorf("record work item proposal: %w", err)

@@ -68,8 +68,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
 // Admission is the project's `approvals.work_items` policy, in the terms this
@@ -238,6 +240,51 @@ func (s *Session) classNote(class domain.WorkItemClass) string {
 func exemptClassNote(class domain.WorkItemClass) string {
 	return fmt.Sprintf("admitted by the harness without asking the operator, because it is %s-class work, which this project exempts from per-item approval in approvals.work_item_exemptions",
 		class)
+}
+
+// admissionAsker is who is asking for work this session admits, where nothing
+// more particular — a cited report — says otherwise. A session a recurring pass
+// opened is the role's own pass, with nobody speaking in it; any other session is
+// a conversation the operator is speaking in, so what it admits the operator
+// asked for.
+func (s *Session) admissionAsker() domain.WorkItemAsker {
+	if s.pass != "" {
+		return domain.AskerSweep
+	}
+	return domain.AskerOperator
+}
+
+// creationOrigin is what a directly created item records about where it came
+// from, and is the zero origin for a creation that admits nothing. The most
+// particular record the admission cites is who asked, whatever session admitted
+// it: a cited report first, because the report is the record the work answers;
+// then a directive, which is the operator asking in their own words; and only
+// where it cites neither, the session itself. A directive is also whose behalf
+// the work is on, which is what it adds beside a report.
+//
+// It records and never decides: every input has already been checked by the
+// time it is asked, and nothing here admits or refuses work.
+func (s *Session) creationOrigin(verb creation, cited report.Report, prompting directive.Directive) domain.WorkItemOrigin {
+	if !verb.admits {
+		return domain.WorkItemOrigin{}
+	}
+	return admittedOrigin(s.admissionAsker(), s.state.Role, cited.ID, cited.Role, prompting.ID)
+}
+
+// admittedOrigin is the one rule for which record is who asked, shared by an
+// admission as it is made and by the backfill reading one back out of an item's
+// notes, so the two can never record the same admission differently.
+func admittedOrigin(session domain.WorkItemAsker, admittedBy domain.AgentRole, reportID string, reportedBy domain.AgentRole, directiveID string) domain.WorkItemOrigin {
+	origin := domain.WorkItemOrigin{Asker: session, AdmittedBy: admittedBy, Directive: strings.TrimSpace(directiveID)}
+	switch {
+	case strings.TrimSpace(reportID) != "":
+		origin.Asker = domain.AskerReport
+		origin.Report = strings.TrimSpace(reportID)
+		origin.ReportedBy = reportedBy
+	case origin.Directive != "":
+		origin.Asker = domain.AskerOperator
+	}
+	return origin
 }
 
 // AdmittedItem is one work item the harness put in the queue without asking,

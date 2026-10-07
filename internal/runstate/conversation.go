@@ -447,6 +447,11 @@ type PendingProposal struct {
 	// because an approval creates the item in that lane and a proposal that came
 	// back without it would be admitted outside the lane it was made for.
 	Lane string `json:"lane,omitempty"`
+	// Asker is who asked for the work, as the item is to record it if it is
+	// admitted: the operator, where the proposal was made in a conversation they
+	// were speaking in, or the role's own pass. It is absent from a proposal
+	// recorded before origins were, whose item then records none.
+	Asker string `json:"asker,omitempty"`
 }
 
 // PendingWrite is one document an owning role wrote, as the record keeps it:

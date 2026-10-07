@@ -1893,6 +1893,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			// exists to close.
 			Parking:  domain.WorkItemParking(strings.TrimSpace(action.Parked.Reason())),
 			Priority: action.Priority,
+			// Who asked for the work, and on whose behalf, goes on as fields in this
+			// same write: the notes above say it in prose, and prose is not something
+			// a listing can count.
+			Origin: s.creationOrigin(creation, cited, prompting),
 			// The labels go on in the same write for the reason the executor and the
 			// parking do: an item is in the queue the moment this returns, and a seat
 			// that watches for a label sees an item labelled on the next turn only
@@ -2249,6 +2253,10 @@ type creation struct {
 	// what it interpolates includes a parent identifier, and text that came from
 	// somewhere else is never a format.
 	applied func(id string) string
+	// admits is whether the creation puts work in the backlog that was not there,
+	// which is what records an origin. A decomposition carves up work already
+	// admitted, and the item it was carved from carries where that work came from.
+	admits bool
 }
 
 // creationVerb decides which of the two acts this creation is. A role that may
@@ -2266,6 +2274,7 @@ func (s *Session) creationVerb(parent string) creation {
 			note:    "Admitted to the backlog in lane " + lane,
 			subject: "the work this would admit into lane " + lane,
 			applied: func(id string) string { return "admitted " + id + " to the backlog in lane " + lane },
+			admits:  true,
 		}
 	}
 	if !s.authority().ParentRequired {
@@ -2273,6 +2282,7 @@ func (s *Session) creationVerb(parent string) creation {
 			note:    "Admitted to the backlog",
 			subject: "the work this would admit",
 			applied: func(id string) string { return "admitted " + id + " to the backlog" },
+			admits:  true,
 		}
 	}
 	if parent == "" {
@@ -2571,8 +2581,8 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 		listed = listed[:maxTrackerSurveyItems]
 	}
 	for _, item := range listed {
-		fmt.Fprintf(&rendered, "- %s [%s, p%d, %s%s%s] %s\n",
-			item.ID, item.Status, item.Priority, item.IssueType, executorLabel(item.Executor), labelsLabel(item.Labels),
+		fmt.Fprintf(&rendered, "- %s [%s, p%d, %s%s%s%s] %s\n",
+			item.ID, item.Status, item.Priority, item.IssueType, executorLabel(item.Executor), labelsLabel(item.Labels), originLabel(item.Origin),
 			singleLine(item.Title, maxTrackerTitleBytes))
 		fmt.Fprintf(&rendered, "    relevant goals: %s\n", goals.DescribeRelevant(item.RelevantGoals))
 	}
@@ -2592,6 +2602,22 @@ func executorLabel(executor domain.WorkItemExecutor) string {
 		return ""
 	}
 	return ", executor " + string(executor)
+}
+
+// originLabel is what a queue listing says about who asked for an item, and on
+// whose behalf where that is somebody else, and is nothing at all for an item
+// admitted before origins were recorded: a listing that printed "unknown" on
+// most of the queue would bury the items that say something. A read of the item
+// says the unknown case in words.
+func originLabel(origin domain.WorkItemOrigin) string {
+	if !origin.Known() {
+		return ""
+	}
+	label := ", asked by " + origin.AskedBy()
+	if behalf := origin.OnBehalfOf(); behalf != origin.AskedBy() {
+		label += " for " + behalf
+	}
+	return label
 }
 
 // labelsLabel is what a queue listing says about an item's labels, beside its
@@ -2799,6 +2825,10 @@ func renderWorkItemHead(item beads.WorkItem, goals goal.Set, trim bool) string {
 	// approved and one that says it does.
 	fmt.Fprintf(&rendered, "attribution: %s\n", describeAttribution(goals.AttributionOf(item.Notes, item.GoalWitness)))
 	fmt.Fprintf(&rendered, "relevant goals — goals the change must not break: %s\n", goals.DescribeRelevant(item.RelevantGoals))
+	// Where the work came from, as the admission recorded it in fields rather
+	// than in the notes' prose. It is said on every item, unknown included,
+	// because "who filed this" is asked of old work as much as new.
+	fmt.Fprintf(&rendered, "origin: %s\n", item.Origin.Describe())
 	// What carries the work, said only where it is not a developer run. An item
 	// that says nothing here is ordinary work, and printing "developer run" on
 	// every item would bury the one line that changes what happens to it.

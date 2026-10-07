@@ -356,15 +356,18 @@ the item.
 ./bin/yoyo goals attribution   # what each work item the tracker holds says it is for
 ./bin/yoyo goals witness       # witness the goals already recorded on work items
 ./bin/yoyo goals reattribute   # move an attribution off the wording and onto the goal's identity
+./bin/yoyo goals origins       # record who asked for work admitted before admissions recorded it, from its notes
 ./bin/yoyo goals guard         # refuse wholesale notes replacement or a status set with no note
 ```
 
 No command there decides what a piece of work is for, for the same reason no
 command writes an artifact's content: that judgement is a product one, made by the Lead Product
 Manager in the conversation where you can see it. What the harness owns is
-resolving the claim. Two of those commands do write — `witness` and
-`reattribute` — and neither writes a judgement: each records the goal an item
-already names, one into the tracker's metadata and one by the goal's identity. An item that names no goal at all and one that names a
+resolving the claim. Three of those commands do write — `witness`,
+`reattribute`, and `origins` — and none writes a judgement: the first two record
+the goal an item already names, one into the tracker's metadata and one by the
+goal's identity, and `origins` copies where an item's notes say it came from
+into the tracker's metadata. An item that names no goal at all and one that names a
 goal your goals do not state are reported apart and treated differently, because
 they are not the same thing to do: the first predates the check, is somebody's
 to attribute, and never stops the work running; the second is a claim that is

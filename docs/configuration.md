@@ -2082,6 +2082,19 @@ exits non-zero while any item is left behind. `--dry-run` reports the same thing
 and writes nothing, which is worth reading before a run over a live backlog. Like
 the sweep it walks every status the tracker holds.
 
+**`yoyo goals origins` backfills where older work came from.** Every admission
+now records who asked for the work, and on whose behalf, as fields on the item in
+the same write as the admission: the operator, a role's report (with the report
+and the role that filed it), a role's own recurring pass, or the harness itself,
+and the directive the work answers where there is one. An item admitted before
+that reads as origin unknown. This sets those fields on such an item from what its
+own notes already state — the role that admitted it, and the report or directive
+it was admitted from — and from nothing else. The notes never said whether the
+operator or a sweep asked, so an item citing neither a report nor a directive is
+left unknown rather than guessed at, as is one whose notes name more than one of
+anything; an item that already records an origin is never rewritten. `--dry-run`
+reports what would be set and writes nothing.
+
 `yoyo goals guard` is the same loss stopped rather than reported. Wired as a
 `PreToolUse` hook on `Bash`, it reads the command an agent session is about to
 run and refuses every recognized `bd update <id> --notes` replacement, even
@@ -2105,6 +2118,7 @@ yoyo goals list          # the goals work may be attributed to, their identities
 yoyo goals attribution   # what each work item the tracker holds says it is for
 yoyo goals witness       # witness the goals already recorded on work items
 yoyo goals reattribute   # move an attribution off the wording and onto the goal's identity
+yoyo goals origins       # record who asked for work admitted before admissions recorded it, from its notes
 yoyo goals guard         # refuse wholesale notes replacement or a status set with no note
 ```
 

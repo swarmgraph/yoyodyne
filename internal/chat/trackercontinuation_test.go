@@ -117,6 +117,7 @@ func TestShortItemReadKeepsItsExistingOutput(t *testing.T) {
 		want := "id: yoyodyne-task\ntitle: Short item\nstatus: open\npriority: 0\ntype: task\nattribution: " +
 			describeAttribution(goal.Set{}.AttributionOf(item.Notes, item.GoalWitness)) +
 			"\nrelevant goals — goals the change must not break: " + goal.Set{}.DescribeRelevant(nil) +
+			"\norigin: " + domain.WorkItemOrigin{}.Describe() +
 			"\n\ndescription:\nThe description.\n\ndesign:\nA design.\n\nacceptance criteria:\nDone means: tested.\n"
 		if notes != "" {
 			want += "\nnotes:\nA recent note.\n"
