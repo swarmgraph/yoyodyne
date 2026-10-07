@@ -63,13 +63,13 @@ directory. Claude Code's own copy of each session is
 
 | Run, silence | Backend and model | Ran before going quiet | Review copy (patch bytes against the 262,144-byte bound) | Prompt characters | Kind of review | Provider reported |
 |---|---|---|---|---|---|---|
-| 5v6, 02:14 | Claude Code, `claude-opus-5-5` | 11 s | 11,065, not cut | 425,527 | a second review of an unchanged change, after the development manager's repair and a restart | nothing |
+| stopped-run delivery, 02:14 | Claude Code, `claude-opus-5-5` | 11 s | 11,065, not cut | 425,527 | a second review of an unchanged change, after the development manager's repair and a restart | nothing |
 | fakes move, 10:29 | Claude Code, `claude-opus-5-5` | 9 s | 261,165, not cut | 507,768 | a second review, after the developer's repair | nothing |
 | plain words, 10:43 | Claude Code, `claude-opus-5-5` | 12 s | 60,024, not cut | 310,970 | the first review | nothing |
 | plain words, 12:08 | Claude Code, `claude-opus-5-5` | 14 s | 60,024, not cut | 314,447 | the harness's own continuation after the 10:43 silence, retried after a restart | nothing |
-| 5v6, 15:09 | Claude Code, `claude-opus-5-5` | 7 s | 11,067, not cut | 447,217 | a review of the change replayed onto the moved main branch | nothing |
-| 434.6, 19:41 Oct 5 | Claude Code, `claude-opus-5-5` | 17 s | 108,846, not cut | 547,629 | the first review | nothing |
-| 435.16, 05:35 | Claude Code, `claude-opus-5-5` | 25 s | 74,535, not cut | 343,161 | the first review | nothing |
+| stopped-run delivery, 15:09 | Claude Code, `claude-opus-5-5` | 7 s | 11,067, not cut | 447,217 | a review of the change replayed onto the moved main branch | nothing |
+| an agent block's role, 19:41 Oct 5 | Claude Code, `claude-opus-5-5` | 17 s | 108,846, not cut | 547,629 | the first review | nothing |
+| Codex token usage display, 05:35 | Claude Code, `claude-opus-5-5` | 25 s | 74,535, not cut | 343,161 | the first review | nothing |
 | installer, 20:01 | Claude Code, `claude-opus-5-5` | 23 s | 49,122, not cut | 258,088 | a review of the change replayed onto the moved main branch | nothing |
 
 Every reviewer session is a new Claude Code session: none was a resumed
@@ -82,7 +82,7 @@ none; plugins: none; connectors: none; instruction files: none"`), then Claude
 Code reports the reviewer thinking (`thinking_tokens`) about once a second for
 7 to 25 seconds, and then nothing. Five minutes after the last
 event the harness ends the session and records that no machine sleep or harness
-downtime was found. The first 5v6 silence, for example:
+downtime was found. The first silence in stopped-run delivery, for example:
 
 ```
 619 2026-10-06T09:09:15.302Z run.started claude-code {"model": "claude-opus-5-5", "session_id": "522fb1df-…", "tools": [], …}
@@ -110,20 +110,20 @@ and every one was under the bound. The silent ones range from 11,065 to
 261,165 bytes of patch and from 258,088 to 547,629 characters of prompt. On the
 same day reviews with prompts of 600,000 to 712,809 characters finished in
 under a minute. Each silent review was asked again with the same change, and
-every one of those finished: 5v6's in 28 seconds at 03:18 and 23 seconds at
+every one of those finished: stopped-run delivery's in 28 seconds at 03:18 and 23 seconds at
 17:23, the fakes move's in 47 seconds, the plain-words rule's in 33 seconds,
 and the three others in 62, 173 and 171 seconds.
 
 **Continuing on the wrong backend (yoyodyne-ifd.428.88).** Every reviewer
 session was a fresh Claude Code session on the configured reviewer; none was
-resumed, so no session was offered to the wrong provider. The developer of 5v6
+resumed, so no session was offered to the wrong provider. The developer of stopped-run delivery
 ran on Codex, but the reviewer never resumes the developer's session.
 
 **An unreadable verdict (yoyodyne-ifd.429.66).** No verdict was written at all,
 readable or not.
 
 **Being stopped and picked back up for a redeploy.** The development manager's
-lead (report f54e5095) is right that the plain-words run and both 5v6 silences
+lead (report f54e5095) is right that the plain-words run and both stopped-run delivery silences
 came after the run had been stopped for a redeploy and picked back up. That is
 true of almost every run that day: the harness restarted onto a new build
 sixteen times between midnight and midnight on October 6 and picked runs back
@@ -238,5 +238,5 @@ Not admitted, for the Lead Product Manager to consider:
 The cost the work item describes comes from what follows a silence, and not
 from the silence itself: the harness's own continuation waited 48 to 81 minutes
 before asking again, and a second silence in the same run, even on a different
-change hours later as in 5v6, went to the development manager. That is also a
+change hours later as in stopped-run delivery, went to the development manager. That is also a
 change to how a silence is handled, and is not in this item's scope.
