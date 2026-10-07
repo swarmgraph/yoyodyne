@@ -1015,7 +1015,7 @@ func (s *setup) envFilePaths(productID domain.ProductID) (directory, file string
 // difference is not a replacement (launchd.Same says why). The job is loaded
 // where it is not, and reloaded where the file changed, which restarts the
 // supervisor and leaves its children running to be reattached.
-func (s *setup) ensureLaunchAgent(ctx context.Context, resolved config.Resolved) setupStep {
+func (s *setup) ensureLaunchAgent(ctx context.Context, resolved config.Resolved) (step setupStep) {
 	if s.executable == nil {
 		return setupStep{}
 	}
@@ -1039,9 +1039,20 @@ func (s *setup) ensureLaunchAgent(ctx context.Context, resolved config.Resolved)
 	}
 	// Resolved as every verb resolves it, so the agent's log is the one
 	// `yoyo start` names.
-	root, err := productStateRootFrom(resolved, s.getenv, s.homeDir, s.goos)
+	root, agreement, err := agreeProductStateRoot(resolved, s.getenv, s.homeDir, s.goos)
 	if err != nil {
 		return setupStep{Step: stepLaunchAgent, Status: setupHandedOff, Summary: "where the harness keeps its state could not be resolved, so the launch agent was not written", Detail: err.Error(), Remedy: "yoyo start"}
+	}
+	if agreement.Bound {
+		// Said in the walk's own report rather than on stderr, so `--json`
+		// carries it and stays the only thing printed.
+		defer func() {
+			bound := agreement.Says(string(productID))
+			if step.Detail != "" {
+				bound += "; " + step.Detail
+			}
+			step.Detail = bound
+		}()
 	}
 	store, err := runstate.NewSupervisionStore(root, productID)
 	if err != nil {

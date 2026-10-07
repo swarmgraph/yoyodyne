@@ -249,16 +249,31 @@ func productStateRoot(resolved config.Resolved) (string, error) {
 // holds rather than the process's own, so a walk that injects its environment
 // resolves the root it would name.
 func productStateRootFrom(resolved config.Resolved, getenv func(string) string, homeDir func() (string, error), goos string) (string, error) {
-	root, err := runstate.ResolveRoot(getenv, homeDir, goos)
+	root, agreement, err := agreeProductStateRoot(resolved, getenv, homeDir, goos)
 	if err != nil {
 		return "", err
+	}
+	if agreement.Bound {
+		fmt.Fprintln(os.Stderr, agreement.Says(string(resolved.Config.Product.ID)))
+	}
+	return root, nil
+}
+
+// agreeProductStateRoot is productStateRootFrom without the sentence a first
+// start prints, for a verb that says what it did in a report of its own:
+// `yoyo setup --json` is read as the only thing printed, so a binding announced
+// on stderr there would be a line outside the report.
+func agreeProductStateRoot(resolved config.Resolved, getenv func(string) string, homeDir func() (string, error), goos string) (string, home.Agreement, error) {
+	root, err := runstate.ResolveRoot(getenv, homeDir, goos)
+	if err != nil {
+		return "", home.Agreement{}, err
 	}
 	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), resolved.Config.Product.Repository)
 	if err != nil {
-		return "", fmt.Errorf("resolve product repository: %w", err)
+		return "", home.Agreement{}, fmt.Errorf("resolve product repository: %w", err)
 	}
 	if err := runstate.AgreeRoot(repository, root); err != nil {
-		return "", err
+		return "", home.Agreement{}, err
 	}
 	agreement, err := home.Agree(home.AgreeOptions{
 		Root:      root.Path,
@@ -267,12 +282,9 @@ func productStateRootFrom(resolved config.Resolved, getenv func(string) string, 
 		Remote:    resolved.Config.Execution.Remote,
 	})
 	if err != nil {
-		return "", err
+		return "", home.Agreement{}, err
 	}
-	if agreement.Bound {
-		fmt.Fprintln(os.Stderr, agreement.Says(string(resolved.Config.Product.ID)))
-	}
-	return root.Path, nil
+	return root.Path, agreement, nil
 }
 
 // standingRemains is the repository a read-only surface asks whether a stopped
