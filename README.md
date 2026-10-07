@@ -76,7 +76,8 @@ is for; [Install](#install) has what the script does and the other routes.
   developer run read-only on either. Codex is less proven than Claude Code: no
   recording yet shows yoyo reading a Codex turn that fails, or one that runs a
   shell command, edits a file, or calls a tool, so if a Codex run stops on
-  something yoyo could not read, switch that agent's `backend` to `claude-code`.
+  something yoyo could not read, switch that agent's `backend` to `claude-code`
+  and its `model` to a Claude model such as `opus`.
   [Provider plugins](docs/provider-plugins.md) has what has been checked, and
   how to declare a fork, proxy, or variant of either provider.
 - **One `yoyo` per repository.** Teammates can commit alongside it the ordinary
@@ -326,8 +327,9 @@ A tiny arithmetic library, kept small enough that a change to it is obvious.
 
 **A repository with none of that is the normal starting point.** The Lead
 Product Manager says intent is not written down rather than guessing it; tell it
-what you are building and it drafts the brief and goals with you. It has no
-tools and never touches your files, so when a document is ready it hands the
+what you are building and it drafts the brief and goals with you. It cannot
+change your files (on Claude Code it has no tools; on Codex it can only read),
+so when a document is ready it hands the
 harness a typed write: you are shown the document, and **on your `y` the harness
 files it in `docs/product/` with its frontmatter and your approval recorded in
 it — then you commit it**, because a run refuses to start while it is
