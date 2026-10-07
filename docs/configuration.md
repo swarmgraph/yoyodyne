@@ -726,7 +726,8 @@ yoyo project rename <old> <new>            # move a project directory, and every
   refuses while a run is in flight, while the project still holds worktrees
   (the repository has them registered at their paths), where the new id is
   taken, and in a home still laid out the earlier way.
-- **`list`** names the home and where it came from, then each project
+- **`list`** names the home and where it came from — `--home` prints its path
+  and nothing else, for a script — then each project
   directory, what it is bound to, whether that repository is there, and where
   it keeps a configuration. In a home laid out the earlier way it names each
   product under `products/` that has no binding yet.

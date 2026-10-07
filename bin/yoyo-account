@@ -48,30 +48,25 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Mirror runstate.ResolveRoot and home.Default so this agrees with the harness.
-# An account whose home this script and the harness disagreed about is one the
-# operator signs in and the harness never finds. The default is ~/.yoyodyne,
-# except that the earlier builds' default is kept while it exists and
-# ~/.yoyodyne does not. This resolves a path and reads nothing under it: what
-# the harness has done and spent is `yoyo status`'s to derive, and the shell
-# script that used to derive it beside the binary is gone.
+# Ask the binary where the machine home is rather than working it out here. The
+# home can be moved by YOYODYNE_STATE_HOME, by state_root in
+# ~/.yoyodyne/machine.yaml, or by XDG_STATE_HOME, and stays at the earlier
+# builds' home until the migration moves it; a script that repeated any of that
+# would, on a machine whose home moved, sign an account in where the harness
+# never looks. `yoyo project list --home` is the harness's own answer. YOYO
+# names the binary to ask, for a machine that has more than one. This reads
+# nothing under the home: what the harness has done and spent is
+# `yoyo status`'s to say.
 state_root() {
-  if [ -n "${YOYODYNE_STATE_HOME:-}" ]; then printf '%s\n' "$YOYODYNE_STATE_HOME"; return; fi
-  if [ -n "${XDG_STATE_HOME:-}" ]; then printf '%s\n' "$XDG_STATE_HOME/yoyodyne"; return; fi
-  local earlier
-  case "$(uname -s)" in
-    Darwin) earlier="$HOME/Library/Application Support/Yoyodyne/state" ;;
-    MINGW*|MSYS*|CYGWIN*) earlier="${LOCALAPPDATA:-$HOME/AppData/Local}/Yoyodyne/state" ;;
-    *) earlier="$HOME/.local/state/yoyodyne" ;;
-  esac
-  if [ ! -e "$HOME/.yoyodyne" ] && [ -d "$earlier" ]; then
-    printf '%s\n' "$earlier"
-  else
-    printf '%s\n' "$HOME/.yoyodyne"
-  fi
+  local yoyo="${YOYO:-yoyo}"
+  command -v "$yoyo" >/dev/null 2>&1 || {
+    echo "$yoyo is not on PATH; this asks it where the harness keeps its accounts, so install it first (or name it with YOYO=/path/to/yoyo)" >&2
+    exit 1
+  }
+  "$yoyo" project list --home
 }
 
-root="$(state_root)"
+root="$(state_root)" || exit 1
 accounts="$root/accounts"
 
 # Mirror config.AccountConfigDirectory: the default alias is wherever this
@@ -91,10 +86,10 @@ command -v claude >/dev/null 2>&1 || {
 ask() {
   local prompt="$1" default="$2" answer
   if [ -n "$default" ]; then
-    read -r -p "$prompt [$default]: " answer </dev/tty || true
+    read -r -p "$prompt [$default]: " answer || true
     printf '%s\n' "${answer:-$default}"
   else
-    read -r -p "$prompt: " answer </dev/tty || true
+    read -r -p "$prompt: " answer || true
     printf '%s\n' "$answer"
   fi
 }

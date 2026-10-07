@@ -61,7 +61,12 @@ machine's own `machine.yaml`, `$XDG_STATE_HOME/yoyodyne`, or `~/.yoyodyne`, the 
 `~/Library/Application Support/Yoyodyne/state` on macOS or
 `~/.local/state/yoyodyne` on Linux, keeps using it until it is moved) — the same
 one `yoyo status` reads, and the one `yoyo config show` prints on its
-`# state root:` line.
+`# state root:` line. `yoyo project list --home` prints that path and nothing
+else, which is what `bin/yoyo-account` asks rather than working it out itself:
+
+```sh
+home="$(yoyo project list --home)/accounts/second"
+```
 
 ## 3. That's it
 

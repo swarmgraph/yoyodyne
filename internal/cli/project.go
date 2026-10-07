@@ -461,6 +461,7 @@ func listProjects(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("project list", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	homeOnly := flags.Bool("home", false, "print the machine home's path and nothing else, for a script")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -472,6 +473,12 @@ func listProjects(args []string, stdout, stderr io.Writer) int {
 	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
 	if err != nil {
 		return commandFailure(stdout, stderr, *jsonOutput, err)
+	}
+	// A script beside the binary asks this rather than working the home out
+	// itself, so the two can never disagree about which home is in use.
+	if *homeOnly {
+		fmt.Fprintln(stdout, root.Path)
+		return 0
 	}
 	projects, err := home.Projects(root.Path)
 	if err != nil {
@@ -552,6 +559,10 @@ bind options:
   --product <id>    the id to bind, where no configuration is found for this repository
   --directory <dir> a directory in the repository to bind, with --product (default: .)
   --replace         unbind the repository bound now although it is still there
+  --json            emit machine-readable JSON
+
+list options:
+  --home            print the machine home's path and nothing else
   --json            emit machine-readable JSON
 
 bind refuses while a run is in flight for the project. rename refuses while a
