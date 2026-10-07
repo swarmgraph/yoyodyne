@@ -71,8 +71,13 @@ is for; [Install](#install) has what the script does and the other routes.
   role on a schedule, and [program managers](docs/designs/program-manager.md)
   that each watch one area of work. `yoyo agent chat <name>` talks to any agent.
 - **Claude Code and Codex can each run every role.** Roles other than the
-  developer run read-only on either. A fork, proxy, or variant of either can be
-  declared as a [provider plugin](docs/provider-plugins.md).
+  developer run read-only on either. Codex has been checked less: yoyo has
+  read real Codex output for a reply and a finished turn, but not yet for a
+  turn that fails or one that runs shell commands, edits files, or calls tools,
+  so if you choose Codex, how yoyo reads those parts of a run is untested
+  against real output. [Provider plugins](docs/provider-plugins.md) has the
+  detail. A fork, proxy, or variant of either can be declared as a [provider
+  plugin](docs/provider-plugins.md).
 - **One `yoyo` per repository.** Teammates can commit alongside it the ordinary
   way, but two people each running `yoyo` against one repository is not
   supported yet: claims, reports, budgets, and the merge lock stay on the

@@ -285,8 +285,11 @@ from the name — so `role` must be one of `product-manager`, `architect`,
 the table itself.
 
 `backend` is `claude-code` or `codex` unless your project declares one of its
-own. Both built-ins serve every role under the compiled adapter's tool access
-restrictions. For a CLI outside PATH, including a desktop-bundled Codex, set
+own. Both built-ins serve every role: a developer edits its own worktree, and
+every other role runs read-only — with no tools at all on Claude Code, and on
+Codex able to inspect the repository under Codex's own read-only sandbox, with
+network access, escalation, and external integrations turned off
+([capability validation](../provider-plugins.md#capability-validation)). For a CLI outside PATH, including a desktop-bundled Codex, set
 `providers.codex.binary` or `providers.claude-code.binary` to its absolute path;
 [executable setup and precedence](../provider-plugins.md#executable-setup-and-precedence)
 applies to terminal chats, scheduled execution and fallback alike.
