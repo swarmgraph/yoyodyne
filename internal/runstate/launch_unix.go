@@ -19,7 +19,9 @@ import (
 // What establishes a stop is the hold being free, which means no process of
 // the tree still has the file it inherited, together with the process group
 // the execution led having no members, which means no process that let go of
-// the file is left either. A process identifier that answers proves nothing
+// the file is left either. A member that has exited and is waiting to be
+// reaped is not left, where the platform can say so (groupHasOnlyExited). A
+// process identifier that answers proves nothing
 // either way: it may have been given to an unrelated process since.
 func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (executionState, string, func(remove bool)) {
 	nothing := func(bool) {}
@@ -75,6 +77,11 @@ func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (exec
 	case errors.Is(err, syscall.ESRCH):
 		return executionStopped, "", settle
 	case err == nil:
+		// A group whose remaining members have all exited has stopped, though
+		// some platforms still count them until they are reaped.
+		if exited, _ := groupHasOnlyExited(identity.ProcessGroup); exited {
+			return executionStopped, "", settle
+		}
 		settle(false)
 		return executionUnknown, fmt.Sprintf("its process group %d still has members, which may be processes it started", identity.ProcessGroup), nothing
 	case errors.Is(err, syscall.EPERM):
