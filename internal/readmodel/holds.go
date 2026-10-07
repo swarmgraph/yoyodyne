@@ -175,17 +175,35 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 	if refused, found := counters.RefusedCarryOut(run.RunID); found {
 		reading.refused = &refused
 	}
+	if decision, found := counters.DecisionOf(run.RunID); found && problem == "" {
+		reading.rerun = decision.Decision == runstate.TriageDecisionRerun
+	}
 	return reading
 }
 
 // decidedStanding is one reading of a stoppage's triage record. carryOut is a
 // decision the harness has still to act on; refused is a decision it tried to
 // act on and a gate refused, which is the development manager's again and is
-// held as hers; problem is what stopped the reading.
+// held as hers; rerun says the decision standing about the run is a re-run;
+// problem is what stopped the reading.
 type decidedStanding struct {
 	carryOut bool
 	refused  *runstate.TriageCarryOut
+	rerun    bool
 	problem  string
+}
+
+// releasesRerun reports a re-run decision that no longer holds its item: the
+// harness was refused carrying it out by a gate that will not clear, and the
+// run it was about left no branch or worktree. A re-run of such a run starts
+// the item from the target branch, which is what an ordinary pull does, so
+// there is nothing a fresh pull would start beside. Holding the item for a
+// decision that will never be carried out would hold it for good, because
+// nothing the development manager records clears a refusal of a decision about
+// a run that has already ended (yoyodyne-ifd.428.87). The carry-out writes the
+// refusal and the release onto the item when it records the refusal.
+func (reading decidedStanding) releasesRerun(found triage.Found) bool {
+	return reading.rerun && reading.refused != nil && reading.refused.Cause != "" && !found.Holds()
 }
 
 // standingDecisions reads each item's triage record once, however many of its
@@ -351,8 +369,12 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 			return true
 		}
 		// A decision the harness was refused carrying out still stands, so it holds
-		// the item as surely as one it has still to carry out.
+		// the item as surely as one it has still to carry out — except a re-run
+		// refused for good over a run that left nothing, which releasesRerun lets go.
 		reading := decided.of(run.WorkItemID, run)
+		if reading.releasesRerun(found) {
+			return false
+		}
 		return reading.carryOut || reading.refused != nil
 	}) {
 		found := looked[run.RunID]
@@ -372,7 +394,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		if _, held := reasons[workItemID]; held || !run.Status.Terminal() || !run.Escalated() {
 			continue
 		}
-		if reading := decided.of(workItemID, run); reading.carryOut || reading.refused != nil {
+		if reading := decided.of(workItemID, run); (reading.carryOut || reading.refused != nil) && !reading.releasesRerun(look(run)) {
 			reasons[workItemID] = heldFor(run.RunID, raiseRerun(run), reading, stoppedAt(run))
 		}
 	}
@@ -421,6 +443,9 @@ func stoppageHold(run runstate.State, decided standing, found triage.Found) back
 	}
 	if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
 		return backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
+	}
+	if !preserved && reading.rerun && reading.carryOut && reading.problem == "" {
+		return backlog.Hold{Reason: freshRerun(run), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
 	if !preserved {
 		return heldFor(run.RunID, continuedStoppage(run), reading, stoppedAt(run))
@@ -518,6 +543,9 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 		}, problem
 	}
 	reading := decided.of(workItemID, run)
+	if (stoppage(run) || run.Escalated()) && !outstandingPublication(run) && reading.releasesRerun(look(run)) {
+		return backlog.Hold{}, ""
+	}
 	switch {
 	case outstandingPublication(run) && mergeConfirmed(run):
 		return heldFor(run.RunID, mergedPublication(run), reading, stoppedAt(run)), ""
@@ -788,14 +816,25 @@ func stoppedIntegration(run runstate.State, found triage.Found, preserved bool) 
 
 // continuedStoppage says why an item whose stopped run left nothing behind is
 // still not something to pull: a decision about that stoppage stands recorded
-// and the harness has yet to act on it. What it acts on is the run — a repair
-// grant re-enters the session the run preserved, a re-run starts the item over
-// from what the run recorded — so a fresh pull meanwhile would be a second run
-// on the same work, and the first thing the carried-out decision met would be
-// the fresh run's claim.
+// and the harness has yet to act on it. What a repair grant acts on is the run,
+// re-entering the session it preserved, so a fresh pull meanwhile would be a
+// second run on the same work, and the first thing the carried-out decision met
+// would be the fresh run's claim. A re-run awaiting the harness is said by
+// freshRerun instead.
 func continuedStoppage(run runstate.State) string {
 	return fmt.Sprintf(
 		"run %s stopped on it and a decision about that stoppage is recorded and not yet carried out, so a fresh run would start beside the continuation that decision buys",
+		run.RunID)
+}
+
+// freshRerun says why an item is held whose stopped run left no branch or
+// worktree and whose recorded decision is a re-run. Nothing is left for anybody
+// to decide: the harness starts the item again from the target branch at the
+// next pull with a developer slot free, and holding it until then is what keeps
+// an ordinary pull from starting a second run beside that one.
+func freshRerun(run runstate.State) string {
+	return fmt.Sprintf(
+		"run %s stopped on it and no branch or worktree of it remains, and the development manager decided a re-run, so the harness starts it again from the target branch at the next pull with a developer slot free — it waits on the harness rather than on a decision",
 		run.RunID)
 }
 

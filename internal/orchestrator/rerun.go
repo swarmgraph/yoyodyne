@@ -413,17 +413,10 @@ func (r Rerunner) Rerun(ctx context.Context, request RerunRequest) (RerunResult,
 	// is asked rather than the entry that describes it. Both this and the run in
 	// flight below describe something that is still moving, so both stop being
 	// true on their own — which is what a reader of either refusal has to act on,
-	// and why each of them says the stoppage kept its re-run.
-	// A run the docket never held is re-run on the development manager's decision
-	// alone: it ended without anything the stoppage rule counts, which is why it
-	// was never docketed, so asking that rule of it could only refuse what she
-	// decided. It still has to have ended.
-	if undocketed {
-		if !prior.Status.Terminal() {
-			return result, unspentRefusal(fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
-				prior.RunID, prior.Status))
-		}
-	} else if err := rerunnable(prior, found); err != nil {
+	// and why each of them says the stoppage kept its re-run. A re-run asks only
+	// that the run has ended; see rerunnable for why a run that left nothing
+	// behind is started again rather than refused.
+	if err := rerunnable(prior); err != nil {
 		return result, unspentRefusal(err)
 	}
 	if err := r.noRunInFlight(entry.WorkItemID); err != nil {
@@ -688,16 +681,27 @@ func docketedRaise(docket RerunDocket, priorRunID string) (triage.Entry, bool, e
 	return triage.Entry{}, false, nil
 }
 
-// rerunnable is stoppageIsOver widened by the one run a re-run answers that did
-// not stop: a run that ended by raising its item as unmeetable. Such a run
-// succeeded — raising is what it was for — and carries no blocker, so the
-// stoppage rule refuses it; what makes it something a person decides about is
-// the raise itself, read from the run's own record.
-func rerunnable(prior runstate.State, found triage.Found) error {
-	if prior.Status.Terminal() && prior.Escalated() {
-		return nil
+// rerunnable reports the run a re-run answers having ended, which is the whole
+// of what a re-run asks of the run itself.
+//
+// It asks less than stoppageIsOver, which the repair and the integration resume
+// still ask, and deliberately. Those two continue the run's own change, so a run
+// that left no blocker and no change has nothing for them to continue. A re-run
+// continues nothing: it starts the item again from the target branch. A run that
+// ended carrying no blocker and leaving no branch or worktree — a run that failed
+// and cleaned up after itself, a raise, a run the docket never held — is
+// therefore one a recorded re-run can always be carried out on. Refusing it was
+// a decision the harness would never carry out and nobody could withdraw, which
+// held the item it was about out of every pull (yoyodyne-ifd.428.87).
+//
+// The decision is still required, and so is everything asked after this: the
+// claim, the item's state, the hold, capacity.
+func rerunnable(prior runstate.State) error {
+	if !prior.Status.Terminal() {
+		return fmt.Errorf("run %s is recorded as %s rather than ended, so it is owed a continuation rather than a fresh run; a re-run is refused while anything of it is resumable",
+			prior.RunID, prior.Status)
 	}
-	return stoppageIsOver(prior, found)
+	return nil
 }
 
 // raiseReleased reports the item a raise parked having been released by its

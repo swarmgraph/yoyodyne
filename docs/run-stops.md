@@ -193,6 +193,15 @@ it has gone, and a failed reading keeps the ordinary paced retry. A newly record
 decision, even of the same kind about the same run, releases the permanent gate
 for another attempt; changing the item's notes or waiting longer does not.
 
+A re-run asks nothing of the stopped run except that it has ended. A run that
+ended with no durable blocker and no branch or worktree left is started again
+from the target branch like any other re-run, and until the next pull with a
+free developer slot does that, the item's hold says it waits on the harness. If
+such a re-run is refused by one of the causes above, the decision stops holding
+the item: nothing remains for a fresh run to start beside, so the next pull may
+take it like any other ready item. The note written onto the item carries the
+refusal and says the hold was released.
+
 A refusal before the action starts spends no repair round, repair grant, or
 re-run claim. The stopped run and whatever remains of its change stay as found.
 Where the forge is asked after a re-arm has already been recorded as spent, that

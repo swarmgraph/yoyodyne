@@ -415,16 +415,6 @@ func TestARerunIsRefusedWhileAnythingOfTheStoppedRunIsStillLive(t *testing.T) {
 			},
 			want: "resumable",
 		},
-		{
-			// Neither the blocker nor the run's change still stands.
-			name: "the blocker and change no longer stand",
-			state: func(state runstate.State) runstate.State {
-				state.Blocker = ""
-				state.Branch, state.WorktreePath, state.BaseCommit, state.TargetBranch = "", "", "", ""
-				return state
-			},
-			want: "no durable blocker",
-		},
 	} {
 		t.Run(refusal.name, func(t *testing.T) {
 			t.Parallel()
@@ -1918,10 +1908,10 @@ func TestARerunCarriesOutTheDecisionAboutARunThatDiedHoldingItsChange(t *testing
 	}
 }
 
-// A death that left nothing behind is refused past the docket lookup as well,
-// so the two conditions agree: nothing dockets it, and nothing would run it
-// again if something had.
-func TestARerunOfADeathThatLeftNothingBehindIsRefused(t *testing.T) {
+// A death that was docketed holding its change and has since lost it is still
+// run again on the decision recorded about it: a re-run starts from the target
+// branch, so there is nothing about the missing change for it to refuse.
+func TestARerunOfADeathThatLeftNothingBehindStartsFromTheTarget(t *testing.T) {
 	t.Parallel()
 
 	harness := newRerunHarness(t, diedHoldingItsChange())
@@ -1933,15 +1923,18 @@ func TestARerunOfADeathThatLeftNothingBehindIsRefused(t *testing.T) {
 	if err := harness.runs.Save(gone); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}
-	_, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
-	if err == nil || !strings.Contains(err.Error(), "left no change behind") {
-		t.Fatalf("Rerun() error = %v, want the stoppage refused for holding nothing", err)
+	result, err := harness.rerunner().Rerun(context.Background(), rerunRequest())
+	if err != nil {
+		t.Fatalf("Rerun() error = %v, want the item started again", err)
 	}
-	if len(harness.started) != 0 {
-		t.Fatalf("started = %#v, want nothing started", harness.started)
+	if len(harness.started) != 1 || harness.started[0].selection.Lift != nil {
+		t.Fatalf("started = %#v, want one fresh run from the target branch", harness.started)
 	}
-	if _, claimed, _ := harness.reruns.Find(triage.Key(triage.ClassStoppedRun, docketedRunID)); claimed {
-		t.Fatal("a refused re-run spent the stoppage's claim")
+	if result.Preserved.Disposition != runstate.PreservedGone {
+		t.Fatalf("preserved = %#v, want nothing recorded as kept", result.Preserved)
+	}
+	if _, claimed, _ := harness.reruns.Find(triage.Key(triage.ClassStoppedRun, docketedRunID)); !claimed {
+		t.Fatal("the carried-out re-run was not claimed against the stoppage")
 	}
 }
 
@@ -2187,12 +2180,14 @@ func TestRerunChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
 		}
 		rerunner := harness.rerunner()
 		rerunner.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		// The re-run starts either way; what the repository holds decides what it
+		// records as kept, whatever the flags say.
 		result, err := rerunner.Rerun(context.Background(), rerunRequest())
-		if (err == nil) != there || (len(harness.started) > 0) != there {
-			t.Fatalf("Rerun() = %#v, %v, want started %t", result, err, there)
+		if err != nil || len(harness.started) != 1 {
+			t.Fatalf("Rerun() = %#v, %v, want started", result, err)
 		}
-		if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
-			t.Fatalf("refusal does not name what was checked: %v", err)
+		if kept := result.Preserved.Disposition == runstate.PreservedKept; kept != there {
+			t.Fatalf("preserved = %#v, want kept %t", result.Preserved, there)
 		}
 	}
 }
