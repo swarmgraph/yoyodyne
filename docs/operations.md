@@ -4400,7 +4400,7 @@ reads stale, named while it stands rather than two schedules later.
 `--json` carries each instance under `standing.program_managers`: its `agent`,
 `lane`, `status`, `stale` and `blocked` separately, `stale_says`,
 `last_completed_pass_at`, the `missed_pass` where one stands — its `trigger`,
-`how`, `at`, `recorded_at`, what it `says`, and its mover under `waiting_on`,
+`how`, the `what` the line opens the miss with, `at`, `recorded_at`, what it `says`, and its mover under `waiting_on`,
 always `harness` — the `blockers` each with its mover (`waiting_on`),
 its citation, and the kind of record it resolved to, the `claims` each with its
 `reason`, the report's `report_path` and `report_written_at`, and its open
@@ -5317,7 +5317,9 @@ slowly or not at all`.
    by name: its lane; its status as a word in a badge — **blocked**, **stale**,
    or **working**, derived by the read model and never by the page — and,
    where the word is not `working`, why, in the terminal's words, both halves
-   where an instance is stale and blocked at once; when its last pass
+   where an instance is stale and blocked at once; under any word, the pass it
+   missed since its last completed one, in the words its `yoyo status` line
+   uses, with the time in the reader's zone; when its last pass
    completed; when its report was written, or that it has written none; how
    many restart requests it has open; and a button that
    [opens its current report](#opening-a-program-managers-report).
@@ -5499,7 +5501,12 @@ instance's current [lane report](conversation.md#a-program-managers-lane-report)
 on a card of its own, in a pop-up that closes like the others and puts focus
 back on the button that opened it. The card is read once, when it is opened,
 from `/api/program-managers/<agent>`, and shows, as text under plain labels:
-**Status**, the badge with why beside it; **Lane**; the report's **Summary**
+**Status**, the badge with why beside it; **Lane**; the **Missed pass**, where
+the instance has one since its last completed pass — which trigger owed it and
+whether no pass followed or it was cancelled before it completed, when it fell
+due or was taken and when the harness recorded it missed, the record's account
+of the cause, and that it is the harness's move, which the next completed pass
+ends — or that there is none; the report's **Summary**
 with its line breaks kept, and what it says is **Remaining**; the
 **Blockers** the record bears out, each with what is blocked, whose move it is,
 what it cites, and which open record of the instance's own that citation

@@ -135,6 +135,10 @@ type ProgramManagerMiss struct {
 	// pass was cancelled before it completed, in the sweep record's own words.
 	Trigger runstate.PassTrigger `json:"trigger"`
 	How     runstate.MissKind    `json:"how"`
+	// What is the trigger and how it was missed in the words the instance's line
+	// opens with, so every surface says the miss as `yoyo status` does rather
+	// than wording the two fields again.
+	What string `json:"what"`
 	// At is when the pass fell due, or was taken where it was cancelled, and
 	// RecordedAt when the harness recorded it missed.
 	At         time.Time `json:"at"`
@@ -145,13 +149,17 @@ type ProgramManagerMiss struct {
 	WaitingOn Mover `json:"waiting_on"`
 }
 
+// missedWhat is a miss's trigger and how it was missed, as its What says them.
+func missedWhat(trigger runstate.PassTrigger, how runstate.MissKind) string {
+	if how == runstate.MissCancelled {
+		return "its " + trigger.Describe() + " was cancelled before it completed"
+	}
+	return "missed its " + trigger.Describe()
+}
+
 // sentence is the miss as the instance's line says it.
 func (m ProgramManagerMiss) sentence() string {
-	what := "missed its " + m.Trigger.Describe()
-	if m.How == runstate.MissCancelled {
-		what = "its " + m.Trigger.Describe() + " was cancelled before it completed"
-	}
-	return fmt.Sprintf("%s at %s — the %s's — %s", what, m.At.UTC().Format(time.RFC3339), m.WaitingOn, m.Says)
+	return fmt.Sprintf("%s at %s — the %s's — %s", m.What, m.At.UTC().Format(time.RFC3339), m.WaitingOn, m.Says)
 }
 
 // ProgramManager is one program manager instance as the read model carries it.
@@ -533,6 +541,7 @@ func readCompletedPasses(sources Sources) completedPasses {
 				passes.missed[pass.Task] = ProgramManagerMiss{
 					Trigger:    pass.Missed.Trigger,
 					How:        pass.Missed.How,
+					What:       missedWhat(pass.Missed.Trigger, pass.Missed.How),
 					At:         pass.StartedAt,
 					RecordedAt: pass.EndedAt,
 					Says:       pass.Problem,

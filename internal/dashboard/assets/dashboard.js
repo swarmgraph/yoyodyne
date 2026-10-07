@@ -1141,11 +1141,23 @@ var standingWarningAgeSeconds = 5 * 60;
     return found ? found.className : "manager-unknown";
   }
 
+  // missedPassSays is an instance's missed pass as `yoyo status` says it on the
+  // instance's line: what the read model calls the miss, when, who ends it,
+  // and the record's account of the cause. The time is the reader's own
+  // clock with its zone named, where the terminal prints UTC.
+  function missedPassSays(miss) {
+    return miss.what + " at " + localMoment(miss.at) + " — " + moverLabel(miss.waiting_on) + " — " + miss.says;
+  }
+
   // managerWhy is what follows an instance's status word, as `yoyo status`
-  // says it: why it is stale, how many open asks of its own block it, and how
-  // many of its report's blockers the record does not bear out. Both halves
-  // are said where both hold, because stale outranks blocked in the word.
-  function managerWhy(instance) {
+  // says it: why it is stale, how many open asks of its own block it, how
+  // many of its report's blockers the record does not bear out, and the pass
+  // it missed since its last completed one. Both halves are said where both
+  // hold, because stale outranks blocked in the word; a missed pass is said
+  // under any word, because it is the stall before the instance reads stale.
+  // The report card leaves the miss out of its status line, because it gives
+  // the miss a field of its own.
+  function managerWhy(instance, withoutMiss) {
     var parts = [];
     if (instance.stale) {
       parts.push(instance.stale_says);
@@ -1157,6 +1169,9 @@ var standingWarningAgeSeconds = 5 * 60;
     var claims = instance.claims || [];
     if (claims.length > 0) {
       parts.push(count(claims.length, "blocker") + " its report names that the record does not bear out");
+    }
+    if (instance.missed_pass && !withoutMiss) {
+      parts.push(missedPassSays(instance.missed_pass));
     }
     return parts.join("; ");
   }
@@ -2030,13 +2045,23 @@ var standingWarningAgeSeconds = 5 * 60;
     status.appendChild(el("dt", null, "Status"));
     var word = el("dd", "manager-line " + managerClass(instance.status));
     word.appendChild(managerBadge(instance.status));
-    var why = managerWhy(instance);
+    var why = managerWhy(instance, true);
     if (why) {
       word.appendChild(el("span", "manager-why", why));
     }
     status.appendChild(word);
     fields.appendChild(status);
     fields.appendChild(field("Lane", instance.lane));
+    // A missed pass is the instance's since its last completed pass: what
+    // owed it and how it was missed, when, the record's account of the cause,
+    // and who ends it, which the read model names and is always the harness.
+    var miss = instance.missed_pass;
+    fields.appendChild(listField("Missed pass", miss ? [
+      miss.what,
+      "at " + localMoment(miss.at) + ", recorded missed at " + localMoment(miss.recorded_at),
+      "cause: " + miss.says,
+      moverLabel(miss.waiting_on) + " move: its next completed pass ends this"
+    ] : [], "none since its last completed pass"));
     if (answer.problem) {
       var problemRow = el("div", "card-field");
       problemRow.appendChild(el("dt", null, "Could not be read"));
