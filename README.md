@@ -24,8 +24,10 @@ agent's good behavior:
 - **Nothing merges unreviewed.** Integration requires passing checks, an
   approving verdict, and two separate provider invocations, so no change is
   judged by the agent that wrote it.
-- **The reviewer cannot merge, and cannot be talked into one.** It runs with no
-  tools at all, everything it is shown is evidence rather than instruction, and
+- **The reviewer cannot merge, and cannot be talked into one.** It cannot
+  change anything: on Claude Code it runs with no tools at all, and on Codex it
+  can only read, with network access and outside integrations turned off.
+  Everything it is shown is evidence rather than instruction, and
   a persona can change how a role works but never give it authority it does not
   have.
 - **The written goals are the only authority work traces to.** Every work item
@@ -71,8 +73,13 @@ is for; [Install](#install) has what the script does and the other routes.
   role on a schedule, and [program managers](docs/designs/program-manager.md)
   that each watch one area of work. `yoyo agent chat <name>` talks to any agent.
 - **Claude Code and Codex can each run every role.** Roles other than the
-  developer run read-only on either. A fork, proxy, or variant of either can be
-  declared as a [provider plugin](docs/provider-plugins.md).
+  developer run read-only on either. Codex is less proven than Claude Code: no
+  recording yet shows yoyo reading a Codex turn that fails, or one that runs a
+  shell command, edits a file, or calls a tool, so if a Codex run stops on
+  something yoyo could not read, switch that agent's `backend` to `claude-code`
+  and its `model` to a Claude model such as `opus`.
+  [Provider plugins](docs/provider-plugins.md) has what has been checked, and
+  how to declare a fork, proxy, or variant of either provider.
 - **One `yoyo` per repository.** Teammates can commit alongside it the ordinary
   way, but two people each running `yoyo` against one repository is not
   supported yet: claims, reports, budgets, and the merge lock stay on the
@@ -320,8 +327,9 @@ A tiny arithmetic library, kept small enough that a change to it is obvious.
 
 **A repository with none of that is the normal starting point.** The Lead
 Product Manager says intent is not written down rather than guessing it; tell it
-what you are building and it drafts the brief and goals with you. It has no
-tools and never touches your files, so when a document is ready it hands the
+what you are building and it drafts the brief and goals with you. It cannot
+change your files (on Claude Code it has no tools; on Codex it can only read),
+so when a document is ready it hands the
 harness a typed write: you are shown the document, and **on your `y` the harness
 files it in `docs/product/` with its frontmatter and your approval recorded in
 it — then you commit it**, because a run refuses to start while it is
