@@ -384,6 +384,27 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 	if err := store.Record(endless); err == nil {
 		t.Fatal("Record() error = nil, want a check wait with no end refused")
 	}
+	// A drain waiting out a promotion past its bound says so and since when, reads
+	// back whole, and one claiming that wait with no start named is refused.
+	promoting := testWatchTransition(testWatchSessionID, WatchIdle, "draining")
+	promoting.Draining = &WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1, BoundReached: true, Promoting: 1, PromotingSince: since.Add(15 * time.Minute)}
+	if err := store.Record(promoting); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	if recorded, err := newTestWatchStore(t, root).List(); err != nil || recorded[len(recorded)-1].Draining.Promoting != 1 ||
+		!recorded[len(recorded)-1].Draining.PromotingSince.Equal(since.Add(15*time.Minute)) {
+		t.Fatalf("List() = %#v, %v; want the promotion wait read back", recorded, err)
+	}
+	for _, said := range []string{"waiting out 1 run(s) it hosts at their promotion since 2026-09-19T07:50:00Z", "restarts the moment they finish"} {
+		if !strings.Contains(promoting.Draining.Says(), said) {
+			t.Fatalf("Says() = %q, want %q in it", promoting.Draining.Says(), said)
+		}
+	}
+	undated := testWatchTransition(testWatchSessionID, WatchIdle, "draining")
+	undated.Draining = &WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), BoundReached: true, Promoting: 1}
+	if err := store.Record(undated); err == nil {
+		t.Fatal("Record() error = nil, want a promotion wait with no start refused")
+	}
 	// A drain with no bound is the wait this field exists to bound, so it is
 	// refused rather than recorded as a wait on nothing.
 	unbounded := testWatchTransition(testWatchSessionID, WatchIdle, "draining")

@@ -3462,6 +3462,87 @@ func TestTheDrainBoundLeavesARunAtItsPromotionToFinishAndKeepsFiring(t *testing.
 	}
 }
 
+// A session waiting out a promotion past its drain bound says so on its line,
+// with since when, and says it again at intervals for as long as the wait
+// lasts. The readers of the watch log take a line that old as a session that
+// died waiting, so one that wrote nothing through an hour-long promotion would
+// be reported as stuck while it was doing exactly what it should.
+func TestASessionWaitingOutAPromotionPastTheBoundSaysSoAgainWhileItWaits(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one")...)
+	harness.capacity = 1
+	harness.drainLimit = 20 * time.Millisecond
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	waitLines := func() []recordedTransition {
+		var lines []recordedTransition
+		for _, transition := range sessions.recorded() {
+			if transition.draining != nil && transition.draining.BoundReached && transition.draining.Promoting > 0 &&
+				strings.HasPrefix(transition.reason, "the watch session is ") {
+				lines = append(lines, transition)
+			}
+		}
+		return lines
+	}
+	// Each pull past the bound moves the session's clock on by the interval it
+	// says the wait again at, and the promotion ends once it has been said three
+	// times.
+	finished := make(chan struct{})
+	var finishing sync.Once
+	harness.onPull = func(h *scheduleHarness, _ int) {
+		said := len(waitLines())
+		if said == 0 {
+			return
+		}
+		if said >= 3 {
+			finishing.Do(func() { close(finished) })
+			return
+		}
+		h.mu.Lock()
+		h.now = h.now.Add(promotionResayEvery)
+		h.mu.Unlock()
+	}
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		deployment.deploy()
+		h.mu.Lock()
+		state := h.inFlight[id]
+		state.Phase = runstate.PhaseIntegrating
+		h.inFlight[id] = state
+		h.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			t.Errorf("the run at its promotion was stopped: %v", context.Cause(ctx))
+			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+		case <-finished:
+			return h.complete(id), nil
+		}
+	}
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, Deployment: deployment}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleRedeployed {
+		t.Fatalf("stopped = %q, want the restart once the promotion finished: %s", schedule.Stopped, schedule.Render())
+	}
+	lines := waitLines()
+	if len(lines) < 3 {
+		t.Fatalf("transitions = %#v, want the promotion wait said and then said again as the clock moved on", sessions.recorded())
+	}
+	since := lines[0].draining.PromotingSince
+	for _, line := range lines {
+		if line.draining.Promoting != 1 || !line.draining.PromotingSince.Equal(since) || since.IsZero() {
+			t.Fatalf("line = %#v, want every line naming the one promotion and when the wait on it began", line)
+		}
+		if !strings.Contains(line.reason, "at their promotion since "+since.UTC().Format(time.RFC3339)) {
+			t.Fatalf("reason = %q, want the promotion wait said with since when", line.reason)
+		}
+	}
+}
+
 // A held intake lets what is running finish, and a run the session before this
 // one put down for its redeploy is running work: it is re-adopted at the first
 // pull whether or not intake is held, because continuing it chooses nothing.

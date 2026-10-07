@@ -1502,8 +1502,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// from one still before its claim by this alone.
 	landings := &hostedLandings{}
 	// boundSaid is the bound running out having been said in the watch log,
-	// which is done once however many looks at the top of the loop apply it.
+	// which is done once however many looks at the top of the loop apply it —
+	// except while the restart waits on a promotion, which is said again; see
+	// promotionResayEvery. boundSaidAt is when it was last said, and
+	// promotingSaid how many promotions that line was waiting on.
 	boundSaid := false
+	var boundSaidAt time.Time
+	promotingSaid := 0
 	// runs is the durable run state as the last pull read it, held outside the
 	// loop because the drain bound is applied at the top of the loop, before a
 	// pull is opened, and applying it means reading which phase each hosted run
@@ -2082,8 +2087,15 @@ pulling:
 				// the runs it stops go on holding their seats in flight, so no
 				// pull that follows need write a line of its own, and `yoyo status`
 				// would otherwise go on reading a drain inside its bound.
-				if !boundSaid {
-					boundSaid = true
+				//
+				// A wait on a promotion is said again at intervals, and when what it
+				// waits on changes, so a reader can tell a session waiting out a
+				// long promotion from one that died while it waited; see
+				// promotionResayEvery.
+				resay := reached.Promoting > 0 &&
+					(reached.Promoting != promotingSaid || !s.now().Before(boundSaidAt.Add(promotionResayEvery)))
+				if !boundSaid || resay {
+					boundSaid, boundSaidAt, promotingSaid = true, s.now(), reached.Promoting
 					session.note("the watch session is "+reached.Says(), running)
 				}
 			}
@@ -5425,6 +5437,11 @@ type redeployDrain struct {
 	since        time.Time
 	limit        time.Duration
 	boundReached bool
+	// promoting is how many hosted runs the last look past the bound left going
+	// at their promotion, and promotingSince when the session began waiting on
+	// them; see promoted.
+	promoting      int
+	promotingSince time.Time
 	// due fires when the bound runs out. It is nil until the drain is armed with
 	// a bound, and a nil channel is one a select never chooses.
 	due   <-chan time.Time
@@ -5466,6 +5483,20 @@ func (d redeployDrain) deadline() time.Time { return d.since.Add(d.limit) }
 
 // reached marks the bound as having run out, however that was found.
 func (d *redeployDrain) reached() { d.boundReached = true }
+
+// promoted records how many hosted runs a look past the bound left going at
+// their promotion. The wait is dated from the first look that found one and
+// keeps that date while any remains, so a reader is told how long the restart
+// has been waiting on a promotion rather than when it was last looked at.
+func (d *redeployDrain) promoted(count int, now time.Time) {
+	switch {
+	case count == 0:
+		d.promotingSince = time.Time{}
+	case d.promoting == 0 || d.promotingSince.IsZero():
+		d.promotingSince = now
+	}
+	d.promoting = count
+}
 
 // stop releases the timer, for a session ending however it ends.
 func (d *redeployDrain) stop() {
@@ -5521,13 +5552,17 @@ func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
 	if !d.active || d.limit <= 0 {
 		return nil
 	}
-	return &runstate.WatchDrain{
+	recorded := &runstate.WatchDrain{
 		Since:        d.since,
 		BoundSeconds: int64(d.limit / time.Second),
 		Until:        d.deadline(),
 		Hosting:      hosting,
 		BoundReached: d.boundReached,
 	}
+	if d.boundReached && d.promoting > 0 {
+		recorded.Promoting, recorded.PromotingSince = d.promoting, d.promotingSince
+	}
+	return recorded
 }
 
 // host starts one run under a context of its own, so the drain bound can stop
@@ -5556,6 +5591,16 @@ func liveHosted(mine map[string]int, hosted map[int]context.CancelCauseFunc) int
 	}
 	return live
 }
+
+// promotionResayEvery is how often a session past its drain bound says again
+// that it is waiting out a run at its promotion. A promotion has no bound of
+// its own — a forge outage can hold one for hours — and the session otherwise
+// writes nothing while the wait is unchanged, so the readers of the watch log
+// take the latest line's age as the evidence the session is still alive: one
+// whose line is older than readmodel.DrainOverrunGrace is read as stuck. This
+// is a third of that, so a session looking at least once a poll is not read as
+// stuck while it waits.
+const promotionResayEvery = 10 * time.Minute
 
 // stoppedRunGrace is how long a session restarting past its drain bound waits
 // for the runs it stopped to report back. A stopped run records its stop and
@@ -5609,8 +5654,9 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 		schedule.Drain.Problem = fmt.Sprintf("which phase each hosted run is at could not be read, so none was stopped on this look: %v", err)
 		return len(mine)
 	}
-	unstopped := 0
+	unstopped, promoting := 0, 0
 	now := s.now()
+	defer func() { drain.promoted(promoting, now) }()
 	for id, index := range mine {
 		cancel, live := hosted[index]
 		if !live {
@@ -5629,6 +5675,7 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 		}
 		switch state.Phase {
 		case runstate.PhaseIntegrating, runstate.PhaseCompleting, runstate.PhaseCleaningUp, runstate.PhaseComplete:
+			promoting++
 			continue
 		case runstate.PhaseChecking:
 			if checkStageFinishing(state, now) {

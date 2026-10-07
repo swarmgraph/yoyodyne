@@ -314,7 +314,10 @@ func options(reason readmodel.Reason) []string {
 	case readmodel.ReasonDrainOverrun:
 		return []string{
 			"restart the watch session; the runs it stopped are preserved and the session that comes back picks them up",
-			"leave it; a run at its promotion is still going and the session restarts once that ends",
+			// A session waiting out a promotion it still says it is waiting on
+			// is never asked about here, so this is not offered as the reason to
+			// leave it.
+			"leave it; somebody is already restarting the session",
 		}
 	case readmodel.ReasonSessionIdle:
 		return []string{

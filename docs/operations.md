@@ -2643,12 +2643,19 @@ restart as its own state — whose move is nobody's, because the session comes
 back on its own — rather than reporting an idle session or no session, either
 of which would send you to start one that is already on its way back. Running
 check stages are stopped at the drain limit and preserved for the next session
-to run again from the start. A session waiting out a promotion, or giving an
-already-finished check stage its brief grace to record its verdict, writes
-nothing while that wait is unchanged. The bound having run out reads that way
-for ten minutes past the bound. A session still draining after that has
-stopped restarting — stuck, or killed while it waited — and is reported as a
-factory problem rather than as a session on its way back: `yoyo status`, the
+to run again from the start. A run at its promotion is never stopped: it holds
+the target branch's lease, and the session waits it out however long it takes
+and restarts the moment it ends. While it does, its line says how many runs it
+is waiting out at their promotion and since when, and the not-startable line
+names the restart that way, dated from when that wait began. The session says
+it again every ten minutes while the wait lasts, so a promotion that runs for
+an hour is never reported as a problem; a line saying so that has gone thirty
+minutes without being said again is a session that died waiting. A session
+giving an already-finished check stage its brief grace to record its verdict
+writes nothing while that wait is unchanged. The bound having run out reads
+that way for ten minutes past the bound. A session still draining after that,
+and not saying it is waiting out a promotion, has stopped restarting — stuck,
+or killed while it waited — and is reported as a factory problem rather than as a session on its way back: `yoyo status`, the
 dashboard's **Factory problems** section, and the channel's heartbeat name the
 session and say since when it has been draining past its bound, whose move is
 the harness's, and that restarting the watch session takes up the deployed
@@ -5334,7 +5341,8 @@ slowly or not at all`.
    [under maintenance](#the-supervisors-maintenance-pass). A watch session
    that has been draining past its bound for ten minutes without restarting
    is listed here too, naming the session and since when, until a session
-   running the deployed build takes over.
+   running the deployed build takes over. One waiting out a run at its
+   promotion is not listed, however long the promotion takes.
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),

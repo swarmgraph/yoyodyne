@@ -255,6 +255,83 @@ func TestASessionDrainingPastItsBoundIsAFactoryProblem(t *testing.T) {
 	}
 }
 
+// A session past its drain bound waiting out a run at its promotion is not
+// stuck, however far past the bound the promotion runs: it restarts the moment
+// the promotion ends, and reporting it as a factory problem would show the
+// operator a problem that clears on its own. It is named as waiting out a
+// promotion, since when that wait began, on every reading the surfaces take —
+// the stall `yoyo status` and the channel say, and the factory problems and
+// attention line the dashboard shows. A session whose line saying so has gone
+// unrefreshed past DrainOverrunGrace died waiting, and is stuck like any other.
+func TestASessionWaitingOutAPromotionPastItsBoundIsNotStuck(t *testing.T) {
+	t.Parallel()
+	since := moment.Add(-2 * time.Hour)
+	until := since.Add(15 * time.Minute)
+	promotingSince := until.Add(time.Second)
+	// The session said it again a few minutes ago, an hour and three quarters
+	// past its bound.
+	waiting := runstate.WatchTransition{SessionID: "watch-8b54", State: runstate.WatchWatching, At: moment.Add(-3 * time.Minute),
+		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: until, Hosting: 1, BoundReached: true,
+			Promoting: 1, PromotingSince: promotingSince}}
+	if !moment.After(until.Add(DrainOverrunAfter)) {
+		t.Fatal("the reading is not past the drain overrun limit, so it proves nothing")
+	}
+	if _, over := DrainOverrunOf([]runstate.WatchTransition{waiting}, moment); over {
+		t.Fatal("a session waiting out a promotion was read as stuck draining")
+	}
+	for _, conditions := range []Conditions{
+		{Sessions: held(waiting), Now: moment},
+		{Running: 3, Capacity: 3, Sessions: held(waiting), Now: moment},
+	} {
+		stall := WhyNothingStarts(conditions)
+		if stall.Reason == ReasonDrainOverrun {
+			t.Fatalf("stall = %+v, want a promotion waited out not read as stuck", stall)
+		}
+		if _, waitingOnPerson := stall.Waiting(); waitingOnPerson {
+			t.Fatalf("stall = %+v put a promotion being waited out on the attention line", stall)
+		}
+	}
+	stall := WhyNothingStarts(Conditions{Sessions: held(waiting), Now: moment})
+	if stall.Reason != ReasonRedeploying || !stall.Since.Equal(promotingSince) {
+		t.Fatalf("stall = %+v, want the session read as restarting, since the promotion wait began", stall)
+	}
+	for _, want := range []string{"waiting out 1 run(s) it hosts at their promotion", "since " + promotingSince.UTC().Format(time.RFC3339)} {
+		if !strings.Contains(stall.Says, want) {
+			t.Fatalf("says = %q, want %q in it", stall.Says, want)
+		}
+	}
+	sources := quietSources()
+	sources.Sessions = fakeSessions{transitions: []runstate.WatchTransition{waiting}}
+	sources.Now = func() time.Time { return moment }
+	standing := ReadStanding(context.Background(), sources)
+	for _, problem := range standing.FactoryProblems {
+		if problem.Stall != nil && problem.Stall.Reason == ReasonDrainOverrun {
+			t.Fatalf("factory problems = %+v, want no session draining past its bound among them", standing.FactoryProblems)
+		}
+	}
+	for _, need := range standing.NeedsHuman {
+		if need.Stall != nil && need.Stall.Reason == ReasonDrainOverrun {
+			t.Fatalf("attention = %+v, want no session draining past its bound on it", standing.NeedsHuman)
+		}
+	}
+
+	// A session that said it was waiting on a promotion and has said nothing
+	// since for longer than it would have died waiting: it is stuck.
+	dead := waiting
+	dead.At = moment.Add(-DrainOverrunGrace)
+	if stall, over := DrainOverrunOf([]runstate.WatchTransition{dead}, moment); !over || !stall.Since.Equal(until) {
+		t.Fatalf("stall = %+v, want a promotion wait nobody has said again read as stuck since the bound", stall)
+	}
+
+	// And a session past its bound waiting on neither a promotion nor a check
+	// stage is stuck however recently it spoke.
+	nothing := waiting
+	nothing.Draining = &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: until, Hosting: 1, BoundReached: true}
+	if stall := WhyNothingStarts(Conditions{Sessions: held(nothing), Now: moment}); stall.Reason != ReasonDrainOverrun {
+		t.Fatalf("stall = %+v, want a session past its bound waiting on nothing read as stuck", stall)
+	}
+}
+
 // A session watching settles it. The harness would start the next pullable item,
 // which is what makes a startable item's absence from the not-startable line
 // mean something.

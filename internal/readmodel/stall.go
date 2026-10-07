@@ -122,9 +122,9 @@ const (
 	// ReasonDrainOverrun is a session whose drain bound ran out more than
 	// DrainOverrunAfter ago and which has recorded no restart since. Past the
 	// bound the session stops the runs it hosts and restarts at once, waiting
-	// only on a run at its promotion, so one still there this long is a session
-	// that stopped restarting rather than one on its way back: it pulls no new
-	// work until it does. It is the harness's, because nothing anybody
+	// only on a run at its promotion, so one still there this long and not
+	// saying it is waiting on a promotion is a session that stopped restarting
+	// rather than one on its way back: it pulls no new work until it does. It is the harness's, because nothing anybody
 	// configured keeps it there. On 2026-10-05 a session sat like this for
 	// forty minutes, pulling nothing, while every surface read it as working.
 	ReasonDrainOverrun Reason = "drain-overrun"
@@ -357,20 +357,23 @@ const RestartGrace = 2 * time.Minute
 
 // DrainOverrunGrace is how long past its latest line a session whose drain
 // bound has run out is read as on its way back, for as long as the bound ran
-// out less than DrainOverrunAfter ago; past that it is read as stuck. Past the bound the session
+// out less than DrainOverrunAfter ago, or for as long as it is waiting out a
+// promotion; past that it is read as stuck. Past the bound the session
 // restarts the moment it hosts nothing, and what it can still be hosting is a
-// promotion being waited out — minutes, ordinarily — or a run a moment short of
-// its claim. It writes nothing while that wait is unchanged, so this is longer
-// than a restart's grace; but a session killed while it waited writes nothing
-// either, and past this it is read as whatever its latest line otherwise says
-// rather than as a restart nobody is making.
+// promotion being waited out — minutes, ordinarily, hours in a forge outage —
+// or a run a moment short of its claim. It says a promotion wait again at
+// intervals and writes nothing else while the wait is unchanged, so this is
+// longer than a restart's grace; but a session killed while it waited writes
+// nothing either, and past this it is read as whatever its latest line
+// otherwise says rather than as a restart nobody is making.
 const DrainOverrunGrace = 30 * time.Minute
 
 // DrainOverrunAfter is how long past its drain bound a session that has not
 // restarted is read as stuck rather than on its way back. Past the bound the
-// restart follows at once unless a run is at its promotion, which takes
-// minutes, so a session still draining this long after its bound is reported
-// as a factory problem whatever its latest line says.
+// restart follows at once unless a run is at its promotion, so a session still
+// draining this long after its bound is reported as a factory problem unless
+// its latest line, under DrainOverrunGrace old, says it is waiting out a
+// promotion; see drainOverrun.
 const DrainOverrunAfter = 10 * time.Minute
 
 // WhyNothingStarts is the one derivation of what has stopped the choosing.
@@ -484,10 +487,16 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 		((live[0].Draining.BoundReached && now.Before(live[0].At.Add(DrainOverrunGrace))) ||
 			(live[0].Draining.BoundReached && live[0].Draining.Checking > 0 && now.Before(live[0].Draining.ChecksUntil.Add(RestartGrace))) ||
 			(live[0].Draining.PullSkipped && now.Before(live[0].Draining.Until.Add(RestartGrace)))) {
+		// A restart waiting on a promotion is dated from when that wait began,
+		// which is the age a reader wants of it, rather than from the deploy.
+		since := live[0].Draining.Since
+		if waitingOnPromotion(live[0], now) {
+			since = live[0].Draining.PromotingSince
+		}
 		return Stall{
 			Reason: ReasonRedeploying,
 			Says:   "the watch session is " + live[0].Draining.Says(),
-			Since:  live[0].Draining.Since,
+			Since:  since,
 		}
 	}
 	for _, transition := range live {
@@ -578,9 +587,19 @@ func DrainOverrunOf(sessions []runstate.WatchTransition, now time.Time) (Stall, 
 // drainOverrun is a live session's drain having run out DrainOverrunAfter or
 // more ago with no restart recorded since. An older record waiting out a check
 // stage past the bound is left to the reading of it below until its deadline.
+//
+// A session waiting out a run at its promotion is not stuck however long past
+// the bound that runs: a promotion is never stopped part-way and has no bound
+// of its own, and the session restarts the moment it ends. It is read that way
+// for as long as its line saying so is under DrainOverrunGrace old — the
+// session says it again at intervals while it waits — and past that it is a
+// session that died waiting, read as stuck like any other.
 func drainOverrun(latest runstate.WatchTransition, now time.Time) (Stall, bool) {
 	drain := latest.Draining
 	if drain == nil || !drain.BoundReached || drain.Checking > 0 || now.Before(drain.Until.Add(DrainOverrunAfter)) {
+		return Stall{}, false
+	}
+	if waitingOnPromotion(latest, now) {
 		return Stall{}, false
 	}
 	return Stall{
@@ -589,6 +608,14 @@ func drainOverrun(latest runstate.WatchTransition, now time.Time) (Stall, bool) 
 			latest.SessionID, localMoment(drain.Until), drain.Bound()),
 		Since: drain.Until,
 	}, true
+}
+
+// waitingOnPromotion is a live session's latest line saying, recently enough
+// to be believed, that the session is past its drain bound and waiting out a
+// run at its promotion.
+func waitingOnPromotion(latest runstate.WatchTransition, now time.Time) bool {
+	drain := latest.Draining
+	return drain != nil && drain.BoundReached && drain.Promoting > 0 && now.Before(latest.At.Add(DrainOverrunGrace))
 }
 
 // divergedTargetStall is a diverged target as the stall says it: the record's
