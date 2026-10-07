@@ -484,9 +484,13 @@ func (o *RoutedOperation) attempt(id string) (*InvocationAttempt, bool) {
 	return nil, false
 }
 
-func (o *RoutedOperation) activeAttempt() (*InvocationAttempt, bool) {
+// executingAttempt finds an attempt of the operation whose execution may still
+// be running: one not ended, or ended without its stop confirmed. While there
+// is one, nothing else may launch for the operation, because the design allows
+// one execution per operation and an unconfirmed stop is not proof of none.
+func (o *RoutedOperation) executingAttempt() (*InvocationAttempt, bool) {
 	for index := range o.Attempts {
-		if o.Attempts[index].active() {
+		if o.Attempts[index].mayBeExecuting() {
 			return &o.Attempts[index], true
 		}
 	}
@@ -560,7 +564,7 @@ func (r *RunRouting) Reconfigure(snapshot RoutingSnapshot, reason string, at tim
 		if operation.Role != snapshot.Role {
 			continue
 		}
-		if attempt, ok := operation.activeAttempt(); ok {
+		if attempt, ok := operation.executingAttempt(); ok {
 			return false, conflict("attempt %s may still be executing; reconcile it before reconfiguring", attempt.ID)
 		}
 	}
@@ -649,9 +653,10 @@ func (q AttemptRequest) matches(attempt InvocationAttempt) bool {
 }
 
 // PrepareAttempt reserves an attempt identity on the operation's selected
-// endpoint before anything launches. At most one attempt of an operation is
-// active at a time; while a switch is under way, only its reserved destination
-// may be prepared, and only once the source is reconciled.
+// endpoint before anything launches. Nothing is prepared while an earlier
+// attempt of the operation may still be executing — unfinished, or ended
+// without its stop confirmed; while a switch is under way, only its reserved
+// destination may be prepared, and only once the source is reconciled.
 func (r *RunRouting) PrepareAttempt(operationID string, request AttemptRequest, at time.Time) (bool, error) {
 	operation, ok := r.Operation(operationID)
 	if !ok {
@@ -672,8 +677,8 @@ func (r *RunRouting) PrepareAttempt(operationID string, request AttemptRequest, 
 	if operation.Completed != nil {
 		return false, conflict("operation %s is complete", operationID)
 	}
-	if active, ok := operation.activeAttempt(); ok {
-		return false, conflict("attempt %s of operation %s is still active", active.ID, operationID)
+	if executing, ok := operation.executingAttempt(); ok {
+		return false, conflict("attempt %s of operation %s may still be executing", executing.ID, operationID)
 	}
 	if request.Predecessor != "" {
 		if _, ok := operation.attempt(request.Predecessor); !ok {
@@ -910,8 +915,8 @@ func (r *RunRouting) PlanSwitch(operationID string, request SwitchRequest, at ti
 		if request.SourceAttempt != "" {
 			return false, conflict("a switch past a primary known to be limited names no source attempt")
 		}
-		if active, ok := operation.activeAttempt(); ok {
-			return false, conflict("attempt %s of operation %s is still active", active.ID, operationID)
+		if executing, ok := operation.executingAttempt(); ok {
+			return false, conflict("attempt %s of operation %s may still be executing", executing.ID, operationID)
 		}
 		progress = TransitionSourceReconciled
 	default:

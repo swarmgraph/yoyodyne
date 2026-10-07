@@ -688,3 +688,44 @@ func TestReconfigurationIsExplicitWaitsForQuietAndKeepsBudgets(t *testing.T) {
 		t.Fatalf("reconfiguration reset the operation: %+v", operation)
 	}
 }
+
+func TestNothingLaunchesForAnOperationWhileAnEarlierAttemptsStopIsUncertain(t *testing.T) {
+	t.Parallel()
+	store := newTestStore(t)
+	state := routedRun(t, store)
+	state = route(t, store, state, openDevelop("op-1"))
+	state = route(t, store, state, prepare("op-1", "att-1"))
+	state = route(t, store, state, func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", "att-1", routingAt) })
+	// The attempt ended for something outside the work, and nothing confirmed
+	// that its process stopped.
+	state = route(t, store, state, end("op-1", "att-1", "connection_lost", TerminationUncertain))
+	for name, step := range map[string]func(*RunRouting) (bool, error){
+		"a plain relaunch": func(r *RunRouting) (bool, error) {
+			return r.PrepareAttempt("op-1", AttemptRequest{ID: "att-2", Predecessor: "att-1", Mode: SessionReconstruction, Transient: true}, routingAt)
+		},
+		"a switch past a primary known to be limited": planSwitch("op-1", "sw-1", "", "att-2"),
+		"a reconfiguration": func(r *RunRouting) (bool, error) {
+			replacement := developerPair(2, "cfg-fedcba98")
+			replacement.Alternate.Model, replacement.Alternate.Endpoint.Model = "gpt-6.1", "gpt-6.1"
+			return r.Reconfigure(RoutingSnapshotOf(replacement, RoutingClaimed, routingAt), "replace the alternate", routingAt)
+		},
+	} {
+		if _, err := store.UpdateRouting(context.Background(), state, step); !errors.Is(err, ErrRoutingConflict) {
+			t.Fatalf("%s while attempt att-1 may still be executing: error = %v, want it refused", name, err)
+		}
+	}
+	operation, _ := load(t, store, state.RunID).Routing.Operation("op-1")
+	if len(operation.Attempts) != 1 || operation.Switch != nil || operation.SwitchAllowance != 1 || *operation.TransientRelaunches != 0 {
+		t.Fatalf("a refused launch changed the operation: %+v", operation)
+	}
+	// Once its stop is confirmed, both are allowed again.
+	state = route(t, store, state, end("op-1", "att-1", "connection_lost", TerminationConfirmed))
+	relaunched := route(t, store, state, func(r *RunRouting) (bool, error) {
+		return r.PrepareAttempt("op-1", AttemptRequest{ID: "att-2", Predecessor: "att-1", Mode: SessionReconstruction, Transient: true}, routingAt)
+	})
+	if operation, _ := relaunched.Routing.Operation("op-1"); *operation.TransientRelaunches != 1 {
+		t.Fatalf("the relaunch was not counted: %+v", operation)
+	}
+	relaunched = route(t, store, relaunched, end("op-1", "att-2", "connection_lost", TerminationConfirmed))
+	route(t, store, relaunched, planSwitch("op-1", "sw-1", "", "att-3"))
+}
