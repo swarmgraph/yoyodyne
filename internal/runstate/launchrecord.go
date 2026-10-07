@@ -259,6 +259,9 @@ func (e ExecutionIdentity) problems(attemptID string) []string {
 	if strings.TrimSpace(e.Host) == "" || len(e.Host)+len(e.Boot)+len(e.Launcher)+len(e.HoldFile) > maxRoutingText {
 		problems = append(problems, "an execution names its host, and its host, boot, launcher, and hold fit their bound")
 	}
+	if e.Machine != "" && !machineIDPattern.MatchString(e.Machine) {
+		problems = append(problems, "an execution's machine is an identifier this harness makes")
+	}
 	if strings.TrimSpace(e.Launcher) == "" {
 		problems = append(problems, "an execution names the launcher that started it")
 	}

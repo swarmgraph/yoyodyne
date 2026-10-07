@@ -349,11 +349,18 @@ type InvocationAttempt struct {
 // ExecutionIdentity is which execution an attempt was launched as, recorded
 // before the execution could begin work. A process identifier alone says
 // nothing once that process has exited, so it is recorded with what tells the
-// execution apart from anything later given the same number: the host and boot
-// it ran under, the launcher that started it, the process group it leads, and
-// the hold, a locked file every process of the tree inherited, which stays
+// execution apart from anything later given the same number: the machine and
+// boot it ran under, the launcher that started it, the process group it leads,
+// and the hold, a locked file every process of the tree inherited, which stays
 // locked while any of them is alive. See launch.go.
 type ExecutionIdentity struct {
+	// Machine is the identifier of the machine the execution was launched on
+	// (machineidentity.go). It is empty in an execution recorded before
+	// machines had one, which is recognised by Host instead.
+	Machine string `json:"machine,omitempty"`
+	// Host is the machine's host name when the execution was launched, kept
+	// for the person reading the record; a host name can change while the
+	// machine stays the same, so it identifies nothing where Machine is set.
 	Host string `json:"host"`
 	// Boot identifies the boot the execution ran under, and is empty where this
 	// platform could not say.

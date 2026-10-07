@@ -72,6 +72,10 @@ type Store struct {
 	// builds. It is a field only so a test can give the answer a real group
 	// cannot be made to give on demand, such as a permission refusal.
 	signalGroup func(group int) error
+	// hostname is os.Hostname, and is nil in every store the harness builds.
+	// It is a field only so a test can change the host name between a launch
+	// and its recovery, as joining another network does on macOS.
+	hostname func() (string, error)
 }
 
 type ExistingWorkItemError struct {

@@ -307,12 +307,15 @@ func (l *AttemptLaunch) stop(point launchPoint) {
 // register writes the started process down and marks the attempt launched,
 // both before the gate opens. A failure of either leaves the gate shut.
 func (l *AttemptLaunch) register(process execution.StartedProcess) error {
-	host, err := os.Hostname()
+	machine, err := l.store.machine()
 	if err != nil {
-		return fmt.Errorf("name this host for attempt %s: %w", l.attempt, err)
+		return fmt.Errorf("identify this machine for attempt %s: %w", l.attempt, err)
+	}
+	if machine.Host == "" {
+		return fmt.Errorf("name this host for attempt %s: the operating system gave no host name", l.attempt)
 	}
 	identity := ExecutionIdentity{
-		Host: host, Boot: currentBoot(), Launcher: launcherGeneration(),
+		Machine: machine.Machine, Host: machine.Host, Boot: currentBoot(), Launcher: launcherGeneration(),
 		PID: process.PID, ProcessGroup: process.ProcessGroup, StartedAt: process.StartedAt,
 		Hold: holdName(l.attempt), HoldFile: l.holdFile, RegisteredAt: time.Now(),
 	}

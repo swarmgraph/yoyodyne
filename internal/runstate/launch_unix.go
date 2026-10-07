@@ -23,12 +23,12 @@ import (
 // either way: it may have been given to an unrelated process since.
 func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (executionState, string, func(remove bool)) {
 	nothing := func(bool) {}
-	host, err := os.Hostname()
+	machine, err := s.machine()
 	if err != nil {
-		return executionUnknown, fmt.Sprintf("this host could not be named, so pid %d cannot be checked: %v", identity.PID, err), nothing
+		return executionUnknown, fmt.Sprintf("this machine could not be identified, so pid %d cannot be checked: %v", identity.PID, err), nothing
 	}
-	if host != identity.Host {
-		return executionUnknown, fmt.Sprintf("it was started on %s, and this is %s, which cannot see its processes", identity.Host, host), nothing
+	if !machine.launchedHere(identity) {
+		return executionUnknown, fmt.Sprintf("it was started on %s, another machine, and this one, %s, cannot see its processes", identity.Host, machine.describe()), nothing
 	}
 	if boot := currentBoot(); identity.Boot != "" && boot != "" && boot != identity.Boot {
 		return executionStopped, "the machine has restarted since it was started", nothing

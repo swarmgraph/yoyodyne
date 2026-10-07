@@ -571,6 +571,13 @@ func TestAReusedProcessIdentifierIsNotTakenForTheAttempt(t *testing.T) {
 // died after marking it launched.
 func (f launchFixture) recordExecution(t *testing.T, attempt string, pid int) ExecutionIdentity {
 	t.Helper()
+	return f.recordExecutionAs(t, attempt, pid, func(*ExecutionIdentity) {})
+}
+
+// recordExecutionAs is recordExecution with the identity changed by edit
+// before it is recorded.
+func (f launchFixture) recordExecutionAs(t *testing.T, attempt string, pid int, edit func(*ExecutionIdentity)) ExecutionIdentity {
+	t.Helper()
 	path, err := f.store.holdPath(f.runID, attempt)
 	if err != nil {
 		t.Fatal(err)
@@ -579,14 +586,15 @@ func (f launchFixture) recordExecution(t *testing.T, attempt string, pid int) Ex
 	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	host, err := os.Hostname()
+	machine, err := f.store.machine()
 	if err != nil {
 		t.Fatal(err)
 	}
 	identity := ExecutionIdentity{
-		Host: host, Boot: currentBoot(), Launcher: "launcher-earlier", PID: pid, ProcessGroup: pid,
+		Machine: machine.Machine, Host: machine.Host, Boot: currentBoot(), Launcher: "launcher-earlier", PID: pid, ProcessGroup: pid,
 		StartedAt: routingAt, Hold: holdName(attempt), HoldFile: file, RegisteredAt: routingAt,
 	}
+	edit(&identity)
 	state := load(t, f.store, f.runID)
 	state = route(t, f.store, state, func(r *RunRouting) (bool, error) { return r.RegisterExecution("op-1", attempt, identity) })
 	route(t, f.store, state, func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", attempt, routingAt) })
@@ -680,18 +688,144 @@ func TestUnreadableExecutionEvidenceWaitsWithItsReasonRecorded(t *testing.T) {
 			f.assertUnspent(t)
 		})
 	}
-	t.Run("another host", func(t *testing.T) {
+	t.Run("an unreadable machine identity", func(t *testing.T) {
 		t.Parallel()
 		f := newLaunchFixture(t)
 		identity := f.recordExecution(t, "att-1", 999999)
-		identity.Host = "elsewhere.invalid"
+		if err := os.WriteFile(filepath.Join(f.store.Root(), machineFileName), []byte("not a record"), 0o600); err != nil {
+			t.Fatal(err)
+		}
 		f.store.signalGroup = func(int) error { return syscall.ESRCH }
 		found, reason, settle := f.store.observeExecution(f.runID, identity)
 		settle(false)
-		if found != executionUnknown || !strings.Contains(reason, "elsewhere.invalid") {
-			t.Fatalf("observing an execution on another host = %v, %q", found, reason)
+		if found != executionUnknown || !strings.Contains(reason, "could not be identified") {
+			t.Fatalf("observing with the machine unidentifiable = %v, %q", found, reason)
 		}
 	})
+}
+
+// An attempt launched under one host name is still recovered on the same
+// machine after the host name changes, as it does on macOS when the machine
+// joins another network: the record names the machine by an identifier kept
+// in the run state directory, not by its host name.
+func TestAHostNameChangeBetweenLaunchAndRecoveryStillRecoversTheAttempt(t *testing.T) {
+	t.Parallel()
+	f := newLaunchFixture(t)
+	f.store.hostname = func() (string, error) { return "laptop.home.example", nil }
+	launch, err := f.store.BeginLaunch(context.Background(), f.runID, "op-1", "att-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := launch.register(execution.StartedProcess{PID: 999999, ProcessGroup: 999999, StartedAt: routingAt}); err != nil {
+		t.Fatal(err)
+	}
+	// The launcher dies, letting go of the hold, before it records a result.
+	_ = launch.hold.Close()
+	recorded := f.attempt(t, "att-1").Execution
+	if recorded == nil || recorded.Machine == "" || recorded.Host != "laptop.home.example" {
+		t.Fatalf("the launch recorded %+v", recorded)
+	}
+
+	f.store.hostname = func() (string, error) { return "laptop.office.example", nil }
+	f.store.signalGroup = func(int) error { return syscall.ESRCH }
+	found, err := f.store.ReconcileLaunch(context.Background(), f.runID, "op-1", LaunchRecovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Verdict != LaunchInterrupted {
+		t.Fatalf("recovery after the host name changed = %+v", found)
+	}
+	machine, err := f.store.machine()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if machine.Machine != recorded.Machine {
+		t.Fatalf("the machine's identifier changed with its host name: %q, then %q", recorded.Machine, machine.Machine)
+	}
+}
+
+// An execution recorded before machines had an identifier names only its host.
+// It is recognised on the machine that wrote it under the host name it has now
+// and under one it had earlier, once this harness has seen the machine by it.
+func TestAnAttemptRecordedUnderTheHostNameAloneIsStillRecognised(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		hosts    []string
+		recorded string
+	}{
+		{name: "under the host name it has now", hosts: []string{"laptop.home.example"}, recorded: "laptop.home.example"},
+		{name: "under a host name it had earlier", hosts: []string{"laptop.home.example", "laptop.office.example"}, recorded: "laptop.home.example"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newLaunchFixture(t)
+			for _, host := range tc.hosts {
+				f.store.hostname = func() (string, error) { return host, nil }
+				if _, err := f.store.machine(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.recordExecutionAs(t, "att-1", 999999, func(identity *ExecutionIdentity) {
+				identity.Machine = ""
+				identity.Host = tc.recorded
+			})
+			f.store.signalGroup = func(int) error { return syscall.ESRCH }
+			found, err := f.store.ReconcileLaunch(context.Background(), f.runID, "op-1", LaunchRecovery{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found.Verdict != LaunchInterrupted {
+				t.Fatalf("recovery of an attempt recorded under %s alone = %+v", tc.recorded, found)
+			}
+		})
+	}
+}
+
+// An attempt launched on another machine is one this machine cannot see the
+// processes of, whichever form its record takes: recovery waits on a person,
+// recording why, and launches and spends nothing.
+func TestAnAttemptFromAnotherMachineStillWaitsForAPerson(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		edit func(*ExecutionIdentity)
+	}{
+		{name: "named by its machine", edit: func(identity *ExecutionIdentity) {
+			identity.Machine = "machine-" + strings.Repeat("0", 32)
+			identity.Host = "elsewhere.invalid"
+		}},
+		{name: "named by its host name alone", edit: func(identity *ExecutionIdentity) {
+			identity.Machine = ""
+			identity.Host = "elsewhere.invalid"
+		}},
+		{name: "named by its machine under this machine's host name", edit: func(identity *ExecutionIdentity) {
+			identity.Machine = "machine-" + strings.Repeat("0", 32)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			f := newLaunchFixture(t)
+			identity := f.recordExecutionAs(t, "att-1", 999999, tc.edit)
+			f.store.signalGroup = func(int) error { return syscall.ESRCH }
+			found, err := f.store.ReconcileLaunch(context.Background(), f.runID, "op-1", LaunchRecovery{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if found.Verdict != LaunchUncertain || !strings.Contains(found.Reason, identity.Host) || !strings.Contains(found.Reason, "another machine") {
+				t.Fatalf("recovery of an attempt from another machine = %+v", found)
+			}
+			if operation := f.operation(t); operation.Reconciling == nil || operation.Reconciling.Reason != found.Reason {
+				t.Fatalf("the reason recovery waits was not recorded: %+v", operation.Reconciling)
+			}
+			if got := f.launches(t); got != 0 {
+				t.Fatalf("providers launched = %d, want 0", got)
+			}
+			f.assertUnspent(t)
+		})
+	}
 }
 
 // Two recoveries started at once for one run launch the reserved attempt once
