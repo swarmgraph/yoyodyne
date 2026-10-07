@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 var routingAt = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
@@ -73,7 +74,14 @@ func route(t *testing.T, store *Store, state State, change func(*RunRouting) (bo
 
 func reopen(t *testing.T, store *Store) *Store {
 	t.Helper()
-	again, err := NewStore(filepath.Dir(filepath.Dir(filepath.Dir(store.Root()))), "yoyodyne")
+	// The store is <product directory>/runs, and the product directory is
+	// wherever the home's layout puts it, so the root is found by asking.
+	product := filepath.Dir(store.Root())
+	root := product
+	for root != filepath.Dir(root) && home.ProductDirectory(root, "yoyodyne") != product {
+		root = filepath.Dir(root)
+	}
+	again, err := NewStore(root, "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
 	}
