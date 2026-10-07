@@ -1224,6 +1224,9 @@ func carryOutGate(err error) (gate, clears string) {
 		return runstate.TriageGateHarness, "somebody looking at the harness: it neither started the run nor said why"
 	case carryOutCause(err) == triage.CarryOutWorktreeGone, carryOutCause(err) == triage.CarryOutBranchGone:
 		return runstate.TriageGatePreservedWork, "the development manager recording a re-run from the target branch or escalating what became of the preserved change"
+	case errors.Is(err, ErrRecordedBackendUnavailable):
+		return runstate.TriageGateHarness,
+			"the development manager recording a re-run, which starts the item again on the backend the developer is configured for now; a repair has to carry on the developer's session, and only the backend that opened it can. The refused repair spent nothing"
 	case errors.Is(err, ErrWorktreeNotAsLeft), errors.Is(err, ErrPreservedChangeMissing):
 		return runstate.TriageGatePreservedWork,
 			"somebody saying what became of the worktree the stopped run preserved; what is in it is what a continued developer would be handed back, so this is a person's to look at"

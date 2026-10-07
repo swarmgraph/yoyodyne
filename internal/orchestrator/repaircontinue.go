@@ -229,8 +229,16 @@ type RepairContinuer struct {
 	// harness has no room for would put one more developer to work than the
 	// operator configured.
 	Capacity int
-	Start    RepairContinueStarter
-	Clock    execution.Clock
+	// Backends says whether the run's developer can be invoked on the backend
+	// the run recorded, which is asked before the grant is spent
+	// (recordedbackend.go). The zero value leaves the question to the pipeline.
+	Backends DeveloperBackends
+	// Events is the run's event log, which a session an earlier failed attempt
+	// erased from the record is restored from (erasedSession). Optional: without
+	// it a run with no session on its record is repaired in a fresh session.
+	Events RunEvents
+	Start  RepairContinueStarter
+	Clock  execution.Clock
 }
 
 // RepairContinueRequest is one decision to carry out: the run the docket entry
@@ -288,6 +296,10 @@ type RepairContinueResult struct {
 	// repair starts a fresh one on the preserved change, and is why it recorded
 	// none. Empty where the repair re-enters the session the run recorded.
 	FreshSession string `json:"fresh_session,omitempty"`
+	// RestoredSession is the developer session this re-entry put back on the
+	// run's record from its event log, where an earlier failed attempt had erased
+	// it from the record. Empty where nothing was restored.
+	RestoredSession string `json:"restored_session,omitempty"`
 	// ResumesAt is the step the continued run was put back at. A stage bound
 	// continues its checks, and a stall at the checks or
 	// the review is continued at that step, on the change the attempt left, with
@@ -455,6 +467,11 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err := stoppageIsOver(prior, found); err != nil {
 		return result, err
 	}
+	// A session an earlier attempt erased from the record is put back before
+	// anything reads the record for one, so the repair re-enters the session the
+	// developer worked in rather than starting a fresh one. It is written with
+	// the continuation below, and not at all where this carry-out is refused.
+	result.RestoredSession = c.Backends.restoreSession(c.Events, &prior)
 	if err := continuableRepair(prior, found); err != nil {
 		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
 			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch", err, prior.RunID)
@@ -472,6 +489,14 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	result.Stall = !result.Checks && continuableStall(prior)
 	result.ResumesAt = continuedPhase(prior, result.Stall)
 	result.FreshSession = freshSessionWhy(prior)
+	// A continuation that invokes the developer invokes it on the backend the run
+	// recorded, so one this harness cannot start is refused here, before the
+	// grant is spent and with the run's session left on its record.
+	if result.ResumesAt == runstate.PhaseDeveloping {
+		if err := c.Backends.refuse(prior); err != nil {
+			return result, err
+		}
+	}
 	// The architect's condition, asked before anything is written: the change a
 	// continued developer is handed back is whatever is in that worktree.
 	if found.WorktreeThere {
@@ -567,6 +592,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	reason := continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
 	if result.FreshSession != "" {
 		reason = fmt.Sprintf("Fresh developer session: %s. ", result.FreshSession) + reason
+	}
+	if result.RestoredSession != "" {
+		reason = restoredSessionSays(result.RestoredSession) + " " + reason
 	}
 	if result.WorktreeRestored {
 		reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
@@ -1397,6 +1425,9 @@ func (result RepairContinueResult) Render() string {
 	}
 	if result.WorktreeRestored {
 		fmt.Fprintln(&rendered, "restored the recorded checkout from its branch; the run and developer session are unchanged, and checks must pass again")
+	}
+	if result.RestoredSession != "" {
+		fmt.Fprintf(&rendered, "restored developer session %s to the run's record from its event log, where an earlier failed attempt had erased it from the record\n", result.RestoredSession)
 	}
 	if !result.Continued {
 		fmt.Fprintln(&rendered, "no repair continuation was confirmed; no developer was dispatched")

@@ -360,8 +360,17 @@ type Pipeline struct {
 	Tracker      WorkTracker
 	Worktrees    WorktreeManager
 	Store        StateStore
-	Backend      backend.Backend
-	Checks       CheckRunner
+	// Backend is the adapter for the backend the developer slot is configured
+	// for, which is what every run reserved under this configuration records.
+	Backend backend.Backend
+	// RecordedBackends builds the adapter for a backend a run recorded that is
+	// not the configured developer's, so a run reserved before the developer
+	// moved to another backend carries on in the session it opened (see
+	// recordedbackend.go). It reports false for a backend the project no longer
+	// describes or this build cannot launch. Optional: a pipeline without it
+	// refuses to invoke such a run's developer, before any provider call.
+	RecordedBackends func(named domain.Backend) (backend.Backend, bool)
+	Checks           CheckRunner
 	// Load is the machine's load, read as each check begins to scale the check
 	// stage's bound the way a local Git command's budget is scaled. Optional: a
 	// pipeline without one — or on a platform that cannot report the load —
@@ -1305,7 +1314,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// not they have installed Claude Code, and it names the files they have to
 	// commit. Only now is the provider asked, and still before anything is
 	// reserved, claimed, or cut.
-	if err := p.requireBackendReady(ctx, workItemID); err != nil {
+	if err := p.requireBackendReady(ctx, workItemID, p.Backend, p.developer().Backend); err != nil {
 		return Outcome{}, err
 	}
 	// An automatic run is written against exactly the branch it will be promoted
@@ -1775,8 +1784,20 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// standing — so a provider that is logged out would refuse a promotion it has
 	// no part in. A replay that puts the change back through the gate meets the
 	// provider where the gate does, and is paused there exactly as any round is.
+	//
+	// The provider asked is the one the run recorded (recordedbackend.go). A run
+	// put back at its developer attempt on a backend this harness cannot start is
+	// refused here with its record untouched; one put back at its checks or its
+	// review invokes no developer there, and meets the refusal only if a repair
+	// is asked of it.
 	if !resumableIntegration(state) {
-		if err := p.requireBackendReady(ctx, state.WorkItemID); err != nil {
+		provider, named, err := p.developerBackendFor(state)
+		switch {
+		case err == nil:
+			if err := p.requireBackendReady(ctx, state.WorkItemID, provider, named); err != nil {
+				return Outcome{}, err
+			}
+		case state.Phase == runstate.PhaseDeveloping:
 			return Outcome{}, err
 		}
 	}
@@ -3706,6 +3727,13 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 	// refusal that reached only some of them would be a refusal the developer
 	// learns of depending on why it was asked again.
 	prompt = a.openWithDeveloperRefusals(prompt)
+	// A run whose recorded backend cannot be invoked here ends before anything is
+	// spent, rather than offering its session to a provider that never opened it
+	// (recordedbackend.go).
+	if _, _, err := a.pipeline.developerBackendFor(a.state); err != nil {
+		a.observeDevelopEnded(ctx, err)
+		return err
+	}
 	reasked := false
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
@@ -4049,11 +4077,25 @@ func (a *activeRun) account() config.AccountEndpoint {
 // first time the mapping was edited under it. A run whose record names none —
 // a project that configured no mapping, and every run written before the
 // mapping existed — asks for the developer's configured model.
+//
+// A run recorded on a backend other than the configured developer's asks for
+// what that backend reported it ran, or for the backend's own default where it
+// reported nothing: the configured developer's model belongs to the other
+// backend (see recordedbackend.go).
 func (a *activeRun) developerModel() string {
 	if model := strings.TrimSpace(a.state.DeveloperModel); model != "" {
 		return model
 	}
+	if a.onAnotherBackend() {
+		return strings.TrimSpace(a.state.ProviderResolvedModel)
+	}
 	return a.pipeline.developer().Model
+}
+
+// onAnotherBackend reports a run recorded on a backend other than the one the
+// developer is configured for now.
+func (a *activeRun) onAnotherBackend() bool {
+	return a.state.Backend != "" && a.state.Backend != a.pipeline.developer().Backend
 }
 
 // developerEffort is the effort level this run's developer invocations ask for,
@@ -4069,7 +4111,13 @@ func (a *activeRun) developerEffort() string {
 		return a.pipeline.Config.InvocationEffort(agent, a.developerModel())
 	}
 	a.state.EffortSettled = true
-	return a.pipeline.Config.InvocationEffort(a.pipeline.developer(), a.developerModel())
+	agent := a.pipeline.developer()
+	if a.onAnotherBackend() {
+		// The configured level belongs to the configured backend.
+		agent.Backend = a.state.Backend
+		agent.Effort = ""
+	}
+	return a.pipeline.Config.InvocationEffort(agent, a.developerModel())
 }
 
 // attemptDevelopment makes one developer invocation.
@@ -4087,6 +4135,13 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	if err := p.Store.Save(a.state); err != nil {
 		return backend.RunResult{}, fmt.Errorf("save the developer invocation state: %w", err)
 	}
+	// The backend is the one the run recorded, resolved before anything about
+	// the attempt is written: a run whose backend cannot be invoked here is
+	// refused with its record, its session included, exactly as it was.
+	developerBackend, named, err := p.developerBackendFor(a.state)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
 	account := a.account()
 	model := a.developerModel()
 	a.state.ProviderModel = model
@@ -4094,10 +4149,12 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	effort := a.developerEffort()
 	a.state.ProviderEffort = effort
 	a.outcome.ProviderEffort = effort
+	attribution := a.spendAttribution(domain.RoleDeveloper, a.developmentPhase())
+	attribution.Backend = named
 	provider := spend.Metered{
-		Provider:    p.Backend,
+		Provider:    developerBackend,
 		Log:         p.Spend,
-		Attribution: a.spendAttribution(domain.RoleDeveloper, a.developmentPhase()),
+		Attribution: attribution,
 		Clock:       p.Clock,
 	}
 	result, err := provider.Run(ctx, backend.RunRequest{

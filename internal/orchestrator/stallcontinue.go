@@ -59,6 +59,11 @@ type StallContinuer struct {
 	// Capacity is execution.max_concurrent_developers. Required: the continued
 	// run holds a slot for exactly as long as any run does.
 	Capacity int
+	// Backends and Events are the repair continuer's, for the same reasons: a
+	// stall carried on in its developer attempt is carried on in the session the
+	// run recorded, on the backend that opened it.
+	Backends DeveloperBackends
+	Events   RunEvents
 	Start    RepairContinueStarter
 	Clock    execution.Clock
 }
@@ -149,6 +154,9 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	}
 	defer lease.Release()
 
+	// Restored before the record is asked whether it holds a session, and
+	// written with the continuation, as a repair's is (RepairContinuer.Continue).
+	restored := c.Backends.restoreSession(c.Events, &prior)
 	if !prior.HarnessContinuesStall() {
 		return result, fmt.Errorf("%w: %s", ErrNotHarnessContinuedStall, nonEmpty(prior.StallStopSays(), fmt.Sprintf("run %s did not end on a silent-stream stall the sweep settled", prior.RunID)))
 	}
@@ -159,6 +167,11 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	result.ResumesAt = prior.Phase
 	if err := noRunInFlight(c.Runs, entry.WorkItemID); err != nil {
 		return result, err
+	}
+	if result.ResumesAt == runstate.PhaseDeveloping {
+		if err := c.Backends.refuse(prior); err != nil {
+			return c.refuse(ctx, result, prior, err)
+		}
 	}
 	item, err := c.Items.Show(ctx, entry.WorkItemID)
 	if err != nil {
@@ -197,6 +210,9 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	}
 
 	result.Reason = stallContinueReason(prior, result.ResumesAt)
+	if restored != "" {
+		result.Reason = restoredSessionSays(restored) + " " + result.Reason
+	}
 	if _, err := c.Items.RecordOutcome(ctx, entry.WorkItemID, itemRecord(result.Reason, item, prior)); err != nil {
 		return result, fmt.Errorf("record the continuation on %s: %w", entry.WorkItemID, err)
 	}

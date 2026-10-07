@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 )
 
 // providerDescriptor is what this project says about one backend: the built-in
@@ -97,4 +98,34 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 func providerRuns(cfg config.Config, named domain.Backend) bool {
 	descriptor, known := providerDescriptor(cfg, named)
 	return known && descriptor.Runnable()
+}
+
+// developerBackendsFrom is what a continuation needs to invoke a stopped run's
+// developer on the backend the run recorded rather than the one the developer
+// is configured for now: the configured backend, and an adapter for any other
+// the project describes and this build can launch.
+func developerBackendsFrom(parts components) orchestrator.DeveloperBackends {
+	cfg := parts.config
+	return orchestrator.DeveloperBackends{
+		Configured: agentForRole(cfg, domain.RoleDeveloper).Backend,
+		Other:      recordedBackends(cfg, parts.runner),
+		Adapter: func(named domain.Backend) domain.Backend {
+			if descriptor, known := providerDescriptor(cfg, named); known && descriptor.Adapter != "" {
+				return descriptor.Adapter
+			}
+			return named
+		},
+	}
+}
+
+// recordedBackends builds the adapter for a backend a run recorded, and
+// reports false for one this project no longer describes or this build cannot
+// launch.
+func recordedBackends(cfg config.Config, runner execution.ProcessRunner) func(domain.Backend) (backend.Backend, bool) {
+	return func(named domain.Backend) (backend.Backend, bool) {
+		if !providerRuns(cfg, named) {
+			return nil, false
+		}
+		return providerBackend(cfg, named, runner), true
+	}
 }

@@ -186,6 +186,7 @@ or a cleared finding does not discard a pending note.
 | `decision-missing` | No durable decision authorizes the requested repair or re-run, including a grant made before decisions were recorded. | The development manager records it again, with an override where its budget requires one, or escalates. |
 | `stoppage-missing` | The action needs a stopped run or a docketed stoppage that its records do not hold. | A re-run of a recorded run that can take it, or an escalation; the refusal names the applicable run and decision. |
 | `publication-unmakeable` | The publication cannot describe a merge a re-arm can make, reported as `UnrearmablePublicationError`. | A re-run or an escalation; no later merge request of the same decision can repair the record. |
+| `backend-unavailable` | The stopped run's developer worked on a backend this harness can no longer start — the project no longer describes it, or this build cannot launch it — so its session cannot be carried on, reported as `RecordedBackendError`. A run's developer is always invoked on the backend the run recorded, never on the one the developer is configured for now. | A re-run, which starts the item again on the configured backend; the run's session stays on its record. |
 
 Classification reads typed refusals and confirmed repository findings, never a
 match on the refusal's prose. An unreadable branch or checkout is not proof that
