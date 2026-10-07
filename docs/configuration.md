@@ -3229,9 +3229,11 @@ A run's record can name the slot it occupies. Where it does, that is the run's
 slot and no other: a change of labels, a different start order, a restart, or a
 lowered `max_concurrent_developers` never moves it, and a run whose recorded
 slot lies beyond the capacity is reported beyond the slots, keeping its number.
-Runs do not record a slot yet — the dispatch that writes it is separate work —
-so for now, and for every run recorded before it, which slot a run is in is
-read off what is in flight against what the slots prefer, the same way every
+A run records its slot only in a project that names an endpoint pair for at
+least one slot ([developer slot endpoints](#developer-slot-endpoints)): it
+records the slot it was pulled into, or the lowest free one where that was
+taken or it was started by name. In every other project, and for every run
+recorded before slots were, which slot a run is in is read off what is in flight against what the slots prefer, the same way every
 time, by the scheduler and by `yoyo status` alike. A run over labelled work is in a slot that prefers its
 label while one is unassigned, and everything else is in a slot with no
 preference first and in a preferring slot only once those are full — which is
@@ -3250,20 +3252,13 @@ label's work is exhausted.
 
 ### Developer slot endpoints
 
-The configuration loader and endpoint resolver accept an ordered pair under
-`execution.developer_slots[].routing`. This is configuration support: developer
-and reviewer run dispatch, automatic provider switching, and live application
-of the four-slot mapping are separate work. The run record can hold a run's
-slot, the pair it was pinned to, and every operation, attempt and switch made
-under it (`internal/runstate/routing.go`), but no dispatch writes them yet. The
-harness can also start an attempt's provider so that a crash at any point
-leaves a record recovery can act on without starting a second provider beside
-the first: the provider cannot begin work until its process is written into the
-attempt's record, and after a restart the harness waits for an attempt it
-cannot prove has stopped, including any process the provider started, rather
-than launching another (`internal/runstate/launch.go`). No dispatch launches
-through it yet either. Accepting or printing a pair does not mean a run has
-used it.
+A developer slot may name an ordered pair of endpoints under
+`execution.developer_slots[].routing`: a primary the slot's runs start on, and
+one alternate they move to when the primary reaches its usage limit. Developer
+runs use it, as [below](#what-a-developer-run-does-with-its-slots-pair); the
+reviewer's own alternate is not used by reviews yet, and the four-slot mapping
+in the design is a configuration somebody has to apply. Accepting or printing a
+pair does not mean a run has used it: the run's own record says what it used.
 
 ```yaml
 execution:
@@ -3332,8 +3327,78 @@ and configuration revision for later persistence. They do not read authenticatio
 files or include the path of any provider's home directory. The configuration reload API loads and
 validates a complete replacement before accepting it; rejection returns an error
 and preserves the last valid configuration and any previously resolved selection.
-The caller serializes reload and records the error. Connecting this API to live
-run routing remains execution work.
+The caller serializes reload and records the error. A watching session reads
+the configuration again at every pull, so a run it starts pins its pair from
+the configuration that pull read, and nothing a later pull or reload reads
+changes a pair a run has already pinned.
+
+#### What a developer run does with its slot's pair
+
+Only a slot with a `routing` pair is affected. In a project that names one for
+any slot, every run records the slot it occupies; a run in a slot without a
+pair records nothing more and runs exactly as it would in a project with none.
+
+- **The pair is pinned when the run starts.** Before the run claims its work
+  item, its record takes the slot, both endpoints with the configuration key
+  each field came from, whether fallback is on, and the configuration's
+  revision. The run starts on the primary. A repair, a reissue after a wait, a
+  restart, and a later configuration change all read the pair off that record,
+  so editing the slot's pair or its label rules reaches new runs and never one
+  already going. A run the scheduler pulls into the slot is refused before it
+  claims anything if the primary's provider is not installed or not logged in,
+  as a run with no pair is for the developer's.
+- **Every invocation is an attempt under a logical operation.** The first
+  attempt at the item is one operation, and each repair answering a recorded
+  failure is another. A reissue after a wait, a relaunch after a dropped
+  connection, and a restart stay in the same operation. Each provider launch is
+  a separately recorded attempt, written into the run's record before the
+  provider can begin work, so a harness that dies at any point leaves a record
+  it can recover from without starting a second provider beside the first.
+  After a restart the harness first settles the last attempt: one that never
+  began is launched again under its own identity, one that stopped without a
+  result is recorded as interrupted, and one that may still be running is
+  waited for, for up to two minutes, after which the run stops with the reason,
+  its work kept, rather than launching beside it.
+- **One switch per operation, for a usage limit only.** When the provider
+  refuses the primary for its usage limit, the operation moves to the alternate
+  at once, without waiting the limit out, provided `enabled` is true. Where the
+  primary is already known to have reached its limit — a refusal recorded
+  against that account and model that has not reset and that no served
+  invocation has lifted since — the alternate serves the operation's first
+  attempt, and no attempt is recorded on the primary. A login nobody has
+  renewed, a provider nobody can reach, an overloaded server, a dropped
+  connection, a failing check, and a reviewer's finding are answered exactly as
+  on a run with no pair, and never move an operation. A same-provider alternate
+  on another model switches the same way.
+- **The alternate is checked before it is used.** It must still be a provider
+  allowed to serve the developer, on an account the configuration declares,
+  installed, logged in, and not itself known to be limited. One that fails a
+  check leaves the operation on its primary, waiting the limit out as a run
+  with no pair does, with the reason recorded on the operation; the switch is
+  not spent, and the alternate is checked again before the next attempt.
+- **Once moved, the operation stays.** Every reissue, wait, and restart of that
+  operation stays on the alternate, and an alternate that is limited too is
+  waited out where it is. The next operation — the next repair — starts on the
+  primary again with a switch of its own. A switch spends no repair attempt and
+  no relaunch, and resets neither; the usage-limit wait budget and the
+  relaunch budget cover the operation across both endpoints.
+- **A new endpoint starts a new session.** An attempt on the same provider,
+  account and model as the run's last one resumes its session. An attempt on
+  any other endpoint — the other provider, another account, or another model of
+  the same provider — is given a new session and told what the run recorded:
+  the run and its branch, the files the change touched, the developer's last
+  summary, and the work item's context; the failure a repair answers is in its
+  prompt as always. The change itself is in the worktree, committed on the
+  run's branch. No session identifier or credential passes from one endpoint
+  to another.
+
+The run's record holds the pinned pair, each operation, each attempt's
+endpoint, whether its process was confirmed stopped, how it ended, and which of
+the run's logged events carry the usage its provider reported; the switch records what
+triggered it and the attempt it came from. The model the provider reports
+actually serving is in the run's event log and spend log as before. What
+`yoyo status` and the dashboard say about a run's endpoint and any switch is
+separate work, as is the reviewer's use of its own alternate.
 
 These new keys require a compatible build: `execution.developer_slots[].number`,
 `execution.developer_slots[].routing` and its endpoint fields, and

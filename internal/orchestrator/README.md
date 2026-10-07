@@ -156,6 +156,17 @@ configured developer's runs on `Pipeline.RecordedBackends`, or is refused with
 side of effort is `backend.Descriptor.InvocationEffort`
 (`internal/backend/effort.go`).
 
+A run reserved for a developer slot with an explicit endpoint pair is the
+exception, and `developerrouting.go` is all of it: `pinDeveloperRouting`
+(called from `Pipeline.Run` before the claim) records the slot and the pair
+and puts the primary in those same fields; `develop` then opens or finds the
+run's logical operation (`beginDeveloperOperation`), reserves and gates each
+attempt (`prepareDeveloperAttempt`, `Pipeline.EndpointLimits` for a primary
+already known to be limited), records how it ended (`finishDeveloperAttempt`),
+and on a classified usage limit makes the operation's one switch
+(`switchDeveloperEndpoint`), which rewrites those fields to the alternate. The
+slot comes from the scheduler on the run's context (`withDeveloperSlot`).
+
 ### How is a stopped run classified, and what does the item say?
 `stop` decides first whether the error is a pause (usage limit, provider stop,
 directive, dependency, tracker, operator hold, redeploy drain — see

@@ -2864,7 +2864,10 @@ pulling:
 			startedNow[entry.ID] = true
 			running++
 			started++
-			s.host(session.dispatching(ctx, entry.ID), pull, entry.ID, index, selection, hosted, landings, deliver)
+			// The slot travels with the run, so a slot with an endpoint pair starts
+			// the run on that pair rather than on whichever slot the run would
+			// otherwise be read into (developerrouting.go).
+			s.host(withDeveloperSlot(session.dispatching(ctx, entry.ID), slot.Number), pull, entry.ID, index, selection, hosted, landings, deliver)
 			return true
 		}
 		// firedInWalk is the slots the walk gave to a decision held back above for

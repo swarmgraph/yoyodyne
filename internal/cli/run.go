@@ -646,6 +646,16 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// was served on, which is what reads a refusal of them as lifted before the
 		// reset it quoted.
 		CapacityServed: parts.capacityServed,
+		// The same refusals and served invocations, read before a run pinned to
+		// a developer slot's endpoint pair launches on its primary, so a primary
+		// already known to be limited is passed over for its alternate rather
+		// than asked and refused first.
+		EndpointLimits: orchestrator.RecordedEndpointLimits{
+			Refusals:          parts.usageLimits,
+			Runs:              parts.store,
+			Served:            parts.capacityServed,
+			UnknownResetPause: cfg.Execution.UsageLimitUnknownResetPause.Duration(),
+		},
 		// A promotion refused because the target branch will not catch up to the
 		// remote's is recorded against the product, so a watching session stops
 		// pulling items into the same refusal until the branches are settled.
