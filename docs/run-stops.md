@@ -226,6 +226,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:stop` | 3 | Settles a directive, check, or review operation that stopped; failed publication returns to the document owner. |
 | `internal/orchestrator/actions.go` | `deliverySteps` | `call:complete` | 1 | Registered completion action uses the ordinary terminal settlement. |
 | `internal/orchestrator/claims.go` | `(ClaimAuditor).settle` | `status-write` | 1 | Cancels a dead claim verified under its lease; returns the item and touches no artifacts. |
+| `internal/orchestrator/recordedbackend.go` | `(Pipeline).developerBackendFor` | `classified-stop` | 1 | Classifies a run whose recorded developer backend this harness cannot start as a harness stop, before any provider call and with the run's session left on its record; the run ends through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:fail` | 6 | Claim, context, worktree, scratch, and state failures, or development ending through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:stop` | 1 | Claim, context, worktree, scratch, and state failures, or development ending through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).resumeRun` | `call:fail` | 7 | Continuation setup and invocation or gate endings, retaining the existing change. |
