@@ -383,8 +383,10 @@ func TestPreservationGuardsAndPricesFollowTheRepositoryRatherThanRemovalFlags(t 
 		} else if err != nil && (!strings.Contains(err.Error(), state.Branch) || !strings.Contains(err.Error(), state.WorktreePath)) {
 			t.Fatalf("refusal does not name what was checked: %v", err)
 		}
-		if err := rerunnable(state, found); (err == nil) != there {
-			t.Fatalf("rerunnable() = %v", err)
+		// A re-run starts from the target branch, so it is admitted whether or not
+		// the change survived.
+		if err := rerunnable(state); err != nil {
+			t.Fatalf("rerunnable() = %v, want an ended run admitted to a re-run", err)
 		}
 		if kept := preservedOf(state, found); (kept.Branch != "") != there {
 			t.Fatalf("preserved = %#v", kept)

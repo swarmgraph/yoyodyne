@@ -302,6 +302,12 @@ type CarriedOut struct {
 	Cause   triage.CarryOutCause `json:"cause,omitempty"`
 	Gate    string               `json:"gate,omitempty"`
 	Waiting bool                 `json:"waiting,omitempty"`
+	// ReleasedHold says the refusal was of a re-run, will not clear, and was
+	// about a run that left no branch or worktree, so the decision no longer
+	// holds its item and the next pull may start it like any other ready item.
+	// The note written onto the item says so beside the refusal; see
+	// readmodel's releasesRerun, which is the hold that lets go.
+	ReleasedHold bool `json:"released_hold,omitempty"`
 	// Problem is the whole account of a stopped attempt: what the gate said and
 	// what would clear it. It is what a pass prints, and it is the same sentence
 	// the item's own record now carries.
@@ -967,6 +973,7 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 		}
 		gate, clears := carryOutGate(runErr)
 		carried.Cause = carryOutCause(runErr)
+		carried.ReleasedHold = carried.Cause != "" && result.Preserved.Disposition == runstate.PreservedGone
 		return c.stopped(ctx, task, carried, gate, false, refusalText(runErr), clears), Outcome{}, nil
 	}
 	carried.Carried = true
@@ -1349,7 +1356,11 @@ func (c CarryOut) applicableDecision(task CarryOutTask) string {
 // attached context would lose.
 func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried CarriedOut, gate string, waiting bool, refusal, clears string) CarriedOut {
 	carried.Gate = gate
-	if carried.Cause != "" {
+	switch {
+	case carried.ReleasedHold:
+		clears += fmt.Sprintf("; this gate will not clear on its own, so no later pull retries this decision. Run %s left no branch or worktree, so a fresh run of %s would start from the target branch exactly as this re-run would have: the hold this decision placed on the item is released, and the next pull may start it like any other ready item",
+			task.RunID, task.WorkItemID)
+	case carried.Cause != "":
 		clears += "; this gate will not clear on its own, so no later pull retries this decision. The development manager records a re-run or an escalation instead; a missing decision must be recorded again, with an override where the budget requires it"
 	}
 	carried.Waiting = waiting
