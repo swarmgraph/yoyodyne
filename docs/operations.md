@@ -4493,8 +4493,12 @@ latest run that is either `waiting` — in flight and asleep on a recorded
 deadline, still counted on the running line — or `capacity-blocked`, which is a
 run the provider refused and the harness would not wait for. One stopped by a
 usage window resetting past the maximum pause gave its item back to the queue
-and names the reset it is pulled again after; any other stopped with a blocker
-on its item. Each says what refused it, since when, the reset it is
+and names the reset it is pulled again after. A usage-limit stop is listed too:
+a run the provider refused on a usage limit naming a reset that is not in the
+future, or on an overload that outlasted the pause budget, stopped with a
+blocker on its item and its stop cause `usage-pause`, and its record keeps
+which of the two refused it so this list can name it. It names no reset,
+because the run took no wait. Each says what refused it, since when, the reset it is
 waiting out or none, how much of `execution.usage_limit_max_pause` it has spent
 (`waited_seconds`), whether its change is preserved, and what a person can do about it — for a
 waiting run, that nothing needs doing. `conversations` lists each conversation
