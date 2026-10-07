@@ -3393,8 +3393,8 @@ pair records nothing more and runs exactly as it would in a project with none.
   to another.
 
 The run's record holds the pinned pair, each operation, each attempt's
-endpoint, whether its process was confirmed stopped, how it ended, and the
-event-log range its provider-reported usage is in; the switch records what
+endpoint, whether its process was confirmed stopped, how it ended, and which of
+the run's logged events carry the usage its provider reported; the switch records what
 triggered it and the attempt it came from. The model the provider reports
 actually serving is in the run's event log and spend log as before. What
 `yoyo status` and the dashboard say about a run's endpoint and any switch is

@@ -995,14 +995,26 @@ var notAStep = map[string]string{
 	// steps between them, and the design puts them outside what a definition can
 	// reach for exactly that reason: a sequence that could omit one would be a
 	// sequence that could spend through a pause the operator placed.
-	"stopRequested":              "reads whether the operator has asked this run to stop",
-	"holdForOperator":            "waits out the operator's hold on spending",
-	"holdForDirective":           "waits out a directive that pauses this work",
-	"holdForDependency":          "waits out work this item was made to depend on",
-	"pauseForUsageLimit":         "waits out a provider usage limit",
-	"pauseForServerOverload":     "waits out a provider that could not serve the invocation",
-	"pauseForProviderOutage":     "waits out a provider nobody is logged into or nobody can reach, spending nothing",
-	"awaitRecordedUsageLimit":    "serves a usage-limit deadline an earlier process recorded",
+	"stopRequested":           "reads whether the operator has asked this run to stop",
+	"holdForOperator":         "waits out the operator's hold on spending",
+	"holdForDirective":        "waits out a directive that pauses this work",
+	"holdForDependency":       "waits out work this item was made to depend on",
+	"pauseForUsageLimit":      "waits out a provider usage limit",
+	"pauseForServerOverload":  "waits out a provider that could not serve the invocation",
+	"pauseForProviderOutage":  "waits out a provider nobody is logged into or nobody can reach, spending nothing",
+	"awaitRecordedUsageLimit": "serves a usage-limit deadline an earlier process recorded",
+
+	// Developer routing (developerrouting.go): which endpoint of a pinned pair a
+	// developer invocation runs on, and the record of each attempt made there.
+	// They are part of the one developer invocation candidate.develop already
+	// is, as the account and model it reads are, rather than steps beside it.
+	"pinDeveloperRouting":        "records the run's developer slot and pinned endpoint pair before the claim",
+	"beginDeveloperOperation":    "finds or opens the logical operation a developer invocation serves",
+	"prepareDeveloperAttempt":    "reserves and gates the next attempt of the developer invocation",
+	"finishDeveloperAttempt":     "records how a developer attempt ended",
+	"switchDeveloperEndpoint":    "moves a developer operation to its alternate on a usage limit, or records why it waits",
+	"selectedDeveloperEndpoint":  "reads which endpoint the developer operation has selected",
+	"completeDeveloperOperation": "closes the logical operation the developer has answered",
 	"clearDirectivePause":        "consumes a directive pause the run recorded",
 	"clearDependencyPause":       "consumes a dependency pause the run recorded",
 	"clearTrackerPause":          "consumes a tracker park the run recorded, and gives its recovery window back",
