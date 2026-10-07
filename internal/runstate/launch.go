@@ -36,6 +36,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,39 +91,119 @@ type holdFile struct {
 	name string
 }
 
-// openHold opens an attempt's hold, creating it unless mustExist. A hold that
-// must exist and does not is reported as os.ErrNotExist, and one that is not a
-// regular file is refused.
-func (s *Store) openHold(runID, attemptID string, mustExist bool) (holdFile, error) {
+// pinHolds pins the run state directory and names an attempt's hold in it.
+func (s *Store) pinHolds(runID, attemptID string) (*repowrite.PinnedRoot, string, error) {
 	path, err := s.holdPath(runID, attemptID)
 	if err != nil {
-		return holdFile{}, err
+		return nil, "", err
 	}
 	stateRoot, anchor, err := confinedStateRoot(s.root)
 	if err != nil {
-		return holdFile{}, err
+		return nil, "", err
 	}
 	root, err := pinStateRoot(stateRoot, anchor)
 	if err != nil {
+		return nil, "", err
+	}
+	return root, filepath.Base(path), nil
+}
+
+// openHold opens an attempt's existing hold. One that does not exist is
+// reported as os.ErrNotExist, and one that is not a regular file is refused.
+func (s *Store) openHold(runID, attemptID string) (holdFile, error) {
+	root, name, err := s.pinHolds(runID, attemptID)
+	if err != nil {
 		return holdFile{}, err
 	}
-	name := filepath.Base(path)
-	info, err := root.Lstat(name)
-	switch {
-	case errors.Is(err, os.ErrNotExist) && !mustExist:
-	case err != nil:
-		root.Close()
-		return holdFile{}, err
-	case !info.Mode().IsRegular():
-		root.Close()
-		return holdFile{}, fmt.Errorf("%s is not a regular file", name)
-	}
-	file, err := root.OpenLock(name, 0o600)
+	file, err := openRegular(root, name)
 	if err != nil {
 		root.Close()
 		return holdFile{}, err
 	}
 	return holdFile{file: file, root: root, name: name}, nil
+}
+
+func openRegular(root *repowrite.PinnedRoot, name string) (*os.File, error) {
+	info, err := root.Lstat(name)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("%s is not a regular file", name)
+	}
+	return root.OpenLock(name, 0o600)
+}
+
+// createHold makes a new hold for one launch of an attempt and returns it
+// locked, with the random mark written into it. The mark is what tells this
+// file from any put at the same name later: a file system may give a file
+// created after another was removed the removed file's inode, so only what the
+// file says identifies it. A hold left by an earlier launch is removed first,
+// once its lock shows nothing still has it.
+func (s *Store) createHold(runID, attemptID string) (*os.File, string, error) {
+	root, name, err := s.pinHolds(runID, attemptID)
+	if err != nil {
+		return nil, "", err
+	}
+	defer root.Close()
+	switch earlier, err := openRegular(root, name); {
+	case errors.Is(err, os.ErrNotExist):
+	case err != nil:
+		return nil, "", err
+	default:
+		taken, err := tryLockStateFile(earlier)
+		if err != nil || !taken {
+			earlier.Close()
+			if err != nil {
+				return nil, "", err
+			}
+			return nil, "", conflict("a process from an earlier launch of attempt %s is still running", attemptID)
+		}
+		removed := root.Remove(name)
+		_ = releaseStateFile(earlier)
+		if removed != nil && !errors.Is(removed, os.ErrNotExist) {
+			return nil, "", removed
+		}
+	}
+	bytes := make([]byte, 16)
+	if _, err := rand.Read(bytes); err != nil {
+		return nil, "", fmt.Errorf("mark the file of attempt %s: %w", attemptID, err)
+	}
+	mark := hex.EncodeToString(bytes)
+	if err := root.CreateFile(name, []byte(mark), 0o600); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return nil, "", conflict("another launch of attempt %s is starting", attemptID)
+		}
+		return nil, "", err
+	}
+	file, err := openRegular(root, name)
+	if err != nil {
+		return nil, "", err
+	}
+	taken, err := tryLockStateFile(file)
+	if err == nil && !taken {
+		err = conflict("another launch of attempt %s is starting", attemptID)
+	}
+	if err == nil {
+		if found, readErr := readHoldMark(file); readErr != nil || found != mark {
+			err = conflict("another launch of attempt %s is starting", attemptID)
+		}
+	}
+	if err != nil {
+		file.Close()
+		return nil, "", err
+	}
+	return file, mark, nil
+}
+
+// readHoldMark is the mark a hold carries.
+func readHoldMark(file *os.File) (string, error) {
+	buffer := make([]byte, 128)
+	read, err := file.ReadAt(buffer, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return string(buffer[:read]), nil
 }
 
 // remove removes the hold's name from the pinned directory.
@@ -204,27 +285,11 @@ func (s *Store) BeginLaunch(ctx context.Context, runID, operationID, attemptID s
 	case len(operation.pendingEffects()) > 0:
 		return nil, conflict("operation %s has effect %s that nobody has established as performed or absent", operationID, operation.pendingEffects()[0].Key)
 	}
-	opened, err := s.openHold(runID, attemptID, false)
+	hold, mark, err := s.createHold(runID, attemptID)
 	if err != nil {
-		return nil, fmt.Errorf("open the file that shows whether attempt %s's processes are alive: %w", attemptID, err)
+		return nil, fmt.Errorf("prepare the file that shows whether attempt %s's processes are alive: %w", attemptID, err)
 	}
-	opened.close()
-	hold := opened.file
-	taken, err := tryLockStateFile(hold)
-	if err != nil {
-		hold.Close()
-		return nil, fmt.Errorf("lock the file that shows whether attempt %s's processes are alive: %w", attemptID, err)
-	}
-	if !taken {
-		hold.Close()
-		return nil, conflict("a process from an earlier launch of attempt %s is still running", attemptID)
-	}
-	identity, err := fileIdentity(hold)
-	if err != nil {
-		hold.Close()
-		return nil, err
-	}
-	return &AttemptLaunch{store: s, ctx: ctx, runID: runID, operation: operationID, attempt: attemptID, hold: hold, holdFile: identity}, nil
+	return &AttemptLaunch{store: s, ctx: ctx, runID: runID, operation: operationID, attempt: attemptID, hold: hold, holdFile: mark}, nil
 }
 
 // Gate is the launch gate to start the attempt's provider behind.

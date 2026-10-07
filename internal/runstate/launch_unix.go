@@ -33,7 +33,7 @@ func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (exec
 	if boot := currentBoot(); identity.Boot != "" && boot != "" && boot != identity.Boot {
 		return executionStopped, "the machine has restarted since it was started", nothing
 	}
-	opened, err := s.openHold(runID, attemptOfHold(identity.Hold), true)
+	opened, err := s.openHold(runID, attemptOfHold(identity.Hold))
 	if errors.Is(err, os.ErrNotExist) {
 		return executionUnknown, fmt.Sprintf("the file that shows whether its processes are alive, %s, is missing", identity.Hold), nothing
 	}
@@ -53,7 +53,7 @@ func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (exec
 		_ = releaseStateFile(hold)
 		opened.close()
 	}
-	current, err := fileIdentity(hold)
+	current, err := readHoldMark(hold)
 	if err != nil || current != identity.HoldFile {
 		settle(false)
 		return executionUnknown, fmt.Sprintf("the file that shows whether its processes are alive, %s, has been replaced since it was started", identity.Hold), nothing
@@ -84,18 +84,4 @@ func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (exec
 		settle(false)
 		return executionUnknown, fmt.Sprintf("its process group %d could not be checked: %v", identity.ProcessGroup, err), nothing
 	}
-}
-
-// fileIdentity is a file's device and inode, which tell it apart from a file
-// put at the same path later.
-func fileIdentity(file *os.File) (string, error) {
-	info, err := file.Stat()
-	if err != nil {
-		return "", fmt.Errorf("read the identity of %s: %w", file.Name(), err)
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return "", fmt.Errorf("the identity of %s is not available here", file.Name())
-	}
-	return fmt.Sprintf("%d:%d", uint64(stat.Dev), uint64(stat.Ino)), nil
 }

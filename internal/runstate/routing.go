@@ -364,8 +364,8 @@ type ExecutionIdentity struct {
 	ProcessGroup int       `json:"process_group"`
 	StartedAt    time.Time `json:"started_at"`
 	// Hold is the hold's file name in the run state directory, and HoldFile
-	// the device and inode it had when the tree took it, so a file replaced
-	// since is not mistaken for it.
+	// the random mark written into that file when the launch created it, so a
+	// file put at the same name since is not mistaken for it.
 	Hold         string    `json:"hold"`
 	HoldFile     string    `json:"hold_file"`
 	RegisteredAt time.Time `json:"registered_at"`

@@ -575,13 +575,8 @@ func (f launchFixture) recordExecution(t *testing.T, attempt string, pid int) Ex
 	if err != nil {
 		t.Fatal(err)
 	}
-	hold, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer hold.Close()
-	file, err := fileIdentity(hold)
-	if err != nil {
+	file := "mark-of-" + attempt
+	if err := os.WriteFile(path, []byte(file), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	host, err := os.Hostname()
@@ -629,6 +624,14 @@ func TestUnreadableExecutionEvidenceWaitsWithItsReasonRecorded(t *testing.T) {
 				t.Fatal(err)
 			}
 			if err := os.WriteFile(path, nil, 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{name: "hold rewritten in place", because: "has been replaced", spoil: func(t *testing.T, f launchFixture, identity ExecutionIdentity) {
+			// The same inode with different contents, which is what a file
+			// system that reuses a removed file's inode hands a new file.
+			path, _ := f.store.holdPath(f.runID, "att-1")
+			if err := os.WriteFile(path, []byte("another launch's mark"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}},
