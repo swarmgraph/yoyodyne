@@ -70,10 +70,9 @@ is for; [Install](#install) has what the script does and the other routes.
   configure [recurring tasks](docs/configuration.md#recurring-tasks) that wake a
   role on a schedule, and [program managers](docs/designs/program-manager.md)
   that each watch one area of work. `yoyo agent chat <name>` talks to any agent.
-- **Claude Code runs every role; Codex can run the developer.** Codex is refused
-  for the other roles because it cannot run with every tool turned off, which
-  they require. A fork, proxy, or variant of either can be declared as a
-  [provider plugin](docs/provider-plugins.md).
+- **Claude Code and Codex can each run every role.** Roles other than the
+  developer run read-only on either. A fork, proxy, or variant of either can be
+  declared as a [provider plugin](docs/provider-plugins.md).
 - **One `yoyo` per repository.** Teammates can commit alongside it the ordinary
   way, but two people each running `yoyo` against one repository is not
   supported yet: claims, reports, budgets, and the merge lock stay on the
