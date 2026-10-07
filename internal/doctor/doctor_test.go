@@ -1222,13 +1222,13 @@ func TestADeclaredProviderIsDiagnosedByTheExecutableItRuns(t *testing.T) {
 	if finding.Status != StatusProblem {
 		t.Fatalf("checkProvider() = %s, want the missing executable reported", finding.Status)
 	}
-	if !strings.Contains(finding.Summary, "my-harness is not installed") {
+	if !strings.Contains(finding.Summary, "my-harness cannot run in this environment") {
 		t.Fatalf("summary = %q, want the executable the declaration named", finding.Summary)
 	}
-	// The remedy is an install rather than the configuration, because this is a
-	// provider the build can run and the operator has not installed.
-	if !strings.Contains(finding.Remedy, "install") {
-		t.Fatalf("remedy = %q, want the install that fixes it", finding.Remedy)
+	// The configured executable must be repaired rather than silently replaced
+	// with the compiled adapter's default installation.
+	if !strings.Contains(finding.Remedy, ".yoyodyne/config.yaml") {
+		t.Fatalf("remedy = %q, want the configuration that selects it", finding.Remedy)
 	}
 }
 
@@ -1482,7 +1482,7 @@ var effortConfig = strings.Replace(healthyConfig, "    model: opus\n", "    mode
 // the ordinary way a checks list goes wrong -- is a state a test can arrange by
 // writing the configuration alone.
 func (w *world) lookPath(program string) (string, error) {
-	installed := map[string]bool{"yoyo": true, "git": true, "bd": true, "claude": true, "gh": true, "go": true, "security": true, "node": true}
+	installed := map[string]bool{"yoyo": true, "git": true, "bd": true, "claude": true, "codex": true, "gh": true, "go": true, "security": true, "node": true}
 	if !installed[program] || w.missing[program] {
 		return "", errors.New("exec: \"" + program + "\": executable file not found in $PATH")
 	}

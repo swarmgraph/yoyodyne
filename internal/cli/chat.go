@@ -724,10 +724,19 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 		return preparedChat{}, fmt.Errorf("ask whether the %s backend is ready for %s agent %s: %w", agent.Backend, role, name, err)
 	}
 	// Availability and login remedies name the configured provider and account.
+	// A provider whose executable cannot run here is refused only where the agent
+	// has no alternate on another provider that can: one that can serves the
+	// conversation's turns, as it would serve a turn the configured provider
+	// refused, and the operator is told which installation is missing.
 	if !availability.Installed {
-		return preparedChat{}, errors.New(availability.NotInstalled(agent.Backend))
-	}
-	if !availability.Authenticated {
+		refused := errors.New(availability.NotInstalled(agent.Backend))
+		standIn, servable := servableAlternate(ctx, cfg, parts.stateRoot, name, processRunner)
+		if !servable {
+			return preparedChat{}, refused
+		}
+		fmt.Fprintf(stderr, "warning: %v\nThis conversation's turns are served by its configured alternate, %s, until that is fixed.\n",
+			refused, runstate.DescribeServingModel(standIn.endpoint.Provider, standIn.model))
+	} else if !availability.Authenticated {
 		// A login nobody has renewed is a wait rather than a refusal, and it is
 		// recorded on the product before the conversation refuses to open: the
 		// process that meets it here is usually a scheduled firing nobody is
@@ -1195,6 +1204,22 @@ func conversationFailover(cfg config.Config, stateRoot, agentName string, runner
 		backend:   providerBackendIn(cfg, choice.Endpoint.Provider, runner, choice.Account.Directory),
 		configDir: choice.Account.Directory,
 	}
+}
+
+// servableAlternate is the agent's alternate on another provider where its own
+// executable and login are ready here, and false otherwise. It is asked only
+// when the configured provider's executable cannot run, so a conversation that
+// opens on it is one whose turns failover will move there.
+func servableAlternate(ctx context.Context, cfg config.Config, stateRoot, agentName string, runner execution.ProcessRunner) (conversationAlternate, bool) {
+	alternate := conversationFailover(cfg, stateRoot, agentName, runner, io.Discard)
+	if alternate.backend == nil {
+		return conversationAlternate{}, false
+	}
+	availability, err := alternate.backend.CheckAvailability(ctx)
+	if err != nil || !availability.Installed || !availability.Authenticated {
+		return conversationAlternate{}, false
+	}
+	return alternate, true
 }
 
 // unresolvedCrossing is a crossing this conversation cannot make, said out loud

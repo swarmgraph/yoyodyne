@@ -232,8 +232,8 @@ type ProviderPlugin struct {
 	// observe.
 	Adapter domain.Backend `yaml:"adapter" json:"adapter"`
 	// Binary is the executable that adapter runs, and is empty for the adapter's
-	// own default. A fork or a proxy of a provider this build already speaks is
-	// reached by naming its binary here rather than by writing a second adapter.
+	// own default. A built-in declaration may supply only this field, retaining
+	// its compiled contract. A fork or proxy reaches the same launch boundary.
 	Binary       string             `yaml:"binary,omitempty" json:"binary,omitempty"`
 	Roles        []domain.AgentRole `yaml:"roles" json:"roles"`
 	Postures     []Posture          `yaml:"postures" json:"postures"`
@@ -268,7 +268,15 @@ func NewRegistry(plugins map[domain.Backend]ProviderPlugin) (*Registry, error) {
 	for _, name := range names {
 		id := domain.Backend(name)
 		if existing, taken := registry.descriptors[id]; taken && existing.BuiltIn {
-			problems = append(problems, fmt.Sprintf("provider %q is a backend this build ships, so declaring one would replace it", name))
+			plugin := plugins[id]
+			// Selecting a different executable keeps the compiled provider's
+			// capabilities, dialect and launch policy. Nothing else may replace it.
+			if strings.TrimSpace(plugin.Binary) == "" || plugin.Adapter != "" || len(plugin.Roles) != 0 || len(plugin.Postures) != 0 || plugin.Capabilities != (Capabilities{}) || len(plugin.Dialect.Rules) != 0 {
+				problems = append(problems, fmt.Sprintf("provider %q is a backend this build ships; only a non-empty binary override is permitted", name))
+				continue
+			}
+			existing.Binary = strings.TrimSpace(plugin.Binary)
+			registry.descriptors[id] = existing
 			continue
 		}
 		descriptor, err := DescriptorFor(id, plugins[id])

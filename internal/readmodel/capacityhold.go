@@ -168,9 +168,10 @@ func ReadCapacityHold(agents []AgentEndpoint, runs []runstate.State, refusals []
 		return CapacityHold{}
 	}
 	refusals = evidence.Standing(refusals)
-	// What is standing, by model. An availability substitution names the same
-	// field and means something else: the provider has not got that selector,
-	// which is not a window and must not be read as one.
+	// What is standing, by model. An availability or executable substitution
+	// names the same field and means something else: the provider has not got
+	// that selector, or its executable could not run here, and neither is a
+	// window that must be read as one.
 	refused := map[string]bool{}
 	var stopped []runstate.UsageLimitExhaustion
 	unnamed := false
@@ -179,7 +180,7 @@ func ReadCapacityHold(agents []AgentEndpoint, runs []runstate.State, refusals []
 	parked := evidence.Standing(ParkedRunRefusals(runs))
 	parkedStanding := 0
 	for index, refusal := range append(parked, refusals...) {
-		if refusal.Substituted() && refusal.Reason() == runstate.SubstitutedForAvailability {
+		if refusal.Substituted() && refusal.Reason() != runstate.SubstitutedForCapacity {
 			continue
 		}
 		if !refusal.WindowClosed(now, unknownResetPause) {

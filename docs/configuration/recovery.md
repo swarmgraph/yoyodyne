@@ -306,13 +306,34 @@ within the provider: the alternate's model belongs to the other provider, so
 asking this conversation's own provider for it would meet an unknown selector at
 exactly the moment the fallback existed to save the turn.
 
-**A crossing covers conversation turns and nothing else.** An alternate on the
-agent's own provider serves its exchange rounds and its side threads as well; one
-that leaves the provider does not, because those are answered on the endpoint the
-agent is configured for and there is no crossing for them to take. An agent whose
-alternate names a provider therefore has its conversation carried through a window
-and its exchange rounds and side turns waiting the window out, alongside the run
-invocations. `yoyo agent` says which of the two an agent has.
+**A crossing covers conversation turns and exchange rounds.** An alternate on
+the agent's own provider serves its side threads as well; one that leaves the
+provider does not, because a side turn is answered on the endpoint the agent is
+configured for and there is no crossing for it to take. An exchange round crosses
+because its prompt already carries every earlier round, so the other provider is
+sent the whole thread and no session; the exchange records the provider and
+account that answered. An agent whose alternate names a provider therefore has
+its conversation and the questions other roles ask it carried through a window,
+and its side turns waiting the window out, alongside the run invocations.
+`yoyo agent` says which of the two an agent has.
+
+**An alternate on another provider also stands in for an executable that cannot
+run.** Where the agent's own provider's executable cannot be found or started in
+the environment the turn is made in — the CLI is not on the PATH this process
+was given, or the path `providers.<backend>.binary` names is missing or not
+executable — the turn, the scheduled pass, or the exchange round is made on that
+alternate instead, and a conversation still opens, saying on stderr which
+installation is missing and which alternate is serving it. The substitution is
+recorded with that reason and the executable's own account of what was missing,
+reaches the channel as a note like any other, and stands for
+`execution.usage_limit_unknown_reset_pause` before the agent's own provider is
+looked for again. An alternate on the same provider is no answer to this, since
+the same executable would start it, so an agent with no alternate on another
+provider is never moved: its turn fails with the missing executable and the
+[setup that fixes it](../provider-plugins.md#executable-setup-and-precedence).
+A provider that starts and reports that it is not logged in is not moved by
+this: authentication is checked separately, and is handled as
+[a provider that refuses](#waiting-out-a-provider-that-refuses) as before.
 
 What happens on a refused turn:
 

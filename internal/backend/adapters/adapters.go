@@ -26,8 +26,8 @@ import (
 // conversation, and line of spend has to say which one it was.
 //
 // The executable and the dialect are the whole of what a declaration changes
-// about an invocation. A built-in declares neither, so it runs exactly as it
-// would have: its own binary, its own dialect.
+// about an invocation. A built-in may override its binary while retaining its
+// compiled dialect and capabilities.
 //
 // configDir is the provider home this adapter asks about and, where a request
 // names none of its own, invokes under. It is separate from the descriptor
@@ -36,7 +36,17 @@ import (
 // and a conversation runs under the account its agent is assigned to. Empty is
 // the machine's own provider home, which is what a single-account installation
 // has always used.
-func For(descriptor backend.Descriptor, named domain.Backend, runner execution.ProcessRunner, configDir string) (backend.Backend, bool) {
+//
+// lookup optionally supplies the same executable lookup a diagnosis uses for
+// its other tools. When omitted, lookup uses the process's PATH.
+func For(descriptor backend.Descriptor, named domain.Backend, runner execution.ProcessRunner, configDir string, lookup ...func(string) (string, error)) (backend.Backend, bool) {
+	if runner != nil {
+		resolved := &executableRunner{runner: runner, binary: Binary(descriptor), provider: named}
+		if len(lookup) != 0 {
+			resolved.lookup = lookup[0]
+		}
+		runner = resolved
+	}
 	switch descriptor.Adapter {
 	case domain.BackendClaudeCode:
 		return claudecode.Backend{

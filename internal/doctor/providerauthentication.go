@@ -109,7 +109,7 @@ func providerKeyRemedy(resolved config.Resolved) string {
 		if !known {
 			continue
 		}
-		login := providerLoginCommand(descriptor.Adapter)
+		login := AccountLoginCommand(descriptor.Adapter, "", descriptor.Binary)
 		if resolved.Config.Agents[name].Role == domain.RoleDeveloper {
 			return login
 		}

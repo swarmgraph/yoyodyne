@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -21,9 +23,12 @@ func TestAnsweringTurnsUseTheConfiguredProviderAndReadOnlyPolicy(t *testing.T) {
 		for _, named := range []domain.Backend{domain.BackendCodex, "declared-codex"} {
 			t.Run(surface+"/"+string(named), func(t *testing.T) {
 				cfg := answeringConfig()
-				binary := "codex"
+				binary := filepath.Join(t.TempDir(), "codex")
+				if err := os.WriteFile(binary, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				cfg.Providers = map[string]backend.ProviderPlugin{string(named): {Binary: binary}}
 				if named != domain.BackendCodex {
-					binary = "custom-codex"
 					cfg.Providers = map[string]backend.ProviderPlugin{string(named): {Adapter: domain.BackendCodex, Binary: binary, Roles: []domain.AgentRole{domain.RoleArchitect}, Postures: []backend.Posture{backend.PostureReadOnly}, Dialect: backend.DialectSpec{Rules: []backend.DialectRule{{Type: "retry", Answer: backend.AnswerRetrying}}}}}
 				}
 				agent := cfg.Agents["architect"]

@@ -169,7 +169,9 @@ Per-action checks: `TrackerAction.Validate` and `applyTrackerAction` /
 `Options.Model`, `Options.Effort`, `Options.AccountAlias`; the request gets
 `invocationEffort`. What was actually served is read back by `Evidence`,
 `lastEffort`, `servedByAlternate`. Failover: `failoverPolicy`,
-`meteredFailover`, `servingEndpoint`, `alternateSession`.
+`meteredFailover`, `servingEndpoint`, `alternateSession`; when it moves a turn
+(capacity, a pinned version the provider has not got, or a configured
+provider's executable that cannot run) is `internal/modelfailover`.
 
 ### Where do tracker results reach the role's next turn?
 `carryResults` stores them on the record (`PendingTrackerResults`) so a

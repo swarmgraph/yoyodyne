@@ -202,6 +202,11 @@ source, which the script also does on a platform with no release binary. For
 pull requests, also a Git remote and [`gh`](https://cli.github.com) signed in
 with `gh auth login`; without them nothing is pushed.
 
+If a configured provider is outside PATH, such as desktop-bundled Codex, set its
+absolute executable path once in the project configuration. [Provider setup and
+precedence](docs/provider-plugins.md#executable-setup-and-precedence) covers
+terminal chats, scheduled runs, fallback providers and account login commands.
+
 CI executes this section on every change via
 [`scripts/walk-adoption.sh`](scripts/walk-adoption.sh), against a throwaway
 Python project; `make adoption` runs it locally.
