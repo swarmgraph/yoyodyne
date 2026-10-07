@@ -693,8 +693,22 @@ func TestAnInstancesMissedPassIsOnItsLineUntilAPassCompletes(t *testing.T) {
 		}
 	}
 	encoded, err := json.Marshal(factory)
-	if err != nil || !strings.Contains(string(encoded), `"missed_pass":{"trigger":"schedule","how":"cancelled"`) {
-		t.Errorf("json = %s, %v; want the miss carried under missed_pass", encoded, err)
+	// The words the line opens the miss with are carried too, so the dashboard
+	// says the miss as the terminal does rather than wording the fields again.
+	if err != nil || !strings.Contains(string(encoded), `"missed_pass":{"trigger":"schedule","how":"cancelled","what":"its scheduled pass was cancelled before it completed"`) {
+		t.Errorf("json = %s, %v; want the miss carried under missed_pass with its words", encoded, err)
+	}
+	for _, how := range []struct {
+		kind runstate.MissKind
+		want string
+	}{
+		{runstate.MissUnfired, "missed its pass its events woke"},
+		{runstate.MissConversationHeld, "missed its pass its events woke"},
+		{runstate.MissCancelled, "its pass its events woke was cancelled before it completed"},
+	} {
+		if got := missedWhat(runstate.PassTriggerEvents, how.kind); got != how.want {
+			t.Errorf("missedWhat(events, %s) = %q, want %q", how.kind, got, how.want)
+		}
 	}
 
 	sources.Passes = fakePasses{passes: []runstate.Sweep{cancelled, completedPass(factoryConversation, moment.Add(-time.Minute))}}

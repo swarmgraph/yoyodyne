@@ -26,6 +26,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"html"
 	"net/http"
 	"os"
 	"os/exec"
@@ -414,7 +415,7 @@ func TestTheProgramManagersSectionSaysTheModelsStatuses(t *testing.T) {
 			t.Fatalf("the script's status %d is %q, and the model's is %q", i, named[i], status)
 		}
 	}
-	for _, expected := range []string{"standing.program_managers", "standing.program_managers_problem", `"/api/program-managers/" + encodeURIComponent(agent)`, "instance.stale_says", "instance.blockers", "instance.claims"} {
+	for _, expected := range []string{"standing.program_managers", "standing.program_managers_problem", `"/api/program-managers/" + encodeURIComponent(agent)`, "instance.stale_says", "instance.blockers", "instance.claims", "instance.missed_pass", "miss.what"} {
 		if !strings.Contains(script, expected) {
 			t.Fatalf("the script does not read %q from the model:\n%s", expected, script)
 		}
@@ -924,6 +925,44 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		if strings.Contains(body, "Report file") || strings.Contains(body, "report.json") || strings.Contains(body, "/Users/somebody") {
 			t.Errorf("the %s render shows the report's file path to a person", scenario)
 		}
+	}
+	// A missed pass is said on the instance's row in the words `yoyo status`
+	// uses for it, under the working word it does not change, and the card gives
+	// it a field of its own: what owed it and how it was missed, when, the
+	// cause, and the harness as the one to move.
+	var busy readmodel.Standing
+	strict(t, "standing-busy", fixture(t, "standing-busy"), &busy)
+	var missed *readmodel.ProgramManagerMiss
+	for _, instance := range busy.ProgramManagers {
+		if instance.Agent == "docs-pgm" {
+			missed = instance.MissedPass
+		}
+	}
+	if missed == nil {
+		t.Fatal("the busy fixture's docs-pgm carries no missed pass, so nothing here shows the page drawing one")
+	}
+	row := html.UnescapeString(page("busy"))
+	for _, words := range []string{
+		"its scheduled pass was cancelled before it completed at 2026-09-19 13:45 UTC — the harness's — " + missed.Says,
+	} {
+		if !strings.Contains(row, words) {
+			t.Errorf("the busy render does not say docs-pgm's missed pass on its row: want %q", words)
+		}
+	}
+	card := html.UnescapeString(strings.Join(strings.Fields(page("report-unwritten")), " "))
+	for _, words := range []string{
+		"<dt>Missed pass</dt>",
+		"<li>its scheduled pass was cancelled before it completed</li>",
+		"<li>at 2026-09-19 13:45 UTC, recorded missed at 2026-09-19 13:50 UTC</li>",
+		"<li>cause: " + missed.Says + "</li>",
+		"<li>the harness's move: its next completed pass ends this</li>",
+	} {
+		if !strings.Contains(card, words) {
+			t.Errorf("the docs-pgm report card does not show its missed pass: want %q", words)
+		}
+	}
+	if card := strings.Join(strings.Fields(page("report")), " "); !strings.Contains(card, "none since its last completed pass") {
+		t.Error("the factory-pgm report card does not say it has no missed pass")
 	}
 	// The same model fields reach both the list and the opened card for a red
 	// queued merge, unfinished cleanup, and a merge the forge dropped. Live

@@ -442,6 +442,15 @@
       "stale": false,
       "blocked": false,
       "last_completed_pass_at": "2026-09-19T13:30:00Z",
+      "missed_pass": {
+        "trigger": "schedule",
+        "how": "cancelled",
+        "what": "its scheduled pass was cancelled before it completed",
+        "at": "2026-09-19T13:45:00Z",
+        "recorded_at": "2026-09-19T13:50:00Z",
+        "says": "the scheduled pass of the program manager instance docs-pgm, taken at 2026-09-19T13:45:00Z, was cancelled before it completed: nothing recorded how it ended, and no turn is in flight on its conversation, so the process carrying it stopped mid-pass — a watch session stopped or killed under it is the usual cause; nothing it would have looked at was looked at, and its events wait past its cursor for the next pass",
+        "waiting_on": "harness"
+      },
       "blockers": [],
       "claims": [],
       "report_path": "/Users/somebody/Library/Application Support/Yoyodyne/state/products/yoyodyne/program-managers/docs-pgm/report.json",
