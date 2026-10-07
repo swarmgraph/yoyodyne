@@ -521,8 +521,8 @@ keyed by the backend identifier your agents will name. See
 ```yaml
 providers:
   my-harness:
-    # Which compiled adapter launches it and reads its stream. Required, and
-    # This build ships `claude-code` and `codex` adapters.
+    # Which compiled adapter launches it and reads its stream. Required; this
+    # build ships the `claude-code` and `codex` adapters.
     adapter: claude-code
     # The executable that adapter runs. Omit it for the adapter's own.
     binary: my-harness
