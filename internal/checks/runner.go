@@ -108,6 +108,10 @@ type Runner struct {
 	// defaultStageTimeout.
 	StageTimeout time.Duration
 	RedactValues []string
+	// HiddenExecutables are the provider executables no check may find on its
+	// search path: every provider the project can run, by the executable each
+	// one launches. searchpath.go says why.
+	HiddenExecutables []string
 }
 
 func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Event) error) ([]Result, uint64, error) {
@@ -149,6 +153,11 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 	// check reads what the harness knows about the change from its environment.
 	environment := execution.WithGoBuildCache(execution.ExplicitEnvironment(nil), request.Directory)
 	environment = append(environment, request.Env...)
+	environment, restore, err := withoutExecutables(environment, request.Directory, r.HiddenExecutables)
+	if err != nil {
+		return nil, request.LastSequence, err
+	}
+	defer restore()
 	sequence := execution.NewSequence(request.LastSequence)
 	lastAccepted := request.LastSequence
 	results := make([]Result, 0, len(request.Commands))

@@ -298,6 +298,15 @@ const openLockAttempts = 50
 
 func (r *PinnedRoot) Remove(relative string) error { return r.root.Remove(relative) }
 
+// RemoveAll removes a directory and everything in it without leaving the held
+// directory; a symlink inside is removed rather than followed.
+func (r *PinnedRoot) RemoveAll(relative string) error {
+	if _, err := Relative(relative); err != nil {
+		return err
+	}
+	return r.root.RemoveAll(relative)
+}
+
 // Sync makes changes to the held directory durable without reopening its path,
 // which may have been replaced since the directory was pinned.
 func (r *PinnedRoot) Sync() error {

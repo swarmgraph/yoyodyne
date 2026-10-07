@@ -2510,6 +2510,18 @@ redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
 
+`PATH` is the harness's own with the provider CLIs left off it: `claude`,
+`codex`, and the executable every entry under `providers` names in their place.
+A directory on the path that holds one of them is replaced, for the length of
+the check stage, by a directory in the temporary directory holding a link to
+everything the original holds except those executables, so the toolchain
+installed beside a provider CLI is still found. The checks run where a provider
+CLI usually is not installed as well — the forge's continuous integration, a
+collaborator's machine — and a test that passed only because one is installed
+here would fail there, after a review has been spent on it. Under this rule it
+fails in the check stage instead. A test that genuinely needs a provider CLI
+skips itself, saying why, where none is found.
+
 A provider invocation is given the same list with one thing more:
 `YOYODYNE_AGENT_ROLE`, naming the role the process was launched for —
 `developer`, `reviewer`, and so on. It is under the harness's own prefix so the

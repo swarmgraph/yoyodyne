@@ -10,6 +10,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -964,6 +965,10 @@ func TestPipelineGivesChecksTheConfiguredBudget(t *testing.T) {
 	// every stage bounded at the sum of its checks.
 	if want := cfg.Execution.CheckStageTimeout.Duration(); runner.StageTimeout != want || want <= 0 {
 		t.Fatalf("wired check stage timeout = %s, want the configured %s", runner.StageTimeout, want)
+	}
+	// And no check finds a provider CLI on its search path.
+	if !slices.Contains(runner.HiddenExecutables, "claude") || !slices.Contains(runner.HiddenExecutables, "codex") {
+		t.Fatalf("wired checks hide %v, want the provider CLIs", runner.HiddenExecutables)
 	}
 }
 

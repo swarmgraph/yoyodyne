@@ -568,6 +568,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			// at the sum of the list, which is hours.
 			StageTimeout: cfg.Execution.CheckStageTimeout.Duration(),
 			RedactValues: redactValues,
+			// No check finds a provider CLI on its search path, so a test that
+			// passes only because one is installed here fails before review
+			// rather than on a machine without it.
+			HiddenExecutables: providerExecutables(cfg),
 		},
 		// The stage's bound is that figure scaled for the machine's load, by the
 		// same reading and cap a local Git command's budget is scaled by, because
