@@ -217,6 +217,28 @@ redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
 
+On the network, a developer's sandbox permits this much and no more:
+
+- **Claude Code.** Commands may bind a local port, accept connections on it,
+  and connect to localhost, so a test that starts a server on `127.0.0.1` runs
+  in the developer's own checks. The harness passes
+  `sandbox.network.allowLocalBinding: true` in the settings it gives every
+  developer invocation, initial and resumed; nothing in the repository's
+  `.claude/settings.json` is needed for it. Every other outbound connection
+  still goes through the CLI's filtering proxy, as before. Claude Code 2.1.286
+  allows the bind on any local address rather than loopback alone, so a test
+  should bind `127.0.0.1` rather than every interface, or a machine on the same
+  network can connect to it while the test runs.
+- **Codex.** Commands may not bind a port at all: the adapter turns sandbox
+  network access off, and Codex CLI 0.160.0 allows local binding only through
+  its managed network proxy, configured in a permission profile that cannot be
+  combined with the `--sandbox` mode the adapter uses. A test that starts a
+  server fails with `bind: operation not permitted` in a Codex developer's own
+  checks and is judged by the harness's run of the checks afterwards.
+
+Neither grant reaches a write: what a developer may write is the worktree, the
+shared cache, and its own scratch directory, whichever provider runs it.
+
 For a Codex developer, redirecting the environment alone does not grant a write.
 The adapter uses `workspace-write` with an explicit
 `sandbox_workspace_write.writable_roots` override naming only the shared cache
@@ -270,7 +292,12 @@ The regression runs by default when Codex is installed; only an absent CLI skips
 it. Refusal to start the local server or execute the native sandbox fails the
 check. A host must permit loopback listening and native sandbox execution.
 An outer sandbox that refuses `sandbox-exec` with
-`sandbox_apply: Operation not permitted` cannot exercise the native policy.
+`sandbox_apply: Operation not permitted` cannot exercise the native policy,
+and on macOS every developer run is one: a sandboxed process cannot apply a
+second sandbox, whichever provider started it. Allowing local binding gets the
+test past its server; it still fails in a developer's own checks when the CLI
+starts its first command, and only a run of the checks outside a sandbox, such
+as the harness's own, can pass it.
 An accepted CLI launch or saved thread does not prove permitted cache writes,
 scratch log writes, or confinement after resume. Successful native execution
 evidence is required before claiming those conditions are met; unrestricted
