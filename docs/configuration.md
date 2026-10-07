@@ -57,10 +57,18 @@ settled, `alternatives` read and deliberately left out.
 
 ### When the repository ignores the configuration
 
-`init` and `yoyo config validate` both ask Git whether the configuration they
-just wrote or just read is matched by an ignore rule, and say so when it is.
-Nothing fails: the files are there and valid, the exit code is what it would have
-been, and the warning goes to standard error.
+`init`, `yoyo setup`, and `yoyo config validate` each ask Git whether the
+configuration they just wrote or just read is matched by an ignore rule, and say
+so when it is. Nothing fails: the files are there and valid, the exit code is
+what it would have been, and the warning goes to standard error — or, in
+`setup`, into the account of the step that wrote the configuration.
+
+`yoyo doctor` asks the same question every time it runs, as the
+`configuration-ignored` finding. A rule in the repository's own `.gitignore` is
+a warning, and its remedy adds the configuration directory with
+`git add --force` and commits it; once committed, the rule no longer applies to
+it. A rule local to the checkout is reported without a warning, for the reason
+below.
 
 It is worth saying because nothing else announces it. A project whose
 `.yoyodyne` is ignored is configured on the machine that ran `init` and nowhere

@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifacthome"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
@@ -63,7 +64,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// other will, and the moment it was written is the moment somebody can still
 	// decide about it cheaply. An external configuration is not in the repository
 	// for a rule to reach, and answers no without Git being asked.
-	ignored := configurationIgnored(ctx, execution.OSProcessRunner{}, initialization.repository, initialization.config)
+	ignored := doctor.ConfigurationIgnored(ctx, execution.OSProcessRunner{}, initialization.repository, initialization.config)
 
 	if *jsonOutput {
 		return writeJSON(stdout, stderr, map[string]any{
@@ -107,7 +108,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	// written and valid, so an ignored configuration is something to know about
 	// an init that worked rather than a reason to call it one that did not.
 	if ignored.Ignored {
-		fmt.Fprintln(stderr, describeIgnoredConfiguration(ignored))
+		fmt.Fprintln(stderr, doctor.DescribeIgnoredConfiguration(ignored))
 	}
 	return 0
 }

@@ -479,7 +479,9 @@ yoyo doctor --json     # the same findings, for something automating the repair
 
 It looks at the `yoyo` on your `PATH` and whether it is the build you think it
 is, Git and whether this project is a repository with something to branch from,
-the tracker and whether it answers *here*, the configuration, the deterministic
+the tracker and whether it answers *here*, the configuration — and whether the
+repository's own `.gitignore` keeps it from every clone and worktree (see
+[when the repository ignores the configuration](configuration.md#when-the-repository-ignores-the-configuration)) — the deterministic
 checks and whether this machine can run the programs they name, Node where the
 product ships the dashboard — whose page only Node can draw, so a machine
 without it fails the page's render check rather than passing quietly — each provider
@@ -515,6 +517,13 @@ Findings come in the order you would fix them in — the tools, then the project
 then what the project turns on — rather than worst first, because the first
 problem in the list is usually why the ones under it are problems too. `--quiet`
 drops the healthy ones and changes nothing else.
+
+The configuration finding is one of two the same way. A project with no
+configuration is told to run `yoyo init`. A configuration that is there and does
+not load is somebody's edit, which `yoyo init` refuses to write over and
+`yoyo init --force` would delete, so its remedy opens that file in your editor
+instead, and the detail says why it does not load. Where `YOYODYNE_CONFIG` names
+a file that is not there, the remedy is to unset it.
 
 The tracker finding above is the initialized-here half of two. A machine with no
 `bd` on it at all gets the other, and its remedy is the tracker's own installer,

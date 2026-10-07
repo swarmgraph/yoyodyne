@@ -56,6 +56,7 @@ func runDoctor(ctx context.Context, args []string, stdout, stderr io.Writer, ver
 		Version:     version,
 		Build:       buildinfo.Commit(),
 		Load:        func() (config.Resolved, error) { return loadConfiguration(*configPath) },
+		Locate:      func() (string, error) { return configurationPath(*configPath) },
 	})
 
 	if *jsonOutput {

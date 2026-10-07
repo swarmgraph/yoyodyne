@@ -255,6 +255,37 @@ func TestSetupRefusesToOverwriteAConfigurationThatDoesNotLoad(t *testing.T) {
 	if string(content) != broken {
 		t.Fatalf("setup rewrote a configuration it could not read:\n%s", content)
 	}
+	// Doctor, at the end of the same walk, offers the same way out rather than
+	// `yoyo init`, which would refuse this file or, forced, delete it.
+	if finding := world.finding(report, "configuration"); finding.Remedy != step.Remedy {
+		t.Errorf("doctor's remedy = %q, want setup's own %q", finding.Remedy, step.Remedy)
+	}
+}
+
+// A configuration the repository's .gitignore keeps out of commits is said on
+// the newcomer's path too, at the step that wrote it, and doctor's finding at
+// the end of the walk carries the command that commits it.
+func TestSetupSaysWhenTheConfigurationItWroteIsIgnored(t *testing.T) {
+	t.Parallel()
+
+	world := newSetupWorld(t)
+	world.ignoreRule = ".gitignore:1:.yoyodyne"
+	world.answers = "y\ny\ny\ny\n"
+	report := world.walk()
+
+	step := world.step(report, stepConfiguration)
+	if step.Status != setupDone {
+		t.Fatalf("configuration step = %s (%s), want it written", step.Status, step.Summary)
+	}
+	for _, want := range []string{".gitignore:1:.yoyodyne", "unconfigured project"} {
+		if !strings.Contains(step.Detail, want) {
+			t.Errorf("configuration step detail = %q, want it to mention %q", step.Detail, want)
+		}
+	}
+	finding := world.finding(report, "configuration-ignored")
+	if finding.Status != doctor.StatusWarning || !strings.Contains(finding.Remedy, "add --force") {
+		t.Errorf("configuration-ignored = %#v, want a warning carrying the commit command", finding)
+	}
 }
 
 // The optional tier. Turning reporting on is three lines in a file the operator
@@ -1059,6 +1090,10 @@ type setupWorld struct {
 	launchAgent bool
 	environ     []string
 	agentLoaded bool
+	// ignoreRule is the rule Git answers with when asked whether the
+	// configuration is ignored, in its own `<file>:<line>:<pattern>` form, and
+	// empty for a configuration no rule reaches.
+	ignoreRule string
 }
 
 func newSetupWorld(t *testing.T) *setupWorld {
@@ -1212,6 +1247,11 @@ func (r *setupRunner) Run(_ context.Context, command execution.Command, _ execut
 	}
 
 	switch {
+	case strings.Contains(joined, "check-ignore"):
+		if r.world.ignoreRule == "" {
+			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1}, nil
+		}
+		return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: r.world.ignoreRule + "\t" + invocation[len(invocation)-1] + "\n"}, nil
 	case strings.HasPrefix(joined, "launchctl print"):
 		if !r.world.agentLoaded {
 			return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 113, Stderr: "Could not find service"}, nil

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/doctor"
 )
 
 // A newcomer who reflexively ignores tool config gets no error and eventual
@@ -171,8 +172,8 @@ func TestConfigValidateWarnsWhenTheConfigurationIsIgnored(t *testing.T) {
 		t.Fatalf("Run() code = %d, stderr = %q", code, stderr.String())
 	}
 	var result struct {
-		Status  string               `json:"status"`
-		Ignored ignoredConfiguration `json:"ignored"`
+		Status  string                      `json:"status"`
+		Ignored doctor.IgnoredConfiguration `json:"ignored"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)
@@ -206,11 +207,11 @@ func writeIgnoreFile(t *testing.T, path, content string) {
 	}
 }
 
-func reportedIgnore(t *testing.T, payload []byte) ignoredConfiguration {
+func reportedIgnore(t *testing.T, payload []byte) doctor.IgnoredConfiguration {
 	t.Helper()
 
 	var result struct {
-		Ignored ignoredConfiguration `json:"ignored"`
+		Ignored doctor.IgnoredConfiguration `json:"ignored"`
 	}
 	if err := json.Unmarshal(payload, &result); err != nil {
 		t.Fatalf("Unmarshal() error = %v", err)

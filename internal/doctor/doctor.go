@@ -174,6 +174,13 @@ type Environment struct {
 	// Load resolves the project's configuration, and returns the same error the
 	// operator would see from `yoyo config validate`.
 	Load func() (config.Resolved, error)
+	// Locate finds the configuration Load would read, without reading it. It is
+	// asked only when Load fails, and is what tells a project with no
+	// configuration from one whose configuration is there and does not load:
+	// `yoyo init` fixes the first and refuses the second, and `--force` would fix
+	// the second by deleting the edit that broke it. Nil leaves the two
+	// indistinguishable, and both are answered as the first.
+	Locate func() (string, error)
 	// Timeout bounds each tool invocation. Nothing here is long-running by
 	// design, so a tool that hangs is itself the finding.
 	Timeout time.Duration
@@ -216,13 +223,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 
 	resolved, err := diagnosis.load()
 	if err != nil {
-		report.Findings = append(report.Findings, Finding{
-			Check:   "configuration",
-			Status:  StatusProblem,
-			Summary: "this directory has no usable Yoyodyne configuration",
-			Detail:  err.Error(),
-			Remedy:  "yoyo init",
-		})
+		report.Findings = append(report.Findings, diagnosis.unloadedConfiguration(err))
 		// Everything below reads the configuration, so there is nothing further
 		// to say that would not be invented. The tracker is still asked about,
 		// because `yoyo init` in a project whose tracker is not there yet is the
@@ -243,6 +244,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	project := config.ProjectDirectory(resolved.Path)
 	repository := RepositoryPath(project, resolved.Config.Product.Repository)
 	report.Findings = append(report.Findings, diagnosis.checkRepository(ctx, repository))
+	report.Findings = append(report.Findings, diagnosis.checkConfigurationIgnored(ctx, repository, resolved.Path))
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
@@ -282,6 +284,55 @@ func (d *diagnosis) load() (config.Resolved, error) {
 		return config.Resolved{}, errors.New("no configuration loader was wired")
 	}
 	return d.env.Load()
+}
+
+// unloadedConfiguration is the finding for a configuration Load could not
+// produce, and its remedy depends on why.
+//
+// No configuration at all is `yoyo init`. A configuration that is there and
+// does not load is somebody's edit, and `yoyo init` refuses to write over it
+// while `yoyo init --force` would delete the edit to fix a typo in it, so the
+// remedy is the editor on that file -- which is what `yoyo setup` offers for
+// the same state. YOYODYNE_CONFIG naming nothing readable is neither: `yoyo
+// init` would write a configuration the variable still hides, so the remedy is
+// to stop naming the wrong one.
+func (d *diagnosis) unloadedConfiguration(loadErr error) Finding {
+	missing := Finding{
+		Check:   "configuration",
+		Status:  StatusProblem,
+		Summary: "this directory has no usable Yoyodyne configuration",
+		Detail:  loadErr.Error(),
+		Remedy:  "yoyo init",
+	}
+	if d.env.Locate == nil {
+		return missing
+	}
+	path, err := d.env.Locate()
+	if err != nil {
+		if notFound := (config.NotFoundError{}); errors.As(err, &notFound) {
+			return missing
+		}
+		if strings.TrimSpace(d.getenv(config.EnvironmentVariable)) != "" {
+			return Finding{
+				Check:   "configuration",
+				Status:  StatusProblem,
+				Summary: fmt.Sprintf("%s names no configuration that can be read", config.EnvironmentVariable),
+				Detail:  err.Error(),
+				Remedy:  "unset " + config.EnvironmentVariable,
+			}
+		}
+		return missing
+	}
+	if info, statErr := os.Stat(path); statErr != nil || !info.Mode().IsRegular() {
+		return missing
+	}
+	return Finding{
+		Check:   "configuration",
+		Status:  StatusProblem,
+		Summary: "the configuration is there and does not load, and yoyo init will not write over it",
+		Detail:  fmt.Sprintf("%s: %v", path, loadErr),
+		Remedy:  fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(path)),
+	}
 }
 
 func (d *diagnosis) lookPath(program string) (string, error) {
