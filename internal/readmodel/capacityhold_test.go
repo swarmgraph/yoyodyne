@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -495,5 +497,82 @@ func TestAnUnreadableRefusalLogIsSaidRatherThanReadAsNoHold(t *testing.T) {
 	}
 	if !strings.Contains(standing.NeedsHumanProblem, "what the provider has refused could not be read") {
 		t.Fatalf("problem = %q, want the unreadable log named", standing.NeedsHumanProblem)
+	}
+}
+
+// usageLimitStop is a run blockOnUsageLimit stopped, in the shape the
+// pipeline's ending leaves on disk: terminal, a blocker on its item, the stop
+// cause usage-pause, the pause cause kept, and no deadline because the run
+// refused the wait. The orchestrator's TestAUsageLimitStopIsListedAsCapacityBlocked
+// checks this shape against the record the pipeline itself writes.
+func usageLimitStop(runID, workItemID string, stopped time.Time) runstate.State {
+	return runstate.State{
+		RunID:          runID,
+		ProductID:      "yoyodyne",
+		WorkItemID:     workItemID,
+		Status:         runstate.StatusFailed,
+		Phase:          runstate.PhaseDeveloping,
+		StartedAt:      stopped.Add(-time.Hour),
+		UpdatedAt:      stopped,
+		CompletedAt:    &stopped,
+		Branch:         "yoyodyne/" + workItemID + "/" + runID,
+		ProviderModel:  "opus",
+		UsageLimitKind: "five_hour",
+		PauseCause:     runstate.PauseUsageLimit,
+		StopClass:      runstate.StopUsagePause,
+		Blocker:        "Yoyodyne stopped this item: the provider refused it in a way this run could not wait out.",
+		Failure:        "this run was refused by an exhausted five_hour usage limit and cannot wait for it: it reports resetting at 2026-09-08T07:00:00Z, which is not in the future",
+	}
+}
+
+// A run stopped on a usage limit is one run the provider refused, not every
+// role held: it parked on nothing and waits on no reset, and its item is the
+// development manager's to decide. So on the attention line it is the stopped
+// item waiting on her, and never the capacity entry, which is the hold over
+// every role; the pause cause its record keeps must not make the hold count it
+// as a parked run, even with every agent on the model it was refused on. It is
+// listed among the runs blocked on capacity, where each refused run is named.
+func TestAUsageLimitStopIsListedOnCapacityAndWaitsOnTheDevelopmentManagerRatherThanHoldingEveryRole(t *testing.T) {
+	t.Parallel()
+
+	stopped := usageLimitStop("run-0000000000000000000000000000000c", "yoyodyne-ifd.142", moment.Add(-2*time.Hour))
+	if refusals := ParkedRunRefusals([]runstate.State{stopped}); len(refusals) != 0 {
+		t.Fatalf("parked-run refusals = %+v, want none: a finished run parked on nothing", refusals)
+	}
+	if hold := ReadCapacityHold(fiveAgentsOnOpus(), []runstate.State{stopped}, nil, moment, 30*time.Minute, CapacityEvidence{}); hold.Holding {
+		t.Fatalf("hold = %+v, want no hold over every role from one stopped run", hold)
+	}
+
+	sources := quietSources()
+	sources.Agents = fiveAgentsOnOpus()
+	sources.UsageLimits = fakeUsageLimits{}
+	sources.Runs = fakeRuns{recorded: []runstate.State{stopped}, prices: map[string]runstate.ItemPrice{}}
+	sources.Tracker = statusTracker{fakeTracker{byStatus: map[string][]beads.WorkItem{
+		"blocked": {{ID: "yoyodyne-ifd.142", Title: "stopped on a usage limit", Status: "blocked"}},
+	}}}
+	sources.Stoppages = fakeStoppages{runs: []runstate.State{stopped}}
+	sources.Decisions = recordedDecisions{}
+	sources.Remains = &remainsOf{survives: map[string]gitworktree.Survival{stopped.RunID: {BranchExists: true}}}
+
+	standing := ReadStanding(context.Background(), sources)
+	if standing.CapacityHold != nil {
+		t.Fatalf("capacity hold = %+v, want none", standing.CapacityHold)
+	}
+	runs := standing.CapacityBlocked.Runs
+	if len(runs) != 1 || runs[0].RunID != stopped.RunID || runs[0].State != CapacityStateBlocked ||
+		runs[0].RefusedBy != "an exhausted five_hour usage limit" || runs[0].ResetsAt != nil {
+		t.Fatalf("capacity-blocked runs = %+v, want the stopped run, blocked on the five_hour limit with no reset", runs)
+	}
+	var held bool
+	for _, entry := range standing.NeedsHuman {
+		if entry.Kind == AttentionHold && entry.ID == HoldCapacity {
+			t.Fatalf("attention line carries the every-role hold %+v for one stopped run", entry)
+		}
+		if entry.Kind == AttentionHeldWork && entry.Mover == MoverDevelopmentManager {
+			held = true
+		}
+	}
+	if !held {
+		t.Fatalf("needs human = %+v, want the stopped item waiting on the development manager", standing.NeedsHuman)
 	}
 }
