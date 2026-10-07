@@ -63,7 +63,11 @@ import (
 // notes were ever truncated meant. The replay a moved target refused, handed
 // back to the developer to reconcile, is newer still and behaves the same way:
 // absent means no replay of this run was ever refused, which is what every run
-// written before a conflict went back to its author meant.
+// written before a conflict went back to its author meant. A run's routing is
+// the newest and carries its own version inside it (RoutingVersion): absent
+// means the slot and switch history are unknown, and a build from before it
+// refuses to resume a run that has it, because its strict read does not know the
+// key — which is the refusal an older build owes a transition it cannot follow.
 const StateSchemaVersion = 1
 
 // The shape of the three things a run records about how it was configured and
@@ -1780,6 +1784,9 @@ func (s *State) recordedTexts() []recordedText {
 			}
 		}
 	}
+	// The routing record's operations refuse text over this bound, so a cut here
+	// only ever meets a record something else wrote.
+	s.Routing.recordedTexts(func(key, path string, text *string) { unstated(key, path, text, maxRoutingText) })
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
 	}
@@ -2526,6 +2533,12 @@ type State struct {
 	// Absent means nothing accounted for the choice, which is not the same as a
 	// choice with no reason and is reported as such.
 	Selection *Selection `json:"selection,omitempty"`
+	// Routing is the developer slot the run occupies, the endpoint pairs it was
+	// pinned to, and the logical operations, attempts, and endpoint switches made
+	// under them. It changes only through Store.UpdateRouting; see routing.go.
+	// Absent is a run recorded before routing existed, whose slot and switch
+	// history are unknown rather than empty.
+	Routing *RunRouting `json:"routing,omitempty"`
 	// LiftedCommit is the commit of an earlier run's preserved branch this run
 	// was started from, where its selection asked for one and the lift was made:
 	// what that branch carried past the target was applied to this run's worktree
@@ -3961,6 +3974,9 @@ func (s State) Validate() error {
 	// still an outstanding-cleanup marker.
 	if s.Integration != nil && s.Phase == PhaseComplete && (!s.WorktreeRemoved || !s.BranchRemoved) {
 		problems = append(problems, errors.New("complete phase requires both the worktree and branch to be removed"))
+	}
+	if err := s.Routing.Validate(); err != nil {
+		problems = append(problems, err)
 	}
 	if len(problems) > 0 {
 		return fmt.Errorf("invalid run state: %w", errors.Join(problems...))

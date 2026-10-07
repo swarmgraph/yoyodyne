@@ -6105,6 +6105,7 @@ func (p Pull) slotsOf(occupied map[string]runstate.State, items map[string]beads
 			WorkItemID: id,
 			Labels:     labels,
 			StartedAt:  state.StartedAt,
+			Slot:       state.RecordedSlot(),
 		})
 	}
 	return developerslot.Assign(p.Capacity, p.Slots, inFlight)

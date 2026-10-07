@@ -120,3 +120,58 @@ func TestPreferringReportsWhetherAnySlotPrefersALabel(t *testing.T) {
 		t.Fatal("a slot preferring dashboard was not reported")
 	}
 }
+
+func recorded(id string, started time.Duration, slot int, labels ...string) Run {
+	r := run(id, started, labels...)
+	r.Slot = slot
+	return r
+}
+
+func TestAssignKeepsARecordedSlotWhateverTheLabelsAndOrderSay(t *testing.T) {
+	// The recorded run carries the dashboard label and started last, and the
+	// reading alone would put it in slot 1; its record says slot 3.
+	runs := []Run{
+		run("plain", 0),
+		recorded("panel", 2*time.Minute, 3, "dashboard"),
+		run("other", time.Minute, "dashboard"),
+	}
+	first := Assign(3, []domain.DeveloperSlot{dashboard, nothing, nothing}, runs)
+	if got := first.Slots[2].WorkItemID; got != "panel" {
+		t.Fatalf("slot 3 holds %q, want the run that recorded slot 3", got)
+	}
+	if got := first.Slots[0].WorkItemID; got != "other" {
+		t.Fatalf("slot 1 holds %q, want the unrecorded dashboard run", got)
+	}
+	// Reordering the list and changing the labels changes nothing for it.
+	runs[0], runs[1] = runs[1], runs[0]
+	runs[0].Labels = nil
+	again := Assign(3, []domain.DeveloperSlot{nothing, dashboard, nothing}, runs)
+	if got := again.Slots[2].WorkItemID; got != "panel" {
+		t.Fatalf("after relabelling and reordering slot 3 holds %q, want the recorded run", got)
+	}
+}
+
+func TestAssignNeverMovesARecordedSlotBeyondALoweredCapacity(t *testing.T) {
+	assignment := Assign(2, []domain.DeveloperSlot{nothing, nothing}, []Run{recorded("late", 0, 4), run("plain", time.Minute)})
+	if len(assignment.Overflow) != 1 || assignment.Overflow[0].Slot != 4 {
+		t.Fatalf("overflow = %+v, want the run recorded in slot 4, keeping its number", assignment.Overflow)
+	}
+	for _, slot := range assignment.Slots {
+		if slot.WorkItemID == "late" {
+			t.Fatalf("the run recorded in slot 4 was moved into slot %d", slot.Number)
+		}
+	}
+	if got := assignment.Slots[0].WorkItemID; got != "plain" {
+		t.Fatalf("slot 1 holds %q, want the unrecorded run", got)
+	}
+}
+
+func TestAssignNamesASecondRunRecordingAnOccupiedSlotAsOverflow(t *testing.T) {
+	assignment := Assign(2, nil, []Run{recorded("first", 0, 1), recorded("second", time.Minute, 1)})
+	if assignment.Slots[0].WorkItemID != "first" || !assignment.Slots[1].Free() {
+		t.Fatalf("slots = %+v, want the earlier run in slot 1 and slot 2 free", assignment.Slots)
+	}
+	if len(assignment.Overflow) != 1 || assignment.Overflow[0].WorkItemID != "second" {
+		t.Fatalf("overflow = %+v, want the second run that recorded slot 1", assignment.Overflow)
+	}
+}

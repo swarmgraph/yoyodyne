@@ -3944,9 +3944,10 @@ has the rule.
   developer slot 1 (prefers the dashboard label)` — and each free slot is named
   under the runs with its preference, `developer slot 3 is free and prefers no
   label`, so the next pull's first choice is readable before it is made. Which
-  slot a run is in is read off the labels the run recorded at its claim, by the
-  same derivation the scheduler fills the free slots from, so the slot this
-  line calls free is the slot the scheduler will fill. Where no slot prefers a
+  slot a run is in is the slot its record names where it names one, and is
+  otherwise read off the labels the run recorded at its claim, by the same
+  derivation the scheduler fills the free slots from, so the slot this line
+  calls free is the slot the scheduler will fill. Where no slot prefers a
   label the line reads exactly as above.
 
   **A run with no process behind it is named as one rather than as running.**
