@@ -393,10 +393,9 @@ both posted when it comes back.
 
 If you do want to start the history over — a channel you have wiped, a product
 you are re-pointing at a new workspace — stop the sink and delete
-`products/<product id>/slack/cursors.json` under your state root. That is
-`$YOYODYNE_STATE_HOME` if you set it, the `state_root` in your `machine.yaml` if
-you set that, `$XDG_STATE_HOME/yoyodyne` if you set that, and otherwise `~/Library/Application Support/Yoyodyne/state` on macOS or
-`~/.local/state/yoyodyne` elsewhere. The sink takes a new moment on its next pass
+`projects/<product id>/state/slack/cursors.json` under your machine home, which
+`yoyo home --path` prints (`~/.yoyodyne` unless you moved it; a home the earlier
+builds laid out keeps it at `products/<product id>/slack/cursors.json`). The sink takes a new moment on its next pass
 and says which one. Leave `threads.json` beside it alone unless you also want new
 threads, and `steers.json` — which is what it remembers about replies that
 steered the work — alone either way: a directive settled before the new moment is

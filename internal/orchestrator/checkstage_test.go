@@ -898,7 +898,7 @@ func TestAnOverdueCheckStageContinuationNamesItsGateAcrossWatcherRestarts(t *tes
 	}
 	// Reopen the durable store as a new process would. The elapsed wait and
 	// the note survive, so the next pass does not append the same note.
-	reopened, err := runstate.NewStore(filepath.Dir(filepath.Dir(filepath.Dir(h.runs.Root()))), "yoyodyne")
+	reopened, err := runstate.NewStore(stateRootOf(h.runs.Root()), "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -162,9 +162,13 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
 control. Run state, provider event streams, locks, worktrees, and the reports
-agents file while their work carries on live outside the repository under an
-operating-system state directory, so nothing there depends on where the project
-is checked out.
+agents file while their work carries on live outside the repository, in the
+machine home `~/.yoyodyne`, one directory per project named by its
+`product.id`, so nothing there depends on where the project is checked out. The
+home's own layout is under
+[Layout in the configuration index](../configuration.md#layout), and how a
+project is tied to its repository under
+[the binding](../configuration.md#one-id-one-repository-the-binding).
 
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under
@@ -299,9 +303,10 @@ Yoyodyne looks for a configuration in this order:
 3. otherwise `.yoyodyne/config.yaml`, searching from the current directory
    upwards to the filesystem root;
 4. otherwise `.yoyodyne.yaml` in the same directories;
-5. otherwise this machine's own configuration for the repository the current
-   directory is in, under
-   [the configurations home](../configuration.md#keeping-the-configuration-outside-the-repository).
+5. otherwise the `config.yaml` in the machine home's project directory whose
+   [binding](../configuration.md#one-id-one-repository-the-binding) names the
+   repository the current directory is in — a configuration
+   [kept outside the repository](../configuration.md#keeping-the-configuration-outside-the-repository).
 
 Because the search walks upwards, `yoyo run` works from the project root or
 from any directory beneath it. When both forms exist in one directory, the
@@ -360,7 +365,7 @@ stays inside the repository has not left it, and the read and the write both
 follow it. The same holds of the `.yoyodyne` directory `yoyo init` writes: a project
 whose `.yoyodyne` leads out of the project is refused with the project untouched
 rather than scaffolded somewhere nothing commits. And of the
-[configurations home](../configuration.md#keeping-the-configuration-outside-the-repository),
+[machine home](../configuration.md#keeping-the-configuration-outside-the-repository),
 which is a declared root like any other: a write that resolves out of it
 is refused rather than landing where nothing looks for it.
 

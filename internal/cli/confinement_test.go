@@ -28,12 +28,12 @@ func TestTheInitializationWriterIsConfinedToTheProject(t *testing.T) {
 	})
 }
 
-// An external initialization writes into this machine's configurations home
+// An external initialization writes into the machine home's project directory
 // instead of into the repository, and is held to the same matrix there. The
 // topologies are the ones that matter most for it: the home is a directory
 // somebody's dotfiles may well have symlinked, and a write that followed one out
 // of it would land a configuration where nothing looks for it again.
-func TestTheExternalInitializationWriterIsConfinedToTheConfigurationsHome(t *testing.T) {
+func TestTheExternalInitializationWriterIsConfinedToTheMachineHome(t *testing.T) {
 	// A repository for the configuration to be keyed by. It needs a `.git` and
 	// nothing else: what is looked for is the marker rather than a working Git.
 	repository := filepath.Join(t.TempDir(), "example-project")
@@ -46,10 +46,10 @@ func TestTheExternalInitializationWriterIsConfinedToTheConfigurationsHome(t *tes
 	// rather than a fixed name.
 	writertest.Run(t, writertest.Writer{
 		Name:      "yoyo init --external",
-		Directory: config.ExternalDirectory(repository),
+		Directory: "projects/example-product",
 		File:      config.FileName,
 		Write: func(t *testing.T, root string) error {
-			t.Setenv(config.HomeVariable, root)
+			t.Setenv("YOYODYNE_STATE_HOME", root)
 			_, err := initializeProject(initializeOptions{
 				Directory: repository,
 				ProductID: "example-product",

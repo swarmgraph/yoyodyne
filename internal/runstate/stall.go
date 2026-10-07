@@ -37,6 +37,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
@@ -206,7 +207,7 @@ func NewStallStore(root string, productID domain.ProductID) (*StallStore, error)
 		return nil, err
 	}
 	return &StallStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

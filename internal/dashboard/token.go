@@ -29,6 +29,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 )
 
@@ -51,7 +52,7 @@ const TokenFileName = "dashboard.token"
 // outside the repository and belongs to this machine like everything else
 // there.
 func TokenFile(stateRoot string, productID domain.ProductID) string {
-	return filepath.Join(filepath.Clean(stateRoot), "products", string(productID), TokenFileName)
+	return filepath.Join(home.ProductDirectory(stateRoot, string(productID)), TokenFileName)
 }
 
 // KeychainStoreCommand is the command that stores the keychain token. `-w`

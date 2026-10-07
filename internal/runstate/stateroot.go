@@ -1,157 +1,65 @@
 package runstate
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"go.yaml.in/yaml/v3"
-
-	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // StateHomeVariable is the explicit instruction that moves the state root for
 // one shell, and it wins over everything else because it is one.
-const StateHomeVariable = "YOYODYNE_STATE_HOME"
+const StateHomeVariable = home.StateHomeVariable
 
-// MachineFileName is the machine-local configuration file, kept in the
-// configurations home beside the external project configurations. It describes
-// this machine rather than any project, which is why the state root is set here
-// and never in a project file: a project file is committed and read on every
-// machine that checks the project out, and one that sets the key is refused.
-const MachineFileName = config.MachineFileName
+// MachineFileName is the machine's own settings file, kept at
+// `~/.yoyodyne/machine.yaml`. It describes this machine rather than any
+// project, which is why the state root is set here and never in a project file:
+// a project file is committed and read on every machine that checks the project
+// out, and one that sets the key is refused.
+const MachineFileName = home.MachineFileName
 
 // The origins a state root is reported under, in the order they are consulted.
 // `yoyo config show --origins` and `yoyo doctor` print them, so they are named
 // in the vocabulary an operator would type to change the value.
 const (
-	RootOriginEnvironment     = "environment:" + StateHomeVariable
-	rootOriginMachinePrefix   = "machine:"
-	RootOriginXDG             = "environment:XDG_STATE_HOME"
-	RootOriginPlatformDefault = "platform-default"
+	RootOriginEnvironment    = home.OriginEnvironment
+	RootOriginXDG            = home.OriginXDG
+	RootOriginDefault        = home.OriginDefault
+	RootOriginEarlierDefault = home.OriginEarlierDefault
 )
 
 // ResolvedRoot is the state root one process resolved and the layer it came
-// from.
-type ResolvedRoot struct {
-	Path string
-	// Origin names the layer: one of the RootOrigin constants, or "machine:"
-	// followed by the machine file that set it.
-	Origin string
-}
+// from. The state root is the machine home: the two are one directory.
+type ResolvedRoot = home.Resolved
 
-// machineDocument is the whole of what the machine file may say. It is decoded
-// strictly, so a misspelled key is refused rather than leaving the root where it
-// was with nothing to say why.
-type machineDocument struct {
-	StateRoot string `yaml:"state_root"`
-}
-
-// MachinePath is where this machine's configuration file is, whether or not it
+// MachinePath is where this machine's settings file is, whether or not it
 // exists.
-func MachinePath(getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
-	home, err := config.ExternalHome(getenv, userHomeDir)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, MachineFileName), nil
-}
-
-// machineStateRoot is the state root the machine file sets, or nothing where
-// there is no file or it sets none.
-func machineStateRoot(getenv func(string) string, userHomeDir func() (string, error)) (string, string, error) {
-	path, err := MachinePath(getenv, userHomeDir)
-	if err != nil {
-		return "", "", err
-	}
-	source, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", path, nil
-	}
-	if err != nil {
-		return "", path, fmt.Errorf("read the machine configuration %s: %w", path, err)
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(source))
-	decoder.KnownFields(true)
-	var document machineDocument
-	if err := decoder.Decode(&document); err != nil {
-		if errors.Is(err, io.EOF) {
-			return "", path, nil
-		}
-		return "", path, fmt.Errorf("read the machine configuration %s: %w", path, err)
-	}
-	value := strings.TrimSpace(document.StateRoot)
-	if value == "" {
-		return "", path, nil
-	}
-	if !filepath.IsAbs(value) {
-		return "", path, fmt.Errorf("state_root in %s must be an absolute path and is %q", path, value)
-	}
-	return filepath.Clean(value), path, nil
+func MachinePath(userHomeDir func() (string, error)) (string, error) {
+	return home.MachinePath(userHomeDir)
 }
 
 // ResolveRoot is the one resolution of the state root every process makes:
 // YOYODYNE_STATE_HOME, then state_root in the machine file, then
-// XDG_STATE_HOME/yoyodyne, then the platform default, in that order. The
-// variable wins because it is an explicit instruction for this shell; the
-// machine key is the operator's standing answer for the machine; the last two
-// are what a machine nobody configured gets.
+// XDG_STATE_HOME/yoyodyne, then the machine home `~/.yoyodyne` — or the
+// platform's earlier default home, where that exists and `~/.yoyodyne` does
+// not, until the migration moves it. home.Resolve is the resolution; this is
+// its name where run state is concerned.
 //
 // It resolves and never guards. A process that opens a product's records under
 // the root agrees it with the checkout's marker first, through AgreeRoot, which
-// is what the command package's productStateRoot does; only the two surfaces that
-// report the root without opening anything under it — `yoyo config show` and
-// `yoyo doctor` — call this without that. TestNothingOpensTheStateRootUnguarded
-// in the command package holds every caller to that list.
+// is what the command package's productStateRoot does; only the surfaces that
+// report the root without opening anything under it — `yoyo config show`,
+// `yoyo doctor`, and `yoyo home` — call this without that.
+// TestNothingOpensTheStateRootUnguarded in the command package holds every
+// caller to that list.
 func ResolveRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (ResolvedRoot, error) {
-	if value := strings.TrimSpace(getenv(StateHomeVariable)); value != "" {
-		if !filepath.IsAbs(value) {
-			return ResolvedRoot{}, errors.New("YOYODYNE_STATE_HOME must be an absolute path")
-		}
-		return ResolvedRoot{Path: filepath.Clean(value), Origin: RootOriginEnvironment}, nil
-	}
-	machine, machinePath, err := machineStateRoot(getenv, userHomeDir)
-	if err != nil {
-		return ResolvedRoot{}, err
-	}
-	if machine != "" {
-		return ResolvedRoot{Path: machine, Origin: rootOriginMachinePrefix + machinePath}, nil
-	}
-	if value := strings.TrimSpace(getenv("XDG_STATE_HOME")); value != "" {
-		if !filepath.IsAbs(value) {
-			return ResolvedRoot{}, errors.New("XDG_STATE_HOME must be an absolute path")
-		}
-		return ResolvedRoot{Path: filepath.Join(filepath.Clean(value), "yoyodyne"), Origin: RootOriginXDG}, nil
-	}
-
-	home, err := userHomeDir()
-	if err != nil {
-		return ResolvedRoot{}, fmt.Errorf("resolve user home directory: %w", err)
-	}
-	var path string
-	switch goos {
-	case "darwin":
-		path = filepath.Join(home, "Library", "Application Support", "Yoyodyne", "state")
-	case "windows":
-		if localAppData := strings.TrimSpace(getenv("LOCALAPPDATA")); localAppData != "" {
-			if !filepath.IsAbs(localAppData) {
-				return ResolvedRoot{}, errors.New("LOCALAPPDATA must be an absolute path")
-			}
-			path = filepath.Join(localAppData, "Yoyodyne", "state")
-		} else {
-			path = filepath.Join(home, "AppData", "Local", "Yoyodyne", "state")
-		}
-	default:
-		path = filepath.Join(home, ".local", "state", "yoyodyne")
-	}
-	return ResolvedRoot{Path: path, Origin: RootOriginPlatformDefault}, nil
+	return home.Resolve(getenv, userHomeDir, goos)
 }
 
 // RootMarkerName is the marker's path inside the primary checkout's Git
@@ -165,39 +73,9 @@ const RootMarkerName = "yoyodyne/state-root"
 // compared. It reads the filesystem rather than asking Git, as configuration
 // discovery does, so every process can answer it before anything else runs.
 func RootMarkerPath(checkout string) (marker string, gitDirectory string, err error) {
-	dotGit := filepath.Join(checkout, ".git")
-	info, err := os.Stat(dotGit)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", "", nil
-	}
-	if err != nil {
-		return "", "", fmt.Errorf("inspect %s: %w", dotGit, err)
-	}
-	gitDirectory = dotGit
-	if !info.IsDir() {
-		// A linked worktree or a submodule: the file names the Git directory,
-		// and a linked worktree's names the shared one in its commondir.
-		content, err := os.ReadFile(dotGit)
-		if err != nil {
-			return "", "", fmt.Errorf("read %s: %w", dotGit, err)
-		}
-		line := strings.TrimSpace(string(content))
-		named, ok := strings.CutPrefix(line, "gitdir:")
-		if !ok {
-			return "", "", fmt.Errorf("%s names no Git directory", dotGit)
-		}
-		gitDirectory = strings.TrimSpace(named)
-		if !filepath.IsAbs(gitDirectory) {
-			gitDirectory = filepath.Join(checkout, gitDirectory)
-		}
-		if common, err := os.ReadFile(filepath.Join(gitDirectory, "commondir")); err == nil {
-			shared := strings.TrimSpace(string(common))
-			if !filepath.IsAbs(shared) {
-				shared = filepath.Join(gitDirectory, shared)
-			}
-			gitDirectory = shared
-		}
-		gitDirectory = filepath.Clean(gitDirectory)
+	gitDirectory, err = home.CommonGitDirectory(checkout)
+	if err != nil || gitDirectory == "" {
+		return "", "", err
 	}
 	return filepath.Join(gitDirectory, filepath.FromSlash(RootMarkerName)), gitDirectory, nil
 }
@@ -217,9 +95,14 @@ const RootWriterName = RootMarkerName + ".writer"
 // modification time, since a marker is created once and never rewritten in
 // place.
 type RootMarker struct {
-	Path      string
-	Recorded  string
-	Writer    string
+	Path     string
+	Recorded string
+	Writer   string
+	// Origin is the layer the recording process resolved the root from — the
+	// environment variable, the machine file, or a default — which is what says
+	// which environment set it when a launch job and a shell disagree. Empty for
+	// a marker recorded before the origin was kept.
+	Origin    string
 	WrittenAt time.Time
 }
 
@@ -253,6 +136,8 @@ func ReadRootMarker(checkout string) (RootMarker, error) {
 			switch strings.TrimSpace(key) {
 			case "writer":
 				read.Writer = value
+			case "origin":
+				read.Origin = value
 			case "at":
 				if at, err := time.Parse(time.RFC3339, value); err == nil {
 					read.WrittenAt = at
@@ -288,10 +173,14 @@ func (m RootMarker) WrittenBy() string {
 	if !m.WrittenAt.IsZero() {
 		at = "at " + m.WrittenAt.Local().Format(time.RFC3339)
 	}
+	from := ""
+	if m.Origin != "" {
+		from = ", which resolved it from " + m.Origin
+	}
 	if m.Writer == "" {
 		return "by a process that recorded no account of itself, " + at
 	}
-	return "by " + m.Writer + ", " + at
+	return "by " + m.Writer + from + ", " + at
 }
 
 // RebindCommand is the one command that replaces a marker naming a root that
@@ -352,7 +241,7 @@ func AgreeRoot(checkout string, resolved ResolvedRoot) error {
 		return fmt.Errorf("record the state root in %s: %w", marker, err)
 	}
 	if created {
-		if _, err := root.WriteFile(RootWriterName, writerAccount(time.Now())); err != nil {
+		if _, err := root.WriteFile(RootWriterName, writerAccount(resolved, time.Now())); err != nil {
 			return fmt.Errorf("record who recorded the state root beside %s: %w", marker, err)
 		}
 	}
@@ -412,7 +301,7 @@ func RebindRoot(checkout string, resolved ResolvedRoot) (Rebinding, error) {
 	}
 	// The account is written first, so a marker never stands beside the
 	// previous writer's account of a root it no longer names.
-	if _, err := root.WriteFile(RootWriterName, writerAccount(time.Now())); err != nil {
+	if _, err := root.WriteFile(RootWriterName, writerAccount(resolved, time.Now())); err != nil {
 		return Rebinding{}, fmt.Errorf("record who rebound the state root beside %s: %w", before.Path, err)
 	}
 	if _, err := root.WriteFile(RootMarkerName, []byte(resolved.Path+"\n")); err != nil {
@@ -422,15 +311,16 @@ func RebindRoot(checkout string, resolved ResolvedRoot) (Rebinding, error) {
 }
 
 // writerAccount is what is kept beside the marker about the process that
-// recorded it: its process id and command line, and the moment.
-func writerAccount(now time.Time) []byte {
+// recorded it: its process id and command line, the layer it resolved the root
+// from, and the moment.
+func writerAccount(resolved ResolvedRoot, now time.Time) []byte {
 	command := "an unnamed command"
 	if len(os.Args) > 0 {
 		arguments := append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...)
 		command = "`" + strings.Join(arguments, " ") + "`"
 	}
-	return []byte(fmt.Sprintf("writer: process %d, running %s\nat: %s\n",
-		os.Getpid(), command, now.Format(time.RFC3339)))
+	return []byte(fmt.Sprintf("writer: process %d, running %s\norigin: %s\nat: %s\n",
+		os.Getpid(), command, resolved.Origin, now.Format(time.RFC3339)))
 }
 
 // refuseMarkerOutsideTemporary is the fixture that keeps tests out of real

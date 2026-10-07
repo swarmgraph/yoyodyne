@@ -369,7 +369,7 @@ where the token every request for the read model has to carry as
 `+"`generated`"+` default, the token itself, once, and a restart makes a new one; with
 it set to `+"`keychain`"+` or `+"`file`"+`, the token is read from the keychain item
 yoyo-dashboard.<product id> under the account yoyo or the file
-<state root>/products/<product id>/dashboard.token, is never printed, and the
+<state root>/projects/<product id>/state/dashboard.token, is never printed, and the
 same one serves after a restart. A store that does not hold the token refuses to
 start with the command that stores it, the one `+"`yoyo doctor`"+` prints. The page
 asks for the token and keeps it in the tab's session storage, scoped to this

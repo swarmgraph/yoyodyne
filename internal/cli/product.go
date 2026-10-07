@@ -44,6 +44,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
@@ -841,7 +842,7 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				dir:        config.ProjectDirectory(p.resolved.Path),
 				environ:    p.environ,
 				logRoot:    p.stateRoot,
-				log:        "products/" + string(productID) + "/" + schedulerLogFile,
+				log:        home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + schedulerLogFile,
 			})
 		case config.ServiceDashboard:
 			// The dashboard's adoption as a child is yoyodyne-ifd.414; until it

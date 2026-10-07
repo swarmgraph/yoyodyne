@@ -147,10 +147,38 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
 control. Run state, provider event streams, locks, worktrees, and the reports
-agents file while their work carries on live outside the repository under an
-operating-system state directory, so nothing there depends on where the project
-is checked out. Where that directory is can be set for the machine and never in
-this file; see [`state_root`](#where-the-harness-keeps-its-state-state_root).
+agents file while their work carries on live outside the repository, in the
+**machine home**, so nothing there depends on where the project is checked out.
+The home is `~/.yoyodyne` on every platform, and it holds one directory per
+project, named by its `product.id`, with what no one project owns at the top:
+
+```text
+~/.yoyodyne/
+  machine.yaml             # this machine's settings; state_root moves the rest
+  accounts/                # provider accounts, which serve every project
+  operator-hold.json       # the operator's pause: one for the whole machine
+  logs/                    # logs of the machine's own; each product's supervisor, scheduler, and Slack sink logs are its own, under its state/
+  projects/
+    example/               # one directory per product.id
+      config.yaml          # the configuration, where the repository does not carry it
+      repository.json      # the binding: which repository this id is
+      state/               # every record the product keeps: runs, conversations, spend, the docket, memory, reports
+      worktrees/           # the developer worktrees of the bound repository
+```
+
+The design also places an `intent/` directory in a project's directory, for
+a companion intent repository kept apart from the code. Nothing in this build
+creates or reads it; it arrives with the later build that brings companion
+intent repositories, and until then a project's intent is read from the
+repository the binding names.
+
+`product.id` names the directory, so it is one safe path segment — lowercase
+letters, digits, and hyphens, starting with a letter — and any other id is
+refused when the configuration loads. Where the home is can be moved for the
+machine and never in this file; see
+[`state_root`](#where-the-harness-keeps-its-state-state_root), which also says
+what a machine still using the earlier builds' home reads. How a project is
+bound to its repository is [the binding](#one-id-one-repository-the-binding).
 
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under
@@ -425,9 +453,10 @@ Yoyodyne looks for a configuration in this order:
 3. otherwise `.yoyodyne/config.yaml`, searching from the current directory
    upwards to the filesystem root;
 4. otherwise `.yoyodyne.yaml` in the same directories;
-5. otherwise this machine's own configuration for the repository the current
-   directory is in, under
-   [the configurations home](#keeping-the-configuration-outside-the-repository).
+5. otherwise the `config.yaml` in the machine home's project directory whose
+   [binding](#one-id-one-repository-the-binding) names the repository the
+   current directory is in — a configuration
+   [kept outside the repository](#keeping-the-configuration-outside-the-repository).
 
 Because the search walks upwards, `yoyo run` works from the project root or
 from any directory beneath it. When both forms exist in one directory, the
@@ -485,7 +514,7 @@ itself to, and nothing downstream could tell it from one that was. A symlink tha
 stays inside the repository has not left it, and the read and the write both
 follow it. The same holds of the `.yoyodyne` directory `yoyo init` writes: a project
 whose `.yoyodyne` leads out of the project is refused with the project untouched
-rather than scaffolded somewhere nothing commits. And of the configurations home
+rather than scaffolded somewhere nothing commits. And of the machine home
 below, which is a declared root like any other: a write that resolves out of it
 is refused rather than landing where nothing looks for it.
 
@@ -537,25 +566,28 @@ yoyo init --external
 yoyo doctor
 ```
 
-It writes into `~/.config/yoyodyne/projects/<key>/`, where `<key>` names the
-checkout — its directory name, then a digest of where it is — and everything
-`init` ordinarily writes into `.yoyodyne/` goes there instead, personas
-included. `$XDG_CONFIG_HOME/yoyodyne` is used when that variable is set, and
-`YOYODYNE_CONFIG_HOME` overrides both.
+It writes into the machine home's project directory for the product id,
+`~/.yoyodyne/projects/<product id>/`, and everything `init` ordinarily writes
+into `.yoyodyne/` goes there instead, personas included. The id is the
+checkout's directory name unless `--product` names another. Before anything is
+written, the project is [bound](#one-id-one-repository-the-binding) to the
+repository; an id already bound to a different repository is refused then, with
+nothing written, in the words every start would refuse it in.
 
 Four things are worth knowing about it:
 
-- **Nothing is passed on later commands.** The configuration is keyed by the
-  repository, so `yoyo` finds it from the repository root, from any directory
-  beneath it, and from a worktree Git added from it — a run's worktree, and a
-  check or a hook that shells out to `yoyo` from inside one, resolve to the
-  repository they came from rather than being read as projects of their own.
-  That is what separates this from moving `.yoyodyne` somewhere by hand and
-  passing `--config` on everything thereafter.
-- **The key is the checkout, not the project.** Two checkouts of one project on
-  one machine are two configurations, because they are two things to configure.
-  Moving a checkout leaves its configuration behind under the old key; run
-  `init --external` again, or move the directory to the key the refusal names.
+- **Nothing is passed on later commands.** The configuration is found by the
+  binding, which names the repository's Git common directory, so `yoyo` finds it
+  from the repository root, from any directory beneath it, and from a worktree
+  Git added from it — a run's worktree, and a check or a hook that shells out to
+  `yoyo` from inside one, resolve to the repository they came from rather than
+  being read as projects of their own. That is what separates this from moving
+  `.yoyodyne` somewhere by hand and passing `--config` on everything thereafter.
+- **The key is the product id, and one clone holds it.** A second clone of the
+  same project on this machine refuses to start rather than being configured as
+  a second project; `yoyo project bind --replace` moves the project to it.
+  Moving the checkout leaves the binding naming a path that is gone, and every
+  start refuses until `yoyo project bind` is run from where the checkout is now.
 - **`product.repository` is written absolute.** An external configuration has no
   project directory above it for a relative path to resolve against. The
   artifact directories are unaffected: `specifications`, `invariants`,
@@ -572,38 +604,107 @@ Either way, the project stops describing itself, which in this scenario is the
 intent: another clone, another machine, and anybody else working on it get no
 configuration at all, and `yoyo` there reports that it found none.
 
+**Earlier builds kept these under `~/.config/yoyodyne/projects/<key>/`**, keyed
+by where the checkout was, and that directory is no longer read — nor is the
+`machine.yaml` beside it. A search that finds nothing else names a
+configuration it finds left there, and the way to move it: into
+`~/.yoyodyne/projects/<product id>/config.yaml`, then
+`yoyo project bind --product <product id>` from the repository. A machine file
+left there, with none at `~/.yoyodyne/machine.yaml`, stops every command with
+the `mv` that puts it where it is read.
+
+## One id, one repository: the binding
+
+A project directory is bound to one repository by that repository's Git common
+directory — what `git rev-parse --git-common-dir` answers, made absolute —
+recorded in `projects/<product id>/repository.json` with the remote it fetches
+from, when it was bound, and by what. Every worktree of one clone shares that
+directory, so a `yoyo` run from a developer's worktree, or from a worktree a
+person made, is the same project and never a duplicate.
+
+The harness writes the binding once, at the first start against an id that has
+no project directory, and says so on stderr. After that every start — every
+command that opens a product's records — is held to it:
+
+| What the start finds | What happens | The one command named |
+| --- | --- | --- |
+| The bound repository is this one, or a worktree of it | it proceeds | — |
+| Another clone is bound, still there, fetching from the same remote | it refuses: this machine runs one clone of a project, and names it | `yoyo project bind --replace`, run from this clone |
+| Another repository is bound, still there, fetching from a different remote or none | it refuses: two products share the id | `yoyo project rename <id> <new-id>`, run from the one already bound |
+| The bound repository is no longer at its path | it refuses, naming the recorded path | `yoyo project bind`, run from where the repository is now |
+
+The harness never re-binds on a missing repository by itself, because a moved
+clone and an unmounted volume look the same and pointing a project's history at
+the wrong tree is not something a command can undo.
+
+```sh
+yoyo project list                         # every project directory, its binding, and whether the repository is there
+yoyo project bind                         # bind this repository to the project for its id
+yoyo project bind --replace               # ...although another clone is still bound
+yoyo project bind --product <id>          # ...naming the id, where no configuration is found here
+yoyo project rename <old> <new>           # move a project directory, and everything under it, to a new id
+```
+
+`bind` refuses while a run of the project is in flight. `rename` refuses while a
+run is in flight, while the project still holds worktrees (the repository has
+them registered at their paths), and where the new id is taken. Where the
+configuration is in the project directory, `rename` rewrites its `product.id`;
+where it is committed, the repository's `product.id` must already read the new
+id, so the two never disagree. Each bind and rename is recorded in the project's
+`state/project-acts.jsonl` with who ran it. `yoyo doctor` reports the binding on
+its `project` line and writes none.
+
+A home still laid out the earlier way (below) writes no binding of its own —
+its records predate bindings, and the migration writes each one — but holds a
+start to a binding `yoyo project bind` or `yoyo init --external` wrote there.
+`rename` refuses in that layout, because the records under `products/` would be
+left behind under the old id.
+
 ## Where the harness keeps its state: `state_root`
 
 Run state, provider event streams, locks, worktrees, the operator's pause, and
 every durable record the harness keeps live under one directory outside the
-repository, the **state root**. Where it is can be set for the machine, in a
-file that describes the machine rather than any project:
+repository: the machine home, which is also called the **state root**. It is
+`~/.yoyodyne` unless something moves it, and it can be moved for the machine in
+a file that describes the machine rather than any project:
 
 ```yaml
-# ~/.config/yoyodyne/machine.yaml
+# ~/.yoyodyne/machine.yaml
 state_root: /Volumes/work/yoyodyne-state
 ```
 
-`machine.yaml` sits in the configurations home, beside the
-[external configurations](#keeping-the-configuration-outside-the-repository):
-`~/.config/yoyodyne`, or `$XDG_CONFIG_HOME/yoyodyne` when that variable is set,
-or `YOYODYNE_CONFIG_HOME` over both. `state_root` is its only key; it must be
-an absolute path, and a key it does not have is refused rather than ignored. A
-missing file, an empty one, and an empty `state_root` all leave the root where
-the layers below put it.
+`machine.yaml` is always read from `~/.yoyodyne`, whatever it says, because it
+is the file that says where everything else is. `state_root` is its only key; it
+must be an absolute path, and a key it does not have is refused rather than
+ignored. A missing file, an empty one, and an empty `state_root` all leave the
+root where the layers below put it.
 
 **The root is resolved in this order**, the first that says anything winning:
 
 1. `YOYODYNE_STATE_HOME`, the explicit instruction for one shell;
-2. `state_root` in `machine.yaml`;
+2. `state_root` in `~/.yoyodyne/machine.yaml`;
 3. `$XDG_STATE_HOME/yoyodyne`;
-4. the platform default: `~/Library/Application Support/Yoyodyne/state` on
-   macOS, `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and
-   `~/.local/state/yoyodyne` elsewhere.
+4. `~/.yoyodyne`, on every platform — except that where `~/.yoyodyne` does not
+   exist and the earlier builds' default does, the earlier one is kept:
+   `~/Library/Application Support/Yoyodyne/state` on macOS,
+   `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and `~/.local/state/yoyodyne`
+   elsewhere.
 
 Every process the harness starts — the watch, the Slack sink, the dashboard,
 the supervisor, conversations, and runs — resolves the root through that one
-order.
+order, and so does every script under `bin/`, by asking `yoyo home --path`
+rather than reading the variables itself.
+
+**Nothing is moved on its own.** A machine whose state is in the earlier
+default keeps using it, so a build deployed over a running harness restarts into
+a harness that finds its state where it left it. A root laid out the earlier way
+— one holding a `products/` directory — is read that way wherever it is: each
+product's records under `products/<product id>/` and its worktrees under
+`worktrees/<product id>/`, where a new home keeps them under
+`projects/<product id>/state/` and `projects/<product id>/worktrees/`. Setting
+`YOYODYNE_STATE_HOME` to the earlier home keeps using it for as long as anybody
+likes. `yoyo home` says which home this shell resolves, which setting put it
+there, and which layout it is in.
 
 **It is never a project setting.** A project configuration is committed and
 read on every machine that checks it out, and where state lives is true of one
@@ -615,7 +716,8 @@ opens the root for a product records it in `.git/yoyodyne/state-root` of the
 product's checkout, and a later process that resolved a different root — a
 shell exporting another `YOYODYNE_STATE_HOME`, a launch job carrying an old
 environment, an edited `machine.yaml` — refuses to start, naming both roots,
-the layer that set its own, and the marker. It records nothing and writes
+the layer that set its own, the layer the recording process resolved from, and
+the marker. It records nothing and writes
 nothing under the root it resolved. A root reached through a symlink agrees
 with the directory it links to. A worktree Git added from the checkout shares
 the checkout's marker, and a repository that is not a Git checkout keeps none.
@@ -630,7 +732,7 @@ which is what the refusal and `yoyo doctor` name as the remedy
 ([operations](operations.md#where-the-state-is-and-moving-it)).
 
 **Two products on one machine share the root unless one of them is moved.** Each
-product keeps its records under `products/<product id>/` inside it, and each
+product keeps its records in its own project directory inside it, and each
 product's checkout carries its own marker, so two products that resolve the same
 root agree with each other as well as with themselves. The
 [operator's pause](operations.md#pausing-everything-and-resuming-it) lives at the
@@ -642,9 +744,13 @@ placed at the other one.
 `# state root:` line, `--origins` lists it as `state_root` with the same origin,
 and `--json` carries both under `state_root`. The origin is
 `environment:YOYODYNE_STATE_HOME`, `machine:<path of machine.yaml>`,
-`environment:XDG_STATE_HOME`, or `platform-default`. [`yoyo
-doctor`](operations.md#checking-the-installation) reports the same two, and
-whether the checkout's marker agrees. Neither of them records a marker.
+`environment:XDG_STATE_HOME`, `default` for `~/.yoyodyne`, or
+`earlier-default` for the earlier builds' home kept in use. [`yoyo
+doctor`](operations.md#checking-the-installation) reports the same two, whether
+the checkout's marker agrees, and which layer the process that recorded the
+marker resolved its root from — so a launch job and a shell that disagree about
+`YOYODYNE_STATE_HOME` are told apart by name. `yoyo home` prints the same.
+None of them records a marker.
 
 ## Precedence
 
@@ -5336,7 +5442,7 @@ decision that would spend more than the item is allowed.
 figure on an entry — the rounds spent, each decision recorded, and each cap
 beside it — comes from the [per-item counters](#what-one-work-item-has-been-given)
 a decision spends, and the re-runs already carried out come from the per-stoppage
-re-run records under `<state root>/products/<product id>/reruns/`. It
+re-run records under `<state root>/projects/<product id>/state/reruns/`. It
 is read as the docket is read rather than written into the entry: the entry is
 recorded once as the work stops and every decision about it is made afterwards,
 so an entry frozen at docket time could only ever show every decision as absent.
@@ -5481,7 +5587,7 @@ the settle could not classify: a claim given back twice is one decision starting
 two runs.
 
 The re-run is recorded beside the counters, one file per docketed stoppage at
-`<state root>/products/<product id>/reruns/`, and it carries what the stopped
+`<state root>/projects/<product id>/state/reruns/`, and it carries what the stopped
 run preserved. Its branch and worktree are **kept** while the fresh run has not
 integrated — that is what a development manager's guidance points at when it says
 what to cherry-pick — and **retired** explicitly once it has. Anything that could
@@ -5920,7 +6026,7 @@ stands per stopped run. Concurrent updates are serialized per item, so no increm
 record that cannot be read is a refusal rather than an empty budget: an
 unreadable budget read as empty is every cap in it stopping to mean anything.
 Recovery from one is a decision, not a repair: the record is one JSON file per
-item at `<state root>/products/<product id>/triage/`, named by a slugged
+item at `<state root>/projects/<product id>/state/triage/`, named by a slugged
 rendering of the item id with a digest suffix (so a listing reads which item
 each file belongs to, and two ids that render alike still get their own files
 — match on the slug). Read it and fix what is malformed if the history is
@@ -6383,7 +6489,9 @@ stays the machine's own home. Every other alias has a provider home of its own,
 at `<state root>/accounts/<alias>`, which the harness sets that provider's home
 variable to when it invokes under that account — `CLAUDE_CONFIG_DIR` for Claude
 Code, `CODEX_HOME` for Codex. That is one rule, and the harness, `yoyo doctor`,
-and `bin/yoyo-account` all read it the same way. It is a rule rather than a
+and `bin/yoyo-account` all read it the same way — the script by asking
+`yoyo home --path` where the state root is, rather than working it out from the
+environment. It is a rule rather than a
 setting because this file is versioned with the repository, and a directory
 belonging to one machine has no business in it.
 
@@ -6929,7 +7037,7 @@ web-security conventions made configuration:
   can read it. `keychain` and `file` are the two stores the Slack tokens already
   use, under names that carry the product: the keychain item
   `yoyo-dashboard.<product id>` under the account `yoyo`, or the file
-  `<state root>/products/<product id>/dashboard.token`. `yoyo dashboard`
+  `<state root>/projects/<product id>/state/dashboard.token`. `yoyo dashboard`
   reads the one named and serves under it, printing where it was read from
   and never the value, so a stored token outlives a restart; a store that does
   not hold it refuses to start with the command that stores it.
@@ -7561,7 +7669,7 @@ agents:
 
 **A burst wakes an instance once.** Each instance keeps a cursor per stream —
 the run records and the tracker — under the state root, at
-`products/<product id>/program-managers/<agent>/cursor.json`, beside its lane
+`projects/<product id>/state/program-managers/<agent>/cursor.json`, beside its lane
 report. An event past the cursor arms one wake. The wake is taken at the next
 pull once the streams have been quiet for **two minutes**, or at once where
 `every` is due, whichever comes first; the pass is handed everything between the

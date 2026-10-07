@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // The request is written by the operator's process and read by whichever process
@@ -93,7 +94,7 @@ func TestAnUnreadableStopRequestIsNotReportedAsAbsent(t *testing.T) {
 	root := t.TempDir()
 	store := newStopStore(t, root)
 	runID := "run-" + repeatHex(32)
-	directory := filepath.Join(root, "products", "yoyodyne", "runs")
+	directory := filepath.Join(home.ProductDirectory(root, "yoyodyne"), "runs")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}

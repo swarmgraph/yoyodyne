@@ -570,7 +570,7 @@ decision that would spend more than the item is allowed.
 figure on an entry — the rounds spent, each decision recorded, and each cap
 beside it — comes from the [per-item counters](#what-one-work-item-has-been-given)
 a decision spends, and the re-runs already carried out come from the per-stoppage
-re-run records under `<state root>/products/<product id>/reruns/`. It
+re-run records under `<state root>/projects/<product id>/state/reruns/`. It
 is read as the docket is read rather than written into the entry: the entry is
 recorded once as the work stops and every decision about it is made afterwards,
 so an entry frozen at docket time could only ever show every decision as absent.
@@ -710,7 +710,7 @@ the settle could not classify: a claim given back twice is one decision starting
 two runs.
 
 The re-run is recorded beside the counters, one file per docketed stoppage at
-`<state root>/products/<product id>/reruns/`, and it carries what the stopped
+`<state root>/projects/<product id>/state/reruns/`, and it carries what the stopped
 run preserved. Its branch and worktree are **kept** while the fresh run has not
 integrated — that is what a development manager's guidance points at when it says
 what to cherry-pick — and **retired** explicitly once it has. Anything that could
@@ -1168,7 +1168,7 @@ stands per stopped run. Concurrent updates are serialized per item, so no increm
 record that cannot be read is a refusal rather than an empty budget: an
 unreadable budget read as empty is every cap in it stopping to mean anything.
 Recovery from one is a decision, not a repair: the record is one JSON file per
-item at `<state root>/products/<product id>/triage/`, named by a slugged
+item at `<state root>/projects/<product id>/state/triage/`, named by a slugged
 rendering of the item id with a digest suffix (so a listing reads which item
 each file belongs to, and two ids that render alike still get their own files
 — match on the slug). Read it and fix what is malformed if the history is

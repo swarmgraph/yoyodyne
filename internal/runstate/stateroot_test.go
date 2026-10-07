@@ -11,7 +11,7 @@ import (
 )
 
 // machine is a described machine: a home directory, the variables its shell
-// exports, and optionally a machine file in its configurations home.
+// exports, and optionally a machine file in its machine home.
 type machine struct {
 	home string
 	env  map[string]string
@@ -28,7 +28,7 @@ func (m *machine) homeDir() (string, error) { return m.home, nil }
 
 func (m *machine) writeMachineFile(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(m.home, ".config", "yoyodyne", MachineFileName)
+	path := filepath.Join(m.home, ".yoyodyne", MachineFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -51,8 +51,8 @@ func TestTheStateRootResolvesInTheOrderTheDesignRules(t *testing.T) {
 	t.Parallel()
 
 	m := newMachine(t)
-	if got := m.resolve(t); got.Path != filepath.Join(m.home, ".local", "state", "yoyodyne") || got.Origin != RootOriginPlatformDefault {
-		t.Fatalf("nothing configured = %+v, want the platform default", got)
+	if got := m.resolve(t); got.Path != filepath.Join(m.home, ".yoyodyne") || got.Origin != RootOriginDefault {
+		t.Fatalf("nothing configured = %+v, want the machine home ~/.yoyodyne", got)
 	}
 
 	m.env["XDG_STATE_HOME"] = "/xdg"
@@ -61,6 +61,9 @@ func TestTheStateRootResolvesInTheOrderTheDesignRules(t *testing.T) {
 	}
 
 	machinePath := m.writeMachineFile(t, "state_root: /machine/state\n")
+	if machinePath != filepath.Join(m.home, ".yoyodyne", "machine.yaml") {
+		t.Fatalf("machine file at %s, want ~/.yoyodyne/machine.yaml", machinePath)
+	}
 	if got := m.resolve(t); got.Path != "/machine/state" || got.Origin != "machine:"+machinePath {
 		t.Fatalf("machine key over XDG = %+v, want the machine key naming its file", got)
 	}
@@ -71,17 +74,67 @@ func TestTheStateRootResolvesInTheOrderTheDesignRules(t *testing.T) {
 	}
 }
 
-func TestTheMachineFileIsFoundInTheConfigurationsHomeItNames(t *testing.T) {
+// The machine home is the default on every platform, and the earlier builds'
+// platform default is kept only while it exists and ~/.yoyodyne does not: a
+// build deployed over a running harness finds its state where it left it, and
+// nothing is moved on its own.
+func TestTheEarlierDefaultIsKeptUntilTheMachineHomeExists(t *testing.T) {
+	t.Parallel()
+
+	for goos, earlier := range map[string][]string{
+		"darwin":  {"Library", "Application Support", "Yoyodyne", "state"},
+		"linux":   {".local", "state", "yoyodyne"},
+		"windows": {"AppData", "Local", "Yoyodyne", "state"},
+	} {
+		m := newMachine(t)
+		resolved, err := ResolveRoot(m.getenv, m.homeDir, goos)
+		if err != nil || resolved.Path != filepath.Join(m.home, ".yoyodyne") || resolved.Origin != RootOriginDefault {
+			t.Fatalf("%s with nothing on disk = %+v, %v; want ~/.yoyodyne", goos, resolved, err)
+		}
+		earlierPath := filepath.Join(append([]string{m.home}, earlier...)...)
+		if err := os.MkdirAll(earlierPath, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		resolved, err = ResolveRoot(m.getenv, m.homeDir, goos)
+		if err != nil || resolved.Path != earlierPath || resolved.Origin != RootOriginEarlierDefault || !resolved.Earlier() {
+			t.Fatalf("%s with the earlier home on disk = %+v, %v; want the earlier home kept", goos, resolved, err)
+		}
+		if err := os.MkdirAll(filepath.Join(m.home, ".yoyodyne"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		resolved, err = ResolveRoot(m.getenv, m.homeDir, goos)
+		if err != nil || resolved.Path != filepath.Join(m.home, ".yoyodyne") || resolved.Origin != RootOriginDefault {
+			t.Fatalf("%s with both on disk = %+v, %v; want ~/.yoyodyne", goos, resolved, err)
+		}
+	}
+}
+
+// A machine file left where earlier builds kept it, with none where this build
+// reads it, is refused naming the move rather than silently read or ignored.
+func TestAMachineFileLeftInTheEarlierConfigurationsHomeIsRefused(t *testing.T) {
 	t.Parallel()
 
 	m := newMachine(t)
-	home := t.TempDir()
-	m.env["YOYODYNE_CONFIG_HOME"] = home
-	if err := os.WriteFile(filepath.Join(home, MachineFileName), []byte("state_root: /relocated\n"), 0o644); err != nil {
+	earlier := filepath.Join(m.home, ".config", "yoyodyne", MachineFileName)
+	if err := os.MkdirAll(filepath.Dir(earlier), 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(earlier, []byte("state_root: /relocated\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := ResolveRoot(m.getenv, m.homeDir, "linux")
+	if err == nil {
+		t.Fatal("ResolveRoot() read or ignored a machine file in the earlier configurations home")
+	}
+	for _, want := range []string{earlier, filepath.Join(m.home, ".yoyodyne", MachineFileName), "mv "} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not say %q", err, want)
+		}
+	}
+	// Once it is where it is read, it is read.
+	m.writeMachineFile(t, "state_root: /relocated\n")
 	if got := m.resolve(t); got.Path != "/relocated" {
-		t.Fatalf("ResolveRoot() = %+v, want the machine file under YOYODYNE_CONFIG_HOME", got)
+		t.Fatalf("ResolveRoot() = %+v, want the moved machine file read", got)
 	}
 }
 
@@ -102,8 +155,8 @@ func TestAMachineFileThatSaysNothingUsefulIsRefusedOrIgnored(t *testing.T) {
 	for name, content := range map[string]string{"empty file": "", "empty key": "state_root: \"\"\n"} {
 		m := newMachine(t)
 		m.writeMachineFile(t, content)
-		if got := m.resolve(t); got.Origin != RootOriginPlatformDefault {
-			t.Errorf("%s: ResolveRoot() = %+v, want the platform default", name, got)
+		if got := m.resolve(t); got.Origin != RootOriginDefault {
+			t.Errorf("%s: ResolveRoot() = %+v, want the default", name, got)
 		}
 	}
 }
@@ -121,7 +174,7 @@ func TestTheFirstProcessRecordsTheRootAndASecondRootIsRefused(t *testing.T) {
 	t.Parallel()
 
 	checkout := gitCheckout(t)
-	first := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginPlatformDefault}
+	first := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginDefault}
 	if err := AgreeRoot(checkout, first); err != nil {
 		t.Fatalf("AgreeRoot() first = %v", err)
 	}
@@ -220,7 +273,7 @@ func TestADirectoryThatIsNotACheckoutKeepsNoMarker(t *testing.T) {
 func TestTwoProductsShareOneRootAndOneOperatorHold(t *testing.T) {
 	t.Parallel()
 
-	shared := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginPlatformDefault}
+	shared := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginDefault}
 	yoyodyne, conductor := gitCheckout(t), gitCheckout(t)
 	for _, checkout := range []string{yoyodyne, conductor} {
 		if err := AgreeRoot(checkout, shared); err != nil {
@@ -252,7 +305,7 @@ func TestTwoProductsShareOneRootAndOneOperatorHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, store := range []*Store{first, second} {
-		if !strings.HasPrefix(store.Root(), filepath.Join(shared.Path, "products")+string(filepath.Separator)) {
+		if !strings.HasPrefix(store.Root(), filepath.Join(shared.Path, "projects")+string(filepath.Separator)) {
 			t.Errorf("store %s is not a product's own directory under the shared root", store.Root())
 		}
 	}
@@ -279,7 +332,7 @@ func TestAMarkerNamingAMissingRootIsRefusedWithTheRebindRemedy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolved := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginPlatformDefault}
+	resolved := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginDefault}
 	err := AgreeRoot(checkout, resolved)
 	var split *SplitRootError
 	if !errors.As(err, &split) || !split.Gone {

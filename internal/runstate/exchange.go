@@ -29,6 +29,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // ErrNoExchange reports an identifier that names nothing recorded, which is a
@@ -49,7 +50,7 @@ func NewExchangeStore(root string, productID domain.ProductID) (*ExchangeStore, 
 		return nil, err
 	}
 	return &ExchangeStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "exchanges"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "exchanges"),
 		productID: productID,
 	}, nil
 }

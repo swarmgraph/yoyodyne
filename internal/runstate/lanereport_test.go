@@ -94,7 +94,7 @@ func TestALaneReportIsRewrittenWholeAndItsVersionsKept(t *testing.T) {
 	}
 
 	// Under the state root, one directory per instance, and nowhere else.
-	if !strings.HasSuffix(store.ReportPath("factory"), "/products/yoyodyne/program-managers/factory/report.json") {
+	if !strings.HasSuffix(store.ReportPath("factory"), "/projects/yoyodyne/state/program-managers/factory/report.json") {
 		t.Errorf("the report is at %s", store.ReportPath("factory"))
 	}
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/sidestream"
 )
@@ -560,7 +561,7 @@ func NewMemoryStore(root string, productID domain.ProductID, redactValues ...str
 		return nil, err
 	}
 	return &MemoryStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "memory"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "memory"),
 		productID: productID,
 		redactor:  execution.NewRedactor(redactValues...),
 		rollAt:    MaxMemoryLogBytes,

@@ -27,6 +27,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/evaluation"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // maxEncodedEvaluationBytes bounds one encoded record, including the trailing
@@ -53,7 +54,7 @@ func NewEvaluationStore(root string, productID domain.ProductID) (*EvaluationSto
 		return nil, err
 	}
 	return &EvaluationStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

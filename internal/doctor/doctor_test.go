@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
@@ -1825,7 +1826,7 @@ func TestDoctorReportsAStaleSupervisorWithoutChangingItsRecords(t *testing.T) {
 		t.Fatal(err)
 	}
 	w.alive[reader.PID] = true
-	directory := filepath.Join(w.stateRoot, "products", "yoyodyne", "config-readers")
+	directory := filepath.Join(home.ProductDirectory(w.stateRoot, "yoyodyne"), "config-readers")
 	path := filepath.Join(directory, reader.InstanceID()+".json")
 	before, err := os.ReadFile(path)
 	if err != nil {

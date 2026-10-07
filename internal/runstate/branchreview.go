@@ -26,6 +26,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // maxEncodedBranchReviewBytes bounds one encoded record, including the trailing
@@ -191,7 +192,7 @@ func NewBranchReviewStore(root string, productID domain.ProductID) (*BranchRevie
 		return nil, err
 	}
 	return &BranchReviewStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "branch-reviews"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "branch-reviews"),
 		productID: productID,
 	}, nil
 }

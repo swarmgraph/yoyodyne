@@ -1297,11 +1297,21 @@ func TestSetupInstallsTheLaunchAgentThatStartsTheSupervisor(t *testing.T) {
 	world.launchAgent = true
 	world.executable = "/opt/calc/bin/yoyo"
 	world.environ = []string{"PATH=/opt/homebrew/bin:/usr/bin", "SLACK_BOT_TOKEN=xoxb-secret"}
+	// A Git directory is what a binding is written from; the runner answers
+	// every git command, so an empty one is enough to be bound by.
+	if err := os.MkdirAll(filepath.Join(world.project, ".git"), 0o755); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
 
 	report := world.walk()
 	step := world.step(report, stepLaunchAgent)
 	if step.Status != setupDone || !strings.Contains(step.Summary, "now starts with the machine") {
 		t.Fatalf("launch-agent step = %+v, want it installed", step)
+	}
+	// The first walk is the start that binds the project, and it says so in its
+	// own report: `setup --json` is read from stdout alone.
+	if !strings.HasPrefix(step.Detail, "bound project calc to the repository at ") {
+		t.Errorf("launch-agent step detail = %q, want it to open with the binding the walk wrote", step.Detail)
 	}
 	plist := filepath.Join(world.project, "Library", "LaunchAgents", "com.yoyodyne.supervisor.calc.plist")
 	content, err := os.ReadFile(plist)
@@ -1331,6 +1341,9 @@ func TestSetupInstallsTheLaunchAgentThatStartsTheSupervisor(t *testing.T) {
 	again := world.step(world.walk(), stepLaunchAgent)
 	if again.Status != setupAlready {
 		t.Errorf("a second walk from a shell with another PATH = %+v, want the agent already installed", again)
+	}
+	if strings.Contains(again.Detail, "bound project") {
+		t.Errorf("a second walk said it bound the project again: %q", again.Detail)
 	}
 	if world.runner.ran("launchctl bootout") {
 		t.Errorf("a working agent was unloaded over its PATH")

@@ -52,7 +52,7 @@ func TestMain(m *testing.M) {
 		code := m.Run()
 		// Direct supervisor and installer tests must use their product's own
 		// store, rather than leaking records into even the suite's default.
-		paths, err := filepath.Glob(filepath.Join(root, "products", "*", "config-readers", "supervisor-*.json"))
+		paths, err := filepath.Glob(filepath.Join(root, "projects", "*", "state", "config-readers", "supervisor-*.json"))
 		if err != nil || len(paths) != 0 {
 			fmt.Fprintf(os.Stderr, "supervisor tests leaked configuration records into the default state: %v, %v\n", paths, err)
 			code = 1

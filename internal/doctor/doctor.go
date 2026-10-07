@@ -42,6 +42,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -245,6 +246,7 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkRepository(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkTracker(ctx, repository))
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
+	report.Findings = append(report.Findings, diagnosis.checkBinding(string(resolved.Config.Product.ID), repository, resolved.Config.Execution.Remote))
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkArtifactHomes(project, repository, resolved))
@@ -483,7 +485,7 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 			Status:  StatusProblem,
 			Summary: "the state root could not be resolved, so nothing can be recorded",
 			Detail:  err.Error(),
-			Remedy:  "export YOYODYNE_STATE_HOME=$HOME/.local/state/yoyodyne",
+			Remedy:  "export YOYODYNE_STATE_HOME=$HOME/.yoyodyne",
 		}
 	}
 	root := resolved.Path
@@ -509,7 +511,7 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 			Summary: fmt.Sprintf("this shell resolves the state root %s, from %s, and this checkout's state is kept at %s, so every command from here refuses to start",
 				root, resolved.Origin, marker.Recorded),
 			Detail: fmt.Sprintf("recorded in %s %s; one product's state is never split across two roots", marker.Path, marker.WrittenBy()),
-			Remedy: fmt.Sprintf("unset %s, or correct state_root in the machine configuration, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then %s",
+			Remedy: fmt.Sprintf("unset %s, or correct state_root in ~/.yoyodyne/machine.yaml, so the root resolves to %s; to move the state instead: yoyo stop, move the directory, change the setting, then %s",
 				runstate.StateHomeVariable, shellQuote(marker.Recorded), runstate.RebindCommand),
 		}
 	}
@@ -536,7 +538,45 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 	case marker.Recorded == "":
 		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; no process has recorded a root in " + marker.Path + " yet"}
 	default:
-		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the marker in " + marker.Path + " agrees"}
+		return Finding{Check: "state", Status: StatusOK, Summary: summary + "; the marker in " + marker.Path + " agrees, recorded " + marker.WrittenBy()}
+	}
+}
+
+// checkBinding asks whether this repository is the one its product id is bound
+// to in the home. It reads the binding and never writes one: binding is for the
+// first start, and a diagnosis never settles which repository a project is.
+func (d *diagnosis) checkBinding(productID, repository, remote string) Finding {
+	resolved, err := runstate.ResolveRoot(d.getenv, d.homeDir, d.env.GOOS)
+	if err != nil {
+		return Finding{Check: "project", Status: StatusWarning, Summary: "the project's binding could not be read, because the home could not be resolved",
+			Detail: err.Error(), Remedy: "export YOYODYNE_STATE_HOME=$HOME/.yoyodyne"}
+	}
+	agreement, err := home.Agree(home.AgreeOptions{Root: resolved.Path, ProductID: productID, Checkout: repository, Remote: remote, ReadOnly: true})
+	var refusal *home.BindingError
+	switch {
+	case errors.As(err, &refusal):
+		remedy := home.BindCommand
+		switch refusal.Problem {
+		case home.SecondClone:
+			remedy = home.BindCommand + " --replace"
+		case home.SharedID:
+			remedy = home.RenameCommand + " " + productID + " <new-id>"
+		}
+		return Finding{Check: "project", Status: StatusProblem,
+			Summary: fmt.Sprintf("project %s is bound to another repository, so every command from here refuses to start", productID),
+			Detail:  err.Error(), Remedy: remedy}
+	case err != nil:
+		return Finding{Check: "project", Status: StatusWarning, Summary: "the project's binding could not be read", Detail: err.Error(), Remedy: home.ListCommand}
+	case agreement.Path != "":
+		return Finding{Check: "project", Status: StatusOK,
+			Summary: fmt.Sprintf("project %s is bound to this repository, recorded in %s", productID, agreement.Path)}
+	case home.EarlierLayout(resolved.Path):
+		return Finding{Check: "project", Status: StatusOK,
+			Summary: fmt.Sprintf("project %s is kept the earlier way, under %s, and has no binding: the earlier layout keeps none until its state is migrated",
+				productID, home.ProductDirectory(resolved.Path, productID))}
+	default:
+		return Finding{Check: "project", Status: StatusOK,
+			Summary: fmt.Sprintf("project %s has no binding yet; the first start binds it to this repository in %s", productID, home.BindingPath(resolved.Path, productID))}
 	}
 }
 
