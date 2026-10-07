@@ -1885,6 +1885,21 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				"— the operator's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it",
 			},
 		},
+		{
+			// Both escalations standing on one hold: the harness's at its bound,
+			// and hers on top of it. It is one hold waiting on one person, so the
+			// line names it once, in her account.
+			name: "escalated by the harness and by her",
+			holds: brake(func(trip *runstate.IntakeBrake) {
+				decidedAt := summonedAt.Add(3 * time.Hour)
+				trip.Cycles, trip.CycleBound = 4, 4
+				trip.Escalation = &runstate.BrakeEscalation{At: summonedAt.Add(2 * time.Hour), Cycles: 4, Probe: "yoyodyne-ifd.410", Reason: "checks failed"}
+				trip.Decision, trip.DecidedAt, trip.DecisionReason = runstate.BrakeDecisionEscalate, &decidedAt, "the same check fails everywhere"
+			}),
+			want: []string{
+				"— the operator's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it",
+			},
+		},
 	} {
 		sources := quietSources()
 		sources.IntakeHolds = scenario.holds
@@ -1894,7 +1909,13 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				t.Fatalf("%s: rendered:\n%s\nmissing: %q", scenario.name, rendered, want)
 			}
 		}
-		if scenario.name != "escalated" && strings.Contains(rendered, "the operator's") {
+		escalated := strings.HasPrefix(scenario.name, "escalated")
+		if escalated {
+			if named := strings.Count(rendered, "intake is held, since "+trippedAt.UTC().Format(time.RFC3339)); named != 1 {
+				t.Fatalf("%s: rendered:\n%s\nnames the escalated hold %d time(s), want once", scenario.name, rendered, named)
+			}
+		}
+		if !escalated && strings.Contains(rendered, "the operator's") {
 			t.Fatalf("%s: rendered:\n%s\nwant a brake hold nobody escalated never reported as the operator's", scenario.name, rendered)
 		}
 	}

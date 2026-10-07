@@ -632,21 +632,32 @@ func FromOperatorAction(action OperatorAction) (Notification, error) {
 	}, nil
 }
 
-// FromIntakeEscalation says the harness has handed the brake's hold to the
-// operator at its cycle bound. The moment is the escalation's own rather than
-// the hold's, because that is when the hold became a person's, and the reason
-// is the hold's whole account — what tripped it, and the cycles and the last
-// probe's stoppage that ended the loop. The mover is left to the fixed clause:
+// FromBrakeEscalation is the one message that says the brake's hold has been
+// handed to the operator, whoever handed it. A hold the development manager
+// escalated is said in the hold's own account of who decided it, as the trip
+// was. A hold only the harness escalated, at its cycle bound, is said as the
+// harness's escalation: the moment is the escalation's own rather than the
+// hold's, because that is when the hold became a person's, and the reason is
+// the hold's whole account — what tripped it, and the cycles and the last
+// probe's stoppage that ended the loop. Its mover is left to the fixed clause:
 // the hold's own wording of it is the same account again, and a message that
 // said it twice is one the operator reads once. It is a warning: the hold now
 // waits on a person, and the hourly line raises it from there as it stands.
 //
-// A hold the harness has not escalated is refused rather than said as if it
-// had: a message telling the operator the loop has ended, over a hold that is
-// still going round, is the false record this exists to prevent.
-func FromIntakeEscalation(hold runstate.IntakeHold) (Notification, error) {
-	if !hold.Braked() || !hold.Brake.EscalatedByHarness() {
-		return Notification{}, errors.New("address the brake's escalation: the harness has not escalated this hold")
+// Where both stand — she escalated a hold the harness already had — her
+// decision is the account, as it is on every other surface that says whose
+// move the hold is. The surface that says this says it once per hold either
+// way.
+//
+// A hold nobody has escalated is refused rather than said as if it had: a
+// message telling the operator the hold is his, over a hold still being
+// worked, is the false record this exists to prevent.
+func FromBrakeEscalation(hold runstate.IntakeHold) (Notification, error) {
+	if !hold.Braked() || !hold.Brake.Escalated() {
+		return Notification{}, errors.New("address the brake's escalation: nobody has escalated this hold")
+	}
+	if hold.Brake.Decision == runstate.BrakeDecisionEscalate {
+		return FromIntakeHold(hold), nil
 	}
 	notification := productNotification(KindIntakeEscalated, hold.Brake.Escalation.At, Detail{Reason: hold.Account()})
 	notification.Event.Severity = report.SeverityWarning

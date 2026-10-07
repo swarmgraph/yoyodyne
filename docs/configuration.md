@@ -3543,8 +3543,10 @@ probe decision on it is refused, because the bound ended the loop. Zero never
 escalates on its own, which is the loop as it stood before the bound existed.
 
 So a brake hold waits on a person only once it is escalated, by her or by the
-harness at that bound, and either escalation is sent to you once, directly and
-tagged by member id, the moment it is recorded — it is
+harness at that bound, and the hold is sent to you as escalated once, directly
+and tagged by member id, the moment the first escalation is recorded — one
+message for the hold whichever of the two escalated it, and none more if the
+other follows. It is
 [a finding for you](operations.md#where-a-finding-that-needs-your-hand-goes).
 The trip itself is sent to you directly too, once and tagged, the moment it is
 recorded, naming the runs it counted and `yoyo release`: it is not yours to

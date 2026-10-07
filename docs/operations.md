@@ -1010,7 +1010,8 @@ brake's hold becomes a fifth once it is yours:
   `yoyo release`. While the development manager and the harness are working it,
   it is theirs to move and the message says so; once she escalates it to you,
   or the harness does at the bound on its loop, that is said to you directly
-  once more and its line on `yoyo status` names you as the one to move.
+  once more — once for the hold, whichever of the two escalated it and however
+  many times — and its one line on `yoyo status` names you as the one to move.
   [The configuration guide](configuration.md#watching-instead-of-draining) says
   what the brake counts, what it does not, and how it is worked.
 

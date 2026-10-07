@@ -1269,6 +1269,175 @@ func newTestHarness(t *testing.T, since time.Time) *testHarness {
 	return harness
 }
 
+// A brake hold escalated to the operator is said to him directly once, whoever
+// escalated it and however many times the record is escalated again: the
+// harness at its bound and then the development manager on top of it, her and
+// then the harness, her deciding it twice, a hold first read already
+// escalated, and a cursor written before the two escalations were one message.
+// Each is one hold waiting on one person, and the hourly line carries it after
+// the first message.
+func TestAnEscalatedBrakeHoldIsSaidToTheOperatorDirectlyOnce(t *testing.T) {
+	t.Parallel()
+
+	escalatedAt := moment.Add(2 * time.Hour)
+	byHarness := func(t *testing.T, harness *testHarness) {
+		t.Helper()
+		if _, err := harness.intake.ReviseBrake(func(trip *runstate.IntakeBrake) error {
+			ended := escalatedAt
+			trip.Probe = &runstate.IntakeProbe{WorkItemID: "yoyodyne-ifd.405", RunID: "run-5", StartedAt: escalatedAt.Add(-20 * time.Minute), EndedAt: &ended, Blocked: true, Reason: "the checks failed on main"}
+			trip.Probes, trip.Cycles, trip.CycleBound = 2, 2, 2
+			trip.Escalation = &runstate.BrakeEscalation{At: escalatedAt, Cycles: 2, Probe: "yoyodyne-ifd.405", Reason: "the checks failed on main"}
+			return nil
+		}); err != nil {
+			t.Fatalf("ReviseBrake() error = %v", err)
+		}
+	}
+	byHer := func(t *testing.T, harness *testHarness, at time.Time) {
+		t.Helper()
+		if _, err := harness.intake.DecideBrake(runstate.BrakeDecisionEscalate, "the checks fail on main and only the operator can say why", "development-manager conversation chat-1, turn 4", at); err != nil {
+			t.Fatalf("DecideBrake() error = %v", err)
+		}
+	}
+	// pass makes one poll and returns the cursors after it and every message it
+	// sent the operator directly.
+	pass := func(t *testing.T, harness *testHarness, cursors Cursors) (Cursors, []Delivery) {
+		t.Helper()
+		batch, err := harness.feed.Poll(context.Background(), cursors)
+		if err != nil {
+			t.Fatalf("Poll() error = %v", err)
+		}
+		var direct []Delivery
+		for _, delivery := range batch.Deliveries {
+			cursors.Streams[delivery.Stream] = delivery.Cursor
+			if delivery.Posts() && delivery.Direct {
+				direct = append(direct, delivery)
+			}
+		}
+		return cursors, direct
+	}
+	// trip places the brake's hold and takes the pass that says the trip.
+	trip := func(t *testing.T, harness *testHarness) Cursors {
+		t.Helper()
+		harness.braked(t, moment)
+		cursors, direct := pass(t, harness, harness.start())
+		if len(direct) != 1 || direct[0].Notification.Event.Kind != notify.KindIntakeHeld {
+			t.Fatalf("direct = %#v, want the trip said to the operator once", direct)
+		}
+		return cursors
+	}
+
+	for _, scenario := range []struct {
+		name string
+		// escalate makes each escalation in turn; the pass after the first says
+		// the escalation, and every pass after that says nothing to him.
+		escalate []func(*testing.T, *testHarness)
+		kind     notify.Kind
+	}{
+		{
+			name: "the harness and then her",
+			escalate: []func(*testing.T, *testHarness){
+				byHarness,
+				func(t *testing.T, h *testHarness) { byHer(t, h, escalatedAt.Add(10*time.Minute)) },
+				func(t *testing.T, h *testHarness) { byHer(t, h, escalatedAt.Add(20*time.Minute)) },
+			},
+			kind: notify.KindIntakeEscalated,
+		},
+		{
+			name: "her and then the harness",
+			escalate: []func(*testing.T, *testHarness){
+				func(t *testing.T, h *testHarness) { byHer(t, h, moment.Add(10*time.Minute)) },
+				func(t *testing.T, h *testHarness) { byHer(t, h, moment.Add(20*time.Minute)) },
+				byHarness,
+			},
+			kind: notify.KindIntakeHeld,
+		},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			harness := newTestHarness(t, time.Time{})
+			cursors := trip(t, harness)
+			said := 0
+			for _, escalate := range scenario.escalate {
+				escalate(t, harness)
+				var direct []Delivery
+				cursors, direct = pass(t, harness, cursors)
+				for _, delivery := range direct {
+					if delivery.Notification.Event.Kind != scenario.kind || !delivery.Tag {
+						t.Fatalf("direct = %#v, want the escalation said as %q and tagged", delivery, scenario.kind)
+					}
+				}
+				said += len(direct)
+			}
+			if said != 1 {
+				t.Fatalf("the escalated hold was said to the operator directly %d time(s), want once", said)
+			}
+			cursors = harness.poll(t, cursors)
+			if _, _, err := harness.intake.Release(); err != nil {
+				t.Fatalf("Release() error = %v", err)
+			}
+			cursors = harness.poll(t, cursors, notify.KindIntakeReleased)
+			if marks := cursors.Streams[productStream].Delivered; len(marks) != 0 {
+				t.Fatalf("product cursor = %#v, want the hold's marks forgotten with it", marks)
+			}
+		})
+	}
+
+	// A hold first read already escalated is said once, by the trip's own
+	// message, which already names the operator as the one to move.
+	t.Run("first read already escalated", func(t *testing.T) {
+		t.Parallel()
+		harness := newTestHarness(t, time.Time{})
+		harness.braked(t, moment)
+		byHarness(t, harness)
+		cursors, direct := pass(t, harness, harness.start())
+		if len(direct) != 1 || direct[0].Notification.Event.Kind != notify.KindIntakeHeld {
+			t.Fatalf("direct = %#v, want the hold said to the operator once", direct)
+		}
+		rendered, err := notify.Render(direct[0].Notification.Topic, direct[0].Notification.Speaker, direct[0].Notification.Event)
+		if err != nil {
+			t.Fatalf("render the hold: %v", err)
+		}
+		if !strings.Contains(rendered.Body, "Next: the operator's — the harness escalated it") {
+			t.Fatalf("hold reads as %q, which does not say the harness escalated it to the operator", rendered.Body)
+		}
+		byHer(t, harness, escalatedAt.Add(10*time.Minute))
+		harness.poll(t, cursors)
+	})
+
+	// A sink upgraded over a standing escalation it already said, under either
+	// of the marks it used to keep, says nothing more about it.
+	t.Run("said before the two were one message", func(t *testing.T) {
+		t.Parallel()
+		for name, legacy := range map[string]func(runstate.IntakeHold) string{
+			"by the harness": func(runstate.IntakeHold) string { return brakeEscalationMark + stamp(escalatedAt) },
+			"by her": func(hold runstate.IntakeHold) string {
+				return legacyBrakeDecisionMark + stamp(*hold.Brake.DecidedAt)
+			},
+		} {
+			harness := newTestHarness(t, time.Time{})
+			harness.braked(t, moment)
+			byHarness(t, harness)
+			if name == "by her" {
+				byHer(t, harness, escalatedAt.Add(10*time.Minute))
+			}
+			hold, _, err := harness.intake.Held()
+			if err != nil {
+				t.Fatalf("%s: Held() error = %v", name, err)
+			}
+			cursors := harness.start()
+			cursors.Streams[productStream] = Cursor{}.With(intakeMark + stamp(hold.HeldAt)).With(legacy(hold))
+			cursors = harness.poll(t, cursors)
+			if _, _, err := harness.intake.Release(); err != nil {
+				t.Fatalf("%s: Release() error = %v", name, err)
+			}
+			cursors = harness.poll(t, cursors, notify.KindIntakeReleased)
+			if marks := cursors.Streams[productStream].Delivered; len(marks) != 0 {
+				t.Fatalf("%s: product cursor = %#v, want the hold's marks forgotten with it", name, marks)
+			}
+		}
+	})
+}
+
 // poll makes one pass, checks it said exactly what was expected, and returns the
 // cursors as they stand once every delivery has been taken — which is what the
 // sink writes as it posts.
