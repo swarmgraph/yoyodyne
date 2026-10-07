@@ -3163,8 +3163,15 @@ The configuration loader and endpoint resolver accept an ordered pair under
 and reviewer run dispatch, automatic provider switching, and live application
 of the four-slot mapping are separate work. The run record can hold a run's
 slot, the pair it was pinned to, and every operation, attempt and switch made
-under it (`internal/runstate/routing.go`), but no dispatch writes them yet. Accepting or
-printing a pair does not mean a run has used it.
+under it (`internal/runstate/routing.go`), but no dispatch writes them yet. The
+harness can also start an attempt's provider so that a crash at any point
+leaves a record recovery can act on without starting a second provider beside
+the first: the provider cannot begin work until its process is written into the
+attempt's record, and after a restart the harness waits for an attempt it
+cannot prove has stopped, including any process the provider started, rather
+than launching another (`internal/runstate/launch.go`). No dispatch launches
+through it yet either. Accepting or printing a pair does not mean a run has
+used it.
 
 ```yaml
 execution:
