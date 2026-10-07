@@ -166,9 +166,12 @@ const (
 // outage shares the deadline field and is not here: a login nobody renewed is
 // not capacity, and the outage reading says it. A run is blocked when it ended
 // with a durable blocker while still recording one of those two causes, which
-// is what the pipeline leaves when it refuses a wait — the cause is cleared
-// with the deadline on every run that resumed, so a run that paused once and
-// later stopped on something else records no cause and is not here either. A
+// is what the pipeline leaves when it refuses a wait: a run's ending clears
+// every pause but keeps that cause on a run stopped as a usage-limit stop, so
+// the record says which refusal stopped it. The cause is cleared with the
+// deadline on every run that resumed and on every other ending, so a run that
+// paused once and later stopped on something else records no cause and is not
+// here either. A
 // run the provider's usage window stopped is blocked too, read from the
 // environmental refusal it ended on, which is what carries its reset.
 //

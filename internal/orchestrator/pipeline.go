@@ -4818,6 +4818,24 @@ func (a *activeRun) blockOnUsageLimit(reason string) error {
 	return stoppedBy(runstate.StopUsagePause, cause)
 }
 
+// keptPauseCause is the pause cause a terminal record keeps. Every pause is
+// cleared as a run ends, because a cause is an instruction to resume, except
+// the capacity cause of a run blockOnUsageLimit stopped: there it is the only
+// record of which refusal stopped the run — an overload clears the limit kind
+// — and the read model lists the run as capacity-blocked by it. A terminal
+// record carrying a cause is no instruction to anything, since everything that
+// resumes a pause asks first whether the run is still in flight.
+func keptPauseCause(cause string, class runstate.StopClass) string {
+	if class != runstate.StopUsagePause {
+		return ""
+	}
+	switch cause {
+	case runstate.PauseUsageLimit, runstate.PauseServerOverload:
+		return cause
+	}
+	return ""
+}
+
 // capacityWindow reports a pause cause that is an exhausted usage limit: a
 // window on the provider's clock with an end the harness can name. The empty
 // cause is one, because every deadline written before the cause was carried was
@@ -7020,11 +7038,13 @@ func (a *activeRun) fail(cause error, status runstate.Status) (Outcome, error) {
 	// A recorded pause or stop is an instruction to resume later, and this run is
 	// ending now. Clearing all six keeps the terminal record coherent; what
 	// stopped the run is still named by the recorded limit kind and by the
-	// failure, and what it spent waiting stays on the record either way.
+	// failure, and what it spent waiting stays on the record either way. The
+	// one exception is the cause of a capacity wait the run refused to take
+	// (keptPauseCause).
 	a.state.UsageLimitResetsAt = nil
 	a.state.UsageLimitPausedSince = nil
 	a.state.UsageLimitResetUnknown = false
-	a.state.PauseCause = ""
+	a.state.PauseCause = keptPauseCause(a.state.PauseCause, a.state.StopClass)
 	a.state.ProviderStop = ""
 	a.state.RedeployStop = nil
 	a.state.DirectivePause = nil
@@ -7148,7 +7168,7 @@ func (a *activeRun) recordEndingAfterRefusedSave(status runstate.Status, complet
 	durable.UsageLimitResetsAt = nil
 	durable.UsageLimitPausedSince = nil
 	durable.UsageLimitResetUnknown = false
-	durable.PauseCause = ""
+	durable.PauseCause = keptPauseCause(durable.PauseCause, a.state.StopClass)
 	durable.ProviderStop = ""
 	durable.RedeployStop = nil
 	durable.DirectivePause = nil

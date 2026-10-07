@@ -56,8 +56,10 @@ func parkedRun(runID, workItemID string) runstate.State {
 
 // blockedRun is a run the provider refused and the harness would not wait for,
 // as the pipeline leaves one: terminal, the blocker on the item, the cause
-// still recorded because nothing cleared it, and no deadline because none was
-// ever taken.
+// kept by the run's ending, and no deadline because none was ever taken. The
+// orchestrator's TestAUsageLimitStopIsListedAsCapacityBlocked reads the record
+// the pipeline itself writes for such a run, so this shape is checked against
+// what is actually on disk rather than only assumed here.
 func blockedRun(runID, workItemID string) runstate.State {
 	stopped := capacityReadAt.Add(-2 * time.Hour)
 	return runstate.State{

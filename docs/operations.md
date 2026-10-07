@@ -1016,8 +1016,11 @@ brake's hold becomes a fifth once it is yours:
   what the brake counts, what it does not, and how it is worked.
 
 Two stops a run makes on its own are named to you elsewhere and are not
-findings of this class: a run parked on provider capacity the harness cannot
-wait for is on the attention line's capacity entry with its remedy, and a
+findings of this class: a run the provider refused and the harness would not
+wait for is listed among the runs blocked on provider capacity
+(`standing.capacity_blocked`) with its remedy, and on the attention line as a
+stopped item waiting on the development manager — the line's capacity entry
+is the provider holding every role at once, which one stopped run is not — and a
 promotion the forge has not published is on the line as awaiting the forge, each
 with whose move it is.
 
@@ -4493,8 +4496,14 @@ latest run that is either `waiting` — in flight and asleep on a recorded
 deadline, still counted on the running line — or `capacity-blocked`, which is a
 run the provider refused and the harness would not wait for. One stopped by a
 usage window resetting past the maximum pause gave its item back to the queue
-and names the reset it is pulled again after; any other stopped with a blocker
-on its item. Each says what refused it, since when, the reset it is
+and names the reset it is pulled again after. A usage-limit stop is listed too:
+a run the provider refused on a usage limit naming a reset that is not in the
+future, or on an overload that outlasted the pause budget, stopped with a
+blocker on its item and its stop cause `usage-pause`, and its record keeps
+which of the two refused it so this list can name it. It names no reset,
+because the run took no wait. On the attention line it is the stopped item
+waiting on the development manager; it does not count toward the hold over
+every role, which reads only runs still asleep on a deadline. Each says what refused it, since when, the reset it is
 waiting out or none, how much of `execution.usage_limit_max_pause` it has spent
 (`waited_seconds`), whether its change is preserved, and what a person can do about it — for a
 waiting run, that nothing needs doing. `conversations` lists each conversation
