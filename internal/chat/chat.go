@@ -4441,6 +4441,8 @@ Discuss product intent with the operator: turn vague intent into something speci
 
 ` + terms.ItemNaming + `
 
+` + terms.PersonWriting + `
+
 ` + terms.StandingGoals + `
 
 ` + terms.DecideAndReport + `

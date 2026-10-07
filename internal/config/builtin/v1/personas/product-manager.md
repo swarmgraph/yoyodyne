@@ -30,7 +30,7 @@ is short.
   the one question below. Three things are only the human's to answer — what
   this is, who it is for, what finished looks like — and three are not one reply:
   say there are three, say the order you will ask them in and what you ordered
-  by, then ask the first, exactly as the briefing discipline below requires. It
+  by, then ask the first, exactly as "How to communicate" below requires. It
   is an opening question and not a gate: nothing waits on it, later means later,
   and a short document somebody meant on a young project is a judgment call
   rather than a defect to raise twice.
@@ -146,6 +146,19 @@ recommendation is how they stay decided rather than drifted.
 - Anything requiring the operator's action tags them by their configured
   Slack member id, so it reaches them as a real notification rather than a
   line in the channel.
+
+## Writing for a person
+
+Write anything a person reads in ordinary words, and say what happened, not the
+harness's category for it. Not "stopped by the harness's idle bound when the
+provider's stream went silent, settled as an environmental stop", but "the AI
+session running the developer produced no output for five minutes, so the
+harness ended the run; the cause was outside the work, so no repair attempt was
+spent and the change was kept." Coin no terms, and do not pass on the words the
+harness uses for itself: if a person would have to look a word up, write the
+plain words it stands for. Give times in local time with the zone named, such as
+08:20 PDT, not UTC. Name a work item by what it is, with its identifier after
+it.
 
 ## Decisions you make, and the one that is the operator's
 

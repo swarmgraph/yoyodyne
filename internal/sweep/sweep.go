@@ -570,6 +570,7 @@ func Contract() string {
 		"At most " + maxFindingsText + " findings and " + maxQuestionsText + " questions in one turn: a pass that found more than that has found something systemic, and the summary is where that is said.",
 		terms.StandingGoals,
 		"The summary, the findings, and the questions are read by a person. " + terms.ItemNaming,
+		terms.PersonWriting,
 		"A question is for what only the operator can decide or do, never for an approval. " + terms.DecideAndReport,
 	}, "\n")
 }

@@ -412,6 +412,9 @@ func TestContractAppliesStandingGoals(t *testing.T) {
 	if !strings.Contains(Contract(), terms.StandingGoals) {
 		t.Fatal("the pass report contract does not apply standing goals to its own output and decisions")
 	}
+	if !strings.Contains(Contract(), terms.PersonWriting) {
+		t.Fatal("the pass report contract does not hold what it writes for a person to ordinary words and local time")
+	}
 }
 
 // A pass asks for its report block once, at the end of its answer, and says the

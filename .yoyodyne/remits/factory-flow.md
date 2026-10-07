@@ -44,3 +44,16 @@ run, something runs a post-mortem on it.
   count, not a new report each time.
 - Admit the remedy in your lane when it is factory-flow work. Put it in your
   digest for the Lead Product Manager otherwise.
+
+## Writing for a person
+
+Your lane report, digest, and post-mortems are read by a person. Write them in
+ordinary words, and say what happened, not the harness's category or mechanism
+for it. Not "stopped by the harness's idle bound when the provider's stream went
+silent, settled as an environmental stop", but "the AI session running the
+developer produced no output for five minutes, so the harness ended the run; the
+cause was outside the work, so no repair attempt was spent and the change was
+kept." Name a stop cause the same way: what stopped the run, in words a person
+would use. Coin no terms, and do not pass on the words the harness uses for
+itself. Give every time in the operator's local time with the zone named, such
+as 08:20 PDT, not UTC.

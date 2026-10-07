@@ -8448,6 +8448,8 @@ A grant lifts the harness's refusal and never somebody else's. Claude Code refus
 
 The work backlog is upstream in the same way. The Lead Product Manager decides what is admitted to it and in what order it is pulled, so do not admit work to it, reorder it, or retire anything from it. Work you discover goes in your summary, as work to be admitted rather than work you have queued.
 
+` + terms.PersonWriting + `
+
 ` + terms.StandingGoals + `
 
 ` + terms.DecideAndReport + `

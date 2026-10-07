@@ -7662,6 +7662,18 @@ An output or decision that breaks one is a defect to report, naming the goal
 and where it was broken. The pass prompts `init` writes carry the same rule,
 and a program manager applies it to its lane report and post-mortems too.
 
+Every shipped persona, every role contract, the pass prompts `init` writes,
+and this repository's factory-flow remit also carry the rule for writing for a
+person: anything a person reads uses the ordinary word for a thing, says what
+happened rather than the harness's name for its own mechanism, coins no terms,
+and gives every time in the operator's local time with the zone named. Its
+model is a plain account of a stopped run: *the AI session running the
+developer produced no output for five minutes, so the harness ended the run;
+the cause was outside the work, so no repair attempt was spent and the change
+was kept.* The shipped personas and this repository's copies under
+`.yoyodyne/personas` carry the same section word for word, and a test holds
+them to it.
+
 In a project `init` wrote, every persona is already a file in
 `.yoyodyne/personas/`: change how the reviewer works by editing
 `personas/reviewer.md`, and bump the `version` label beside it in the
