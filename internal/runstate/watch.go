@@ -588,6 +588,15 @@ type WatchDrain struct {
 	// New sessions stop running stages at the drain bound and leave both empty.
 	Checking    int       `json:"checking,omitempty"`
 	ChecksUntil time.Time `json:"checks_until,omitzero"`
+	// Promoting is how many of the runs the session hosts were at their
+	// promotion when it recorded this, past the bound, and PromotingSince is
+	// when it began waiting them out. Such a run holds the target branch's lease
+	// and is left to finish rather than stopped, so the restart waits on it. The
+	// session says this again at intervals while the wait lasts, because a
+	// promotion can outlast every other bound here and a session that wrote
+	// nothing while it waited would look no different from one that died.
+	Promoting      int       `json:"promoting,omitempty"`
+	PromotingSince time.Time `json:"promoting_since,omitzero"`
 	// PullSkipped marks a poll that declined to pull into a free seat because
 	// the bound was less than one poll away — a run started then would only be
 	// stopped. It is on the drain so a reader of the idle line it was said on
@@ -609,6 +618,10 @@ func (d WatchDrain) Says() string {
 		if d.Checking > 0 {
 			return fmt.Sprintf("%s; the bound has run out, so it is waiting out a check stage in %d run(s) it hosts until %s at the latest, the check-stage bound, and stopping and preserving every other run at a developer attempt or a review for the session that comes back; nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
 				said, d.Checking, d.ChecksUntil.UTC().Format(time.RFC3339))
+		}
+		if d.Promoting > 0 {
+			return fmt.Sprintf("%s; the bound has run out, so it has been waiting out %d run(s) it hosts at their promotion since %s, because a promotion is never stopped part-way, and restarts the moment they finish; every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
+				said, d.Promoting, d.PromotingSince.UTC().Format(time.RFC3339))
 		}
 		return said + "; the bound has run out, so the runs it hosts are stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing"
 	}
@@ -640,6 +653,12 @@ func (d WatchDrain) validate() error {
 	}
 	if d.Checking > 0 && d.ChecksUntil.IsZero() {
 		problems = append(problems, errors.New("draining waits out a check stage and names no moment that wait ends"))
+	}
+	if d.Promoting < 0 {
+		problems = append(problems, fmt.Errorf("draining reports %d runs waited out at their promotion, which is not a count", d.Promoting))
+	}
+	if d.Promoting > 0 && d.PromotingSince.IsZero() {
+		problems = append(problems, errors.New("draining waits out a promotion and names no moment that wait began"))
 	}
 	return errors.Join(problems...)
 }
