@@ -278,11 +278,17 @@ That `-timeout` is the one wall-clock bound the rule cannot remove, because it
 is what replaces every bound it does remove — so it is sized for the loaded
 machine rather than left at Go's ten minutes, which is a figure this repository
 reaches without hanging. `TEST_TIMEOUT` in the `Makefile` is the whole of it, at
-twenty minutes, and the comment there says what reached the default: at a
-one-minute load average past fifty, `internal/orchestrator`'s race binary passed
-ten minutes with hundreds of its tests still queued on the parallel limit, and
-failed a suite that was working. A package that grows until it needs more than
-this figure is a package to split, not a figure to raise again.
+twenty-eight minutes, set from what `internal/orchestrator` measured with a
+second check stage running beside it: 1,439 seconds under `make race`, which
+passed the twenty minutes the figure used to be, and up to 1,170 seconds under
+`make test` ([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)).
+It stays under the thirty minutes of
+[`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
+is not scaled for load, so a hang is still reported by `go test` with its dump
+of every goroutine before the harness ends the check. That makes twenty-eight
+minutes the ceiling rather than a step: the figure is interim until the
+package split (yoyodyne-ifd.429.14) lands, and a package that grows until it
+needs more than this is a package to split, not a figure to raise again.
 
 The shape that replaces a bound is one of three. Where the code under test
 already says when it has got somewhere, wait on that: a claim returns its hold, a
