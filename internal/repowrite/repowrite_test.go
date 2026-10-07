@@ -685,3 +685,42 @@ func TestCreateFileRefusesAPathOutOfTheRoot(t *testing.T) {
 		t.Fatal("CreateFile() accepted a path out of the root")
 	}
 }
+
+func TestRenamingADirectoryMovesItAndRefusesWhatWouldReplaceOrEscape(t *testing.T) {
+	t.Parallel()
+
+	repository := t.TempDir()
+	root, err := NewRoot(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.WriteFile("projects/old/state/record.json", []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.RenameDirectory("projects/old", "projects/new"); err != nil {
+		t.Fatalf("RenameDirectory() = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repository, "projects", "new", "state", "record.json")); err != nil {
+		t.Fatalf("the moved directory lost what was in it: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(repository, "projects", "old")); !os.IsNotExist(err) {
+		t.Fatalf("the old directory is still there (%v)", err)
+	}
+
+	if _, err := root.MakeDirectory("projects/taken", 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.RenameDirectory("projects/new", "projects/taken"); err == nil {
+		t.Fatal("RenameDirectory() replaced a directory already there")
+	}
+	outside := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(repository, "escape")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := root.RenameDirectory("projects/new", "escape/moved"); err == nil {
+		t.Fatal("RenameDirectory() moved a directory out of the root through a symlink")
+	}
+	if _, err := root.RenameDirectory("escape", "projects/link"); err == nil {
+		t.Fatal("RenameDirectory() moved a symlink as though it were a directory")
+	}
+}

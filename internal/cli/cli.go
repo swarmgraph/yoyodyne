@@ -112,6 +112,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return serveDashboard(ctx, args[1:], stdout, stderr)
 	case "state-root":
 		return runStateRoot(args[1:], stdout, stderr)
+	case "project":
+		return runProject(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -775,6 +777,7 @@ Commands:
   doctor            check this installation, and say what would fix what is wrong
   dashboard         serve the read model to a browser on this machine, read-only
   state-root        rebind a state-root marker that names a root no longer on disk
+  project           bind a repository to its project, rename a project, and list them
   version           print version information
   help              show this help`)
 }

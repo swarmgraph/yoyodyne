@@ -1,14 +1,14 @@
 package config
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
-	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
+
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 const (
@@ -30,43 +30,38 @@ const (
 	// is read before anything is searched for, so a shell that exports it
 	// configures every command run in that shell without repeating --config.
 	EnvironmentVariable = "YOYODYNE_CONFIG"
-	// HomeVariable relocates the directory external configurations are kept in,
-	// the way YOYODYNE_STATE_HOME relocates run state, and for the same reasons:
-	// a machine that keeps its dot-directories somewhere else, and a test that
-	// must not read the operator's own.
-	HomeVariable = "YOYODYNE_CONFIG_HOME"
-	// ExternalDirectoryName holds one directory per repository inside that home.
-	ExternalDirectoryName = "projects"
 )
 
-// externalKeyDigits is how much of a repository's digest its directory name
-// carries: enough that two repositories one machine holds never collide, and
-// short enough that an operator can still match a directory to a project by eye
-// from the readable half beside it. It is the configuration revision's number
-// for the configuration revision's reason.
-const externalKeyDigits = 12
-
-// gitDirectoryName marks the root of the repository an external configuration is
-// keyed by. It is read off the filesystem rather than asked of Git, because
+// gitDirectoryName marks the root of the repository a configuration kept outside
+// it is found for. It is read off the filesystem rather than asked of Git, because
 // discovery happens before anything else and must not depend on a subprocess.
 const gitDirectoryName = ".git"
 
 // NotFoundError reports that no configuration exists for a directory. It names
 // every place that was looked in so an operator can create the right file rather
-// than guess, and the external path only when there was a repository to key one
-// by — naming a path nothing could have looked at would be inventing a place.
+// than guess, and the machine home's projects only when there was a repository
+// to find a binding for — naming a place nothing could have looked at would be
+// inventing one.
 type NotFoundError struct {
 	StartDirectory string
-	// ExternalPath is where this machine would keep a configuration for the
-	// repository the start directory is in, and is empty when it is in none.
-	ExternalPath string
+	// Projects is the projects directory of the machine home a binding for the
+	// repository was looked for in, and is empty when the start directory is in
+	// no repository.
+	Projects string
+	// BoundProject is the project whose binding names the repository, where one
+	// does and keeps no configuration.
+	BoundProject string
 }
 
 func (e NotFoundError) Error() string {
 	message := fmt.Sprintf("no Yoyodyne configuration found in %s or any parent directory (looked for %s/%s and %s)",
 		e.StartDirectory, DirectoryName, FileName, LegacyFileName)
-	if e.ExternalPath != "" {
-		message += fmt.Sprintf(", nor at %s, where a configuration kept outside the repository lives", e.ExternalPath)
+	switch {
+	case e.BoundProject != "":
+		message += fmt.Sprintf(", and the project %s bound to this repository keeps no %s in %s",
+			e.BoundProject, FileName, filepath.Join(e.Projects, e.BoundProject))
+	case e.Projects != "":
+		message += fmt.Sprintf(", nor in a project directory under %s bound to this repository, where a configuration kept outside the repository lives", e.Projects)
 	}
 	return message + fmt.Sprintf("; write one with `yoyo init`, keep one outside the repository with `yoyo init --external`, or name one with --config or %s",
 		EnvironmentVariable)
@@ -85,9 +80,10 @@ func Discover(startDirectory string) (string, error) {
 //  2. otherwise the nearest project configuration, walking from the starting
 //     directory towards the filesystem root, so Yoyodyne is runnable from a
 //     nested directory of a project rather than only from its root;
-//  3. otherwise this machine's own configuration for the repository that
-//     directory is in, which is what a contributor who cannot commit tool
-//     config to somebody else's repository keeps.
+//  3. otherwise the configuration kept in the machine home's project directory
+//     whose binding names the repository that directory is in, which is what a
+//     contributor who cannot commit tool config to somebody else's repository
+//     keeps.
 //
 // The project's own configuration is looked for before this machine's on
 // purpose: a repository that describes itself is what every collaborator gets,
@@ -106,24 +102,11 @@ func DiscoverIn(getenv func(string) string, userHomeDir func() (string, error), 
 		return project, err
 	}
 
-	// An external configuration is keyed by the repository, so a directory in no
-	// repository has no key and nothing was looked up: that is reported as having
-	// searched one place fewer rather than as a failure to read this machine.
-	external, err := externalConfiguration(getenv, userHomeDir, start)
-	if err != nil {
-		return "", err
-	}
-	if external == "" {
-		return "", NotFoundError{StartDirectory: start}
-	}
-	regular, err := isRegularFile(external)
-	if err != nil {
-		return "", err
-	}
-	if regular {
-		return external, nil
-	}
-	return "", NotFoundError{StartDirectory: start, ExternalPath: external}
+	// A configuration kept outside the repository is found by the binding of the
+	// project directory it is kept in, so a directory in no repository has
+	// nothing to find a binding for: that is reported as having searched one
+	// place fewer rather than as a failure to read this machine.
+	return boundConfiguration(getenv, userHomeDir, start)
 }
 
 // namedConfiguration reads the configuration YOYODYNE_CONFIG names, and answers
@@ -186,27 +169,43 @@ func projectConfiguration(start string) (string, error) {
 	}
 }
 
-// externalConfiguration is where this machine keeps the configuration of the
-// repository a directory is in, whether or not anything is there yet, and
-// nothing at all when the directory is in no repository.
-func externalConfiguration(getenv func(string) string, userHomeDir func() (string, error), start string) (string, error) {
+// boundConfiguration is the configuration kept in the machine home's project
+// directory whose binding names the repository a directory is in. It is found
+// by the binding rather than by where the checkout is, so it is found from the
+// repository root, from any directory beneath it, and from any worktree of it.
+func boundConfiguration(getenv func(string) string, userHomeDir func() (string, error), start string) (string, error) {
 	repository, err := RepositoryRoot(start)
-	if err != nil || repository == "" {
+	if err != nil {
 		return "", err
 	}
-	candidate, err := ExternalPath(getenv, userHomeDir, repository)
-	if err == nil {
-		return candidate, nil
+	if repository == "" {
+		return "", NotFoundError{StartDirectory: start}
 	}
-	// A machine with no home directory has nowhere to keep one, which is a place
-	// fewer to look rather than a failure of the search: a command run where HOME
-	// is unset must still report the configuration it did not find rather than
-	// the home it could not resolve. A variable that was set and is wrong is the
-	// operator's instruction, and still fails.
-	if strings.TrimSpace(getenv(HomeVariable)) == "" && strings.TrimSpace(getenv("XDG_CONFIG_HOME")) == "" {
-		return "", nil
+	resolved, err := home.Resolve(getenv, userHomeDir, runtime.GOOS)
+	if err != nil {
+		// A machine with no home directory has nowhere to keep one, which is a
+		// place fewer to look rather than a failure of the search: a command run
+		// where HOME is unset must still report the configuration it did not find
+		// rather than the home it could not resolve. A variable that was set and
+		// is wrong is the operator's instruction, and still fails.
+		if strings.TrimSpace(getenv(home.StateHomeVariable)) != "" {
+			return "", err
+		}
+		return "", NotFoundError{StartDirectory: start}
 	}
-	return "", err
+	notFound := NotFoundError{StartDirectory: start, Projects: filepath.Join(resolved.Path, home.ProjectsDirectoryName)}
+	project, found, err := home.BoundProject(resolved.Path, repository)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return "", notFound
+	}
+	if project.Configuration == "" {
+		notFound.BoundProject = project.ID
+		return "", notFound
+	}
+	return project.Configuration, nil
 }
 
 func isRegularFile(candidate string) (bool, error) {
@@ -220,99 +219,10 @@ func isRegularFile(candidate string) (bool, error) {
 	return info.Mode().IsRegular(), nil
 }
 
-// ExternalHome is the directory this machine keeps the configurations of
-// projects that do not carry their own. It is one location on every platform,
-// unlike the state root, because it holds files an operator edits by hand and a
-// path they can be told over a shoulder is worth more here than each system's
-// own convention for application data.
-func ExternalHome(getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
-	if value := strings.TrimSpace(getenv(HomeVariable)); value != "" {
-		if !filepath.IsAbs(value) {
-			return "", fmt.Errorf("%s must be an absolute path and is %q", HomeVariable, value)
-		}
-		return filepath.Clean(value), nil
-	}
-	if value := strings.TrimSpace(getenv("XDG_CONFIG_HOME")); value != "" {
-		if !filepath.IsAbs(value) {
-			return "", errors.New("XDG_CONFIG_HOME must be an absolute path")
-		}
-		return filepath.Join(filepath.Clean(value), "yoyodyne"), nil
-	}
-	home, err := userHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve user home directory: %w", err)
-	}
-	return filepath.Join(home, ".config", "yoyodyne"), nil
-}
-
-// ExternalDirectory is where one repository's external configuration lives,
-// named relative to ExternalHome in slash form so it can be written through the
-// confined-write primitive as a path inside that home.
-func ExternalDirectory(repositoryRoot string) string {
-	return path.Join(ExternalDirectoryName, externalKey(repositoryRoot))
-}
-
-// ExternalPath is the external configuration file of one repository, absolute.
-func ExternalPath(getenv func(string) string, userHomeDir func() (string, error), repositoryRoot string) (string, error) {
-	home, err := ExternalHome(getenv, userHomeDir)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, filepath.FromSlash(ExternalDirectory(repositoryRoot)), FileName), nil
-}
-
-// externalKey names one repository's directory inside the configurations home.
-//
-// It is two halves because it answers to two readers. The digest is what makes
-// it a key: a repository is identified by where it is checked out, which is a
-// path rather than a name, and two checkouts of the same project on one machine
-// are two projects to configure. The readable half is for the operator listing
-// the directory, who otherwise has a home full of hex.
-//
-// The path is resolved through its own symlinks first, so a checkout reached by
-// two names is one key rather than two configurations that silently disagree.
-func externalKey(repositoryRoot string) string {
-	resolved := repositoryRoot
-	if absolute, err := filepath.Abs(repositoryRoot); err == nil {
-		resolved = absolute
-		if linked, err := filepath.EvalSymlinks(absolute); err == nil {
-			resolved = linked
-		}
-	}
-	digest := sha256.Sum256([]byte(resolved))
-	key := hex.EncodeToString(digest[:])[:externalKeyDigits]
-	if name := externalKeyName(filepath.Base(resolved)); name != "" {
-		return name + "-" + key
-	}
-	return key
-}
-
-// externalKeyName is the readable half of a key: the checkout's own directory
-// name, reduced to what is a directory name everywhere. It carries no meaning —
-// the digest beside it is what identifies the repository — so a name that
-// reduces to nothing is simply left out rather than invented.
-func externalKeyName(name string) string {
-	var builder strings.Builder
-	separated := false
-	for _, letter := range strings.ToLower(name) {
-		switch {
-		case letter >= 'a' && letter <= 'z', letter >= '0' && letter <= '9':
-			if separated && builder.Len() > 0 {
-				builder.WriteByte('-')
-			}
-			separated = false
-			builder.WriteRune(letter)
-		default:
-			separated = true
-		}
-	}
-	return builder.String()
-}
-
 // RepositoryRoot is the repository a directory belongs to, or nothing when it
-// belongs to none. It is what an external configuration is keyed by: a
-// configuration kept outside a repository still describes that repository, and
-// it has to be found from any directory inside it.
+// belongs to none. It is what a configuration kept outside a repository is found
+// by: such a configuration still describes that repository, and it has to be
+// found from any directory inside it.
 //
 // A linked worktree is resolved to the repository it was added from rather than
 // treated as a repository of its own, because it is the same project: a run's
@@ -411,9 +321,10 @@ func commonGitDirectory(marker string) (string, error) {
 // that directory, not the directory itself, so "repository: ." keeps meaning
 // the project root after migration.
 //
-// A configuration kept outside the repository it describes has no such project
-// above it, and this answers with the directory the file is in. That is why an
-// external configuration states an absolute `product.repository` — which is what
+// A configuration kept outside the repository it describes, in the machine
+// home's project directory, has no such project above it, and this answers with
+// the directory the file is in. That is why such a configuration states an
+// absolute `product.repository` — which is what
 // `yoyo init --external` writes — rather than a relative one that would resolve
 // against a directory holding nothing but the configuration.
 func ProjectDirectory(configPath string) string {

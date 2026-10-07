@@ -307,9 +307,11 @@ Yoyodyne looks for a configuration in this order:
 3. otherwise `.yoyodyne/config.yaml`, searching from the current directory
    upwards to the filesystem root;
 4. otherwise `.yoyodyne.yaml` in the same directories;
-5. otherwise this machine's own configuration for the repository the current
-   directory is in, under
-   [the configurations home](../configuration.md#keeping-the-configuration-outside-the-repository).
+5. otherwise the configuration kept in the machine home's project directory
+   whose [binding](../configuration.md#a-product-id-names-one-repository-on-the-machine)
+   names the repository the current directory is in, as
+   [`yoyo init --external`](../configuration.md#keeping-the-configuration-outside-the-repository)
+   writes it.
 
 Because the search walks upwards, `yoyo run` works from the project root or
 from any directory beneath it. When both forms exist in one directory, the
@@ -368,7 +370,7 @@ stays inside the repository has not left it, and the read and the write both
 follow it. The same holds of the `.yoyodyne` directory `yoyo init` writes: a project
 whose `.yoyodyne` leads out of the project is refused with the project untouched
 rather than scaffolded somewhere nothing commits. And of the
-[configurations home](../configuration.md#keeping-the-configuration-outside-the-repository),
+[machine home](../configuration.md#keeping-the-configuration-outside-the-repository),
 which is a declared root like any other: a write that resolves out of it
 is refused rather than landing where nothing looks for it.
 

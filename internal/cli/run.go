@@ -287,6 +287,22 @@ func agreeProductStateRoot(resolved config.Resolved, getenv func(string) string,
 	return root.Path, agreement, nil
 }
 
+// agreedHome is the machine home a command that acts on one repository uses,
+// resolved and agreed with that repository's state-root marker, for a command
+// that has no loaded configuration to hand productStateRoot: `yoyo init
+// --external`, which writes the configuration, and `yoyo project bind --product`,
+// which binds a repository whose configuration cannot be found.
+func agreedHome(repository string) (runstate.ResolvedRoot, error) {
+	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+	if err != nil {
+		return runstate.ResolvedRoot{}, err
+	}
+	if err := runstate.AgreeRoot(repository, root); err != nil {
+		return runstate.ResolvedRoot{}, err
+	}
+	return root, nil
+}
+
 // standingRemains is the repository a read-only surface asks whether a stopped
 // run's change is still there. It is the same manager the components build,
 // stripped to what a look needs, and a surface that cannot build one reads the

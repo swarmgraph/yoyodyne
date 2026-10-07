@@ -512,3 +512,50 @@ func (r Root) RemoveFile(relative string) (string, error) {
 	}
 	return target, nil
 }
+
+// RenameDirectory moves the directory one root-relative path names to another
+// inside the same root, and returns where it landed.
+//
+// It is here for the same reason RemoveDirectory is: a caller reaching for
+// `os.Rename` itself would be a mutation outside this package deciding its own
+// containment. What needs it is `yoyo project rename`, which moves a project's
+// directory, and everything under it, to the name of its new id.
+//
+// Both ends are resolved and confined before anything moves. A source that is a
+// symlink is refused, because the link would move and what it names would not,
+// and one that is not a directory is refused, because the caller named one. A
+// destination that already exists is refused rather than replaced: the rename
+// is the one operation that would otherwise put one project's records over
+// another's.
+func (r Root) RenameDirectory(from, to string) (string, error) {
+	cleanFrom, source, err := r.resolve(from)
+	if err != nil {
+		return "", err
+	}
+	cleanTo, target, err := r.resolve(to)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", cleanFrom, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing to move %s: it is a symlink rather than a directory", cleanFrom)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("refusing to move %s: it is not a directory", cleanFrom)
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return "", fmt.Errorf("refusing to move %s to %s: %s already exists", cleanFrom, cleanTo, cleanTo)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect %s: %w", cleanTo, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), directoryPermissions); err != nil {
+		return "", fmt.Errorf("create %s: %w", path.Dir(cleanTo), err)
+	}
+	if err := os.Rename(source, target); err != nil {
+		return "", fmt.Errorf("move %s to %s: %w", cleanFrom, cleanTo, err)
+	}
+	return target, nil
+}

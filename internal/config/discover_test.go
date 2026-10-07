@@ -1,11 +1,17 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // machine describes the environment a discovery runs on: the variables set on
@@ -163,8 +169,8 @@ func TestTheProjectsOwnConfigurationWinsOverThisMachines(t *testing.T) {
 	}
 }
 
-// An external configuration is keyed by the repository rather than by the
-// checkout it is read from, so a run's worktree -- and a check or a hook that
+// An external configuration is found by the repository's binding rather than by
+// the checkout it is read from, so a run's worktree -- and a check or a hook that
 // shells out to `yoyo` from inside one -- finds the configuration the checkout it
 // was added from is configured by.
 func TestDiscoverFindsOneConfigurationFromEveryWorktreeOfARepository(t *testing.T) {
@@ -203,8 +209,8 @@ func TestDiscoverFindsOneConfigurationFromEveryWorktreeOfARepository(t *testing.
 
 // A submodule carries the same kind of `.git` file a linked worktree does, and
 // is the opposite case: a checkout of its own, with its own history and its own
-// checks, so it is keyed as itself. Following its pointer the way a worktree's
-// is followed would key it by `<super>/.git/modules`, which is not a checkout at
+// checks, so it is found as itself. Following its pointer the way a worktree's
+// is followed would find it by `<super>/.git/modules`, which is not a checkout at
 // all and which every submodule of one superproject would share -- so a
 // configuration written for one would be discovered from the next.
 func TestASubmoduleIsAConfigurableCheckoutOfItsOwn(t *testing.T) {
@@ -238,10 +244,6 @@ func TestASubmoduleIsAConfigurableCheckoutOfItsOwn(t *testing.T) {
 			t.Errorf("RepositoryRoot(%q) = %q, want the submodule's own checkout", submodule, root)
 		}
 	}
-	if ExternalDirectory(submodules[0]) == ExternalDirectory(submodules[1]) {
-		t.Fatalf("two submodules of one superproject share the directory %q", ExternalDirectory(submodules[0]))
-	}
-
 	// End to end, which is what the mis-resolution would actually have cost: a
 	// configuration written for one submodule is not discovered from the other.
 	host := blank(t)
@@ -258,26 +260,38 @@ func TestASubmoduleIsAConfigurableCheckoutOfItsOwn(t *testing.T) {
 	}
 }
 
-// Two checkouts of the same project on one machine are two projects to
-// configure, so the key is the checkout rather than its name.
-func TestExternalConfigurationsAreKeyedByTheCheckout(t *testing.T) {
+// A configuration left where earlier builds kept one — under the configurations
+// home, in a directory keyed by the checkout's path, wherever
+// YOYODYNE_CONFIG_HOME or XDG_CONFIG_HOME pointed that home — is not read: only
+// the migration reads that home now.
+func TestAConfigurationInTheEarlierConfigurationsHomeIsNotFound(t *testing.T) {
 	t.Parallel()
 
-	base := t.TempDir()
-	first := filepath.Join(base, "first", "thing")
-	second := filepath.Join(base, "second", "thing")
-	for _, directory := range []string{first, second} {
-		if err := os.MkdirAll(filepath.Join(directory, ".git"), 0o700); err != nil {
-			t.Fatalf("MkdirAll() error = %v", err)
+	repository := gitRepository(t)
+	resolved, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256([]byte(resolved))
+	key := filepath.Base(resolved) + "-" + hex.EncodeToString(digest[:])[:12]
+	host := blank(t)
+	relocated, xdg := t.TempDir(), t.TempDir()
+	for _, earlier := range []string{filepath.Join(host.home, ".config", "yoyodyne"), relocated, filepath.Join(xdg, "yoyodyne")} {
+		path := filepath.Join(earlier, "projects", key, FileName)
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(minimalProjectConfig), 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-	if ExternalDirectory(first) == ExternalDirectory(second) {
-		t.Fatalf("two checkouts named %q share the directory %q", filepath.Base(first), ExternalDirectory(first))
-	}
-	// The readable half is there so an operator listing the home can tell which
-	// project a directory belongs to without opening it.
-	if !strings.HasPrefix(ExternalDirectory(first), ExternalDirectoryName+"/thing-") {
-		t.Errorf("ExternalDirectory() = %q, want the checkout's name in front of the digest", ExternalDirectory(first))
+	for _, variables := range []map[string]string{{}, {"YOYODYNE_CONFIG_HOME": relocated}, {"XDG_CONFIG_HOME": xdg}} {
+		host.variables = variables
+		got, err := discoverOn(host, repository)
+		var notFound NotFoundError
+		if !errors.As(err, &notFound) {
+			t.Fatalf("Discover() with %v = %q, %v; want nothing found", variables, got, err)
+		}
 	}
 }
 
@@ -337,23 +351,27 @@ func TestNotFoundNamesWhereThisMachineWouldKeepOne(t *testing.T) {
 	if !errors.As(err, &notFound) {
 		t.Fatalf("Discover() error = %v, want NotFoundError", err)
 	}
-	external, pathErr := ExternalPath(host.getenv, host.userHomeDir, repository)
-	if pathErr != nil {
-		t.Fatalf("ExternalPath() error = %v", pathErr)
+	projects := filepath.Join(host.home, ".yoyodyne", "projects")
+	if notFound.Projects != projects {
+		t.Errorf("NotFoundError.Projects = %q, want %q", notFound.Projects, projects)
 	}
-	if notFound.ExternalPath != external {
-		t.Errorf("NotFoundError.ExternalPath = %q, want %q", notFound.ExternalPath, external)
-	}
-	for _, expected := range []string{external, "yoyo init --external", EnvironmentVariable} {
+	for _, expected := range []string{projects, "yoyo init --external", EnvironmentVariable} {
 		if !strings.Contains(err.Error(), expected) {
 			t.Errorf("error %q does not mention %q", err, expected)
 		}
 	}
+
+	// A project bound to the repository that keeps no configuration is named.
+	writeBindingOnly(t, host, repository)
+	_, err = discoverOn(host, repository)
+	if !errors.As(err, &notFound) || notFound.BoundProject != filepath.Base(repository) {
+		t.Fatalf("Discover() with a bare binding = %v, want NotFoundError naming the bound project", err)
+	}
 }
 
-// A directory in no repository has no key, so nothing was looked up and the
-// refusal does not name a path nothing could have read.
-func TestNotFoundNamesNoExternalPathOutsideARepository(t *testing.T) {
+// A directory in no repository has nothing to find a binding for, so nothing was
+// looked up and the refusal does not name a place nothing could have read.
+func TestNotFoundNamesNoProjectsOutsideARepository(t *testing.T) {
 	t.Parallel()
 
 	_, err := discoverOn(blank(t), t.TempDir())
@@ -361,8 +379,8 @@ func TestNotFoundNamesNoExternalPathOutsideARepository(t *testing.T) {
 	if !errors.As(err, &notFound) {
 		t.Fatalf("Discover() error = %v, want NotFoundError", err)
 	}
-	if notFound.ExternalPath != "" {
-		t.Errorf("NotFoundError.ExternalPath = %q, want nothing for a directory in no repository", notFound.ExternalPath)
+	if notFound.Projects != "" {
+		t.Errorf("NotFoundError.Projects = %q, want nothing for a directory in no repository", notFound.Projects)
 	}
 }
 
@@ -457,21 +475,40 @@ func gitRepository(t *testing.T) string {
 }
 
 // writeExternalProject puts a configuration where a machine keeps the one it
-// holds for a repository, and returns the file it wrote.
+// holds for a repository — the project directory, named for the checkout,
+// whose binding names that repository — and returns the file it wrote.
 func writeExternalProject(t *testing.T, host machine, repository, contents string) string {
 	t.Helper()
 
-	path, err := ExternalPath(host.getenv, host.userHomeDir, repository)
-	if err != nil {
-		t.Fatalf("ExternalPath() error = %v", err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatalf("MkdirAll() error = %v", err)
-	}
+	directory := writeBindingOnly(t, host, repository)
+	path := filepath.Join(directory, FileName)
 	if err := os.WriteFile(path, []byte(contents), 0o600); err != nil {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 	return path
+}
+
+// writeBindingOnly binds a project directory named for the checkout to the
+// repository, and returns the directory.
+func writeBindingOnly(t *testing.T, host machine, repository string) string {
+	t.Helper()
+
+	common, err := home.CommonGitDirectory(repository)
+	if err != nil || common == "" {
+		t.Fatalf("CommonGitDirectory(%q) = %q, %v", repository, common, err)
+	}
+	directory := filepath.Join(host.home, home.DirectoryName, home.ProjectsDirectoryName, filepath.Base(repository))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	content, err := json.Marshal(home.Binding{GitCommonDirectory: common, Repository: repository})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(directory, home.BindingFileName), content, 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	return directory
 }
 
 func TestProjectDirectoryIsTheProjectNotTheConfigurationDirectory(t *testing.T) {
@@ -483,5 +520,55 @@ func TestProjectDirectoryIsTheProjectNotTheConfigurationDirectory(t *testing.T) 
 	}
 	if got := ProjectDirectory(filepath.Join(project, LegacyFileName)); got != project {
 		t.Errorf("ProjectDirectory() legacy = %q, want %q", got, project)
+	}
+}
+
+// earlierHomeReaders are the files allowed to name the configurations home
+// earlier builds kept at ~/.config/yoyodyne: the migration that moves what is
+// there, and nothing else. It is empty until the migration lands.
+var earlierHomeReaders = map[string]bool{}
+
+// Nothing but the migration reads the earlier configurations home. The behaviour
+// tests above show discovery and the machine file no longer look there; this
+// reads every source file and script the product ships, so a new reader of that
+// home fails here rather than quietly keeping it alive.
+func TestNothingButTheMigrationNamesTheEarlierConfigurationsHome(t *testing.T) {
+	t.Parallel()
+
+	earlier := regexp.MustCompile(`YOYODYNE_CONFIG_HOME|\.config/yoyodyne|"\.config",\s*"yoyodyne"|XDG_CONFIG_HOME.*"yoyodyne"`)
+	repository := filepath.Join("..", "..")
+	err := filepath.WalkDir(repository, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name := entry.Name(); name == ".git" || name == "node_modules" || name == "testdata" || name == "docs" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		relative, err := filepath.Rel(repository, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.ToSlash(relative)
+		shipped := strings.HasSuffix(path, ".go") && !strings.HasSuffix(path, "_test.go") ||
+			strings.HasPrefix(relative, "bin/") || strings.HasSuffix(path, ".sh")
+		if !shipped || earlierHomeReaders[relative] {
+			return nil
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for number, line := range strings.Split(string(source), "\n") {
+			if earlier.MatchString(line) {
+				t.Errorf("%s:%d names the earlier configurations home, which only the migration reads: %s", relative, number+1, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 }

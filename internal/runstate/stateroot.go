@@ -1,147 +1,63 @@
 package runstate
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"go.yaml.in/yaml/v3"
-
-	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // StateHomeVariable is the explicit instruction that moves the state root for
 // one shell, and it wins over everything else because it is one.
-const StateHomeVariable = "YOYODYNE_STATE_HOME"
+const StateHomeVariable = home.StateHomeVariable
 
-// MachineFileName is the machine-local configuration file, kept in the
-// configurations home beside the external project configurations. It describes
-// this machine rather than any project, which is why the state root is set here
-// and never in a project file: a project file is committed and read on every
-// machine that checks the project out, and one that sets the key is refused.
-const MachineFileName = config.MachineFileName
+// MachineFileName is the machine-local configuration file,
+// `~/.yoyodyne/machine.yaml`. It describes this machine rather than any project,
+// which is why the state root is set here and never in a project file: a
+// project file is committed and read on every machine that checks the project
+// out, and one that sets the key is refused.
+const MachineFileName = home.MachineFileName
 
 // The origins a state root is reported under, in the order they are consulted.
-// `yoyo config show --origins` and `yoyo doctor` print them, so they are named
-// in the vocabulary an operator would type to change the value.
+// home.Resolve says what each one is.
 const (
-	RootOriginEnvironment   = "environment:" + StateHomeVariable
-	rootOriginMachinePrefix = "machine:"
-	RootOriginXDG           = "environment:XDG_STATE_HOME"
-	// RootOriginDefault is the machine home, `~/.yoyodyne`, and
-	// RootOriginEarlierDefault the platform's earlier default home, kept while
-	// it exists and `~/.yoyodyne` does not; home.Default decides between them.
+	RootOriginEnvironment    = home.OriginEnvironment
+	RootOriginXDG            = home.OriginXDG
 	RootOriginDefault        = home.OriginDefault
 	RootOriginEarlierDefault = home.OriginEarlierDefault
 )
 
 // ResolvedRoot is the state root one process resolved and the layer it came
 // from.
-type ResolvedRoot struct {
-	Path string
-	// Origin names the layer: one of the RootOrigin constants, or "machine:"
-	// followed by the machine file that set it.
-	Origin string
-}
-
-// machineDocument is the whole of what the machine file may say. It is decoded
-// strictly, so a misspelled key is refused rather than leaving the root where it
-// was with nothing to say why.
-type machineDocument struct {
-	StateRoot string `yaml:"state_root"`
-}
+type ResolvedRoot = home.Resolved
 
 // MachinePath is where this machine's configuration file is, whether or not it
 // exists.
-func MachinePath(getenv func(string) string, userHomeDir func() (string, error)) (string, error) {
-	home, err := config.ExternalHome(getenv, userHomeDir)
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, MachineFileName), nil
+func MachinePath(userHomeDir func() (string, error)) (string, error) {
+	return home.MachinePath(userHomeDir)
 }
 
-// machineStateRoot is the state root the machine file sets, or nothing where
-// there is no file or it sets none.
-func machineStateRoot(getenv func(string) string, userHomeDir func() (string, error)) (string, string, error) {
-	path, err := MachinePath(getenv, userHomeDir)
-	if err != nil {
-		return "", "", err
-	}
-	source, err := os.ReadFile(path)
-	if errors.Is(err, os.ErrNotExist) {
-		return "", path, nil
-	}
-	if err != nil {
-		return "", path, fmt.Errorf("read the machine configuration %s: %w", path, err)
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(source))
-	decoder.KnownFields(true)
-	var document machineDocument
-	if err := decoder.Decode(&document); err != nil {
-		if errors.Is(err, io.EOF) {
-			return "", path, nil
-		}
-		return "", path, fmt.Errorf("read the machine configuration %s: %w", path, err)
-	}
-	value := strings.TrimSpace(document.StateRoot)
-	if value == "" {
-		return "", path, nil
-	}
-	if !filepath.IsAbs(value) {
-		return "", path, fmt.Errorf("state_root in %s must be an absolute path and is %q", path, value)
-	}
-	return filepath.Clean(value), path, nil
-}
-
-// ResolveRoot is the one resolution of the state root every process makes:
-// YOYODYNE_STATE_HOME, then state_root in the machine file, then
-// XDG_STATE_HOME/yoyodyne, then the machine home `~/.yoyodyne`, in that order.
-// The variable wins because it is an explicit instruction for this shell; the
-// machine key is the operator's standing answer for the machine; the last two
-// are what a machine nobody configured gets. Where `~/.yoyodyne` does not exist
-// and the platform's earlier default home does, the earlier home is the last
-// layer instead, until the migration moves it (home.Default).
+// ResolveRoot is the one resolution of the state root every process makes,
+// which home.Resolve states: YOYODYNE_STATE_HOME, then state_root in the machine
+// file, then XDG_STATE_HOME/yoyodyne, then the machine home `~/.yoyodyne` — or
+// the platform's earlier default home while that is where the state still is.
 //
 // It resolves and never guards. A process that opens a product's records under
 // the root agrees it with the checkout's marker first, through AgreeRoot, which
-// is what the command package's productStateRoot does; only the two surfaces that
-// report the root without opening anything under it — `yoyo config show` and
-// `yoyo doctor` — call this without that. TestNothingOpensTheStateRootUnguarded
-// in the command package holds every caller to that list.
+// is what the command package's productStateRoot does; only the surfaces that
+// report the root without opening anything under it — `yoyo config show`,
+// `yoyo doctor`, and `yoyo project list` and `rename`, which act on the home
+// rather than on one repository — call this without that.
+// TestNothingOpensTheStateRootUnguarded in the command package holds every
+// caller to that list.
 func ResolveRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (ResolvedRoot, error) {
-	if value := strings.TrimSpace(getenv(StateHomeVariable)); value != "" {
-		if !filepath.IsAbs(value) {
-			return ResolvedRoot{}, errors.New("YOYODYNE_STATE_HOME must be an absolute path")
-		}
-		return ResolvedRoot{Path: filepath.Clean(value), Origin: RootOriginEnvironment}, nil
-	}
-	machine, machinePath, err := machineStateRoot(getenv, userHomeDir)
-	if err != nil {
-		return ResolvedRoot{}, err
-	}
-	if machine != "" {
-		return ResolvedRoot{Path: machine, Origin: rootOriginMachinePrefix + machinePath}, nil
-	}
-	if value := strings.TrimSpace(getenv("XDG_STATE_HOME")); value != "" {
-		if !filepath.IsAbs(value) {
-			return ResolvedRoot{}, errors.New("XDG_STATE_HOME must be an absolute path")
-		}
-		return ResolvedRoot{Path: filepath.Join(filepath.Clean(value), "yoyodyne"), Origin: RootOriginXDG}, nil
-	}
-	path, origin, err := home.Default(getenv, userHomeDir, goos)
-	if err != nil {
-		return ResolvedRoot{}, err
-	}
-	return ResolvedRoot{Path: path, Origin: origin}, nil
+	return home.Resolve(getenv, userHomeDir, goos)
 }
 
 // RootMarkerName is the marker's path inside the primary checkout's Git

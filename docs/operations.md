@@ -138,9 +138,9 @@ for the history of the job it replaces:
   A supervisor refused because another already holds the product's lease exits
   cleanly too, so an agent loaded beside a supervisor started by hand does not
   restart every few seconds for as long as that one runs.
-- **Its environment is the installing shell's `PATH`** and any state- or
-  configuration-home override (`YOYODYNE_STATE_HOME`, `XDG_STATE_HOME`,
-  `YOYODYNE_CONFIG_HOME`, `XDG_CONFIG_HOME`), so the parts find `git`, `bd`,
+- **Its environment is the installing shell's `PATH`**, any state-home override
+  (`YOYODYNE_STATE_HOME`, `XDG_STATE_HOME`), and `XDG_CONFIG_HOME`, which the
+  tools it runs read their own settings by, so the parts find `git`, `bd`,
   `make`, and the provider, and read the same state your own commands do.
   Nothing else is carried, a Slack token least of all. Its output goes to the
   supervisor log `yoyo start` names.
@@ -766,11 +766,25 @@ is where the allowlist itself is stated.
 Everything the harness records — runs, conversations, worktrees, reports, the
 pause below — lives under one directory outside the repository, the state root.
 It is `YOYODYNE_STATE_HOME` where a shell exports it, otherwise the
-`state_root` in this machine's `~/.config/yoyodyne/machine.yaml`, otherwise
+`state_root` in this machine's `~/.yoyodyne/machine.yaml`, otherwise
 `$XDG_STATE_HOME/yoyodyne`, otherwise the machine home, `~/.yoyodyne`. Where
-`~/.yoyodyne` does not exist and the earlier builds' default does
-(`~/Library/Application Support/Yoyodyne/state` on macOS), the earlier one is
-kept, because that is where the state is; nothing moves it on its own. Every part of the
+`~/.yoyodyne` does not exist, or holds only `machine.yaml`, and the earlier
+builds' default does (`~/Library/Application Support/Yoyodyne/state` on macOS),
+the earlier one is kept, because that is where the state is; nothing moves it on
+its own. A `machine.yaml` left in `~/.config/yoyodyne`, where earlier builds
+read it, is not read.
+
+Inside it, each project has a directory of its own, `projects/<product id>/`,
+holding `repository.json` — which repository the id is bound to — and the
+project's `state/` and `worktrees/`, with the configuration and its personas
+beside them where the repository does not carry its own. The operator's pause
+and the provider accounts are at the top, because they serve every project.
+`yoyo project list` names every project directory, what it is bound to, and
+whether that repository is still there; a start from a second clone, from
+another product using the same id, or against a bound repository that has gone
+refuses and names `yoyo project bind` or `yoyo project rename`, which
+[the configuration guide](configuration.md#a-product-id-names-one-repository-on-the-machine)
+describes. Every part of the
 product resolves it the same way, and it is never set in the project's own
 configuration; [`state_root`](configuration.md#where-the-harness-keeps-its-state-state_root)
 is the whole of the setting. `yoyo doctor` says which directory it is and which
@@ -825,7 +839,7 @@ Moving the state on purpose is four steps, in this order:
 ```sh
 yoyo stop                                   # nothing may be writing while it moves
 mv "$HOME/.yoyodyne" /Volumes/work/yoyodyne-state
-printf 'state_root: /Volumes/work/yoyodyne-state\n' > ~/.config/yoyodyne/machine.yaml
+mkdir -p ~/.yoyodyne && printf 'state_root: /Volumes/work/yoyodyne-state\n' > ~/.yoyodyne/machine.yaml
 yoyo state-root rebind                      # in the product's checkout: the old root is gone now
 yoyo start
 ```

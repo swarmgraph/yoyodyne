@@ -25,28 +25,46 @@
 // WorktreeDirectory are the one place that difference is decided.
 //
 // Which home a process uses — the environment variable, the machine file, then
-// these defaults — is run state's ResolveRoot, which calls Default for the last
-// layer. This package says what the defaults are and what lies under a home; it
-// sits below run state and every store that keeps a product's records, because
-// all of them need it.
+// these defaults — is Resolve, which run state's ResolveRoot answers with. It is
+// here rather than in run state because configuration discovery needs it too: a
+// configuration kept outside its repository is found in the project directory
+// whose binding names that repository. This package sits below configuration,
+// run state, and every store that keeps a product's records.
 package home
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+
+	"go.yaml.in/yaml/v3"
 )
+
+// StateHomeVariable is the explicit instruction that moves the home for one
+// shell, and it wins over everything else because it is one.
+const StateHomeVariable = "YOYODYNE_STATE_HOME"
+
+// MachineFileName is the machine's own settings file. It is kept at
+// `~/.yoyodyne/machine.yaml` whatever it says, because it is the file that says
+// where the rest of the home is: a setting kept under the directory it moves
+// would be found only by already knowing where that was.
+const MachineFileName = "machine.yaml"
 
 // DirectoryName is the home's name under the user's home directory.
 const DirectoryName = ".yoyodyne"
 
-// The origins a default home is reported under. `yoyo config show --origins`
-// and `yoyo doctor` print them beside the origins run state names for the
-// variable and the machine file.
+// The origins a home is reported under, in the order they are consulted, beside
+// MachineOrigin for the machine file. `yoyo config show --origins`, `yoyo
+// doctor`, and `yoyo project list` print them, so they are named in the
+// vocabulary an operator would type to change the value.
 const (
+	OriginEnvironment = "environment:" + StateHomeVariable
+	OriginXDG         = "environment:XDG_STATE_HOME"
 	// OriginDefault is `~/.yoyodyne`, which is what a machine nobody configured
 	// gets.
 	OriginDefault = "default"
@@ -89,8 +107,8 @@ func EarlierDefault(getenv func(string) string, userHomeDir func() (string, erro
 }
 
 // Default is the home a machine gets when nothing set one: `~/.yoyodyne` on
-// every platform, except that where `~/.yoyodyne` does not exist and the
-// platform's earlier default home does, the earlier one is kept, because that is
+// every platform, except that where `~/.yoyodyne` does not exist, or holds the
+// machine file and nothing else, and the platform's earlier default home does, the earlier one is kept, because that is
 // where the state is until `yoyo home migrate` moves it. The new build moves
 // nothing on its own. It returns the path and the origin it is reported under.
 func Default(getenv func(string) string, userHomeDir func() (string, error), goos string) (string, string, error) {
@@ -98,7 +116,7 @@ func Default(getenv func(string) string, userHomeDir func() (string, error), goo
 	if err != nil {
 		return "", "", err
 	}
-	if _, err := os.Stat(fresh); errors.Is(err, os.ErrNotExist) {
+	if !inUse(fresh) {
 		earlier, err := EarlierDefault(getenv, userHomeDir, goos)
 		if err != nil {
 			return "", "", err
@@ -108,6 +126,118 @@ func Default(getenv func(string) string, userHomeDir func() (string, error), goo
 		}
 	}
 	return fresh, OriginDefault, nil
+}
+
+// inUse reports whether `~/.yoyodyne` exists and is more than a directory
+// holding the machine file and nothing else. The
+// machine file is kept there whichever home is in use, so writing one on a
+// machine still running from the earlier default home does not, on its own,
+// move every product's records to an empty home.
+func inUse(fresh string) bool {
+	entries, err := os.ReadDir(fresh)
+	if err != nil {
+		return !errors.Is(err, os.ErrNotExist)
+	}
+	return len(entries) != 1 || entries[0].Name() != MachineFileName
+}
+
+// Resolved is the home one process resolved and the layer it came from.
+type Resolved struct {
+	Path string
+	// Origin names the layer: one of the Origin constants, or MachineOrigin of
+	// the machine file that set it.
+	Origin string
+}
+
+// MachineOrigin is the origin of a home the machine file set.
+func MachineOrigin(machinePath string) string {
+	return "machine:" + machinePath
+}
+
+// MachinePath is where this machine's settings file is, whether or not it
+// exists.
+func MachinePath(userHomeDir func() (string, error)) (string, error) {
+	fresh, err := DefaultPath(userHomeDir)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(fresh, MachineFileName), nil
+}
+
+// machineDocument is the whole of what the machine file may say. It is decoded
+// strictly, so a misspelled key is refused rather than leaving the home where it
+// was with nothing to say why.
+type machineDocument struct {
+	StateRoot string `yaml:"state_root"`
+}
+
+// machineStateRoot is the home the machine file sets, or nothing where there is
+// no file or it sets none.
+func machineStateRoot(userHomeDir func() (string, error)) (string, string, error) {
+	machine, err := MachinePath(userHomeDir)
+	if err != nil {
+		return "", "", err
+	}
+	source, err := os.ReadFile(machine)
+	if errors.Is(err, os.ErrNotExist) {
+		return "", machine, nil
+	}
+	if err != nil {
+		return "", machine, fmt.Errorf("read the machine configuration %s: %w", machine, err)
+	}
+	decoder := yaml.NewDecoder(bytes.NewReader(source))
+	decoder.KnownFields(true)
+	var document machineDocument
+	if err := decoder.Decode(&document); err != nil {
+		if errors.Is(err, io.EOF) {
+			return "", machine, nil
+		}
+		return "", machine, fmt.Errorf("read the machine configuration %s: %w", machine, err)
+	}
+	value := strings.TrimSpace(document.StateRoot)
+	if value == "" {
+		return "", machine, nil
+	}
+	if !filepath.IsAbs(value) {
+		return "", machine, fmt.Errorf("state_root in %s must be an absolute path and is %q", machine, value)
+	}
+	return filepath.Clean(value), machine, nil
+}
+
+// Resolve is the one resolution of the home every process makes:
+// YOYODYNE_STATE_HOME, then state_root in `~/.yoyodyne/machine.yaml`, then
+// XDG_STATE_HOME/yoyodyne, then Default. The variable wins because it is an
+// explicit instruction for this shell; the machine key is the operator's
+// standing answer for the machine; the last two are what a machine nobody
+// configured gets.
+//
+// It resolves and never guards: the checkout's marker, which refuses two homes
+// for one repository, is run state's AgreeRoot.
+func Resolve(getenv func(string) string, userHomeDir func() (string, error), goos string) (Resolved, error) {
+	if value := strings.TrimSpace(getenv(StateHomeVariable)); value != "" {
+		if !filepath.IsAbs(value) {
+			return Resolved{}, errors.New("YOYODYNE_STATE_HOME must be an absolute path")
+		}
+		return Resolved{Path: filepath.Clean(value), Origin: OriginEnvironment}, nil
+	}
+	machine, machinePath, err := machineStateRoot(userHomeDir)
+	if err != nil {
+		return Resolved{}, err
+	}
+	if machine != "" {
+		return Resolved{Path: machine, Origin: MachineOrigin(machinePath)}, nil
+	}
+	if value := strings.TrimSpace(getenv("XDG_STATE_HOME")); value != "" {
+		if !filepath.IsAbs(value) {
+			return Resolved{}, errors.New("XDG_STATE_HOME must be an absolute path")
+		}
+		return Resolved{Path: filepath.Join(filepath.Clean(value), "yoyodyne"), Origin: OriginXDG}, nil
+	}
+	path, origin, err := Default(getenv, userHomeDir, goos)
+	if err != nil {
+		return Resolved{}, err
+	}
+	return Resolved{Path: path, Origin: origin}, nil
 }
 
 // ProjectsDirectoryName holds one directory per project.

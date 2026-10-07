@@ -52,9 +52,17 @@ func TestMain(m *testing.M) {
 		code := m.Run()
 		// Direct supervisor and installer tests must use their product's own
 		// store, rather than leaking records into even the suite's default.
-		paths, err := filepath.Glob(filepath.Join(root, "products", "*", "config-readers", "supervisor-*.json"))
+		paths, err := filepath.Glob(filepath.Join(root, "projects", "*", "state", "config-readers", "supervisor-*.json"))
 		if err != nil || len(paths) != 0 {
 			fmt.Fprintf(os.Stderr, "supervisor tests leaked configuration records into the default state: %v, %v\n", paths, err)
+			code = 1
+		}
+		// The store began as a new machine home, and every command the suite ran
+		// without a home of its own wrote into it. A products/ directory in it
+		// would switch the whole home to the earlier layout under every store
+		// reading it (home.EarlierLayout), so a writer that made one fails here.
+		if _, err := os.Stat(filepath.Join(root, "products")); !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "a new machine home acquired a products/ directory, which switches it to the earlier layout: %v\n", err)
 			code = 1
 		}
 		os.RemoveAll(root)

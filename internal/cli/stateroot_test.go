@@ -35,7 +35,7 @@ func stateRootProject(t *testing.T) (project, configPath string) {
 // YOYODYNE_STATE_HOME — refuses to start, naming both, and records nothing.
 func TestAProcessOnASecondStateRootRefusesToStart(t *testing.T) {
 	// Not parallel: the state root every command resolves is set for this process.
-	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	first := t.TempDir()
 	t.Setenv("YOYODYNE_STATE_HOME", first)
 	project, configPath := stateRootProject(t)
@@ -85,7 +85,7 @@ func TestAProcessOnASecondStateRootRefusesToStart(t *testing.T) {
 // writes nothing over the binding.
 func TestASecondRepositoryWithABoundIDRefusesToStart(t *testing.T) {
 	// Not parallel: the state root every command resolves is set for this process.
-	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	t.Setenv("YOYODYNE_STATE_HOME", root)
 	first, firstConfig := stateRootProject(t)
@@ -119,7 +119,7 @@ func TestASecondRepositoryWithABoundIDRefusesToStart(t *testing.T) {
 // that command clears it and the next command starts.
 func TestAMarkerNamingADeletedRootIsClearedByTheRebindItNames(t *testing.T) {
 	// Not parallel: the state root every command resolves is set for this process.
-	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	gone := filepath.Join(t.TempDir(), "deleted-root")
 	t.Setenv("YOYODYNE_STATE_HOME", gone)
 	project, configPath := stateRootProject(t)
@@ -164,11 +164,15 @@ func TestAMarkerNamingADeletedRootIsClearedByTheRebindItNames(t *testing.T) {
 // The machine key sets the root when no variable does, and config show says so
 // by the file that set it.
 func TestTheMachineKeySetsTheRootAndConfigShowNamesIt(t *testing.T) {
-	configHome := t.TempDir()
-	t.Setenv("YOYODYNE_CONFIG_HOME", configHome)
+	userHome := t.TempDir()
+	t.Setenv("HOME", userHome)
 	t.Setenv("YOYODYNE_STATE_HOME", "")
+	t.Setenv("XDG_STATE_HOME", "")
 	root := t.TempDir()
-	machinePath := filepath.Join(configHome, runstate.MachineFileName)
+	machinePath := filepath.Join(userHome, ".yoyodyne", runstate.MachineFileName)
+	if err := os.MkdirAll(filepath.Dir(machinePath), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(machinePath, []byte("state_root: "+root+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -223,8 +227,8 @@ func resolvedTestStateRoot() (string, error) {
 // Every process that opens a product's records resolves the root and agrees it
 // with the checkout's marker, and the one place that does both is
 // productStateRoot. ResolveRoot alone is the unguarded half, so it is allowed
-// only there and in the two surfaces that report the root without opening
-// anything under it. A new caller anywhere else is a process that could diverge
+// only there and in the surfaces that report the root or act on the home as a
+// whole without opening one repository's records under it. A new caller anywhere else is a process that could diverge
 // onto a second root instead of refusing, so this reads the source and fails on
 // one, and on anything reading the variables that choose the root directly.
 func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
@@ -235,6 +239,13 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 		"internal/cli/cli.go":       true, // config show: reports, records nothing
 		"internal/doctor/doctor.go": true, // doctor: reports, reads the marker only
 		"internal/cli/stateroot.go": true, // state-root rebind: replaces only a marker whose root is gone
+		"internal/cli/project.go":   true, // project list and rename: act on the home, in no one repository
+	}
+	// home.Resolve is the resolution itself, which runstate.ResolveRoot answers
+	// with; outside those two packages only configuration discovery calls it, to
+	// read which project directory is bound to a repository.
+	resolvers := map[string]bool{
+		"internal/config/discover.go": true,
 	}
 	variables := regexp.MustCompile(`Getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)|getenv\("(YOYODYNE_STATE_HOME|XDG_STATE_HOME)"\)`)
 	repository := filepath.Join("..", "..")
@@ -256,7 +267,7 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 			return err
 		}
 		relative = filepath.ToSlash(relative)
-		if strings.HasPrefix(relative, "internal/runstate/") {
+		if strings.HasPrefix(relative, "internal/runstate/") || strings.HasPrefix(relative, "internal/home/") {
 			return nil
 		}
 		source, err := os.ReadFile(path)
@@ -266,6 +277,9 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 		text := string(source)
 		if strings.Contains(text, "runstate.ResolveRoot(") && !allowed[relative] {
 			t.Errorf("%s resolves the state root with runstate.ResolveRoot and never agrees it with the checkout's marker; open it through productStateRoot", relative)
+		}
+		if strings.Contains(text, "home.Resolve(") && !resolvers[relative] {
+			t.Errorf("%s resolves the home with home.Resolve and never agrees it with the checkout's marker; open it through productStateRoot", relative)
 		}
 		if variables.MatchString(text) {
 			t.Errorf("%s reads a variable that chooses the state root directly; resolve the root through runstate.ResolveRoot and the marker instead", relative)

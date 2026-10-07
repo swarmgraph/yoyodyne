@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -322,8 +324,8 @@ func initializeProject(options initializeOptions) (initialized, error) {
 	if err != nil {
 		return result, fmt.Errorf("resolve project directory %q: %w", options.Directory, err)
 	}
-	// An external configuration is keyed by the repository it describes, and the
-	// key is what discovery looks it up by from anywhere inside that repository.
+	// An external configuration is found by the binding of its project directory
+	// to the repository it describes, from anywhere inside that repository.
 	// So the repository is settled first, and a directory that is in none is
 	// refused before anything is generated: a configuration nothing could find
 	// again is worse than one that was never written.
@@ -334,7 +336,7 @@ func initializeProject(options initializeOptions) (initialized, error) {
 			return result, err
 		}
 		if found == "" {
-			return result, fmt.Errorf("%s is not inside a Git repository, and a configuration kept outside a repository is keyed by the "+
+			return result, fmt.Errorf("%s is not inside a Git repository, and a configuration kept outside a repository is found by the "+
 				"repository it describes; name a checkout with --directory, or write the configuration into the project without --external", named)
 		}
 		repository, root = found, found
@@ -369,7 +371,7 @@ func initializeProject(options initializeOptions) (initialized, error) {
 		return result, err
 	}
 
-	destination, prefix, reported, err := scaffoldDestination(project, named, repository, options.External)
+	destination, prefix, reported, err := scaffoldDestination(project, named, repository, identifier, options.External)
 	if err != nil {
 		return result, err
 	}
@@ -450,38 +452,37 @@ func initializeProject(options initializeOptions) (initialized, error) {
 // of them is confined to, what a scaffold file is called inside it, and the
 // directory the operator is told the paths relative to.
 //
-// The external root is the configurations home rather than the project's own
-// directory inside it, so the `projects/<key>` path is resolved through the
+// An external configuration goes into the machine home's project directory for
+// its id, `projects/<id>/`, which is bound to the repository first: the binding
+// is what discovery finds the configuration by, so it is settled before
+// anything is written, and a binding of the id to another repository refuses
+// here with nothing touched. The root is the home rather than the project
+// directory inside it, so the `projects/<id>` path is resolved through the
 // primitive like any other: a root declared at the leaf would resolve a symlink
 // standing where that leaf goes and confine the write to wherever it pointed,
 // which is exactly the escape the primitive exists to refuse.
-func scaffoldDestination(project repowrite.Root, named, repository string, external bool) (repowrite.Root, string, string, error) {
+func scaffoldDestination(project repowrite.Root, named, repository, productID string, external bool) (repowrite.Root, string, string, error) {
 	if !external {
 		return project, config.DirectoryName + "/", named, nil
 	}
-	home, err := config.ExternalHome(os.Getenv, os.UserHomeDir)
+	resolved, err := agreedHome(repository)
 	if err != nil {
 		return repowrite.Root{}, "", "", err
 	}
-	// The home is created before it is declared as a write root rather than
-	// through one: confinement is decided against a root that already exists, and
-	// this is the directory that root will be. Everything written inside it goes
-	// through the primitive.
-	if err := os.MkdirAll(home, externalHomePermissions); err != nil {
-		return repowrite.Root{}, "", "", fmt.Errorf("create the configurations directory %q: %w", home, err)
+	if _, err := home.Agree(home.AgreeOptions{
+		Root:                resolved.Path,
+		ProductID:           productID,
+		Checkout:            repository,
+		EvenInEarlierLayout: true,
+	}); err != nil {
+		return repowrite.Root{}, "", "", err
 	}
-	root, err := repowrite.NewRoot(home)
+	root, err := repowrite.NewRoot(resolved.Path)
 	if err != nil {
-		return repowrite.Root{}, "", "", fmt.Errorf("open the configurations directory %q: %w", home, err)
+		return repowrite.Root{}, "", "", fmt.Errorf("open the machine home %q: %w", resolved.Path, err)
 	}
-	return root, config.ExternalDirectory(repository) + "/", home, nil
+	return root, path.Join(home.ProjectsDirectoryName, productID) + "/", resolved.Path, nil
 }
-
-// externalHomePermissions is what the configurations home is created as: the
-// mode the run-state root this machine keeps beside it is created with, because
-// it is the same kind of directory — one user's own, under their home, created
-// by the harness rather than checked out.
-const externalHomePermissions = 0o700
 
 // describeExternalConfiguration says what an external configuration is and what
 // finds it, because the one thing an operator cannot see from the paths that

@@ -50,6 +50,7 @@ func commandHelp() string {
 		printDoctorUsage,
 		printDashboardUsage,
 		printStateRootUsage,
+		printProjectUsage,
 	}
 	var rendered strings.Builder
 	for index, print := range printers {

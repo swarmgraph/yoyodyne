@@ -582,7 +582,7 @@ func TestRunInitRefusesAProductItCannotName(t *testing.T) {
 // nothing typed after it.
 func TestRunInitExternalWritesOutsideTheRepositoryAndIsStillFoundFromIt(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.HomeVariable, home)
+	t.Setenv("YOYODYNE_STATE_HOME", home)
 	project := externalProject(t)
 
 	var stdout, stderr bytes.Buffer
@@ -600,9 +600,11 @@ func TestRunInitExternalWritesOutsideTheRepositoryAndIsStillFoundFromIt(t *testi
 		}
 	}
 
-	path, err := config.ExternalPath(os.Getenv, os.UserHomeDir, project)
-	if err != nil {
-		t.Fatalf("ExternalPath() error = %v", err)
+	// It is kept in the machine home's project directory for its id, which is
+	// bound to the repository.
+	path := filepath.Join(home, "projects", "their-project", config.FileName)
+	if _, err := os.Stat(filepath.Join(home, "projects", "their-project", "repository.json")); err != nil {
+		t.Errorf("an external init bound no repository: %v", err)
 	}
 	if !strings.Contains(stdout.String(), path) {
 		t.Errorf("stdout = %q, want it to name %q", stdout.String(), path)
@@ -644,12 +646,12 @@ func TestRunInitExternalWritesOutsideTheRepositoryAndIsStillFoundFromIt(t *testi
 	}
 }
 
-// An external configuration is keyed by the repository it describes, so a
+// An external configuration is found by the repository it describes, so a
 // directory in none is refused before anything is written: a configuration
 // nothing could find again is worse than one that was never written.
 func TestRunInitExternalRefusesADirectoryInNoRepository(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv(config.HomeVariable, home)
+	t.Setenv("YOYODYNE_STATE_HOME", home)
 	project := filepath.Join(t.TempDir(), "example-project")
 	if err := os.Mkdir(project, 0o755); err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
@@ -667,7 +669,7 @@ func TestRunInitExternalRefusesADirectoryInNoRepository(t *testing.T) {
 		t.Fatalf("ReadDir() error = %v", err)
 	}
 	if len(entries) != 0 {
-		t.Errorf("a refused external init left %d entries in the configurations home", len(entries))
+		t.Errorf("a refused external init left %d entries in the machine home", len(entries))
 	}
 }
 
@@ -685,18 +687,15 @@ func TestRunInitExternalRefusesADirectoryInNoRepository(t *testing.T) {
 func TestDoctorDiagnosesAnExternalConfigurationFoundFromTheRepository(t *testing.T) {
 	// The one thing a diagnosis writes is the harness's own state root, pointed
 	// somewhere disposable here.
-	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
-	t.Setenv(config.HomeVariable, t.TempDir())
+	home := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", home)
 	project := externalProject(t)
 
 	var stdout, stderr bytes.Buffer
 	if code := Run([]string{"init", "--directory", project, "--external"}, &stdout, &stderr, "test"); code != 0 {
 		t.Fatalf("init code = %d, stderr = %q", code, stderr.String())
 	}
-	path, err := config.ExternalPath(os.Getenv, os.UserHomeDir, project)
-	if err != nil {
-		t.Fatalf("ExternalPath() error = %v", err)
-	}
+	path := filepath.Join(home, "projects", "their-project", config.FileName)
 
 	t.Chdir(project)
 	stdout.Reset()
