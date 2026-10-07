@@ -16,7 +16,11 @@ amend when your intent changes. After that, work is developed, checked,
 reviewed, and merged without anybody approving each change. What reaches you is
 what only you can decide: work items to approve (unless you hand that to your
 goals), questions about intent, stopped work the development manager escalates,
-and the pause and intake hold only you lift.
+and the pause and intake hold you place yourself. When runs keep failing one
+after another, the harness holds intake on its own and calls the development
+manager to decide whether to release that hold, test the line with one run, or
+escalate it to you; you are told when it happens, and you may release it
+yourself ([how that hold works](docs/operations.md#pausing-everything-and-resuming-it)).
 
 Three gates hold that up, and the harness enforces each rather than trusting an
 agent's good behavior:
@@ -41,8 +45,11 @@ items; you approve as many as you like and say `/work <id>` to run one. The run
 happens in the background: an isolated worktree, your checks, an independent
 reviewer whose findings go back to the developer to repair, and a merge into
 your target branch — or a pull request, [if you ask for
-one](#optional-publishing-and-auto-merge). The other commands (`yoyo help`
-lists them) are for administration and recovery.
+one](#optional-publishing-and-auto-merge). The merge is something you turn on:
+a freshly generated configuration sets `approvals.integration: human`, and until
+you set it to `automatic` a run stops once your checks pass and keeps its
+branch and worktree for you to merge. The other commands (`yoyo help` lists
+them) are for administration and recovery.
 
 **Quick start.** One script installs `yoyo`, tells you where it put it, and
 checks the two things it needs — [Beads](https://github.com/gastownhall/beads)
@@ -59,6 +66,15 @@ yoyo chat
 `yoyo setup` walks the configuration steps as questions. [Getting
 started](#getting-started) is the same path typed by hand, with what each step
 is for; [Install](#install) has what the script does and the other routes.
+
+**Your first run does not merge anything.** The configuration `yoyo setup` and
+`yoyo init` write sets `approvals.integration: human`, so a run that passes
+your checks ends there, with its change on its own branch and worktree for you
+to look at and merge yourself; no reviewer runs, because nothing is merged
+without you. Set `approvals.integration: automatic` in
+`.yoyodyne/config.yaml` once you want the harness to have every change
+reviewed and merge the approved ones; [publishing and
+auto-merge](#optional-publishing-and-auto-merge) has what it needs.
 
 **What is bounded today**, worth knowing before you start:
 
@@ -357,8 +373,9 @@ conversation](docs/conversation.md) covers the rest.
 
 ### Optional: publishing and auto-merge
 
-By default yoyo is entirely local. Two settings turn publishing on, and each
-works without the other:
+By default yoyo is entirely local, and merges nothing: `yoyo init` writes both
+settings below as `human`, which leaves each run's change on its branch and
+worktree for you. Two settings change that, and each works without the other:
 
 ```yaml
 approvals:
