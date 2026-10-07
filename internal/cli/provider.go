@@ -47,6 +47,26 @@ func providerRegistry(cfg config.Config) *backend.Registry {
 	return registry
 }
 
+// providerExecutables are the executables every provider this project may name
+// launches, which the checks are not allowed to find on their search path. The
+// built-ins' defaults are named even where the configuration will not resolve,
+// because a check passing on an installed provider CLI is the same mistake
+// whatever the configuration says.
+func providerExecutables(cfg config.Config) []string {
+	executables := []string{
+		adapters.Binary(backend.Descriptor{Adapter: domain.BackendClaudeCode}),
+		adapters.Binary(backend.Descriptor{Adapter: domain.BackendCodex}),
+	}
+	registry := providerRegistry(cfg)
+	for _, named := range registry.Backends() {
+		descriptor, _ := registry.Lookup(named)
+		if binary := adapters.Binary(descriptor); binary != "" {
+			executables = append(executables, binary)
+		}
+	}
+	return executables
+}
+
 // providerBackend builds the adapter that runs one agent's provider. A backend
 // this project does not describe, or one no compiled adapter can launch, still
 // yields an adapter: what refuses it is the run pipeline and the conversation,

@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -326,4 +327,18 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"claude-fixture
 			t.Fatalf("substitutions = %+v, want none for a role with no alternate", entries)
 		}
 	})
+}
+
+// The check stage hides every provider the project can run: the built-ins'
+// defaults, and the executable a project configured in place of one.
+func TestTheChecksAreToldEveryProviderExecutable(t *testing.T) {
+	t.Parallel()
+
+	configured := filepath.Join(t.TempDir(), "my-codex")
+	hidden := providerExecutables(config.Config{Providers: map[string]backend.ProviderPlugin{"codex": {Binary: configured}}})
+	for _, want := range []string{"claude", "codex", configured} {
+		if !slices.Contains(hidden, want) {
+			t.Errorf("the checks are not told to hide %q: %v", want, hidden)
+		}
+	}
 }
