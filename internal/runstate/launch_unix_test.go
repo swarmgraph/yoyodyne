@@ -560,6 +560,9 @@ func TestAReusedProcessIdentifierIsNotTakenForTheAttempt(t *testing.T) {
 	if found.Verdict != LaunchInterrupted {
 		t.Fatalf("reconciliation with the identifier reused = %+v", found)
 	}
+	if got := f.launches(t); got != 0 {
+		t.Fatalf("providers launched = %d, want 0", got)
+	}
 	f.assertUnspent(t)
 }
 
@@ -631,6 +634,15 @@ func TestUnreadableExecutionEvidenceWaitsWithItsReasonRecorded(t *testing.T) {
 		}},
 		{name: "group not permitted", because: "not permitted", signal: func(int) error { return syscall.EPERM }},
 		{name: "group has members", because: "still has members", signal: func(int) error { return nil }},
+		{name: "hold is a link", because: "cannot be opened", spoil: func(t *testing.T, f launchFixture, identity ExecutionIdentity) {
+			path, _ := f.store.holdPath(f.runID, "att-1")
+			if err := os.Remove(path); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(filepath.Join(t.TempDir(), "elsewhere"), path); err != nil {
+				t.Fatal(err)
+			}
+		}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -658,6 +670,9 @@ func TestUnreadableExecutionEvidenceWaitsWithItsReasonRecorded(t *testing.T) {
 			state := load(t, f.store, f.runID)
 			if _, err := f.store.UpdateRouting(context.Background(), state, prepare("op-1", "att-2")); !errors.Is(err, ErrRoutingConflict) {
 				t.Fatalf("preparing another attempt while uncertain: error = %v", err)
+			}
+			if got := f.launches(t); got != 0 {
+				t.Fatalf("providers launched = %d, want 0", got)
 			}
 			f.assertUnspent(t)
 		})
@@ -825,5 +840,33 @@ func TestAnExecutionFromAnEarlierBootIsStopped(t *testing.T) {
 	settle(false)
 	if found != executionStopped {
 		t.Fatalf("observing an execution from an earlier boot = %v", found)
+	}
+}
+
+// The file that shows whether an attempt's processes are alive is created
+// through the pinned run state directory, so a link planted at its name is
+// refused rather than followed out of that directory.
+func TestALinkPlantedAtAnAttemptsFileIsRefusedRatherThanFollowed(t *testing.T) {
+	t.Parallel()
+	f := newLaunchFixture(t)
+	outside := filepath.Join(t.TempDir(), "outside")
+	path, err := f.store.holdPath(f.runID, "att-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, path); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.BeginLaunch(context.Background(), f.runID, "op-1", "att-1"); err == nil {
+		t.Fatal("BeginLaunch() followed a link planted at the attempt's file")
+	}
+	if _, err := os.Lstat(outside); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the link's target was created outside the run state directory: %v", err)
+	}
+	if got := f.launches(t); got != 0 {
+		t.Fatalf("providers launched = %d, want 0", got)
+	}
+	if attempt := f.attempt(t, "att-1"); attempt.State != AttemptPrepared || attempt.Execution != nil {
+		t.Fatalf("the refused launch changed the attempt: %+v", attempt)
 	}
 }

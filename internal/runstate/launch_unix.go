@@ -33,17 +33,14 @@ func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (exec
 	if boot := currentBoot(); identity.Boot != "" && boot != "" && boot != identity.Boot {
 		return executionStopped, "the machine has restarted since it was started", nothing
 	}
-	path, err := s.holdPath(runID, attemptOfHold(identity.Hold))
-	if err != nil {
-		return executionUnknown, fmt.Sprintf("its hold %q is not one this harness names: %v", identity.Hold, err), nothing
-	}
-	hold, err := os.OpenFile(path, os.O_RDWR, 0)
+	opened, err := s.openHold(runID, attemptOfHold(identity.Hold), true)
 	if errors.Is(err, os.ErrNotExist) {
 		return executionUnknown, fmt.Sprintf("the file that shows whether its processes are alive, %s, is missing", identity.Hold), nothing
 	}
 	if err != nil {
 		return executionUnknown, fmt.Sprintf("the file that shows whether its processes are alive, %s, cannot be opened: %v", identity.Hold, err), nothing
 	}
+	hold := opened.file
 	settled := false
 	settle := func(remove bool) {
 		if settled {
@@ -51,9 +48,10 @@ func (s *Store) observeExecution(runID string, identity ExecutionIdentity) (exec
 		}
 		settled = true
 		if remove {
-			_ = os.Remove(path)
+			opened.remove()
 		}
 		_ = releaseStateFile(hold)
+		opened.close()
 	}
 	current, err := fileIdentity(hold)
 	if err != nil || current != identity.HoldFile {

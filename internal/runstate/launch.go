@@ -43,6 +43,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
 // executionState is what observing an execution found.
@@ -75,6 +76,63 @@ func (s *Store) holdPath(runID, attemptID string) (string, error) {
 		return "", fmt.Errorf("attempt identity %q is invalid", attemptID)
 	}
 	return filepath.Join(s.root, runID+"."+holdName(attemptID)), nil
+}
+
+// holdFile is an attempt's hold opened through the run state directory pinned
+// against replacement, as every harness-owned write is
+// (docs/decisions/invariants, repository-writes-are-physically-confined): a
+// link planted at its name, or a directory swapped in on the way to it, is
+// refused rather than followed. The directory stays pinned until close, so
+// removing the file afterwards removes the same name in the same directory.
+type holdFile struct {
+	file *os.File
+	root *repowrite.PinnedRoot
+	name string
+}
+
+// openHold opens an attempt's hold, creating it unless mustExist. A hold that
+// must exist and does not is reported as os.ErrNotExist, and one that is not a
+// regular file is refused.
+func (s *Store) openHold(runID, attemptID string, mustExist bool) (holdFile, error) {
+	path, err := s.holdPath(runID, attemptID)
+	if err != nil {
+		return holdFile{}, err
+	}
+	stateRoot, anchor, err := confinedStateRoot(s.root)
+	if err != nil {
+		return holdFile{}, err
+	}
+	root, err := pinStateRoot(stateRoot, anchor)
+	if err != nil {
+		return holdFile{}, err
+	}
+	name := filepath.Base(path)
+	info, err := root.Lstat(name)
+	switch {
+	case errors.Is(err, os.ErrNotExist) && !mustExist:
+	case err != nil:
+		root.Close()
+		return holdFile{}, err
+	case !info.Mode().IsRegular():
+		root.Close()
+		return holdFile{}, fmt.Errorf("%s is not a regular file", name)
+	}
+	file, err := root.OpenLock(name, 0o600)
+	if err != nil {
+		root.Close()
+		return holdFile{}, err
+	}
+	return holdFile{file: file, root: root, name: name}, nil
+}
+
+// remove removes the hold's name from the pinned directory.
+func (h holdFile) remove() {
+	_ = h.root.Remove(h.name)
+}
+
+// close lets go of the pinned directory; the file is the caller's.
+func (h holdFile) close() {
+	_ = h.root.Close()
 }
 
 // launcherGeneration identifies this harness process for as long as it runs,
@@ -146,22 +204,20 @@ func (s *Store) BeginLaunch(ctx context.Context, runID, operationID, attemptID s
 	case len(operation.pendingEffects()) > 0:
 		return nil, conflict("operation %s has effect %s that nobody has established as performed or absent", operationID, operation.pendingEffects()[0].Key)
 	}
-	path, err := s.holdPath(runID, attemptID)
+	opened, err := s.openHold(runID, attemptID, false)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open the file that shows whether attempt %s's processes are alive: %w", attemptID, err)
 	}
-	hold, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("open the hold of attempt %s: %w", attemptID, err)
-	}
+	opened.close()
+	hold := opened.file
 	taken, err := tryLockStateFile(hold)
 	if err != nil {
 		hold.Close()
-		return nil, fmt.Errorf("lock the hold of attempt %s: %w", attemptID, err)
+		return nil, fmt.Errorf("lock the file that shows whether attempt %s's processes are alive: %w", attemptID, err)
 	}
 	if !taken {
 		hold.Close()
-		return nil, conflict("a process from an earlier launch of attempt %s still holds its hold", attemptID)
+		return nil, conflict("a process from an earlier launch of attempt %s is still running", attemptID)
 	}
 	identity, err := fileIdentity(hold)
 	if err != nil {
