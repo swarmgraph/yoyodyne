@@ -331,6 +331,7 @@ func (s *setup) diagnose(ctx context.Context) doctor.Report {
 		GOOS:        s.goos,
 		Version:     s.version,
 		Load:        s.load,
+		Locate:      func() (string, error) { return s.configPath(), nil },
 	})
 }
 
@@ -466,13 +467,20 @@ func (s *setup) ensureConfiguration(ctx context.Context) setupStep {
 			Remedy:  fmt.Sprintf("yoyo init --directory %s", shellQuote(s.directory)),
 		}
 	}
+	// What the operator still owes on the checks is the one thing about a fresh
+	// configuration that is not visible in the file itself.
+	detail := describeDetection(initialization.detection, initialization.config)
+	// An ignored configuration is said here for the reason `yoyo init` says it:
+	// this is the moment it can still be decided cheaply. Doctor's finding at the
+	// end of the walk carries the command, so this step only says it.
+	if ignored := doctor.ConfigurationIgnored(ctx, s.runner, initialization.repository, initialization.config); ignored.Ignored {
+		detail += "; " + doctor.DescribeIgnoredConfiguration(ignored)
+	}
 	return setupStep{
 		Step:    stepConfiguration,
 		Status:  setupDone,
 		Summary: fmt.Sprintf("wrote %s and the personas beside it", initialization.config),
-		// What the operator still owes on the checks is the one thing about a
-		// fresh configuration that is not visible in the file itself.
-		Detail: describeDetection(initialization.detection, initialization.config),
+		Detail:  detail,
 	}
 }
 

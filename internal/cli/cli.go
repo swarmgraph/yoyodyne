@@ -14,6 +14,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -194,7 +195,7 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 	// one command an operator runs to be told whether it is right says so. It is
 	// not a validity failure and does not become one: the exit code is what it
 	// would have been, and the warning is on the stream a warning belongs on.
-	ignored := configurationIgnored(ctx, execution.OSProcessRunner{}, configuredRepository(resolved), resolved.Path)
+	ignored := doctor.ConfigurationIgnored(ctx, execution.OSProcessRunner{}, configuredRepository(resolved), resolved.Path)
 	// What the project's template has improved since this configuration was
 	// generated, said without being asked for it. It is silent unless there is
 	// something, it is on the stream an aside belongs on, and it never moves the
@@ -246,7 +247,7 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 	}
 	fmt.Fprintf(stdout, "configuration valid: %s (revision %s)\n", resolved.Path, resolved.Config.Revision())
 	if ignored.Ignored {
-		fmt.Fprintln(stderr, describeIgnoredConfiguration(ignored))
+		fmt.Fprintln(stderr, doctor.DescribeIgnoredConfiguration(ignored))
 	}
 	if notice := drift.Notice(); notice != "" {
 		fmt.Fprintln(stderr, notice)

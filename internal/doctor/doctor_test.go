@@ -3,6 +3,7 @@ package doctor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -94,10 +95,17 @@ func brokenInstallations() map[string]func(*world) {
 			w.runner.reply("stats", failed("no beads database here"))
 		},
 		"there is no configuration": func(w *world) {
-			w.configError = errors.New("no .yoyodyne/config.yaml was found above this directory")
+			w.unconfigure()
 		},
 		"the configuration does not load": func(w *world) {
 			w.configError = errors.New("checks must not be empty")
+		},
+		"YOYODYNE_CONFIG names a file that is not there": func(w *world) {
+			w.variables[config.EnvironmentVariable] = "/nowhere/config.yaml"
+			w.configError = errors.New("YOYODYNE_CONFIG names /nowhere/config.yaml: no such file or directory")
+		},
+		"the repository's .gitignore ignores the configuration": func(w *world) {
+			w.runner.reply("check-ignore", succeeded(".gitignore:1:.yoyodyne\t.yoyodyne/config.yaml\n"))
 		},
 		"no checks are configured": func(w *world) {
 			w.configuration = strings.Replace(healthyConfig, "  - go test ./...\n", "", 1)
@@ -1115,7 +1123,7 @@ func TestAMissingConfigurationStillReportsTheToolsAroundIt(t *testing.T) {
 	t.Parallel()
 
 	world := newWorld(t)
-	world.configError = errors.New("no .yoyodyne/config.yaml was found above this directory")
+	world.unconfigure()
 	report := world.diagnose()
 
 	finding, found := findingFor(report, "configuration")
@@ -1232,9 +1240,12 @@ type world struct {
 	missing       map[string]bool
 	configuration string
 	configError   error
-	stateRoot     string
-	project       string
-	goos          string
+	// unconfigured is a project with no configuration file at all, which is what
+	// tells "write one" apart from "fix the one that is there".
+	unconfigured bool
+	stateRoot    string
+	project      string
+	goos         string
 	// build is the revision the diagnosing binary reports, which is what a sink's
 	// own revision is checked against. A world that names none is the ordinary
 	// released install, where the version is the whole of the comparison.
@@ -1425,6 +1436,7 @@ func (w *world) diagnose() Report {
 		Version:     currentVersion,
 		Build:       w.build,
 		Load:        w.load,
+		Locate:      w.locate,
 		Now:         time.Now,
 		ProcessRunning: func(pid int) (bool, error) {
 			return w.alive[pid], nil
@@ -1513,6 +1525,37 @@ func (w *world) load() (config.Resolved, error) {
 		return config.Resolved{}, err
 	}
 	return config.LoadResolved(path)
+}
+
+// unconfigure leaves the project with no configuration at all, which discovery
+// reports the way it does for real.
+func (w *world) unconfigure() {
+	w.unconfigured = true
+	w.configError = config.NotFoundError{StartDirectory: w.project}
+}
+
+// locate is where the configuration is, written so that it is there, unless the
+// project has none -- in which case discovery's own error is the answer. A
+// variable naming somewhere else is followed the way discovery follows it.
+func (w *world) locate() (string, error) {
+	if w.unconfigured {
+		return "", config.NotFoundError{StartDirectory: w.project}
+	}
+	if named := w.variables[config.EnvironmentVariable]; named != "" {
+		if _, err := os.Stat(named); err != nil {
+			return "", fmt.Errorf("%s names %s: %w", config.EnvironmentVariable, named, err)
+		}
+		return named, nil
+	}
+	directory := filepath.Join(w.project, config.DirectoryName)
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		return "", err
+	}
+	path := filepath.Join(directory, "config.yaml")
+	if err := os.WriteFile(path, []byte(w.configuration), 0o644); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func findingFor(report Report, check string) (Finding, bool) {
