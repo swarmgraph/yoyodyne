@@ -277,7 +277,7 @@ the role's name. It is reported and never written: the set is read off the role
 in the harness's own registry, there is no `capabilities` key to put in a
 configuration, and a file that writes one is refused like any other key that
 does not exist. The set of role names is fixed for the same reason —
-the tools each role may use, a reviewer's absence of any included, are derived
+the tools each role may use, a reviewer's read-only access included, are derived
 from the name — so `role` must be one of `product-manager`, `architect`,
 `development-manager`, `developer`, or `reviewer`, and anything else is
 [refused when the configuration loads](../configuration.md#what-fails-closed).
@@ -285,8 +285,12 @@ from the name — so `role` must be one of `product-manager`, `architect`,
 the table itself.
 
 `backend` is `claude-code` or `codex` unless your project declares one of its
-own. Both built-ins serve every role under the compiled adapter's tool access
-restrictions. For a CLI outside PATH, including a desktop-bundled Codex, set
+own. Both built-ins serve every role. A developer can write only in its own
+worktree. Every other role is read-only: Claude Code gives it no tools at all,
+and Codex lets it read under Codex's own read-only sandbox, with network access,
+escalation, and outside integrations turned off
+([capability validation](../provider-plugins.md#capability-validation)).
+For a CLI outside PATH, including a desktop-bundled Codex, set
 `providers.codex.binary` or `providers.claude-code.binary` to its absolute path;
 [executable setup and precedence](../provider-plugins.md#executable-setup-and-precedence)
 applies to terminal chats, scheduled execution and fallback alike.
