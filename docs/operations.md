@@ -138,7 +138,7 @@ for the history of the job it replaces:
   A supervisor refused because another already holds the product's lease exits
   cleanly too, so an agent loaded beside a supervisor started by hand does not
   restart every few seconds for as long as that one runs.
-- **Its environment is the installing shell's `PATH`**, any state-home override
+- **Its environment is the installing shell's `PATH`**, any override of where the state is kept
   (`YOYODYNE_STATE_HOME`, `XDG_STATE_HOME`), and `XDG_CONFIG_HOME`, which the
   tools it runs read their own settings by, so the parts find `git`, `bd`,
   `make`, and the provider, and read the same state your own commands do.
