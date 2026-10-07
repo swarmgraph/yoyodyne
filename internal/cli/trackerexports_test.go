@@ -13,6 +13,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 func TestTrackerExportMaintenanceRecordsAndReportsItsRemovals(t *testing.T) {
@@ -37,7 +38,7 @@ func TestTrackerExportMaintenanceRecordsAndReportsItsRemovals(t *testing.T) {
 	if err != nil || len(cleaned.Removed) != 1 {
 		t.Fatalf("maintenance = %+v, %v", cleaned, err)
 	}
-	entries, err := os.ReadDir(filepath.Join(parts.stateRoot, "products", "product", "tracker-export-cleanups"))
+	entries, err := os.ReadDir(filepath.Join(home.ProductDirectory(parts.stateRoot, "product"), "tracker-export-cleanups"))
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("durable removal records = %v, %v", entries, err)
 	}

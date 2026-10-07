@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // The hold is placed by the operator's process and read by every process that
@@ -164,7 +165,7 @@ func TestAnUnreadableIntakeHoldIsNotReportedAsAbsent(t *testing.T) {
 
 	root := t.TempDir()
 	store := newIntakeStoreAt(t, root, "yoyodyne")
-	directory := filepath.Join(root, "products", "yoyodyne")
+	directory := home.ProductDirectory(root, "yoyodyne")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -251,7 +252,7 @@ func TestAnIntakeHoldWithNoRecordedHolderIsReadWithoutOneBeingInvented(t *testin
 
 	root := t.TempDir()
 	store := newIntakeStoreAt(t, root, "yoyodyne")
-	directory := filepath.Join(root, "products", "yoyodyne")
+	directory := home.ProductDirectory(root, "yoyodyne")
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}

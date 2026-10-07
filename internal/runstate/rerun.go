@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // RerunSchemaVersion is 1 and has never changed.
@@ -237,7 +238,7 @@ func NewRerunStore(root string, productID domain.ProductID) (*RerunStore, error)
 		return nil, err
 	}
 	return &RerunStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "reruns"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "reruns"),
 		productID: productID,
 	}, nil
 }

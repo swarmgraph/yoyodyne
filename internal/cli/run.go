@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -202,7 +203,7 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 	}
 	worktreeRoot := cfg.Execution.WorktreeRoot
 	if worktreeRoot == "auto" {
-		worktreeRoot = filepath.Join(stateRoot, "worktrees", string(cfg.Product.ID), string(cfg.Product.RepositoryID))
+		worktreeRoot = home.WorktreeDirectory(stateRoot, string(cfg.Product.ID), string(cfg.Product.RepositoryID))
 	} else {
 		worktreeRoot, err = resolvePath(projectDirectory, worktreeRoot)
 		if err != nil {
@@ -231,8 +232,15 @@ func resolveRoots(resolved config.Resolved) (roots, error) {
 // in the configured repository's Git directory: the first process records the
 // root there, and a process that resolved a different one refuses to start
 // naming both, so one product's state is never split between two roots by two
-// layers of configuration. The watch, the sink, the dashboard, the supervisor,
-// conversations, and runs all open their stores through here.
+// layers of configuration.
+//
+// It then holds the start to the project's binding in the home: the product id
+// is bound to one repository, by its Git common directory, and a start from a
+// second clone, from another product using the same id, or against a bound
+// repository that is gone refuses, naming the one command that settles it. A
+// first start creates the project directory, writes the binding, and says so on
+// stderr. The watch, the sink, the dashboard, the supervisor, conversations, and
+// runs all open their stores through here.
 func productStateRoot(resolved config.Resolved) (string, error) {
 	return productStateRootFrom(resolved, os.Getenv, os.UserHomeDir, runtime.GOOS)
 }
@@ -251,6 +259,18 @@ func productStateRootFrom(resolved config.Resolved, getenv func(string) string, 
 	}
 	if err := runstate.AgreeRoot(repository, root); err != nil {
 		return "", err
+	}
+	agreement, err := home.Agree(home.AgreeOptions{
+		Root:      root.Path,
+		ProductID: string(resolved.Config.Product.ID),
+		Checkout:  repository,
+		Remote:    resolved.Config.Execution.Remote,
+	})
+	if err != nil {
+		return "", err
+	}
+	if agreement.Bound {
+		fmt.Fprintln(os.Stderr, agreement.Says(string(resolved.Config.Product.ID)))
 	}
 	return root.Path, nil
 }

@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // FactoryStallSchemaVersion is 1 and has never changed.
@@ -118,7 +119,7 @@ func NewFactoryStallStore(root string, productID domain.ProductID) (*FactoryStal
 		return nil, err
 	}
 	return &FactoryStallStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

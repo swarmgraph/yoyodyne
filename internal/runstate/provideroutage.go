@@ -34,6 +34,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
@@ -229,7 +230,7 @@ func NewProviderOutageStore(root string, productID domain.ProductID) (*ProviderO
 		return nil, err
 	}
 	return &ProviderOutageStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

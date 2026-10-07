@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -52,7 +53,7 @@ func NewDocketStore(root string, productID domain.ProductID) (*DocketStore, erro
 		return nil, err
 	}
 	return &DocketStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

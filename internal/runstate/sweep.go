@@ -45,6 +45,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
@@ -944,7 +945,7 @@ func NewSweepStore(root string, productID domain.ProductID) (*SweepStore, error)
 		return nil, err
 	}
 	return &SweepStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "sweeps"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "sweeps"),
 		productID: productID,
 	}, nil
 }

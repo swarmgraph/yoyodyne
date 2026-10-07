@@ -31,6 +31,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -225,7 +226,7 @@ func NewConfigReaderStore(root string, productID domain.ProductID) (*ConfigReade
 		return nil, fmt.Errorf("resolve the configuration reader's state root: %w", err)
 	}
 	return &ConfigReaderStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), configReadersDirectory),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), configReadersDirectory),
 		stateRoot: root,
 		anchor:    anchor,
 		productID: productID,
@@ -276,7 +277,7 @@ func (s *ConfigReaderStore) recordIn(root *repowrite.PinnedRoot, reader ConfigRe
 	if err := root.Unchanged(); err != nil {
 		return err
 	}
-	directory := filepath.Join("products", string(s.productID), configReadersDirectory)
+	directory := filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(s.stateRoot, string(s.productID))), configReadersDirectory)
 	if err := root.MakeDirectory(directory, 0o700); err != nil {
 		return fmt.Errorf("create configuration reader directory: %w", err)
 	}
@@ -453,7 +454,7 @@ func (s *ConfigReaderStore) mismatchesIn(read func(string) ([]byte, error), clea
 // Serialize startup records and stale-record cleanup so a legacy filename
 // replaced by a new startup cannot be removed after it was inspected.
 func (s *ConfigReaderStore) lockRecords(root *repowrite.PinnedRoot) (*os.File, error) {
-	directory := filepath.Join("products", string(s.productID), configReadersDirectory)
+	directory := filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(s.stateRoot, string(s.productID))), configReadersDirectory)
 	if err := root.MakeDirectory(directory, 0700); err != nil {
 		return nil, err
 	}

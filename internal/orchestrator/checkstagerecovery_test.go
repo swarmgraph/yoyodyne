@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -175,7 +174,7 @@ func TestAutomaticCheckContinuationRestoresTheRecordedCrossRoleRunAcrossRestart(
 			s.ChecksPassed = &runstate.ChecksPassed{Content: "old-content", Attempt: s.RepairAttempts, Commit: s.HarnessCommit, At: docketedNow}
 			h := newUndecidedHarness(t, s)
 			// A new process reads the same durable run and budgets.
-			root := filepath.Dir(filepath.Dir(filepath.Dir(h.runs.Root())))
+			root := stateRootOf(h.runs.Root())
 			var err error
 			h.runs, err = runstate.NewStore(root, s.ProductID)
 			if err != nil {

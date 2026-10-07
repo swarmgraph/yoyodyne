@@ -143,7 +143,7 @@ func TestTheSupervisorLogIsNamedInsideTheStateRoot(t *testing.T) {
 	root := t.TempDir()
 	store := newSupervisionStoreAt(t, root)
 	logRoot, relative := store.SupervisorLog()
-	if logRoot != filepath.Clean(root) || relative != "products/yoyodyne/supervisor/"+supervisorLogFile {
+	if logRoot != filepath.Clean(root) || relative != "projects/yoyodyne/state/supervisor/"+supervisorLogFile {
 		t.Errorf("SupervisorLog() = %q, %q, want the state root and the path under it", logRoot, relative)
 	}
 	if store.Product() != "yoyodyne" {

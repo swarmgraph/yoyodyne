@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -834,7 +835,7 @@ func NewConversationStore(root string, productID domain.ProductID) (*Conversatio
 		return nil, fmt.Errorf("resolve the conversation state root: %w", err)
 	}
 	return &ConversationStore{
-		root:      filepath.Join(stateRoot, "products", string(productID), "conversations"),
+		root:      filepath.Join(home.ProductDirectory(stateRoot, string(productID)), "conversations"),
 		anchor:    anchor,
 		productID: productID,
 	}, nil

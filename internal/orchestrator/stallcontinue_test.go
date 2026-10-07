@@ -2,7 +2,6 @@ package orchestrator
 
 import (
 	"context"
-	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -49,7 +48,7 @@ func TestAFirstSilentReviewDuringRepairContinuesAtTheReview(t *testing.T) {
 func exerciseFirstStall(t *testing.T, repairing, restarted, reviewing bool) {
 	t.Helper()
 	repository, worktreeRoot, store := restartableFixture(t)
-	stateRoot := filepath.Dir(filepath.Dir(filepath.Dir(store.Root())))
+	stateRoot := stateRootOf(store.Root())
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
 	// The interrupted invocation and its continuation both go silent.
 	stalling := providerStopBackend(2, execution.ProcessStalled, approveVerdict)

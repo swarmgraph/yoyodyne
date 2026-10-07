@@ -35,7 +35,7 @@ func TestAnInstanceIsFirstSeenOnceAndNeverMoved(t *testing.T) {
 	if !seen["factory-pgm"].Equal(first) || !seen["writing-pgm"].Equal(later) {
 		t.Fatalf("first seen = %v; want factory-pgm at %s and writing-pgm at %s", seen, first, later)
 	}
-	if !strings.HasSuffix(store.Path(), "/products/yoyodyne/program-managers/first-seen.json") {
+	if !strings.HasSuffix(store.Path(), "/projects/yoyodyne/state/program-managers/first-seen.json") {
 		t.Errorf("Path() = %q, want it beside the instances' other records", store.Path())
 	}
 }

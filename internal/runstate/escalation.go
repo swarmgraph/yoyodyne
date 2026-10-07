@@ -49,6 +49,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // EscalationSchemaVersion is 1 and has never changed.
@@ -353,7 +354,7 @@ func NewEscalationStore(root string, productID domain.ProductID) (*EscalationSto
 		return nil, err
 	}
 	return &EscalationStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "escalations"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "escalations"),
 		productID: productID,
 	}, nil
 }

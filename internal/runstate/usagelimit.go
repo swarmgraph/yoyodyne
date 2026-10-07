@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // UsageLimitSchemaVersion is 1 and has never changed.
@@ -365,7 +366,7 @@ func NewUsageLimitStore(root string, productID domain.ProductID) (*UsageLimitSto
 		return nil, err
 	}
 	return &UsageLimitStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

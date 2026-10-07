@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 func newPassCursorStore(t *testing.T) (*PassCursorStore, string) {
@@ -43,10 +45,10 @@ func TestAPassCursorIsWrittenAndReadBackPerStream(t *testing.T) {
 	if !cursor.Streams[PassStreamRuns].Equal(at.Add(time.Hour)) || !cursor.Streams[PassStreamTracker].Equal(at) {
 		t.Errorf("streams = %v, want the runs moved and the tracker left", cursor.Streams)
 	}
-	if _, err := os.Stat(filepath.Join(root, "products", "example", "program-managers", "reliability-pm", "cursor.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(home.ProductDirectory(root, "example"), "program-managers", "reliability-pm", "cursor.json")); err != nil {
 		t.Errorf("the cursor is not beside the instance's lane report: %v", err)
 	}
-	if store.Path("reliability-pm") != filepath.Join(root, "products", "example", "program-managers", "reliability-pm", "cursor.json") {
+	if store.Path("reliability-pm") != filepath.Join(home.ProductDirectory(root, "example"), "program-managers", "reliability-pm", "cursor.json") {
 		t.Errorf("Path() = %s", store.Path("reliability-pm"))
 	}
 }

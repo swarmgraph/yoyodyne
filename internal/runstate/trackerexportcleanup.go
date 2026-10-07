@@ -8,6 +8,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // TrackerExportCleanupStore keeps each maintenance removal in its own durable
@@ -26,7 +27,7 @@ func NewTrackerExportCleanupStore(root string, productID domain.ProductID) (*Tra
 		return nil, err
 	}
 	return &TrackerExportCleanupStore{
-		root:   filepath.Join(root, "products", string(productID), "tracker-export-cleanups"),
+		root:   filepath.Join(home.ProductDirectory(root, string(productID)), "tracker-export-cleanups"),
 		anchor: anchor, productID: productID,
 	}, nil
 }

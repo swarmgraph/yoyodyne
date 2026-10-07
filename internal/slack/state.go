@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -90,7 +91,7 @@ func NewStore(root string, productID domain.ProductID) (*Store, error) {
 		return nil, err
 	}
 	base := filepath.Clean(root)
-	within := filepath.Join("products", string(productID), "slack")
+	within := filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(base, string(productID))), "slack")
 	return &Store{
 		base:    base,
 		within:  filepath.ToSlash(within),

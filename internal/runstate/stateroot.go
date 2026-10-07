@@ -14,6 +14,7 @@ import (
 	"go.yaml.in/yaml/v3"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -32,10 +33,14 @@ const MachineFileName = config.MachineFileName
 // `yoyo config show --origins` and `yoyo doctor` print them, so they are named
 // in the vocabulary an operator would type to change the value.
 const (
-	RootOriginEnvironment     = "environment:" + StateHomeVariable
-	rootOriginMachinePrefix   = "machine:"
-	RootOriginXDG             = "environment:XDG_STATE_HOME"
-	RootOriginPlatformDefault = "platform-default"
+	RootOriginEnvironment   = "environment:" + StateHomeVariable
+	rootOriginMachinePrefix = "machine:"
+	RootOriginXDG           = "environment:XDG_STATE_HOME"
+	// RootOriginDefault is the machine home, `~/.yoyodyne`, and
+	// RootOriginEarlierDefault the platform's earlier default home, kept while
+	// it exists and `~/.yoyodyne` does not; home.Default decides between them.
+	RootOriginDefault        = home.OriginDefault
+	RootOriginEarlierDefault = home.OriginEarlierDefault
 )
 
 // ResolvedRoot is the state root one process resolved and the layer it came
@@ -99,10 +104,12 @@ func machineStateRoot(getenv func(string) string, userHomeDir func() (string, er
 
 // ResolveRoot is the one resolution of the state root every process makes:
 // YOYODYNE_STATE_HOME, then state_root in the machine file, then
-// XDG_STATE_HOME/yoyodyne, then the platform default, in that order. The
-// variable wins because it is an explicit instruction for this shell; the
+// XDG_STATE_HOME/yoyodyne, then the machine home `~/.yoyodyne`, in that order.
+// The variable wins because it is an explicit instruction for this shell; the
 // machine key is the operator's standing answer for the machine; the last two
-// are what a machine nobody configured gets.
+// are what a machine nobody configured gets. Where `~/.yoyodyne` does not exist
+// and the platform's earlier default home does, the earlier home is the last
+// layer instead, until the migration moves it (home.Default).
 //
 // It resolves and never guards. A process that opens a product's records under
 // the root agrees it with the checkout's marker first, through AgreeRoot, which
@@ -130,28 +137,11 @@ func ResolveRoot(getenv func(string) string, userHomeDir func() (string, error),
 		}
 		return ResolvedRoot{Path: filepath.Join(filepath.Clean(value), "yoyodyne"), Origin: RootOriginXDG}, nil
 	}
-
-	home, err := userHomeDir()
+	path, origin, err := home.Default(getenv, userHomeDir, goos)
 	if err != nil {
-		return ResolvedRoot{}, fmt.Errorf("resolve user home directory: %w", err)
+		return ResolvedRoot{}, err
 	}
-	var path string
-	switch goos {
-	case "darwin":
-		path = filepath.Join(home, "Library", "Application Support", "Yoyodyne", "state")
-	case "windows":
-		if localAppData := strings.TrimSpace(getenv("LOCALAPPDATA")); localAppData != "" {
-			if !filepath.IsAbs(localAppData) {
-				return ResolvedRoot{}, errors.New("LOCALAPPDATA must be an absolute path")
-			}
-			path = filepath.Join(localAppData, "Yoyodyne", "state")
-		} else {
-			path = filepath.Join(home, "AppData", "Local", "Yoyodyne", "state")
-		}
-	default:
-		path = filepath.Join(home, ".local", "state", "yoyodyne")
-	}
-	return ResolvedRoot{Path: path, Origin: RootOriginPlatformDefault}, nil
+	return ResolvedRoot{Path: path, Origin: origin}, nil
 }
 
 // RootMarkerName is the marker's path inside the primary checkout's Git

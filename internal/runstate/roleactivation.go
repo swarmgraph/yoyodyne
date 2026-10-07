@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 const RoleActivationSchemaVersion = 1
@@ -83,7 +84,7 @@ func NewRoleActivationStore(root string, productID domain.ProductID) (*RoleActiv
 }
 
 func (s *RoleActivationStore) directory() string {
-	return filepath.Join("products", string(s.productID), roleActivationsDirectory)
+	return filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(s.stateRoot, string(s.productID))), roleActivationsDirectory)
 }
 
 func (s *RoleActivationStore) Root() string { return filepath.Join(s.stateRoot, s.directory()) }

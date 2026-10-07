@@ -605,9 +605,12 @@ the layers below put it.
 1. `YOYODYNE_STATE_HOME`, the explicit instruction for one shell;
 2. `state_root` in `machine.yaml`;
 3. `$XDG_STATE_HOME/yoyodyne`;
-4. the platform default: `~/Library/Application Support/Yoyodyne/state` on
-   macOS, `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and
-   `~/.local/state/yoyodyne` elsewhere.
+4. the machine home, `~/.yoyodyne`, on every platform — except that while
+   `~/.yoyodyne` does not exist and the earlier builds' default home does
+   (`~/Library/Application Support/Yoyodyne/state` on macOS,
+   `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and `~/.local/state/yoyodyne`
+   elsewhere), the earlier home is kept, because that is where the state is.
+   Nothing moves it on its own.
 
 Every process the harness starts — the watch, the Slack sink, the dashboard,
 the supervisor, conversations, and runs — resolves the root through that one
@@ -638,7 +641,9 @@ which is what the refusal and `yoyo doctor` name as the remedy
 ([operations](operations.md#where-the-state-is-and-moving-it)).
 
 **Two products on one machine share the root unless one of them is moved.** Each
-product keeps its records under `products/<product id>/` inside it, and each
+product keeps its records under `projects/<product id>/state/` inside it — under
+`products/<product id>/` in a root the earlier builds laid out, which is read
+that way until it is moved — and each
 product's checkout carries its own marker, so two products that resolve the same
 root agree with each other as well as with themselves. The
 [operator's pause](operations.md#pausing-everything-and-resuming-it) lives at the
@@ -646,11 +651,23 @@ root rather than under a product, so on a shared root one `yoyo pause` stops
 both. A product moved to a root of its own is also out of reach of the pause
 placed at the other one.
 
+**A product id names one repository on the machine.** The first start against
+an id creates `projects/<product id>/` and records in its `repository.json`
+which repository the id is, by the repository's Git common directory, so every
+worktree of that clone is the same project; the start says so. After that a
+start from a second clone of the same project, from another product using the
+same id, or against a bound repository that is no longer at its path refuses,
+naming both paths and the one command that settles it: `yoyo project bind` or
+`yoyo project rename`. A root still laid out the earlier way writes no binding
+of its own. The [machine home design](designs/machine-home.md) is the whole of
+it.
+
 `yoyo config show` prints the resolved root and the layer it came from on its
 `# state root:` line, `--origins` lists it as `state_root` with the same origin,
 and `--json` carries both under `state_root`. The origin is
 `environment:YOYODYNE_STATE_HOME`, `machine:<path of machine.yaml>`,
-`environment:XDG_STATE_HOME`, or `platform-default`. [`yoyo
+`environment:XDG_STATE_HOME`, `default` for `~/.yoyodyne`, or `earlier-default`
+for the earlier builds' home. [`yoyo
 doctor`](operations.md#checking-the-installation) reports the same two, and
 whether the checkout's marker agrees. Neither of them records a marker.
 

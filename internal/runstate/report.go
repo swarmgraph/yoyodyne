@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -36,7 +37,7 @@ func NewReportStore(root string, productID domain.ProductID) (*ReportStore, erro
 		return nil, err
 	}
 	return &ReportStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

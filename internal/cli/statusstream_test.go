@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -38,7 +39,7 @@ func TestStatusListsEveryKindOfStream(t *testing.T) {
 	// An empty answer names the directory it read, because the state root comes
 	// from the environment and a true answer about the wrong directory is the one
 	// failure this surface cannot afford.
-	if !strings.Contains(stdout, "no runs, conversations, branch reviews, or side threads are recorded under "+filepath.Join(stateRoot, "products", "yoyodyne")) {
+	if !strings.Contains(stdout, "no runs, conversations, branch reviews, or side threads are recorded under "+home.ProductDirectory(stateRoot, "yoyodyne")) {
 		t.Fatalf("stdout = %q", stdout)
 	}
 
@@ -98,7 +99,7 @@ func TestStatusEmptyAnswerNamesTheKindsItWasAskedAbout(t *testing.T) {
 	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
 	configPath := writeConfig(t, validConfig)
 	recordStreamRun(t, stateRoot, runstate.StatusSucceeded, streamStart, 3)
-	root := filepath.Join(stateRoot, "products", "yoyodyne")
+	root := home.ProductDirectory(stateRoot, "yoyodyne")
 
 	for _, query := range []struct {
 		args []string
