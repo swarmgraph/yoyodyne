@@ -985,13 +985,17 @@ const (
 	CarryOutDecisionMissing       CarryOutCause = "decision-missing"
 	CarryOutStoppageMissing       CarryOutCause = "stoppage-missing"
 	CarryOutPublicationUnmakeable CarryOutCause = "publication-unmakeable"
+	// CarryOutBackendUnavailable is a stopped run whose developer worked on a
+	// backend this harness can no longer start, so no continuation of it can
+	// carry on the developer's session.
+	CarryOutBackendUnavailable CarryOutCause = "backend-unavailable"
 )
 
 // CarryOutCauses is the closed list the record and the inventory share.
 func CarryOutCauses() []CarryOutCause {
 	return []CarryOutCause{CarryOutWorktreeGone, CarryOutBranchGone, CarryOutHeadMoved,
 		CarryOutDecisionSuperseded, CarryOutDecisionMissing, CarryOutStoppageMissing,
-		CarryOutPublicationUnmakeable}
+		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable}
 }
 
 func (c CarryOutCause) Valid() bool {

@@ -186,6 +186,7 @@ or a cleared finding does not discard a pending note.
 | `decision-missing` | No durable decision authorizes the requested repair or re-run, including a grant made before decisions were recorded. | The development manager records it again, with an override where its budget requires one, or escalates. |
 | `stoppage-missing` | The action needs a stopped run or a docketed stoppage that its records do not hold. | A re-run of a recorded run that can take it, or an escalation; the refusal names the applicable run and decision. |
 | `publication-unmakeable` | The publication cannot describe a merge a re-arm can make, reported as `UnrearmablePublicationError`. | A re-run or an escalation; no later merge request of the same decision can repair the record. |
+| `backend-unavailable` | The stopped run's developer worked on a backend this harness can no longer start — the project no longer describes it, or this build cannot launch it — so its session cannot be carried on, reported as `RecordedBackendError`. A run's developer is always invoked on the backend the run recorded, never on the one the developer is configured for now. | A re-run, which starts the item again on the configured backend; the run's session stays on its record. |
 
 Classification reads typed refusals and confirmed repository findings, never a
 match on the refusal's prose. An unreadable branch or checkout is not proof that
@@ -225,6 +226,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:stop` | 3 | Settles a directive, check, or review operation that stopped; failed publication returns to the document owner. |
 | `internal/orchestrator/actions.go` | `deliverySteps` | `call:complete` | 1 | Registered completion action uses the ordinary terminal settlement. |
 | `internal/orchestrator/claims.go` | `(ClaimAuditor).settle` | `status-write` | 1 | Cancels a dead claim verified under its lease; returns the item and touches no artifacts. |
+| `internal/orchestrator/recordedbackend.go` | `(Pipeline).developerBackendFor` | `classified-stop` | 1 | Classifies a run whose recorded developer backend this harness cannot start as a harness stop, before any provider call and with the run's session left on its record; the run ends through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:fail` | 6 | Claim, context, worktree, scratch, and state failures, or development ending through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).Run` | `call:stop` | 1 | Claim, context, worktree, scratch, and state failures, or development ending through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(Pipeline).resumeRun` | `call:fail` | 7 | Continuation setup and invocation or gate endings, retaining the existing change. |

@@ -252,12 +252,13 @@ func (a *activeRun) outageProbe() time.Duration {
 // reserves a run, claims an item, or cuts a worktree, so asking late costs
 // nothing.
 //
-// The refusal names the backend the developer is configured for rather than one
-// provider for all of them. A run on Codex whose CLI is missing has to say so
-// about Codex: sending the operator to install or log into the other provider is
-// a remedy for a machine that is not the one in front of them. Which command
-// puts it right is `yoyo doctor`'s to name, because that is the surface that
-// knows how each provider is installed and logged into.
+// The refusal names the backend the run's developer is invoked on — the one
+// the run recorded, which a fresh run records from the configured developer —
+// rather than one provider for all of them. A run on Codex whose CLI is missing
+// has to say so about Codex: sending the operator to install or log into the
+// other provider is a remedy for a machine that is not the one in front of
+// them. Which command puts it right is `yoyo doctor`'s to name, because that is
+// the surface that knows how each provider is installed and logged into.
 //
 // A provider that is installed and not logged in is a wait rather than a
 // refusal. It is recorded on the product so every surface names it, and it is
@@ -266,12 +267,11 @@ func (a *activeRun) outageProbe() time.Duration {
 // blocking must never trip on a login. A provider that is logged in clears any
 // outage of that kind still standing, because this check is the cheapest
 // evidence there is that the login was renewed.
-func (p Pipeline) requireBackendReady(ctx context.Context, workItemID string) error {
-	availability, err := p.Backend.CheckAvailability(ctx)
+func (p Pipeline) requireBackendReady(ctx context.Context, workItemID string, provider backend.Backend, named domain.Backend) error {
+	availability, err := provider.CheckAvailability(ctx)
 	if err != nil {
 		return err
 	}
-	named := p.developer().Backend
 	if !availability.Installed {
 		return fmt.Errorf("%s; `yoyo doctor` names what to install", availability.NotInstalled(named))
 	}

@@ -287,6 +287,8 @@ func stallContinuerFrom(parts components) orchestrator.StallContinuer {
 		Items:     parts.tracker(),
 		Worktrees: parts.worktrees,
 		Capacity:  parts.config.Execution.MaxConcurrentDevelopers,
+		Backends:  developerBackendsFrom(parts),
+		Events:    parts.store,
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
 			return pipelineFrom(parts).Continue(ctx, workItemID, runID)
 		},
@@ -592,6 +594,11 @@ func repairContinuerFrom(parts components) orchestrator.RepairContinuer {
 		// harness leaves the decision standing rather than spending the item's
 		// grant on a run there is no room to continue.
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		// The backend the stopped run's developer worked on, asked before the
+		// grant is spent, and the run's event log, which a session an earlier
+		// failed attempt erased from its record is restored from.
+		Backends: developerBackendsFrom(parts),
+		Events:   parts.store,
 		Start: func(ctx context.Context, workItemID, runID string) (orchestrator.Outcome, error) {
 			// The continuation names the run it re-enters, and takes the entry
 			// point that can do nothing else: a repair is worth the change one

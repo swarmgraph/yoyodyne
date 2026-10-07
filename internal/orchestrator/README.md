@@ -146,10 +146,13 @@ model and effort (`ReviewEffort`) on the state before returning.
 `validateIndependentInvocations` refuses promotion if developer and reviewer
 sessions are not distinct. The reviewer itself is in `internal/review`.
 
-### Which model, effort and account does an invocation use?
+### Which backend, model, effort and account does an invocation use?
 Chosen once, in `reserveRun` (`state.ProviderEffort` comes from
 `Config.InvocationEffort` in `internal/config/effort.go`), then read back off
-the record by `developerModel`, `developerEffort` and `account`. The backend
+the record by `developerBackendFor` (`recordedbackend.go`), `developerModel`,
+`developerEffort` and `account`. A run recorded on a backend other than the
+configured developer's runs on `Pipeline.RecordedBackends`, or is refused with
+`RecordedBackendError` before any provider call. The backend
 side of effort is `backend.Descriptor.InvocationEffort`
 (`internal/backend/effort.go`).
 
@@ -219,6 +222,7 @@ context bundle come from `internal/contextbundle`.
 | `triage.go` | `Docketer`: `RecordStoppedRun`, `RecordUnstartedRun`, `RecordEscalation`, `SettleClosedItem`, `Build` |
 | `rerun.go`, `repaircontinue.go`, `carryout.go`, `carryrearm.go`, `rearm.go` | carrying out the development manager's decisions on docketed runs |
 | `stallcontinue.go`, `checkstagecontinue.go`, `integrationresume.go` | the harness's own continuations of a stopped run |
+| `recordedbackend.go` | `DeveloperBackends`, `developerBackendFor`, `RecordedBackendError`: a run's developer on the backend the run recorded; `erasedSession`: a session a failed attempt erased, read back from the event log |
 | `redeploydrain.go` | `RedeployDrain`, `drainedForRedeploy`, `pauseForRedeploy` |
 | `runretirement.go` | `RunRetirer.Retire` — retire a run whose item closed on a confirmed merge |
 | `documentpublication.go` | `PublishDocument`, exact-file gate, independent review without a developer, returns to the owning conversation |

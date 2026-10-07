@@ -554,6 +554,9 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// the legacy path records nothing through it.
 		Instances: parts.store,
 		Backend:   developerProvider,
+		// A run reserved on another backend before the developer was moved off
+		// it carries on there, in the session it opened.
+		RecordedBackends: recordedBackends(cfg, processRunner),
 		Checks: checks.Runner{
 			Process: processRunner,
 			// The budget every check gets is configured rather than fixed,
