@@ -193,7 +193,7 @@ func newLaunchFixture(t *testing.T) launchFixture {
 	route(t, store, state, prepare("op-1", "att-1"))
 	scratch := t.TempDir()
 	return launchFixture{
-		store: store, base: filepath.Dir(filepath.Dir(filepath.Dir(store.Root()))), runID: state.RunID,
+		store: store, base: stateRootOf(store), runID: state.RunID,
 		count: filepath.Join(scratch, "launches"), outcome: filepath.Join(scratch, "outcome"),
 	}
 }

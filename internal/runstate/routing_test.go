@@ -74,18 +74,23 @@ func route(t *testing.T, store *Store, state State, change func(*RunRouting) (bo
 
 func reopen(t *testing.T, store *Store) *Store {
 	t.Helper()
-	// The store is <product directory>/runs, and the product directory is
-	// wherever the home's layout puts it, so the root is found by asking.
+	again, err := NewStore(stateRootOf(store), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return again
+}
+
+// stateRootOf is the root a store was made from. The store is <product
+// directory>/runs, and the product directory is wherever the home's layout
+// puts it, so the root is found by asking.
+func stateRootOf(store *Store) string {
 	product := filepath.Dir(store.Root())
 	root := product
 	for root != filepath.Dir(root) && home.ProductDirectory(root, "yoyodyne") != product {
 		root = filepath.Dir(root)
 	}
-	again, err := NewStore(root, "yoyodyne")
-	if err != nil {
-		t.Fatal(err)
-	}
-	return again
+	return root
 }
 
 func load(t *testing.T, store *Store, runID string) State {
