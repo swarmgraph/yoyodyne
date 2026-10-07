@@ -9,6 +9,11 @@ import (
 	"syscall"
 )
 
+// gateSupported reports that a launch can be held behind a gate here: the
+// process leads a group of its own, and a held file lock is released only when
+// the last process holding it exits.
+const gateSupported = true
+
 // configureProcessTree makes the command the leader of a new process group and
 // replaces CommandContext's single-process cancellation with a group kill.
 // Shell checks frequently spawn descendants that inherit stdout and stderr; if
@@ -52,4 +57,10 @@ func reapProcessTree(command *exec.Cmd) {
 		return
 	}
 	_ = syscall.Kill(-command.Process.Pid, syscall.SIGKILL)
+}
+
+// processGroupOf is the group a started command leads: Setpgid above made it
+// the leader of a group numbered by its own process identifier.
+func processGroupOf(command *exec.Cmd) int {
+	return command.Process.Pid
 }

@@ -1296,3 +1296,23 @@ func TestReadOnlyRelativeProviderHomeKeepsRepositoryResolution(t *testing.T) {
 		t.Fatalf("provider environment lost %q", want)
 	}
 }
+
+// A routed attempt's gate reaches the command that runs the provider, so the
+// attempt is registered before the provider can begin.
+func TestRunStartsTheProviderBehindTheRequestsLaunchGate(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0,
+		Stdout: lines(`{"id":"0","msg":{"type":"session_configured","session_id":"session-1"}}`,
+			`{"id":"1","msg":{"type":"task_complete","last_agent_message":"done"}}`),
+	}}}
+	gate := &execution.LaunchGate{}
+	if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
+		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(), Prompt: "implement the task", LaunchGate: gate,
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if runner.commands[0].Gate != gate {
+		t.Fatalf("the provider command's gate = %p, want the request's %p", runner.commands[0].Gate, gate)
+	}
+}

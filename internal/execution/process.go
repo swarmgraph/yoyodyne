@@ -112,6 +112,12 @@ type Command struct {
 	// record nobody wrote.
 	OutputRecord string
 	Redactor     Redactor
+	// Gate, when set, starts the process behind a launch gate: it can do no
+	// work until Gate.Register has recorded which process it is. A provider
+	// attempt is launched this way so its record exists before its work does;
+	// see launchgate.go. A platform that cannot gate a launch refuses it with
+	// ErrGateUnsupported rather than running it ungated.
+	Gate *LaunchGate
 }
 
 type Output struct {
@@ -280,9 +286,37 @@ func (r OSProcessRunner) Run(ctx context.Context, command Command, observer Outp
 		return ProcessResult{}, fmt.Errorf("create stderr pipe: %w", err)
 	}
 
+	var gate *gatedProcess
+	if command.Gate != nil {
+		gate, err = prepareGate(process, command.Name, command.Args, command.Gate)
+		if err != nil {
+			return ProcessResult{ExitCode: -1}, fmt.Errorf("%w: start %q behind its launch gate: %w", ErrProcessNotStarted, command.Name, err)
+		}
+	}
+
 	result := ProcessResult{StartedAt: clock.Now(), ExitCode: -1}
 	if err := process.Start(); err != nil {
+		if gate != nil {
+			gate.abandon(process)
+		}
 		return result, fmt.Errorf("%w: start %q: %w", ErrProcessNotStarted, command.Name, err)
+	}
+	if gate != nil {
+		gate.started(process)
+		registered := command.Gate.Register(StartedProcess{PID: process.Process.Pid, ProcessGroup: processGroupOf(process), StartedAt: result.StartedAt})
+		if registered != nil {
+			// The launch could not be written down, so it must not run: the gate
+			// stays shut and the waiting shell is ended. Nothing it would have
+			// run has begun, which is what ErrProcessNotStarted says.
+			gate.refuse()
+			stopProcess()
+			_ = process.Wait()
+			reapProcessTree(process)
+			result.FinishedAt = clock.Now()
+			result.Status = ProcessFailed
+			return result, fmt.Errorf("%w: register the launch of %q: %w", ErrProcessNotStarted, command.Name, registered)
+		}
+		gate.release()
 	}
 	// The budget's clock starts here, with the process running, and never
 	// earlier: see OSProcessRunner.budget for what arming it before Start cost.

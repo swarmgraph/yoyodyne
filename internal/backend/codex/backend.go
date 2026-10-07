@@ -615,7 +615,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		// held whole. What the runner keeps is a diagnostic beside it, and the
 		// marker in a cut copy says which of the two a reader has.
 		OutputRecord: execution.EventLogOf(request.RunID),
-		Redactor:     redactor,
+		// A routed attempt is started behind its launch gate, so its record
+		// names the process before the provider can begin; nil is an
+		// invocation nothing reserved, started as it always was.
+		Gate:     request.LaunchGate,
+		Redactor: redactor,
 	}, func(output execution.Output) {
 		if output.Stream == execution.StreamStdout {
 			// A line the runner cut is not an envelope any more, and nothing

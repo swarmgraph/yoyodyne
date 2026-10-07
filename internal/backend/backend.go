@@ -119,9 +119,15 @@ type RunRequest struct {
 	// waiting on background processes rather than on the provider. It is
 	// optional and decides nothing.
 	AfterReplyWaiting func(execution.AfterReply)
-	LastSequence      uint64
-	RedactValues      []string
-	EventSink         func(execution.Event) error
+	// LaunchGate, when set, starts the provider behind the gate a reserved
+	// invocation attempt was given (runstate.AttemptLaunch.Gate), so the attempt's
+	// execution is registered before the provider can begin work. An adapter
+	// passes it to the command that runs the provider and to nothing else, such
+	// as a version check.
+	LaunchGate   *execution.LaunchGate
+	LastSequence uint64
+	RedactValues []string
+	EventSink    func(execution.Event) error
 	// ReplySink receives the agent's prose as the provider produces it, so a
 	// caller with somebody watching can show a reply forming rather than holding
 	// it until the invocation is over. It is optional and it decides nothing:

@@ -2649,3 +2649,21 @@ func TestRecordedDuplicateTerminalIsPricedOnTheInvocationItFollowed(t *testing.T
 		t.Fatalf("listing reads %d invocation(s) at %v, want 2 at %v", totals.Calls, totals.CostUSD, want)
 	}
 }
+
+// A routed attempt's gate reaches the command that runs the provider, so the
+// attempt is registered before the provider can begin.
+func TestRunStartsTheProviderBehindTheRequestsLaunchGate(t *testing.T) {
+	t.Parallel()
+
+	runner := &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0,
+		Stdout: `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"done"}` + "\n"}}}
+	gate := &execution.LaunchGate{}
+	if _, err := (Backend{Runner: runner}).Run(context.Background(), backendapi.RunRequest{
+		RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: "/worktree", Prompt: "implement", LaunchGate: gate,
+	}); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if runner.commands[0].Gate != gate {
+		t.Fatalf("the provider command's gate = %p, want the request's %p", runner.commands[0].Gate, gate)
+	}
+}

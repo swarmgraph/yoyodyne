@@ -35,7 +35,12 @@ import (
 // RoutingVersion is the version of the routing record this build reads and
 // writes. A record carrying a later version is one this build does not
 // understand: Load refuses it, so nothing acts on it, and no write replaces it.
-const RoutingVersion = 1
+//
+// Version 2 added the execution an attempt registered before it launched, the
+// launches of a reserved attempt that never began work, the usage an attempt
+// reported, an operation's recovery wait, and the external effects it intends.
+// A version 1 record reads as one with none of them.
+const RoutingVersion = 2
 
 const (
 	// The bounds keep a routing record inside the run record's size bound
@@ -47,9 +52,17 @@ const (
 	maxRoutingReconfigurations = 32
 	maxRoutingText             = 2048
 	maxContextReferences       = 32
+	maxUnreleasedLaunches      = 8
+	maxAttemptUsage            = 32
+	maxOperationEffects        = 32
 )
 
 var routingIDPattern = regexp.MustCompile(`^(op|att|sw)-[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// routingReferencePattern is the shape of a reference the routing record keeps
+// to something recorded elsewhere — a usage report, an external effect — so a
+// reference is a name and never free text.
+var routingReferencePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,255}$`)
 
 // ErrRoutingConflict is a routing request the record cannot take: an identity
 // already used for different contents, or a change the operation's state does
@@ -223,12 +236,21 @@ type RoutedOperation struct {
 	TransientRelaunches *int `json:"transient_relaunches,omitempty"`
 	// RecoveryDeadline is set once and spans the whole operation: a switch does
 	// not restart it.
-	RecoveryDeadline *time.Time           `json:"recovery_deadline,omitempty"`
-	Switch           *EndpointSwitch      `json:"switch,omitempty"`
-	Attempts         []InvocationAttempt  `json:"attempts,omitempty"`
-	Waiting          *OperationWait       `json:"waiting,omitempty"`
-	OpenedAt         time.Time            `json:"opened_at"`
-	Completed        *OperationCompletion `json:"completed,omitempty"`
+	RecoveryDeadline *time.Time `json:"recovery_deadline,omitempty"`
+	// Reconciling is what recovery is waiting on before the operation may
+	// launch again: an execution that may still be running, or an external
+	// effect nobody can yet say happened. It decides nothing by itself; see
+	// launch.go.
+	Reconciling *OperationReconciling `json:"reconciling,omitempty"`
+	// Effects are the externally visible actions the operation intends or has
+	// performed, recorded before they are attempted so a replacement attempt
+	// does not repeat one.
+	Effects   []ExternalEffect     `json:"effects,omitempty"`
+	Switch    *EndpointSwitch      `json:"switch,omitempty"`
+	Attempts  []InvocationAttempt  `json:"attempts,omitempty"`
+	Waiting   *OperationWait       `json:"waiting,omitempty"`
+	OpenedAt  time.Time            `json:"opened_at"`
+	Completed *OperationCompletion `json:"completed,omitempty"`
 }
 
 // OperationBudget references the run's existing counters; nil is unknown.
@@ -310,8 +332,73 @@ type InvocationAttempt struct {
 	Transient    bool             `json:"transient,omitempty"`
 	State        AttemptState     `json:"state"`
 	PreparedAt   time.Time        `json:"prepared_at"`
-	LaunchedAt   *time.Time       `json:"launched_at,omitempty"`
-	Ended        *AttemptEnding   `json:"ended,omitempty"`
+	// Execution is the process registered for the attempt before it was
+	// allowed to begin work. MarkLaunched refuses an attempt without one.
+	Execution *ExecutionIdentity `json:"execution,omitempty"`
+	// Unreleased are earlier launches of this same reserved attempt that were
+	// registered but never allowed to begin work, and were confirmed stopped,
+	// oldest first.
+	Unreleased []ExecutionIdentity `json:"unreleased,omitempty"`
+	LaunchedAt *time.Time          `json:"launched_at,omitempty"`
+	Ended      *AttemptEnding      `json:"ended,omitempty"`
+	// Usage are references to the usage reports the attempt made, kept whether
+	// or not its result was the one adopted, so what it cost is still counted.
+	Usage []string `json:"usage,omitempty"`
+}
+
+// ExecutionIdentity is which execution an attempt was launched as, recorded
+// before the execution could begin work. A process identifier alone says
+// nothing once that process has exited, so it is recorded with what tells the
+// execution apart from anything later given the same number: the host and boot
+// it ran under, the launcher that started it, the process group it leads, and
+// the hold, a locked file every process of the tree inherited, which stays
+// locked while any of them is alive. See launch.go.
+type ExecutionIdentity struct {
+	Host string `json:"host"`
+	// Boot identifies the boot the execution ran under, and is empty where this
+	// platform could not say.
+	Boot string `json:"boot,omitempty"`
+	// Launcher identifies the harness process that started the execution.
+	Launcher     string    `json:"launcher"`
+	PID          int       `json:"pid"`
+	ProcessGroup int       `json:"process_group"`
+	StartedAt    time.Time `json:"started_at"`
+	// Hold is the hold's file name in the run state directory, and HoldFile
+	// the device and inode it had when the tree took it, so a file replaced
+	// since is not mistaken for it.
+	Hold         string    `json:"hold"`
+	HoldFile     string    `json:"hold_file"`
+	RegisteredAt time.Time `json:"registered_at"`
+}
+
+// OperationReconciling is recovery waiting before an operation may launch
+// again, and why, in a sentence a person reads.
+type OperationReconciling struct {
+	Attempt string    `json:"attempt,omitempty"`
+	Reason  string    `json:"reason"`
+	Since   time.Time `json:"since"`
+}
+
+// EffectState is how far an external effect is known to have got.
+type EffectState string
+
+const (
+	// EffectIntended is an effect recorded before it was attempted, whose
+	// outcome nobody has yet established.
+	EffectIntended  EffectState = "intended"
+	EffectPerformed EffectState = "performed"
+	// EffectAbsent is an intended effect established not to have happened.
+	EffectAbsent EffectState = "absent"
+)
+
+// ExternalEffect is one externally visible action — a commit, a push, a
+// publication — recorded under a stable key before it is attempted.
+type ExternalEffect struct {
+	Key     string      `json:"key"`
+	Kind    string      `json:"kind"`
+	Attempt string      `json:"attempt,omitempty"`
+	State   EffectState `json:"state"`
+	At      time.Time   `json:"at"`
 }
 
 // AttemptEnding is how an attempt ended and whether its execution is known to
@@ -754,7 +841,10 @@ func (r *RunRouting) attemptRecorded(id string) bool {
 	return false
 }
 
-// MarkLaunched records that a prepared attempt's execution was started.
+// MarkLaunched records that a prepared attempt's execution is allowed to begin
+// work. It is refused for an attempt with no registered execution, because a
+// launch written down only after it began is the gap recovery cannot close; see
+// launch.go.
 func (r *RunRouting) MarkLaunched(operationID, attemptID string, at time.Time) (bool, error) {
 	operation, attempt, err := r.find(operationID, attemptID)
 	if err != nil {
@@ -763,6 +853,9 @@ func (r *RunRouting) MarkLaunched(operationID, attemptID string, at time.Time) (
 	switch attempt.State {
 	case AttemptLaunched, AttemptEnded:
 		return false, nil
+	}
+	if attempt.Execution == nil {
+		return false, conflict("attempt %s has no registered execution, so it cannot be recorded as launched", attemptID)
 	}
 	attempt.State = AttemptLaunched
 	launched := at.UTC()
@@ -1042,7 +1135,13 @@ func (r *RunRouting) CompleteOperation(operationID, outcome string, at time.Time
 			return false, conflict("attempt %s of operation %s may still be executing", attempt.ID, operationID)
 		}
 	}
+	for _, effect := range operation.Effects {
+		if effect.State == EffectIntended {
+			return false, conflict("effect %s of operation %s has not been established as performed or absent", effect.Key, operationID)
+		}
+	}
 	operation.Waiting = nil
+	operation.Reconciling = nil
 	operation.Completed = &OperationCompletion{Outcome: outcome, At: at.UTC()}
 	return true, nil
 }
@@ -1298,7 +1397,9 @@ func (o RoutedOperation) problems(seen map[string]bool) []string {
 		if attempt.Predecessor != "" && !routingIDPattern.MatchString(attempt.Predecessor) {
 			problems = append(problems, fmt.Sprintf("attempt %s predecessor %q is invalid", attempt.ID, attempt.Predecessor))
 		}
+		problems = append(problems, attempt.launchProblems()...)
 	}
+	problems = append(problems, o.launchProblems()...)
 	if active > 1 {
 		problems = append(problems, fmt.Sprintf("operation %s has more than one active attempt", o.ID))
 	}
@@ -1384,6 +1485,9 @@ func (r *RunRouting) recordedTexts(add func(key, path string, text *string)) {
 		}
 		if operation.Completed != nil {
 			add("routing.operations[].completed.outcome", at("completed.outcome"), &operation.Completed.Outcome)
+		}
+		if operation.Reconciling != nil {
+			add("routing.operations[].reconciling.reason", at("reconciling.reason"), &operation.Reconciling.Reason)
 		}
 		if sw := operation.Switch; sw != nil {
 			add("routing.operations[].switch.evidence", at("switch.evidence"), &sw.Evidence)

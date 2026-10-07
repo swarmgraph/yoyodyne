@@ -67,6 +67,11 @@ type Store struct {
 	// signal, so the test can let the lock go at a moment it knows the wait has
 	// begun rather than after a length of time it hopes is inside the grace.
 	leaseHeld func()
+	// signalGroup asks whether a process group still has members, as
+	// syscall.Kill(-group, 0) does, and is nil in every store the harness
+	// builds. It is a field only so a test can give the answer a real group
+	// cannot be made to give on demand, such as a permission refusal.
+	signalGroup func(group int) error
 }
 
 type ExistingWorkItemError struct {

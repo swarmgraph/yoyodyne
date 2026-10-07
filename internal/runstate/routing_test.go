@@ -109,6 +109,24 @@ func prepare(operation, attempt string) func(*RunRouting) (bool, error) {
 	}
 }
 
+// launched registers a test execution for the attempt and marks it launched,
+// in the order a real launch writes them.
+func launched(operation, attempt string) func(*RunRouting) (bool, error) {
+	return func(r *RunRouting) (bool, error) {
+		if _, err := r.RegisterExecution(operation, attempt, testExecution(attempt)); err != nil {
+			return false, err
+		}
+		return r.MarkLaunched(operation, attempt, routingAt)
+	}
+}
+
+func testExecution(attempt string) ExecutionIdentity {
+	return ExecutionIdentity{
+		Host: "test-host", Launcher: "launcher-test", PID: 4242, ProcessGroup: 4242, StartedAt: routingAt,
+		Hold: holdName(attempt), HoldFile: "1:2", RegisteredAt: routingAt,
+	}
+}
+
 func end(operation, attempt, classification string, termination Termination) func(*RunRouting) (bool, error) {
 	return func(r *RunRouting) (bool, error) {
 		return r.EndAttempt(operation, attempt, AttemptEnding{Classification: classification, Termination: termination, At: routingAt})
@@ -205,7 +223,7 @@ func TestAnOperationSwitchesOnceAndKeepsItsAlternateThroughWaitsAndRestarts(t *t
 	for _, step := range []func(*RunRouting) (bool, error){
 		openDevelop("op-1"),
 		prepare("op-1", "att-1"),
-		func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", "att-1", routingAt) },
+		launched("op-1", "att-1"),
 		end("op-1", "att-1", UsageLimitClassification, TerminationConfirmed),
 		planSwitch("op-1", "sw-1", "att-1", "att-2"),
 		func(r *RunRouting) (bool, error) { return r.ReconcileSource("op-1", "sw-1", routingAt) },
@@ -281,7 +299,7 @@ func TestAPrimaryKnownToBeLimitedIsSkippedWithoutAFictitiousAttempt(t *testing.T
 		t.Fatalf("preparing an attempt other than the reserved destination: error = %v", err)
 	}
 	state = route(t, store, state, prepare("op-1", "att-1"))
-	state = route(t, store, state, func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", "att-1", routingAt) })
+	state = route(t, store, state, launched("op-1", "att-1"))
 	state = route(t, store, state, end("op-1", "att-1", "succeeded", TerminationConfirmed))
 	operation, _ = state.Routing.Operation("op-1")
 	if operation.Attempts[0].Choice != EndpointAlternate || operation.Switch.Progress != TransitionOutcomeRecorded || len(operation.Switch.Steps) != 5 {
@@ -446,12 +464,12 @@ func TestRestartAtEachPersistedTransitionContinuesFromTheRecord(t *testing.T) {
 	}{
 		{openDevelop("op-1"), ""},
 		{prepare("op-1", "att-1"), ""},
-		{func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", "att-1", routingAt) }, ""},
+		{launched("op-1", "att-1"), ""},
 		{end("op-1", "att-1", UsageLimitClassification, TerminationConfirmed), ""},
 		{planSwitch("op-1", "sw-1", "att-1", "att-2"), TransitionPlanned},
 		{func(r *RunRouting) (bool, error) { return r.ReconcileSource("op-1", "sw-1", routingAt) }, TransitionSourceReconciled},
 		{prepare("op-1", "att-2"), TransitionDestinationPrepared},
-		{func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", "att-2", routingAt) }, TransitionDestinationLaunched},
+		{launched("op-1", "att-2"), TransitionDestinationLaunched},
 		{end("op-1", "att-2", "succeeded", TerminationConfirmed), TransitionOutcomeRecorded},
 	}
 	for index, step := range steps {
@@ -703,7 +721,7 @@ func TestNothingLaunchesForAnOperationWhileAnEarlierAttemptsStopIsUncertain(t *t
 	state := routedRun(t, store)
 	state = route(t, store, state, openDevelop("op-1"))
 	state = route(t, store, state, prepare("op-1", "att-1"))
-	state = route(t, store, state, func(r *RunRouting) (bool, error) { return r.MarkLaunched("op-1", "att-1", routingAt) })
+	state = route(t, store, state, launched("op-1", "att-1"))
 	// The attempt ended for something outside the work, and nothing confirmed
 	// that its process stopped.
 	state = route(t, store, state, end("op-1", "att-1", "connection_lost", TerminationUncertain))
