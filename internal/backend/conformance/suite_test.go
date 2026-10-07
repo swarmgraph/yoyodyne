@@ -241,7 +241,10 @@ func (a Adapter) classify(condition Condition, sample Sample) []Problem {
 	if !served {
 		return problem("serves no role whose posture it holds, so no invocation could be made of it at all")
 	}
-	provider, built := compiled.For(a.Descriptor, a.Descriptor.ID, streamRunner{sample: sample}, "")
+	// The sample stands in for the provider's executable as well as its stream,
+	// so the adapter's executable lookup is told it is there: whether this
+	// machine has the provider installed is not what this suite asks.
+	provider, built := compiled.For(a.Descriptor, a.Descriptor.ID, streamRunner{sample: sample}, "", sampleExecutable)
 	if !built {
 		return problem(fmt.Sprintf("names adapter %q, which this build cannot construct", a.Descriptor.Adapter))
 	}
@@ -347,6 +350,12 @@ const conformanceRunID = "run-c0nf0rmance0000000000000000000"
 // started.
 type streamRunner struct {
 	sample Sample
+}
+
+// sampleExecutable finds every provider executable at a fixed path, so the
+// suite gives the same answers on a machine with no provider CLI installed.
+func sampleExecutable(binary string) (string, error) {
+	return "/provider/bin/" + binary, nil
 }
 
 func (r streamRunner) Run(_ context.Context, _ execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {

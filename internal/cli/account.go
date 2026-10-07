@@ -35,7 +35,7 @@ func accountLoginCommand(cfg config.Config, named domain.Backend, account config
 		named = held
 	}
 	descriptor, _ := providerDescriptor(cfg, named)
-	return doctor.AccountLoginCommand(descriptor.Adapter, account.Directory)
+	return doctor.AccountLoginCommand(descriptor.Adapter, account.Directory, descriptor.Binary)
 }
 
 // weeklyBudgetWindow is the seven days a weekly budget is measured over. It is a

@@ -264,13 +264,15 @@ func TestAPooledAccountIsAskedWithTheDevelopersOwnExecutable(t *testing.T) {
 		Role: domain.RoleDeveloper, Backend: "my-harness", Model: "opus",
 	}
 
-	accountDiagnosis(world).checkAccounts(context.Background(), resolved, registry)
+	diagnosis := accountDiagnosis(world)
+	diagnosis.env.LookPath = func(binary string) (string, error) { return filepath.Join("/usr/local/bin", binary), nil }
+	diagnosis.checkAccounts(context.Background(), resolved, registry)
 
 	if len(world.runner.invocations) == 0 {
 		t.Fatal("checkAccounts() asked nothing")
 	}
 	for _, command := range world.runner.invocations {
-		if command.Name != "my-harness" {
+		if command.Name != "/usr/local/bin/my-harness" {
 			t.Fatalf("an account was asked with %q, want the developer's own executable", command.Name)
 		}
 	}

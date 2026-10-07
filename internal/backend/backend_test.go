@@ -61,7 +61,7 @@ func TestDescribeFailureKeepsTheProvidersOwnWordsBesideItsCategory(t *testing.T)
 func TestNotInstalledNamesThePathItWasLookedForOn(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 
-	if got, want := NotFound("claude").NotInstalled("claude-code"), "the claude-code backend is not installed: claude was not found on PATH /usr/bin:/bin"; got != want {
+	if got, want := NotFound("claude").NotInstalled("claude-code"), "the claude-code backend cannot run in this environment: claude was not found on PATH /usr/bin:/bin"; got != want {
 		t.Fatalf("NotInstalled() = %q, want %q", got, want)
 	}
 	if got, want := (Availability{}).NotInstalled("codex"), "the codex backend is not installed"; got != want {

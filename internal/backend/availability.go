@@ -52,7 +52,7 @@ func NotFound(binary string) Availability {
 func (a Availability) NotInstalled(named domain.Backend) string {
 	refused := fmt.Sprintf("the %s backend is not installed", named)
 	if missing := strings.TrimSpace(a.Missing); missing != "" {
-		refused += ": " + missing
+		refused = fmt.Sprintf("the %s backend cannot run in this environment: %s", named, missing)
 	}
 	return refused
 }

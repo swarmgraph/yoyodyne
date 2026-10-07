@@ -130,11 +130,17 @@ const (
 	// which is what a pinned version falling back to its family answers. Nothing
 	// about the account is exhausted and nothing is waiting for a window.
 	SubstitutedForAvailability SubstitutionReason = "availability"
+	// SubstitutedForExecutable is the provider's executable not being found, or
+	// not starting, in the environment the turn was made in, which is what a
+	// configured alternate on another provider answers. Nothing about the account
+	// or the model is exhausted, and no reset time exists: the executable is
+	// looked for again once the harness's unknown-reset interval has passed.
+	SubstitutedForExecutable SubstitutionReason = "executable"
 )
 
 // SubstitutionReasons is every reason a substitution may name, for a refusal
 // that shows the choices.
-var SubstitutionReasons = []SubstitutionReason{SubstitutedForCapacity, SubstitutedForAvailability}
+var SubstitutionReasons = []SubstitutionReason{SubstitutedForCapacity, SubstitutedForAvailability, SubstitutedForExecutable}
 
 // Reason is why this entry's turn moved, with an entry that names none reading
 // as capacity — the only reason there was when such an entry could be written.
@@ -196,6 +202,11 @@ func (e UsageLimitExhaustion) Validate() error {
 	// was ever going to change at.
 	if e.Substitution == SubstitutedForAvailability && e.ResetsAt != nil {
 		problems = append(problems, errors.New("an availability substitution names a reset time; a model the provider has not got is not waiting for a window"))
+	}
+	// The same holds of an executable this environment could not run: nothing
+	// quoted a time it would be back.
+	if e.Substitution == SubstitutedForExecutable && e.ResetsAt != nil {
+		problems = append(problems, errors.New("an executable substitution names a reset time; a provider executable that could not run is not waiting for a window"))
 	}
 	// A crossing is stated as a pair or not at all. One provider named without the
 	// other is a record saying a turn moved between one place and nowhere, which
@@ -331,6 +342,14 @@ func (e UsageLimitExhaustion) WindowClosed(at time.Time, unknownResetPause time.
 func (e UsageLimitExhaustion) Describe() string {
 	if e.Substituted() && e.Reason() == SubstitutedForAvailability {
 		return "a model version this provider has not got"
+	}
+	if e.Substituted() && e.Reason() == SubstitutedForExecutable {
+		described := "a provider executable that could not be found or started here"
+		if e.CrossedProviders() {
+			described += "; the turn went to " + string(e.ServedByProvider) +
+				" and rebuilt its context from the durable record rather than resuming a session"
+		}
+		return described
 	}
 	described := DescribePause(PauseUsageLimit, e.Kind)
 	if e.ResetsAt != nil {

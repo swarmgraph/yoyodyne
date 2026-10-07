@@ -279,6 +279,12 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,
 	}, v.failoverPolicy(question, name, choice.Endpoint, providers))
+	// A round the alternate provider answered belongs to that provider and account,
+	// so the next round resumes nothing of the configured provider's with it.
+	backendServed, accountServed := agent.Backend, account.Alias
+	if served.CrossedProviders() {
+		backendServed, accountServed = served.Endpoint.Provider, served.Endpoint.AccountAlias
+	}
 	// What served the round travels back with what it cost, so the exchange record
 	// pins the invocation to a backend, a model, an account, a configuration, and
 	// the harness that made the call rather than to a provider session that
@@ -293,7 +299,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		CostUSD:      result.CostUSD,
 		Usage:        result.Usage,
 		CostReported: &result.CostReported,
-		Backend:      agent.Backend,
+		Backend:      backendServed,
 		// The model that actually asked, which is the configured one unless the
 		// permitted alternate served the round. Recording the configured selector
 		// would leave the exchange record naming a model that refused it.
@@ -302,7 +308,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 		Effort:         served.Effort,
 		ResolvedEffort: result.ResolvedEffort,
 		EffortReported: result.EffortReported,
-		AccountAlias:   account.Alias,
+		AccountAlias:   accountServed,
 		ConfigRevision: v.config.Revision(),
 		Build:          buildinfo.Commit(),
 	}
@@ -355,8 +361,8 @@ func (v exchangeVoice) noteUsageLimit(question exchange.Question, result backend
 
 // failoverPolicy is what an answering round may be served by when the model it
 // would ask for will not take it — the pinned version the provider has not got,
-// or the configured model whose window is closed — and where either substitution
-// is written down. An agent that has pinned no version and enabled no failover
+// the configured model whose window is closed, or a provider whose executable
+// could not run here — and where each substitution is written down. An agent that has pinned no version and enabled no failover
 // produces the zero policy, which is both mechanisms off: one invocation, under
 // the configured model, exactly as before.
 //
@@ -364,13 +370,17 @@ func (v exchangeVoice) noteUsageLimit(question exchange.Question, result backend
 // it, so a substitution is checked against the role's tool posture before it is
 // made rather than after the round has already moved.
 func (v exchangeVoice) failoverPolicy(question exchange.Question, name string, endpoint backend.Endpoint, providers *backend.Registry) modelfailover.Policy {
-	// The alternate only where it stays on the provider this round is answered
-	// on. An exchange has no way to cross — it is answered on the agent's own
-	// endpoint, and asking that provider for another provider's model would fail on
-	// a selector nobody there has heard of, at the moment the fallback was meant to
-	// save the round. An agent whose alternate crosses therefore answers rounds
-	// exactly as it did before failover existed.
+	// An alternate on another provider is reached through that provider's own
+	// adapter, under its own account, and charged there. The round's prompt already
+	// carries every earlier round, so the context the other provider needs is the
+	// prompt itself, with no session of the configured provider's sent with it. A
+	// voice built without a process runner cannot build that adapter, so it keeps
+	// only an alternate on the configured provider.
 	alternate := v.config.AgentFailoverModelWithinProvider(name)
+	crossing, crosses := v.crossingAlternate(question, name, endpoint, providers)
+	if crosses {
+		alternate = crossing.Endpoint.Model
+	}
 	version := v.config.AgentModelVersion(name)
 	if alternate == "" && version == "" {
 		return modelfailover.Policy{}
@@ -405,7 +415,48 @@ func (v exchangeVoice) failoverPolicy(question exchange.Question, name string, e
 	if v.usageLimits != nil {
 		policy.Windows = v.usageLimits
 	}
+	if crosses {
+		policy.AlternateEndpoint = crossing.Endpoint
+		policy.AlternateAccountConfigDir = crossing.Account.Directory
+		policy.AlternateProvider = spend.Metered{
+			Provider: providerBackendIn(v.config, crossing.Endpoint.Provider, v.runner, crossing.Account.Directory),
+			Log:      v.spend,
+			Attribution: spend.Attribution{
+				ProductID:      v.productID,
+				Agent:          name,
+				Phase:          runstate.SpendPhaseExchange,
+				AccountAlias:   crossing.Account.Alias,
+				ConfigRevision: v.config.Revision(),
+				Backend:        crossing.Endpoint.Provider,
+				ExchangeID:     question.ExchangeID,
+			},
+		}
+		policy.Rebuild = func(request backend.RunRequest) (backend.RunRequest, error) { return request, nil }
+		if effort := strings.TrimSpace(v.config.InvocationEffort(v.config.Agents[name], v.config.Agents[name].Model)); effort != "" {
+			if descriptor, known := providers.Lookup(crossing.Endpoint.Provider); known && !descriptor.AcceptsEffort(effort) {
+				policy.AlternateDropsEffort = true
+			}
+		}
+	}
 	return policy
+}
+
+// crossingAlternate is the answering agent's alternate where it is on another
+// provider, and false where it is not, where failover is off, or where it cannot
+// be resolved — in which case the round is answered as it was before an
+// exchange could cross.
+func (v exchangeVoice) crossingAlternate(question exchange.Question, name string, endpoint backend.Endpoint, providers *backend.Registry) (config.EndpointChoice, bool) {
+	if v.runner == nil || providers == nil {
+		return config.EndpointChoice{}, false
+	}
+	choice, crosses, err := v.config.AgentFailoverEndpoint(providers, v.stateRoot, name)
+	if err != nil || !crosses || choice.Endpoint.Provider == endpoint.Provider {
+		return config.EndpointChoice{}, false
+	}
+	if providers.EligibleFor(choice.Endpoint, question.Role) != nil {
+		return config.EndpointChoice{}, false
+	}
+	return choice, true
 }
 
 // renderQuestion is what the answering role is sent. The thread before this

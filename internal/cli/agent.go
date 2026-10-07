@@ -63,11 +63,11 @@ type agentReport struct {
 	// names none. It is read here because a crossing is a different promise from a
 	// substitution within one provider, and a narrower one: the turn is served by a
 	// provider holding no session for it, so its context is rebuilt from the durable
-	// record, and only this agent's conversation turns cross at all — an exchange
-	// round and a side turn are answered on the endpoint the agent is configured
-	// for. The rendering says both, because an operator reading the alternate as
-	// covering everything the within-provider one covers would be reading a promise
-	// that is not kept.
+	// record, and only this agent's conversation turns and exchange rounds cross —
+	// a side turn is answered on the endpoint the agent is configured for. The
+	// rendering says both, because an operator reading the alternate as covering
+	// everything the within-provider one covers would be reading a promise that is
+	// not kept.
 	FailoverProvider domain.Backend `json:"failover_provider,omitempty"`
 	// Conversations is what this agent does with a question that arrives while
 	// its main thread is busy — queueing it, or holding it on a side thread. It is
@@ -519,14 +519,14 @@ func renderAgent(report agentReport) string {
 		// keep, for a developer or reviewer agent most of all.
 		if report.FailoverProvider != "" {
 			// A crossing is a narrower promise as well as a different one, and both
-			// halves are said. It covers this agent's conversation turns and nothing
-			// else: an exchange round and a side turn are answered on the endpoint the
-			// agent is configured for and have no way to cross, so an alternate that
-			// leaves the provider is no alternate to them and they wait the window out
-			// with the run invocations. And what the crossing costs is named, because
-			// the provider taking the turn holds no session for it: what it is handed
-			// is assembled from the durable record rather than resumed.
-			fmt.Fprintf(&rendered, "  conversation turns served by %s on %s while %s has no capacity, rebuilding context from the record rather than resuming a session; exchange rounds, side threads, and run invocations wait it out\n",
+			// halves are said. It covers this agent's conversation turns and the
+			// rounds where another role asks it something, whose prompt carries the
+			// whole thread: a side turn is answered on the endpoint the agent is
+			// configured for and has no way to cross, so it waits the window out with
+			// the run invocations. And what the crossing costs is named, because the
+			// provider taking the turn holds no session for it: what it is handed is
+			// assembled from the durable record rather than resumed.
+			fmt.Fprintf(&rendered, "  conversation turns and exchange rounds served by %s on %s while %s has no capacity, rebuilding context from the record rather than resuming a session; side threads and run invocations wait it out\n",
 				report.FailoverModel, report.FailoverProvider, report.Model)
 		} else {
 			fmt.Fprintf(&rendered, "  turns and exchange rounds served by %s while %s has no capacity; run invocations wait it out\n",

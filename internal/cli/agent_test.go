@@ -499,10 +499,10 @@ func TestAgentListReportsSiblingAgentsSeparately(t *testing.T) {
 
 // What an operator is told about an alternate that leaves the provider. Both
 // halves have to be there: a crossing rebuilds the conversation from the record
-// rather than resuming a session, and it covers conversation turns and nothing
-// else — an exchange round and a side turn are answered on the endpoint the agent
-// is configured for and have no crossing to take, so an unqualified line would be
-// a promise those two paths do not keep.
+// rather than resuming a session, and it covers conversation turns and exchange
+// rounds only — a side turn is answered on the endpoint the agent is configured
+// for and has no crossing to take, so an unqualified line would be a promise that
+// path does not keep.
 func TestAgentSaysWhatACrossingCoversAndWhatItCosts(t *testing.T) {
 	crossing := renderAgent(agentReport{
 		Name: "development-manager", Role: domain.RoleDevelopmentManager,
@@ -510,9 +510,9 @@ func TestAgentSaysWhatACrossingCoversAndWhatItCosts(t *testing.T) {
 		FailoverModel: "gpt-5-codex", FailoverProvider: domain.BackendCodex,
 	})
 	for _, want := range []string{
-		"conversation turns served by gpt-5-codex on codex",
+		"conversation turns and exchange rounds served by gpt-5-codex on codex",
 		"rebuilding context from the record rather than resuming a session",
-		"exchange rounds, side threads, and run invocations wait it out",
+		"side threads and run invocations wait it out",
 	} {
 		if !strings.Contains(crossing, want) {
 			t.Fatalf("agent line = %q, which does not say %q", crossing, want)

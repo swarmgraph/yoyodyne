@@ -70,10 +70,9 @@ is for; [Install](#install) has what the script does and the other routes.
   configure [recurring tasks](docs/configuration.md#recurring-tasks) that wake a
   role on a schedule, and [program managers](docs/designs/program-manager.md)
   that each watch one area of work. `yoyo agent chat <name>` talks to any agent.
-- **Claude Code runs every role; Codex can run the developer.** Codex is refused
-  for the other roles because it cannot run with every tool turned off, which
-  they require. A fork, proxy, or variant of either can be declared as a
-  [provider plugin](docs/provider-plugins.md).
+- **Claude Code and Codex can each run every role.** Roles other than the
+  developer run read-only on either. A fork, proxy, or variant of either can be
+  declared as a [provider plugin](docs/provider-plugins.md).
 - **One `yoyo` per repository.** Teammates can commit alongside it the ordinary
   way, but two people each running `yoyo` against one repository is not
   supported yet: claims, reports, budgets, and the merge lock stay on the
@@ -201,6 +200,11 @@ is missing. Go 1.25 or newer only if you install with `go install` or build from
 source, which the script also does on a platform with no release binary. For
 pull requests, also a Git remote and [`gh`](https://cli.github.com) signed in
 with `gh auth login`; without them nothing is pushed.
+
+If a configured provider is outside PATH, such as desktop-bundled Codex, set its
+absolute executable path once in the project configuration. [Provider setup and
+precedence](docs/provider-plugins.md#executable-setup-and-precedence) covers
+terminal chats, scheduled runs, fallback providers and account login commands.
 
 CI executes this section on every change via
 [`scripts/walk-adoption.sh`](scripts/walk-adoption.sh), against a throwaway

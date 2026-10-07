@@ -54,9 +54,10 @@ same protocol and reports its limits differently is reachable from configuration
 alone. Something that speaks a different protocol needs an adapter, which is a
 change to yoyo.
 
-A declaration that names no adapter, or one this build does not ship, is refused
-when the configuration loads. There is deliberately no way to declare a provider
-that validates and can never run.
+A custom provider declaration that names no adapter, or one this build does not
+ship, is refused when the configuration loads. Built-in executable overrides are
+the exception: specify only `binary` under `providers.codex` or
+`providers.claude-code`; their compiled adapter and capabilities remain in force.
 
 This document is what a provider plugin is, what it may and may not decide, and
 how one is written.
@@ -79,6 +80,58 @@ The adapters also refuse oversized supplied input before launching the CLI for
 callers that cannot reconstruct a conversation. A provider declaration uses its
 compiled adapter's bound; it cannot change the bound or grant authority through
 configuration.
+
+## Executable setup and precedence
+
+Interactive role chats, scheduled turns, developer and reviewer runs, and
+cross-provider fallback use the same executable selection. Configure every
+provider that can serve a turn, including an agent's fallback provider.
+
+1. `providers.<backend>.binary`, when set, selects that executable. An absolute
+   path works independently of the terminal or scheduler's PATH. A bare name is
+   looked up on the harness process's PATH; a relative path is resolved from the
+   harness's current directory. Use absolute paths for scheduled execution.
+2. Without an override, the compiled adapter looks for `codex` or `claude` on
+   that process's PATH. The child's account environment does not change lookup.
+
+An override that is missing or not executable fails with a setup remedy; yoyo
+does not silently select a different installation of the same provider. An agent
+whose failover names another provider is served there instead, and the record
+says why ([an executable that cannot run](configuration/recovery.md#serving-a-turn-from-a-permitted-alternate-model)). The adapter retains the
+absolute path it resolved successfully for availability, authentication, launch
+and resume. Restart the conversation or service after changing configuration or
+moving an installation. Discovery does not establish authentication: the CLI's
+own login check still runs in the configured account's provider home.
+
+For the built-in providers, only `binary` may be specified under `providers`.
+Their adapter, capabilities, dialect and sandbox restrictions remain compiled in:
+
+```yaml
+providers:
+  codex:
+    binary: "/absolute/path/to/Desktop App.app/Contents/Resources/codex-cli/bin/codex"
+  claude-code:
+    binary: "/absolute/path/to/claude"
+```
+
+The desktop path above illustrates an installation you locate yourself. Yoyo
+does not scan application bundles or assume an application name or install
+directory. Put the actual executable path in `.yoyodyne/config.yaml`, omit any
+provider already installed on the harness's PATH, and keep machine-specific
+paths out of shared configuration unless collaborators use that location too.
+For a ChatGPT desktop installation, use the bundled `codex` executable's full
+path. Quote paths with spaces in YAML and when running shell commands; neither
+shell expansion nor arguments are accepted in `binary`.
+
+Run `"/absolute/path/to/codex" --version` and
+`"/absolute/path/to/codex" login` (or the login command `yoyo doctor` names
+for the account's provider home), then run `yoyo doctor` from the terminal that
+starts yoyo.
+`yoyo agent chat architect` and configured fallback turns now use that same
+installation without a per-command PATH prefix. Restart a running product with
+`yoyo stop` followed by `yoyo start` to load the configuration for scheduled
+turns. A normal PATH installation also works; ensure the service's launch
+environment includes its directory.
 
 ## What yoyo needs from a provider
 
@@ -461,15 +514,15 @@ one of these is not caught until that help is recorded again.
 
 ## Writing one
 
-Providers go under a top-level `providers:` key in your configuration, keyed by
-the backend identifier your agents will name. See
+Custom providers go under a top-level `providers:` key in your configuration,
+keyed by the backend identifier your agents will name. See
 [the configuration guide](configuration.md) for where that file lives.
 
 ```yaml
 providers:
   my-harness:
-    # Which compiled adapter launches it and reads its stream. Required, and
-    # `claude-code` is the only one this build ships.
+    # Which compiled adapter launches it and reads its stream. Required; this
+    # build ships the `claude-code` and `codex` adapters.
     adapter: claude-code
     # The executable that adapter runs. Omit it for the adapter's own.
     binary: my-harness
@@ -540,6 +593,9 @@ agents:
 ```
 
 ### Provider fields
+
+These fields describe custom providers. Built-in executable overrides accept
+only `binary`, as described in [executable setup and precedence](#executable-setup-and-precedence).
 
 | Field | Meaning |
 |---|---|

@@ -67,6 +67,16 @@ package modelfailover
 // Each hop is recorded as itself — refused for availability, refused for
 // capacity — because a single entry collapsing two would name a model that
 // refused a turn nobody asked it.
+//
+// A third condition moves a turn, and only across providers: the configured
+// provider's executable could not be found or started in the environment the
+// turn was made in. Another model on the same provider would be launched by the
+// same missing executable, so only an alternate on another provider answers it,
+// and a turn with no such alternate fails with the executable's own account of
+// what is missing and how to set it up. The substitution is recorded as itself,
+// with that account beside it, and stands for the unknown-reset interval like a
+// window that named no reset, so the executable is looked for again after it
+// rather than on every turn.
 
 import (
 	"context"
@@ -427,9 +437,10 @@ func serveWithCapacity(ctx context.Context, provider Invoker, request backend.Ru
 	// as it stands, and for no longer: the comparison is against the clock at the
 	// moment of the turn, so affinity returns to the named model on the first turn
 	// after the reset time passes without anything having to notice it did.
-	if closed, err := windowClosed(policy, named); err != nil {
+	if closed, why, err := windowClosed(policy, named); err != nil {
 		policy.report(err)
 	} else if closed {
+		moved.Why = why
 		result, err := policy.runAlternate(ctx, provider, request, alternate)
 		if err != nil && errors.Is(err, errRebuildFailed) {
 			// The context could not be assembled, so there is nothing to send the
@@ -445,6 +456,10 @@ func serveWithCapacity(ctx context.Context, provider Invoker, request backend.Ru
 	result, err := provider.Run(ctx, request)
 	refused := refusal(result, err)
 	if refused == nil {
+		if _, unavailable := backend.ExecutableUnavailable(err); unavailable && policy.crosses() {
+			moved.Why = runstate.SubstitutedForExecutable
+			return serveForExecutable(ctx, provider, request, policy, result, err, stood, moved)
+		}
 		return result, stood, err
 	}
 
@@ -475,6 +490,30 @@ func serveWithCapacity(ctx context.Context, provider Invoker, request backend.Ru
 		policy.RecordFailure(err)
 	}
 	return substituted, moved, substitutedErr
+}
+
+// serveForExecutable makes the turn on the alternate provider after the
+// configured provider's executable could not be found or started. Nothing was
+// asked of the configured provider, so nothing is advanced past and nothing it
+// said is lost. Where the alternate cannot take the turn either, both failures
+// are returned together, because the operator has two installations to look at
+// rather than one; and nothing is recorded, because no work carried on.
+func serveForExecutable(ctx context.Context, provider Invoker, request backend.RunRequest, policy Policy, result backend.RunResult, err error, stood, moved Served) (backend.RunResult, Served, error) {
+	substituted, substitutedErr := policy.runAlternate(ctx, provider, request, moved.Model)
+	if substitutedErr != nil && errors.Is(substitutedErr, errRebuildFailed) {
+		policy.report(substitutedErr)
+		return result, stood, err
+	}
+	if substitutedErr != nil || substituted.IsError {
+		return substituted, moved, errors.Join(err, substitutedErr)
+	}
+	if recordErr := recordExecutable(policy, moved, err); recordErr != nil {
+		if policy.RecordFailure == nil {
+			return substituted, moved, recordErr
+		}
+		policy.RecordFailure(recordErr)
+	}
+	return substituted, moved, nil
 }
 
 // errRebuildFailed marks a crossing that never reached the second provider
@@ -563,7 +602,7 @@ func (p Policy) ServesElsewhere(model string) bool {
 	if p.permitSubstitution(alternate) != nil {
 		return false
 	}
-	closed, err := windowClosed(p, named)
+	closed, _, err := windowClosed(p, named)
 	return err == nil && closed
 }
 
@@ -619,13 +658,18 @@ func advanceSequence(request *backend.RunRequest, result backend.RunResult) {
 // the failure this exists to prevent. Keying windows by account would need the
 // account on the refusal record, and that is worth doing when a pooled project
 // actually runs its management roles on separate subscriptions.
-func windowClosed(policy Policy, model string) (bool, error) {
+//
+// It also says why the window stands. An executable that could not run is read
+// as one only by a policy whose alternate crosses providers, which is the only
+// policy that substitutes for it: another model on the same provider would be
+// started by the same executable.
+func windowClosed(policy Policy, model string) (bool, runstate.SubstitutionReason, error) {
 	if policy.Windows == nil || strings.TrimSpace(model) == "" {
-		return false, nil
+		return false, "", nil
 	}
 	exhaustions, err := policy.Windows.List()
 	if err != nil {
-		return false, fmt.Errorf("read which models the provider has refused: %w", err)
+		return false, "", fmt.Errorf("read which models the provider has refused: %w", err)
 	}
 	at := policy.now()
 	for _, exhaustion := range exhaustions {
@@ -639,11 +683,14 @@ func windowClosed(policy Policy, model string) (bool, error) {
 		if exhaustion.Substituted() && exhaustion.Reason() == runstate.SubstitutedForAvailability {
 			continue
 		}
+		if exhaustion.Substituted() && exhaustion.Reason() == runstate.SubstitutedForExecutable && !policy.crosses() {
+			continue
+		}
 		if exhaustion.WindowClosed(at, policy.UnknownResetPause) {
-			return true, nil
+			return true, exhaustion.Reason(), nil
 		}
 	}
-	return false, nil
+	return false, "", nil
 }
 
 // versionMissing reports a pinned version this provider was already found not to
@@ -737,6 +784,38 @@ func recordUnavailable(policy Policy, version, family, detail string) error {
 	}
 	if err := policy.Windows.Record(exhaustion); err != nil {
 		return fmt.Errorf("record the turn %s served because the provider has not got %s: %w", family, version, err)
+	}
+	return nil
+}
+
+// recordExecutable writes down a turn served on another provider because the
+// configured provider's executable could not be found or started. The
+// executable's own account of what was missing is joined to the caller's
+// sentence, so the entry says why as well as where the turn went.
+func recordExecutable(policy Policy, moved Served, cause error) error {
+	if policy.Windows == nil {
+		return nil
+	}
+	detail := ""
+	if unavailable, ok := backend.ExecutableUnavailable(cause); ok {
+		detail = unavailable.Missing
+	}
+	exhaustion := runstate.UsageLimitExhaustion{
+		SchemaVersion:    runstate.UsageLimitSchemaVersion,
+		ProductID:        policy.ProductID,
+		At:               policy.now(),
+		Waiting:          waitingWithDetail(policy.Waiting, detail),
+		ConversationID:   policy.ConversationID,
+		WorkItemID:       policy.WorkItemID,
+		Model:            moved.Refused,
+		AccountAlias:     strings.TrimSpace(moved.RefusedEndpoint.AccountAlias),
+		ServedBy:         moved.Model,
+		Provider:         moved.RefusedEndpoint.Provider,
+		ServedByProvider: moved.Endpoint.Provider,
+		Substitution:     runstate.SubstitutedForExecutable,
+	}
+	if err := policy.Windows.Record(exhaustion); err != nil {
+		return fmt.Errorf("record the turn %s served because the executable for %s could not run: %w", moved.Model, moved.Refused, err)
 	}
 	return nil
 }

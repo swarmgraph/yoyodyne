@@ -108,8 +108,8 @@ type Config struct {
 	Operators map[string]Operator `yaml:"operators,omitempty" json:"operators,omitempty"`
 	// Providers are the provider plugins this project declares, keyed by the
 	// backend identifier an agent names to run on one. It is absent from a
-	// project that runs on the backends this build ships, which is every project
-	// until one reaches a harness or an API yoyo has never heard of.
+	// project that uses the default executables. A built-in provider may name
+	// only a binary here; its compiled capabilities and dialect stay in force.
 	//
 	// A declared provider describes and decides nothing: it says which roles it
 	// serves, which tool postures it can hold them to, what it can do, and how to
