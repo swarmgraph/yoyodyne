@@ -113,6 +113,12 @@ type PendingProposal struct {
 	// gate refused is put to the operator instead, and an approval creates the item
 	// in that lane.
 	Lane string `json:"lane,omitempty"`
+	// Asker is who asked for the work, decided when the proposal is made rather
+	// than when it is decided: an operator approving at the console a proposal a
+	// sweep made is deciding the sweep's proposal, not asking for the work. It is
+	// empty on a proposal recorded before origins were, and the item admitted from
+	// one then records no origin rather than a guessed one.
+	Asker domain.WorkItemAsker `json:"asker,omitempty"`
 }
 
 // recorded is the proposal as the durable conversation keeps it, so a later
@@ -133,6 +139,7 @@ func (p PendingProposal) recorded() runstate.PendingProposal {
 		Class:         string(p.Proposal.Class),
 		Asking:        p.Asking,
 		Lane:          p.Lane,
+		Asker:         string(p.Asker),
 	}
 }
 
@@ -157,6 +164,7 @@ func restoredProposal(conversationID string, recorded runstate.PendingProposal) 
 		},
 		Asking: recorded.Asking,
 		Lane:   recorded.Lane,
+		Asker:  domain.WorkItemAsker(recorded.Asker),
 	}
 }
 
@@ -564,6 +572,17 @@ func (p PendingProposal) body() []string {
 // the operator as a proposal too, and agent is the instance whose lane it is in.
 // A lane proposal's item records the lane and the instance as a lane admission's
 // does.
+// origin is what an item admitted from this proposal records about where it
+// came from: who asked, as the proposal recorded it, and the role that proposed
+// it as the one that admitted it, whoever then decided it. A proposal that
+// recorded no asker gives no origin.
+func (p PendingProposal) origin(proposer domain.AgentRole) domain.WorkItemOrigin {
+	if p.Asker == "" {
+		return domain.WorkItemOrigin{}
+	}
+	return domain.WorkItemOrigin{Asker: p.Asker, AdmittedBy: proposer}
+}
+
 func (p PendingProposal) provenanceNotes(authority string, goals goal.Set, proposer domain.AgentRole, agent string) string {
 	notes := fmt.Sprintf(
 		"Proposed by the %s in conversation %s, turn %d, proposal %s, and %s.\n\n%s\n\nRationale: %s",

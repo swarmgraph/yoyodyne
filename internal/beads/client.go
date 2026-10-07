@@ -86,6 +86,11 @@ type WorkItem struct {
 	// it still carries the landing it was closed on, and the sweep that reads
 	// the same revision again reads this and leaves the item open.
 	Landing string
+	// Origin is who asked for this item to be admitted, and on whose behalf, as
+	// the admission recorded it. It is the zero origin on every item admitted
+	// before origins were recorded, which reads as unknown rather than as the
+	// operator the tracker's own author field would name.
+	Origin domain.WorkItemOrigin
 }
 
 // Cost is the provider-reported price of every run made for one work item. It
@@ -143,6 +148,57 @@ const parkedKey = "yoyodyne_parked"
 // it, which is exactly what lets a reopened item stay open. It is exported so
 // a problem the sweep reports can name what a person would have to clear.
 const LandingKey = "yoyodyne_landed"
+
+// The tracker metadata keys an admission's origin is carried in, one fact to a
+// key so a listing can split the backlog by any of them. They are written in the
+// same write as the admission and never afterwards, except by the one-time
+// backfill from an item's own notes; see domain.WorkItemOrigin for what each
+// one means. The asked-by and on-behalf-of keys are derived from the others and
+// stored anyway, because they are the values a page splits by and a reader of
+// the tracker should not have to know how to derive them.
+const (
+	originAskerKey      = "yoyodyne_origin"
+	originAskedByKey    = "yoyodyne_origin_asked_by"
+	originOnBehalfOfKey = "yoyodyne_origin_on_behalf_of"
+	originAdmittedByKey = "yoyodyne_origin_admitted_by"
+	originReportKey     = "yoyodyne_origin_report"
+	originReportedByKey = "yoyodyne_origin_reported_by"
+	originDirectiveKey  = "yoyodyne_origin_directive"
+)
+
+// originEntries is the metadata an origin is written as. A key whose value is
+// empty is left out rather than written blank, so an origin with no report and
+// no directive carries no report or directive key at all.
+func originEntries(origin domain.WorkItemOrigin) map[string]string {
+	entries := map[string]string{
+		originAskerKey:      string(origin.Asker),
+		originAskedByKey:    origin.AskedBy(),
+		originOnBehalfOfKey: origin.OnBehalfOf(),
+		originAdmittedByKey: string(origin.AdmittedBy),
+		originReportKey:     strings.TrimSpace(origin.Report),
+		originReportedByKey: string(origin.ReportedBy),
+		originDirectiveKey:  strings.TrimSpace(origin.Directive),
+	}
+	for key, value := range entries {
+		if value == "" {
+			delete(entries, key)
+		}
+	}
+	return entries
+}
+
+// originIn reads the origin the tracker records. Only the stored facts are read;
+// the derived asked-by and on-behalf-of keys are worked out again from them, so
+// a hand edit to one of those cannot make the item say two things.
+func originIn(metadata map[string]json.RawMessage) domain.WorkItemOrigin {
+	return domain.WorkItemOrigin{
+		Asker:      domain.WorkItemAsker(metadataString(metadata, originAskerKey)),
+		AdmittedBy: domain.AgentRole(metadataString(metadata, originAdmittedByKey)),
+		Report:     metadataString(metadata, originReportKey),
+		ReportedBy: domain.AgentRole(metadataString(metadata, originReportedByKey)),
+		Directive:  metadataString(metadata, originDirectiveKey),
+	}
+}
 
 // witnessValue is what the witness holds for one goal: the statement itself
 // where it fits, and a bare "1" where it does not. The bound is the one a goals
@@ -346,6 +402,13 @@ type NewWorkItem struct {
 	// later call is a gap in which whatever reads the label — a filter, a seat
 	// watching for it — sees the item without it.
 	Labels []string
+	// Origin is who asked for the item and on whose behalf. It is written in the
+	// same write as the admission, for the reason the labels are: an origin added
+	// by a later call is a window in which the item reads as unknown, and a call
+	// that never comes leaves it unknown for good. The zero origin writes nothing,
+	// which is what a creation that is not an admission — a decomposition of
+	// work already admitted — leaves.
+	Origin domain.WorkItemOrigin
 }
 
 // WorkItemChange is a bounded edit to an item that already exists. Each field is
@@ -678,6 +741,11 @@ func (c Client) Create(ctx context.Context, item NewWorkItem) (WorkItem, error) 
 	if parking := item.Parking.Reason(); parking != "" {
 		entries[parkedKey] = parking
 	}
+	if item.Origin.Known() {
+		for key, value := range originEntries(item.Origin.Trimmed()) {
+			entries[key] = value
+		}
+	}
 	if len(entries) > 0 {
 		metadata, err := creationMetadata(entries)
 		if err != nil {
@@ -744,6 +812,12 @@ func (c Client) Create(ctx context.Context, item NewWorkItem) (WorkItem, error) 
 	// admitted exactly the item nothing filtering on the label sees.
 	if missing := labelsMissing(created, item.Labels); len(missing) > 0 {
 		return WorkItem{}, fmt.Errorf("bd created work item %s without the label(s) %s it was given", created.ID, strings.Join(missing, ", "))
+	}
+	// The origin is read back for the reason the labels are: it is what says who
+	// filled the backlog, and a caller told it was recorded when it was not would
+	// have admitted exactly the item that reads as unknown.
+	if item.Origin.Known() && created.Origin != item.Origin.Trimmed() {
+		return WorkItem{}, fmt.Errorf("bd created work item %s with origin %+v, want %+v", created.ID, created.Origin, item.Origin.Trimmed())
 	}
 	// The requested priority is deliberately not read back, for the reason the
 	// parent is not read back after an update: an unset field and a field bd's
@@ -1527,6 +1601,51 @@ func (c Client) RecordLanding(ctx context.Context, id, landing string) (WorkItem
 	return item, nil
 }
 
+// RecordOrigin stores an origin on an item that has none. It is the one-time
+// backfill's write and nothing else's: an admission records its origin in the
+// write that admits it, so an item that already carries one is refused rather
+// than rewritten, because an origin is what happened and nothing later changes
+// what happened. The origin is read back for the reason a price is.
+func (c Client) RecordOrigin(ctx context.Context, id string, origin domain.WorkItemOrigin) (WorkItem, error) {
+	if err := validateIssueID(id); err != nil {
+		return WorkItem{}, err
+	}
+	origin = origin.Trimmed()
+	if err := origin.Validate(); err != nil {
+		return WorkItem{}, fmt.Errorf("invalid work item origin: %w", err)
+	}
+	current, err := c.Show(ctx, id)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if current.Origin.Known() {
+		return WorkItem{}, fmt.Errorf("work item %s already records its origin (%s); an origin is never rewritten", id, current.Origin.Describe())
+	}
+	entries := originEntries(origin)
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	args := []string{"update", id}
+	for _, key := range keys {
+		args = append(args, "--set-metadata="+key+"="+entries[key])
+	}
+	args = append(args, "--json")
+	data, err := c.write(ctx, id, args...)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	item, err := decodeSingleWorkItem(data)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if item.Origin != origin {
+		return WorkItem{}, fmt.Errorf("work item %s origin is %+v after being recorded, want %+v", item.ID, item.Origin, origin)
+	}
+	return item, nil
+}
+
 func formatCost(total float64) string {
 	return strconv.FormatFloat(total, 'f', costPrecision, 64)
 }
@@ -1801,6 +1920,7 @@ func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
 	item.Executor = executorIn(raw.Metadata)
 	item.Parking = parkingIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
+	item.Origin = originIn(raw.Metadata)
 	return item, nil
 }
 
@@ -2021,6 +2141,11 @@ func (n NewWorkItem) validate() error {
 	problems = append(problems, executorProblem(n.Executor)...)
 	problems = append(problems, parkingProblem(n.Parking)...)
 	problems = append(problems, labelProblems(n.Labels)...)
+	if n.Origin.Known() {
+		if err := n.Origin.Trimmed().Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if err := goal.ValidateRelevant(n.RelevantGoals); err != nil {
 		problems = append(problems, err)
 	}

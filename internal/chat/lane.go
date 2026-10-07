@@ -195,6 +195,7 @@ func (s *Session) proposeLaneCreation(ctx context.Context, outcome *TrackerOutco
 		Proposal:       proposal,
 		Asking:         s.proposalGate(proposal, resemblanceAt(s.resemblingProposals(ctx, []Proposal{proposal}), 0)),
 		Lane:           s.lane(),
+		Asker:          s.admissionAsker(),
 	}
 	if err := s.emit(execution.EventProposalRecorded, pending); err != nil {
 		outcome.fail(fmt.Errorf("record the proposal: %w", err))

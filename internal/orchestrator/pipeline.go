@@ -6361,6 +6361,7 @@ func (a *activeRun) fileRedLanding(ctx context.Context, landed *runstate.Landing
 		Type:        "bug",
 		Notes:       notes,
 		Priority:    &priority,
+		Origin:      domain.WorkItemOrigin{Asker: domain.AskerHarness},
 	})
 	if err != nil {
 		landed.FilingProblem = err.Error()

@@ -38,8 +38,10 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/console"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 )
 
@@ -73,7 +75,24 @@ type goalsOutput struct {
 	// a migration read from its successes alone reads as complete.
 	Reattributed []itemReattribution `json:"reattributed,omitempty"`
 	Unmatched    []itemReattribution `json:"unmatched,omitempty"`
-	Error        string              `json:"error,omitempty"`
+	// Origins are the items the backfill set an origin on, or would have with
+	// --dry-run, from what their own notes state.
+	Origins []itemOrigin `json:"origins,omitempty"`
+	Error   string       `json:"error,omitempty"`
+}
+
+// itemOrigin is one item the origin backfill wrote, and what it wrote. Failure
+// is carried per item for the reason the witness sweep carries it.
+type itemOrigin struct {
+	WorkItemID  string `json:"work_item_id"`
+	Asker       string `json:"asker"`
+	AskedBy     string `json:"asked_by"`
+	OnBehalfOf  string `json:"on_behalf_of"`
+	AdmittedBy  string `json:"admitted_by"`
+	Report      string `json:"report,omitempty"`
+	Directive   string `json:"directive,omitempty"`
+	Description string `json:"description"`
+	Failure     string `json:"failure,omitempty"`
 }
 
 // itemAttribution is one admitted work item, the goal it serves, and the
@@ -126,6 +145,8 @@ func runGoals(ctx context.Context, args []string, stdin io.Reader, stdout, stder
 		return witnessRecordedGoals(ctx, args[1:], stdout, stderr)
 	case "reattribute":
 		return reattributeByIdentity(ctx, args[1:], stdout, stderr)
+	case "origins":
+		return backfillOrigins(ctx, args[1:], stdout, stderr)
 	case "guard":
 		// The tool call being decided arrives on stdin, which is why this is the
 		// one goals command bound to the process's own input.
@@ -388,6 +409,109 @@ func recordGoalWitnesses(ctx context.Context, tracker beads.Client, admitted []b
 		witnessed = append(witnessed, recorded)
 	}
 	return witnessed, failures
+}
+
+// backfillOrigins sets, on every work item that records no origin, the origin
+// its own notes already state: the role that admitted it and the report or
+// directive it was admitted from, in the words an admission writes them in. It
+// is the one-time backfill for work admitted before admissions recorded where
+// they came from as fields; work admitted since records its origin in the same
+// write as the admission.
+//
+// It guesses nothing, and that leaves most old items alone. An item whose notes
+// cite neither a report nor a directive is skipped, because notes never said
+// whether the operator or a sweep asked for the work, and an item whose notes do
+// not name exactly one admitting role, report, and directive is skipped too.
+// What is skipped reads as origin unknown, which is the truth about it.
+//
+// It walks every status, for the reason the witness sweep does, and one item's
+// failure does not end it.
+func backfillOrigins(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := newGoalsFlags("goals origins", stderr)
+	dryRun := flags.set.Bool("dry-run", false, "report the origins that would be set and write nothing")
+	if code, ok := flags.parse(args); !ok {
+		return code
+	}
+	parts, err := buildComponents(*flags.configPath)
+	if err != nil {
+		return reportGoalsError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	tracker := parts.tracker()
+	swept, err := workItemsWithStatus(ctx, tracker, trackerStatuses)
+	if err != nil {
+		return reportGoalsError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	set, failures := recordOrigins(ctx, tracker, swept, *dryRun)
+	if *flags.jsonOutput {
+		if code := writeJSON(stdout, stderr, goalsOutput{Origins: set}); code != 0 {
+			return code
+		}
+	} else {
+		printOrigins(stdout, len(swept), set, *dryRun)
+	}
+	if failures > 0 {
+		return 1
+	}
+	return 0
+}
+
+// originRecorder is the one tracker write the backfill makes.
+type originRecorder interface {
+	RecordOrigin(ctx context.Context, id string, origin domain.WorkItemOrigin) (beads.WorkItem, error)
+}
+
+// recordOrigins is the backfill itself: for every item that records no origin
+// and whose notes state one exactly, it writes that origin, and it reports what
+// it wrote and how many writes the tracker refused.
+func recordOrigins(ctx context.Context, tracker originRecorder, admitted []beads.WorkItem, dryRun bool) ([]itemOrigin, int) {
+	var set []itemOrigin
+	failures := 0
+	for _, item := range admitted {
+		if item.Origin.Known() {
+			continue
+		}
+		origin, stated := chat.OriginFromNotes(item.Notes)
+		if !stated {
+			continue
+		}
+		entry := itemOrigin{
+			WorkItemID:  item.ID,
+			Asker:       string(origin.Asker),
+			AskedBy:     origin.AskedBy(),
+			OnBehalfOf:  origin.OnBehalfOf(),
+			AdmittedBy:  string(origin.AdmittedBy),
+			Report:      origin.Report,
+			Directive:   origin.Directive,
+			Description: origin.Describe(),
+		}
+		if !dryRun {
+			writeCtx, cancel := context.WithTimeout(ctx, goalsTrackerTimeout)
+			_, err := tracker.RecordOrigin(writeCtx, item.ID, origin)
+			cancel()
+			if err != nil {
+				entry.Failure = err.Error()
+				failures++
+			}
+		}
+		set = append(set, entry)
+	}
+	return set, failures
+}
+
+func printOrigins(stdout io.Writer, swept int, set []itemOrigin, dryRun bool) {
+	verb := "given an origin"
+	if dryRun {
+		verb = "would be given an origin (nothing was written)"
+	}
+	fmt.Fprintf(stdout, "%d work item(s): %d %s from their own notes; the rest already record one or state none exactly, and read as they did\n",
+		swept, len(set), verb)
+	for _, entry := range set {
+		if entry.Failure != "" {
+			fmt.Fprintf(stdout, "  %s could not be given an origin: %s\n", entry.WorkItemID, entry.Failure)
+			continue
+		}
+		fmt.Fprintf(stdout, "  %s: %s\n", entry.WorkItemID, entry.Description)
+	}
 }
 
 // reattributeByIdentity moves every attribution that matches on a goal's
@@ -1039,7 +1163,7 @@ func reportGoalsError(stdout, stderr io.Writer, jsonOutput bool, err error) int 
 }
 
 func printGoalsUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo goals <list|attribution|witness|reattribute|guard> [options]
+	fmt.Fprintln(writer, `Usage: yoyo goals <list|attribution|witness|reattribute|origins|guard> [options]
 
 The goals the repository records, read from the goals artifacts themselves: each
 entry under a goals document's `+"`Goals`"+` heading is a goal that work can be
@@ -1059,10 +1183,11 @@ that, which is what the roles are asked for and what the harness records.
 No command here decides what a piece of work is for. That is the
 Lead Product Manager's judgement, made in the conversation where the operator
 can see it, and what the harness owns is resolving what an item names and saying
-what it found. Two commands do write, and neither writes a judgement: "witness"
-copies the goal an item's notes already state into the tracker's metadata, and
+what it found. Three commands do write, and none writes a judgement: "witness"
+copies the goal an item's notes already state into the tracker's metadata,
 "reattribute" appends the goal an item already named, named by that goal's
-identity.
+identity, and "origins" copies where an item's notes say it came from into the
+tracker's metadata.
 
   list          the goals work may be attributed to, their identities, and where
                 each is stated
@@ -1071,6 +1196,8 @@ identity.
                 work item's notes already state
   reattribute   move an attribution that matches on a goal's wording onto that
                 goal's identity
+  origins       record, as fields, who asked for each work item admitted before
+                admissions recorded it, where the item's own notes say exactly
   guard         refuse a shell command that would replace an item's notes and
                 destroy the goal recorded in them, or set an item's status
                 with no note saying what moved it
@@ -1105,7 +1232,7 @@ states is counted and named on closed work and does not fail: it named what the
 goals stated at the time, and a goal reworded after it closed is what "yoyo
 stale" reports rather than a claim anybody can now correct.
 
-"witness" is the one command here that writes, and it writes no attribution: the
+"witness" writes, and it writes no attribution: the
 goal it stores is the one the item's own notes state, copied into the tracker's
 metadata so that replacing those notes is a loss "attribution" can report rather
 than one it cannot see. An attribution made before this existed carries no
@@ -1125,6 +1252,17 @@ recorded goal resolves to nothing, or whose goal carries no identity yet, is
 reported and left exactly as it was rather than guessed at, and it exits non-zero
 while any item is left behind. "--dry-run" reports the same thing and writes
 nothing.
+
+"origins" is the one-time backfill of where work came from. Every admission
+now records who asked for the work and on whose behalf as fields on the item,
+in the same write as the admission; an item admitted before that reads as
+origin unknown. This sets those fields on an older item from what its own notes
+already state -- the role that admitted it, and the report or directive it was
+admitted from -- and from nothing else. Notes never said whether the operator
+or a sweep asked, so an item citing neither a report nor a directive is left
+unknown rather than guessed at, as is one whose notes name more than one of
+anything. An item that already records an origin is never rewritten.
+"--dry-run" reports what would be set and writes nothing.
 
 "guard" is the same loss stopped before it happens. It reads a `+"`PreToolUse`"+` tool
 call on stdin, as an agent session's hook gives it, and refuses every recognized

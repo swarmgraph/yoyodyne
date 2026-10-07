@@ -520,6 +520,23 @@ with `update`, rather than the harness inferring it. Absence does not stop older
 work running. The developer and reviewer receive the list labelled as goals the
 change must not break, alongside the served goal and the standing goals.
 
+Every admission also records where the work came from, as fields on the item in
+the same write as the admission, for a `create` and for a proposal that is
+admitted or approved alike. Who asked is the report an admission cites, where it
+cites one, with the role that filed it; otherwise the directive it answers, which
+is the operator asking in their own words; otherwise the session itself — the
+operator, in a conversation they are speaking in, or the role's own pass, in a
+recurring sweep. On whose behalf is the operator wherever a directive is named,
+and whoever asked otherwise. A proposal records who asked when it is made, so an
+operator approving a sweep's proposal later does not become its asker. A
+decomposition records none: the item it was carved from carries where the work
+came from. An item read says the origin on an `origin:` line, and says an item
+admitted before origins were recorded is unknown; a survey names who asked beside
+each item that records it. The harness's own filings, such as the item a red
+landing files, record the harness. None of this changes what is admitted or
+refused. `yoyo goals origins` sets the fields on older items whose notes already
+name the report or directive they were admitted from, and guesses at nothing else.
+
 Work admitted before that check existed names no goal, and it is grandfathered
 rather than blocked or backfilled by the harness itself: nothing refuses to run
 it, and it is reported as unattributed wherever the queue is read, because a
