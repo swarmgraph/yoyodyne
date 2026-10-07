@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -168,7 +169,7 @@ func normalizeRemote(value string) string {
 
 // sameDirectory compares two directories as the directory they are where both
 // exist, so one reached through a symlink is the one it links to.
-func sameDirectory(left, right string) bool {
+func SameDirectory(left, right string) bool {
 	if filepath.Clean(left) == filepath.Clean(right) {
 		return true
 	}
@@ -181,6 +182,7 @@ func sameDirectory(left, right string) bool {
 const (
 	BindCommand   = "yoyo project bind"
 	RenameCommand = "yoyo project rename"
+	ListCommand   = "yoyo project list"
 )
 
 // BindingProblem is which of the three refusals a start met.
@@ -268,6 +270,10 @@ type AgreeOptions struct {
 	// process.
 	Now     func() time.Time
 	BoundBy string
+	// EvenInEarlierLayout writes a missing binding in a home still laid out the
+	// earlier way too. `yoyo init --external` asks for it, because the
+	// configuration it writes is found by the binding and by nothing else.
+	EvenInEarlierLayout bool
 }
 
 // Agree holds a start to its project's binding: where the project has no
@@ -277,7 +283,8 @@ type AgreeOptions struct {
 // In a home still laid out the earlier way, a project with no binding is left
 // without one: the earlier home's state predates bindings, and the migration is
 // what writes each one, from the checkout the state names. A binding already
-// there is held to in either layout.
+// there — one `yoyo project bind` or `yoyo init --external` wrote — is held to
+// in either layout.
 //
 // A checkout that is not a Git repository has nothing to bind by and is let
 // through, as the state-root marker lets it through.
@@ -292,10 +299,10 @@ func Agree(options AgreeOptions) (Agreement, error) {
 		return Agreement{}, err
 	}
 	if !found {
-		if EarlierLayout(options.Root) {
+		if EarlierLayout(options.Root) && !options.EvenInEarlierLayout {
 			return Agreement{}, nil
 		}
-		written, created, err := writeBinding(options, common)
+		written, created, err := writeBinding(options, common, false)
 		if err != nil {
 			return Agreement{}, err
 		}
@@ -309,7 +316,7 @@ func Agree(options AgreeOptions) (Agreement, error) {
 			return Agreement{}, fmt.Errorf("the binding %s could not be read back after it was written", target)
 		}
 	}
-	if sameDirectory(binding.GitCommonDirectory, common) {
+	if SameDirectory(binding.GitCommonDirectory, common) {
 		return Agreement{Binding: binding, Path: target}, nil
 	}
 	refusal := &BindingError{ProductID: options.ProductID, Binding: binding, BindingPath: target, Repository: RepositoryOf(common)}
@@ -326,17 +333,34 @@ func Agree(options AgreeOptions) (Agreement, error) {
 	return Agreement{}, refusal
 }
 
-// writeBinding creates the project's binding, and with it the project
-// directory. It is created rather than replaced, so of two first starts at once
-// exactly one binds and the other reads its binding back.
-func writeBinding(options AgreeOptions, common string) (Binding, bool, error) {
+// Bind writes the binding of a project to the checkout, replacing whatever it
+// named before. It is `yoyo project bind`'s write; what refuses a bind — a
+// recorded repository still present without --replace, a run in flight — is
+// decided by the caller, which can read the runs.
+func Bind(options AgreeOptions) (Binding, error) {
+	common, err := CommonGitDirectory(options.Checkout)
+	if err != nil {
+		return Binding{}, err
+	}
+	if common == "" {
+		return Binding{}, fmt.Errorf("%s is not a Git checkout, so there is no repository to bind %s to", options.Checkout, options.ProductID)
+	}
+	written, _, err := writeBinding(options, common, true)
+	return written, err
+}
+
+// writeBinding writes the project's binding, and with it the project
+// directory. A first start creates it rather than replacing it, so of two first
+// starts at once exactly one binds and the other reads its binding back; a bind
+// replaces it.
+func writeBinding(options AgreeOptions, common string, replace bool) (Binding, bool, error) {
 	now := time.Now
 	if options.Now != nil {
 		now = options.Now
 	}
 	boundBy := options.BoundBy
 	if boundBy == "" {
-		boundBy = processAccount()
+		boundBy = ProcessAccount()
 	}
 	binding := Binding{
 		GitCommonDirectory: common,
@@ -358,6 +382,12 @@ func writeBinding(options AgreeOptions, common string) (Binding, bool, error) {
 		return Binding{}, false, fmt.Errorf("open the home %s: %w", options.Root, err)
 	}
 	relative := path.Join(ProjectsDirectoryName, options.ProductID, BindingFileName)
+	if replace {
+		if _, err := root.WriteFile(relative, content); err != nil {
+			return Binding{}, false, fmt.Errorf("record the binding of %s: %w", options.ProductID, err)
+		}
+		return binding, true, nil
+	}
 	_, created, err := root.CreateFile(relative, content)
 	if err != nil {
 		return Binding{}, false, fmt.Errorf("record the binding of %s: %w", options.ProductID, err)
@@ -365,9 +395,9 @@ func writeBinding(options AgreeOptions, common string) (Binding, bool, error) {
 	return binding, created, nil
 }
 
-// processAccount says which process is writing, and for whom where that can be
+// ProcessAccount says which process is writing, and for whom where that can be
 // read: its process id, its command line, and the user running it.
-func processAccount() string {
+func ProcessAccount() string {
 	command := "an unnamed command"
 	if len(os.Args) > 0 {
 		arguments := append([]string{filepath.Base(os.Args[0])}, os.Args[1:]...)
@@ -378,4 +408,102 @@ func processAccount() string {
 		account += ", as " + user
 	}
 	return account
+}
+
+// Project is one project directory under a home, as `yoyo project list` names
+// it.
+type Project struct {
+	ID        string
+	Directory string
+	Binding   Binding
+	Bound     bool
+	// BindingProblem is a binding that could not be read.
+	BindingProblem string
+	// Configuration is the configuration kept in the project directory, where
+	// one is.
+	Configuration string
+	// Earlier is a product whose records are still in the earlier layout's
+	// `products/` directory and which has no binding yet.
+	Earlier bool
+}
+
+// Projects lists every project directory under a home, and in a home laid out
+// the earlier way every product the earlier layout keeps records for, sorted by
+// id.
+func Projects(root string) ([]Project, error) {
+	byID := map[string]*Project{}
+	add := func(id string) *Project {
+		if existing, ok := byID[id]; ok {
+			return existing
+		}
+		project := &Project{ID: id, Directory: ProjectDirectory(root, id)}
+		byID[id] = project
+		return project
+	}
+	entries, err := os.ReadDir(filepath.Join(root, ProjectsDirectoryName))
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("read the projects of %s: %w", root, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		project := add(entry.Name())
+		binding, found, err := ReadBinding(root, entry.Name())
+		switch {
+		case err != nil:
+			project.BindingProblem = err.Error()
+		case found:
+			project.Binding, project.Bound = binding, true
+		}
+		configuration := filepath.Join(project.Directory, ConfigFileName)
+		if info, err := os.Stat(configuration); err == nil && info.Mode().IsRegular() {
+			project.Configuration = configuration
+		}
+	}
+	if EarlierLayout(root) {
+		earlier, err := os.ReadDir(filepath.Join(root, earlierProductsDirectoryName))
+		if err != nil {
+			return nil, fmt.Errorf("read the products of %s: %w", root, err)
+		}
+		for _, entry := range earlier {
+			if !entry.IsDir() {
+				continue
+			}
+			if project := add(entry.Name()); !project.Bound {
+				project.Earlier = true
+			}
+		}
+	}
+	ids := make([]string, 0, len(byID))
+	for id := range byID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	projects := make([]Project, 0, len(ids))
+	for _, id := range ids {
+		projects = append(projects, *byID[id])
+	}
+	return projects, nil
+}
+
+// BoundProject is the project whose binding names the repository a checkout
+// belongs to, or nothing where none does. It is how a configuration kept in a
+// project directory is found from inside the repository it describes, and from
+// any worktree of it.
+func BoundProject(root, checkout string) (Project, bool, error) {
+	common, err := CommonGitDirectory(checkout)
+	if err != nil || common == "" {
+		return Project{}, false, err
+	}
+	projects, err := Projects(root)
+	if err != nil {
+		return Project{}, false, err
+	}
+	for _, project := range projects {
+		if project.Bound && SameDirectory(project.Binding.GitCommonDirectory, common) {
+			return project, true, nil
+		}
+	}
+	return Project{}, false, nil
 }

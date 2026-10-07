@@ -11,7 +11,7 @@ import (
 )
 
 // machine is a described machine: a home directory, the variables its shell
-// exports, and optionally a machine file in its configurations home.
+// exports, and optionally a machine file in its machine home.
 type machine struct {
 	home string
 	env  map[string]string
@@ -28,7 +28,7 @@ func (m *machine) homeDir() (string, error) { return m.home, nil }
 
 func (m *machine) writeMachineFile(t *testing.T, content string) string {
 	t.Helper()
-	path := filepath.Join(m.home, ".config", "yoyodyne", MachineFileName)
+	path := filepath.Join(m.home, ".yoyodyne", MachineFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -71,17 +71,26 @@ func TestTheStateRootResolvesInTheOrderTheDesignRules(t *testing.T) {
 	}
 }
 
-func TestTheMachineFileIsFoundInTheConfigurationsHomeItNames(t *testing.T) {
+// The machine file is read from the machine home and nowhere else: one left in
+// the configurations home earlier builds kept it in, wherever YOYODYNE_CONFIG_HOME
+// or XDG_CONFIG_HOME pointed that, moves nothing.
+func TestAMachineFileInTheEarlierConfigurationsHomeIsNotRead(t *testing.T) {
 	t.Parallel()
 
 	m := newMachine(t)
-	home := t.TempDir()
-	m.env["YOYODYNE_CONFIG_HOME"] = home
-	if err := os.WriteFile(filepath.Join(home, MachineFileName), []byte("state_root: /relocated\n"), 0o644); err != nil {
-		t.Fatal(err)
+	relocated := t.TempDir()
+	m.env["YOYODYNE_CONFIG_HOME"] = relocated
+	m.env["XDG_CONFIG_HOME"] = filepath.Join(m.home, "xdg")
+	for _, directory := range []string{relocated, filepath.Join(m.home, "xdg", "yoyodyne"), filepath.Join(m.home, ".config", "yoyodyne")} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, MachineFileName), []byte("state_root: /earlier\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if got := m.resolve(t); got.Path != "/relocated" {
-		t.Fatalf("ResolveRoot() = %+v, want the machine file under YOYODYNE_CONFIG_HOME", got)
+	if got := m.resolve(t); got.Path != filepath.Join(m.home, ".yoyodyne") || got.Origin != RootOriginDefault {
+		t.Fatalf("ResolveRoot() = %+v, want ~/.yoyodyne with the earlier machine files unread", got)
 	}
 }
 

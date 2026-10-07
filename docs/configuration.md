@@ -160,6 +160,32 @@ machine home, `~/.yoyodyne` by default, so nothing there depends on where the
 project is checked out. Where that directory is can be set for the machine and never in
 this file; see [`state_root`](#where-the-harness-keeps-its-state-state_root).
 
+The machine home holds one directory per project, named by its `product.id`,
+and at the top only what no single project owns:
+
+```text
+~/.yoyodyne/
+  machine.yaml           # this machine's settings: state_root, and nothing else
+  accounts/              # provider accounts, which serve every project
+  operator-hold.json     # the operator's pause, one for the whole machine
+  projects/<product id>/
+    repository.json      # the binding: which repository this id is
+    config.yaml          # the configuration, where the repository does not carry it
+    personas/            # its personas, beside it
+    state/               # runs, conversations, spend, the docket, memory, reports
+    worktrees/           # the developer worktrees of the bound repository
+```
+
+`config.yaml` and `personas/` are there only for a project whose configuration
+is [kept outside its repository](#keeping-the-configuration-outside-the-repository);
+a committed `.yoyodyne/` is read where it is. `repository.json` is the
+[binding](#a-product-id-names-one-repository-on-the-machine). A home the earlier
+builds laid out keeps each product's records under `products/<product id>/` and
+its worktrees under `worktrees/<product id>/` instead, and is read that way
+until it is moved; the harness never moves it on its own. Nothing of the
+harness's is kept anywhere else on the machine: the configurations home earlier
+builds kept at `~/.config/yoyodyne` is no longer read.
+
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under
 [Keeping the configuration outside the repository](#keeping-the-configuration-outside-the-repository):
@@ -433,9 +459,11 @@ Yoyodyne looks for a configuration in this order:
 3. otherwise `.yoyodyne/config.yaml`, searching from the current directory
    upwards to the filesystem root;
 4. otherwise `.yoyodyne.yaml` in the same directories;
-5. otherwise this machine's own configuration for the repository the current
-   directory is in, under
-   [the configurations home](#keeping-the-configuration-outside-the-repository).
+5. otherwise the configuration kept in the machine home's project directory
+   whose [binding](#a-product-id-names-one-repository-on-the-machine) names the
+   repository the current directory is in, as
+   [`yoyo init --external`](#keeping-the-configuration-outside-the-repository)
+   writes it.
 
 Because the search walks upwards, `yoyo run` works from the project root or
 from any directory beneath it. When both forms exist in one directory, the
@@ -493,9 +521,9 @@ itself to, and nothing downstream could tell it from one that was. A symlink tha
 stays inside the repository has not left it, and the read and the write both
 follow it. The same holds of the `.yoyodyne` directory `yoyo init` writes: a project
 whose `.yoyodyne` leads out of the project is refused with the project untouched
-rather than scaffolded somewhere nothing commits. And of the configurations home
-below, which is a declared root like any other: a write that resolves out of it
-is refused rather than landing where nothing looks for it.
+rather than scaffolded somewhere nothing commits. And of the machine home below,
+which is a declared root like any other: a write that resolves out of it is
+refused rather than landing where nothing looks for it.
 
 ## Keeping the configuration outside the repository
 
@@ -545,25 +573,27 @@ yoyo init --external
 yoyo doctor
 ```
 
-It writes into `~/.config/yoyodyne/projects/<key>/`, where `<key>` names the
-checkout — its directory name, then a digest of where it is — and everything
-`init` ordinarily writes into `.yoyodyne/` goes there instead, personas
-included. `$XDG_CONFIG_HOME/yoyodyne` is used when that variable is set, and
-`YOYODYNE_CONFIG_HOME` overrides both.
+It writes into the machine home's project directory,
+`~/.yoyodyne/projects/<product id>/`, binds that directory to the repository
+first, and puts everything `init` ordinarily writes into `.yoyodyne/` there
+instead, personas included. A product id already bound to another repository
+refuses before anything is written.
 
 Four things are worth knowing about it:
 
-- **Nothing is passed on later commands.** The configuration is keyed by the
-  repository, so `yoyo` finds it from the repository root, from any directory
+- **Nothing is passed on later commands.** The configuration is found by the
+  binding, which names the repository by its Git common directory, so `yoyo`
+  finds it from the repository root, from any directory
   beneath it, and from a worktree Git added from it — a run's worktree, and a
   check or a hook that shells out to `yoyo` from inside one, resolve to the
   repository they came from rather than being read as projects of their own.
   That is what separates this from moving `.yoyodyne` somewhere by hand and
   passing `--config` on everything thereafter.
-- **The key is the checkout, not the project.** Two checkouts of one project on
-  one machine are two configurations, because they are two things to configure.
-  Moving a checkout leaves its configuration behind under the old key; run
-  `init --external` again, or move the directory to the key the refusal names.
+- **The binding is to one clone.** A second clone of the project on the same
+  machine is refused rather than given a second configuration. Moving the
+  checkout leaves the binding naming where it was; run
+  `yoyo project bind --product <product id>` from where it now is, which is
+  how the configuration is found again.
 - **`product.repository` is written absolute.** An external configuration has no
   project directory above it for a relative path to resolve against. The
   artifact directories are unaffected: `specifications`, `invariants`,
@@ -588,14 +618,16 @@ repository, the **state root**. Where it is can be set for the machine, in a
 file that describes the machine rather than any project:
 
 ```yaml
-# ~/.config/yoyodyne/machine.yaml
+# ~/.yoyodyne/machine.yaml
 state_root: /Volumes/work/yoyodyne-state
 ```
 
-`machine.yaml` sits in the configurations home, beside the
-[external configurations](#keeping-the-configuration-outside-the-repository):
-`~/.config/yoyodyne`, or `$XDG_CONFIG_HOME/yoyodyne` when that variable is set,
-or `YOYODYNE_CONFIG_HOME` over both. `state_root` is its only key; it must be
+`machine.yaml` is always at `~/.yoyodyne/machine.yaml`, wherever `state_root`
+moves the rest of the home, because it is the file that says where that is. A
+`~/.yoyodyne` holding nothing but it does not count as a home in use, so
+writing one on a machine still running from the earlier builds' home moves
+nothing by itself. A `machine.yaml` left in `~/.config/yoyodyne`, where earlier
+builds read it, is not read. `state_root` is its only key; it must be
 an absolute path, and a key it does not have is refused rather than ignored. A
 missing file, an empty one, and an empty `state_root` all leave the root where
 the layers below put it.
@@ -606,7 +638,8 @@ the layers below put it.
 2. `state_root` in `machine.yaml`;
 3. `$XDG_STATE_HOME/yoyodyne`;
 4. the machine home, `~/.yoyodyne`, on every platform — except that while
-   `~/.yoyodyne` does not exist and the earlier builds' default home does
+   `~/.yoyodyne` does not exist, or holds only `machine.yaml`, and the earlier
+   builds' default home does
    (`~/Library/Application Support/Yoyodyne/state` on macOS,
    `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and `~/.local/state/yoyodyne`
    elsewhere), the earlier home is kept, because that is where the state is.
@@ -651,17 +684,6 @@ root rather than under a product, so on a shared root one `yoyo pause` stops
 both. A product moved to a root of its own is also out of reach of the pause
 placed at the other one.
 
-**A product id names one repository on the machine.** The first start against
-an id creates `projects/<product id>/` and records in its `repository.json`
-which repository the id is, by the repository's Git common directory, so every
-worktree of that clone is the same project; the start says so. After that a
-start from a second clone of the same project, from another product using the
-same id, or against a bound repository that is no longer at its path refuses,
-naming both paths and the one command that settles it: `yoyo project bind` or
-`yoyo project rename`. A root still laid out the earlier way writes no binding
-of its own. The [machine home design](designs/machine-home.md) is the whole of
-it.
-
 `yoyo config show` prints the resolved root and the layer it came from on its
 `# state root:` line, `--origins` lists it as `state_root` with the same origin,
 and `--json` carries both under `state_root`. The origin is
@@ -670,6 +692,50 @@ and `--json` carries both under `state_root`. The origin is
 for the earlier builds' home. [`yoyo
 doctor`](operations.md#checking-the-installation) reports the same two, and
 whether the checkout's marker agrees. Neither of them records a marker.
+
+### A product id names one repository on the machine
+
+The first start against an id creates `projects/<product id>/` and records in
+its `repository.json` which repository the id is, by the repository's Git common
+directory, so every worktree of that clone is the same project; the start says
+so. After that a start from a second clone of the same project, from another
+product using the same id, or against a bound repository that is no longer at
+its path refuses, naming both paths and the one command that settles it. A root
+still laid out the earlier way writes no binding at a start; `yoyo project bind`
+and `yoyo init --external` write one there too, and a binding once written is
+held to in either layout. The [machine home design](designs/machine-home.md) is
+the whole of it.
+
+```sh
+yoyo project list                          # every project, its binding, and whether the repository is there
+yoyo project bind                          # bind this repository to the project for its id
+yoyo project bind --replace                # ... taking it off another clone that is still there
+yoyo project bind --product <id>           # ... where the configuration cannot be found until it is bound
+yoyo project rename <old> <new>            # move a project directory, and everything in it, to a new id
+```
+
+- **`bind`** binds the repository it is run from. Where the id is already bound
+  to a repository still at its path it refuses unless `--replace` is given, and
+  says what it unbound; where the bound repository is gone it binds without
+  being asked twice, which is the remedy for a moved or re-cloned repository.
+  It refuses while any run of the project is in flight.
+- **`rename`** moves `projects/<old>/` to `projects/<new>/`. A configuration kept
+  in the project directory has its `product.id` rewritten; a committed one must
+  already read `<new>`, so the id in the repository and the directory never
+  disagree, and the rename names the file to change where it does not. It
+  refuses while a run is in flight, while the project still holds worktrees
+  (the repository has them registered at their paths), where the new id is
+  taken, and in a home still laid out the earlier way.
+- **`list`** names the home and where it came from — `--home` prints its path
+  and nothing else, for a script — then each project
+  directory, what it is bound to, whether that repository is there, and where
+  it keeps a configuration. In a home laid out the earlier way it names each
+  product under `products/` that has no binding yet.
+
+`bind` and `rename` each append a line to `project-acts.jsonl` in the project's
+state, naming the act, what it moved from and to, and the process and person
+that ran it, because a re-binding is the one thing that can point a project's
+history at another tree. All three take `--json`.
 
 ## Precedence
 

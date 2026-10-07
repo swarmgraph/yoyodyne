@@ -540,7 +540,7 @@ var Unread = []string{
 	"check-stage", "check-to-use", "checked-in", "checked-shape", "claim-audit",
 	"clean-tree", "cli-help", "closed-list", "closed-reason", "closed-status",
 	"code-implementation", "coding-agent", "configuration-file", "configuration-guide",
-	"configuration-home", "configured-check", "conflict-avoidance", "conflict-handling",
+	"configured-check", "conflict-avoidance", "conflict-handling",
 	"content-security", "context-reconstruction", "context-size", "contributor-mode",
 	"control-plane", "conversation-held", "conversation-holding", "cumulative-report",
 	"cut-replies", "decide-and-report", "decided-change", "deciders-stop", "default-deny",

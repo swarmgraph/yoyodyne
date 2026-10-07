@@ -172,7 +172,7 @@ func TestRoleActivationRefusesAnAgentBeforeLoadingAnything(t *testing.T) {
 
 func TestRoleActivationCommandsAgreeWithConfiguredRepositoryStateRoot(t *testing.T) {
 	t.Setenv(execution.AgentRoleVariable, "")
-	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 	first := t.TempDir()
 	t.Setenv(runstate.StateHomeVariable, first)
 	project, configPath := stateRootProject(t)

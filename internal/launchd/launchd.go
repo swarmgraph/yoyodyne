@@ -146,9 +146,9 @@ func escape(value string) string {
 }
 
 // Environment picks out of a process environment what the job is given: the
-// PATH, and the state and configuration home overrides where the operator set
-// one, so the job reads the same state and the same machine configuration the
-// operator's own commands do. Nothing else is carried, a Slack token least of
+// PATH, the state home overrides where the operator set one, so the job reads
+// the same state the operator's own commands do, and XDG_CONFIG_HOME, which the
+// tools the job runs read their own settings by. Nothing else is carried, a Slack token least of
 // all.
 func Environment(environ []string) map[string]string {
 	carried := map[string]string{}
@@ -158,7 +158,7 @@ func Environment(environ []string) map[string]string {
 			continue
 		}
 		switch name {
-		case "PATH", "YOYODYNE_STATE_HOME", "XDG_STATE_HOME", "YOYODYNE_CONFIG_HOME", "XDG_CONFIG_HOME":
+		case "PATH", "YOYODYNE_STATE_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME":
 			carried[name] = value
 		}
 	}

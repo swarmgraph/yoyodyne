@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -60,7 +61,19 @@ func TestTheDefaultHomeIsDotYoyodyneOnEveryPlatform(t *testing.T) {
 			t.Fatalf("%s, only the earlier home: Default() = %q, %q; want the earlier home %q kept", goos, got, origin, earlier)
 		}
 
+		// The machine file is kept in ~/.yoyodyne whichever home is in use, so
+		// writing one does not move the state to an empty home.
 		if err := os.MkdirAll(filepath.Join(user, ".yoyodyne"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(user, ".yoyodyne", MachineFileName), nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if got, origin, _ := Default(noEnv, userHome, goos); got != earlier || origin != OriginEarlierDefault {
+			t.Fatalf("%s, the machine file alone in ~/.yoyodyne: Default() = %q, %q; want the earlier home kept", goos, got, origin)
+		}
+
+		if err := os.MkdirAll(filepath.Join(user, ".yoyodyne", ProjectsDirectoryName), 0o700); err != nil {
 			t.Fatal(err)
 		}
 		if got, origin, _ := Default(noEnv, userHome, goos); got != filepath.Join(user, ".yoyodyne") || origin != OriginDefault {
@@ -205,7 +218,7 @@ func TestTheEarlierLayoutWritesNoBindingOfItsOwn(t *testing.T) {
 	}
 
 	common, _ := CommonGitDirectory(repository)
-	if _, _, err := writeBinding(AgreeOptions{Root: root, ProductID: "thing", Checkout: repository}, common); err != nil {
+	if _, _, err := writeBinding(AgreeOptions{Root: root, ProductID: "thing", Checkout: repository}, common, false); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Agree(AgreeOptions{Root: root, ProductID: "thing", Checkout: clone(t, "")}); err == nil {
@@ -236,5 +249,68 @@ func TestRemotesAreComparedAsThePlaceTheyName(t *testing.T) {
 	}
 	if sameRemote("", "") || sameRemote("git@github.com:a/b.git", "git@github.com:a/c.git") {
 		t.Error("sameRemote matched remotes that name nothing, or two places")
+	}
+}
+
+// A home's layout is decided by whether a products/ directory is at its top
+// (EarlierLayout), so a writer anywhere that joined that name itself would switch
+// a new home to the earlier layout under every store reading it. The name is
+// joined here and nowhere else in the product's source, and the command suite's
+// TestMain checks the new home it runs every command against never acquires one.
+func TestOnlyThisPackageNamesTheEarlierProductsDirectory(t *testing.T) {
+	t.Parallel()
+
+	literal := regexp.MustCompile(`"products(/[^"]*)?"`)
+	repository := filepath.Join("..", "..")
+	err := filepath.WalkDir(repository, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if name := entry.Name(); name == ".git" || name == "node_modules" || name == "testdata" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		relative, err := filepath.Rel(repository, path)
+		if err != nil {
+			return err
+		}
+		if filepath.ToSlash(relative) == "internal/home/home.go" {
+			return nil
+		}
+		source, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if literal.Match(source) {
+			t.Errorf("%s names the products directory; resolve a product's records through home.ProductDirectory", filepath.ToSlash(relative))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A project directory a new home is given holds the binding, the state, and the
+// worktrees under projects/<id>/, and the home never gains products/.
+func TestANewHomeKeepsEveryProductUnderProjects(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if _, err := Agree(AgreeOptions{Root: root, ProductID: "thing", Checkout: clone(t, "")}); err != nil {
+		t.Fatal(err)
+	}
+	for _, directory := range []string{ProductDirectory(root, "thing"), WorktreeDirectory(root, "thing", "repo")} {
+		if !strings.HasPrefix(directory, filepath.Join(root, ProjectsDirectoryName, "thing")+string(filepath.Separator)) {
+			t.Errorf("%s is not under the project directory", directory)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "products")); !os.IsNotExist(err) || EarlierLayout(root) {
+		t.Fatalf("a new home acquired a products directory (%v)", err)
 	}
 }
