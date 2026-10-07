@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -171,6 +172,16 @@ func decideAmendment(verb string, verdict amendment.Verdict, args []string, stdo
 	if err := store.Decide(decision); err != nil {
 		return reportAmendmentError(stdout, stderr, *flags.jsonOutput, err)
 	}
+	step := handStep{
+		kind:    intervention.KindApprove,
+		subject: found.ID + " on " + found.Artifact,
+		said:    "approved the proposed change " + found.ID + " to " + found.Artifact + " with yoyo amendment approve",
+	}
+	if verdict != amendment.VerdictApproved {
+		step.kind = intervention.KindDecline
+		step.said = "declined the proposed change " + found.ID + " to " + found.Artifact + " with yoyo amendment decline"
+	}
+	noteHandStepFor(*flags.configPath, stderr, step)
 	if *flags.jsonOutput {
 		return writeJSON(stdout, stderr, amendmentOutput{
 			Proposals: []amendment.Proposal{found},

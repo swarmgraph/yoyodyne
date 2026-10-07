@@ -1002,6 +1002,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// is decided in the chat package's table, and the only thing that acts on
 		// a request is the supervisor's maintenance pass.
 		RestartRequests: parts.restartRequests,
+		// Where the operator's hand steps are recorded: the ones he takes through
+		// this conversation's commands and answers, and, for a role holding
+		// report.file, the ones it noticed him take outside the harness.
+		Interventions: parts.interventions,
 		// How a document this role owns reaches the repository: the role writes it,
 		// the harness confirms it under policy, and performs the write through the
 		// same ownership boundary every other mutation of these documents goes

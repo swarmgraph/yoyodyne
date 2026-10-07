@@ -35,6 +35,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -338,6 +339,8 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		if errors.Is(err, artifact.ErrUnauthorized) {
 			record.decided = true
 			s.notice("the operator approved document %s, and the harness refused it: %v", record.pending.ID, err)
+			s.noteHandStep(intervention.KindApprove, nil, "", strings.TrimSpace(write.ID),
+				fmt.Sprintf("approved document %s, which the harness then refused to write", record.pending.ID))
 			return outcome, fmt.Errorf("write document %s: %w", strings.TrimSpace(write.ID), err)
 		}
 		// Anything else is the store failing rather than answering, so nothing was
@@ -348,6 +351,8 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		return outcome, fmt.Errorf("write document %s: %w", strings.TrimSpace(write.ID), err)
 	}
 	record.decided = true
+	s.noteHandStep(intervention.KindApprove, nil, "", written.ID,
+		fmt.Sprintf("approved document %s, which wrote %s", record.pending.ID, written.ID))
 	outcome.Path = written.Path
 	outcome.PendingCommit = artifact.PendingCommit(s.options.Documents.Checkout(), written.Path)
 	s.notice("the operator approved document %s, and the harness wrote %s to %s under the %s's authority",
@@ -406,6 +411,8 @@ func (s *Session) DeclineWrite(writeID, reason string) error {
 	record.decided = true
 	s.notice("the operator declined document %s (%s), because: %s",
 		record.pending.ID, strings.TrimSpace(record.pending.Write.ID), trimmed)
+	s.noteHandStep(intervention.KindDecline, nil, "", strings.TrimSpace(record.pending.Write.ID),
+		fmt.Sprintf("declined document %s", record.pending.ID))
 	return nil
 }
 

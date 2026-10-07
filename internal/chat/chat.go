@@ -27,6 +27,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -392,6 +393,11 @@ type Options struct {
 	// conversation without one refuses a request as having nowhere to go rather
 	// than appearing to have recorded it.
 	RestartRequests RestartRequests
+	// Interventions is where the operator's hand steps are recorded: the ones he
+	// takes through this conversation's commands and answers, and the ones a
+	// role holding report.file noticed him take outside the harness. It is
+	// optional like the rest, and a conversation without one records none.
+	Interventions Interventions
 	// Documents is how a document this role owns reaches the repository: the role
 	// writes a typed action, it is confirmed under the approval policy or by the
 	// operator, and the harness performs the write under that role's authority. It is optional like the rest, and a
@@ -1022,8 +1028,11 @@ type Reply struct {
 	// Restart is the request this reply made of the supervisor, as recorded or
 	// refused. It is recorded and nothing more, so it is reported rather than put
 	// to anybody.
-	Restart  *RestartOutcome `json:"restart,omitempty"`
-	Evidence Evidence        `json:"evidence"`
+	Restart *RestartOutcome `json:"restart,omitempty"`
+	// Observed is the hand step this reply wrote down as taken outside the
+	// harness, as recorded or refused.
+	Observed *ObservedOutcome `json:"observed,omitempty"`
+	Evidence Evidence         `json:"evidence"`
 }
 
 // AdmittedWork is every work item this reply put in the queue, by identifier,
@@ -1693,6 +1702,17 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if undelivered != "" {
 				undelivered += renderRestartResult(outcome)
 			} else if err := s.carryResults(renderRestartResult(outcome)); err != nil {
+				return reply, err
+			}
+		}
+		// A hand step the role noticed, recorded and nothing more, carried back
+		// the way a restart request is.
+		if parsed.Observed != nil {
+			outcome := s.performObserved(*parsed.Observed)
+			reply.Observed = &outcome
+			if undelivered != "" {
+				undelivered += renderObservedResult(outcome)
+			} else if err := s.carryResults(renderObservedResult(outcome)); err != nil {
 				return reply, err
 			}
 		}
@@ -2447,6 +2467,9 @@ type parsedReply struct {
 	// Restart is the one part this reply asked the supervisor to restart, where
 	// it asked. Only a role holding service.request-restart may.
 	Restart *RestartAsk
+	// Observed is the one hand step this reply asked to have recorded as taken
+	// outside the harness, where it asked. Only a role holding report.file may.
+	Observed *ObservedAsk
 	// Writes are the documents this reply wrote as typed actions, each of which
 	// waits on the operator before anything reaches the repository. Most replies
 	// write none.
@@ -2515,6 +2538,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, &RestartError{Err: err}
 	}
+	prose, observed, err := extractIntervention(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, &InterventionError{Err: err}
+	}
 	prose, writes, err := artifact.ExtractWrites(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2530,6 +2558,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
+	parsed.Observed = observed
 	parsed.Writes = writes
 	return parsed, nil
 }
@@ -2722,6 +2751,11 @@ func (s *Session) Approve(ctx context.Context, proposalID string) (CreatedItem, 
 	// work is in the queue and incomplete.
 	if item.WorkItemID != "" {
 		s.notice("the operator approved proposal %s, and the harness created work item %s: %s", record.pending.ID, item.WorkItemID, item.Title)
+		// Counted once the approval has decided something. One the tracker would
+		// not carry out leaves the proposal waiting, and approving it again is the
+		// same step rather than a second one.
+		s.noteHandStep(intervention.KindApprove, []string{item.WorkItemID}, "", record.pending.ID,
+			fmt.Sprintf("approved proposal %s, which created %s", record.pending.ID, item.WorkItemID))
 	}
 	return item, err
 }
@@ -2794,6 +2828,8 @@ func (s *Session) Reject(proposalID, reason string) error {
 	}
 	record.decided = true
 	s.notice("the operator declined proposal %s (%s), because: %s", record.pending.ID, record.pending.Proposal.Title, trimmed)
+	s.noteHandStep(intervention.KindDecline, nil, "", record.pending.ID,
+		fmt.Sprintf("declined proposal %s (%s)", record.pending.ID, singleLine(record.pending.Proposal.Title, maxTrackerTitleBytes)))
 	return nil
 }
 
@@ -3206,6 +3242,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// and shown on the standing, and the operator should hear it from here
 		// first rather than find it there.
 		s.reportRestart(out, reply)
+		// What it wrote down about the operator's own hand, because the record is
+		// of him and he should hear it from here first.
+		s.reportObserved(out, reply)
 		// That the record holds only part of what was just said, because the
 		// operator read it whole and would otherwise take the record to hold it.
 		reportRecordCuts(out, reply)
@@ -3298,6 +3337,11 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		var unreadableRestart *RestartError
 		if errors.As(err, &unreadableRestart) {
 			fmt.Fprintf(out, "%v\nNothing was requested and nothing was restarted; ask it what it meant to request.\n\n", unreadableRestart)
+			continue
+		}
+		var unreadableObserved *InterventionError
+		if errors.As(err, &unreadableObserved) {
+			fmt.Fprintf(out, "%v\nNothing was recorded; ask it what step it meant to record.\n\n", unreadableObserved)
 			continue
 		}
 		// A document the harness would not record is not a broken conversation

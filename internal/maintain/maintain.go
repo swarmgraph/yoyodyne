@@ -72,6 +72,9 @@ const (
 	// maxOutputBytes bounds how much of a command's output one step's detail
 	// carries. The whole of it is in the supervisor's log.
 	maxOutputBytes = 1 << 10
+	// StartedByMaintenance is what a `yoyo` this pass starts is marked as
+	// started by.
+	StartedByMaintenance = "the supervisor's maintenance pass"
 )
 
 // Claims is where the pass records its cadence and its report: the sweep
@@ -328,6 +331,9 @@ func (p *Pass) provider() runstate.SweepStep {
 // publications, convergence, the stall reading — and a second copy of its
 // wiring here would be a second reconcile to keep in step with the first. It
 // runs off the supervisor's goroutine and touches nothing of the supervisor's.
+//
+// The process is marked as this pass's, so the verb does not record it as the
+// operator settling runs by hand (execution.StartedByVariable).
 func (p *Pass) reconcile(ctx context.Context) runstate.SweepStep {
 	step := runstate.SweepStep{Name: StepReconcile}
 	if p.Runner == nil {
@@ -338,7 +344,7 @@ func (p *Pass) reconcile(ctx context.Context) runstate.SweepStep {
 		Name:    p.Program,
 		Args:    []string{"reconcile", "--config", p.Config},
 		Dir:     p.Repository,
-		Env:     p.Environ,
+		Env:     execution.WithStartedBy(p.Environ, StartedByMaintenance),
 		Timeout: ReconcileTimeout,
 	}, nil)
 	switch {

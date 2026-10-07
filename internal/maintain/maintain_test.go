@@ -18,6 +18,7 @@ import (
 type recordingRunner struct {
 	mu       sync.Mutex
 	commands [][]string
+	environs [][]string
 	result   execution.ProcessResult
 }
 
@@ -25,6 +26,7 @@ func (r *recordingRunner) Run(_ context.Context, command execution.Command, _ ex
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.commands = append(r.commands, append([]string{command.Name}, command.Args...))
+	r.environs = append(r.environs, append([]string(nil), command.Env...))
 	return r.result, nil
 }
 
@@ -227,6 +229,17 @@ func TestAPassRecordsEveryStepAndWhySkippedOnesWereSkipped(t *testing.T) {
 		t.Errorf("ran %v, want %v", f.runner.ran(), want)
 	}
 	onlyReconcile(t, f.runner)
+	// The reconcile it starts is marked as the pass's, so the verb does not count
+	// it as the operator settling runs by hand.
+	f.runner.mu.Lock()
+	environs := f.runner.environs
+	f.runner.mu.Unlock()
+	if len(environs) != 1 {
+		t.Fatalf("recorded %d environments, want 1", len(environs))
+	}
+	if by, marked := execution.StartedBy(environs[0]); !marked || by != StartedByMaintenance {
+		t.Errorf("the reconcile was started marked %q (%v), want %q", by, marked, StartedByMaintenance)
+	}
 
 	logged, unreadable, err := f.sweeps.List()
 	if err != nil || len(unreadable) > 0 || len(logged) != 1 {

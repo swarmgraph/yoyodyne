@@ -327,7 +327,8 @@ Each pass takes six steps, in this order, and each is recorded:
   supervisor's own binary: it settles what interrupted runs left behind,
   converges the checkout and the worktrees, and takes the
   [stall reading](#when-nothing-happened-at-all). It runs beside the
-  supervisor's looks at the parts rather than holding them up.
+  supervisor's looks at the parts rather than holding them up, and is marked
+  as the pass's so it is not [counted as a hand step](#counting-your-hand-steps).
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.
@@ -1545,6 +1546,78 @@ record the new act at all, because the gate would already read as passed. For a
 workflow the reason is sharper still — every instance of one definition reaches
 the same gated state, so an act against the name would approve one run's step and
 every run made after it.
+
+## Counting your hand steps
+
+Every step you take by hand to keep the work moving is recorded as one event,
+so how many each merged change cost you can be counted. The harness records the
+ones it carries out for you as it does them:
+
+- running a work item by name — `yoyo run <id>`, or `/work <id>` in a
+  conversation;
+- starting a re-run, a repair, a resume, or a re-arm by hand with `yoyo triage`,
+  and crossing a cap with `yoyo triage override`;
+- stopping a run — `/stop`, `/stop-everything`, or `/redirect` on a running item;
+- settling or reconciling by hand — `yoyo reconcile` typed at a terminal;
+- approving or declining a proposal or a document in a conversation, and a
+  proposed change with `yoyo amendment approve` or `decline`;
+- recording a directive — `yoyo directive record`, or `/directive` in a
+  conversation.
+
+Each event says when, which kind of step it was, the work items and run it
+touched, anything else it touched (a directive, a proposal, a document), and
+where it came in: the command line, or the conversation it was typed into.
+Nothing is recorded for what the system does on its own account. A `yoyo` an
+agent's process runs carries `YOYODYNE_AGENT_ROLE` and records nothing, and the
+`yoyo reconcile` the [maintenance pass](#the-supervisors-maintenance-pass) runs
+every few minutes is marked with `YOYODYNE_STARTED_BY` so it is not counted as
+you settling runs.
+
+**A step you take outside the harness is counted only if somebody writes it
+down.** Restarting the scheduler, resetting the target branch, editing a
+tracker status by hand: none of those passes through anything that could
+record it. Record one afterwards with `yoyo intervention record`, saying who
+took it, and naming the item or run it was for wherever there was one, because
+that is what counts it against that change:
+
+```sh
+./bin/yoyo intervention record --kind restart --by mason --subject "the scheduler" \
+  --at 2026-10-05T09:30:00-07:00 "restarted the scheduler after it stopped pulling work"
+./bin/yoyo intervention record --kind reset --by mason --item yoyodyne-ifd.432 \
+  "reset main by hand to drop a commit that broke the build"
+```
+
+The kinds that only happen outside the harness are `restart`, `reset`,
+`tracker-edit`, and `other`; any kind the harness records can be written down
+too, such as a run stopped by killing its process. The event is marked as
+observed, with who took the step and who recorded it (`--recorded-by`, by
+default whoever took it). A process an agent's run started is refused, as the
+other verbs that record a person's act are. A program manager that notices a
+step can record it from its own conversation with a `yoyodyne-intervention`
+block, under its own name; no other role can.
+
+The events are kept in `interventions.jsonl` in the product's state directory
+(`projects/<product>/state/` under the state root). The file is only ever
+appended to, so a step once recorded is never rewritten, and it is read afresh
+by every process, so a restart loses nothing. `yoyo intervention list` shows
+every step in the order they were taken, in your local time, with the count
+beside them:
+
+```text
+2026-10-05 09:30 PDT  mason restarted a part of the product by hand (observed, recorded by mason)
+  touched: the scheduler
+  restarted the scheduler after it stopped pulling work
+6 hand step(s) named 4 merged change(s): 1.50 per change, and 2 named no merged change; the count is a floor: a hand step taken outside the harness is counted only if somebody recorded it afterwards, so the true number can be higher and never lower
+```
+
+A merged change is a work item the harness promoted. A step counts toward it
+when it names the item or any run made for it, and once however many of them
+it names; a step that names no merged change — a reconcile, a restart, a
+decision on a document — is counted apart rather than spread across changes.
+`--json` carries the events and the count, and the count is the read model's
+(`readmodel.CountInterventions`), so a surface that shows it per day or per
+week reads the same number. Steps taken before this record existed are not in
+it.
 
 ## When the provider dies mid-run
 

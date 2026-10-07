@@ -24,6 +24,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -140,6 +141,12 @@ func recordDirective(args []string, stdout, stderr io.Writer) int {
 	if err := store.Record(recorded); err != nil {
 		return reportDirectiveError(stdout, stderr, *flags.jsonOutput, err)
 	}
+	noteHandStepFor(*flags.configPath, stderr, handStep{
+		kind:    intervention.KindDirective,
+		items:   recorded.Scope,
+		subject: recorded.ID,
+		said:    "recorded " + string(recorded.Kind) + " directive " + recorded.ID + " with yoyo directive record",
+	})
 	if *flags.jsonOutput {
 		return writeJSON(stdout, stderr, directiveOutput{Directives: []directive.Directive{recorded}})
 	}

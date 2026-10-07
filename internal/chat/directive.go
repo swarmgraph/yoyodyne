@@ -30,6 +30,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 )
 
 // Directives is the harness's durable record of what the operator has told it,
@@ -164,6 +165,8 @@ func (s *Session) RecordDirective(ctx context.Context, request DirectiveRequest)
 		result.Problems = append(result.Problems, fmt.Sprintf("record the directive in this conversation's log: %v", err))
 	}
 	s.notice("the operator recorded directive %s: %s", recorded.ID, singleLine(recorded.Text, maxSurveyTitleBytes))
+	s.noteHandStep(intervention.KindDirective, recorded.Scope, "", recorded.ID,
+		fmt.Sprintf("recorded %s directive %s", recorded.Kind, recorded.ID))
 	if !recorded.Pauses() {
 		// An operational directive is in effect and stops nothing, so there is no
 		// work to reconcile it against.
