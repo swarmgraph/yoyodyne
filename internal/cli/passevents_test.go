@@ -139,6 +139,146 @@ func TestRunEventsAreTheRunsThatLandedOrStoppedInTheWindow(t *testing.T) {
 	}
 }
 
+// Every terminal failure and decision wait reaches the instance once, even
+// when it has no blocker or ended during checks. The next scheduled pass reads
+// the overlap behind its cursor without carrying those runs again.
+func TestEveryStoppedRunReachesThePassOnceAfterItsCursor(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	store, err := runstate.NewStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursors, err := runstate.NewPassCursorStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sweeps, err := runstate.NewSweepStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const agent = "factory-flow-pm"
+	clock := &steppedClock{at: passWindowStart}
+	role := &wakeCapture{}
+	trigger := orchestrator.Trigger{
+		Instances: map[string]config.AgentConfig{
+			agent: {
+				Role:     domain.RoleProgramManager,
+				Lane:     "factory-flow",
+				Triggers: config.Triggers{Every: config.Duration(5 * time.Minute), On: []config.TriggerEvent{config.TriggerStoppages}},
+			},
+		},
+		Claims: sweeps, Reports: sweeps, Roles: role, Clock: clock,
+		Cursors: cursors, Events: passEvents{runs: store},
+	}
+	fire := func(want int) {
+		t.Helper()
+		fired, err := trigger.Fire(context.Background())
+		if err != nil || len(fired.Fired) != 1 {
+			t.Fatalf("Fire() = %+v, %v; want one scheduled pass", fired, err)
+		}
+		if got := fired.Fired[0].Events[string(config.TriggerStoppages)]; got != want {
+			t.Fatalf("pass carried %d stoppages, want %d", got, want)
+		}
+	}
+	fire(0) // Begin watching at this moment, without reading earlier runs.
+
+	inside := passWindowStart.Add(10 * time.Minute)
+	var stopped []runstate.State
+	for _, ending := range []struct {
+		name    string
+		status  runstate.Status
+		phase   runstate.Phase
+		failure string
+		blocker string
+		class   runstate.StopClass
+		landing string
+		review  string
+		why     string
+	}{
+		{name: "failed", status: runstate.StatusFailed, phase: runstate.PhaseDeveloping, failure: "the developer process failed"},
+		{name: "timed-out", status: runstate.StatusTimedOut, phase: runstate.PhaseChecking, failure: "the check exceeded its time bound", class: runstate.StopCheckTimeout},
+		{name: "cancelled", status: runstate.StatusCancelled, phase: runstate.PhaseReviewing, failure: "the run was cancelled"},
+		{name: "decision", status: runstate.StatusFailed, phase: runstate.PhaseChecking, blocker: "a configured check kept failing", class: runstate.StopChecks},
+		{name: "succeeded-blocked", status: runstate.StatusSucceeded, blocker: "the recorded promotion was not on the target"},
+		{name: "developer-decision", status: runstate.StatusSucceeded, phase: runstate.PhaseDeveloping, landing: runstate.LandingEscalate, why: "the developer found contradictory requirements"},
+		{name: "reviewer-decision", status: runstate.StatusSucceeded, phase: runstate.PhaseReviewing, review: runstate.ReviewEscalate, why: "the reviewer found an impossible criterion"},
+		{name: "no-reason", status: runstate.StatusCancelled},
+	} {
+		state := recordedRun(t, store, runstate.StatusRunning, "yoyodyne-"+ending.name, passWindowStart.Add(-time.Hour))
+		state.WorkItemTitle = "the " + ending.name + " change"
+		state.Status, state.CompletedAt, state.UpdatedAt = ending.status, &inside, inside
+		state.Phase, state.Failure, state.Blocker, state.StopClass = ending.phase, ending.failure, ending.blocker, ending.class
+		state.LandingOutcome, state.LandingReason = ending.landing, ending.why
+		state.ReviewDecision, state.ReviewSummary = ending.review, ending.why
+		if err := store.Save(state); err != nil {
+			t.Fatal(err)
+		}
+		stopped = append(stopped, state)
+	}
+	// Neither an active run with a blocker nor a run outside the time window
+	// belongs to this pass. The start of the window is exclusive.
+	for _, at := range []time.Time{passWindowStart.Add(-time.Minute), passWindowStart, passWindowStart.Add(time.Hour)} {
+		recordedRun(t, store, runstate.StatusFailed, "yoyodyne-outside", at)
+	}
+	running := recordedRun(t, store, runstate.StatusRunning, "yoyodyne-running", inside)
+	running.Blocker = "still running"
+	if err := store.Save(running); err != nil {
+		t.Fatal(err)
+	}
+
+	clock.at = passWindowStart.Add(20 * time.Minute)
+	events, err := (passEvents{runs: store}).Events(context.Background(), runstate.PassStreamRuns, passWindowStart, clock.at)
+	if err != nil || len(events) != len(stopped) {
+		t.Fatalf("Events() = %+v, %v; want every stopped run", events, err)
+	}
+	byKey := map[string]orchestrator.PassEvent{}
+	for _, event := range events {
+		if _, duplicate := byKey[event.Key]; duplicate {
+			t.Fatalf("event %q appeared twice", event.Key)
+		}
+		byKey[event.Key] = event
+	}
+	for _, state := range stopped {
+		key := state.RunID + "/" + string(config.TriggerStoppages)
+		event, found := byKey[key]
+		reason := state.Reason()
+		if state.Escalated() {
+			reason = state.EscalationReason()
+		}
+		if !found || event.Stream != runstate.PassStreamRuns || event.Class != config.TriggerStoppages || event.Subject != state.WorkItemID || !event.At.Equal(inside) ||
+			!strings.Contains(event.Detail, state.WorkItemTitle) || !strings.Contains(event.Detail, reason) {
+			t.Fatalf("event = %+v, want %s with its item, completion, title, and reason %q", event, key, reason)
+		}
+	}
+
+	fire(len(stopped))
+	cursor, found, err := cursors.Load(agent)
+	if err != nil || !found || !cursor.Streams[runstate.PassStreamRuns].Equal(clock.at) {
+		t.Fatalf("cursor = %+v, %v, %v; want the completed pass's watermark", cursor, found, err)
+	}
+	for key := range byKey {
+		if !cursor.WasCarried(runstate.PassStreamRuns, key) {
+			t.Fatalf("cursor did not record carrying %s", key)
+		}
+		if count := strings.Count(role.messages[1], strings.TrimSuffix(key, "/"+string(config.TriggerStoppages))); count != 1 {
+			t.Fatalf("pass listed %s %d times, want once", key, count)
+		}
+	}
+	clock.at = clock.at.Add(5 * time.Minute)
+	overlap, err := (passEvents{runs: store}).Events(context.Background(), runstate.PassStreamRuns, cursor.ReadFrom(runstate.PassStreamRuns), clock.at)
+	if err != nil || len(overlap) != len(stopped) {
+		t.Fatalf("overlapping Events() = %+v, %v; want the same runs read again behind the cursor", overlap, err)
+	}
+	fire(0)
+	for key := range byKey {
+		if strings.Contains(role.messages[2], strings.TrimSuffix(key, "/"+string(config.TriggerStoppages))) {
+			t.Fatalf("the next pass carried %s again", key)
+		}
+	}
+}
+
 // `yoyo sweeps` says what a program manager's pass carried.
 func TestASweepListingSaysWhatAPassCarried(t *testing.T) {
 	t.Parallel()
