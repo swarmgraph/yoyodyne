@@ -67,7 +67,18 @@ const defaultAfterReplyTimeout = 5 * time.Minute
 // is where the harness itself was invoked from -- and where it is not, Claude
 // Code reports the hook as failed and runs the command, which is the behaviour
 // there was before this. The guard can therefore be missing, but not wrong.
-const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false},` +
+//
+// The sandbox lets Bash bind local ports and nothing more on the network:
+// `sandbox.network.allowLocalBinding` is the one network grant, so a test that
+// starts a server on 127.0.0.1 runs in a developer's own `make test` instead of
+// failing with "bind: operation not permitted". In Claude Code 2.1.286 it adds
+// three rules to the macOS sandbox profile -- bind to any local address, accept
+// connections on it, and connect out to localhost -- and every other outbound
+// connection still goes through the CLI's filtering proxy. It names no domain,
+// no Unix socket, and no write path, so what a run may write and which hosts it
+// may reach are unchanged. docs/configuration/runs.md says what this permits.
+const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,` +
+	`"network":{"allowLocalBinding":true}},` +
 	`"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"yoyo goals guard"}]}]}}`
 
 // developerTools scopes built-in writes to the worktree project root. Bash is
