@@ -40,6 +40,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -182,7 +183,7 @@ func NewPassCursorStore(root string, productID domain.ProductID) (*PassCursorSto
 		return nil, err
 	}
 	return &PassCursorStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "program-managers"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 	}, nil
 }

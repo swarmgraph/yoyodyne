@@ -14,6 +14,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite/writertest"
 )
 
@@ -229,7 +230,7 @@ func TestEachProductsSinkLogsBesideItsOwnState(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Ensure(%s) error = %v", product, err)
 		}
-		want := filepath.Join(root, "products", string(product), "slack", sinkLogFile)
+		want := filepath.Join(home.ProductDirectory(root, string(product)), "slack", sinkLogFile)
 		if supervision.Log != want {
 			t.Fatalf("%s logs to %q, want %q", product, supervision.Log, want)
 		}
@@ -402,7 +403,7 @@ func TestAStartedSinkOutlivesThePassAndWritesToItsOwnLog(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	relative := "products/yoyodyne/slack/" + sinkLogFile
+	relative := "projects/yoyodyne/state/slack/" + sinkLogFile
 	log := filepath.Join(root, filepath.FromSlash(relative))
 	pid, err := DetachedLauncher{}.Launch(Launch{
 		Program: "/bin/sh",
@@ -438,7 +439,7 @@ func TestAStartedSinkCarriesTheGitMaintenanceFence(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
-	relative := "products/yoyodyne/slack/" + sinkLogFile
+	relative := "projects/yoyodyne/state/slack/" + sinkLogFile
 	// The constructed environment carries no Git configuration of its own, so
 	// the fence is the whole of what the sink was given: two settings, first.
 	pid, err := DetachedLauncher{}.Launch(Launch{
@@ -496,7 +497,7 @@ func TestTheSinkLogIsConfinedToTheStateRootItWasGiven(t *testing.T) {
 
 	writertest.Run(t, writertest.Writer{
 		Name:      "the Slack sink launcher",
-		Directory: "products/yoyodyne/slack",
+		Directory: "projects/yoyodyne/state/slack",
 		File:      sinkLogFile,
 		Write: func(_ *testing.T, root string) error {
 			// A process that exits immediately: what is under test is where its
@@ -506,7 +507,7 @@ func TestTheSinkLogIsConfinedToTheStateRootItWasGiven(t *testing.T) {
 				Args:    []string{"-c", ":"},
 				Env:     Environment(nil, "yoyodyne", botToken, appToken),
 				LogRoot: root,
-				Log:     "products/yoyodyne/slack/" + sinkLogFile,
+				Log:     "projects/yoyodyne/state/slack/" + sinkLogFile,
 			})
 			return err
 		},

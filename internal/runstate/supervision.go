@@ -34,6 +34,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // SupervisionSchemaVersion is 1 and has never changed.
@@ -256,7 +257,7 @@ func NewSupervisionStore(root string, productID domain.ProductID) (*SupervisionS
 		return nil, err
 	}
 	base := filepath.Clean(root)
-	within := filepath.Join("products", string(productID), "supervisor")
+	within := filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(base, string(productID))), "supervisor")
 	return &SupervisionStore{
 		base:      base,
 		within:    filepath.ToSlash(within),

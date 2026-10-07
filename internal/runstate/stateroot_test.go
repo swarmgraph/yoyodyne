@@ -51,8 +51,8 @@ func TestTheStateRootResolvesInTheOrderTheDesignRules(t *testing.T) {
 	t.Parallel()
 
 	m := newMachine(t)
-	if got := m.resolve(t); got.Path != filepath.Join(m.home, ".local", "state", "yoyodyne") || got.Origin != RootOriginPlatformDefault {
-		t.Fatalf("nothing configured = %+v, want the platform default", got)
+	if got := m.resolve(t); got.Path != filepath.Join(m.home, ".yoyodyne") || got.Origin != RootOriginDefault {
+		t.Fatalf("nothing configured = %+v, want ~/.yoyodyne", got)
 	}
 
 	m.env["XDG_STATE_HOME"] = "/xdg"
@@ -102,8 +102,8 @@ func TestAMachineFileThatSaysNothingUsefulIsRefusedOrIgnored(t *testing.T) {
 	for name, content := range map[string]string{"empty file": "", "empty key": "state_root: \"\"\n"} {
 		m := newMachine(t)
 		m.writeMachineFile(t, content)
-		if got := m.resolve(t); got.Origin != RootOriginPlatformDefault {
-			t.Errorf("%s: ResolveRoot() = %+v, want the platform default", name, got)
+		if got := m.resolve(t); got.Origin != RootOriginDefault {
+			t.Errorf("%s: ResolveRoot() = %+v, want ~/.yoyodyne", name, got)
 		}
 	}
 }
@@ -121,7 +121,7 @@ func TestTheFirstProcessRecordsTheRootAndASecondRootIsRefused(t *testing.T) {
 	t.Parallel()
 
 	checkout := gitCheckout(t)
-	first := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginPlatformDefault}
+	first := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginDefault}
 	if err := AgreeRoot(checkout, first); err != nil {
 		t.Fatalf("AgreeRoot() first = %v", err)
 	}
@@ -220,7 +220,7 @@ func TestADirectoryThatIsNotACheckoutKeepsNoMarker(t *testing.T) {
 func TestTwoProductsShareOneRootAndOneOperatorHold(t *testing.T) {
 	t.Parallel()
 
-	shared := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginPlatformDefault}
+	shared := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginDefault}
 	yoyodyne, conductor := gitCheckout(t), gitCheckout(t)
 	for _, checkout := range []string{yoyodyne, conductor} {
 		if err := AgreeRoot(checkout, shared); err != nil {
@@ -252,7 +252,7 @@ func TestTwoProductsShareOneRootAndOneOperatorHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, store := range []*Store{first, second} {
-		if !strings.HasPrefix(store.Root(), filepath.Join(shared.Path, "products")+string(filepath.Separator)) {
+		if !strings.HasPrefix(store.Root(), filepath.Join(shared.Path, "projects")+string(filepath.Separator)) {
 			t.Errorf("store %s is not a product's own directory under the shared root", store.Root())
 		}
 	}
@@ -279,7 +279,7 @@ func TestAMarkerNamingAMissingRootIsRefusedWithTheRebindRemedy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resolved := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginPlatformDefault}
+	resolved := ResolvedRoot{Path: t.TempDir(), Origin: RootOriginDefault}
 	err := AgreeRoot(checkout, resolved)
 	var split *SplitRootError
 	if !errors.As(err, &split) || !split.Gone {

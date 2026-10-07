@@ -20,6 +20,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // maxEncodedAmendmentBytes bounds one encoded record, including the trailing
@@ -45,7 +46,7 @@ func NewAmendmentStore(root string, productID domain.ProductID) (*AmendmentStore
 		return nil, err
 	}
 	return &AmendmentStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID)),
+		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
 }

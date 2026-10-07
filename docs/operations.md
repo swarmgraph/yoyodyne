@@ -28,10 +28,10 @@ what it holds started by hand. The verb waits for the supervisor to record what
 came up and says so, one line per part:
 
 ```text
-started the supervisor for yoyodyne as pid 48211, logging to …/products/yoyodyne/supervisor/supervisor.log
-  slack: running as pid 48214, logging to …/products/yoyodyne/slack/sink.log
+started the supervisor for yoyodyne as pid 48211, logging to …/projects/yoyodyne/state/supervisor/supervisor.log
+  slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log
   dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
-  scheduler: running as pid 48215, logging to …/products/yoyodyne/scheduler.log
+  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log
   maintenance: the supervisor's own pass, every 10m0s; next at 2026-09-29T17:10:00Z
 stop it with `yoyo stop`; `yoyo status` says how each part stands
 ```
@@ -82,7 +82,7 @@ maintenance pass is what acts on it.** A
 [program manager](designs/program-manager.md) that thinks one of the four parts
 should be restarted ends its reply with one `yoyodyne-restart` block naming the
 part and why. The harness writes that down as a durable request under the state
-root — at `products/<product>/program-managers/restart-requests.jsonl`,
+root — at `projects/<product>/state/program-managers/restart-requests.jsonl`,
 recording the instance, the part, when, and the conversation turn that asked —
 and does nothing else: no instance restarts, stops, or signals a process. A part
 the section does not declare is refused naming the four, and each instance has
@@ -177,7 +177,7 @@ foreground supervisor, whichever starts first — boots that job out of launchd
 and removes its property list from `~/Library/LaunchAgents`, and says so:
 
 ```text
-retired the operator's maintenance job com.yoyodyne.maintenance, a second manager of the product's parts: booted it out of launchd and removed …/Library/LaunchAgents/com.yoyodyne.maintenance.plist; it starts, kills, and restarts the scheduler …; the job's script …/yoyodyne-maintenance.sh is the operator's file and is left where it is; nothing runs it any more; recorded in …/products/yoyodyne/supervisor/retired-jobs.jsonl
+retired the operator's maintenance job com.yoyodyne.maintenance, a second manager of the product's parts: booted it out of launchd and removed …/Library/LaunchAgents/com.yoyodyne.maintenance.plist; it starts, kills, and restarts the scheduler …; the job's script …/yoyodyne-maintenance.sh is the operator's file and is left where it is; nothing runs it any more; recorded in …/projects/yoyodyne/state/supervisor/retired-jobs.jsonl
 ```
 
 Nothing about it is typed by hand. The record keeps the job's property list
@@ -252,16 +252,16 @@ deploy is moving one:
 
 ```text
 Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
-  slack: running as pid 48214, logging to …/products/yoyodyne/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
+  slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
-  scheduler: running as pid 48215, logging to …/products/yoyodyne/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit
+  scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
 
 The services section also shows the last machine sleep and wake, in local time
 with the zone named, and the last recorded interval without the harness
 watching. On macOS the supervisor reads `pmset -g log` about once a minute and keeps
-the OS transitions in `products/<product>/supervisor/machine.jsonl`, including
+the OS transitions in `projects/<product>/state/supervisor/machine.jsonl`, including
 sleep and wake while it was down. Dark wakes count as wakes because processes
 can run during them. The same log records whether the scheduler held its lease
 when the supervisor looked. Sampled downtime is counted only between consecutive
@@ -613,7 +613,7 @@ PM; the watch and the installed binary had been checked, and the dashboard had
 not. So each long-running part — the supervisor, the Slack sink, the scheduler
 (`yoyo work --watch`), and the dashboard — records as it starts which build it
 is, which file it reads, and every configuration key its build reads, under
-`products/<product>/config-readers/` in the state root, with one record per
+`projects/<product>/state/config-readers/` in the state root, with one record per
 process and start time. For the same service and process id, only the latest
 startup record is compared: the watch and supervisor keep their process ids
 when they restart into a deployed build, and the new account supersedes the
@@ -767,15 +767,17 @@ Everything the harness records — runs, conversations, worktrees, reports, the
 pause below — lives under one directory outside the repository, the state root.
 It is `YOYODYNE_STATE_HOME` where a shell exports it, otherwise the
 `state_root` in this machine's `~/.config/yoyodyne/machine.yaml`, otherwise
-`$XDG_STATE_HOME/yoyodyne`, otherwise the platform default
-(`~/Library/Application Support/Yoyodyne/state` on macOS). Every part of the
+`$XDG_STATE_HOME/yoyodyne`, otherwise the machine home, `~/.yoyodyne`. Where
+`~/.yoyodyne` does not exist and the earlier builds' default does
+(`~/Library/Application Support/Yoyodyne/state` on macOS), the earlier one is
+kept, because that is where the state is; nothing moves it on its own. Every part of the
 product resolves it the same way, and it is never set in the project's own
 configuration; [`state_root`](configuration.md#where-the-harness-keeps-its-state-state_root)
 is the whole of the setting. `yoyo doctor` says which directory it is and which
 of those four put it there, under `state`:
 
 ```text
-ok       state                  the durable records live in /Users/you/Library/Application Support/Yoyodyne/state, from platform-default; the marker in /Users/you/src/example/.git/yoyodyne/state-root agrees
+ok       state                  the durable records live in /Users/you/.yoyodyne, from default; the marker in /Users/you/src/example/.git/yoyodyne/state-root agrees
 ```
 
 The first process that opens the root for a product records it in
@@ -822,15 +824,16 @@ Moving the state on purpose is four steps, in this order:
 
 ```sh
 yoyo stop                                   # nothing may be writing while it moves
-mv "$HOME/Library/Application Support/Yoyodyne/state" /Volumes/work/yoyodyne-state
+mv "$HOME/.yoyodyne" /Volumes/work/yoyodyne-state
 printf 'state_root: /Volumes/work/yoyodyne-state\n' > ~/.config/yoyodyne/machine.yaml
 yoyo state-root rebind                      # in the product's checkout: the old root is gone now
 yoyo start
 ```
 
 Another product on this machine shares the root unless it is moved too. Each
-product keeps its records under `products/<product id>/`, each product's
-checkout has its own marker, and the pause is kept at the root, so on a shared
+product keeps its records under `projects/<product id>/state/` (under
+`products/<product id>/` in a root the earlier builds laid out, which is read
+that way until it is moved), each product's checkout has its own marker, and the pause is kept at the root, so on a shared
 root one pause stops every product on it. Moving one product's state gives it
 a pause of its own. Moving every product's state together keeps one pause, and
 that means following the steps above in each product's checkout.
@@ -1310,7 +1313,7 @@ the operator added capacity a day into a `seven_day` window, every turn after
 that was served, and the record went on quoting 09-27. So every invocation the
 provider serves — a developer attempt, a review with a verdict, a conversation
 turn — writes the account and model it was served on to
-`products/<product>/capacity-served.json` under the state root, and every
+`projects/<product>/state/capacity-served.json` under the state root, and every
 reading of the refusals treats each one recorded before that moment, on that
 account and model, as lifted. Only an invocation that genuinely served counts:
 it ended without error, its process succeeded, and nothing on it reported a
@@ -1412,7 +1415,7 @@ yoyo role history                       # every activation, newest first
 All three verbs accept `--config <path>` and `--json`. Activation refuses a
 missing or invalid definition and records nothing. It records the name, source
 path, SHA-256 content digest, person, and time in a separate immutable record
-under `<state root>/products/<product>/role-activations/`. Repeating activation
+under `<state root>/projects/<product>/state/role-activations/`. Repeating activation
 adds a record and retains every earlier one; the latest activation for a name
 is what listing compares with its file.
 
@@ -1946,7 +1949,7 @@ removed and the pass reports why. bd creates a new temporary exclusively for
 each export; it never reopens an abandoned one.
 
 Each pass that removes files records their paths, sizes, and modification times
-under `products/<product-id>/tracker-export-cleanups/` in the product's state
+under `projects/<product-id>/state/tracker-export-cleanups/` in the product's state
 directory. The command also names each removal, and `--json` carries it under
 `tracker_exports`. The developer's sandbox cannot clean the primary checkout;
 the harness performs this on its next maintenance pass after moving to the new
@@ -3801,7 +3804,7 @@ and `yoyo status --json` carries the record under `standing.diverged_targets`.
 `yoyo reconcile` whose catch-up finds the local target level with the remote's,
 or brought onto it, removes the record and says so, and the watching session
 chooses again at its next poll with nothing to release. The record lives at
-`products/<product>/diverged-targets.json` under the state root. The target is
+`projects/<product>/state/diverged-targets.json` under the state root. The target is
 the branch the primary checkout is on, which is what every run promotes into, so
 while one stands the session chooses nothing at all.
 
@@ -4362,10 +4365,10 @@ is derived by the read model, and nothing an instance writes sets it:
   from when the harness first saw it in the loaded configuration: the first load
   that carries an instance — `yoyo status`, the dashboard or the Slack sink as
   it starts, or any verb that builds the harness — records that moment under the
-  state root at `products/<product>/program-managers/first-seen.json`, and no
+  state root at `projects/<product>/state/program-managers/first-seen.json`, and no
   later load moves it. The dashboard and Slack sink also record their own
   build and the configuration keys it reads as they start, under
-  `products/<product>/config-readers/`. These records direct no work; the
+  `projects/<product>/state/config-readers/`. These records direct no work; the
   surfaces otherwise only read. The first-seen record is on them on purpose:
   the dead scheduler this word is for is
   exactly the case in which nothing else loads the configuration. So an
@@ -4844,7 +4847,7 @@ run-19dc9dff153e1eb89a2470f78f02f240 yoyodyne-ifd.1.7 started 2026-09-26T18:02:1
   ran under default, configuration cfg-9f2c41ab7e05, harness 9870df6a1b2c
   reason: provider: the provider ended this run without judging the work after 3 of 3 permitted relaunch(es)
   branch (checked and there at 2026-09-26T19:40:02Z): yoyodyne/yoyodyne-ifd.1.7/19dc9dff
-  worktree (checked and there at 2026-09-26T19:40:02Z): /Users/you/Library/Application Support/Yoyodyne/state/worktrees/yoyodyne/yoyodyne/yoyodyne-ifd-1-7-19dc9dff
+  worktree (checked and there at 2026-09-26T19:40:02Z): /Users/you/.yoyodyne/projects/yoyodyne/worktrees/yoyodyne-ifd-1-7-19dc9dff
   preserved developer session: 0f2c41ab-7e05-4c3d-9a1b-6e8f0d2a4c71
 run-c81f0a4d7c2b41e6a0f9d3b5e7104c22 yoyodyne-ifd.63 started 2026-08-15T11:47:03Z [failed, no artifacts recorded] $12.80
   selected: no reason recorded
@@ -5104,7 +5107,7 @@ it is printed here and nowhere else, and a restarted dashboard prints a new one;
 **A configured token outlives a restart.** Set `services.dashboard.token` to
 `keychain` or `file` and the command reads the token from the store the
 setting names — the keychain item `yoyo-dashboard.<product id>` under the
-account `yoyo`, or the file `<state root>/products/<product id>/dashboard.token`
+account `yoyo`, or the file `<state root>/projects/<product id>/state/dashboard.token`
 — and serves under it, so a restart serves under the same token and nobody is
 handed a fresh one to paste. It prints where the token was read from and never
 the value:
@@ -5562,7 +5565,7 @@ starts: when each program manager instance was
 [first seen in the configuration](#where-the-harness-stands-the-four-lines),
 which `yoyo status` and the Slack sink write too, so an instance the scheduler
 never woke can read stale; and its own build and the configuration keys that
-build reads, under `products/<product>/config-readers/`, so a later key it
+build reads, under `projects/<product>/state/config-readers/`, so a later key it
 cannot read is named against the dashboard. Both records direct no work. The
 only form is the one that takes the token, every button on the page opens or
 closes one of its own pop-ups and
@@ -6141,7 +6144,7 @@ its own summary, naming how many entries are not listed — a shortened list tha
 said nothing would read as a pass that found less than it did.
 
 The reports live beside the run state, under
-`<state root>/products/<product id>/sweeps/`, with each task's cadence recorded
+`<state root>/projects/<product id>/state/sweeps/`, with each task's cadence recorded
 in its own file there. Nothing in the repository holds them: like the collected
 reports, a sweep outlives the session that produced it.
 

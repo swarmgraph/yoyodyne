@@ -155,9 +155,9 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
 control. Run state, provider event streams, locks, worktrees, and the reports
-agents file while their work carries on live outside the repository under an
-operating-system state directory, so nothing there depends on where the project
-is checked out. Where that directory is can be set for the machine and never in
+agents file while their work carries on live outside the repository in the
+machine home, `~/.yoyodyne` by default, so nothing there depends on where the
+project is checked out. Where that directory is can be set for the machine and never in
 this file; see [`state_root`](#where-the-harness-keeps-its-state-state_root).
 
 Committing it is the default rather than a requirement, and a contributor to a
@@ -605,9 +605,12 @@ the layers below put it.
 1. `YOYODYNE_STATE_HOME`, the explicit instruction for one shell;
 2. `state_root` in `machine.yaml`;
 3. `$XDG_STATE_HOME/yoyodyne`;
-4. the platform default: `~/Library/Application Support/Yoyodyne/state` on
-   macOS, `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and
-   `~/.local/state/yoyodyne` elsewhere.
+4. the machine home, `~/.yoyodyne`, on every platform — except that while
+   `~/.yoyodyne` does not exist and the earlier builds' default home does
+   (`~/Library/Application Support/Yoyodyne/state` on macOS,
+   `%LOCALAPPDATA%\Yoyodyne\state` on Windows, and `~/.local/state/yoyodyne`
+   elsewhere), the earlier home is kept, because that is where the state is.
+   Nothing moves it on its own.
 
 Every process the harness starts — the watch, the Slack sink, the dashboard,
 the supervisor, conversations, and runs — resolves the root through that one
@@ -638,7 +641,9 @@ which is what the refusal and `yoyo doctor` name as the remedy
 ([operations](operations.md#where-the-state-is-and-moving-it)).
 
 **Two products on one machine share the root unless one of them is moved.** Each
-product keeps its records under `products/<product id>/` inside it, and each
+product keeps its records under `projects/<product id>/state/` inside it — under
+`products/<product id>/` in a root the earlier builds laid out, which is read
+that way until it is moved — and each
 product's checkout carries its own marker, so two products that resolve the same
 root agree with each other as well as with themselves. The
 [operator's pause](operations.md#pausing-everything-and-resuming-it) lives at the
@@ -646,11 +651,23 @@ root rather than under a product, so on a shared root one `yoyo pause` stops
 both. A product moved to a root of its own is also out of reach of the pause
 placed at the other one.
 
+**A product id names one repository on the machine.** The first start against
+an id creates `projects/<product id>/` and records in its `repository.json`
+which repository the id is, by the repository's Git common directory, so every
+worktree of that clone is the same project; the start says so. After that a
+start from a second clone of the same project, from another product using the
+same id, or against a bound repository that is no longer at its path refuses,
+naming both paths and the one command that settles it: `yoyo project bind` or
+`yoyo project rename`. A root still laid out the earlier way writes no binding
+of its own. The [machine home design](designs/machine-home.md) is the whole of
+it.
+
 `yoyo config show` prints the resolved root and the layer it came from on its
 `# state root:` line, `--origins` lists it as `state_root` with the same origin,
 and `--json` carries both under `state_root`. The origin is
 `environment:YOYODYNE_STATE_HOME`, `machine:<path of machine.yaml>`,
-`environment:XDG_STATE_HOME`, or `platform-default`. [`yoyo
+`environment:XDG_STATE_HOME`, `default` for `~/.yoyodyne`, or `earlier-default`
+for the earlier builds' home. [`yoyo
 doctor`](operations.md#checking-the-installation) reports the same two, and
 whether the checkout's marker agrees. Neither of them records a marker.
 
@@ -5351,7 +5368,7 @@ decision that would spend more than the item is allowed.
 figure on an entry — the rounds spent, each decision recorded, and each cap
 beside it — comes from the [per-item counters](#what-one-work-item-has-been-given)
 a decision spends, and the re-runs already carried out come from the per-stoppage
-re-run records under `<state root>/products/<product id>/reruns/`. It
+re-run records under `<state root>/projects/<product id>/state/reruns/`. It
 is read as the docket is read rather than written into the entry: the entry is
 recorded once as the work stops and every decision about it is made afterwards,
 so an entry frozen at docket time could only ever show every decision as absent.
@@ -5496,7 +5513,7 @@ the settle could not classify: a claim given back twice is one decision starting
 two runs.
 
 The re-run is recorded beside the counters, one file per docketed stoppage at
-`<state root>/products/<product id>/reruns/`, and it carries what the stopped
+`<state root>/projects/<product id>/state/reruns/`, and it carries what the stopped
 run preserved. Its branch and worktree are **kept** while the fresh run has not
 integrated — that is what a development manager's guidance points at when it says
 what to cherry-pick — and **retired** explicitly once it has. Anything that could
@@ -5935,7 +5952,7 @@ stands per stopped run. Concurrent updates are serialized per item, so no increm
 record that cannot be read is a refusal rather than an empty budget: an
 unreadable budget read as empty is every cap in it stopping to mean anything.
 Recovery from one is a decision, not a repair: the record is one JSON file per
-item at `<state root>/products/<product id>/triage/`, named by a slugged
+item at `<state root>/projects/<product id>/state/triage/`, named by a slugged
 rendering of the item id with a digest suffix (so a listing reads which item
 each file belongs to, and two ids that render alike still get their own files
 — match on the slug). Read it and fix what is malformed if the history is
@@ -6944,7 +6961,7 @@ web-security conventions made configuration:
   can read it. `keychain` and `file` are the two stores the Slack tokens already
   use, under names that carry the product: the keychain item
   `yoyo-dashboard.<product id>` under the account `yoyo`, or the file
-  `<state root>/products/<product id>/dashboard.token`. `yoyo dashboard`
+  `<state root>/projects/<product id>/state/dashboard.token`. `yoyo dashboard`
   reads the one named and serves under it, printing where it was read from
   and never the value, so a stored token outlives a restart; a store that does
   not hold it refuses to start with the command that stores it.
@@ -7580,7 +7597,7 @@ agents:
 
 **A burst wakes an instance once.** Each instance keeps a cursor per stream —
 the run records and the tracker — under the state root, at
-`products/<product id>/program-managers/<agent>/cursor.json`, beside its lane
+`projects/<product id>/state/program-managers/<agent>/cursor.json`, beside its lane
 report. An event past the cursor arms one wake. The wake is taken at the next
 pull once the streams have been quiet for **two minutes**, or at once where
 `every` is due, whichever comes first; the pass is handed everything between the

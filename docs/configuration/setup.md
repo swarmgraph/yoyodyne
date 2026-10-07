@@ -170,9 +170,9 @@ A project keeps its configuration in a `.yoyodyne` directory at its root:
 
 Everything under `.yoyodyne/` is machine-independent and belongs in version
 control. Run state, provider event streams, locks, worktrees, and the reports
-agents file while their work carries on live outside the repository under an
-operating-system state directory, so nothing there depends on where the project
-is checked out.
+agents file while their work carries on live outside the repository in the
+machine home, `~/.yoyodyne` by default, so nothing there depends on where the
+project is checked out.
 
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under

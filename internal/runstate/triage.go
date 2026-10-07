@@ -63,6 +63,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // TriageCountersSchemaVersion is 1 and has never changed.
@@ -718,7 +719,7 @@ func NewTriageStore(root string, productID domain.ProductID) (*TriageStore, erro
 		return nil, err
 	}
 	return &TriageStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "triage"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "triage"),
 		productID: productID,
 	}, nil
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 const (
@@ -171,7 +172,7 @@ func NewStore(root string, productID domain.ProductID) (*Store, error) {
 		return nil, err
 	}
 	return &Store{
-		root:          filepath.Join(filepath.Clean(root), "products", string(productID), "runs"),
+		root:          filepath.Join(home.ProductDirectory(root, string(productID)), "runs"),
 		productID:     productID,
 		promotionWait: promotionQueueWait,
 		leaseWait:     leaseGrace,

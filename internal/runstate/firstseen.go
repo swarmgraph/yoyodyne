@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // FirstSeenSchemaVersion is 1 and has never changed.
@@ -78,7 +79,7 @@ func NewFirstSeenStore(root string, productID domain.ProductID) (*FirstSeenStore
 		return nil, err
 	}
 	return &FirstSeenStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "program-managers"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 	}, nil
 }

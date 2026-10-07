@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 func TestRecordedSpendsSurviveTheProcessThatMadeThem(t *testing.T) {
@@ -218,7 +220,7 @@ func TestTheSpendLogSitsBesideTheRunsRatherThanAmongThem(t *testing.T) {
 	if strings.HasPrefix(store.Path(), runs.Root()+string(filepath.Separator)) {
 		t.Fatalf("the spend log is inside the run directory: %s", store.Path())
 	}
-	if filepath.Dir(store.Path()) != filepath.Join(root, "products", "yoyodyne") {
+	if filepath.Dir(store.Path()) != home.ProductDirectory(root, "yoyodyne") {
 		t.Fatalf("spend log path = %s", store.Path())
 	}
 }

@@ -79,6 +79,40 @@ func TestAProcessOnASecondStateRootRefusesToStart(t *testing.T) {
 	}
 }
 
+// A command's first start against a product id creates the project directory
+// and binds it to the checkout; a second repository using the same id under the
+// same home refuses to start, naming both and the command that settles it, and
+// writes nothing over the binding.
+func TestASecondRepositoryWithABoundIDRefusesToStart(t *testing.T) {
+	// Not parallel: the state root every command resolves is set for this process.
+	t.Setenv("YOYODYNE_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	t.Setenv("YOYODYNE_STATE_HOME", root)
+	first, firstConfig := stateRootProject(t)
+	if _, stderr, code := runCLI(t, "reports", "--config", firstConfig); code != 0 {
+		t.Fatalf("reports from the first repository code = %d, stderr = %q", code, stderr)
+	}
+	binding := filepath.Join(root, "projects", "yoyodyne", "repository.json")
+	before, err := os.ReadFile(binding)
+	if err != nil {
+		t.Fatalf("the first start wrote no binding: %v", err)
+	}
+
+	second, secondConfig := stateRootProject(t)
+	_, stderr, code := runCLI(t, "reports", "--config", secondConfig)
+	if code == 0 {
+		t.Fatal("reports from a second repository with the same id succeeded; want a refusal")
+	}
+	for _, want := range []string{first, second, "two products share the id yoyodyne", "yoyo project rename"} {
+		if !strings.Contains(stderr, want) {
+			t.Errorf("refusal %q does not name %q", stderr, want)
+		}
+	}
+	if after, _ := os.ReadFile(binding); string(after) != string(before) {
+		t.Fatalf("the refused start rewrote the binding to %s", after)
+	}
+}
+
 // A marker left naming a root that has since been deleted — a temporary state
 // home a test or a shell used and removed — refuses every command, and the
 // refusal names the writer, the moment, and the one command that clears it;

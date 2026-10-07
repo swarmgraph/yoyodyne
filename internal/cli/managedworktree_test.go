@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 // Inspection and recovery happen inside a preserved worktree, and an agent runs
@@ -65,7 +66,7 @@ func TestARepositoryInsideTheWorktreeRootIsRefusedWithSomethingToDo(t *testing.T
 	stateRoot := t.TempDir()
 	t.Setenv("YOYODYNE_STATE_HOME", stateRoot)
 	// A checkout of its own, sitting where the harness keeps its worktrees.
-	project := filepath.Join(stateRoot, "worktrees", "yoyodyne", "yoyodyne", "checkout")
+	project := filepath.Join(home.WorktreeDirectory(stateRoot, "yoyodyne", "yoyodyne"), "checkout")
 	if err := os.MkdirAll(project, 0o700); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
@@ -109,7 +110,7 @@ func managedWorktreeProject(t *testing.T, project string) string {
 func addManagedWorktree(t *testing.T, project, stateRoot, name string) string {
 	t.Helper()
 
-	worktree := filepath.Join(stateRoot, "worktrees", "yoyodyne", "yoyodyne", name)
+	worktree := filepath.Join(home.WorktreeDirectory(stateRoot, "yoyodyne", "yoyodyne"), name)
 	git(t, project, "worktree", "add", "-b", "yoyodyne/task/abcd1234", worktree)
 	return worktree
 }

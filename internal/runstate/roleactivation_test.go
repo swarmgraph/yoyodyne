@@ -129,7 +129,7 @@ func TestRoleActivationHistoryToleratesFutureFieldsAndRefusesCorruptRecords(t *t
 
 func TestRoleActivationWriterRefusesEscapingSymlinksAndRootReplacement(t *testing.T) {
 	t.Parallel()
-	for _, component := range []string{"products", "products/example", "products/example/role-activations", "state-root"} {
+	for _, component := range []string{"projects", "projects/example", "projects/example/state", "projects/example/state/role-activations", "state-root"} {
 		t.Run(component, func(t *testing.T) {
 			root, outside := t.TempDir(), t.TempDir()
 			store := roleActivationStoreForTest(t, root)

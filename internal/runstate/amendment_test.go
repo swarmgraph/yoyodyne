@@ -10,6 +10,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
 func TestAProposedChangeOutlivesTheRunThatRaisedIt(t *testing.T) {
@@ -186,7 +187,7 @@ func TestTheProposalLogSitsBesideTheRunsRatherThanAmongThem(t *testing.T) {
 	if strings.HasPrefix(store.Path(), runs.Root()+string(filepath.Separator)) {
 		t.Fatalf("the amendment log is inside the run directory: %s", store.Path())
 	}
-	if filepath.Dir(store.Path()) != filepath.Join(root, "products", "yoyodyne") {
+	if filepath.Dir(store.Path()) != home.ProductDirectory(root, "yoyodyne") {
 		t.Fatalf("amendment log path = %s", store.Path())
 	}
 }

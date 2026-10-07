@@ -43,6 +43,7 @@ import (
 	"unicode"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -324,7 +325,7 @@ func (s *MergeQueueStore) Root() string {
 }
 
 func (s *MergeQueueStore) directory() string {
-	return filepath.Join("products", string(s.productID), mergeQueuesDirectory)
+	return filepath.Join(filepath.FromSlash(home.ProductDirectoryWithin(s.stateRoot, string(s.productID))), mergeQueuesDirectory)
 }
 
 // Admit admits one approved change to its queue, and reports the entry the

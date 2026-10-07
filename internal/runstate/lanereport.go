@@ -33,6 +33,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -280,7 +281,7 @@ func NewLaneReportStore(root string, productID domain.ProductID, movers LaneRepo
 		return nil, err
 	}
 	return &LaneReportStore{
-		root:      filepath.Join(filepath.Clean(root), "products", string(productID), "program-managers"),
+		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 		redactor:  execution.NewRedactor(redactValues...),
 		movers:    movers,

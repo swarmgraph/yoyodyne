@@ -50,15 +50,16 @@ By hand, the login is two commands: make the alias its own provider home under
 the state directory, then sign in into it.
 
 ```sh
-home="$HOME/Library/Application Support/Yoyodyne/state/accounts/second"   # macOS
+home="$HOME/.yoyodyne/accounts/second"
 mkdir -p "$home" && chmod 700 "$home"
 CLAUDE_CONFIG_DIR="$home" claude auth login
 ```
 
 The state directory is `$YOYODYNE_STATE_HOME`, the `state_root` in the
-machine's own `machine.yaml`, `$XDG_STATE_HOME/yoyodyne`,
-`~/Library/Application Support/Yoyodyne/state` on macOS, or
-`~/.local/state/yoyodyne` on Linux, the first of those that is set — the same
+machine's own `machine.yaml`, `$XDG_STATE_HOME/yoyodyne`, or `~/.yoyodyne`, the first of those that is set
+(a machine whose state is still in the earlier builds' default,
+`~/Library/Application Support/Yoyodyne/state` on macOS or
+`~/.local/state/yoyodyne` on Linux, keeps using it until it is moved) — the same
 one `yoyo status` reads, and the one `yoyo config show` prints on its
 `# state root:` line.
 

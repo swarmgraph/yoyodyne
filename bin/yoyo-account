@@ -48,19 +48,27 @@ while [ $# -gt 0 ]; do
   esac
 done
 
-# Mirror runstate.SystemDefaultRoot so this agrees with the harness. An account
-# whose home this script and the harness disagreed about is one the operator
-# signs in and the harness never finds. This resolves a path and reads nothing
-# under it: what the harness has done and spent is `yoyo status`'s to derive,
-# and the shell script that used to derive it beside the binary is gone.
+# Mirror runstate.ResolveRoot and home.Default so this agrees with the harness.
+# An account whose home this script and the harness disagreed about is one the
+# operator signs in and the harness never finds. The default is ~/.yoyodyne,
+# except that the earlier builds' default is kept while it exists and
+# ~/.yoyodyne does not. This resolves a path and reads nothing under it: what
+# the harness has done and spent is `yoyo status`'s to derive, and the shell
+# script that used to derive it beside the binary is gone.
 state_root() {
   if [ -n "${YOYODYNE_STATE_HOME:-}" ]; then printf '%s\n' "$YOYODYNE_STATE_HOME"; return; fi
   if [ -n "${XDG_STATE_HOME:-}" ]; then printf '%s\n' "$XDG_STATE_HOME/yoyodyne"; return; fi
+  local earlier
   case "$(uname -s)" in
-    Darwin) printf '%s\n' "$HOME/Library/Application Support/Yoyodyne/state" ;;
-    MINGW*|MSYS*|CYGWIN*) printf '%s\n' "${LOCALAPPDATA:-$HOME/AppData/Local}/Yoyodyne/state" ;;
-    *) printf '%s\n' "$HOME/.local/state/yoyodyne" ;;
+    Darwin) earlier="$HOME/Library/Application Support/Yoyodyne/state" ;;
+    MINGW*|MSYS*|CYGWIN*) earlier="${LOCALAPPDATA:-$HOME/AppData/Local}/Yoyodyne/state" ;;
+    *) earlier="$HOME/.local/state/yoyodyne" ;;
   esac
+  if [ ! -e "$HOME/.yoyodyne" ] && [ -d "$earlier" ]; then
+    printf '%s\n' "$earlier"
+  else
+    printf '%s\n' "$HOME/.yoyodyne"
+  fi
 }
 
 root="$(state_root)"
