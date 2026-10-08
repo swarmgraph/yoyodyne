@@ -29,10 +29,12 @@ type Supervision interface {
 }
 
 // ConfigReaders is what the running parts of the product recorded about the
-// configuration keys their builds read, compared against the file each reads.
-// It is satisfied by *runstate.ConfigReaderStore.
+// configuration keys their builds read, compared against the file each reads,
+// and which of the parts that recorded themselves are running. It is satisfied
+// by *runstate.ConfigReaderStore.
 type ConfigReaders interface {
 	Mismatches() ([]runstate.ConfigMismatch, error)
+	Running() ([]runstate.ConfigReader, error)
 }
 
 // readConfigMismatches is every running part that cannot read something in
@@ -60,6 +62,10 @@ type Services struct {
 	// every surface reads one vocabulary of child states.
 	Record       runstate.Supervision `json:"record"`
 	Availability *WatchAvailability   `json:"availability,omitempty"`
+	// Copies is how many copies of each part the supervisor hosts are running,
+	// and of the supervisor, each with its build; it is absent where nothing
+	// recorded which copies run.
+	Copies []ServiceCopies `json:"copies,omitempty"`
 }
 
 // readServices reads the supervisor's lease and record. A reading with no
@@ -83,6 +89,13 @@ func readServices(sources Sources) (*Services, string) {
 	}
 	services.Recorded = found
 	services.Record = recorded
+	if found && sources.ConfigReaders != nil {
+		readers, err := sources.ConfigReaders.Running()
+		if err != nil {
+			problem = joinProblems(problem, fmt.Sprintf("which copies of the product's parts are running could not be read whole: %v", err))
+		}
+		services.Copies = readServiceCopies(recorded, readers)
+	}
 	if sources.Machine != nil {
 		availability := ReadWatchAvailability(sources)
 		services.Availability = &availability
@@ -101,6 +114,21 @@ func (s *Services) Attention() []Attention {
 	attention := make([]Attention, 0, len(degraded))
 	for _, child := range degraded {
 		attention = append(attention, degradedServiceAttention(child))
+	}
+	return attention
+}
+
+// CopiesAttention is each part with more than one copy running, which is a
+// factory problem as well as attention.
+func (s *Services) CopiesAttention() []Attention {
+	if s == nil {
+		return nil
+	}
+	var attention []Attention
+	for _, copies := range s.Copies {
+		if copies.Problem() {
+			attention = append(attention, serviceCopiesAttention(copies))
+		}
 	}
 	return attention
 }
@@ -155,6 +183,11 @@ func (s Standing) RenderServices() string {
 	if services.Recorded {
 		for _, child := range record.Children {
 			fmt.Fprintf(&rendered, "  %s\n", supervise.DescribeChild(child))
+		}
+	}
+	for _, copies := range services.Copies {
+		if copies.Problem() {
+			fmt.Fprintf(&rendered, "  %s\n", copies.Says())
 		}
 	}
 	if s.ServicesProblem != "" {

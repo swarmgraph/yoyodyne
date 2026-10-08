@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"syscall"
 	"testing"
 	"time"
 
@@ -112,10 +111,12 @@ func TestTheProductStartsOnceStopsOnceAndASecondStartDoesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Whatever the test finds, the process it started does not outlive it.
+	// Whatever the test finds, the process it started does not outlive it: the
+	// cleanup is registered before the start, so a failure anywhere after it
+	// still stops the supervisor the record names and collects it.
 	t.Cleanup(func() {
 		if recorded, found, err := store.Load(); err == nil && found && recorded.PID > 0 {
-			_ = syscall.Kill(recorded.PID, syscall.SIGKILL)
+			stopTestProcess(recorded.PID)
 		}
 	})
 
@@ -640,6 +641,9 @@ services:
 	for _, child := range children {
 		if _, ok := child.(supervise.Deployable); !ok {
 			t.Errorf("the %s service is not a supervise.Deployable: it does not say which build it runs or what it is in the middle of, so no deploy would ever move it", child.Name())
+		}
+		if _, ok := child.(supervise.Identified); !ok {
+			t.Errorf("the %s service is not a supervise.Identified: taken back running, it cannot say which process it is, so the supervisor cannot tell its own copy from one it did not start", child.Name())
 		}
 		_, self := child.(supervise.RestartsItself)
 		_, passes := child.(supervise.Passes)

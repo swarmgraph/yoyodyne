@@ -72,6 +72,9 @@ const (
 	// cannot read keys the configuration it reads now carries, so every read
 	// it makes of the file fails. The part is the ID.
 	AttentionConfigMismatch AttentionKind = "config-mismatch"
+	// AttentionServiceCopies is more than one copy of a part the supervisor
+	// hosts running at once. The part is the ID.
+	AttentionServiceCopies AttentionKind = "service-copies"
 	// AttentionHold is one of the switches over what the harness does: the
 	// operator's hold over everything, the intake hold over what it chooses for
 	// itself, and the provider holding every role at once. The entry's ID says
@@ -132,6 +135,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionDegradedService,
 		AttentionFailingTask,
 		AttentionConfigMismatch,
+		AttentionServiceCopies,
 		AttentionHold,
 		AttentionDirective,
 		AttentionOutage,
@@ -183,6 +187,7 @@ func (a Attention) Label() string {
 		AttentionDegradedService:   "service down",
 		AttentionFailingTask:       "scheduled task failing",
 		AttentionConfigMismatch:    "service cannot read configuration",
+		AttentionServiceCopies:     "more than one copy running",
 		AttentionHold:              "work paused",
 		AttentionDirective:         "direction unresolved",
 		AttentionOutage:            "provider unavailable",
@@ -326,6 +331,9 @@ type Attention struct {
 	// ConfigMismatch is the part, its build, and the keys it cannot read, on an
 	// AttentionConfigMismatch entry; the running instance is the ID.
 	ConfigMismatch *runstate.ConfigMismatch `json:"config_mismatch,omitempty"`
+	// ServiceCopies is every running copy of the part, each with its process,
+	// build, and start, on an AttentionServiceCopies entry; the part is the ID.
+	ServiceCopies *ServiceCopies `json:"service_copies,omitempty"`
 	// OwedStep is where the run stopped, on an AttentionOwedStep entry; the
 	// run is the ID and its item is WorkItemID.
 	OwedStep *OwedStep `json:"owed_step,omitempty"`
@@ -615,6 +623,10 @@ func (a Attention) What() string {
 		if a.ConfigMismatch != nil {
 			return a.ConfigMismatch.Says()
 		}
+	case AttentionServiceCopies:
+		if a.ServiceCopies != nil {
+			return a.ServiceCopies.Says()
+		}
 	case AttentionFailingTask:
 		if a.FailingTask != nil {
 			return a.FailingTask.Says()
@@ -774,6 +786,8 @@ func (a Attention) Whose() string {
 		if a.ConfigMismatch != nil {
 			return a.Mover.Possessive() + " — " + runstate.ConfigMismatchRemedy(a.ConfigMismatch.Service) + "; the entry clears once the part runs a build that reads every key"
 		}
+	case AttentionServiceCopies:
+		return a.Mover.Possessive() + " — the supervisor collects every copy it stopped, and leaves a running copy it did not start rather than stopping a process nobody can account for; what started each extra copy is found and fixed, and the entry clears once only the supervisor's own copy runs"
 	case AttentionFailingTask:
 		if a.FailingTask != nil && a.FailingTask.Ownership != nil {
 			return a.Mover.Possessive() + " — " + runstate.PassFailureOwnersSays(*a.FailingTask.Ownership) + "; the affected pass succeeding clears this finding"

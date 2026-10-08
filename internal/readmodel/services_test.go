@@ -3,6 +3,7 @@ package readmodel
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -145,11 +146,16 @@ func TestAnUnsupervisedProductPrintsNoServicesLine(t *testing.T) {
 
 type fakeConfigReaders struct {
 	mismatches []runstate.ConfigMismatch
+	running    []runstate.ConfigReader
 	err        error
 }
 
 func (f fakeConfigReaders) Mismatches() ([]runstate.ConfigMismatch, error) {
 	return f.mismatches, f.err
+}
+
+func (f fakeConfigReaders) Running() ([]runstate.ConfigReader, error) {
+	return f.running, f.err
 }
 
 // A running part whose build cannot read the configuration is on the attention
@@ -193,5 +199,78 @@ func TestAPartWhoseBuildCannotReadTheConfigurationIsNamed(t *testing.T) {
 	unread := ReadStanding(context.Background(), sources)
 	if !strings.Contains(unread.NeedsHumanProblem, "unexpected EOF") {
 		t.Errorf("NeedsHumanProblem = %q, want the unreadable record said", unread.NeedsHumanProblem)
+	}
+}
+
+// More than one copy of a part running, and a copy on an old build, are in the
+// reading `yoyo status` draws from: each copy with its process, build, and
+// start, and which is the supervisor's, said on the services line, on the
+// attention line with whose move it is, and among the factory problems. A part
+// with one copy is counted and raises nothing.
+func TestMoreThanOneCopyAndACopyOnAnOldBuildAreInTheReadModel(t *testing.T) {
+	t.Parallel()
+
+	deployed := "3d3d367a1b2c4d5e"
+	started := time.Date(2026, 10, 4, 17, 35, 0, 0, time.UTC)
+	sources := quietSources()
+	sources.Supervision = fakeSupervision{running: true, found: true, recorded: runstate.Supervision{
+		PID:      4242,
+		Deployed: deployed,
+		Children: []runstate.SupervisedChild{
+			{Service: config.ServiceSlack, State: runstate.ChildRunning, PID: 77, Build: deployed},
+			{Service: config.ServiceDashboard, State: runstate.ChildNotYet},
+			{Service: config.ServiceScheduler, State: runstate.ChildRunning, PID: 78, Build: deployed},
+		},
+	}}
+	sources.ConfigReaders = fakeConfigReaders{running: []runstate.ConfigReader{
+		{Service: "supervisor", PID: 4242, Build: deployed, StartedAt: started.Add(time.Hour)},
+		{Service: "slack", PID: 77, Build: deployed, StartedAt: started.Add(time.Hour)},
+		{Service: "slack", PID: 99, Build: "1a2b3c4d5e6f7a8b", StartedAt: started},
+		{Service: "scheduler", PID: 78, Build: deployed, StartedAt: started.Add(time.Hour)},
+		// Copies of a part the supervisor does not start are not its to count.
+		{Service: "dashboard", PID: 80, Build: "1a2b3c4d5e6f7a8b", StartedAt: started},
+		{Service: "dashboard", PID: 81, Build: deployed, StartedAt: started},
+	}}
+	standing := ReadStanding(context.Background(), sources)
+
+	counts := map[string]int{}
+	var slack ServiceCopies
+	for _, copies := range standing.Services.Copies {
+		counts[copies.Service] = copies.Count()
+		if copies.Service == "slack" {
+			slack = copies
+		}
+	}
+	if want := map[string]int{"slack": 2, "scheduler": 1, "supervisor": 1}; !reflect.DeepEqual(counts, want) {
+		t.Fatalf("copies counted = %v, want %v", counts, want)
+	}
+	if extra := slack.Extra(); len(extra) != 1 || extra[0].PID != 99 || !extra[0].Behind || extra[0].Build != "1a2b3c4d5e6f7a8b" || !extra[0].StartedAt.Equal(started) {
+		t.Fatalf("slack's extra copies = %+v, want pid 99, on its old build, with its start", extra)
+	}
+
+	var raised []Attention
+	for _, entry := range standing.NeedsHuman {
+		if entry.Kind == AttentionServiceCopies {
+			raised = append(raised, entry)
+		}
+	}
+	if len(raised) != 1 || raised[0].ID != "slack" || raised[0].Mover != MoverDevelopmentManager {
+		t.Fatalf("attention = %+v, want the slack service alone, the development manager's", raised)
+	}
+	if what := raised[0].What(); !strings.Contains(what, "the slack service has 2 copies running") || !strings.Contains(what, "pid 99 on build 1a2b3c4d5e6f, an old build,") {
+		t.Errorf("what = %q, want the count and the copy on its old build", what)
+	}
+	inFactory := false
+	for _, entry := range standing.FactoryProblems {
+		inFactory = inFactory || (entry.Kind == AttentionServiceCopies && entry.ID == "slack")
+	}
+	if !inFactory {
+		t.Errorf("factory problems = %+v, want the extra copy among them", standing.FactoryProblems)
+	}
+	rendered := standing.Render() + standing.RenderServices()
+	for _, want := range []string{"Waiting on the development manager", "the slack service has 2 copies running, where one should run", "(not the supervisor's, left running)"} {
+		if !strings.Contains(rendered, want) {
+			t.Errorf("rendered:\n%s\nwant %q in it", rendered, want)
+		}
 	}
 }

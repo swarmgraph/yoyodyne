@@ -443,6 +443,11 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "start failed: %v\n", err)
 		return 1
 	}
+	copies, err := runstate.NewConfigReaderStore(p.stateRoot, p.resolved.Config.Product.ID)
+	if err != nil {
+		fmt.Fprintf(stderr, "start failed: %v\n", err)
+		return 1
+	}
 	supervisor := &supervise.Supervisor{
 		Records:     p.store,
 		Product:     p.resolved.Config.Product.ID,
@@ -461,6 +466,9 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 		// so that file is the build each of them is moved onto when it is
 		// deployed over.
 		Binary: &supervise.DeployedBinary{Path: p.program},
+		// Every copy of a part records itself here as it starts, so this is where
+		// the supervisor finds a copy it did not collect or did not start.
+		Copies: copies,
 	}
 	residents, pass, err := p.residents(supervisor, log)
 	if err != nil {
@@ -918,6 +926,9 @@ func (c slackChild) presencePID() int {
 	return presence.PID
 }
 
+// HolderPID is the process the running sink recorded itself as.
+func (c slackChild) HolderPID(context.Context) int { return c.presencePID() }
+
 // Build is the revision the running sink recorded itself as built from.
 func (c slackChild) Build(context.Context) (string, error) {
 	presence, found, err := c.store.LoadPresence()
@@ -1012,6 +1023,9 @@ func (c schedulerChild) Ensure(context.Context) (supervise.Ensured, error) {
 	}
 	return supervise.Ensured{Started: true, PID: pid, Log: filepath.Join(c.logRoot, filepath.FromSlash(c.log))}, nil
 }
+
+// HolderPID is the process the watching session stamped itself as.
+func (c schedulerChild) HolderPID(context.Context) int { return c.holderPID() }
 
 func (c schedulerChild) holderPID() int {
 	holder, found, err := c.watch.Holder()

@@ -157,6 +157,12 @@ type Supervisor struct {
 	// set, each child that says which build it runs is compared with it and
 	// moved onto it when it is deployed over; nil moves nothing.
 	Binary *DeployedBinary
+	// Copies is every process that recorded itself as a part of the product,
+	// which the supervisor settles on its look at builds so exactly one copy of
+	// each part it hosts runs (copies.go); nil settles nothing. Collect collects
+	// an exited child and reports whether it did; nil asks the operating system.
+	Copies  CopyRecords
+	Collect func(pid int) (bool, error)
 	// PowerHistory is the OS account of sleep and wake, read once a minute.
 	PowerHistory    func(context.Context) ([]runstate.PowerEvent, error)
 	lastMachineLook time.Time
@@ -177,6 +183,9 @@ type Supervisor struct {
 	// takeUp is the deployed build a pass has asked the supervisor to take up
 	// by re-executing into it, which Run does once the tick asking it is over.
 	takeUp string
+	// unaccounted is each copy the supervisor has already said it cannot
+	// account for, so the log says each once.
+	unaccounted map[string]bool
 }
 
 // ErrAlreadyRunning is a supervisor refused because another holds the lease.
@@ -247,6 +256,9 @@ func (s *Supervisor) Tick(ctx context.Context) {
 		}
 		s.look(ctx, child, state, now)
 	}
+	if s.deployLook {
+		s.settleCopies()
+	}
 	s.record(now)
 	for _, resident := range s.Residents {
 		if ctx.Err() != nil {
@@ -271,6 +283,12 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 		// came back as is asked now rather than at the next look at builds.
 		returned := state.State != runstate.ChildRunning && state.RestartingInto != ""
 		s.up(child, state, now)
+		// A child taken back rather than started has no process number from a
+		// start, and without one the supervisor cannot tell its own copy from one
+		// it did not start; the child's own record says which process holds it.
+		if identified, ok := child.(Identified); ok && state.PID <= 0 {
+			state.PID = identified.HolderPID(ctx)
+		}
 		s.deploy(ctx, child, state, now, returned)
 		return
 	}
@@ -337,6 +355,7 @@ func (s *Supervisor) died(child Child, state *runstate.SupervisedChild, now time
 	}
 	state.Failures++
 	state.DiedAt = now
+	s.collectDied(state.PID)
 	state.PID = 0
 	if state.Failures > MaxRapidFailures {
 		s.degrade(child, state, fmt.Sprintf("died %d times within %s of being started, most recently at %s, so it is left down",

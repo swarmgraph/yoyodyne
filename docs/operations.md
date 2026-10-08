@@ -246,6 +246,44 @@ the `failures` the backoff and the five-in-two-minutes bound count — so a day
 of deploys never leaves a part degraded, and a part that dies on its own with
 no deploy behind it is still a death.
 
+**The copy a deploy replaces is gone before its replacement starts.** A
+restart, whether into a deployed build or at a program manager's request, asks
+the part's current process to stop, waits for it to let go of its lease, and
+then waits for the process itself to leave: the supervisor started it, so the
+supervisor is its parent, and it collects the exited process rather than
+leaving it in the process table. Only then is the part started again from the
+binary, so exactly one copy runs and it is on the build just deployed; a stop
+whose process is still there at the end of the stop's bound says so in the
+part's `redeploy` line. `yoyo stop` waits the same way for each process it
+stops. Until yoyodyne-ifd.434.19 nothing collected a stopped sink: the launcher
+lets each part go without waiting on it, and the supervisor re-executes into a
+deployed build keeping its process, so every sink a deploy replaced stayed in
+the process table as an exited process, and every reading of which parts run
+counted it as a copy still running on its old build.
+
+Every long-running part records itself as it starts, one record per process
+(the [records of which configuration keys each part reads](#checking-the-installation)), and those
+records are where every copy of a part shows, whoever started it. Every thirty
+seconds the supervisor reads them for each part it starts and for itself:
+
+- an exited copy it is the parent of is collected, which is how a supervisor
+  from before this change clears the copies it left, once it has taken up a
+  build carrying it;
+- the record of a copy that is gone is removed, so the records are the parts
+  running rather than every start the product has made;
+- a running copy that is not the one the supervisor runs is one it did not
+  start and cannot account for. It is not stopped, and no signal is sent: the
+  supervisor says it once in its log, with the process, its build, and when it
+  started, and `yoyo status` reports it (below) until somebody finds what
+  started it.
+
+A record names a process by number, and a number outlives its process: an
+exited process keeps it until collected, and a later process can be given it.
+So a copy is counted as running only while the process with its number is
+running and started no later than the copy's record was written; that rules
+out both, wherever the operating system says when a process started (macOS
+and Linux).
+
 `yoyo status` prints the parts under the four lines, one line each in the words
 `yoyo start` uses, saying which build each is on and since when, and where a
 deploy is moving one:
@@ -297,6 +335,26 @@ before the supervisor looked; the date appears once the supervisor has seen it
 move. A part whose build cannot
 be read — one that recorded none, such as a binary built without Go's stamp —
 is compared with nothing and moved by nothing, and its line names no build.
+
+**More than one copy of a part is a problem with an owner.** `--json` carries
+under `standing.services.copies` every part the supervisor starts, and the
+supervisor itself, with each running copy: its `pid`, `build`, `started_at`,
+whether it is the copy the supervisor runs (`supervised`), and whether it is on
+a build other than the one on disk (`behind`). A part with more than one copy
+running gets a line of its own under its part:
+
+```text
+  the slack service has 2 copies running, where one should run: pid 48214 on build 3d3d367a1b2c since 2026-10-04 17:35 PDT (the supervisor's); pid 51116 on build c2a73cb68732, an old build, since 2026-10-03 06:09 PDT (not the supervisor's, left running)
+```
+
+The same sentence is on the fourth line under **Waiting on the development
+manager**, as a `service-copies` entry: the supervisor collects every copy it
+stopped and will not stop one it cannot account for, so what is left is
+finding what started it and having that fixed, which is the reliability work
+she resolves. It is among the dashboard's **Factory problems** too. The entry
+clears once only the supervisor's own copy runs. Parts the supervisor does not
+start, the dashboard until it is adopted, are not counted: two dashboards
+started by hand are allowed.
 
 ### The supervisor's maintenance pass
 
@@ -619,7 +677,12 @@ process and start time. For the same service and process id, only the latest
 startup record is compared: the watch and supervisor keep their process ids
 when they restart into a deployed build, and the new account supersedes the
 previous build's record. Starting another dashboard keeps the first dashboard
-in the comparison while both processes remain running. The doctor reads the
+in the comparison while both processes remain running. An instance is live
+only while its process is: one that has exited and not been collected, or a
+later process given the same number, is not the part
+([the copy a deploy replaces](#starting-the-product-and-stopping-it) says
+why), and the supervisor removes the records of instances that are gone. The
+doctor reads the
 records of every live instance, reads the file each one reads as it stands
 now, and names every key in it that part's build would
 refuse, with the part, its build, and its process:
@@ -4418,6 +4481,7 @@ they are not the labels a person reads:
 | `degraded-service` | service down |
 | `failing-task` | scheduled task failing |
 | `config-mismatch` | service cannot read configuration |
+| `service-copies` | more than one copy running |
 | `hold` | work paused |
 | `directive` | direction unresolved |
 | `outage` | provider unavailable |
@@ -4597,7 +4661,7 @@ where the queue could not be read.
 Each entry under `standing.needs_human` is the thing waiting rather than a
 sentence about it: its `kind`, from a closed set — `amendment`,
 `conversation-carried-item`, `report`, `amendment-queue`, `owed-step`,
-`publication`, `degraded-service`, `failing-task`, `config-mismatch`, `hold`, `directive`,
+`publication`, `degraded-service`, `failing-task`, `config-mismatch`, `service-copies`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
 `check-could-not-run` — the `id`
@@ -4612,7 +4676,7 @@ page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
 `unnamed-role`), and
 the record itself, whole, under a field named for the kind — `amendment`,
-`directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`,
+`directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`, `service_copies`,
 `owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
 `tracker_listings`, `unrun_check`, and for a hold `operator_hold`, `intake_hold`, or
@@ -5483,7 +5547,11 @@ slowly or not at all`.
    that has been draining past its bound for ten minutes without restarting
    is listed here too, naming the session and since when, until a session
    running the deployed build takes over. One waiting out a run at its
-   promotion is not listed, however long the promotion takes.
+   promotion is not listed, however long the promotion takes. So is a part
+   the supervisor starts with
+   [more than one copy running](#starting-the-product-and-stopping-it), each
+   copy with its process, build, and start, until only the supervisor's own
+   copy runs.
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),

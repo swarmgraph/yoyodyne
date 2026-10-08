@@ -1803,6 +1803,20 @@ var standingWarningAgeSeconds = 5 * 60;
         add("Configuration", mismatch.config_path, "card-field-id");
         add("Keys it cannot read", (mismatch.keys || []).join(", "), "card-field-id");
         break;
+      case "service-copies":
+        var copies = entry.service_copies;
+        add("Service", entry.id);
+        if (!copies) {
+          break;
+        }
+        add("Build on disk", copies.deployed || "not recorded", "card-field-id");
+        (copies.copies || []).forEach(function (running) {
+          add("Process " + running.pid,
+            (running.build ? "build " + running.build.slice(0, 12) + (running.behind ? ", an old build" : "") : "a build that recorded no revision") +
+            ", started " + (named(running.started_at) ? dayAndClock(running.started_at) : "at a time not recorded") +
+            (running.supervised ? "; the supervisor's" : "; not the supervisor's, left running"), "card-field-prose");
+        });
+        break;
       case "failing-task":
         var failing = entry.failing_task;
         add("Task", entry.id);
