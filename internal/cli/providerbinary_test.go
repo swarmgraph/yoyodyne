@@ -123,7 +123,7 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"claude-fixture
 					for _, command := range runner.commands {
 						if command.Name == binary && len(command.Args) > 0 && command.Args[0] == "exec" {
 							started = true
-							if !strings.Contains(strings.Join(command.Args, "\n"), "--config\n"+`default_permissions="yoyodyne-read-only"`) {
+							if !strings.Contains(strings.Join(command.Args, "\n"), "--config\n"+`default_permissions="yoyodyne-read-only-`) {
 								t.Fatalf("role lost its read-only permission profile: %v", command.Args)
 							}
 						}

@@ -19,6 +19,8 @@ package codex
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -57,6 +59,17 @@ const (
 // here can name an unrestricted profile or the `--sandbox` option: codex-cli
 // 0.160.0 lets `--sandbox` replace a selected profile without a word, so a run
 // given both would run under the option and not under its profile.
+//
+// These are the start of each profile's name, and profileName adds a random
+// ending on every invocation. codex-cli 0.160.0 merges the entries of a
+// `[permissions.<name>]` table in the account's config.toml, or in a trusted
+// worktree's .codex/config.toml, into a profile of the same name given on the
+// command line: asked without a provider call, a config file naming
+// `yoyodyne-developer` made a directory outside the worktree writable. A name
+// drawn when the invocation starts is one no file written before it can name,
+// so nothing is merged into it. The same rendering showed that what those
+// files say about `sandbox_mode` and `default_permissions` gives way to the
+// profile the command line selects.
 const (
 	profileDeveloper = "yoyodyne-developer"
 	profileReadOnly  = "yoyodyne-read-only"
@@ -113,7 +126,10 @@ func profileFor(role domain.AgentRole) (string, error) {
 // and the system and user temporary directories, which the `workspace-write`
 // sandbox granted too and which a project's tests write to. The read-only
 // profile writes nothing at all.
-func profileArgs(profile string, writable []string) []string {
+//
+// name is the name the profile is defined and selected under, which
+// profileName makes from the profile.
+func profileArgs(profile, name string, writable []string) []string {
 	entries := []string{tomlString(":root") + `="read"`}
 	if profile == profileDeveloper {
 		entries = append(entries, tomlString(":slash_tmp")+`="write"`, tomlString(":tmpdir")+`="write"`)
@@ -131,10 +147,23 @@ func profileArgs(profile string, writable []string) []string {
 		}
 	}
 	return []string{
-		"--config", `default_permissions="` + profile + `"`,
-		"--config", "permissions." + profile + ".filesystem={" + strings.Join(entries, ",") + "}",
-		"--config", "permissions." + profile + ".network.enabled=false",
+		"--config", `default_permissions="` + name + `"`,
+		"--config", "permissions." + name + ".filesystem={" + strings.Join(entries, ",") + "}",
+		"--config", "permissions." + name + ".network.enabled=false",
 	}
+}
+
+// profileName is the name one invocation defines and selects profile under:
+// the profile's own name and sixteen random bytes, so no configuration file can
+// have named it in advance (see the profiles above). A resumed session is given
+// a new one with each turn, which the CLI accepts: it runs a resume under the
+// profile given then.
+func profileName(profile string) (string, error) {
+	suffix := make([]byte, 16)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", fmt.Errorf("name the Codex permission profile: %w", err)
+	}
+	return profile + "-" + hex.EncodeToString(suffix), nil
 }
 
 // tomlString quotes a value as a TOML basic string. JSON's string escapes are
@@ -443,7 +472,7 @@ func (Backend) Capabilities() backend.Capabilities {
 // its profile would run under whatever it was started with, or none.
 // testdata/cli-help holds the help this was read from, and conformance_test.go
 // checks every invocation against it.
-func invocationArgs(request backend.RunRequest, profile string, directories []string) []string {
+func invocationArgs(request backend.RunRequest, profile, name string, directories []string) []string {
 	args := []string{"exec"}
 	args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
 	args = append(args, contextArgs()...)
@@ -452,10 +481,10 @@ func invocationArgs(request backend.RunRequest, profile string, directories []st
 		// declared cache and scratch the harness prepared for this run.
 		writable := append([]string{request.WorkingDirectory}, directories...)
 		args = append(args, "--config", `approval_policy="never"`)
-		args = append(args, profileArgs(profile, writable)...)
+		args = append(args, profileArgs(profile, name, writable)...)
 	}
 	if profile == profileReadOnly {
-		args = append(args, profileArgs(profile, nil)...)
+		args = append(args, profileArgs(profile, name, nil)...)
 		args = append(args, readOnlyArgs(request.WorkingDirectory)...)
 	}
 	args = append(args, "--cd", request.WorkingDirectory)
@@ -547,7 +576,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 		}
 	}
-	args := invocationArgs(invocation, profile, directories)
+	name, err := profileName(profile)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	args := invocationArgs(invocation, profile, name, directories)
 
 	// What the role is given beside its prompt is what the project named, plus,
 	// for a developer, the repository's own instruction file the CLI reads from

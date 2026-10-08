@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -95,8 +96,10 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 	if !strings.Contains(strings.Join(developer.Args, "\n"), "--config\nmodel_reasoning_effort=\"low\"") {
 		t.Errorf("the developer invocation lacks explicit default effort: %v", developer.Args)
 	}
-	if got := codexProfileOf(t, developer.Args); got != codexDeveloperProfile {
-		t.Errorf("the developer ran under permission profile %q, want %q", got, codexDeveloperProfile)
+	// The adapter adds a random ending to the name on every invocation, so no
+	// configuration file can name the profile and add to it.
+	if got := codexProfileOf(t, developer.Args); !regexp.MustCompile(`^` + codexDeveloperProfile + `-[0-9a-f]{32}$`).MatchString(got) {
+		t.Errorf("the developer ran under permission profile %q, want %q with a random ending", got, codexDeveloperProfile)
 	}
 	worktree, _ := json.Marshal(outcome.WorktreePath)
 	if !strings.Contains(strings.Join(developer.Args, "\n"), string(worktree)+`="write"`) {

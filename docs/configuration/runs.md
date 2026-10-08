@@ -239,6 +239,17 @@ its profile. The profiles extend none of the CLI's built-in ones, so what a
 role may do does not move with a CLI release. These are existing Codex
 settings, not new keys in Yoyodyne's configuration schema.
 
+Each profile's name is the one in the table below followed by a random ending
+drawn when the invocation starts, such as
+`yoyodyne-developer-3f9c…`. That ending is what keeps configuration files out.
+0.160.0 adds the entries of a `[permissions.<name>]` table in the account's
+`config.toml`, or in the worktree's own `.codex/config.toml` where the account
+trusts the worktree, to a profile of the same name given on the command line:
+a file naming `yoyodyne-developer` made a directory outside the worktree
+writable. No file written before an invocation can name its profile, so nothing
+is added to it. What those files say about `sandbox_mode` or
+`default_permissions` gives way to the profile the command line selects.
+
 | | `yoyodyne-developer` | `yoyodyne-read-only` |
 | --- | --- | --- |
 | Read | every file on the machine | every file on the machine |
@@ -269,8 +280,13 @@ provider call, 0.160.0 runs a resumed session under the profile given then, in
 either direction between the two profiles, rather than the one the session was
 saved with. A test asks the installed CLI to resolve each profile from the
 adapter's own arguments and compares the result entry for entry
-(`TestTheInstalledCLIResolvesEachProfileAsDeclared`); it skips where Codex is
-not installed.
+(`TestTheInstalledCLIResolvesEachProfileAsDeclared`), once with no
+configuration files and once with an account `config.toml` and a trusted
+worktree `.codex/config.toml` that set `sandbox_mode = "danger-full-access"`,
+select an unrestricted profile, and add a writable outside directory and the
+network to each profile's name. Against the same files it checks that a name
+without the random ending is widened, so the check cannot pass on files the CLI
+never read. It skips where Codex is not installed.
 
 A path containing a double quote is quoted correctly in the profile, but the
 CLI's own macOS sandbox has failed to compile such a path into its Seatbelt

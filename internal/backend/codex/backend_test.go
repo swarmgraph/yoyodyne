@@ -337,7 +337,7 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 		"--config", `permissions.yoyodyne-developer.filesystem={":root"="read",":slash_tmp"="write",":tmpdir"="write","/worktree"="write","/worktree/.git"="read","/worktree/.agents"="read","/worktree/.codex"="read","/worktree/.aws"="read"}`,
 		"--config", "permissions.yoyodyne-developer.network.enabled=false",
 		"--cd", "/worktree", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
-	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
+	if !reflect.DeepEqual(withProfileNamesFixed(runner.commands[0].Args), wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
 	if runner.commands[0].Dir != "/worktree" {
@@ -541,7 +541,7 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 		"--config", `permissions.yoyodyne-developer.filesystem={":root"="read",":slash_tmp"="write",":tmpdir"="write","/worktree"="write","/worktree/.git"="read","/worktree/.agents"="read","/worktree/.codex"="read","/worktree/.aws"="read"}`,
 		"--config", "permissions.yoyodyne-developer.network.enabled=false",
 		"--cd", "/worktree", "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
-	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
+	if !reflect.DeepEqual(withProfileNamesFixed(runner.commands[0].Args), wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
 }

@@ -8,8 +8,11 @@ all tools, while Codex permits inspection under a read-only Codex permission
 profile with network access, escalation, and external integrations disabled
 ([capability validation](#capability-validation)).
 
-The recorded codex-cli 0.159.2 streams cover session startup, reconnect notices,
-a provider reply, token usage, and a completed turn. Failed turns and shell,
+The supported Codex CLI is 0.160.0. The stream recordings below were made with
+codex-cli 0.159.2 and have not been re-recorded on 0.160.0, so they show what
+0.159.2 wrote rather than naming a second supported version. They cover
+session startup, reconnect notices, a provider reply, token usage, and a
+completed turn. Failed turns and shell,
 patch, and tool items still lack recorded live streams; see
 `internal/backend/codex/testdata/streams/README.md`. Separate bounded local probes
 of that CLI version verify read-only launch settings and native resume against a
@@ -457,9 +460,9 @@ setting names were read from the CLI's own help and its list of configuration
 keys, and `codex features list` lists the features. Codex was also seen to save
 `auth.json` through a link rather than replace it, so a login refreshed during
 an invocation under the made home is written to the account's own file. The
-recorded help in `internal/backend/codex/testdata/cli-help` is 0.159.2's, which
-lists `--config` and `--disable` on `exec`, and every invocation is checked
-against it.
+recorded help in `internal/backend/codex/testdata/cli-help` was taken from
+0.159.2 and is the same, byte for byte, as 0.160.0's; it lists `--config` and
+`--disable` on `exec`, and every invocation is checked against it.
 
 ## Claude Code settings, memory, skills, connectors, and instruction files
 

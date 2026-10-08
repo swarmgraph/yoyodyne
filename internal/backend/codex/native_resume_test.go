@@ -248,7 +248,7 @@ func (r *sandboxCLIRunner) Run(ctx context.Context, command execution.Command, o
 	// profile without them fails the fixture rather than passing unconfined.
 	temporary := tomlString(":slash_tmp") + `="write",` + tomlString(":tmpdir") + `="write",`
 	for index, arg := range args {
-		if strings.HasPrefix(arg, "permissions."+profileDeveloper+".filesystem=") {
+		if strings.HasPrefix(arg, "permissions."+profileDeveloper+"-") && strings.Contains(arg, ".filesystem=") {
 			if !strings.Contains(arg, temporary) {
 				return execution.ProcessResult{}, fmt.Errorf("the developer profile no longer grants the temporary directories as %q, so the fixture cannot remove them: %s", temporary, arg)
 			}
