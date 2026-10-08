@@ -246,6 +246,9 @@ to make the same judgement out loud instead of the question never being asked.
 | `internal/gitworktree/registry.go` | `(*Manager).leaseRegistry` | A file lock over the worktree registry, held so two processes do not rewrite it at once. |
 | `internal/gitworktree/registry.go` | `(*Manager).leaseRegistryShared` | The same lock taken to read, so a Git command that walks the registrations queues behind a write instead of meeting a half-written one. Every reader may hold it at once; it decides nothing about who may read. |
 | `internal/gitworktree/registry.go` | `registryLease` | The handle for the lock above. |
+| `internal/gitworktree/primarylease.go` | `(*Manager).leasePrimary` | A file lock held while a promotion or a catch-up moves the primary checkout's working tree, so a status read never sees it half-moved. |
+| `internal/gitworktree/primarylease.go` | `(*Manager).leasePrimaryShared` | The same lock taken to read the primary checkout's status, so a readiness read waits for a move in flight. Every reader may hold it at once; it decides nothing about who may read. |
+| `internal/gitworktree/primarylease.go` | `(*Manager).takePrimaryLease` | Opens and takes the file lock the two above share. |
 | `internal/notify/conversation.go` | `fromExchange` | Turns a recorded exchange into something the operator is told. |
 | `internal/notify/conversation.go` | `fromRefusedTrackerBlock` | Turns a recorded refusal of a whole tracker block into something the operator is told. It reads the role the record names so the message can say whose actions were lost; the refusal itself already happened, in the conversation. |
 | `internal/notify/conversation.go` | `fromTrackerAction` | Turns a carried-out tracker action into something the operator is told. |

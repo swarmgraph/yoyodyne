@@ -3307,6 +3307,14 @@ func (m *Manager) commitWorktree(ctx context.Context, path, message string) (str
 // still loses the race instead of being overwritten.
 func (m *Manager) fastForward(ctx context.Context, branch, target, previousTarget, sourceCommit string, inPrimary bool) error {
 	if inPrimary {
+		// The merge rewrites the primary checkout's working tree, so a readiness
+		// read beside it waits rather than reading it half-moved: see
+		// primarylease.go.
+		ctx, release, err := m.leasePrimary(ctx)
+		if err != nil {
+			return err
+		}
+		defer release()
 		// Merge the exact commit we just created, not the mutable source branch.
 		// A concurrent ref update must never redirect approved integration work.
 		merged, err := m.run(ctx, "-C", m.repositoryRoot,
