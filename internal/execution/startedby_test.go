@@ -25,3 +25,19 @@ func TestTheHarnessMarksWhatItStartsAndAnEmptyMarkIsNone(t *testing.T) {
 		t.Error("an empty mark reads as a mark")
 	}
 }
+
+func TestALaunchdJobOfTheProductsOwnIsAMarkAndATerminalIsNot(t *testing.T) {
+	t.Parallel()
+
+	if by, started := StartedBy([]string{LaunchdJobVariable + "=com.yoyodyne.maintenance"}); !started || by != "the launchd job com.yoyodyne.maintenance" {
+		t.Errorf("StartedBy() = %q, %v; want the operator's maintenance job named", by, started)
+	}
+	if by, started := StartedBy([]string{StartedByVariable + "=the supervisor's maintenance pass", LaunchdJobVariable + "=com.yoyodyne.supervisor.calc"}); !started || by != "the supervisor's maintenance pass" {
+		t.Errorf("StartedBy() = %q, %v; want the harness's own mark ahead of the job it runs under", by, started)
+	}
+	for _, terminal := range []string{"0", "application.com.apple.Terminal.1234", ""} {
+		if by, started := StartedBy([]string{LaunchdJobVariable + "=" + terminal}); started {
+			t.Errorf("a terminal named %q reads as started by %q", terminal, by)
+		}
+	}
+}
