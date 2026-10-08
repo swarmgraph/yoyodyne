@@ -715,7 +715,8 @@ func writeCommitted(t *testing.T, repository, relative, content string) {
 // and costs a change that touches none of it nothing: the adoption walk runs
 // for a change to the program it documents and not for one to a document
 // elsewhere. Where it runs, its result is a check result like any other, so the
-// review is shown it, and the stage's record says which path added it.
+// review is shown it, and the stage's record says which path added it; where
+// it does not run, the record says so and why.
 func TestAPathCheckRunsOnlyForAChangeTouchingWhatItVouchesFor(t *testing.T) {
 	t.Parallel()
 
@@ -772,7 +773,44 @@ func TestAPathCheckRunsOnlyForAChangeTouchingWhatItVouchesFor(t *testing.T) {
 			if recorded != test.added {
 				t.Fatalf("recorded stage = %#v, want the added check named = %v", state.CheckStage, test.added)
 			}
+			passedOver := state.CheckStage != nil && strings.Contains(state.CheckStage.Narrowed, walk+" not run because the change touches nothing scripts/walk.paths lists")
+			if passedOver == test.added {
+				t.Fatalf("recorded stage = %#v, want the check named as not run = %v", state.CheckStage, !test.added)
+			}
 		})
+	}
+}
+
+// The stage's record names every configured path check, each either with what
+// added it or as not run with the reason, so a change the Codex resume check
+// was not run on says why in plain words rather than leaving it out.
+func TestTheRecordSaysWhichPathChecksDidNotRunAndWhy(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, list := range map[string]string{"walk.paths": "/internal/\n", "codex.paths": "/internal/backend/codex/\n"} {
+		if err := os.WriteFile(filepath.Join(root, "scripts", name), []byte(list), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	configured := []config.PathCheck{
+		{Command: "make adoption", Paths: "scripts/walk.paths"},
+		{Command: "make codex-resume", Paths: "scripts/codex.paths", NeedsProviderCLIs: true},
+	}
+	said := describePathChecks(configured, pathChecksFor(root, configured, []string{"internal/cli/status.go"}))
+	want := "; make adoption added because the change touches internal/cli/status.go, which scripts/walk.paths lists" +
+		"; make codex-resume not run because the change touches nothing scripts/codex.paths lists"
+	if said != want {
+		t.Fatalf("describePathChecks() = %q, want %q", said, want)
+	}
+	if said := describePathChecks(configured, pathChecksFor(root, configured, []string{"internal/backend/codex/args.go"})); strings.Contains(said, "not run") {
+		t.Fatalf("describePathChecks() = %q, want both checks added for a change to the Codex adapter", said)
+	}
+	if said := describePathChecks(nil, nil); said != "" {
+		t.Fatalf("describePathChecks() = %q, want nothing where no path check is configured", said)
 	}
 }
 

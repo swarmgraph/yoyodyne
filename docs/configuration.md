@@ -2971,7 +2971,8 @@ fails is a failing check, handed to the developer to repair like any other, and
 one that passes is a check result the review is shown beside the rest. A change
 that touches nothing on a path check's list does not run it. The run's record
 and the item's notes say which path check the gate added and which changed
-path added it, where they say what the gate was narrowed to.
+path added it, and name each one it did not run as touching nothing its list
+covers, where they say what the gate was narrowed to.
 
 The list lives beside the thing it describes rather than in this file, and a
 change that edits it runs the check whatever the edited list says. Otherwise
