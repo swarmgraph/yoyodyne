@@ -243,6 +243,25 @@ yourself in one:
 export GOCACHE="${TMPDIR:-/tmp}/go-build"
 ```
 
+Those grants are the provider's to give, and yoyo depends on two of them without
+controlling either: a run writes its build cache inside `.git`, and a run reads
+absolute paths outside its worktree — the primary checkout's tracker export
+among them. A Claude Code release that tightened either would break runs with
+nothing going red, so both are probed against the installed CLI by
+`TestLocalConformanceARunWritesInsideItsRepositorysGitDirectory` and
+`TestLocalConformanceARunReadsAnAbsolutePathOutsideItsWorktree` in
+`internal/backend/claudecode`. Each spends a provider invocation, so like the
+rest of that suite they are opt-in:
+
+```sh
+YOYODYNE_CLAUDE_CONFORMANCE=1 go test ./internal/backend/claudecode -run Conformance
+```
+
+Run them after upgrading the CLI. What the declared checks cover on their own is
+the fixture the probes stand on — that the directory each aims at is really
+outside the worktree the run works in, so a green probe means a grant rather
+than a target the run held anyway.
+
 `make build`, `make test`, `make race`, and `make vet` refuse before they spend
 anything when the cache cannot be written, and the refusal names that redirect,
 so it costs a message rather than a diagnosis. `GOTMPDIR` is deliberately left
