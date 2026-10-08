@@ -1965,7 +1965,11 @@ A watching session waits and reads again; a drain stops on the refusal. The watc
 log, `yoyo status`, and the Slack heartbeat carry the cause, including
 `runs cannot start: uncommitted changes in the primary checkout (<file>); commit or stash to release`.
 Once you commit or stash, the next poll can start the queued work without a
-session restart or an edit to the item. Other refusals carry the condition and
+session restart or an edit to the item. A readiness read waits for a promotion
+that is moving the primary checkout at that moment, so the files a promotion is
+still writing there are never reported as somebody's uncommitted changes, and a
+promotion is never failed by a readiness read holding Git's index lock beside
+it. Other refusals carry the condition and
 the beginning of the cause separately, so bounding a long cause does not spend
 the detail limit repeating the condition.
 
