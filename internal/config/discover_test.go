@@ -1,6 +1,7 @@
 package config
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -561,6 +562,12 @@ func TestNothingButTheMigrationNamesTheEarlierConfigurationsHome(t *testing.T) {
 		source, err := os.ReadFile(path)
 		if err != nil {
 			return err
+		}
+		// A compiled binary under bin/ — the bin/yoyo a build leaves there — is
+		// built from the Go sources this reads already, the migration's among them,
+		// so it carries the migration's own words; only scripts are read there.
+		if bytes.IndexByte(source, 0) >= 0 {
+			return nil
 		}
 		for number, line := range strings.Split(string(source), "\n") {
 			if earlier.MatchString(line) {
