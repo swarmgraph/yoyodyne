@@ -150,6 +150,12 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Latest: "bd list did not answer within its 30s bound on any of 3 attempts over 1m40s",
 		}),
 			"the tracker has not answered a listing since 2026-08-30T11:00:00Z: 3 listing(s) failed after their retries, the latest at 2026-08-30T12:00:00Z: bd list did not answer within its 30s bound on any of 3 attempts over 1m40s"},
+		AttentionUnrunCheck: {unrunCheckAttention(UnrunCheck{
+			Command: "make codex-resume", Changes: 3, Since: moment.Add(-3 * time.Hour), LatestAt: moment, LatestRunID: "run-latest",
+			Reason: "codex is not installed on this machine",
+		}),
+			"the check make codex-resume could not run on 3 changes in a row, since " + localMoment(moment.Add(-3*time.Hour)) +
+				", so each of them went on without it; latest reason: codex is not installed on this machine"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -229,6 +235,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionUntracedPass:      "factory-watch",
 		AttentionFactoryStall:      "2026-08-30T06:00:00Z",
 		AttentionTrackerUnanswered: "2026-08-30T11:00:00Z",
+		AttentionUnrunCheck:        "make codex-resume",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)

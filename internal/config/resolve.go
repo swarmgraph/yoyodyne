@@ -240,6 +240,7 @@ func newResolution() *resolution {
 				WorkPoll:                              defaultWorkPoll,
 				RedeployDrainLimit:                    defaultRedeployDrainLimit,
 				FactoryStallAfter:                     defaultFactoryStallAfter,
+				CouldNotRunBeforeStatus:               defaultCouldNotRunBeforeStatus,
 				MissingReportsBeforeFreshConversation: DefaultMissingReportsBeforeFreshConversation,
 				BlockedRunsBeforeIntakeHold:           defaultBlockedRunsBeforeIntakeHold,
 				BrakeCooldown:                         defaultBrakeCooldown,
@@ -328,6 +329,7 @@ func newResolution() *resolution {
 			"execution.work_poll":                                 OriginDefault,
 			"execution.redeploy_drain_limit":                      OriginDefault,
 			"execution.factory_stall_after":                       OriginDefault,
+			"execution.could_not_run_before_status":               OriginDefault,
 			"execution.missing_reports_before_fresh_conversation": OriginDefault,
 			"execution.blocked_runs_before_intake_hold":           OriginDefault,
 			"execution.brake_cooldown":                            OriginDefault,
@@ -375,6 +377,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.work_poll", execution.WorkPoll, &r.config.Execution.WorkPoll, applied.origin)
 		setValue(r.origins, "execution.redeploy_drain_limit", execution.RedeployDrainLimit, &r.config.Execution.RedeployDrainLimit, applied.origin)
 		setValue(r.origins, "execution.factory_stall_after", execution.FactoryStallAfter, &r.config.Execution.FactoryStallAfter, applied.origin)
+		setValue(r.origins, "execution.could_not_run_before_status", execution.CouldNotRunBeforeStatus, &r.config.Execution.CouldNotRunBeforeStatus, applied.origin)
 		setValue(r.origins, "execution.missing_reports_before_fresh_conversation", execution.MissingReportsBeforeFreshConversation, &r.config.Execution.MissingReportsBeforeFreshConversation, applied.origin)
 		setValue(r.origins, "execution.blocked_runs_before_intake_hold", execution.BlockedRunsBeforeIntakeHold, &r.config.Execution.BlockedRunsBeforeIntakeHold, applied.origin)
 		setValue(r.origins, "execution.brake_cooldown", execution.BrakeCooldown, &r.config.Execution.BrakeCooldown, applied.origin)

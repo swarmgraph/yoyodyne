@@ -588,6 +588,8 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.Agents = agentEndpoints(cfg)
 	sources.UnknownResetPause = cfg.Execution.UsageLimitUnknownResetPause.Duration()
 	sources.FactoryStallAfter = cfg.Execution.FactoryStallAfter.Duration()
+	sources.CouldNotRunBeforeStatus = cfg.Execution.CouldNotRunBeforeStatus
+	sources.GateChecks = cfg.GateCheckCommands()
 	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		sources.Tracker = unreadableTracker{err}
@@ -1228,6 +1230,16 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	if stage := run.CheckStage; stage != nil && ((stage.Running() && run.Status.InFlight()) || stage.StoppedAtBound || stage.Interrupted) {
 		fmt.Fprintf(writer, "  %s\n", singleLine(stage.Describe(time.Now())))
 		printed = true
+	}
+	// A check that said it could not run is said on every run it happened in,
+	// with its reason, because nothing else about the run shows it: it stopped
+	// nothing and spent nothing, so the run reads exactly as one whose checks
+	// all ran.
+	if stage := run.CheckStage; stage != nil {
+		for _, unrun := range stage.CouldNotRun {
+			fmt.Fprintf(writer, "  check %s\n", singleLine(unrun.Says()))
+			printed = true
+		}
 	}
 	// What the landing checks made of the integrated commit is said on every run
 	// that has one, because a red landing is the one fact about a landed change

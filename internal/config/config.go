@@ -374,6 +374,13 @@ type Execution struct {
 	// because the roles that would notice are the ones failing; on 2026-09-29
 	// every pass failed for twelve hours and the one trace was a log nobody read.
 	FactoryStallAfter Duration `yaml:"factory_stall_after" json:"factory_stall_after"`
+	// CouldNotRunBeforeStatus is how many changes in a row one configured
+	// check has to have said it could not run on (checks.CouldNotRunPrefix)
+	// before "yoyo status" says so, naming the check, how many changes, and
+	// since when, until the check runs again. Each such change went on without
+	// the check, which each run says only on itself, so a gap is otherwise seen
+	// only by reading every run.
+	CouldNotRunBeforeStatus int `yaml:"could_not_run_before_status" json:"could_not_run_before_status"`
 	// MissingReportsBeforeFreshConversation bounds consecutive recurring passes
 	// that omit their closing report even after one request for it. Zero uses
 	// the default of three; the next pass starts a new role conversation.
@@ -538,6 +545,10 @@ const (
 	// hourly sweep, so one failed pass is not a stall and two in a row with
 	// nothing pulled between them is.
 	defaultFactoryStallAfter = Duration(2 * time.Hour)
+	// defaultCouldNotRunBeforeStatus is three: one change without a check is
+	// the case the outcome exists for, and three in a row is a check that is
+	// not going to run until somebody does something about it.
+	defaultCouldNotRunBeforeStatus = 3
 	// defaultBlockedRunsBeforeIntakeHold is three, which is the same shape of
 	// bound as the repair and relaunch budgets: enough that one bad item and the
 	// unlucky item after it do not stop the line, and short of a session that
@@ -1021,6 +1032,11 @@ func (c Config) Validate() error {
 	// default; only a negative limit describes nothing anybody could mean.
 	if c.Execution.FactoryStallAfter < 0 {
 		problems = append(problems, "execution.factory_stall_after cannot be negative")
+	}
+	// Zero is a configuration assembled without the key, which reads the
+	// default; a negative count describes no number of changes.
+	if c.Execution.CouldNotRunBeforeStatus < 0 {
+		problems = append(problems, "execution.could_not_run_before_status cannot be negative")
 	}
 	if c.Execution.MissingReportsBeforeFreshConversation < 0 {
 		problems = append(problems, "execution.missing_reports_before_fresh_conversation cannot be negative")

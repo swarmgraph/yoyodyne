@@ -53,6 +53,12 @@ type Result struct {
 	// nothing for a check the stage stopped, and a check the stage never let
 	// start has no elapsed time to read a budget from.
 	StoppedByStage bool `json:"stopped_by_stage,omitempty"`
+	// CouldNotRun is the reason a check that exited non-zero gave for not having
+	// run at all, by the convention CouldNotRunPrefix describes, and empty for
+	// every other check. Passed is false beside it, because nothing passed; a
+	// reader that judges the change skips such a check rather than counting it
+	// as a failure.
+	CouldNotRun string `json:"could_not_run,omitempty"`
 }
 
 // Elapsed is how long the check actually ran.
@@ -282,6 +288,18 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			lastAccepted = sequence.Last()
 		}
 		passed := processResult.Status == execution.ProcessSucceeded
+		// A check that said it could not run and exited non-zero on its own
+		// judged nothing, so it is recorded as such and the list goes on to the
+		// next check: what it would have found is unknown, and what the others
+		// find is not. A check whose output also names a failing test or
+		// package did run something that failed — a make target whose one step
+		// could not run and another failed, or code under test that printed the
+		// line itself — and a real failure is still a failure, so it is judged
+		// as one.
+		var couldNotRun string
+		if processResult.Status == execution.ProcessFailed && len(failure.names) == 0 {
+			couldNotRun = failure.couldNotRun
+		}
 		result := Result{
 			Command:      safeCommand,
 			Process:      processResult,
@@ -292,6 +310,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			// A check killed on time under a budget the stage cut short was
 			// stopped by the stage, whatever its own budget would have allowed.
 			StoppedByStage: boundByStage && processResult.Status == execution.ProcessTimedOut,
+			CouldNotRun:    couldNotRun,
 		}
 		if !passed && failure.observed {
 			result.FailureOutput = failure.render()
@@ -301,7 +320,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			return results, lastAccepted, err
 		}
 		lastAccepted = sequence.Last()
-		if !passed {
+		if !passed && couldNotRun == "" {
 			break
 		}
 	}
@@ -324,6 +343,7 @@ func emitCompleted(runID string, sequence *execution.Sequence, clock execution.C
 		"stage_elapsed":    result.StageElapsed.String(),
 		"stage_timeout":    result.StageTimeout.String(),
 		"stopped_by_stage": result.StoppedByStage,
+		"could_not_run":    result.CouldNotRun,
 	})
 }
 
