@@ -7794,8 +7794,8 @@ under the same bound and duplicate check the Lead Product Manager's sweep
 works under; her sweep is handed those audits rather than repeating them
 ([the operations guide](operations.md#reading-what-the-recurring-tasks-found)).
 Which lanes are standing goals is the instance's remit to say: every instance's
-pass message carries the audit's contract, and the persona tells an instance in
-such a lane to use it.
+pass message carries the audit's contract and tells an instance in such a lane
+to use it, and the program manager persona `yoyo init` ships says so too.
 
 ```yaml
 agents:
