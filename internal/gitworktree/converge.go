@@ -131,6 +131,13 @@ func (m *Manager) CatchUpTarget(ctx context.Context, targetBranch string) (Catch
 		catchup.Advanced = true
 		return catchup, nil
 	}
+	// From the status read that decides what is in the way to the merge that
+	// moves the checkout, nothing reads the checkout half-moved.
+	ctx, release, err := m.leasePrimary(ctx)
+	if err != nil {
+		return catchup, err
+	}
+	defer release()
 	discarded, held, err := m.clearCatchUpPath(ctx, local, published)
 	if err != nil {
 		return catchup, err
@@ -324,8 +331,18 @@ type primaryStatus struct {
 // ValidateReady makes: readiness only asks whether an uncommitted change was
 // declared at all, and a declared export is as acceptable there untracked as
 // tracked, so unexpected keeps exactly the meaning it always had.
+//
+// It reads under the primary checkout lease, so a promotion's half-written
+// merge is never read as somebody's change (see primarylease.go), and without
+// Git's optional index lock: a status that refreshed the index would hold
+// index.lock, and a promotion starting beside it would fail on that lock.
 func (m *Manager) primaryChanges(ctx context.Context) (primaryStatus, error) {
-	result, err := m.run(ctx, "-C", m.repositoryRoot, "status", "--porcelain=v1", "--untracked-files=all")
+	release, err := m.leasePrimaryShared(ctx)
+	if err != nil {
+		return primaryStatus{}, err
+	}
+	defer release()
+	result, err := m.run(ctx, "-C", m.repositoryRoot, "--no-optional-locks", "status", "--porcelain=v1", "--untracked-files=all")
 	if err != nil {
 		return primaryStatus{}, err
 	}
