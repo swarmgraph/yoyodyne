@@ -573,7 +573,7 @@ func repairWorktree(worktree string) error {
 func machineWideWhat(name string) string {
 	switch name {
 	case OperatorHoldFileName:
-		return "the operator's hold"
+		return "the operator's pause"
 	case AccountsDirectoryName:
 		return "the provider accounts"
 	default:

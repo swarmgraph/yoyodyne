@@ -6607,7 +6607,7 @@ func TestPipelineBlocksOnAReplayConflictWithoutResolvingIt(t *testing.T) {
 	pipeline.Config.Execution.RepairAttemptsBeforeReplan = 0
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	if err == nil || !strings.Contains(err.Error(), "cannot be replayed onto the moved integration target") {
+	if err == nil || !strings.Contains(err.Error(), "cannot be replayed onto the moved target branch") {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if !outcome.Blocked || outcome.Integration != nil || tracker.Closed {
@@ -6698,7 +6698,7 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	}
 	// Both sides of the error are preserved: the conflict, and the write that
 	// failed to record it.
-	if !strings.Contains(err.Error(), "cannot be replayed onto the moved integration target") ||
+	if !strings.Contains(err.Error(), "cannot be replayed onto the moved target branch") ||
 		!strings.Contains(err.Error(), "record the replay conflict as a blocker: bd update failed with status timed_out") {
 		t.Fatalf("Run() error = %v, want the conflict and the failed blocker write both named", err)
 	}
@@ -6734,10 +6734,10 @@ func TestAReplayConflictWhoseBlockerWriteTimedOutIsAConflictAndNeverAnIntegratio
 	if state.IntegrationStop != nil || state.ResumableIntegration() {
 		t.Fatalf("a replay conflict whose blocker write timed out was recorded as an environmental stop: %#v", state.IntegrationStop)
 	}
-	if state.ReplayConflict == nil || state.ReplayConflict.TargetBranch != "main" || !strings.Contains(state.ReplayConflict.Detail, "cannot be replayed onto the moved integration target") {
+	if state.ReplayConflict == nil || state.ReplayConflict.TargetBranch != "main" || !strings.Contains(state.ReplayConflict.Detail, "cannot be replayed onto the moved target branch") {
 		t.Fatalf("replay conflict = %#v, want the conflict onto main recorded with the replay's failure", state.ReplayConflict)
 	}
-	if !strings.Contains(state.Failure, "cannot be replayed onto the moved integration target") || !strings.Contains(state.Failure, "bd update failed with status timed_out") {
+	if !strings.Contains(state.Failure, "cannot be replayed onto the moved target branch") || !strings.Contains(state.Failure, "bd update failed with status timed_out") {
 		t.Fatalf("recorded failure does not preserve both sides:\n%s", state.Failure)
 	}
 	if state.ReviewDecision != string(review.DecisionApprove) || state.RepairAttempts != 0 {
@@ -6837,7 +6837,7 @@ func TestAReplayConflictWhoseBlockerCouldNotBeWrittenIsNeverAResumableStop(t *te
 	}
 	// The conflict is on the record even though the blocker never reached the
 	// item.
-	if !strings.Contains(state.Failure, "cannot be replayed onto the moved integration target") {
+	if !strings.Contains(state.Failure, "cannot be replayed onto the moved target branch") {
 		t.Fatalf("recorded failure = %q, want the conflict", state.Failure)
 	}
 
@@ -6907,7 +6907,7 @@ func TestAReplayConflictAfterApprovalChargesNothingAndLeavesTheApprovalStanding(
 	}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	if err == nil || !strings.Contains(err.Error(), "cannot be replayed onto the moved integration target") {
+	if err == nil || !strings.Contains(err.Error(), "cannot be replayed onto the moved target branch") {
 		t.Fatalf("Run() error = %v", err)
 	}
 	if !outcome.Blocked || outcome.Integration != nil {

@@ -486,7 +486,7 @@ func TestARenderedEntryCarriesTheEvidenceSomebodyDecidesOn(t *testing.T) {
 		"FAIL\tinternal/thing",
 		"Branch (preserved as the run's record says, not checked): yoyodyne/task/abc",
 		"Worktree (preserved as the run's record says, not checked): /state/worktrees/task",
-		"Integration target: main",
+		"Target branch: main",
 		"3 of 4 review round(s) used",
 		"2 repair attempt(s) spent",
 		"a grant would hand it 2",
@@ -672,8 +672,8 @@ func TestAReplayConflictEntryNamesTheConflictAndTheRepairNotTheResume(t *testing
 
 	conflicted := stoppedRunEntry()
 	conflicted.Blocker = ""
-	conflicted.Failure = "change cannot be replayed onto the moved integration target: replay onto main failed\nrecord the replay conflict as a blocker: bd update failed with status timed_out and exit code -1: "
-	conflicted.ReplayConflict = &ReplayConflict{TargetBranch: "main", Detail: "change cannot be replayed onto the moved integration target", Phase: "integrating"}
+	conflicted.Failure = "change cannot be replayed onto the moved target branch: replay onto main failed\nrecord the replay conflict as a blocker: bd update failed with status timed_out and exit code -1: "
+	conflicted.ReplayConflict = &ReplayConflict{TargetBranch: "main", Detail: "change cannot be replayed onto the moved target branch", Phase: "integrating"}
 	if err := conflicted.Validate(); err != nil {
 		t.Fatalf("Validate() refused an entry carrying a replay conflict: %v", err)
 	}

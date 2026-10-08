@@ -412,7 +412,7 @@ var passedOverClauses = map[runstate.PassedOverClass]string{
 	runstate.PassedOverSequencedBehindWork:   "sequenced behind work in flight that they would race",
 	runstate.PassedOverPrerequisiteUnmet:     "asking for something the tree does not have",
 	runstate.PassedOverLeftForAnotherSlot:    "left for a developer slot with no preference, because every free slot pulled its preferred label's work ahead of them",
-	runstate.PassedOverWaitingOnUsageWindow:  "refused by the provider's usage window and waiting for it to reset",
+	runstate.PassedOverWaitingOnUsageWindow:  "refused by the provider's usage limit and waiting for it to reset",
 }
 
 // Whose is whose move it is, and what settles it. It is the other half of what a

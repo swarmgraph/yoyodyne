@@ -153,7 +153,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
-			"every role is held by the provider's usage window, since 2026-08-30T11:00:00Z, until 2026-08-30T13:00:00Z"},
+			"every role is held by the provider's usage limit, since 2026-08-30T11:00:00Z, until 2026-08-30T13:00:00Z"},
 	}
 }
 

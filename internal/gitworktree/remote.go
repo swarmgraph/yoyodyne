@@ -28,13 +28,13 @@ var ErrRemotePushRejected = errors.New("remote rejected the push")
 // ErrRemoteTargetDrift reports a remote target branch carrying work the
 // promotion was not written against. It is the remote half of ErrTargetDrift:
 // the merge must fail rather than have the forge reconcile a change nobody saw.
-var ErrRemoteTargetDrift = errors.New("remote integration target moved away from the content the promotion was written against")
+var ErrRemoteTargetDrift = errors.New("remote target branch moved away from the content the promotion was written against")
 
 // ErrRemoteTargetMismatch reports a merge that did not put the promotion on the
 // remote target branch. It is deliberately distinct from drift: drift is a
 // reason not to merge, this is what a merge that already happened turned out to
 // be.
-var ErrRemoteTargetMismatch = errors.New("remote integration target does not carry the promoted commit")
+var ErrRemoteTargetMismatch = errors.New("remote target branch does not carry the promoted commit")
 
 // ErrRemoteAuthRefused reports a remote that turned away the credential the
 // harness presented: an SSH key the server would not take, or a forge login over

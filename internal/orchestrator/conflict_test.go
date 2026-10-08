@@ -323,7 +323,7 @@ func TestSchedulerDoesNotHoldAChildOnAnEpicWhoseRunHasEnded(t *testing.T) {
 			run := runstate.State{RunID: "run-2f6e6e0a", WorkItemID: ended.ID, Status: status, Phase: runstate.PhaseComplete}
 			if status == runstate.StatusFailed {
 				run.Phase = runstate.PhaseIntegrating
-				run.Failure = "change cannot be replayed onto the moved integration target"
+				run.Failure = "change cannot be replayed onto the moved target branch"
 				run.PullRequest = &runstate.PullRequest{
 					Remote: "origin", Branch: "yoyodyne/yoyodyne-epic-272/2f6e6e0a", Number: 511, State: "OPEN",
 				}

@@ -69,7 +69,7 @@ func TestAFreshSessionInsideARecordedWindowPullsNothingAndSaysTheWindow(t *testi
 	if !idle.window || idle.windowResetsAt == nil || !idle.windowResetsAt.Equal(lifts) {
 		t.Fatalf("idle = %+v, want the poll marked as one made inside the provider's window until %s", idle, lifts)
 	}
-	if !strings.HasPrefix(idle.reason, "Paused on the provider's usage window until 13:43Z") {
+	if !strings.HasPrefix(idle.reason, "Paused on the provider's usage limit until 13:43Z") {
 		t.Fatalf("idle reason = %q, want it to lead with the provider's window", idle.reason)
 	}
 	if !strings.Contains(idle.reason, "seven_day") || !strings.Contains(idle.reason, "2026-09-26T13:43:00Z") {

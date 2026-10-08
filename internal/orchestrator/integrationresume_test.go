@@ -540,7 +540,7 @@ func TestOnlyARunResumedOnPurposeIsPickedUpAtItsPromotion(t *testing.T) {
 func TestAKilledReplayIsAnIntegrationStopAndAConflictIsNot(t *testing.T) {
 	t.Parallel()
 
-	killed := fmt.Errorf("replay the change onto the moved integration target: %w",
+	killed := fmt.Errorf("replay the change onto the moved target branch: %w",
 		fmt.Errorf("%w: replay yoyodyne/task onto main at abc123 timed out", gitworktree.ErrReplayKilled))
 	if cause, environmental := integrationStopCauseOf(killed); !environmental || cause != runstate.CauseReplayKilled {
 		t.Fatalf("integrationStopCauseOf(killed replay) = %q, %v; want %q", cause, environmental, runstate.CauseReplayKilled)
@@ -1247,7 +1247,7 @@ func TestAnIntegrationStoppedRunIsNeitherReleasedNorRestartedAndItsResumePromote
 func TestAnIntegrationStopIsClassifiedFromTheStepsOwnCauseAndNeverFromAFailedRecord(t *testing.T) {
 	t.Parallel()
 
-	conflict := fmt.Errorf("change cannot be replayed onto the moved integration target: %w", gitworktree.ErrRebaseConflict)
+	conflict := fmt.Errorf("change cannot be replayed onto the moved target branch: %w", gitworktree.ErrRebaseConflict)
 	timedOut := fmt.Errorf("record the replay conflict as a blocker: %w", errors.New("bd update failed with status timed_out and exit code -1: "))
 	dirty := fmt.Errorf("integrate approved change: %w", gitworktree.ErrPrimaryNotReady)
 	transport := errors.New("bd show failed with status timed_out and exit code -1: ")

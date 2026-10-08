@@ -232,7 +232,7 @@ func (t Trigger) standingCriticals(shown map[string]bool) ([]string, string) {
 // message, and the rest of her pass is the one she already knows.
 func criticalMessage(name string, task config.RecurringTask, carried []report.Report, behind int, overdue string) string {
 	lines := []string{
-		fmt.Sprintf("A critical report was filed, and the harness woke you for it now, ahead of the cadence of %q and ahead of the rest of the pile. Nobody is waiting at a terminal for this: what you produce is recorded and read later.", name),
+		fmt.Sprintf("A critical report was filed, and the harness woke you for it now, ahead of the schedule of %q and ahead of the rest of the pile. Nobody is waiting at a terminal for this: what you produce is recorded and read later.", name),
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra.",
 		"A critical report is something already wrong that will cost somebody if nobody looks at it. Decide what becomes of each one below on this pass and record it with the \"handle\" action: work to admit, a proposal to make, a concern to raise, the operator's hand where only a person can act, or that it needs nothing because it has already resolved. This pass is not accepted as complete while any of them stands unhandled.",
 		"Before you file anything, check it against the work already admitted, and check whether a fix has landed since the build that filed it.",

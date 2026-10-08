@@ -163,7 +163,7 @@ func printShipped(writer io.Writer, ledger runstate.ShippedLedger) {
 		len(ledger.Items), ledger.Shipped)
 	fmt.Fprintln(writer, "cost is what the provider reported across every run made for the item, the failed and repair attempts included")
 	fmt.Fprintln(writer, "elapsed is wall clock from the first claim to the promotion and includes the paused time beside it;")
-	fmt.Fprintln(writer, "paused is what the item spent parked on a provider usage limit or the operator's hold, summed across its runs")
+	fmt.Fprintln(writer, "paused is what the item spent parked on a provider usage limit or the operator's pause, summed across its runs")
 	if unpriced > 0 {
 		fmt.Fprintf(writer, "%d run(s) have no surviving record to price and are left out of the cost, so every cost marked ≥ is a floor rather than a price\n", unpriced)
 	}

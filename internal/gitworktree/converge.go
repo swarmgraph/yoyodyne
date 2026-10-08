@@ -267,7 +267,7 @@ func (m *Manager) RemoveMergedBranch(ctx context.Context, branch, targetBranch s
 		return removal, err
 	}
 	if branch == targetBranch {
-		return removal, fmt.Errorf("branch %s is its own integration target", branch)
+		return removal, fmt.Errorf("branch %s is its own target branch", branch)
 	}
 	commit, exists, err := m.optionalBranchCommit(ctx, branch)
 	if err != nil {

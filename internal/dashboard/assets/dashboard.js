@@ -508,7 +508,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     // One thing is printed above the sections, and only one: the same sentence
     // the terminal prints above the four lines while the harness is paused on
-    // the provider's usage window, or the provider is answering nobody.
+    // the provider's usage limit, or the provider is answering nobody.
     if (standing && standing.paused) {
       banner.textContent = standing.paused;
       setHidden(banner, false);
@@ -1073,7 +1073,7 @@ var standingWarningAgeSeconds = 5 * 60;
     var conversations = blocked.conversations_problem ? [] : (blocked.conversations || []);
     var hold = standing.capacity_hold && standing.capacity_hold.holding ? standing.capacity_hold : null;
     if (!hold && runs.length === 0 && conversations.length === 0 && !blocked.runs_problem && !blocked.conversations_problem) {
-      section("capacity", "empty", "No run or conversation is waiting on provider capacity, and no usage window is holding every role.");
+      section("capacity", "empty", "No run or conversation is waiting on provider capacity, and no provider usage limit is holding every role.");
       return;
     }
 

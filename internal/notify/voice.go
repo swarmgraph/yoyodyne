@@ -524,7 +524,7 @@ var productManagerVoice = voice{
 		KindIntakeReleased:           "Intake is released, {released}; the backlog is being pulled from again.",
 		KindIntakeEscalated:          "The brake's hold on intake is now the operator's: the harness stopped asking the development manager and escalated it itself, so nothing I admit is chosen until somebody releases it: {why}",
 		KindOperatorAction:           "This one needs your hand rather than a decision of mine: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status` until it is done — {ends} — and I won't say it again.",
-		KindHoldPlaced:               "The operator holds all harness activity.",
+		KindHoldPlaced:               "The operator paused all harness activity.",
 		KindHoldLifted:               "The operator lifted the hold.",
 		KindWatchStarted:             "What is admitted is now what is spent on, since the queue is pulled from until somebody stops it: {why}",
 		KindWatchIdle:                "No new spending was started at this poll: {why}",

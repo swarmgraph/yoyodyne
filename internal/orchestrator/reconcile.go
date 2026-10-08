@@ -2162,7 +2162,7 @@ func renderObservedArtifacts(state runstate.State, observation gitworktree.Obser
 		lines = append(lines, "Recorded branch is gone: "+state.Branch)
 	}
 	if state.TargetBranch != "" {
-		lines = append(lines, "Integration target: "+state.TargetBranch)
+		lines = append(lines, "Target branch: "+state.TargetBranch)
 	}
 	return lines
 }

@@ -980,7 +980,7 @@ func TestAParkedRunSaysWhatItIsWaitingOn(t *testing.T) {
 			},
 			severity: report.SeverityNote,
 		},
-		"an operator hold on all harness activity": {
+		"the operator's pause on all harness activity": {
 			apply: func(s *runstate.State) {
 				s.OperatorHeldSince = &held
 				s.PauseCause = runstate.PauseOperatorHold

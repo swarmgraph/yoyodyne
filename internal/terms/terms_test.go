@@ -1,6 +1,7 @@
 package terms
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -719,18 +720,62 @@ func TestAReplacedRowExcusingADocumentThatNoLongerCarriesTheTermIsReported(t *te
 }
 
 // Every vocabulary entry has to carry the two things a failure is made of: the
-// term the register is searched for, and the wording the reader is offered.
+// term the register is searched for, and the wording the reader is offered. A
+// term may be listed once per spelling it is looked for in, and not twice for
+// the same one.
 func TestVocabularyIsComplete(t *testing.T) {
 	t.Parallel()
 
-	seen := map[string]bool{}
+	seen := map[Coinage]bool{}
 	for _, coinage := range Vocabulary {
+		key := Coinage{Term: coinage.Term, Match: coinage.Match}
 		switch {
 		case coinage.Term == "" || coinage.Match == "" || coinage.PlainWords == "":
 			t.Errorf("vocabulary entry %+v is missing a field", coinage)
-		case seen[coinage.Term]:
-			t.Errorf("vocabulary lists %q twice", coinage.Term)
+		case seen[key]:
+			t.Errorf("vocabulary lists %q matching %q twice", coinage.Term, coinage.Match)
 		}
-		seen[coinage.Term] = true
+		seen[key] = true
+	}
+}
+
+// The guidance a role reads is refused a replaced term in a shipped persona and
+// in a contract's string, in every spelling the vocabulary lists for it, and a
+// row excusing a governed document excuses nothing there; the quoted example of
+// what not to write is passed over wherever a line wrap left it.
+func TestGuidanceRefusesReplacedTermsOutsideTheQuotedExample(t *testing.T) {
+	t.Parallel()
+
+	registerBody := "# Terms\n\n## The register\n\n| Term | In plain words | Where it is used |\n| --- | --- | --- |\n\n" +
+		"## Replaced rather than registered\n\n| Term | Write instead | Still written in |\n| --- | --- | --- |\n" +
+		"| `idle bound` | what happened |  |\n" +
+		"| `environmental stop` | what happened |  |\n" +
+		"| `operator hold` | the operator's pause | `internal/config/builtin/v1/personas/developer.md` |\n"
+	directory := root(t, registerBody, map[string]string{
+		"internal/config/builtin/v1/personas/developer.md": "# Developer\n\nNot \"stopped by the harness's idle bound when the\nprovider's stream went silent, settled as an environmental stop\", but plain words.\n\nWait out the operator hold.\n",
+		"internal/config/builtin/v1/personas/reviewer.md":  "# Reviewer\n\nThe idle bound ended it.\n",
+		"internal/orchestrator/prompt.go":                  "package orchestrator\n\nconst prompt = \"the operator's hold is on\"\n",
+		"internal/orchestrator/prompt_test.go":             "package orchestrator\n\nconst wanted = \"the idle bound\"\n",
+	})
+	problems, err := Guidance(directory)
+	if err != nil {
+		t.Fatalf("Guidance() error = %v", err)
+	}
+	want := map[string]string{
+		"internal/config/builtin/v1/personas/developer.md:6": "operator hold",
+		"internal/config/builtin/v1/personas/reviewer.md:3":  "idle bound",
+		"internal/orchestrator/prompt.go:3":                  "operator hold",
+	}
+	got := make(map[string]string)
+	for _, problem := range problems {
+		got[fmt.Sprintf("%s:%d", problem.Path, problem.Line)] = problem.Term
+	}
+	if len(got) != len(want) || len(problems) != len(want) {
+		t.Fatalf("Guidance() = %v, want exactly %v", problems, want)
+	}
+	for place, term := range want {
+		if got[place] != term {
+			t.Errorf("Guidance() at %s = %q, want %q; all: %v", place, got[place], term, problems)
+		}
 	}
 }

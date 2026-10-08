@@ -148,7 +148,7 @@ func (c Checker) Check(ctx context.Context) (Reading, error) {
 	}
 	_, operatorHeld, err := c.Holds.Held()
 	if err != nil {
-		return Reading{}, fmt.Errorf("read the operator hold: %w", err)
+		return Reading{}, fmt.Errorf("read the operator's pause: %w", err)
 	}
 	_, intakeHeld, err := c.Intake.Held()
 	if err != nil {
@@ -241,7 +241,7 @@ func (c Checker) validate() error {
 		problems = append(problems, errors.New("a stall check requires the sessions that choose work"))
 	}
 	if c.Holds == nil {
-		problems = append(problems, errors.New("a stall check requires the operator hold"))
+		problems = append(problems, errors.New("a stall check requires the operator's pause"))
 	}
 	if c.Intake == nil {
 		problems = append(problems, errors.New("a stall check requires the intake hold"))

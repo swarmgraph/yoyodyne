@@ -859,10 +859,10 @@ func TestManagerIntegrateRefusesInvalidOwnershipAndTargets(t *testing.T) {
 		mutate  func(Worktree) Worktree
 		message string
 	}{
-		{"no target", func(w Worktree) Worktree { w.TargetBranch = ""; return w }, "no recorded integration target"},
+		{"no target", func(w Worktree) Worktree { w.TargetBranch = ""; return w }, "no recorded target branch"},
 		{"qualified ref", func(w Worktree) Worktree { w.TargetBranch = "refs/heads/main"; return w }, "must be a local branch name"},
 		{"HEAD", func(w Worktree) Worktree { w.TargetBranch = "HEAD"; return w }, "must be a local branch name"},
-		{"traversal", func(w Worktree) Worktree { w.TargetBranch = "../evil"; return w }, "invalid integration target"},
+		{"traversal", func(w Worktree) Worktree { w.TargetBranch = "../evil"; return w }, "invalid target branch"},
 		{"own branch", func(w Worktree) Worktree { w.TargetBranch = w.Branch; return w }, "must differ from the worktree branch"},
 		{"missing branch", func(w Worktree) Worktree { w.TargetBranch = "absent"; return w }, "resolve branch absent"},
 		{"tampered path", func(w Worktree) Worktree { w.Path = repository; return w }, "owned path"},

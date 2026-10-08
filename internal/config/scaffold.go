@@ -709,7 +709,7 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       the goal and where it was broken.
 #       Sweep for unresolved issues: stoppages nobody has decided, claims on
 #       work nothing is running, deliveries that have stopped moving, anything
-#       held for a person that your own recorded authority covers. Batch broad
+#       waiting on a decision your own recorded authority covers. Batch broad
 #       classes rather than working item by item.
 #       Fix what your authority allows. Ask the architect where a ruling is
 #       needed rather than deciding it yourself. File root-cause work with the

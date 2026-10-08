@@ -1099,7 +1099,7 @@ longer hold.
 A watching session also notices that the harness has stopped doing anything. On
 every pull, at most once per --stall-after, it reads whether anything has started
 at all: nothing for that long, work the tracker calls ready, and no hold, full
-machine, still-moving run or provider usage window to account for it is recorded
+machine, still-moving run or provider usage limit to account for it is recorded
 against the product as a stall, which "yoyo status" reads back and the Slack sink,
 where one is running, takes to the operators once. This is the loop that catches a
 session which is alive and has stopped choosing; a session that died writes

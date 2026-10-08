@@ -1,6 +1,6 @@
 {
   "observed_at": "2026-09-19T14:05:09Z",
-  "paused": "Every role is paused on the provider's usage window until 2026-09-19T18:50:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 7 turns refused since 2026-09-19T12:02:00Z",
+  "paused": "Every role is paused on the provider's usage limit until 2026-09-19T18:50:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 7 turns refused since 2026-09-19T12:02:00Z",
   "capacity_hold": {
     "holding": true,
     "since": "2026-09-19T12:02:00Z",
@@ -93,13 +93,13 @@
     {
       "work_item_id": "yoyodyne-ifd.200",
       "title": "Slack threads carry the item's title",
-      "reason": "Paused on the provider's usage window until 18:50Z",
+      "reason": "Paused on the provider's usage limit until 18:50Z",
       "kind": "stalled"
     },
     {
       "work_item_id": "yoyodyne-ifd.219",
       "title": "Reconcile prints the branch it caught up",
-      "reason": "Paused on the provider's usage window until 18:50Z",
+      "reason": "Paused on the provider's usage limit until 18:50Z",
       "kind": "stalled"
     }
   ],
@@ -110,8 +110,8 @@
     {
       "kind": "stalled",
       "count": 2,
-      "waits_on": "are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z",
-      "next": "the harness asks again when the provider's usage window lifts",
+      "waits_on": "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z",
+      "next": "the harness asks again when the provider's usage limit resets",
       "mover": "nobody",
       "items": [
         {
@@ -149,7 +149,7 @@
         ],
         "alternates": []
       },
-      "what": "every role is held by the provider's usage window, since 2026-09-19T12:02:00Z, until 2026-09-19T18:50:00Z",
+      "what": "every role is held by the provider's usage limit, since 2026-09-19T12:02:00Z, until 2026-09-19T18:50:00Z",
       "whose": "the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does",
       "label": "work paused"
     }

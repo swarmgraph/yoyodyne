@@ -1,11 +1,11 @@
 // Command vocabulary writes the inventory of the harness's own vocabulary:
 // every term of art in the inventory, with where a person or a role reads it, how
-// often, what it means, and the decision proposed for it.
+// often, what it means, and the decision made on it.
 //
 //	go run ./scripts/vocabulary > docs/vocabulary-inventory.md
 //	go run ./scripts/vocabulary -candidates
 //
-// The terms, their meanings, and the proposals are data in internal/terms/inventory,
+// The terms, their meanings, and the decisions are data in internal/terms/inventory,
 // which the terms check reads too. The counts
 // are measured every time it runs, so the document is re-run rather than
 // edited: a term whose decision lands is changed there, and the next run says
@@ -132,6 +132,11 @@ func Collect(root string) ([]Text, error) {
 			return nil, err
 		}
 		texts = append(texts, Text{Surface: Governed, Where: file, Body: withoutFrontmatter(string(body))})
+	}
+	// The example of what not to write is quoted on purpose wherever it
+	// appears, and its words are not debt.
+	for index := range texts {
+		texts[index].Body = terms.WithoutQuotedExample(texts[index].Body)
 	}
 	return texts, nil
 }
@@ -396,7 +401,7 @@ func Render(w io.Writer, measurements []Measurement, stopWords []inventory.StopW
 
 	fmt.Fprintln(w, "## Summary")
 	fmt.Fprintln(w)
-	fmt.Fprintln(w, "| Term | Proposed | In the register today | Printed strings | Personas | Guides | Governed documents |")
+	fmt.Fprintln(w, "| Term | Decided | In the register today | Printed strings | Personas | Guides | Governed documents |")
 	fmt.Fprintln(w, "|---|---|---|---:|---:|---:|---:|")
 	for _, m := range measurements {
 		register := m.Register
@@ -416,11 +421,11 @@ func Render(w io.Writer, measurements []Measurement, stopWords []inventory.StopW
 		fmt.Fprintf(w, "- **Means:** %s\n", m.Term.Meaning)
 		switch m.Term.Decision {
 		case inventory.Replace:
-			fmt.Fprintf(w, "- **Proposed:** replace it. Write instead: %s.\n", m.Term.Words)
+			fmt.Fprintf(w, "- **Decided:** replace it. Write instead: %s.\n", m.Term.Words)
 		case inventory.Register:
-			fmt.Fprintf(w, "- **Proposed:** register it, with the meaning above: %s.\n", m.Term.Words)
+			fmt.Fprintf(w, "- **Decided:** register it, with the meaning above: %s.\n", m.Term.Words)
 		case inventory.Keep:
-			fmt.Fprintf(w, "- **Proposed:** no change. It is %s.\n", m.Term.Words)
+			fmt.Fprintf(w, "- **Decided:** no change. It is %s.\n", m.Term.Words)
 		}
 		fmt.Fprintf(w, "- **Where:** %s\n", places(m))
 		if m.Term.Note != "" {
@@ -430,7 +435,7 @@ func Render(w io.Writer, measurements []Measurement, stopWords []inventory.StopW
 	fmt.Fprintln(w)
 
 	fmt.Fprint(w, stopWordsIntro)
-	fmt.Fprintln(w, "| Word | Means | Proposed |")
+	fmt.Fprintln(w, "| Word | Means | Decided |")
 	fmt.Fprintln(w, "|---|---|---|")
 	for _, word := range stopWords {
 		proposed := "print instead: " + word.Words
@@ -494,23 +499,25 @@ func cellText(text string) string {
 const header = `# The harness's own vocabulary
 
 Every term of art the harness uses where a person or a role reads it: where it
-appears, how often, what it means in one plain sentence, and a proposed
-decision — replace it with ordinary words, or register it in
+appears, how often, what it means in one plain sentence, and the decision made
+on it — replace it with ordinary words, or register it in
 [the register](terms.md) as a term that names something real. The operator
 asked for it on 2026-09-27, after a program manager's report reached him saying
 "environmental stop" and "idle bound" and nothing told him what either meant.
 It is the inventory of the harness's coined vocabulary (yoyodyne-ifd.437.18).
+The Lead Product Manager made the decisions on every term in it on 2026-10-08.
 
 **This document is generated. Edit the script, not this file.** Run
 ` + "`go run ./scripts/vocabulary > docs/vocabulary-inventory.md`" + ` from the
-repository root. The terms, what they mean, and what is proposed for each are
+repository root. The terms, what they mean, and what was decided for each are
 in ` + "`internal/terms/inventory`" + `; the counts are measured each time it
 runs. These were measured on %s.
 
-## Who decides
+## The decisions
 
-Every decision below is a proposal. The Lead Product Manager records the
-decision on each term on the inventory's work item (yoyodyne-ifd.437.18), and
+The decisions below were made on 2026-10-08. The inventory began as a list of
+proposals; the Lead Product Manager recorded on the inventory's work item
+(yoyodyne-ifd.437.18) that every one of them stands as decided, unchanged, and
 the items admitted beside it carry the decisions out:
 
 - replacing the coined vocabulary in printed strings, role contracts, shipped
@@ -524,11 +531,17 @@ the items admitted beside it carry the decisions out:
 Three terms are already being replaced on their own item — 'environmental
 stop', 'idle bound', and 'stall continuation' (yoyodyne-ifd.437.17) — and
 what roles write for a person is being held to the register on its own item
-too (yoyodyne-ifd.437.16). When a decision differs from the proposal, change the
-term's entry in the script and run it again, so this document says what was
-decided rather than what was proposed.
+too (yoyodyne-ifd.437.16). When a decision changes, change the term's entry in
+` + "`internal/terms/inventory`" + ` and run the script again, so this document
+says what stands.
 
-A term proposed for replacement keeps its name wherever it is an identifier: a
+The "In the register today" column says how far each decision has been carried
+out: a term decided for registration reads "registered" once its row is
+written, and a term decided for replacement reads "replaced" once
+[the register](terms.md) lists it as replaced, which is when the terms check
+begins refusing it.
+
+A term decided for replacement keeps its name wherever it is an identifier: a
 type, a field in a stored record, a configuration key, a package. What changes
 is the words a person or a role reads.
 
@@ -547,6 +560,11 @@ is the words a person or a role reads.
   ` + "`docs/experiments`" + ` or ` + "`docs/releases`" + `, or this document.
 - **Governed documents:** every Markdown file under ` + "`docs/product`" + `,
   ` + "`docs/designs`" + `, and ` + "`docs/decisions`" + `, less its frontmatter.
+
+The example of what not to write that the personas and the role contracts
+quote on purpose — *stopped by the harness's idle bound when the provider's
+stream went silent, settled as an environmental stop* — is not counted: it is
+meant to stay where it is.
 
 A count is of occurrences, matched at the start of a word and ignoring case, so
 a stem counts its inflections: ` + "`docket`" + ` counts ` + "`docketed`" + `. A
@@ -569,7 +587,7 @@ asked for whoever owns their wording to confirm them before anything depends on
 them, and the Lead Product Manager put the question here. They are listed and
 not counted: that item's change is not on the main branch yet, and most of the
 words are ordinary words a count could not tell from their ordinary use. What
-is proposed is to print the plain phrase in place of the bare word, keeping the
+was decided is to print the plain phrase in place of the bare word, keeping the
 word as the value the record stores.
 
 `
@@ -580,7 +598,8 @@ const footer = `## Finding terms this list does not have
 the Go strings and the personas that no term above covers, most frequent first.
 Nothing mechanical tells a coinage from an ordinary compound, so the list is for
 a person to read: a term found there is added to ` + "`internal/terms/inventory`" + `
-with its meaning and a proposal, and the document is run again.
+with its meaning and a proposed decision, the Lead Product Manager decides it,
+and the document is run again.
 
 Between readings, the terms check keeps the vocabulary from growing unnoticed:
 it refuses a compound word written anywhere a person or a role reads the

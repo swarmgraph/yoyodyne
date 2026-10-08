@@ -16,7 +16,7 @@
   "awaiting_carry_out": 0,
   "not_startable_problem": "the admitted work could not be read: bd list: signal: killed",
   "needs_human": null,
-  "needs_human_problem": "the operator's hold could not be read: open pause.json: input/output error",
+  "needs_human_problem": "the operator's pause could not be read: open pause.json: input/output error",
   "reports": {
     "collected": 0,
     "unhandled": 0

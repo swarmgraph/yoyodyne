@@ -491,7 +491,7 @@ func (a Attention) What() string {
 			}
 			return what
 		case a.CapacityHold != nil:
-			what := "every role is held by the provider's usage window, since " + a.CapacityHold.Since.UTC().Format(time.RFC3339)
+			what := "every role is held by the provider's usage limit, since " + a.CapacityHold.Since.UTC().Format(time.RFC3339)
 			if !a.CapacityHold.ResetsAt.IsZero() {
 				what += ", until " + a.CapacityHold.ResetsAt.UTC().Format(time.RFC3339)
 			}

@@ -122,7 +122,7 @@ func TestAProviderWindowIsACauseAndAnswersAheadOfTheQueue(t *testing.T) {
 	if !accounted {
 		t.Fatal("WhyThePollStartedNothing() found no cause in a poll waiting out a usage window")
 	}
-	if !strings.HasPrefix(cause.Says(), "Paused on the provider's usage window") {
+	if !strings.HasPrefix(cause.Says(), "Paused on the provider's usage limit") {
 		t.Fatalf("Says() = %q, want the window's own sentence", cause.Says())
 	}
 	if !strings.HasPrefix(cause.Whose(), "nobody's") {

@@ -265,7 +265,7 @@ const (
 	// ScheduleProviderWindow reports a drain that stopped because a recorded
 	// usage limit covers every model a developer's turn could end on, and the
 	// provider named a reset that has not come. A watch waits it out instead.
-	ScheduleProviderWindow = "the provider's usage window is closed for every developer model, so nothing more was chosen"
+	ScheduleProviderWindow = "the provider's usage limit is reached for every developer model, so nothing more was chosen"
 	// ScheduleDivergedTarget reports a drain that stopped because a target branch
 	// stands recorded as one the harness will not catch up to the remote's. A
 	// watch waits it out instead, until the convergence sweep finds the branches
@@ -3444,7 +3444,7 @@ func unstartedAttempt(started Started) bool {
 // later: the outcome is in hand here and nowhere afterwards.
 func excludedBecause(started Started) string {
 	if stoppedByUsageWindow(started.Outcome.Environmental) {
-		return fmt.Sprintf("run %s was stopped by the provider's usage window rather than by anything about the work, and the item was given back to the queue: %s",
+		return fmt.Sprintf("run %s was stopped by the provider's usage limit rather than by anything about the work, and the item was given back to the queue: %s",
 			started.Outcome.RunID, started.Outcome.Environmental.ResetSays())
 	}
 	switch {
@@ -4042,7 +4042,7 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, b
 	}
 	refusals, err := pull.UsageLimits.List()
 	if err != nil {
-		schedule.UsageWindowProblem = fmt.Sprintf("whether a usage window is closed could not be read, so the pull was made as though none were: %v", err)
+		schedule.UsageWindowProblem = fmt.Sprintf("whether a provider usage limit is reached could not be read, so work was picked as though none were: %v", err)
 		return recordedWindow{}, false
 	}
 	var runs []runstate.State
@@ -4360,7 +4360,7 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 	}
 	dues, err := cadence.Cadence(ctx)
 	if err != nil {
-		schedule.RecurringProblem = fmt.Sprintf("when the recurring tasks are due could not be read, so a missed cadence may go unrecorded: %v", err)
+		schedule.RecurringProblem = fmt.Sprintf("when the recurring tasks are due could not be read, so a missed scheduled run may go unrecorded: %v", err)
 	}
 	now := s.now()
 	var problems []string

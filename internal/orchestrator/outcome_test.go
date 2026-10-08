@@ -86,7 +86,7 @@ func TestEveryEndingTheHarnessHandsToAPersonIsReadBackAsStopped(t *testing.T) {
 			// One of the operator's own brake runs, and the ending that used to be
 			// indistinguishable from a provider death in the listing.
 			name:   "a replay the target branch outran",
-			reason: "cannot be replayed onto the moved integration target",
+			reason: "cannot be replayed onto the moved target branch",
 			build: func(t *testing.T) (Pipeline, *runstate.Store, *orchestratortest.Tracker) {
 				repository := pipelineRepository(t)
 				tracker := newOutcomeTracker()

@@ -31,7 +31,7 @@ func TestASessionWaitingOnTheProviderIsReadAsWaitingRatherThanIdle(t *testing.T)
 	}
 	// The operator's own acceptance, word for word: the cause is the first words,
 	// with the time the provider named.
-	if stall.Says != "Paused on the provider's usage window until 13:43Z" {
+	if stall.Says != "Paused on the provider's usage limit until 13:43Z" {
 		t.Fatalf("says = %q, want the operator's sentence with the reset time", stall.Says)
 	}
 	if !stall.Since.Equal(opened) {

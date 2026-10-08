@@ -59,9 +59,9 @@ func (w ProviderWindow) Says() string {
 		return ""
 	}
 	if w.ResetsAt.IsZero() {
-		return "Paused on the provider's usage window; the provider named no time it lifts"
+		return "Paused on the provider's usage limit; the provider named no time it resets"
 	}
-	return "Paused on the provider's usage window until " + w.ResetsAt.UTC().Format("15:04") + "Z"
+	return "Paused on the provider's usage limit until " + w.ResetsAt.UTC().Format("15:04") + "Z"
 }
 
 // Standing reports a window that is still accounting for a quiet line at the

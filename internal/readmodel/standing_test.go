@@ -1052,7 +1052,7 @@ func TestAProviderWindowIsTheRefusalRatherThanAnIdleSession(t *testing.T) {
 	if len(standing.NotStartable) != 1 {
 		t.Fatalf("not startable = %+v, want the ready item refused for the window", standing.NotStartable)
 	}
-	said := "Paused on the provider's usage window until " + lifts.Format("15:04") + "Z"
+	said := "Paused on the provider's usage limit until " + lifts.Format("15:04") + "Z"
 	if standing.NotStartable[0].Reason != said {
 		t.Fatalf("refusal = %q, want the window said with the reset time", standing.NotStartable[0].Reason)
 	}

@@ -54,7 +54,7 @@ type OperatorHold struct {
 func (h OperatorHold) Validate() error {
 	var problems []error
 	if h.SchemaVersion != OperatorHoldSchemaVersion {
-		problems = append(problems, fmt.Errorf("operator hold schema version %d is not supported", h.SchemaVersion))
+		problems = append(problems, fmt.Errorf("operator's pause schema version %d is not supported", h.SchemaVersion))
 	}
 	if h.HeldAt.IsZero() {
 		problems = append(problems, errors.New("held at is required"))
@@ -94,23 +94,23 @@ func (s *OperatorHoldStore) Hold(at time.Time) (OperatorHold, error) {
 	}
 	temporary, err := os.CreateTemp(s.root, ".operator-hold-*.tmp")
 	if err != nil {
-		return OperatorHold{}, fmt.Errorf("create temporary operator hold: %w", err)
+		return OperatorHold{}, fmt.Errorf("create the temporary record of the operator's pause: %w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
-		return OperatorHold{}, fmt.Errorf("secure temporary operator hold: %w", err)
+		return OperatorHold{}, fmt.Errorf("secure the temporary record of the operator's pause: %w", err)
 	}
-	if err := writeJSONFile(temporary, "operator hold", recorded); err != nil {
+	if err := writeJSONFile(temporary, "operator's pause", recorded); err != nil {
 		temporary.Close()
 		return OperatorHold{}, err
 	}
 	if err := temporary.Close(); err != nil {
-		return OperatorHold{}, fmt.Errorf("close temporary operator hold: %w", err)
+		return OperatorHold{}, fmt.Errorf("close the temporary record of the operator's pause: %w", err)
 	}
 	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return OperatorHold{}, fmt.Errorf("replace operator hold: %w", err)
+		return OperatorHold{}, fmt.Errorf("replace the record of the operator's pause: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {
 		return OperatorHold{}, err
@@ -129,17 +129,17 @@ func (s *OperatorHoldStore) Held() (OperatorHold, bool, error) {
 		return OperatorHold{}, false, nil
 	}
 	if err != nil {
-		return OperatorHold{}, false, fmt.Errorf("open operator hold: %w", err)
+		return OperatorHold{}, false, fmt.Errorf("open the record of the operator's pause: %w", err)
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(io.LimitReader(file, maxEncodedStateBytes))
 	decoder.DisallowUnknownFields()
 	var held OperatorHold
 	if err := decoder.Decode(&held); err != nil {
-		return OperatorHold{}, false, fmt.Errorf("decode operator hold: %w", err)
+		return OperatorHold{}, false, fmt.Errorf("decode the record of the operator's pause: %w", err)
 	}
 	if err := ensureJSONEOF(decoder); err != nil {
-		return OperatorHold{}, false, fmt.Errorf("decode operator hold: %w", err)
+		return OperatorHold{}, false, fmt.Errorf("decode the record of the operator's pause: %w", err)
 	}
 	if err := held.Validate(); err != nil {
 		return OperatorHold{}, false, err
@@ -159,7 +159,7 @@ func (s *OperatorHoldStore) Release() (OperatorHold, bool, error) {
 		return OperatorHold{}, false, nil
 	}
 	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return OperatorHold{}, false, fmt.Errorf("release operator hold: %w", err)
+		return OperatorHold{}, false, fmt.Errorf("release the operator's pause: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {
 		return OperatorHold{}, false, err

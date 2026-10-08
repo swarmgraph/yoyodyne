@@ -344,7 +344,7 @@ func (h CapacityHold) Says() string {
 	if !h.Holding {
 		return ""
 	}
-	head := "Every role is paused on the provider's usage window"
+	head := "Every role is paused on the provider's usage limit"
 	if h.ResetsAt.IsZero() {
 		head += ", and the provider named no time it lifts"
 	} else {

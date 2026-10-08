@@ -1297,7 +1297,7 @@ one entry, not one per poll, since a run of unchanged polls is one account — a
 the sink says one note in the channel instead of the alarm, at note severity and
 to nobody's phone. The note opens with the cause and nothing else:
 
-> Paused on the provider's usage window until 13:43Z. Nothing has been chosen on
+> Paused on the provider's usage limit until 13:43Z. Nothing has been chosen on
 > this product for 30 minutes; nothing has stopped and nothing is waiting on
 > anybody, and the harness asks again when the window lifts.
 
@@ -1433,7 +1433,7 @@ otherwise — and at least one of them stopped a turn or parked a run rather tha
 being served through, that is **the provider holding every role**, and it is
 said as a state:
 
-> Every role is paused on the provider's usage window until
+> Every role is paused on the provider's usage limit until
 > 2026-09-13T03:00:00Z: all 5 agents run on opus and none names an alternate,
 > so nothing fails over; 134 turns refused since 2026-09-08T07:38:40Z. Nothing
 > has moved on this product for 26 hours: every turn every role would take asks

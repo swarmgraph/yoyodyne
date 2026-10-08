@@ -72,7 +72,7 @@ func TestStoreIncompleteListsExactlyTheRunsInFlight(t *testing.T) {
 			// The 2026-09-16 shape: stopped at integration on a replay conflict,
 			// with the published pull request still open.
 			state.Phase = PhaseIntegrating
-			state.Failure = "change cannot be replayed onto the moved integration target"
+			state.Failure = "change cannot be replayed onto the moved target branch"
 			state.PullRequest = &PullRequest{
 				Remote: "origin", Branch: "yoyodyne/failed", Number: 511, State: "OPEN",
 				URL: "https://example.test/pull/511", HeadCommit: strings.Repeat("a", 40),

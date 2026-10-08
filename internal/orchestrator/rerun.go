@@ -1097,7 +1097,7 @@ func (r Rerunner) withdrawEnvironmental(ctx context.Context, entry triage.Entry,
 	result.Outcome = outcome
 	met := fmt.Sprintf("the fresh run of %s was refused by the environment before any agent of it ran", entry.WorkItemID)
 	if stoppedByUsageWindow(outcome.Environmental) {
-		met = fmt.Sprintf("the fresh run of %s was stopped by the provider's usage window before anything it produced was judged", entry.WorkItemID)
+		met = fmt.Sprintf("the fresh run of %s was stopped by the provider's usage limit before anything it produced was judged", entry.WorkItemID)
 	}
 	result.ClaimGivenBack = r.giveBack(ctx, entry, met, &result) == ""
 	return result
@@ -1170,9 +1170,9 @@ func (r Rerunner) giveBack(ctx context.Context, entry triage.Entry, met string, 
 func pauseMet(outcome Outcome) string {
 	switch {
 	case outcome.PausedByOperator != nil:
-		return "the operator's hold on all harness activity"
+		return "the operator's pause on all harness activity"
 	case outcome.PausedByIntake != nil:
-		return "the operator's hold on what the harness chooses"
+		return "the operator's intake hold on what the harness chooses"
 	case outcome.PausedByDirective != nil:
 		return "the unresolved directive " + outcome.PausedByDirective.ID
 	case outcome.PausedByDependency != nil:

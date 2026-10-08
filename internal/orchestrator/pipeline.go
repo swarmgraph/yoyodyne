@@ -1338,7 +1338,7 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	if p.automatic() || publishing {
 		targetBranch, err = p.Worktrees.CurrentBranch(ctx)
 		if err != nil {
-			return Outcome{}, fmt.Errorf("resolve integration target: %w",
+			return Outcome{}, fmt.Errorf("resolve the target branch: %w",
 				refusedByEnvironment("the branch work would be promoted into could not be resolved", err))
 		}
 		baseRef = targetBranch
@@ -2720,7 +2720,7 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 		return a.continueOnRebaseConflict(ctx, err)
 	}
 	if err != nil {
-		return false, fmt.Errorf("replay the change onto the moved integration target: %w", err)
+		return false, fmt.Errorf("replay the change onto the moved target branch: %w", err)
 	}
 	// The published branch has to become the replayed one, or the pull request
 	// would carry work the authoritative local branch no longer has.
@@ -4993,7 +4993,7 @@ func (a *activeRun) endOnUsageWindow(stopped usageWindowStop) (Outcome, error) {
 		_, releaseErr := a.pipeline.Tracker.Release(releaseCtx, a.state.WorkItemID, renderUsageWindowReleaseNotes(outcome))
 		cancel()
 		if releaseErr != nil {
-			problems = append(problems, fmt.Errorf("give back the claim on %s after the provider's usage window stopped run %s; the claim audit gives it back once it finds the run ended: %w",
+			problems = append(problems, fmt.Errorf("give back the claim on %s after the provider's usage limit stopped run %s; the claim audit gives it back once it finds the run ended: %w",
 				a.state.WorkItemID, a.state.RunID, releaseErr))
 		}
 	}
@@ -5550,7 +5550,7 @@ func (a *activeRun) recordOperatorHold(hold runstate.OperatorHold) error {
 	a.state.PauseCause = runstate.PauseOperatorHold
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
-		return fmt.Errorf("record the operator hold this run parked on: %w", err)
+		return fmt.Errorf("record the operator's pause this run parked on: %w", err)
 	}
 	return nil
 }
@@ -5574,7 +5574,7 @@ func (a *activeRun) clearOperatorHold() error {
 	a.state.PauseCause = ""
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
-		return fmt.Errorf("clear the operator hold: %w", err)
+		return fmt.Errorf("clear the operator's pause: %w", err)
 	}
 	// Only a cause this park set is cleared from the outcome. A provider refusal
 	// this run waited out earlier is kept there for the record, exactly as the
@@ -5596,7 +5596,7 @@ type operatorHoldPause struct {
 }
 
 func (e operatorHoldPause) Error() string {
-	return "parked for an operator hold on all harness activity, placed at " + e.hold.HeldAt.Format(time.RFC3339)
+	return "parked because the operator paused all harness activity, at " + e.hold.HeldAt.Format(time.RFC3339)
 }
 
 // pausedForOperatorHold reports a run parked on the operator's hold. The
@@ -7076,7 +7076,7 @@ func (a *activeRun) pauseForOperatorHold(paused operatorHoldPause) (Outcome, err
 		// The park is already durable, so a note that could not be written costs
 		// the run nothing. It is still reported, for the same reason the other
 		// pauses report it.
-		return a.outcome, fmt.Errorf("record the operator hold on the work item: %w", err)
+		return a.outcome, fmt.Errorf("record the operator's pause on the work item: %w", err)
 	}
 	return a.outcome, nil
 }
@@ -8412,7 +8412,7 @@ func (p Pipeline) validate() error {
 		problems = append(problems, errors.New("durable user directives are required"))
 	}
 	if p.Holds == nil {
-		problems = append(problems, errors.New("the operator's hold on harness activity is required"))
+		problems = append(problems, errors.New("the operator's pause on harness activity is required"))
 	}
 	if p.NewRunID == nil {
 		problems = append(problems, errors.New("run id generator is required"))
@@ -8838,7 +8838,7 @@ func replayConflictRepairPrompt(invariants, scratchDirectory string, checks []st
 	prompt.WriteString(deliveredInvariantSection(invariants))
 	prompt.WriteString("# Integration conflict: repair required\n\n")
 	fmt.Fprintf(&prompt, "Your change passed its checks and was approved, but the branch it is to be integrated into moved while you were working, and your change could not be replayed onto where it went. This is repair attempt %d of %d. Your change has been moved onto the target for you, and the parts that would not merge are in your worktree between Git's conflict markers. Continue the change you already made instead of starting over, and settle every conflict.\n\n", attempt, limit)
-	fmt.Fprintf(&prompt, "Integration target: %s\n", conflict.TargetBranch)
+	fmt.Fprintf(&prompt, "Target branch: %s\n", conflict.TargetBranch)
 	if conflict.TargetCommit != "" {
 		fmt.Fprintf(&prompt, "Your worktree now sits on: %s\n", conflict.TargetCommit)
 	}
@@ -9552,7 +9552,7 @@ func stoppedByUsageWindow(refused *runstate.EnvironmentalRefusal) bool {
 // outcome note written just before it carries the account; this says only what
 // became of the claim, and when the item will be pulled again.
 func renderUsageWindowReleaseNotes(outcome Outcome) string {
-	note := "Yoyodyne gave this item back to the queue: run " + outcome.RunID + " was stopped by the provider's usage window rather than by anything about the work, and nothing was charged to the item for it."
+	note := "Yoyodyne gave this item back to the queue: run " + outcome.RunID + " was stopped by the provider's usage limit rather than by anything about the work, and nothing was charged to the item for it."
 	if outcome.Environmental != nil {
 		if said := outcome.Environmental.ResetSays(); said != "" {
 			note += " " + strings.ToUpper(said[:1]) + said[1:] + ", and a watching session pulls the item again once that has passed."
@@ -9584,7 +9584,7 @@ func renderFailureNotes(outcome Outcome) string {
 		headline = "Yoyodyne blocked this item; the blocker recorded on the item says what stopped it."
 	}
 	if stoppedByUsageWindow(outcome.Environmental) {
-		headline = "Yoyodyne stopped this run without judging anything: the provider's usage window refused it and resets later than the harness will wait, so the item goes back to the queue and is pulled again once the window resets."
+		headline = "Yoyodyne stopped this run without judging anything: the provider's usage limit refused it and resets later than the harness will wait, so the item goes back to the queue and is picked again once the limit resets."
 	}
 	lines := []string{
 		headline,
