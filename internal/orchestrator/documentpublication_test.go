@@ -727,3 +727,63 @@ func TestDocumentReconciliationNamesItsOwner(t *testing.T) {
 		t.Fatal(notes)
 	}
 }
+
+// A project that keeps its intent in a companion intent repository: a design
+// its automatic policy confirms is not put to the operator, is not landed in
+// the project's repository, and opens no run; it stays confirmed and saved, and
+// the owning role is told once what holds it.
+func TestCompanionIntentDocumentIsHeldConfirmedRatherThanPutToTheOperator(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	intent := t.TempDir()
+	pipeline.Config.Intent.Repository = "intent"
+	pipeline.Config.Product.IntentRepository = intent
+	if !pipeline.PublishesDocuments() {
+		t.Fatal("a companion-intent project stopped confirming by its automatic policy")
+	}
+	original := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleArchitect {
+			if len(provider.RequestsForRole(domain.RoleArchitect)) > 1 {
+				return backend.RunResult{SessionID: "author", FinalText: "Noted."}, nil
+			}
+			return backend.RunResult{SessionID: "author", FinalText: submittedDesign("held-design", "# Held")}, nil
+		}
+		return original(request)
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply, err := session.Send(context.Background(), "Write the design.")
+	if err != nil {
+		t.Fatalf("a held document stopped the message: %v", err)
+	}
+	if len(reply.Writes) != 0 {
+		t.Fatal("a design under an automatic policy was put to the operator")
+	}
+	if _, err := session.Send(context.Background(), "And carry on."); err != nil {
+		t.Fatalf("conversation wedged on a held document: %v", err)
+	}
+	recorded, err := runs.Recorded()
+	if err != nil || len(recorded) != 0 {
+		t.Fatalf("runs = %+v, %v; want none opened", recorded, err)
+	}
+	if len(provider.RequestsForRole(domain.RoleReviewer)) != 0 {
+		t.Fatal("a held document was reviewed")
+	}
+	if _, err := os.Stat(filepath.Join(repository, "docs", "designs", "held-design.md")); !os.IsNotExist(err) {
+		t.Fatal("the document landed in the project's repository")
+	}
+	saved, err := store.Load(runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.PendingWrites) != 1 || saved.PendingWrites[0].Publication == nil {
+		t.Fatalf("the confirmed document was not kept: %+v", saved.PendingWrites)
+	}
+	told := provider.RequestsForRole(domain.RoleArchitect)[1].Prompt + saved.PendingTrackerResults
+	if strings.Count(told, "companion intent repository") != 1 {
+		t.Fatalf("the owning role was not told once what holds its document:\n%s", told)
+	}
+}

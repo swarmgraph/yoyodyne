@@ -234,10 +234,13 @@ written in.
 That needs `approvals.integration: automatic` too, because a reviewed run lands
 only where the project integrates automatically. Where it is `human`, nothing
 is confirmed by policy and you are asked as below, whatever the document's own
-policy says. The same holds for a project that keeps its documents in a
-[companion intent repository](configuration.md#keeping-the-intent-outside-the-repository-too):
-no reviewed run promotes into that repository, so every document is put to you,
-and your confirmation writes it into that repository's checkout. A document confirmed while integration was automatic, whose run
+policy says. A project that keeps its documents in a
+[companion intent repository](configuration.md#keeping-the-intent-outside-the-repository-too)
+has no reviewed run into that repository yet, so a document its automatic
+policy confirms is held rather than landed: it stays confirmed and saved, the
+owning role is told once what holds it, and it is tried again at each later
+message. It is not put to you; what your policy puts to you anyway is, and your
+confirmation writes it into that repository's checkout. A document confirmed while integration was automatic, whose run
 had not started when the setting changed, is put to you the same way, and the
 owning role is told.
 

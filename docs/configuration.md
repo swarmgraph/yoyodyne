@@ -676,16 +676,24 @@ Four things are worth knowing about it:
 - **A missing companion repository is a problem `yoyo doctor` names**, with
   `yoyo setup` as the remedy, because nothing can read the project's intent
   until it is there.
-- **A document a role writes from a conversation is put to you.** A design
-  confirmed under an automatic policy ordinarily lands through a reviewed run
-  into the project's repository, and no reviewed run promotes into the companion
-  repository yet. So every document is confirmed by you, and your `y` writes it
-  into the companion repository's checkout, for you to commit there — as
-  `yoyo artifact approve`, `yoyo artifact identify`, and `yoyo invariant`
-  write there too. A confirmed document and the two artifact commands say the
-  write is an uncommitted change in the companion repository and name it,
-  without saying a run will refuse to start over it, because no run starts from
-  that repository.
+- **A document confirmed by an automatic policy is held, not landed.** A design
+  confirmed under `approvals.designs: automatic` ordinarily lands through a
+  reviewed run into the project's repository. The reviewed run that would land
+  it in the companion repository instead — a branch cut from that repository,
+  checks that mean something for a repository of documents, independent
+  review, and promotion into its target branch under the one-at-a-time
+  promotion rule — is not built yet. Until it is, such a document stays
+  confirmed by its policy and saved in its conversation, the owning role is told
+  once what holds it, and it is tried again at each later message. It is not
+  put to you: confirming a design is not a decision that needs a person. What
+  your policy already puts to you — the brief and the goals under `human`, and
+  everything under `approvals.integration: human` — still is, and your `y`
+  writes the document into the companion repository's checkout, for you to
+  commit there, as `yoyo artifact approve`, `yoyo artifact identify`, and
+  `yoyo invariant` write there too. A confirmed document and the two artifact
+  commands say the write is an uncommitted change in the companion repository
+  and name it, without saying a run will refuse to start over it, because no
+  run starts from that repository.
 - **The tracker stays where it was.** The tracker's export under `.beads/` and
   the developer-session instruction files are still the project's, so a fully
   local adoption excludes them as above.
