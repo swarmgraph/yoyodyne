@@ -544,7 +544,9 @@ func TestASurvivingChildKeepsTheAttemptRunningAfterTheProviderProcessExits(t *te
 func TestAReusedProcessIdentifierIsNotTakenForTheAttempt(t *testing.T) {
 	t.Parallel()
 	f := newLaunchFixture(t)
-	unrelated := exec.Command("sleep", "3")
+	// Long enough to outlast the fixture's setup on a loaded machine under the
+	// race detector, and still ending on its own; the cleanup kills it sooner.
+	unrelated := exec.Command("sleep", "120")
 	if err := unrelated.Start(); err != nil {
 		t.Fatal(err)
 	}
