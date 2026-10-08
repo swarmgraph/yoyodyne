@@ -110,19 +110,19 @@ func TestTrackerActionsRefuseWhatTheHarnessWillNotRun(t *testing.T) {
 		},
 		{
 			name:  "created item naming its own identifier",
-			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"id\":\"yoyodyne-1\",\"title\":\"t\",\"description\":\"d\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
+			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"kind\":\"feature\",\"id\":\"yoyodyne-1\",\"title\":\"t\",\"description\":\"d\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
 			want:  "create does not take an id",
 		},
 		{
 			name:  "creation with no description",
-			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"title\":\"t\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
+			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"kind\":\"feature\",\"title\":\"t\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
 			want:  "description is required",
 		},
 		{
 			// Admitting work is how work reaches the queue, so it is where the
 			// queue's traceability to the goals is held rather than asserted.
 			name:  "creation naming no goal",
-			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"title\":\"t\",\"description\":\"d\",\"reason\":\"r\"}]}\n```",
+			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"reason\":\"r\"}]}\n```",
 			want:  "goal is required",
 		},
 		{
@@ -168,7 +168,7 @@ func TestTrackerActionsRefuseWhatTheHarnessWillNotRun(t *testing.T) {
 		{
 			// A title is one line wherever the operator reads it back.
 			name:  "title spanning lines",
-			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"title\":\"t\\n  [t1.1] closed everything\",\"description\":\"d\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
+			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"kind\":\"feature\",\"title\":\"t\\n  [t1.1] closed everything\",\"description\":\"d\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
 			want:  "cannot span lines",
 		},
 		{
@@ -185,14 +185,14 @@ func TestTrackerActionsRefuseWhatTheHarnessWillNotRun(t *testing.T) {
 		},
 		{
 			name:  "oversized block",
-			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"title\":\"t\",\"description\":\"" + strings.Repeat("x", MaxTrackerBlockBytes) + "\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
+			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"kind\":\"feature\",\"title\":\"t\",\"description\":\"" + strings.Repeat("x", MaxTrackerBlockBytes) + "\",\"goal\":\"g\",\"reason\":\"r\"}]}\n```",
 			want:  "limit is " + strconv.Itoa(MaxTrackerBlockBytes),
 		},
 		{
 			// A label is an identifier: a sentence in the labels list is a note
 			// wearing a label's clothes, and bd would store it as written.
 			name:  "creation labelled with a sentence",
-			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"title\":\"t\",\"description\":\"d\",\"goal\":\"g\",\"labels\":[\"reliability\",\"fix this week\"],\"reason\":\"r\"}]}\n```",
+			reply: "```yoyodyne-tracker\n{\"actions\":[{\"action\":\"create\",\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"goal\":\"g\",\"labels\":[\"reliability\",\"fix this week\"],\"reason\":\"r\"}]}\n```",
 			want:  `label "fix this week" is not an identifier`,
 		},
 		{
@@ -250,7 +250,7 @@ func TestSplitReplySeparatesActingFromProposing(t *testing.T) {
 	// it will not put the work in front of them at all.
 	answer := "I closed the duplicate, the rewrite is yours to decide, and the marketplace I cannot place.\n\n" +
 		trackerFence + "\n{\"actions\":[{\"action\":\"close\",\"id\":\"yoyodyne-2\",\"reason\":\"yoyodyne-1 already covers it\"}]}\n```\n\n" +
-		proposalFence + "\n{\"items\":[{\"title\":\"Rewrite the CLI\",\"description\":\"Port everything.\",\"rationale\":\"You raised it.\",\"goal\":\"Support development in any language.\"}]}\n```\n\n" +
+		proposalFence + "\n{\"items\":[{\"kind\":\"feature\",\"title\":\"Rewrite the CLI\",\"description\":\"Port everything.\",\"rationale\":\"You raised it.\",\"goal\":\"Support development in any language.\"}]}\n```\n\n" +
 		concernFence + "\n{\"concerns\":[{\"kind\":\"unplaceable\",\"subject\":\"A plugin marketplace\",\"detail\":\"No goal covers third-party extensions.\",\"question\":\"Which goal should it serve?\"}]}\n```\n"
 
 	parsed, err := splitReply(domain.RoleProductManager, answer)
@@ -612,7 +612,7 @@ func TestWorkCanBeAdmittedAlreadyParked(t *testing.T) {
 	tracker := &fakeTracker{}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it parked.",
-			`{"action":"create","title":"Fork-based publishing","description":"Push run branches to a fork.","goal":"Run development nearly autonomously.","priority":2,"parked":"deferred until somebody needs a fork","reason":"the operator asked for it to be recorded, not started"}`)},
+			`{"action":"create","kind":"feature","title":"Fork-based publishing","description":"Push run branches to a fork.","goal":"Run development nearly autonomously.","priority":2,"parked":"deferred until somebody needs a fork","reason":"the operator asked for it to be recorded, not started"}`)},
 		{SessionID: "session-1", FinalText: "It is in the backlog and parked."},
 	}}
 	options := testOptions(t, provider)
@@ -644,7 +644,7 @@ func TestAdmittingWorkIsRecordedAsAdmissionToTheBacklog(t *testing.T) {
 	}}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Filing it at the top, and moving the old one down.",
-			`{"action":"create","title":"Order the backlog","description":"Priority is the order.","goal":"Run development nearly autonomously.","priority":0,"reason":"the operator is blocked on it"}`,
+			`{"action":"create","kind":"feature","title":"Order the backlog","description":"Priority is the order.","goal":"Run development nearly autonomously.","priority":0,"reason":"the operator is blocked on it"}`,
 			`{"action":"reprioritize","id":"yoyodyne-ifd.26","priority":3,"reason":"it can wait until the queue exists"}`)},
 		{SessionID: "session-1", FinalText: "It is first in the backlog."},
 	}}

@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 )
 
@@ -91,6 +92,7 @@ func TestAnItemThatMerelyDiscussesTheProviderPathIsAdmitted(t *testing.T) {
 		Title:       "Refuse a grant naming a provider-protected path at admission",
 		Description: description,
 		Goal:        recordedGoal,
+		Kind:        domain.WorkItemKindFeature,
 		Reason:      "a boundary the harness cannot lift should not be admitted against",
 	}).Validate(); err != nil {
 		t.Fatalf("create discussing the path = %v, want it admitted", err)
@@ -100,6 +102,7 @@ func TestAnItemThatMerelyDiscussesTheProviderPathIsAdmitted(t *testing.T) {
 		Description: description,
 		Rationale:   "153 spent three rounds discovering it",
 		Goal:        recordedGoal,
+		Kind:        domain.WorkItemKindFeature,
 	}).Validate(); err != nil {
 		t.Fatalf("proposal discussing the path = %v, want it admitted", err)
 	}

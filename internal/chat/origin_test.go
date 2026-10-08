@@ -49,7 +49,7 @@ type createdOrigin struct {
 	notes  string
 }
 
-const createAction = `{"action":"create","title":"The export is refused in a run's diff","description":"Refuse it.","goal":"` + theGoal + `","reason":"it needs doing"`
+const createAction = `{"action":"create","kind":"feature","title":"The export is refused in a run's diff","description":"Refuse it.","goal":"` + theGoal + `","reason":"it needs doing"`
 
 // Work admitted in a conversation the operator is speaking in records that the
 // operator asked for it, and the Lead Product Manager admitted it.
@@ -155,7 +155,7 @@ func TestAnAdmissionAnsweringADirectiveIsOnTheOperatorsBehalf(t *testing.T) {
 func TestADecompositionRecordsNoOrigin(t *testing.T) {
 	t.Parallel()
 
-	created := admitOne(t, "", `{"action":"create","title":"Triage docket","description":"Stopped work reaches the manager.","goal":"`+theGoal+`","parent":"yoyodyne-ifd.102","reason":"nothing routes stopped work"}`,
+	created := admitOne(t, "", `{"action":"create","kind":"feature","title":"Triage docket","description":"Stopped work reaches the manager.","goal":"`+theGoal+`","parent":"yoyodyne-ifd.102","reason":"nothing routes stopped work"}`,
 		func(options *Options) {
 			options.Role = domain.RoleDevelopmentManager
 			options.Agent = string(domain.RoleDevelopmentManager)

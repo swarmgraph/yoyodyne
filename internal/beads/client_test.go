@@ -294,6 +294,31 @@ func TestClientAppliesOnlyTheEditItWasGiven(t *testing.T) {
 	}
 }
 
+// An item admitted untyped acquires its kind as its tracker type, read back so
+// a type bd did not store is a failure rather than a reported success, and a
+// kind that is neither bug nor feature is refused before bd is asked.
+func TestUpdateSetsTheKindAsTheType(t *testing.T) {
+	t.Parallel()
+
+	typed := &fakeRunner{responses: []string{`[{"id":"yoyodyne-1","title":"t","status":"open","priority":2,"issue_type":"bug"}]`}}
+	item, err := (Client{Runner: typed}).Update(context.Background(), "yoyodyne-1", WorkItemChange{Kind: domain.WorkItemKindBug})
+	if err != nil || item.Kind() != domain.WorkItemKindBug {
+		t.Fatalf("Update() = %#v, %v, want the item typed a bug", item, err)
+	}
+	if want := []string{"update", "yoyodyne-1", "--type=bug", "--json"}; !reflect.DeepEqual(typed.args[0], want) {
+		t.Fatalf("bd args = %#v, want %#v", typed.args[0], want)
+	}
+	untyped := &fakeRunner{responses: []string{`[{"id":"yoyodyne-1","title":"t","status":"open","priority":2,"issue_type":"task"}]`}}
+	if _, err := (Client{Runner: untyped}).Update(context.Background(), "yoyodyne-1", WorkItemChange{Kind: domain.WorkItemKindFeature}); err == nil ||
+		!strings.Contains(err.Error(), `want "feature"`) {
+		t.Fatalf("Update() unapplied kind error = %v", err)
+	}
+	refused := &fakeRunner{}
+	if _, err := (Client{Runner: refused}).Update(context.Background(), "yoyodyne-1", WorkItemChange{Kind: "chore"}); err == nil || len(refused.args) != 0 {
+		t.Fatalf("Update() with kind chore = %v, ran %#v, want it refused before bd runs", err, refused.args)
+	}
+}
+
 func TestClientRefusesAnEditItCannotApply(t *testing.T) {
 	t.Parallel()
 

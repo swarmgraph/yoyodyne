@@ -520,6 +520,25 @@ with `update`, rather than the harness inferring it. Absence does not stop older
 work running. The developer and reviewer receive the list labelled as goals the
 change must not break, alongside the served goal and the standing goals.
 
+Every admission also says whether the work is a bug fix or a feature, as
+`"kind"`: `"bug"` for work that repairs something that should already have
+worked, `"feature"` for anything planned. It becomes the item's type in the
+tracker, so `bd` reads the same kind the harness wrote, and the rework rate —
+the share of merged changes that were bug fixes — is counted from it. A `create`
+or a proposal that states no kind is refused with the kind named as what is
+missing; a `create` carrying the `bug` label already says it is a bug, and an
+item carrying that label reads as a bug whatever its type. An `update` carrying
+`"kind"` types an item admitted before kinds were required, and a survey names
+the open items that have none, leaving out epics, which group work rather than
+merge as changes of their own. A proposal recorded before kinds were required is
+still decided as it was, and the item approved from it is created untyped.
+
+```text
+{"action":"create","kind":"bug","title":"…","description":"…","goal":"…","reason":"…"}
+{"action":"update","id":"…","kind":"feature","reason":"…"}
+{"items":[{"kind":"feature","title":"…","description":"…","goal":"…","rationale":"…"}]}
+```
+
 Every admission also records where the work came from, as fields on the item in
 the same write as the admission, for a `create` and for a proposal that is
 admitted or approved alike. Who asked is the report an admission cites, where it

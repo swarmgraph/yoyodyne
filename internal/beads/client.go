@@ -450,6 +450,10 @@ type WorkItemChange struct {
 	// removing one it does not are both no-ops bd accepts.
 	AddLabels    []string
 	RemoveLabels []string
+	// Kind sets the item's type to "bug" or "feature", applied only when it is
+	// set. It is here as well as on a creation because the queue predates kinds:
+	// an item admitted untyped acquires one this way.
+	Kind domain.WorkItemKind
 }
 
 type Client struct {
@@ -874,6 +878,9 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 	for _, label := range change.RemoveLabels {
 		args = append(args, "--remove-label="+strings.TrimSpace(label))
 	}
+	if change.Kind != "" {
+		args = append(args, "--type="+string(change.Kind))
+	}
 	args = append(args, "--json")
 	data, err := c.write(ctx, id, args...)
 	if err != nil {
@@ -895,6 +902,9 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 	}
 	if change.Priority != nil && item.Priority != *change.Priority {
 		return WorkItem{}, fmt.Errorf("work item %s priority is %d after being updated, want %d", item.ID, item.Priority, *change.Priority)
+	}
+	if change.Kind != "" && item.IssueType != string(change.Kind) {
+		return WorkItem{}, fmt.Errorf("work item %s type is %q after being updated, want %q", item.ID, item.IssueType, change.Kind)
 	}
 	// The executor is read back for the reason a price is: what rests on it is
 	// that nothing chooses this item for a run afterwards, and a marker reported
@@ -1945,6 +1955,12 @@ func (w WorkItem) HasLabel(label string) bool {
 	return slices.Contains(w.Labels, strings.TrimSpace(label))
 }
 
+// Kind is whether the item is a bug fix or a feature, read from its type and
+// its labels as domain.WorkItemKindOf says, and empty for an item nobody typed.
+func (w WorkItem) Kind() domain.WorkItemKind {
+	return domain.WorkItemKindOf(w.IssueType, w.Labels)
+}
+
 // labelsMissing names the labels a write was told to put on an item that the
 // item does not carry, and labelsCarried names the ones it was told to take off
 // that it still does. Both are empty for a write that named none.
@@ -2165,10 +2181,13 @@ func (c WorkItemChange) validate() error {
 		strings.TrimSpace(c.AppendNotes) == "" &&
 		strings.TrimSpace(string(c.Executor)) == "" &&
 		c.RelevantGoals == nil && c.Priority == nil && c.Parent == nil && c.Parking == nil &&
-		len(c.AddLabels) == 0 && len(c.RemoveLabels) == 0 {
+		len(c.AddLabels) == 0 && len(c.RemoveLabels) == 0 && c.Kind == "" {
 		problems = append(problems, errors.New("an update must change something"))
 	}
 	problems = append(problems, executorProblem(c.Executor)...)
+	if c.Kind != "" && !c.Kind.Valid() {
+		problems = append(problems, fmt.Errorf("kind %q is not \"bug\" or \"feature\"", c.Kind))
+	}
 	if c.Parking != nil {
 		problems = append(problems, parkingProblem(*c.Parking)...)
 	}

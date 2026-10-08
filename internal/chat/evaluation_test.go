@@ -103,7 +103,7 @@ func TestAnEvaluationDoesNotAdmitTheWorkItRecommends(t *testing.T) {
 
 	answer := "I would do it, and here is the item.\n\n" +
 		"```yoyodyne-proposal\n" +
-		`{"items":[{"title":"Survey plugin demand","description":"ask twenty users","rationale":"the evaluation says the evidence is thin","goal":"` + recordedGoal + `"}]}` +
+		`{"items":[{"kind":"feature","title":"Survey plugin demand","description":"ask twenty users","rationale":"the evaluation says the evidence is thin","goal":"` + recordedGoal + `"}]}` +
 		"\n```\n\n" +
 		evaluation.Fence + "\n" + testEvaluationBlock + "\n```"
 	record := &fakeEvaluations{}

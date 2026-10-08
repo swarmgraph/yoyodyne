@@ -22,7 +22,7 @@ import (
 const oneProposalTurn = `We could wait out the limit rather than failing the run.
 
 ` + "```yoyodyne-proposal" + `
-{"items":[{"title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}]}
+{"items":[{"kind":"feature","title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}]}
 ` + "```" + `
 `
 
@@ -145,7 +145,7 @@ func TestADecidedProposalDoesNotComeBackFromTheRecord(t *testing.T) {
 const twoProposalTurn = `Two things follow from that.
 
 ` + "```yoyodyne-proposal" + `
-{"items":[{"title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."},{"title":"Report what was admitted","description":"Say what went into the queue.","rationale":"Autonomy nobody can see is indistinguishable from work behind their back.","goal":"Run development nearly autonomously."}]}
+{"items":[{"kind":"feature","title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."},{"kind":"feature","title":"Report what was admitted","description":"Say what went into the queue.","rationale":"Autonomy nobody can see is indistinguishable from work behind their back.","goal":"Run development nearly autonomously."}]}
 ` + "```" + `
 `
 

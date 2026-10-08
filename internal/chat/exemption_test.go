@@ -20,7 +20,7 @@ import (
 // diagnosisProposal is a proposal for work that only reads and reports, claiming
 // the class the operator carved out.
 func diagnosisProposal(title string) string {
-	return `{"title":"` + title + `","description":"Read the attribution notes and report what is there.","rationale":"Nobody knows how many items carry one.","goal":"` + recordedGoal + `","class":"diagnosis"}`
+	return `{"kind":"feature","title":"` + title + `","description":"Read the attribution notes and report what is there.","rationale":"Nobody knows how many items carry one.","goal":"` + recordedGoal + `","class":"diagnosis"}`
 }
 
 // Under the per-item gate, work of an exempted class reaches the queue and the
@@ -117,7 +117,7 @@ func TestExemptedWorkStillNamesAGoalTheRepositoryRecords(t *testing.T) {
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1",
 		FinalText: proposalReply("This only looks.",
-			`{"title":"Count the plugins","description":"Read and report.","rationale":"Nobody knows.","goal":"Grow the ecosystem.","class":"diagnosis"}`),
+			`{"kind":"feature","title":"Count the plugins","description":"Read and report.","rationale":"Nobody knows.","goal":"Grow the ecosystem.","class":"diagnosis"}`),
 	}}})
 	options.Tracker = tracker
 	options.Goals = recordedGoals(recordedGoal)
@@ -146,7 +146,7 @@ func TestTheCreateActionHonoursTheExemptionUnderThePerItemGate(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the survey.",
-			`{"action":"create","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
+			`{"action":"create","kind":"feature","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
 		{SessionID: "session-1", FinalText: "It is in the queue."},
 	}})
 	options.Tracker = tracker
@@ -180,7 +180,7 @@ func TestTheCreateActionIsStillRefusedForWorkOfNoExemptedClass(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the rewrite.",
-			`{"action":"create","title":"Rewrite the attribution resolver","description":"Change it.","goal":"`+recordedGoal+`","reason":"the operator asked"}`)},
+			`{"action":"create","kind":"feature","title":"Rewrite the attribution resolver","description":"Change it.","goal":"`+recordedGoal+`","reason":"the operator asked"}`)},
 		{SessionID: "session-1", FinalText: "It was refused; I will propose it."},
 	}})
 	options.Tracker = tracker
@@ -288,7 +288,7 @@ func TestAnExemptCreateUnderAutomaticIsHeldToTheApprovedGoal(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the survey.",
-			`{"action":"create","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
+			`{"action":"create","kind":"feature","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
 		{SessionID: "session-1", FinalText: "It was refused."},
 	}})
 	options.Tracker = tracker
@@ -323,7 +323,7 @@ func TestAnExemptCreateUnderAutomaticRecordsTheApprovedGoalThatAdmittedIt(t *tes
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the survey.",
-			`{"action":"create","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
+			`{"action":"create","kind":"feature","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
 		{SessionID: "session-1", FinalText: "It is in the queue."},
 	}})
 	options.Tracker = tracker
@@ -390,7 +390,7 @@ func TestAnExemptCreateIsRefusedWhereTheGoalsCannotBeChecked(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the survey.",
-			`{"action":"create","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
+			`{"action":"create","kind":"feature","title":"Count the items carrying an attribution","description":"Read and report.","goal":"`+recordedGoal+`","class":"diagnosis","reason":"the operator asked how many"}`)},
 		{SessionID: "session-1", FinalText: "It was refused."},
 	}})
 	options.Tracker = tracker

@@ -46,7 +46,7 @@ func TestAnOperatorTakesIntentThroughToIntegratedWorkInOneConversation(t *testin
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: proposalReply(
 			"Pausing rather than failing is the smaller change.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously."}`,
 		)},
 		{SessionID: "session-1", FinalText: "It is integrated, so the goal is met."},
 		{SessionID: "session-1", FinalText: "Nothing is outstanding."},

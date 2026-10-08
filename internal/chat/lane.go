@@ -161,8 +161,8 @@ func (s *Session) laneNote() string {
 // the goal, the done-conditions, the placement, and what the work resembles —
 // and it is recorded before the operator is shown it, like every proposal.
 //
-// A proposal carries the title, the description, the goal, the parent, and the
-// class. The rest of a creation's arguments have nowhere to go on one, so they
+// A proposal carries the title, the description, the goal, the parent, the
+// class, and the kind. The rest of a creation's arguments have nowhere to go on one, so they
 // are named in the outcome rather than dropped quietly, for the instance to set
 // once the operator has admitted the item into its lane.
 func (s *Session) proposeLaneCreation(ctx context.Context, outcome *TrackerOutcome, gate string) {
@@ -175,6 +175,7 @@ func (s *Session) proposeLaneCreation(ctx context.Context, outcome *TrackerOutco
 		RelevantGoals: action.RelevantGoals,
 		Parent:        action.parent(),
 		Class:         action.Class,
+		Kind:          action.kind(),
 	}
 	if err := proposal.Validate(); err != nil {
 		outcome.fail(err)
@@ -217,7 +218,7 @@ func uncarriedClause(action TrackerAction) string {
 	var dropped []string
 	for _, argument := range action.arguments() {
 		switch argument {
-		case "title", "description", "goal", "relevant_goals", "parent", "class":
+		case "title", "description", "goal", "relevant_goals", "parent", "class", "kind":
 		default:
 			dropped = append(dropped, argument)
 		}
@@ -255,7 +256,7 @@ func (s *Session) takeLaneProposals() []PendingProposal {
 // laneTrackerClause is the program manager's tracker authority: the reads every
 // role has, and the writes its lane bounds, stated with the rules the harness
 // holds each of them to.
-const laneTrackerClause = relevantGoalsClause + "\n\n" + itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. Read an item before you act on it, and survey before you conclude anything about the queue. To act on the work tracker, end your reply with exactly one block, after the prose:
+const laneTrackerClause = relevantGoalsClause + "\n\n" + workItemKindClause + "\n\n" + itemReadClause + "\n\n" + `The state you were given lists work items by title only, and it is a snapshot: it was gathered when this conversation opened and it does not move. Read an item before you act on it, and survey before you conclude anything about the queue. To act on the work tracker, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-tracker
 {"actions":[
@@ -263,7 +264,7 @@ const laneTrackerClause = relevantGoalsClause + "\n\n" + itemReadClause + "\n\n"
   {"action":"survey"},
   {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why nothing should pull it yet","report":"report-id","labels":["bug"],"reason":"why you are admitting it"},
   {"action":"attribute","id":"beads-id","goal":"the goal it serves","reason":"why"},
-  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"executor":"conversation:architect","reason":"why"},
+  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"kind":"feature","executor":"conversation:architect","reason":"why"},
   {"action":"label","id":"beads-id","add":"bug","reason":"why this item carries the label"},
   {"action":"label","id":"beads-id","remove":"bug","reason":"why it no longer does"},
   {"action":"reparent","id":"beads-id","parent":"beads-id","reason":"why"},

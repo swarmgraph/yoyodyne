@@ -172,7 +172,7 @@ func TestAConversationTrackerReadThatFailsRecoverablyIsAskedAgain(t *testing.T) 
 	var sleeps []time.Duration
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Something worth doing","description":"d","goal":"`+theGoal+`","reason":"r"}`)},
+			`{"action":"create","kind":"feature","title":"Something worth doing","description":"d","goal":"`+theGoal+`","reason":"r"}`)},
 		{SessionID: "session-1", FinalText: "It is in the backlog."},
 	}})
 	options.Tracker = tracker

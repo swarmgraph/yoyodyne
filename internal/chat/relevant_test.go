@@ -10,13 +10,14 @@ import (
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 )
 
 func TestAdmissionCarriesTwoRelevantGoalsToTheRunAndReview(t *testing.T) {
 	relevant := []string{recordedGoal, "Use ordinary words."}
-	action, _ := json.Marshal(TrackerAction{Action: actionCreate, Title: "Record goal relevance", Description: "Keep the admission traceable.", Goal: recordedGoal, RelevantGoals: relevant, Reason: "the goals apply to this work"})
+	action, _ := json.Marshal(TrackerAction{Action: actionCreate, Title: "Record goal relevance", Description: "Keep the admission traceable.", Goal: recordedGoal, RelevantGoals: relevant, Kind: domain.WorkItemKindFeature, Reason: "the goals apply to this work"})
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: trackerReply("Admitting it.", string(action))}, {SessionID: "session-1", FinalText: "Admitted."}}})
 	options.Tracker = tracker
@@ -50,7 +51,7 @@ func TestAdmissionCarriesTwoRelevantGoalsToTheRunAndReview(t *testing.T) {
 
 func TestUnknownRelevantGoalRefusesAnAdmission(t *testing.T) {
 	tracker := &fakeTracker{}
-	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: trackerReply("Admitting it.", `{"action":"create","title":"Record relevance","description":"Record the list.","goal":"`+recordedGoal+`","relevant_goals":["Unknown goal."],"reason":"test the refusal"}`)}, {SessionID: "session-1", FinalText: "The goal was refused."}}})
+	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: trackerReply("Admitting it.", `{"action":"create","kind":"feature","title":"Record relevance","description":"Record the list.","goal":"`+recordedGoal+`","relevant_goals":["Unknown goal."],"reason":"test the refusal"}`)}, {SessionID: "session-1", FinalText: "The goal was refused."}}})
 	options.Tracker = tracker
 	options.Goals = recordedGoals(recordedGoal)
 	reply, err := openTestSession(t, options).Send(context.Background(), "admit it")

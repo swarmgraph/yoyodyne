@@ -49,7 +49,7 @@ func TestWorkIsNotAdmittedTwiceFromOneReport(t *testing.T) {
 	}}}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the export guard.",
-			`{"action":"create","title":"The tracker export cannot be smuggled into a run's committed change","description":"Refuse the export in a run's diff.","goal":"`+
+			`{"action":"create","kind":"feature","title":"The tracker export cannot be smuggled into a run's committed change","description":"Refuse the export in a run's diff.","goal":"`+
 				theGoal+`","report":"`+filed+`","reason":"the developer reported it"}`)},
 		{SessionID: "session-1", FinalText: "It is already done."},
 	}}
@@ -93,7 +93,7 @@ func TestWorkAdmittedFromAReportRecordsTheReport(t *testing.T) {
 	tracker := &fakeTracker{}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"The export is refused in a run's diff","description":"Refuse it.","goal":"`+
+			`{"action":"create","kind":"feature","title":"The export is refused in a run's diff","description":"Refuse it.","goal":"`+
 				theGoal+`","report":"`+filed+`","reason":"the developer reported it"}`)},
 		{SessionID: "session-1", FinalText: "It is in the backlog."},
 	}}
@@ -134,7 +134,7 @@ func TestARefusalForASourceSaysHowASecondPieceOfWorkIsAdmitted(t *testing.T) {
 	}}}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the second half.",
-			`{"action":"create","title":"The export hold is re-checked on every attempt","description":"d","goal":"`+
+			`{"action":"create","kind":"feature","title":"The export hold is re-checked on every attempt","description":"d","goal":"`+
 				theGoal+`","report":"`+filed+`","reason":"the same report asked for both"}`)},
 		{SessionID: "session-1", FinalText: "I will admit it without the citation."},
 	}}
@@ -164,7 +164,7 @@ func TestAdmittingFromAReportNobodyFiledCreatesNothing(t *testing.T) {
 	tracker := &fakeTracker{}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Something a report asked for","description":"d","goal":"`+
+			`{"action":"create","kind":"feature","title":"Something a report asked for","description":"d","goal":"`+
 				theGoal+`","report":"report-00000000000000000000000000000000","reason":"r"}`)},
 		{SessionID: "session-1", FinalText: "It was refused."},
 	}}
@@ -215,7 +215,7 @@ func TestOneParentIsNotDecomposedTwiceIntoTheSameChild(t *testing.T) {
 	}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Breaking it down.",
-			`{"action":"create","parent":"yoyodyne-ifd.241","title":"Each newly-available improvement DMs the operator once, deduplicated, per the ruling",`+
+			`{"action":"create","kind":"feature","parent":"yoyodyne-ifd.241","title":"Each newly-available improvement DMs the operator once, deduplicated, per the ruling",`+
 				`"description":"d","goal":"`+theGoal+`","reason":"decomposing the parent"}`)},
 		{SessionID: "session-1", FinalText: "It is already carved out."},
 	}}
@@ -264,7 +264,7 @@ func TestAnAdmissionIsRefusedWhenTheDuplicateCheckCouldNotRun(t *testing.T) {
 	tracker := &fakeTracker{listErr: errors.New("bd list failed with status timed_out and exit code -1: ")}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Something worth doing","description":"d","goal":"`+theGoal+`","reason":"r"}`)},
+			`{"action":"create","kind":"feature","title":"Something worth doing","description":"d","goal":"`+theGoal+`","reason":"r"}`)},
 		{SessionID: "session-1", FinalText: "The tracker would not answer, so nothing was admitted."},
 	}}
 	options := testOptions(t, provider)
@@ -303,7 +303,7 @@ func TestAProposalIsPutToTheOperatorWhenTheDuplicateCheckCouldNotRun(t *testing.
 	t.Parallel()
 
 	tracker := &fakeTracker{listErr: errors.New("bd list failed with status timed_out and exit code -1: ")}
-	proposal := `{"items":[{"title":"Something worth doing","description":"d","rationale":"r","goal":"` + theGoal + `"}]}`
+	proposal := `{"items":[{"kind":"feature","title":"Something worth doing","description":"d","rationale":"r","goal":"` + theGoal + `"}]}`
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "I suggest this.\n\n```yoyodyne-proposal\n" + proposal + "\n```"},
 	}}
@@ -338,7 +338,7 @@ func TestTheDuplicateCheckReadsClosedWorkToo(t *testing.T) {
 	tracker := &fakeTracker{}
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Something worth doing","description":"d","goal":"`+theGoal+`","reason":"r"}`)},
+			`{"action":"create","kind":"feature","title":"Something worth doing","description":"d","goal":"`+theGoal+`","reason":"r"}`)},
 		{SessionID: "session-1", FinalText: "Done."},
 	}}
 	options := testOptions(t, provider)
@@ -377,7 +377,7 @@ func TestAProposalThatLooksLikeAdmittedWorkIsPutToTheOperator(t *testing.T) {
 			Status: "open",
 		}},
 	}
-	proposal := `{"items":[{"title":"Each newly-available improvement DMs the operator once, deduplicated, per the ruling",` +
+	proposal := `{"items":[{"kind":"feature","title":"Each newly-available improvement DMs the operator once, deduplicated, per the ruling",` +
 		`"description":"d","rationale":"the notices are still silent","goal":"` + theGoal + `","parent":"yoyodyne-ifd.241"}]}`
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "I suggest this.\n\n```yoyodyne-proposal\n" + proposal + "\n```"},
@@ -416,7 +416,7 @@ func TestAProposalThatLooksLikeNothingIsStillAdmitted(t *testing.T) {
 	t.Parallel()
 
 	tracker := &fakeTracker{}
-	proposal := `{"items":[{"title":"Stall detection runs without Slack","description":"d",` +
+	proposal := `{"items":[{"kind":"feature","title":"Stall detection runs without Slack","description":"d",` +
 		`"rationale":"the watchdog is wired to a surface","goal":"` + theGoal + `"}]}`
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "I suggest this.\n\n```yoyodyne-proposal\n" + proposal + "\n```"},
@@ -499,7 +499,7 @@ func landingOptions(t *testing.T, tracker Tracker, actions ...string) Options {
 const reported428 = "report-0d79ada8c4d92d9561f1d4a6ee81186e"
 
 func admission428(title string) string {
-	return `{"action":"create","parent":"yoyodyne-ifd.428","title":"` + title + `","description":"d","goal":"` +
+	return `{"action":"create","kind":"feature","parent":"yoyodyne-ifd.428","title":"` + title + `","description":"d","goal":"` +
 		theGoal + `","report":"` + reported428 + `","reason":"the developer reported it"}`
 }
 
@@ -554,7 +554,7 @@ func TestACreationThatTimedOutBeforeLandingIsAskedForAgain(t *testing.T) {
 	base.all = []beads.WorkItem{{ID: "yoyodyne-ifd.7", Title: title, Status: "closed",
 		Notes: "Admitted to the backlog by the product manager in conversation chat-other, after turn 3."}}
 	tracker := &landingTracker{fakeTracker: base, timeouts: 1}
-	options := landingOptions(t, tracker, `{"action":"create","title":"`+title+`","description":"d","goal":"`+theGoal+`","reason":"r"}`)
+	options := landingOptions(t, tracker, `{"action":"create","kind":"feature","title":"`+title+`","description":"d","goal":"`+theGoal+`","reason":"r"}`)
 	session := openTestSession(t, options)
 
 	reply, err := session.Send(context.Background(), "Admit it.")

@@ -162,13 +162,13 @@ func TestARoleIsRefusedTheAuthorityItDoesNotHave(t *testing.T) {
 	t.Parallel()
 
 	create := "```yoyodyne-tracker\n" +
-		`{"actions":[{"action":"create","title":"Rewrite the scheduler","description":"because","goal":"` + recordedGoal + `","reason":"it is time"}]}` +
+		`{"actions":[{"action":"create","kind":"feature","title":"Rewrite the scheduler","description":"because","goal":"` + recordedGoal + `","reason":"it is time"}]}` +
 		"\n```"
 	closeItem := "```yoyodyne-tracker\n" +
 		`{"actions":[{"action":"close","id":"yoyodyne-ifd.4","reason":"done"}]}` +
 		"\n```"
 	propose := "```yoyodyne-proposal\n" +
-		`{"items":[{"title":"Rewrite the scheduler","description":"because","rationale":"it follows","goal":"` + recordedGoal + `"}]}` +
+		`{"items":[{"kind":"feature","title":"Rewrite the scheduler","description":"because","rationale":"it follows","goal":"` + recordedGoal + `"}]}` +
 		"\n```"
 
 	for _, testCase := range []struct {
@@ -258,7 +258,7 @@ func TestTheDevelopmentManagerDecomposesAdmittedWork(t *testing.T) {
 	answer := "Two children, sequenced.\n\n" +
 		"```yoyodyne-tracker\n" +
 		`{"actions":[
-		  {"action":"create","title":"Add the role authority table","description":"What each role may ask for, in Go.","goal":"` + recordedGoal + `","parent":"yoyodyne-ifd.4","priority":1,"reason":"the boundary has to be enforced before it is described"},
+		  {"action":"create","kind":"feature","title":"Add the role authority table","description":"What each role may ask for, in Go.","goal":"` + recordedGoal + `","parent":"yoyodyne-ifd.4","priority":1,"reason":"the boundary has to be enforced before it is described"},
 		  {"action":"link","id":"yoyodyne-ifd.4.7","depends_on":"yoyodyne-ifd.4.6","reason":"the command needs the table"}
 		]}` +
 		"\n```"
@@ -331,7 +331,7 @@ func TestTheProductManagerAdmitsWorkToTheBacklog(t *testing.T) {
 
 	answer := "Filing it.\n\n" +
 		"```yoyodyne-tracker\n" +
-		`{"actions":[{"action":"create","title":"Add the role authority table","description":"What each role may ask for, in Go.","goal":"` + recordedGoal + `","priority":1,"reason":"the operator asked for it"}]}` +
+		`{"actions":[{"action":"create","kind":"feature","title":"Add the role authority table","description":"What each role may ask for, in Go.","goal":"` + recordedGoal + `","priority":1,"reason":"the operator asked for it"}]}` +
 		"\n```"
 	tracker := &fakeTracker{items: map[string]beads.WorkItem{}}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{

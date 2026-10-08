@@ -282,6 +282,99 @@ func (c WorkItemClass) Valid() bool {
 	return false
 }
 
+// WorkItemKind says whether a work item fixes a bug or adds a feature. It is
+// what the rework rate is computed from — the share of merged changes that were
+// unplanned bug fixes — so an admission through the harness has to state one,
+// and it is stored in the tracker's own type field rather than in harness
+// metadata, so bd's listings read the same kind the harness wrote.
+//
+// It is a different question from WorkItemClass, which says how a project's
+// admission gate treats the work; and from the reliability label, which says a
+// seat should prefer it.
+type WorkItemKind string
+
+const (
+	// WorkItemKindBug is work that repairs something that should already have
+	// worked.
+	WorkItemKindBug WorkItemKind = "bug"
+	// WorkItemKindFeature is planned work: anything that is not repairing
+	// something broken.
+	WorkItemKindFeature WorkItemKind = "feature"
+)
+
+// WorkItemKinds lists every kind there is, in the order a refusal names them.
+var WorkItemKinds = []WorkItemKind{WorkItemKindBug, WorkItemKindFeature}
+
+// WorkItemKindBugLabel is the label that marked a bug before the type field
+// did. An item carrying it reads as a bug whatever its type says, so the items
+// labelled that way before kinds were required are counted as what they are.
+const WorkItemKindBugLabel = "bug"
+
+// Valid reports a kind the harness recognizes. The empty kind is not one: it
+// is an item nobody typed.
+func (k WorkItemKind) Valid() bool {
+	for _, known := range WorkItemKinds {
+		if k == known {
+			return true
+		}
+	}
+	return false
+}
+
+// WorkItemKindOf reads a work item's kind from the tracker's type field and its
+// labels. The bug label wins over the type, because most items carrying it were
+// admitted as "task" before anything could say otherwise. An item that is
+// neither reads as the empty kind, which a caller reports as untyped rather than
+// counting as either.
+func WorkItemKindOf(issueType string, labels []string) WorkItemKind {
+	for _, label := range labels {
+		if strings.TrimSpace(label) == WorkItemKindBugLabel {
+			return WorkItemKindBug
+		}
+	}
+	if kind := WorkItemKind(strings.TrimSpace(issueType)); kind.Valid() {
+		return kind
+	}
+	return ""
+}
+
+// ReworkTally counts merged changes by the kind of the item each one closed.
+// Untyped is kept apart rather than folded into features, because an item with
+// no kind is a gap in the record and not a planned change.
+type ReworkTally struct {
+	Merges   int `json:"merges"`
+	Bugs     int `json:"bugs"`
+	Features int `json:"features"`
+	Untyped  int `json:"untyped"`
+}
+
+// CountRework tallies the kinds of the items a set of merges closed, one kind
+// per merge.
+func CountRework(kinds []WorkItemKind) ReworkTally {
+	tally := ReworkTally{Merges: len(kinds)}
+	for _, kind := range kinds {
+		switch kind {
+		case WorkItemKindBug:
+			tally.Bugs++
+		case WorkItemKindFeature:
+			tally.Features++
+		default:
+			tally.Untyped++
+		}
+	}
+	return tally
+}
+
+// Rate is the share of merges that were bug fixes, and false where there were
+// no merges to take a share of. While Untyped is non-zero it is a floor: an
+// untyped merge may have been a bug fix, and is counted here as if it were not.
+func (t ReworkTally) Rate() (float64, bool) {
+	if t.Merges == 0 {
+		return 0, false
+	}
+	return float64(t.Bugs) / float64(t.Merges), true
+}
+
 // WorkItemExecutor names what actually carries a work item's execution. It
 // exists because nothing in the queue said, and the harness's own selection is
 // what paid for that: an item whose execution is a conversation with the

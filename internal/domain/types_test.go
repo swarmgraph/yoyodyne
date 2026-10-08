@@ -212,3 +212,44 @@ func TestAMemoryNameMayLeadWithAWorkItemNumber(t *testing.T) {
 		}
 	}
 }
+
+// The bug label reads as a bug whatever the type says, the two kinds read as
+// themselves, and anything else is untyped rather than counted as either.
+func TestWorkItemKindOfReadsTheTypeAndTheBugLabel(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		issueType string
+		labels    []string
+		want      WorkItemKind
+	}{
+		{issueType: "bug", want: WorkItemKindBug},
+		{issueType: "feature", want: WorkItemKindFeature},
+		{issueType: "task", labels: []string{"reliability", "bug"}, want: WorkItemKindBug},
+		{issueType: "feature", labels: []string{"bug"}, want: WorkItemKindBug},
+		{issueType: "task", labels: []string{"reliability"}, want: ""},
+		{issueType: "epic", want: ""},
+		{issueType: "", want: ""},
+	} {
+		if got := WorkItemKindOf(test.issueType, test.labels); got != test.want {
+			t.Fatalf("WorkItemKindOf(%q, %q) = %q, want %q", test.issueType, test.labels, got, test.want)
+		}
+	}
+}
+
+// Untyped merges are counted apart from both kinds, and the rate is the share
+// of all merges that were bug fixes, with none to report where nothing merged.
+func TestReworkTallyReportsUntypedMergesApart(t *testing.T) {
+	t.Parallel()
+
+	tally := CountRework([]WorkItemKind{WorkItemKindBug, WorkItemKindFeature, WorkItemKindFeature, ""})
+	if tally != (ReworkTally{Merges: 4, Bugs: 1, Features: 2, Untyped: 1}) {
+		t.Fatalf("CountRework() = %#v", tally)
+	}
+	if rate, known := tally.Rate(); !known || rate != 0.25 {
+		t.Fatalf("Rate() = %v, %v, want 0.25", rate, known)
+	}
+	if _, known := CountRework(nil).Rate(); known {
+		t.Fatal("Rate() of no merges is known, want it reported as no rate")
+	}
+}

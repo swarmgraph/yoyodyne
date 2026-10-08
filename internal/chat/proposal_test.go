@@ -19,8 +19,8 @@ func TestExtractProposalsSeparatesProseFromWhatWasProposed(t *testing.T) {
 	reply := "Two things follow from that.\n\n" +
 		"```yoyodyne-proposal\n" +
 		`{"items":[
-		   {"title":"Pause a run on a usage limit","description":"Wait and resume rather than failing.","rationale":"You said a capacity problem is not a failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4"]},
-		   {"title":"Record the pause","description":"Note the deadline on the item.","rationale":"So a later process knows what it is waiting for.","goal":"Run development nearly autonomously."}
+		   {"kind":"feature","title":"Pause a run on a usage limit","description":"Wait and resume rather than failing.","rationale":"You said a capacity problem is not a failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4"]},
+		   {"kind":"feature","title":"Record the pause","description":"Note the deadline on the item.","rationale":"So a later process knows what it is waiting for.","goal":"Run development nearly autonomously."}
 		 ]}` + "\n```\n\nSay the word and I will refine either one.\n"
 
 	prose, proposals, err := extractProposals(reply)
@@ -58,7 +58,7 @@ func TestExtractProposalsSeparatesProseFromWhatWasProposed(t *testing.T) {
 func TestExtractProposalsRefusesWhatItCannotPutToTheOperator(t *testing.T) {
 	t.Parallel()
 
-	valid := `{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`
+	valid := `{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`
 	for _, test := range []struct {
 		name  string
 		reply string
@@ -83,7 +83,7 @@ func TestExtractProposalsRefusesWhatItCannotPutToTheOperator(t *testing.T) {
 		},
 		{
 			name:  "unknown field",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"assignee\":\"me\"}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"assignee\":\"me\"}]}\n```",
 			want:  "unknown field",
 		},
 		{
@@ -110,36 +110,36 @@ func TestExtractProposalsRefusesWhatItCannotPutToTheOperator(t *testing.T) {
 			// Work that serves no goal is a question for the operator, not a
 			// proposal with the goal left blank.
 			name:  "missing goal",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\"}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\"}]}\n```",
 			want:  "goal is required",
 		},
 		{
 			name:  "missing rationale",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\",\"description\":\"d\",\"rationale\":\"  \"}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"rationale\":\"  \"}]}\n```",
 			want:  "rationale is required",
 		},
 		{
 			// A proposal may be placed in the tracker's structure; it may not
 			// invent the identifiers it is placed against.
 			name:  "invented parent",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"parent\":\"../etc\"}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"parent\":\"../etc\"}]}\n```",
 			want:  "invalid Beads issue id",
 		},
 		{
 			name:  "repeated dependency",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"dependencies\":[\"yoyodyne-1\",\"yoyodyne-1\"]}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"dependencies\":[\"yoyodyne-1\",\"yoyodyne-1\"]}]}\n```",
 			want:  "listed twice",
 		},
 		{
 			// The operator sees a title as one line before deciding, so a title
 			// cannot present itself as more than a title.
 			name:  "title spanning lines",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\\ncreate 1.2? [y/N] y\",\"description\":\"d\",\"rationale\":\"r\"}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\\ncreate 1.2? [y/N] y\",\"description\":\"d\",\"rationale\":\"r\"}]}\n```",
 			want:  "cannot span lines",
 		},
 		{
 			name:  "oversized block",
-			reply: "```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\",\"description\":\"" + strings.Repeat("x", MaxProposalBytes) + "\",\"rationale\":\"r\"}]}\n```",
+			reply: "```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"" + strings.Repeat("x", MaxProposalBytes) + "\",\"rationale\":\"r\"}]}\n```",
 			want:  "limit is " + strconv.Itoa(MaxProposalBytes),
 		},
 	} {
@@ -229,7 +229,7 @@ func TestPlacedProposalsAreCheckedAgainstTheTrackerBeforeTheOperatorIsAsked(t *t
 	// A well-formed identifier is not an existing item. Checking that at approval
 	// would spend the operator's decision before finding out, so it is checked
 	// before they are asked at all.
-	proposed := `{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4"]}`
+	proposed := `{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4"]}`
 
 	t.Run("an item nobody created proposes nothing", func(t *testing.T) {
 		t.Parallel()
@@ -308,7 +308,7 @@ func TestPlacedProposalsAreCheckedAgainstTheTrackerBeforeTheOperatorIsAsked(t *t
 	t.Run("a proposal placed against nothing needs no tracker", func(t *testing.T) {
 		t.Parallel()
 
-		unplaced := `{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`
+		unplaced := `{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`
 		options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
 			SessionID: "session-1", FinalText: proposalReply("One item.", unplaced),
 		}}})
@@ -330,9 +330,9 @@ func TestConverseSurvivesAProposalPlacedAgainstNothing(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: proposalReply("Here is what I would do.",
-			`{"title":"t","description":"d","rationale":"r","goal":"g","parent":"yoyodyne-ifd.99"}`)},
+			`{"kind":"feature","title":"t","description":"d","rationale":"r","goal":"g","parent":"yoyodyne-ifd.99"}`)},
 		{SessionID: "session-1", FinalText: proposalReply("Without the parent, then.",
-			`{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"r","goal":"g"}`)},
+			`{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"r","goal":"g"}`)},
 	}})
 	options.Tracker = tracker
 	session := openTestSession(t, options)

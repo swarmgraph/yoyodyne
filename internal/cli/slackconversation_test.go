@@ -191,7 +191,7 @@ const concernAndProposalReply = `One of these is yours to decide.
 ` + "```" + `
 
 ` + "```yoyodyne-proposal" + `
-{"items":[{"title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}]}
+{"items":[{"kind":"feature","title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}]}
 ` + "```" + `
 `
 

@@ -596,7 +596,7 @@ func TestSendRecordsProposalsAndCreatesNothing(t *testing.T) {
 	}}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1",
-		FinalText: proposalReply("Two follow-ups, then.", `{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4"]}`),
+		FinalText: proposalReply("Two follow-ups, then.", `{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4"]}`),
 	}}})
 	options.Store = newTestStore(t, root)
 	options.Tracker = tracker
@@ -642,7 +642,7 @@ func TestApproveCreatesTheProposedItemWithItsOrigin(t *testing.T) {
 	}}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1",
-		FinalText: proposalReply("One item, then.", `{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4","yoyodyne-ifd.15"]}`),
+		FinalText: proposalReply("One item, then.", `{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.12","dependencies":["yoyodyne-ifd.4.4","yoyodyne-ifd.15"]}`),
 	}}})
 	options.Store = newTestStore(t, root)
 	options.Tracker = tracker
@@ -665,8 +665,9 @@ func TestApproveCreatesTheProposedItemWithItsOrigin(t *testing.T) {
 	if item.Title != "Pause on a usage limit" || item.Description != "Wait and resume." || item.Parent != "yoyodyne-ifd.12" {
 		t.Fatalf("created work item = %#v", item)
 	}
-	if item.Type != proposedIssueType {
-		t.Fatalf("created work item type = %q, want %q", item.Type, proposedIssueType)
+	// The proposal's kind is the created item's tracker type.
+	if item.Type != string(domain.WorkItemKindFeature) {
+		t.Fatalf("created work item type = %q, want %q", item.Type, domain.WorkItemKindFeature)
 	}
 	// The item records the conversation, the turn, and the reasoning it came
 	// from, so it can be traced back to what was said.
@@ -704,7 +705,7 @@ func TestRejectRecordsTheRefusalInsteadOfDroppingIt(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
 		SessionID: "session-1",
-		FinalText: proposalReply("A suggestion.", `{"title":"Rewrite the CLI in Rust","description":"Port everything.","rationale":"It would be faster.","goal":"Support development in any language."}`),
+		FinalText: proposalReply("A suggestion.", `{"kind":"feature","title":"Rewrite the CLI in Rust","description":"Port everything.","rationale":"It would be faster.","goal":"Support development in any language."}`),
 	}}})
 	options.Store = newTestStore(t, root)
 	options.Tracker = tracker
@@ -737,7 +738,7 @@ func TestRejectRecordsTheRefusalInsteadOfDroppingIt(t *testing.T) {
 func TestNothingIsCreatedWithoutAnApproval(t *testing.T) {
 	t.Parallel()
 
-	proposed := `{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`
+	proposed := `{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`
 
 	t.Run("an unapproved proposal is never created", func(t *testing.T) {
 		t.Parallel()
@@ -796,7 +797,7 @@ func TestNothingIsCreatedWithoutAnApproval(t *testing.T) {
 		t.Parallel()
 
 		tracker := &fakeTracker{}
-		malformed := "Here it is.\n\n```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\"}]}\n```\n"
+		malformed := "Here it is.\n\n```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\"}]}\n```\n"
 		options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: malformed}}})
 		options.Tracker = tracker
 		session := openTestSession(t, options)
@@ -824,9 +825,9 @@ func TestConverseAsksBeforeCreatingAnythingAndRecordsEveryAnswer(t *testing.T) {
 		SessionID: "session-1",
 		FinalText: proposalReply(
 			"Three, and I would keep the third for later.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
-			`{"title":"Rewrite the CLI in Rust","description":"Port everything.","rationale":"It would be faster.","goal":"Support development in any language."}`,
-			`{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Rewrite the CLI in Rust","description":"Port everything.","rationale":"It would be faster.","goal":"Support development in any language."}`,
+			`{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
 		),
 	}}})
 	options.Store = newTestStore(t, root)
@@ -886,8 +887,8 @@ func TestConverseSurvivesAProposalItCannotRead(t *testing.T) {
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		// A block with an unknown field: the turn is fine, the proposals in it
 		// are not.
-		{SessionID: "session-1", FinalText: "Here is what I would do.\n\n" + proposalFence + "\n{\"items\":[{\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"assignee\":\"me\"}]}\n```\n"},
-		{SessionID: "session-1", FinalText: proposalReply("Let me try that again.", `{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`)},
+		{SessionID: "session-1", FinalText: "Here is what I would do.\n\n" + proposalFence + "\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\",\"description\":\"d\",\"rationale\":\"r\",\"assignee\":\"me\"}]}\n```\n"},
+		{SessionID: "session-1", FinalText: proposalReply("Let me try that again.", `{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`)},
 	}})
 	options.Tracker = tracker
 	session := openTestSession(t, options)
@@ -942,7 +943,7 @@ func TestSendCarriesOutTrackerActionsAndCarriesTheResultsBack(t *testing.T) {
 		{SessionID: "session-1", FinalText: trackerReply("Let me read ifd.22 before I answer.",
 			`{"action":"read","id":"yoyodyne-ifd.22"}`)},
 		{SessionID: "session-1", FinalText: trackerReply("It already covers the separation, so I filed the rest beside it and linked them.",
-			`{"action":"create","title":"Name the speaker on every line","description":"Prefix each line with who said it.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.22","reason":"ifd.22 covers separation but not attribution"}`,
+			`{"action":"create","kind":"feature","title":"Name the speaker on every line","description":"Prefix each line with who said it.","goal":"Run development nearly autonomously.","parent":"yoyodyne-ifd.22","reason":"ifd.22 covers separation but not attribution"}`,
 			`{"action":"reprioritize","id":"yoyodyne-ifd.22","priority":1,"reason":"the operator is blocked on reading the transcript"}`)},
 		{SessionID: "session-1", FinalText: "Both are in the queue now."},
 	}}
