@@ -310,8 +310,10 @@ same machine. It is a path check for a change touching what
 [`scripts/codex-resume.paths`](../../scripts/codex-resume.paths) lists — the
 Codex adapter, its test, and what it runs in — and on every other change the
 run's record names it as not run because the change touches nothing that list
-covers. This project's `.yoyodyne/config.yaml` names it with the provider CLIs
-left on its search path:
+covers. It runs once `.yoyodyne/config.yaml` names it with the provider CLIs
+left on its search path, which waits until every running part of the product
+is on a build that reads `needs_provider_clis`, because a part that cannot
+read a key refuses the whole file:
 
 ```yaml
 path_checks:

@@ -13,10 +13,10 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
-// This project's configuration names the Codex resume test as the one check
-// that keeps the provider CLIs on its search path, and chooses it only for a
-// change touching the Codex adapter or what it runs in: a change elsewhere does
-// not run it, and every other check keeps the CLIs hidden.
+// The Codex resume test's list chooses it only for a change touching the Codex
+// adapter or what it runs in, and a change elsewhere does not run it. Where
+// this project's configuration keeps the provider CLIs visible to a check, it
+// is that check alone, over that list; every other check keeps them hidden.
 func TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter(t *testing.T) {
 	t.Parallel()
 
@@ -24,16 +24,12 @@ func TestTheCodexResumeCheckRunsOnlyForTheCodexAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("config.Load() error = %v", err)
 	}
-	var withProviderCLIs []config.PathCheck
 	for _, check := range declared.PathChecks {
-		if check.NeedsProviderCLIs {
-			withProviderCLIs = append(withProviderCLIs, check)
+		if check.NeedsProviderCLIs && (check.Command != "make codex-resume" || check.Paths != "scripts/codex-resume.paths") {
+			t.Errorf("path check %#v keeps the provider CLIs visible; only make codex-resume over scripts/codex-resume.paths may", check)
 		}
 	}
-	if len(withProviderCLIs) != 1 || withProviderCLIs[0].Command != "make codex-resume" || withProviderCLIs[0].Paths != "scripts/codex-resume.paths" {
-		t.Fatalf("path checks with the provider CLIs = %#v, want make codex-resume over scripts/codex-resume.paths alone", withProviderCLIs)
-	}
-	patterns, err := checks.ReadPathPatterns(repositoryRoot, withProviderCLIs[0].Paths)
+	patterns, err := checks.ReadPathPatterns(repositoryRoot, "scripts/codex-resume.paths")
 	if err != nil {
 		t.Fatalf("ReadPathPatterns() error = %v", err)
 	}
