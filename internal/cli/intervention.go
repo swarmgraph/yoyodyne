@@ -334,7 +334,7 @@ Options:
   --json                emit machine-readable JSON
 
 record options:
-  --kind <kind>         restart, reset, tracker-edit, other (the default), or any
+  --kind <kind>         restart, reset, tracker, other (the default), or any
                         step the harness also records, such as stop
   --by <who>            who took the step; required
   --recorded-by <who>   who is writing it down (default: whoever took it)

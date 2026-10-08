@@ -92,9 +92,9 @@ const (
 	KindRestart Kind = "restart"
 	// KindReset is moving a branch by hand, such as resetting the target branch.
 	KindReset Kind = "reset"
-	// KindTrackerEdit is changing the tracker by hand: a status, a note, a
+	// KindTracker is changing the tracker by hand: a status, a note, a
 	// dependency.
-	KindTrackerEdit Kind = "tracker-edit"
+	KindTracker Kind = "tracker"
 	// KindOther is a hand step none of the other kinds names.
 	KindOther Kind = "other"
 )
@@ -108,7 +108,7 @@ var performedKinds = []Kind{
 }
 
 // outsideKinds are the steps only a person outside the harness takes.
-var outsideKinds = []Kind{KindRestart, KindReset, KindTrackerEdit, KindOther}
+var outsideKinds = []Kind{KindRestart, KindReset, KindTracker, KindOther}
 
 // Kinds is every kind, in the order they are listed.
 func Kinds() []Kind {
@@ -165,7 +165,7 @@ func (k Kind) Describe() string {
 		return "restarted a part of the product by hand"
 	case KindReset:
 		return "moved a branch by hand"
-	case KindTrackerEdit:
+	case KindTracker:
 		return "changed the tracker by hand"
 	case KindOther:
 		return "took another step by hand"

@@ -1588,7 +1588,7 @@ that is what counts it against that change:
 ```
 
 The kinds that only happen outside the harness are `restart`, `reset`,
-`tracker-edit`, and `other`; any kind the harness records can be written down
+`tracker`, and `other`; any kind the harness records can be written down
 too, such as a run stopped by killing its process. The event is marked as
 observed, with who took the step and who recorded it (`--recorded-by`, by
 default whoever took it). A process an agent's run started is refused, as the
