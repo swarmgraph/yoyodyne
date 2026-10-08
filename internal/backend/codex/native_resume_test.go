@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -29,11 +31,50 @@ const nativeProbeReply = "native sandbox probe passed"
 // polling and local HTTP requests need no separate deadline.
 const nativeProbeSubprocessBudget = 10 * time.Minute
 
+// codexSandboxRefusal is what Codex says when macOS will not let it apply its
+// own sandbox, which is what happens inside another sandbox.
+const codexSandboxRefusal = "sandbox_apply: Operation not permitted"
+
+// insideADeveloperRun reports whether environment is a developer run's: the
+// harness marks every process it launches for a role, and that mark reaches
+// every command the developer starts, while a check the harness runs itself
+// carries none. A nil environment asks about this process's own.
+func insideADeveloperRun(environment []string) bool {
+	role, marked := execution.LaunchedForRole(environment)
+	return marked && role == domain.RoleDeveloper
+}
+
+// developerSandboxRefusedCodex reports whether a failure of the native test is
+// a developer run's sandbox refusing what the test needs, rather than anything
+// about the change: the run is marked as a developer's, and Codex reported it
+// could not apply its sandbox. Both have to hold. Anywhere else the same report
+// is a failure, because there it is the host that cannot confine Codex.
+func developerSandboxRefusedCodex(environment []string, reports ...string) bool {
+	if !insideADeveloperRun(environment) {
+		return false
+	}
+	for _, report := range reports {
+		if strings.Contains(report, codexSandboxRefusal) {
+			return true
+		}
+	}
+	return false
+}
+
+// developerRunSkip is why the native test skipped inside a developer run, said
+// where the test output says it.
+const developerRunSkip = "skipped inside a developer run: %s, so this test cannot run here. " +
+	"It is not skipped anywhere else. The harness's own check `make codex-resume` runs it outside any developer run, " +
+	"with the real Codex on its search path (docs/configuration/runs.md)"
+
 // The provider is a local scripted Responses server, not a paid model. It asks
 // the real CLI to execute one shell command, then ends the turn. The CLI creates
 // and restores its own session; neither the rollout nor its policy is faked.
 // There is no opt-in flag: an installed CLI whose sandbox cannot run fails this
 // check instead of turning absent confinement evidence into a passing suite.
+// The one exception is a developer run, whose own sandbox will not let Codex
+// apply its sandbox or let the test listen on a local port; there the test
+// skips saying so, and `make codex-resume` is where it runs instead.
 func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	binary, err := exec.LookPath("codex")
 	if err != nil {
@@ -55,6 +96,9 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	model := &sandboxResponses{}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		if insideADeveloperRun(nil) && errors.Is(err, syscall.EPERM) {
+			t.Skipf(developerRunSkip, "the developer run's sandbox does not allow listening on a local port ("+err.Error()+")")
+		}
 		t.Fatalf("local scripted Responses server unavailable: %v", err)
 	}
 	server := &httptest.Server{Listener: listener, Config: &http.Server{Handler: model}}
@@ -184,6 +228,17 @@ func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunReque
 	t.Helper()
 	result, err := provider.Run(t.Context(), request)
 	process := provider.Runner.(*sandboxCLIRunner).process
+	reports := []string{process.Stdout, process.Stderr, result.FinalText}
+	if err != nil {
+		reports = append(reports, err.Error())
+	}
+	if model != nil {
+		_, toolResult := model.commandEvidence(proof)
+		reports = append(reports, toolResult)
+	}
+	if developerSandboxRefusedCodex(nil, reports...) {
+		t.Skipf(developerRunSkip, "Codex reported it cannot apply its own sandbox inside the developer run's sandbox ("+codexSandboxRefusal+")")
+	}
 	if err != nil || result.IsError || result.Process.Status != execution.ProcessSucceeded {
 		t.Fatalf("native CLI turn: %v; status=%s, exit=%d, stop=%q, reply=%q\n%s\n%s",
 			err, process.Status, process.ExitCode, result.StopReason, result.FinalText, process.Stdout, process.Stderr)
@@ -816,5 +871,31 @@ func TestSandboxToolResultDecodesContentAndIgnoresStdoutSessionMarkers(t *testin
 	}
 	if _, running := sandboxRunningSession(input, "current-call"); running {
 		t.Fatal("a session marker printed by the command requested a poll")
+	}
+}
+
+// The native test skips only where both hold: the process is a developer run's,
+// and Codex said it could not apply its sandbox. Outside a developer run — the
+// harness's own checks, a person's terminal, continuous integration — the same
+// refusal is a failure, and so is any other failure inside one.
+func TestTheNativeTestSkipsOnlyWhereADeveloperRunsSandboxRefusesCodex(t *testing.T) {
+	t.Parallel()
+	refusal := "exec_command failed: sandbox-exec: " + codexSandboxRefusal
+	developer := execution.WithAgentRole([]string{"PATH=/usr/bin"}, domain.RoleDeveloper)
+	for _, test := range []struct {
+		name        string
+		environment []string
+		reports     []string
+		skip        bool
+	}{
+		{"a developer run whose sandbox refused Codex", developer, []string{"", refusal}, true},
+		{"a developer run with another failure", developer, []string{"confinement command exited with code 20: unexpected write access"}, false},
+		{"outside any run", []string{"PATH=/usr/bin"}, []string{refusal}, false},
+		{"a reviewer run", execution.WithAgentRole([]string{"PATH=/usr/bin"}, domain.RoleReviewer), []string{refusal}, false},
+		{"an emptied role marker", []string{"PATH=/usr/bin", execution.AgentRoleVariable + "="}, []string{refusal}, false},
+	} {
+		if skip := developerSandboxRefusedCodex(test.environment, test.reports...); skip != test.skip {
+			t.Errorf("%s: skip = %v, want %v", test.name, skip, test.skip)
+		}
 	}
 }

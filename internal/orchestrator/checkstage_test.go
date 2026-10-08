@@ -847,6 +847,37 @@ func TestAChangeThatNarrowsAPathChecksListStillRunsIt(t *testing.T) {
 	}
 }
 
+// A path check that needs the provider CLIs is marked for the runner at the
+// position it runs in, and nothing else is: a configured check with the same
+// command, and a path check that does not ask, keep the CLIs hidden.
+func TestOnlyAPathCheckNeedingProviderCLIsIsMarkedForThem(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "scripts"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "scripts", "codex.paths"), []byte("/internal/backend/codex/\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configured := []config.PathCheck{
+		{Command: "make adoption", Paths: "scripts/codex.paths"},
+		{Command: "make codex-resume", Paths: "scripts/codex.paths", NeedsProviderCLIs: true},
+	}
+	added := pathChecksFor(root, configured, []string{"internal/backend/codex/args.go"})
+	commands, providerCLIs := withPathChecks([]string{"make codex-resume", "make test"}, added)
+	want := []string{"make codex-resume", "make test", "make adoption", "make codex-resume"}
+	if strings.Join(commands, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands = %q, want %q", commands, want)
+	}
+	if len(providerCLIs) != 1 || !providerCLIs[3] {
+		t.Fatalf("checks run with the provider CLIs = %v, want only position 3", providerCLIs)
+	}
+	if _, providerCLIs := withPathChecks([]string{"make test"}, pathChecksFor(root, configured[:1], []string{"internal/backend/codex/args.go"})); providerCLIs != nil {
+		t.Fatalf("checks run with the provider CLIs = %v, want none where no path check asks", providerCLIs)
+	}
+}
+
 // A hold may still stop a continuation, but its thirty-minute deadline is the
 // durable ending of the stopped run, not the lifetime of the watcher.
 func TestAnOverdueCheckStageContinuationNamesItsGateAcrossWatcherRestarts(t *testing.T) {

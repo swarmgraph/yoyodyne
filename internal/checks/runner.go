@@ -85,6 +85,11 @@ type Request struct {
 	// out, which is every per-run gate.
 	Timeout   time.Duration
 	Unbounded bool
+	// ProviderCLIs marks, by position in Commands, the checks run with the
+	// provider CLIs left on their search path: a path check whose configuration
+	// says it needs them, because what it vouches for is how the harness drives
+	// a real one. Every other check has them hidden; searchpath.go says why.
+	ProviderCLIs map[int]bool
 	// StageBound, where set, is asked for the stage's bound as each check
 	// begins, in place of the runner's StageTimeout. Its first answer is the
 	// bound; a later answer only ever raises it, so a bound scaled for the
@@ -153,6 +158,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 	// check reads what the harness knows about the change from its environment.
 	environment := execution.WithGoBuildCache(execution.ExplicitEnvironment(nil), request.Directory)
 	environment = append(environment, request.Env...)
+	withProviders := environment
 	environment, restore, err := withoutExecutables(environment, request.Directory, r.HiddenExecutables)
 	if err != nil {
 		return nil, request.LastSequence, err
@@ -166,7 +172,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 	// smaller of the two budgets whole rather than that less the instant it took
 	// to get here.
 	var stageStarted time.Time
-	for _, command := range request.Commands {
+	for index, command := range request.Commands {
 		if strings.TrimSpace(command) == "" {
 			return results, lastAccepted, errors.New("check command cannot be empty")
 		}
@@ -222,11 +228,15 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		}
 		var observerErrors []error
 		var failure failureCapture
+		checkEnvironment := environment
+		if request.ProviderCLIs[index] {
+			checkEnvironment = withProviders
+		}
 		processResult, err := r.Process.Run(ctx, execution.Command{
 			Name:    shell,
 			Args:    []string{"-c", command},
 			Dir:     request.Directory,
-			Env:     environment,
+			Env:     checkEnvironment,
 			Timeout: budget,
 			// Every line this check writes is emitted below, so the run's own
 			// event log holds the whole of a suite too verbose to retain, and

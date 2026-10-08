@@ -227,7 +227,10 @@ CLI usually is not installed as well — the forge's continuous integration, a
 collaborator's machine — and a test that passed only because one is installed
 here would fail there, after a review has been spent on it. Under this rule it
 fails in the check stage instead. A test that genuinely needs a provider CLI
-skips itself, saying why, where none is found.
+skips itself, saying why, where none is found. The one exception is a path
+check that sets `needs_provider_clis: true`: it runs with the provider CLIs on
+its search path, because what it vouches for is how the harness drives a real
+one, and every other check in the same stage still has them hidden.
 
 For a Codex developer, redirecting the environment alone does not grant a write.
 The adapter uses `workspace-write` with an explicit
@@ -278,11 +281,36 @@ paid model calls:
 go test ./internal/backend/codex -run TestNativeResumeReplacesSavedDirectoryGrants -count=1
 ```
 
-The regression runs by default when Codex is installed; only an absent CLI skips
+The regression runs by default when Codex is installed; an absent CLI skips
 it. Refusal to start the local server or execute the native sandbox fails the
 check. A host must permit loopback listening and native sandbox execution.
 An outer sandbox that refuses `sandbox-exec` with
 `sandbox_apply: Operation not permitted` cannot exercise the native policy.
+
+A developer run is such an outer sandbox on macOS, so there, and only there,
+the regression skips instead of failing: where the process is marked as a
+developer's (`YOYODYNE_AGENT_ROLE=developer`, below) and either Codex reported
+`sandbox_apply: Operation not permitted` or the run's sandbox refused the local
+listening port. The skip says which in plain words. Anywhere else — a person's
+terminal, continuous integration, the harness's own checks, a reviewer — the
+same refusal fails the test as it always did.
+
+The harness's checks hide the provider CLIs, so `make test` there skips the
+regression for want of Codex. `make codex-resume` is the check that runs it
+with the real Codex present, outside any developer run's sandbox, and records
+whether it passed: it fails when the test skips for any reason, so a machine
+without Codex, or a developer run, cannot read as a pass. It is a path check
+for a change touching what
+[`scripts/codex-resume.paths`](../../scripts/codex-resume.paths) lists, once
+`.yoyodyne/config.yaml` names it with the provider CLIs left on its search path:
+
+```yaml
+path_checks:
+  - command: make codex-resume
+    paths: scripts/codex-resume.paths
+    needs_provider_clis: true
+```
+
 An accepted CLI launch or saved thread does not prove permitted cache writes,
 scratch log writes, or confinement after resume. Successful native execution
 evidence is required before claiming those conditions are met; unrestricted

@@ -11,6 +11,8 @@ import (
 type addedCheck struct {
 	command string
 	reason  string
+	// providerCLIs is the path check's needs_provider_clis.
+	providerCLIs bool
 }
 
 // pathChecksFor chooses which of the configured path checks this change runs:
@@ -30,23 +32,26 @@ func pathChecksFor(root string, configured []config.PathCheck, changed []string)
 	for _, check := range configured {
 		if checks.ChangesFile(changed, check.Paths) {
 			added = append(added, addedCheck{
-				command: check.Command,
-				reason:  "the change touches " + check.Paths + " itself, and a list is never judged by the change that edits it",
+				command:      check.Command,
+				providerCLIs: check.NeedsProviderCLIs,
+				reason:       "the change touches " + check.Paths + " itself, and a list is never judged by the change that edits it",
 			})
 			continue
 		}
 		patterns, err := checks.ReadPathPatterns(root, check.Paths)
 		if err != nil {
 			added = append(added, addedCheck{
-				command: check.Command,
-				reason:  "its paths file could not be read, so it runs rather than being passed over: " + err.Error(),
+				command:      check.Command,
+				providerCLIs: check.NeedsProviderCLIs,
+				reason:       "its paths file could not be read, so it runs rather than being passed over: " + err.Error(),
 			})
 			continue
 		}
 		if touched, ok := checks.Touching(patterns, changed); ok {
 			added = append(added, addedCheck{
-				command: check.Command,
-				reason:  "the change touches " + touched + ", which " + check.Paths + " lists",
+				command:      check.Command,
+				providerCLIs: check.NeedsProviderCLIs,
+				reason:       "the change touches " + touched + ", which " + check.Paths + " lists",
 			})
 		}
 	}
@@ -54,13 +59,21 @@ func pathChecksFor(root string, configured []config.PathCheck, changed []string)
 }
 
 // withPathChecks is the configured checks followed by the ones added for this
-// change.
-func withPathChecks(configured []string, added []addedCheck) []string {
+// change, and which of them, by position, run with the provider CLIs on their
+// search path.
+func withPathChecks(configured []string, added []addedCheck) ([]string, map[int]bool) {
 	commands := append([]string(nil), configured...)
+	var providerCLIs map[int]bool
 	for _, check := range added {
+		if check.providerCLIs {
+			if providerCLIs == nil {
+				providerCLIs = map[int]bool{}
+			}
+			providerCLIs[len(commands)] = true
+		}
 		commands = append(commands, check.command)
 	}
-	return commands
+	return commands, providerCLIs
 }
 
 // describePathChecks says what the gate added, for the stage's record; nothing
