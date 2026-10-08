@@ -62,6 +62,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -136,6 +137,14 @@ func rerunStoppage(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// accepted would be recorded as that role's, and nothing would have checked it
 	// against anything they wrote.
 	result, err := rerunner.Rerun(ctx, orchestrator.RerunRequest{Run: positional[0]})
+	if err == nil {
+		noteHandStepFor(*configPath, stderr, handStep{
+			kind:  intervention.KindRerun,
+			items: []string{result.WorkItemID},
+			run:   positional[0],
+			said:  "started a re-run of " + positional[0] + " with yoyo triage rerun",
+		})
+	}
 	return reportRerun(stdout, stderr, *jsonOutput, result, err)
 }
 
@@ -164,6 +173,14 @@ func repairStoppage(ctx context.Context, args []string, stdout, stderr io.Writer
 	// the item as that role's, and nothing would have checked it against anything
 	// they wrote.
 	result, err := continuer.Continue(ctx, orchestrator.RepairContinueRequest{Run: positional[0]})
+	if err == nil {
+		noteHandStepFor(*configPath, stderr, handStep{
+			kind:  intervention.KindRepair,
+			items: []string{result.WorkItemID},
+			run:   positional[0],
+			said:  "started a repair of " + positional[0] + " with yoyo triage repair",
+		})
+	}
 	return reportRepair(stdout, stderr, *jsonOutput, result, err)
 }
 
@@ -188,6 +205,14 @@ func rearmPublication(ctx context.Context, args []string, stdout, stderr io.Writ
 		return reportRearm(stdout, stderr, *jsonOutput, orchestrator.RearmResult{}, err)
 	}
 	result, err := rearmer.Rearm(ctx, orchestrator.RearmRequest{Run: positional[0], Reason: *reason})
+	if err == nil {
+		noteHandStepFor(*configPath, stderr, handStep{
+			kind:  intervention.KindRearm,
+			items: []string{result.WorkItemID},
+			run:   positional[0],
+			said:  "asked the forge again for the merge of " + positional[0] + " with yoyo triage rearm",
+		})
+	}
 	return reportRearm(stdout, stderr, *jsonOutput, result, err)
 }
 
@@ -212,6 +237,14 @@ func resumeIntegration(ctx context.Context, args []string, stdout, stderr io.Wri
 		return reportResume(stdout, stderr, *jsonOutput, orchestrator.IntegrationResumeResult{}, err)
 	}
 	result, err := resumer.Resume(ctx, orchestrator.IntegrationResumeRequest{Run: positional[0], Reason: *reason})
+	if err == nil {
+		noteHandStepFor(*configPath, stderr, handStep{
+			kind:  intervention.KindResume,
+			items: []string{result.WorkItemID},
+			run:   positional[0],
+			said:  "resumed the integration of " + positional[0] + " with yoyo triage resume",
+		})
+	}
 	return reportResume(stdout, stderr, *jsonOutput, result, err)
 }
 
@@ -513,6 +546,11 @@ func overrideTriageCap(ctx context.Context, args []string, stdout, stderr io.Wri
 	if latest, found := counters.OverrideOf(recorded.Budget); found {
 		result.Recorded = latest
 	}
+	noteHandStep(parts.interventions, parts.config.Product.ID, stderr, handStep{
+		kind:  intervention.KindOverride,
+		items: []string{workItemID},
+		said:  "crossed the " + recorded.Budget + " cap on " + workItemID + " with yoyo triage override",
+	})
 	return reportTriageOverride(stdout, stderr, *jsonOutput, result, nil)
 }
 

@@ -827,6 +827,11 @@ reads durable state and asks whichever process holds the run, so it means exactl
 the same thing in a single message. With `--json` what the command printed
 is a field of its own, so nothing reads as something the Lead Product Manager said.
 
+`/work`, the stops, `/directive`, and your answers approving or declining what a
+role proposed or wrote are each recorded as one of your hand steps, so how many
+each merged change cost you can be counted; see
+[counting your hand steps](operations.md#counting-your-hand-steps).
+
 `/backlog` shows the ordering the Lead Product Manager set, which is the one thing a
 development manager pulls from: the admitted work that is not finished, in
 priority order, each unready item saying what is holding it, and the item that

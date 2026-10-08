@@ -222,7 +222,7 @@ func declaredAhead() []Ahead {
 		},
 		{
 			Capability: capability.ReportFile,
-			Reason:     "reports are read from every role's reply today whatever its bundle holds, so no site asks for this yet; the program manager holds it because its design says so, and making the other roles' reports ask for it is a change to their bundles nobody has ruled on",
+			Reason:     "reports are read from every role's reply today whatever its bundle holds, so filing one asks for nothing yet; the one site that asks for it is a conversation's record of a hand step the role noticed the operator take outside the harness (chat/intervention.go); the program manager holds it because its design says so, and making the other roles' reports ask for it is a change to their bundles nobody has ruled on",
 		},
 		{
 			Capability: capability.AmendmentPropose,

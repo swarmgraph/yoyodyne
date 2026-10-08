@@ -72,6 +72,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return runInvariant(args[1:], stdout, stderr)
 	case "directive":
 		return runDirective(args[1:], stdout, stderr)
+	case "intervention":
+		return runIntervention(args[1:], stdout, stderr)
 	case "exchange":
 		return runExchange(ctx, args[1:], stdout, stderr)
 	case "reports":
@@ -757,6 +759,7 @@ Commands:
   conformance       check the product against what it records about itself
   invariant         record, amend, retire, and read architectural invariants
   directive         record, resolve, and read durable user directives
+  intervention      read the operator's hand steps, and record one taken outside the harness
   exchange          read what the roles have asked each other, and what it cost
   reports           read what agents reported without it stopping their work
   sweeps            read what the recurring tasks found on their own schedule

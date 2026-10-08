@@ -18,6 +18,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 )
 
@@ -716,6 +717,7 @@ func (s *Session) StartWork(ctx context.Context, workItemID string) error {
 	}
 	s.active = run
 	s.notice("the operator started work on %s, and the harness is running it now", id)
+	s.noteHandStep(intervention.KindRun, []string{id}, "", "", "ran "+id+" by name with /work")
 	return nil
 }
 
@@ -955,6 +957,7 @@ func (s *Session) stopRun(ctx context.Context, run RunSnapshot, reason string) (
 		return stopped, errors.Join(append(problems, fmt.Errorf("ask the run on %s to stop: %w", run.WorkItemID, err))...)
 	}
 	s.notice("the operator asked the run on %s to stop", run.WorkItemID)
+	s.noteHandStep(intervention.KindStop, []string{run.WorkItemID}, run.RunID, "", "asked the run on "+run.WorkItemID+" to stop")
 	ended, err := s.awaitStoppedRun(ctx, run)
 	if err != nil {
 		problems = append(problems, err)
@@ -1164,6 +1167,7 @@ func (s *Session) stopActive(ctx context.Context, note string) (Stopped, error) 
 	}); err != nil {
 		problems = append(problems, fmt.Errorf("record stopping work on %s: %w", run.workItemID, err))
 	}
+	s.noteHandStep(intervention.KindStop, []string{run.workItemID}, "", "", "stopped the run on "+run.workItemID+" this conversation started")
 	run.cancel()
 	select {
 	case <-run.done:

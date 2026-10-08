@@ -135,6 +135,60 @@ func (s *Store) Shipped(limit int) (ShippedLedger, error) {
 	return ledger, nil
 }
 
+// PromotedItem is one item the harness promoted and every run made for it, read
+// without pricing anything: what a count joined to promoted changes needs, such
+// as the operator's hand steps per merged change.
+type PromotedItem struct {
+	WorkItemID   string    `json:"work_item_id"`
+	ShippedAt    time.Time `json:"shipped_at"`
+	ShippedRunID string    `json:"shipped_run_id"`
+	// RunIDs is every run of the item, oldest first, the failed and discarded
+	// attempts included: a hand step that named any of them was a step on the
+	// way to this change.
+	RunIDs []string `json:"run_ids"`
+}
+
+// Promoted reports every item the harness promoted, oldest promotion first. It
+// is Shipped's reading of which items shipped and when, without the price that
+// makes Shipped read every run's event log.
+func (s *Store) Promoted() ([]PromotedItem, error) {
+	states, err := s.scan("recorded", func(State) bool { return true })
+	if err != nil {
+		return nil, err
+	}
+	byItem := make(map[string][]State)
+	for _, state := range states {
+		byItem[state.WorkItemID] = append(byItem[state.WorkItemID], state)
+	}
+	promoted := make([]PromotedItem, 0, len(byItem))
+	for item, runs := range byItem {
+		latest, ok := latestPromotion(runs)
+		if !ok {
+			continue
+		}
+		sort.SliceStable(runs, func(first, second int) bool {
+			return runs[first].StartedAt.Before(runs[second].StartedAt)
+		})
+		runIDs := make([]string, 0, len(runs))
+		for _, run := range runs {
+			runIDs = append(runIDs, run.RunID)
+		}
+		promoted = append(promoted, PromotedItem{
+			WorkItemID:   item,
+			ShippedAt:    shippedAt(latest),
+			ShippedRunID: latest.RunID,
+			RunIDs:       runIDs,
+		})
+	}
+	sort.SliceStable(promoted, func(first, second int) bool {
+		if !promoted[first].ShippedAt.Equal(promoted[second].ShippedAt) {
+			return promoted[first].ShippedAt.Before(promoted[second].ShippedAt)
+		}
+		return promoted[first].WorkItemID < promoted[second].WorkItemID
+	})
+	return promoted, nil
+}
+
 // latestPromotion is the newest run of an item that recorded an integration,
 // or false where none did. Newest by when it shipped rather than by when it
 // started, so an old run resumed into its promotion after a newer attempt is

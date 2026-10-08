@@ -11,6 +11,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -161,6 +162,13 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if err != nil {
 		return reportReconcileResult(stdout, stderr, *jsonOutput, reconcileSweep{}, err)
 	}
+	// Typed by a person, this is the operator settling runs by hand; run by the
+	// supervisor's maintenance pass it is the harness's own sweep, and the pass
+	// marks it so nothing is recorded (see intervention.go).
+	noteHandStep(parts.interventions, parts.config.Product.ID, stderr, handStep{
+		kind: intervention.KindSettle,
+		said: "settled interrupted runs and converged local state by hand with yoyo reconcile",
+	})
 	trackerExports, trackerExportErr := maintainTrackerExports(ctx, parts)
 	reconciler := reconcilerFrom(parts)
 	// This sweep hosts the runs it makes live, as its last step, so a queued head

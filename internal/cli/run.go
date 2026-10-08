@@ -24,6 +24,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -62,6 +63,13 @@ func runWorkItem(ctx context.Context, args []string, stdout, stderr io.Writer) i
 	// it was chosen is indistinguishable from one the harness chose unaccountably.
 	pipeline.Selection = runstate.OperatorSelection(
 		"the operator ran this item by name from the command line", time.Now())
+	// It is recorded as a hand step before the run starts rather than after,
+	// because the run can take hours and the step was taken now.
+	noteHandStepFor(*configPath, stderr, handStep{
+		kind:  intervention.KindRun,
+		items: []string{positional[0]},
+		said:  "ran " + positional[0] + " by name with yoyo run",
+	})
 	outcome, err := pipeline.Run(ctx, positional[0])
 	return reportRunResult(stdout, stderr, *jsonOutput, outcome, err)
 }
@@ -169,8 +177,12 @@ type components struct {
 	// since a moment. Every listing the harness's tracker client makes writes its
 	// outcome there; see tracker.
 	trackerListings *runstate.TrackerListingStore
-	worktrees       *gitworktree.Manager
-	redactValues    []string
+	// interventions is the product's record of the operator's hand steps: what a
+	// verb that carries one out writes, and what a conversation's operator
+	// commands write (see intervention.go).
+	interventions *runstate.InterventionStore
+	worktrees     *gitworktree.Manager
+	redactValues  []string
 }
 
 // roots is where a product's three durable places are: the checkout the runs
@@ -411,6 +423,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	interventions, err := runstate.NewInterventionStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	worktrees, err := gitworktree.New(gitworktree.Options{
 		Runner:                processRunner,
 		RepositoryRoot:        repository,
@@ -460,6 +476,7 @@ func buildComponents(configPath string) (components, error) {
 		divergences:     divergences,
 		spend:           spendLog,
 		trackerListings: trackerListings,
+		interventions:   interventions,
 		worktrees:       worktrees,
 		redactValues:    execution.SensitiveEnvironmentValues(os.Environ()),
 	}, nil
