@@ -50,7 +50,7 @@ func TestALaneCreationCarriesTheLaneLabelInTheWriteThatAdmitsIt(t *testing.T) {
 	tracker := &fakeTracker{}
 	session := laneSession(t, tracker, automatic,
 		trackerReply("Admitting two stall fixes into the lane.",
-			`{"action":"create","title":"The sweep never clears a preserved-branch stoppage","description":"Fix it.","goal":"`+recordedGoal+`","priority":1,"reason":"the same stoppage has stopped runs twice"}`,
+			`{"action":"create","kind":"feature","title":"The sweep never clears a preserved-branch stoppage","description":"Fix it.","goal":"`+recordedGoal+`","priority":1,"reason":"the same stoppage has stopped runs twice"}`,
 			`{"action":"create","title":"Root-cause the checks timing out","description":"Diagnose it.","goal":"`+recordedGoal+`","labels":["bug","reliability"],"reason":"prevention"}`),
 		"Both are in the lane.")
 
@@ -269,7 +269,7 @@ func TestAParentOutsideTheLaneIsRefused(t *testing.T) {
 	session := laneSession(t, tracker, automatic,
 		trackerReply("Moving it.",
 			`{"action":"reparent","id":"yoyodyne-ifd.1","parent":"yoyodyne-ifd.9","reason":"r"}`,
-			`{"action":"create","title":"A child of outside work","description":"d","goal":"`+recordedGoal+`","parent":"yoyodyne-ifd.9","reason":"r"}`),
+			`{"action":"create","kind":"feature","title":"A child of outside work","description":"d","goal":"`+recordedGoal+`","parent":"yoyodyne-ifd.9","reason":"r"}`),
 		"Refused.")
 	reply, err := session.Send(context.Background(), "move it")
 	if err != nil {
@@ -294,7 +294,7 @@ func TestUnderPerItemApprovalALaneCreationIsPutToTheOperator(t *testing.T) {
 	tracker := &fakeTracker{}
 	session := laneSession(t, tracker, Admission{},
 		trackerReply("Admitting the stall fix.",
-			`{"action":"create","title":"The sweep never clears a preserved-branch stoppage","description":"Fix it.","goal":"`+recordedGoal+`","priority":1,"reason":"it stopped runs twice"}`),
+			`{"action":"create","kind":"feature","title":"The sweep never clears a preserved-branch stoppage","description":"Fix it.","goal":"`+recordedGoal+`","priority":1,"reason":"it stopped runs twice"}`),
 		"It is with the operator.")
 
 	reply, err := session.Send(context.Background(), "admit the stall fix")
@@ -342,7 +342,7 @@ func TestUnderAutomaticAnUnapprovedGoalIsPutToTheOperator(t *testing.T) {
 	tracker := &fakeTracker{}
 	results := []backendapi.RunResult{
 		{SessionID: "s", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"t","description":"d","goal":"`+recordedGoal+`","reason":"r"}`)},
+			`{"action":"create","kind":"feature","title":"t","description":"d","goal":"`+recordedGoal+`","reason":"r"}`)},
 		{SessionID: "s", FinalText: "With the operator."},
 	}
 	options := testOptions(t, &fakeBackend{results: results})

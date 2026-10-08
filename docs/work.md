@@ -164,6 +164,11 @@ allowed to run; the harness does not guess its relevant goals. Both the
 developer's briefing and the review bundle label these as goals the change must
 not break. They supplement the standing goals, which apply to every item.
 
+Every admission also records a kind, `bug` or `feature`, as the item's tracker
+type; an admission that states neither is refused, and an item carrying the
+`bug` label reads as a bug. A survey names the open items with no kind, and an
+`update` gives one. See [the conversation guide](conversation.md) for the field.
+
 An independent reviewer —
 its own provider invocation, with no tools at all — judges the change against
 the work item, its design guidance and acceptance criteria, the goal it serves,

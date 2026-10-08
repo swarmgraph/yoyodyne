@@ -835,7 +835,7 @@ func newTestChatSession(t *testing.T, provider chat.Backend, reports ...report.R
 const proposalReply = `We could wait out the limit rather than failing the run.
 
 ` + "```yoyodyne-proposal" + `
-{"items":[{"title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}]}
+{"items":[{"kind":"feature","title":"Pause on a usage limit","description":"Wait for the window and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}]}
 ` + "```" + `
 `
 

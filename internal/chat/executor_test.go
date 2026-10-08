@@ -26,7 +26,7 @@ func TestAdmissionCarriesTheExecutorToTheTracker(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the promotion.",
-			`{"action":"create","title":"Promote the brief","description":"The architect promotes it.","goal":"`+recordedGoal+`","executor":"conversation:architect","reason":"the architect carries it in conversation"}`)},
+			`{"action":"create","kind":"feature","title":"Promote the brief","description":"The architect promotes it.","goal":"`+recordedGoal+`","executor":"conversation:architect","reason":"the architect carries it in conversation"}`)},
 		{SessionID: "session-1", FinalText: "It is in the queue."},
 	}})
 	options.Tracker = tracker

@@ -48,7 +48,7 @@ func TestTheOperatorsCommandsInAConversationAreRecordedAsHandSteps(t *testing.T)
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: proposalReply(
 			"Pausing rather than failing is the smaller change.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"You said capacity is not failure.","goal":"Run development nearly autonomously."}`,
 		)},
 	}})
 	options.Store = newTestStore(t, root)
@@ -98,7 +98,7 @@ func TestDecliningAProposalIsRecordedAsAHandStep(t *testing.T) {
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: proposalReply(
 			"Here is one.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Because.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Because.","goal":"Run development nearly autonomously."}`,
 		)},
 	}})
 	options.Store = newTestStore(t, root)

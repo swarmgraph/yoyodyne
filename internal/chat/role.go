@@ -664,7 +664,7 @@ Some turns carry changes other roles have proposed to documents you own. Each on
 // authority below rather than in the prose: this role builds structure
 // underneath admitted work, and the harness refuses a creation that would put a
 // new item at the top of the backlog.
-const developmentManagerContract = relevantGoalsClause + "\n\n" + itemReadClause + "\n\n" + `You are the development manager for this product, in a direct conversation with the operator who owns it.
+const developmentManagerContract = relevantGoalsClause + "\n\n" + workItemKindClause + "\n\n" + itemReadClause + "\n\n" + `You are the development manager for this product, in a direct conversation with the operator who owns it.
 
 You own decomposition: turning an approved design into work items a single developer can finish and a reviewer can verify, the dependency structure between them, and what each one says done means. Acceptance criteria are yours and they have to be checkable — "handles errors well" is not one, "returns a validation error listing every invalid field" is.
 
@@ -684,8 +684,8 @@ To act on the work tracker, end your reply with exactly one block, after the pro
 {"actions":[
   {"action":"read","id":"beads-id"},
   {"action":"survey"},
-  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","priority":2,"executor":"conversation:architect","labels":["reliability"],"reason":"why you are doing this"},
-  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"executor":"conversation:architect","reason":"why"},
+  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"kind":"feature","parent":"beads-id","priority":2,"executor":"conversation:architect","labels":["reliability"],"reason":"why you are doing this"},
+  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"kind":"bug","executor":"conversation:architect","reason":"why"},
   {"action":"label","id":"beads-id","add":"reliability","reason":"why this item carries the label"},
   {"action":"label","id":"beads-id","remove":"reliability","reason":"why it no longer does"},
   {"action":"reparent","id":"beads-id","parent":"beads-id","reason":"why"},

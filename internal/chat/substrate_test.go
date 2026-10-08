@@ -33,11 +33,11 @@ const substrateCommitID = "abcdef0123456789abcdef0123456789abcdef01"
 
 // carvedChild is the decomposition the 2026-09-25 case produced: a child that
 // supersedes the parent's change, and says nothing about building on it.
-const carvedChild = `{"action":"create","title":"Carry the write through the document path","description":"Rewrites the document path from the target branch, superseding the parent's pull request.","goal":"` + recordedGoal + `","parent":"` + substrateParent + `","priority":2,"reason":"the reviewer refused this half as out of scope"}`
+const carvedChild = `{"action":"create","kind":"feature","title":"Carry the write through the document path","description":"Rewrites the document path from the target branch, superseding the parent's pull request.","goal":"` + recordedGoal + `","parent":"` + substrateParent + `","priority":2,"reason":"the reviewer refused this half as out of scope"}`
 
 // buildingChild is the founding case's decomposition: a child that says in its
 // own text that it builds on the parent's files.
-const buildingChild = `{"action":"create","title":"Carry the write through the document path","description":"Builds on ` + substrateParent + `'s change: assumes internal/artifact/write.go and internal/chat/document.go from its branch.","goal":"` + recordedGoal + `","parent":"` + substrateParent + `","priority":2,"reason":"the reviewer refused this half as out of scope"}`
+const buildingChild = `{"action":"create","kind":"feature","title":"Carry the write through the document path","description":"Builds on ` + substrateParent + `'s change: assumes internal/artifact/write.go and internal/chat/document.go from its branch.","goal":"` + recordedGoal + `","parent":"` + substrateParent + `","priority":2,"reason":"the reviewer refused this half as out of scope"}`
 
 // What the item is for: a re-scope of work whose change never landed leaves the
 // child open, with where the parent's change is recorded on it as guidance, and

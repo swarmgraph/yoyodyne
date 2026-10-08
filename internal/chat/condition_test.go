@@ -42,7 +42,7 @@ func TestADoneConditionNamingAnUngrantedDesignIsRefusedAtEveryDoorIntoTheQueue(t
 		tracker := &fakeTracker{}
 		provider := &fakeBackend{results: []backendapi.RunResult{
 			{SessionID: "session-1", FinalText: trackerReply("Admitting the first child.",
-				`{"action":"create","title":"Add the capacity-blocked state","description":"`+designCondition+`","goal":"Run development nearly autonomously.","reason":"the operator directed it"}`)},
+				`{"action":"create","kind":"feature","title":"Add the capacity-blocked state","description":"`+designCondition+`","goal":"Run development nearly autonomously.","reason":"the operator directed it"}`)},
 			{SessionID: "session-1", FinalText: "Refused; I will reword it."},
 		}}
 		options := testOptions(t, provider)
@@ -106,7 +106,7 @@ func TestADoneConditionNamingAnUngrantedDesignIsRefusedAtEveryDoorIntoTheQueue(t
 		options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{{
 			SessionID: "session-1",
 			FinalText: proposalReply("One item follows.",
-				`{"title":"Add the capacity-blocked state","description":"`+designCondition+`","rationale":"the dashboard needs it","goal":"`+recordedGoal+`"}`),
+				`{"kind":"feature","title":"Add the capacity-blocked state","description":"`+designCondition+`","rationale":"the dashboard needs it","goal":"`+recordedGoal+`"}`),
 		}}})
 		options.Tracker = tracker
 		options.Goals = recordedGoals(recordedGoal)
@@ -207,7 +207,7 @@ func TestACitationOrAnUnwiredConversationRefusesNothing(t *testing.T) {
 			tracker := &fakeTracker{}
 			provider := &fakeBackend{results: []backendapi.RunResult{
 				{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-					`{"action":"create","title":"Add the capacity-blocked state","description":"`+variant.description+`","goal":"Run development nearly autonomously.","reason":"the operator directed it"}`)},
+					`{"action":"create","kind":"feature","title":"Add the capacity-blocked state","description":"`+variant.description+`","goal":"Run development nearly autonomously.","reason":"the operator directed it"}`)},
 				{SessionID: "session-1", FinalText: "Admitted."},
 			}}
 			options := testOptions(t, provider)
@@ -263,8 +263,8 @@ func TestConversationShapedWorkIsAdmittedOnlyWithItsExecutorNamed(t *testing.T) 
 	const item330 = `"title":"The architect designs side conversations with merge-back","description":"Operator capability direction, 2026-09-07, design routed to the architect as directed. Done means the design is recorded in the governed documents - the stream shape, the merge write, the action-authority answer, the config knob - and implementation items can cite it.","goal":"Run development nearly autonomously.","reason":"operator-directed with the authority question reserved to the architect"`
 	tracker := &fakeTracker{}
 	provider := &fakeBackend{results: []backendapi.RunResult{
-		{SessionID: "session-1", FinalText: trackerReply("Admitting the design item.", `{"action":"create",`+item330+`}`)},
-		{SessionID: "session-1", FinalText: trackerReply("Refused; marking it as the architect's.", `{"action":"create",`+item330+`,"executor":"conversation:architect"}`)},
+		{SessionID: "session-1", FinalText: trackerReply("Admitting the design item.", `{"action":"create","kind":"feature",`+item330+`}`)},
+		{SessionID: "session-1", FinalText: trackerReply("Refused; marking it as the architect's.", `{"action":"create","kind":"feature",`+item330+`,"executor":"conversation:architect"}`)},
 		{SessionID: "session-1", FinalText: "Admitted as the architect's."},
 	}}
 	options := testOptions(t, provider)

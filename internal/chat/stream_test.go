@@ -193,7 +193,7 @@ func TestABlockWrittenForTheHarnessIsNotShownAsProse(t *testing.T) {
 
 	answer := "Here is what I would do.\n\n" +
 		"```yoyodyne-proposal\n" +
-		`{"items":[{"title":"Stream the reply","description":"d","rationale":"r","goal":"a conversation that answers"}]}` +
+		`{"items":[{"kind":"feature","title":"Stream the reply","description":"d","rationale":"r","goal":"a conversation that answers"}]}` +
 		"\n```\n\n" +
 		"That is the lot."
 	options := testOptions(t, &replyingBackend{fragments: []string{answer}, reply: answer})
@@ -300,7 +300,7 @@ func TestAStreamInterruptedByAUsageLimitIsClosedOffBeforeTheReissue(t *testing.T
 func TestAFailureAfterAWholeReplyIsNotReportedAsAnInterruption(t *testing.T) {
 	t.Parallel()
 
-	answer := "Here it is.\n\n```yoyodyne-proposal\n{\"items\":[{\"title\":\"t\"}]}\n```\n"
+	answer := "Here it is.\n\n```yoyodyne-proposal\n{\"items\":[{\"kind\":\"feature\",\"title\":\"t\"}]}\n```\n"
 	options := testOptions(t, &replyingBackend{fragments: []string{answer}, reply: answer})
 	session := openTestSession(t, options)
 

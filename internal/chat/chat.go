@@ -38,11 +38,13 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
-// proposedIssueType is the Beads type an item created from this conversation
-// gets, whether the product manager created it itself or the operator approved a
-// proposal. The product manager files bounded work for the queue; it does not
-// own decomposition, so it does not get to choose what shape of item it files.
-const proposedIssueType = "task"
+// untypedIssueType is the Beads type of an item created from this conversation
+// with no kind, which only a proposal recorded before kinds were required can
+// be. Every other admission is created with its kind, "bug" or "feature", as its
+// type; see domain.WorkItemKind. The product manager files bounded work for the
+// queue and does not own decomposition, so it chooses only which of those two
+// an item is and never another shape of item.
+const untypedIssueType = "task"
 
 // MaxTurnInputBytes bounds one turn's system prompt and user prompt together.
 // The product context is bounded where it is assembled; this is the backstop
@@ -2774,7 +2776,7 @@ func (s *Session) createFromProposal(ctx context.Context, record *proposalRecord
 	created, err := s.options.Tracker.Create(ctx, beads.NewWorkItem{
 		Title:         strings.TrimSpace(proposal.Title),
 		Description:   strings.TrimSpace(proposal.Description),
-		Type:          proposedIssueType,
+		Type:          proposal.issueType(),
 		RelevantGoals: relevant,
 		Notes:         record.pending.provenanceNotes(authority, s.options.Goals, s.state.Role, s.options.Agent),
 		Parent:        strings.TrimSpace(proposal.Parent),
@@ -4467,7 +4469,11 @@ func (o Options) newID() (string, error) {
 // never be able to widen what it is allowed to do.
 const relevantGoalsClause = `Check work against all recorded goals at admission. On a create or proposal, carry the potentially relevant goals beside the goal served in "relevant_goals". An update sets the list on existing work without changing its served goal; an omitted list leaves it alone and an empty list clears it. Each entry resolves exactly as the served goal does, by identity or recorded wording, and an unresolved entry is refused. There may be at most 20 entries, each one nonempty line of at most 400 bytes. The tracker stores the list separately from notes, and the developer and reviewer receive it as goals the change must not break. A survey names admitted items carrying none. These goals supplement the standing set and never narrow it.`
 
-const productManagerContract = `You are the Lead Product Manager for this product, in a direct conversation with the operator who owns it.` + "\n\n" + relevantGoalsClause + "\n\n" + itemReadClause + `
+// workItemKindClause is shared by every role that admits work, because each of
+// them is refused the same way for leaving the kind out.
+const workItemKindClause = `Say whether admitted work is a bug fix or a feature. Every create and every proposal carries "kind": "bug" for work that repairs something that should already have worked, "feature" for anything planned. It becomes the item's tracker type, and the rework rate — the share of merged changes that were bug fixes — is read from it. A create or proposal that states no kind is refused with the kind named as what is missing; a create carrying the "bug" label already says it is a bug and needs no kind. An update may carry "kind" to type an item admitted without one, and a survey names the open items that have none.`
+
+const productManagerContract = `You are the Lead Product Manager for this product, in a direct conversation with the operator who owns it.` + "\n\n" + relevantGoalsClause + "\n\n" + workItemKindClause + "\n\n" + itemReadClause + `
 
 You own product intent: the product brief, the goals derived from it, and the queue of tracked work that serves them. You do not own designs or implementation. Downstream agents may propose changes to the brief or goals; they may not make them, and you evaluate such a proposal on its merits rather than adopting it silently.
 
@@ -4518,9 +4524,9 @@ Keeping the queue coherent is yours to do, not to ask for. To act on the work tr
 {"actions":[
   {"action":"read","id":"beads-id"},
   {"action":"survey"},
-  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why this is admitted already parked","directive":"directive-id","report":"report-id","labels":["reliability"],"distinct_from":{"id":"the closed beads-id the check matched","separate":"one sentence of what is separate"},"reason":"why you are doing this"},
+  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"kind":"feature","parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why this is admitted already parked","directive":"directive-id","report":"report-id","labels":["reliability"],"distinct_from":{"id":"the closed beads-id the check matched","separate":"one sentence of what is separate"},"reason":"why you are doing this"},
   {"action":"attribute","id":"beads-id","goal":"the goal this work serves","reason":"why this is the goal it serves"},
-  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"executor":"conversation:architect","reason":"why"},
+  {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"kind":"bug","executor":"conversation:architect","reason":"why"},
   {"action":"label","id":"beads-id","add":"reliability","reason":"why this item carries the label"},
   {"action":"label","id":"beads-id","remove":"reliability","reason":"why it no longer does"},
   {"action":"reparent","id":"beads-id","parent":"beads-id","reason":"why"},
@@ -4583,7 +4589,7 @@ You may also propose a work item rather than creating one, when what to do is th
 To propose, end your reply with exactly one block, after the prose:
 
 ` + "```" + `yoyodyne-proposal
-{"items":[{"title":"one line","description":"what the work is and what done means","rationale":"why this follows from what the operator said","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","dependencies":["beads-id"]}]}
+{"items":[{"title":"one line","description":"what the work is and what done means","rationale":"why this follows from what the operator said","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"kind":"feature","parent":"beads-id","dependencies":["beads-id"]}]}
 ` + "```" + `
 
 "title", "description", "rationale", and "goal" are required on every item. "goal" names the goal from the specifications that this work serves — by its identity where the goals document states one, as in "[traceable-chain]", and otherwise in the words that document states it in — and it is resolved against the recorded goals before the operator is asked: a block naming a goal they do not state proposes nothing at all. A proposal that serves no goal is not a proposal you make, it is a concern you raise. "parent" and "dependencies" are optional and must name Beads items that already exist; never invent an identifier, because the harness looks each one up before the operator is asked and a block naming an item that does not exist proposes nothing at all. Propose at most ` + maxProposalsPerTurnText + ` items in one reply, propose only work the operator has actually discussed, and leave the block out entirely when you are not proposing anything. Describe proposals in your prose as well, because the block is not what the operator reads. A proposal you made that nobody has decided yet is yours to take back: "withdraw" in the tracker block names it exactly as it was listed and takes it off the operator's list, with your reason recorded beside it. Take one back when it should never have reached him — a decision your own authority covered, or work that has since been admitted another way — rather than leaving him to decline it.

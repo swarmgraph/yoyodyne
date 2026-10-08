@@ -696,7 +696,7 @@ func TestAReportHandledAsCoveredMapsEveryRequestToWhatAnswersIt(t *testing.T) {
 		{
 			SessionID: "session-1",
 			FinalText: trackerReply("Covered in part; admitting the rest.",
-				`{"action":"create","title":"`+admitted+`","description":"Closed items leave the docket.","goal":"Run development nearly autonomously.","report":"`+reportID+`","reason":"the closed-status half of the report is covered by nothing"}`,
+				`{"action":"create","kind":"feature","title":"`+admitted+`","description":"Closed items leave the docket.","goal":"Run development nearly autonomously.","report":"`+reportID+`","reason":"the closed-status half of the report is covered by nothing"}`,
 				`{"action":"handle","report":"`+reportID+`","requests":[{"request":"`+decisions+`","covered_by":"yoyodyne-ifd.269"},{"request":"`+closed+`","admitted":"`+admitted+`"}],"reason":"covered in part by yoyodyne-ifd.269; the rest admitted"}`),
 		},
 		{SessionID: "session-1", FinalText: "Recorded."},

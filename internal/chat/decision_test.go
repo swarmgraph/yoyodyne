@@ -9,6 +9,7 @@ import (
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/console"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
@@ -316,6 +317,7 @@ func TestAProposalCardCarriesNoMeaningInItsFrame(t *testing.T) {
 	entry := testCards(1)[0]
 	entry.proposal.Proposal.Parent = "yoyodyne-ifd.1"
 	entry.proposal.Proposal.Dependencies = []string{"yoyodyne-ifd.2"}
+	entry.proposal.Proposal.Kind = domain.WorkItemKindBug
 
 	plain := entry.Render(console.Theme{})
 	want := strings.Join([]string{
@@ -324,6 +326,7 @@ func TestAProposalCardCarriesNoMeaningInItsFrame(t *testing.T) {
 		"    why: Why it follows.",
 		"    goal: Run development nearly autonomously.",
 		"    relevant goals: none recorded",
+		"    kind: bug",
 		"    parent: yoyodyne-ifd.1",
 		"    depends on: yoyodyne-ifd.2",
 		"",
@@ -367,10 +370,10 @@ func TestSeveralProposalsAreDecidedInOneAnswer(t *testing.T) {
 		SessionID: "session-1",
 		FinalText: proposalReply(
 			"Four things follow from that.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
-			`{"title":"Rewrite the CLI in Rust","description":"Port everything.","rationale":"It would be faster.","goal":"Support development in any language."}`,
-			`{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
-			`{"title":"Publish a pull request","description":"Push the branch.","rationale":"You asked for review on the forge.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Rewrite the CLI in Rust","description":"Port everything.","rationale":"It would be faster.","goal":"Support development in any language."}`,
+			`{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Publish a pull request","description":"Push the branch.","rationale":"You asked for review on the forge.","goal":"Run development nearly autonomously."}`,
 		),
 	}}})
 	options.Store = newTestStore(t, root)
@@ -455,8 +458,8 @@ func TestABatchAnswerNeverCreatesWhatItDidNotName(t *testing.T) {
 			SessionID: "session-1",
 			FinalText: proposalReply(
 				"Two things.",
-				`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
-				`{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
+				`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
+				`{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
 			),
 		}}})
 		options.Tracker = tracker
@@ -518,9 +521,9 @@ func TestTheLastProposalOfABatchIsStillApprovedWithAYes(t *testing.T) {
 		SessionID: "session-1",
 		FinalText: proposalReply(
 			"Three things.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
-			`{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
-			`{"title":"Publish a pull request","description":"Push the branch.","rationale":"You asked for review on the forge.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Publish a pull request","description":"Push the branch.","rationale":"You asked for review on the forge.","goal":"Run development nearly autonomously."}`,
 		),
 	}}})
 	options.Tracker = tracker
@@ -566,8 +569,8 @@ func TestAProposalTheTrackerRefusesIsNotAskedAboutAgain(t *testing.T) {
 		SessionID: "session-1",
 		FinalText: proposalReply(
 			"Two things.",
-			`{"title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
-			`{"title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Pause on a usage limit","description":"Wait and resume.","rationale":"Capacity is not failure.","goal":"Run development nearly autonomously."}`,
+			`{"kind":"feature","title":"Add a retry budget","description":"Bound repair attempts.","rationale":"You asked for a stopping rule.","goal":"Run development nearly autonomously."}`,
 		),
 	}}})
 	options.Tracker = tracker

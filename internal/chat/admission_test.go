@@ -34,7 +34,7 @@ func goalsApproved(state artifact.ApprovalState, statements ...string) goal.Set 
 }
 
 func proposeRecordedGoal(title string) string {
-	return `{"title":"` + title + `","description":"What done means.","rationale":"You asked for it.","goal":"` + recordedGoal + `"}`
+	return `{"kind":"feature","title":"` + title + `","description":"What done means.","rationale":"You asked for it.","goal":"` + recordedGoal + `"}`
 }
 
 // Work that traces to a goal the operator approved goes into the queue without
@@ -246,7 +246,7 @@ func TestPerItemApprovalRemainsAvailableAndCoversBothWaysWorkIsAdmitted(t *testi
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: proposalReply("This one follows.", proposeRecordedGoal("Resolve a work item's goal"))},
 		{SessionID: "session-1", FinalText: trackerReply("Filing it myself, then.",
-			`{"action":"create","title":"Resolve a work item's goal","description":"Make it mean something.","goal":"`+recordedGoal+`","reason":"it follows"}`)},
+			`{"action":"create","kind":"feature","title":"Resolve a work item's goal","description":"Make it mean something.","goal":"`+recordedGoal+`","reason":"it follows"}`)},
 		{SessionID: "session-1", FinalText: "Refused, then."},
 	}})
 	options.Tracker = tracker
@@ -297,7 +297,7 @@ func TestDecompositionIsNotHeldToTheAdmissionGate(t *testing.T) {
 
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("One child, under the admitted item.",
-			`{"action":"create","title":"Triage docket","description":"Stopped work reaches the manager.","goal":"`+recordedGoal+`","parent":"yoyodyne-ifd.102","reason":"nothing routes stopped work"}`)},
+			`{"action":"create","kind":"feature","title":"Triage docket","description":"Stopped work reaches the manager.","goal":"`+recordedGoal+`","parent":"yoyodyne-ifd.102","reason":"nothing routes stopped work"}`)},
 		{SessionID: "session-1", FinalText: "Filed."},
 	}})
 	options.Role = domain.RoleDevelopmentManager

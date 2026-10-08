@@ -39,7 +39,7 @@ func TestTheBuildOfAClosedDesignIsAdmittedNamingTheDesign(t *testing.T) {
 	tracker := stateRootTracker("closed")
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the build.",
-			`{"action":"create",`+stateRootBuild+`,"distinct_from":{"id":"yoyodyne-ifd.434.2","separate":"434.2 recorded the design; this builds it."},"reason":"the design is settled"}`)},
+			`{"action":"create","kind":"feature",`+stateRootBuild+`,"distinct_from":{"id":"yoyodyne-ifd.434.2","separate":"434.2 recorded the design; this builds it."},"reason":"the design is settled"}`)},
 		{SessionID: "session-1", FinalText: "It is in the backlog."},
 	}}
 	options := testOptions(t, provider)
@@ -76,7 +76,7 @@ func TestAClosedMatchRefusalNamesTheDistinctionRatherThanAProposal(t *testing.T)
 	tracker := stateRootTracker("closed")
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the build.",
-			`{"action":"create",`+stateRootBuild+`,"reason":"the design is settled"}`)},
+			`{"action":"create","kind":"feature",`+stateRootBuild+`,"reason":"the design is settled"}`)},
 		{SessionID: "session-1", FinalText: "Refused."},
 	}}
 	options := testOptions(t, provider)
@@ -105,7 +105,7 @@ func TestADistinctionFromOpenWorkIsRefused(t *testing.T) {
 	tracker := stateRootTracker("open")
 	provider := &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the build.",
-			`{"action":"create",`+stateRootBuild+`,"distinct_from":{"id":"yoyodyne-ifd.434.2","separate":"it is different"},"reason":"r"}`)},
+			`{"action":"create","kind":"feature",`+stateRootBuild+`,"distinct_from":{"id":"yoyodyne-ifd.434.2","separate":"it is different"},"reason":"r"}`)},
 		{SessionID: "session-1", FinalText: "Refused."},
 	}}
 	options := testOptions(t, provider)
@@ -161,7 +161,7 @@ func TestTheProductManagerWithdrawsHerOwnProposal(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: proposalReply("A suggestion.",
-			`{"title":"Build the configurable state root","description":"Build it.","rationale":"The design is settled.","goal":"Support development in any language."}`)},
+			`{"kind":"feature","title":"Build the configurable state root","description":"Build it.","rationale":"The design is settled.","goal":"Support development in any language."}`)},
 		{SessionID: "session-1", FinalText: trackerReply("Taking it back.",
 			`{"action":"withdraw","proposal":"1.1","reason":"the admission was mine to make; the guard's fallback proposed it"}`)},
 		{SessionID: "session-1", FinalText: "Withdrawn."},

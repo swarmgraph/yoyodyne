@@ -76,6 +76,10 @@ type Proposal struct {
 	// doing something else is a work item whose description says what it does,
 	// under a goal that had to resolve, in a queue the operator reads.
 	Class domain.WorkItemClass `json:"class,omitempty"`
+	// Kind is whether the work fixes a bug or adds a feature, and it is required:
+	// the rework rate is read from it, and an item admitted without one is a merge
+	// that rate cannot count. It is written into the tracker's type field.
+	Kind domain.WorkItemKind `json:"kind"`
 }
 
 // PendingProposal is a recorded proposal awaiting the operator's decision,
@@ -137,6 +141,7 @@ func (p PendingProposal) recorded() runstate.PendingProposal {
 		Parent:        p.Proposal.Parent,
 		Dependencies:  p.Proposal.Dependencies,
 		Class:         string(p.Proposal.Class),
+		Kind:          string(p.Proposal.Kind),
 		Asking:        p.Asking,
 		Lane:          p.Lane,
 		Asker:         string(p.Asker),
@@ -161,6 +166,7 @@ func restoredProposal(conversationID string, recorded runstate.PendingProposal) 
 			Parent:        recorded.Parent,
 			Dependencies:  recorded.Dependencies,
 			Class:         domain.WorkItemClass(recorded.Class),
+			Kind:          domain.WorkItemKind(recorded.Kind),
 		},
 		Asking: recorded.Asking,
 		Lane:   recorded.Lane,
@@ -341,6 +347,7 @@ func (p Proposal) Validate() error {
 	if p.Class != "" && !p.Class.Valid() {
 		problems = append(problems, fmt.Errorf("class %q is not one the harness recognizes; the classes there are: %s", p.Class, namedWorkItemClasses()))
 	}
+	problems = append(problems, kindProblem(p.Kind))
 	// A grant naming a path the provider refuses is caught here rather than by the
 	// run it would be admitted for. The harness's grant lifts the harness's own
 	// refusal and never a provider's, and the difference between the two is
@@ -372,6 +379,49 @@ func (p Proposal) Validate() error {
 		return fmt.Errorf("invalid work item proposal: %w", err)
 	}
 	return nil
+}
+
+// kindProblem is the refusal of an admission that does not say whether its work
+// is a bug fix or a feature, or says it in a word that is neither. It names the
+// kind as what is missing, because that is the one thing the admission has to
+// add to be accepted.
+func kindProblem(kind domain.WorkItemKind) error {
+	switch {
+	case kind == "":
+		return fmt.Errorf("kind is missing: say whether this work is a bug fix or a feature, as %s", namedWorkItemKinds())
+	case !kind.Valid():
+		return fmt.Errorf("kind %q is not one the harness recognizes; say %s", kind, namedWorkItemKinds())
+	}
+	return nil
+}
+
+// namedWorkItemKinds is every kind there is, quoted, in the words a refusal
+// uses.
+func namedWorkItemKinds() string {
+	quoted := make([]string, 0, len(domain.WorkItemKinds))
+	for _, kind := range domain.WorkItemKinds {
+		quoted = append(quoted, fmt.Sprintf("%q", kind))
+	}
+	return strings.Join(quoted, " or ")
+}
+
+// kindLabel is how an operator deciding a proposal is told its kind, and says
+// so in words where a proposal recorded before kinds were required has none.
+func kindLabel(kind domain.WorkItemKind) string {
+	if kind == "" {
+		return "not recorded"
+	}
+	return string(kind)
+}
+
+// issueType is the tracker type the item admitted from this proposal is
+// created with: its kind, or the untyped "task" for a proposal recorded before
+// kinds were required, which the survey then names as having none.
+func (p Proposal) issueType() string {
+	if p.Kind.Valid() {
+		return string(p.Kind)
+	}
+	return untypedIssueType
 }
 
 func validateProposalText(field, value string) error {
@@ -527,6 +577,7 @@ func (p PendingProposal) body() []string {
 	// sentence describing it reads well.
 	lines = append(lines, "goal: "+strings.TrimSpace(p.Proposal.Goal))
 	lines = append(lines, "relevant goals: "+(goal.Set{}).DescribeRelevant(p.Proposal.RelevantGoals))
+	lines = append(lines, "kind: "+kindLabel(p.Proposal.Kind))
 	if parent := strings.TrimSpace(p.Proposal.Parent); parent != "" {
 		lines = append(lines, "parent: "+parent)
 	}

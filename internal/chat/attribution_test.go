@@ -26,7 +26,7 @@ func TestAdmittingWorkUnderAGoalTheGoalsDoNotStateIsRefused(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting the plugin marketplace.",
-			`{"action":"create","title":"A plugin marketplace","description":"Third-party extensions.","goal":"Grow the ecosystem.","reason":"the operator asked"}`)},
+			`{"action":"create","kind":"feature","title":"A plugin marketplace","description":"Third-party extensions.","goal":"Grow the ecosystem.","reason":"the operator asked"}`)},
 		{SessionID: "session-1", FinalText: "It was refused; no goal says that."},
 	}})
 	options.Tracker = tracker
@@ -59,7 +59,7 @@ func TestAdmittedWorkRecordsTheGoalItResolvedTo(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Resolve a work item's goal","description":"Make the attribution mean something.","goal":"`+recordedGoal+`","reason":"the chain breaks at its last link"}`)},
+			`{"action":"create","kind":"feature","title":"Resolve a work item's goal","description":"Make the attribution mean something.","goal":"`+recordedGoal+`","reason":"the chain breaks at its last link"}`)},
 		{SessionID: "session-1", FinalText: "Admitted."},
 	}})
 	options.Tracker = tracker
@@ -96,7 +96,7 @@ func TestAdmittedWorkNamesItsGoalByIdentityAndSurvivesTheGoalBeingReworded(t *te
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Give a goal an identity","description":"Stop a re-wording orphaning the work.","goal":"`+recordedGoal+`","reason":"three amendments have broken attributions"}`)},
+			`{"action":"create","kind":"feature","title":"Give a goal an identity","description":"Stop a re-wording orphaning the work.","goal":"`+recordedGoal+`","reason":"three amendments have broken attributions"}`)},
 		{SessionID: "session-1", FinalText: "Admitted."},
 	}})
 	options.Tracker = tracker
@@ -137,7 +137,7 @@ func TestADecompositionChildKeepsTheGoalItWasCreatedUnder(t *testing.T) {
 	bd := &recordingBD{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("One child, under the admitted item.",
-			`{"action":"create","title":"Triage docket","description":"Stopped work reaches the development manager.","goal":"`+recordedGoal+`","parent":"yoyodyne-ifd.102","priority":1,"reason":"nothing routes stopped work today"}`)},
+			`{"action":"create","kind":"feature","title":"Triage docket","description":"Stopped work reaches the development manager.","goal":"`+recordedGoal+`","parent":"yoyodyne-ifd.102","priority":1,"reason":"nothing routes stopped work today"}`)},
 		{SessionID: "session-1", FinalText: "Filed."},
 	}})
 	options.Role = domain.RoleDevelopmentManager
@@ -359,7 +359,7 @@ func TestAdmittingWorkWithNoRecordedGoalsIsRefusedRatherThanUnchecked(t *testing
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Write the goals","description":"There are none yet.","goal":"Have goals to work from.","reason":"nothing traces anywhere"}`)},
+			`{"action":"create","kind":"feature","title":"Write the goals","description":"There are none yet.","goal":"Have goals to work from.","reason":"nothing traces anywhere"}`)},
 		{SessionID: "session-1", FinalText: "Refused, then."},
 	}})
 	options.Tracker = tracker
@@ -405,7 +405,7 @@ func TestAProjectWithNoGoalsWrittenDownCanStillFileTheWorkOfWritingThem(t *testi
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "I suggest this.\n\n" + proposalFence +
-			"\n{\"items\":[{\"title\":\"Write the goals\",\"description\":\"There are none yet.\",\"rationale\":\"Nothing traces anywhere.\",\"goal\":\"Have goals to work from.\"}]}\n```\n"},
+			"\n{\"items\":[{\"kind\":\"feature\",\"title\":\"Write the goals\",\"description\":\"There are none yet.\",\"rationale\":\"Nothing traces anywhere.\",\"goal\":\"Have goals to work from.\"}]}\n```\n"},
 	}})
 	options.Tracker = tracker
 	// No Goals at all, which is what a fresh repository has.
@@ -553,7 +553,7 @@ func TestWorkProposedUnderAGoalTheGoalsDoNotStateIsNotPutToTheOperator(t *testin
 
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "I suggest this.\n\n" + proposalFence +
-			"\n{\"items\":[{\"title\":\"A plugin marketplace\",\"description\":\"Third-party extensions.\",\"rationale\":\"You raised it.\",\"goal\":\"Grow the ecosystem.\"}]}\n```\n"},
+			"\n{\"items\":[{\"kind\":\"feature\",\"title\":\"A plugin marketplace\",\"description\":\"Third-party extensions.\",\"rationale\":\"You raised it.\",\"goal\":\"Grow the ecosystem.\"}]}\n```\n"},
 	}})
 	options.Tracker = &fakeTracker{}
 	options.Goals = recordedGoals(recordedGoal)
@@ -583,7 +583,7 @@ func TestApprovingAProposalWhoseGoalHasSinceGoneRefusesRatherThanCreating(t *tes
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: "I suggest this.\n\n" + proposalFence +
-			"\n{\"items\":[{\"title\":\"Resolve a work item's goal\",\"description\":\"Make it mean something.\",\"rationale\":\"You raised it.\",\"goal\":\"" + recordedGoal + "\"}]}\n```\n"},
+			"\n{\"items\":[{\"kind\":\"feature\",\"title\":\"Resolve a work item's goal\",\"description\":\"Make it mean something.\",\"rationale\":\"You raised it.\",\"goal\":\"" + recordedGoal + "\"}]}\n```\n"},
 	}})
 	options.Tracker = tracker
 	options.Goals = recordedGoals(recordedGoal)

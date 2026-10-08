@@ -440,6 +440,10 @@ type PendingProposal struct {
 	// whether the operator is asked at all, so a proposal that came back without
 	// it would be a different proposal from the one that was made.
 	Class string `json:"class,omitempty"`
+	// Kind is whether the proposed work is a bug fix or a feature. It is empty on
+	// a proposal recorded before kinds were required, and the item approved from
+	// one is then created untyped, where the survey names it.
+	Kind string `json:"kind,omitempty"`
 	// Asking is what kept this proposal out of a queue it would otherwise have
 	// gone into, worked out when it was proposed rather than when it is decided.
 	Asking string `json:"asking,omitempty"`

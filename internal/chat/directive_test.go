@@ -443,7 +443,7 @@ func TestAdmittingWorkForADirectiveRecordsWhatTheDirectiveBecame(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting what you asked for.",
-			`{"action":"create","title":"Make the integration retry budget configurable","description":"Read it from the project configuration.","goal":"`+recordedGoal+
+			`{"action":"create","kind":"feature","title":"Make the integration retry budget configurable","description":"Read it from the project configuration.","goal":"`+recordedGoal+
 				`","directive":"`+recorded.ID+`","reason":"the operator directed it"}`)},
 		{SessionID: "session-1", FinalText: "It is in the queue."},
 	}})
@@ -532,7 +532,7 @@ func TestAdmittingWorkForADirectiveNobodyRecordedIsRefusedWhole(t *testing.T) {
 	tracker := &fakeTracker{}
 	options := testOptions(t, &fakeBackend{results: []backendapi.RunResult{
 		{SessionID: "session-1", FinalText: trackerReply("Admitting it.",
-			`{"action":"create","title":"Make the retry budget configurable","description":"Read it from the configuration.","goal":"`+recordedGoal+
+			`{"action":"create","kind":"feature","title":"Make the retry budget configurable","description":"Read it from the configuration.","goal":"`+recordedGoal+
 				`","directive":"directive-3f2a","reason":"the operator directed it"}`)},
 		{SessionID: "session-1", FinalText: "It was refused; no directive says that."},
 	}})

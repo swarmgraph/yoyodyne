@@ -233,9 +233,9 @@ const (
 var trackerActionArguments = map[string][]string{
 	actionRead:         {"report", "offset"},
 	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals"},
+	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals"},
 	actionAttribute:    {"goal"},
-	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals"},
+	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind"},
 	actionLabel:        {"add", "remove"},
 	actionReparent:     {"parent"},
 	actionReprioritize: {"priority"},
@@ -395,6 +395,11 @@ type TrackerAction struct {
 	// of work differently at admission. It is taken by a creation and by nothing
 	// else, and it is optional there: work that claims no class is ordinary work.
 	Class domain.WorkItemClass `json:"class,omitempty"`
+	// Kind is whether the work a creation admits fixes a bug or adds a feature,
+	// and is taken by a creation and by nothing else. It is required there, since
+	// the rework rate is read from it, except that a creation carrying the bug
+	// label already says it is a bug; see kind.
+	Kind domain.WorkItemKind `json:"kind,omitempty"`
 	// Executor is what carries the work, where that is not a developer run. A
 	// creation takes it because an item is chosen from the moment it is admitted,
 	// and an update takes it because the queue predates the marker: the items this
@@ -1068,6 +1073,19 @@ func (a TrackerAction) readsTargetFirst() bool {
 	return a.actsOnExistingItem() && a.Action != actionRead
 }
 
+// kind is the kind a creation admits its work as: the one it names, or a bug
+// where it names none and carries the bug label, which is what that label has
+// always meant. It is empty where the creation says neither, which is refused.
+func (a TrackerAction) kind() domain.WorkItemKind {
+	if kind := domain.WorkItemKind(strings.TrimSpace(string(a.Kind))); kind != "" {
+		return kind
+	}
+	if slices.Contains(trimmedLabels(a.Labels), domain.WorkItemKindBugLabel) {
+		return domain.WorkItemKindBug
+	}
+	return ""
+}
+
 // validateArguments checks what each operation needs beyond its subject. An
 // operation whose argument is missing is refused rather than run as some
 // weaker version of itself.
@@ -1093,6 +1111,12 @@ func (a TrackerAction) validateArguments() []error {
 		// word nothing reads.
 		if a.Class != "" && !a.Class.Valid() {
 			problems = append(problems, fmt.Errorf("class %q is not one the harness recognizes; the classes there are: %s", a.Class, namedWorkItemClasses()))
+		}
+		problems = append(problems, kindProblem(a.kind()))
+		// A creation that calls its work a feature and labels it a bug says two
+		// things about one item, and the label would win when the kind is read.
+		if a.Kind == domain.WorkItemKindFeature && slices.Contains(trimmedLabels(a.Labels), domain.WorkItemKindBugLabel) {
+			problems = append(problems, fmt.Errorf("kind is %q but the labels include %q; an item is one or the other", a.Kind, domain.WorkItemKindBugLabel))
 		}
 		// A reference that was never going to name a directive is refused here,
 		// where nothing has been created yet. Whether any directive answers to it
@@ -1134,8 +1158,12 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, a.labelProblems()...)
 	case actionUpdate:
 		if strings.TrimSpace(a.Title) == "" && strings.TrimSpace(a.Description) == "" &&
-			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" && a.RelevantGoals == nil {
-			problems = append(problems, errors.New("update must change the title, the description, the notes, the executor, or the relevant goals"))
+			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" && a.RelevantGoals == nil &&
+			strings.TrimSpace(string(a.Kind)) == "" {
+			problems = append(problems, errors.New("update must change the title, the description, the notes, the executor, the relevant goals, or the kind"))
+		}
+		if kind := domain.WorkItemKind(strings.TrimSpace(string(a.Kind))); kind != "" {
+			problems = append(problems, kindProblem(kind))
 		}
 		problems = append(problems,
 			boundTrackerText("title", a.Title, maxTrackerTitleBytes, false),
@@ -1326,6 +1354,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(string(a.Class)) != "" {
 		carried = append(carried, "class")
+	}
+	if strings.TrimSpace(string(a.Kind)) != "" {
+		carried = append(carried, "kind")
 	}
 	if strings.TrimSpace(string(a.Executor)) != "" {
 		carried = append(carried, "executor")
@@ -1862,7 +1893,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			RelevantGoals: action.RelevantGoals,
 			Title:         strings.TrimSpace(action.Title),
 			Description:   strings.TrimSpace(action.Description),
-			Type:          proposedIssueType,
+			Type:          string(action.kind()),
 			// The goal is written onto the item rather than only checked as it goes
 			// past, because an item in the queue that does not say what it is for is
 			// exactly the work nobody can later decide to stop doing. The directive is
@@ -1966,6 +1997,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			Title:         strings.TrimSpace(action.Title),
 			Description:   strings.TrimSpace(action.Description),
 			Executor:      domain.WorkItemExecutor(strings.TrimSpace(string(action.Executor))),
+			Kind:          domain.WorkItemKind(strings.TrimSpace(string(action.Kind))),
 		}
 		// A description rewritten to carry a done-condition no run may satisfy is
 		// the same item as one admitted with it, so it is refused at the same gate.
@@ -1982,6 +2014,9 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		if action.RelevantGoals != nil {
 			change.AppendNotes += "\n\n" + s.trackerProvenance("Recorded relevant goals: "+s.options.Goals.DescribeRelevant(action.RelevantGoals), action.Reason)
+		}
+		if change.Kind != "" {
+			change.AppendNotes += "\n\n" + s.trackerProvenance("Recorded the kind as "+string(change.Kind), action.Reason)
 		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)
@@ -2575,6 +2610,9 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 	if len(missingRelevant) > 0 {
 		fmt.Fprintf(&rendered, "\nAdmitted items with no relevant goals recorded: %s.\n", namedItems(missingRelevant))
 	}
+	if untyped := untypedItems(ordered); len(untyped) > 0 {
+		fmt.Fprintf(&rendered, "\nOpen items with no kind recorded, so the rework rate cannot count them as a bug fix or a feature: %s. Give each one with an update naming its kind, or the bug label.\n", namedItems(untyped))
+	}
 	rendered.WriteString("\n")
 	listed := ordered
 	if len(listed) > maxTrackerSurveyItems {
@@ -2591,6 +2629,23 @@ func renderOpenQueueEvidence(items []beads.WorkItem, goals goal.Set) string {
 	}
 	return boundText(rendered.String(), maxTrackerSurveyBytes)
 }
+
+// untypedItems names the open items that record no kind, in the order given.
+// An epic is left out: it is a container for work rather than work that merges,
+// so the rate the kind is read for never counts one.
+func untypedItems(items []beads.WorkItem) []string {
+	var untyped []string
+	for _, item := range items {
+		if item.IssueType == epicIssueType || item.Kind() != "" {
+			continue
+		}
+		untyped = append(untyped, singleLine(item.Title, maxSurveyTitleBytes)+" ("+item.ID+")")
+	}
+	return untyped
+}
+
+// epicIssueType is the tracker type of an item that groups other work.
+const epicIssueType = "epic"
 
 // executorLabel is what a queue listing says about an item no developer run
 // carries, and is nothing at all for the ordinary work that one does. It is in
