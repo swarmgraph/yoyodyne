@@ -291,9 +291,13 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		// A check that said it could not run and exited non-zero on its own
 		// judged nothing, so it is recorded as such and the list goes on to the
 		// next check: what it would have found is unknown, and what the others
-		// find is not.
+		// find is not. A check whose output also names a failing test or
+		// package did run something that failed — a make target whose one step
+		// could not run and another failed, or code under test that printed the
+		// line itself — and a real failure is still a failure, so it is judged
+		// as one.
 		var couldNotRun string
-		if processResult.Status == execution.ProcessFailed {
+		if processResult.Status == execution.ProcessFailed && len(failure.names) == 0 {
 			couldNotRun = failure.couldNotRun
 		}
 		result := Result{

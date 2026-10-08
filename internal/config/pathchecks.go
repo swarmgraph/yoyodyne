@@ -11,6 +11,18 @@ import (
 // what it vouches for: a walkthrough of the documented install, say, which a
 // change to the documentation or to the program it documents can break and a
 // change to anything else cannot.
+// GateCheckCommands is every command a run's check stage can run: the
+// configured checks and the path checks, in that order. It is what a reading
+// of past check stages is held to, so a check changed or taken out of the
+// configuration stops being reported about.
+func (c Config) GateCheckCommands() []string {
+	commands := append([]string{}, c.Checks...)
+	for _, check := range c.PathChecks {
+		commands = append(commands, check.Command)
+	}
+	return commands
+}
+
 type PathCheck struct {
 	// Command is the check, run through "/bin/sh -c" in the run's worktree like
 	// every entry in Checks.

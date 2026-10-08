@@ -43,7 +43,7 @@ func TestACheckIsCountedFromTheLastChangeItRanOn(t *testing.T) {
 		running,
 		{RunID: "run-no-stage"},
 	}
-	unrun := UnrunChecksOf(states, 3)
+	unrun := UnrunChecksOf(states, 3, nil)
 	if len(unrun) != 1 {
 		t.Fatalf("unrun = %+v, want the one check", unrun)
 	}
@@ -51,16 +51,16 @@ func TestACheckIsCountedFromTheLastChangeItRanOn(t *testing.T) {
 	if got.Command != codexResume || got.Changes != 3 || !got.Since.Equal(hour(2)) || !got.LatestAt.Equal(hour(5)) || got.LatestRunID != "run-5" || got.Reason != "codex is not installed (run-5)" {
 		t.Fatalf("unrun = %+v, want three changes since hour 2, the latest run-5's", got)
 	}
-	if more := UnrunChecksOf(states, 4); len(more) != 0 {
+	if more := UnrunChecksOf(states, 4, nil); len(more) != 0 {
 		t.Fatalf("UnrunChecksOf(4) = %+v, want nothing under the threshold", more)
 	}
 	// The check running again ends it.
 	ranAgain := append(states, unrunStage("run-6", hour(6), []string{"make test", codexResume}))
-	if after := UnrunChecksOf(ranAgain, 1); len(after) != 0 {
+	if after := UnrunChecksOf(ranAgain, 1, nil); len(after) != 0 {
 		t.Fatalf("UnrunChecksOf after the check ran = %+v, want nothing", after)
 	}
 	// No threshold reads the default.
-	if defaulted := UnrunChecksOf(states, 0); len(defaulted) != 1 || DefaultCouldNotRunBeforeStatus != 3 {
+	if defaulted := UnrunChecksOf(states, 0, nil); len(defaulted) != 1 || DefaultCouldNotRunBeforeStatus != 3 {
 		t.Fatalf("UnrunChecksOf(0) = %+v, want the default of three to raise it", defaulted)
 	}
 }
@@ -79,6 +79,7 @@ func TestAnUnrunCheckIsOnTheAttentionLine(t *testing.T) {
 	sources.Now = func() time.Time { return at.Add(3 * time.Hour) }
 	sources.Runs = fakeRuns{recorded: states, prices: map[string]runstate.ItemPrice{}}
 	sources.CouldNotRunBeforeStatus = 2
+	sources.GateChecks = []string{"make test", codexResume}
 
 	standing := ReadStanding(context.Background(), sources)
 	var found *Attention
@@ -108,6 +109,31 @@ func TestAnUnrunCheckIsOnTheAttentionLine(t *testing.T) {
 	for _, entry := range ReadStanding(context.Background(), sources).NeedsHuman {
 		if entry.Kind == AttentionUnrunCheck {
 			t.Fatalf("NeedsHuman carries %+v under the configured three", entry)
+		}
+	}
+}
+
+// A check is known by its command, so one changed or taken out of the
+// configuration is no longer said: under its old command it will never run
+// again, and the advice to change the check has to be able to end the entry.
+func TestAnUnrunCheckChangedOrRemovedIsNoLongerSaid(t *testing.T) {
+	t.Parallel()
+	at := time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
+	states := []runstate.State{
+		unrunStage("run-1", at, []string{"make test"}, codexResume),
+		unrunStage("run-2", at.Add(time.Hour), []string{"make test"}, codexResume),
+		unrunStage("run-3", at.Add(2*time.Hour), []string{"make test"}, codexResume),
+	}
+	if still := UnrunChecksOf(states, 3, []string{"make test", codexResume}); len(still) != 1 {
+		t.Fatalf("still configured = %+v, want it said", still)
+	}
+	for name, configured := range map[string][]string{
+		"changed": {"make test", "make codex-resume CODEX=/opt/codex"},
+		"removed": {"make test"},
+		"none":    {},
+	} {
+		if gone := UnrunChecksOf(states, 3, configured); len(gone) != 0 {
+			t.Errorf("%s: unrun = %+v, want nothing for a check no longer configured", name, gone)
 		}
 	}
 }

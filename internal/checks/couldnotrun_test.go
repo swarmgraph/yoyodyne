@@ -100,3 +100,25 @@ func TestACouldNotRunReasonIsBounded(t *testing.T) {
 		t.Fatalf("reason = %q (%d bytes), ok = %t", reason, len(reason), ok)
 	}
 }
+
+// A check that printed the line and also names a failing test ran something
+// that failed: one step of a make target could not run and another failed, or
+// the code under test printed the line itself. It is a real failure, handed
+// back like any other, and the list stops there.
+func TestACheckThatAlsoNamesAFailureIsARealFailure(t *testing.T) {
+	t.Parallel()
+	results, _, err := (Runner{Process: execution.OSProcessRunner{}}).Run(
+		context.Background(),
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{
+			"echo '" + CouldNotRunPrefix + " codex is not installed'; echo '--- FAIL: TestSomething (0.00s)'; echo 'FAIL'; exit 1",
+			"true",
+		}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(results) != 1 || results[0].Passed || results[0].CouldNotRun != "" {
+		t.Fatalf("results = %#v, want one real failure that stops the list", results)
+	}
+}

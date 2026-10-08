@@ -20,8 +20,10 @@ import "strings"
 // failure: it spends no repair attempt and stops nothing, the checks after it
 // still run, and the run records it as could not run, naming the reason. A check
 // that exits zero passed whatever it printed, a check stopped on time was
-// stopped on time, and the line with no reason after it is not the convention,
-// so each of those is judged as it always was.
+// stopped on time, the line with no reason after it is not the convention, and
+// a check whose output also names a failing test or package (the lines
+// failureCapture reads names from) ran something that failed — so each of
+// those is judged as it always was, and the last is a failure.
 const CouldNotRunPrefix = "yoyo check could not run:"
 
 // maxCouldNotRunReason bounds the reason one check's line carries onto the

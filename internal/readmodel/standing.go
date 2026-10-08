@@ -346,6 +346,12 @@ type Sources struct {
 	// to run on before the attention line says so. Zero takes
 	// DefaultCouldNotRunBeforeStatus.
 	CouldNotRunBeforeStatus int
+	// GateChecks is every command the configuration has a run's check stage
+	// run now — the checks and the path checks — as the caller read it. A check
+	// that could not run is reported only while it is still one of these, so a
+	// check somebody changed or took out stops being reported. Nil is a caller
+	// that read no configuration, and holds nothing back.
+	GateChecks []string
 	// TrackerListings is how the tracker's listings stand, as every listing the
 	// harness's tracker client makes records it. Nil says nothing about them.
 	TrackerListings TrackerListingRecord

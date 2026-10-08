@@ -7,11 +7,13 @@ package readmodel
 // change in it lands without the check, and each run says so only on itself.
 // So once the same check has been unable to run on several changes in a row it
 // is an entry on the attention line, naming the check, how many changes, and
-// since when, read from the runs' own records of their check stages; the first
-// change the check runs on ends it.
+// since when, read from the runs' own records of their check stages. The first
+// change the check runs on ends it, and so does changing the check's command or
+// taking it out of the configuration, because a check is known by its command.
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -52,8 +54,11 @@ func (u UnrunCheck) Says() string {
 // UnrunChecksOf reads, from the runs' records, every check that could not run
 // on at least threshold changes in a row. Each run counts once, by the last
 // check stage it recorded, in the order those stages began. A threshold under
-// one takes DefaultCouldNotRunBeforeStatus. The result is in command order.
-func UnrunChecksOf(states []runstate.State, threshold int) []UnrunCheck {
+// one takes DefaultCouldNotRunBeforeStatus. Where configured is not nil, only
+// the checks still among those commands are said: one changed or taken out of
+// the configuration will not run again under its old command, and nothing is
+// left to settle about it. The result is in command order.
+func UnrunChecksOf(states []runstate.State, threshold int, configured []string) []UnrunCheck {
 	if threshold < 1 {
 		threshold = DefaultCouldNotRunBeforeStatus
 	}
@@ -86,6 +91,9 @@ func UnrunChecksOf(states []runstate.State, threshold int) []UnrunCheck {
 	}
 	var unrun []UnrunCheck
 	for _, streak := range streaks {
+		if configured != nil && !slices.Contains(configured, streak.Command) {
+			continue
+		}
 		if streak.Changes >= threshold {
 			unrun = append(unrun, *streak)
 		}
@@ -110,7 +118,7 @@ func ReadUnrunChecks(sources Sources) ([]UnrunCheck, string) {
 	if err != nil {
 		problem = fmt.Sprintf("the runs' check stages could only be read in part for checks that could not run: %v", err)
 	}
-	return UnrunChecksOf(states, sources.CouldNotRunBeforeStatus), problem
+	return UnrunChecksOf(states, sources.CouldNotRunBeforeStatus, sources.GateChecks), problem
 }
 
 // unrunCheckAttention is a check that keeps being unable to run, as the

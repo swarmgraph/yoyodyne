@@ -3045,13 +3045,18 @@ A check that could not run:
 
 A real failure is still a failure: a check that ran and exited non-zero without
 that line is handed back to the developer exactly as before, whatever another
-check said.
+check said. So is a check that printed the line and whose output also names a
+failing test or package (a `--- FAIL:` line, a `FAIL` package line, and the
+like): one step of it could not run and another ran and failed, or the code
+under test printed the line itself, and a failure wins over the line.
 
 Every change that goes on without a check is a change nothing checked that
 way, and each run says so only on itself. So once the same check has been
 unable to run on several changes in a row, `yoyo status` says so on its fourth
 line, under the development manager, naming the check, how many changes, and
-since when, until a change the check runs on clears it:
+since when. A change the check runs on clears it, and so does changing the
+check's command or taking it out of `checks` and `path_checks`, because a check
+is known by its command:
 
 ```yaml
 execution:
