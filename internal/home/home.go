@@ -17,7 +17,7 @@
 //	    worktrees/             the developer worktrees of the bound repository
 //	    intent/                the companion intent repository, where one is used
 //
-// The earlier default home — the platform's application-data folder — kept a
+// The earlier default home — the folder the platform keeps application data in — kept a
 // product's records under `products/<product id>/` and its worktrees under
 // `worktrees/<product id>/<repository id>/`. A home laid out that way is read
 // that way until the migration moves it, so a build deployed over a running
@@ -83,8 +83,9 @@ func DefaultPath(userHomeDir func() (string, error)) (string, error) {
 	return filepath.Join(home, DirectoryName), nil
 }
 
-// EarlierDefault is the platform's earlier default home: the application-data
-// folder on macOS and Windows, and `~/.local/state/yoyodyne` elsewhere.
+// EarlierDefault is the platform's earlier default home: the folder the platform
+// keeps application data in on macOS and Windows, and `~/.local/state/yoyodyne`
+// elsewhere.
 func EarlierDefault(getenv func(string) string, userHomeDir func() (string, error), goos string) (string, error) {
 	home, err := userHomeDir()
 	if err != nil {

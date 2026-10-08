@@ -221,9 +221,9 @@ func printHomeUsage(writer io.Writer) {
 	fmt.Fprintln(writer, strings.TrimSpace(`
 Usage: yoyo home migrate [--config <path>] [--json]
 
-Moves the harness's state from the home earlier builds kept it in — the
-platform's application-data folder, and ~/.config/yoyodyne for the machine file
-and external configurations — into the machine home, ~/.yoyodyne: each product's
+Moves the harness's state from the home earlier builds kept it in — the folder
+the platform keeps application data in, and ~/.config/yoyodyne for the machine
+file and external configurations — into the machine home, ~/.yoyodyne: each product's
 records into projects/<product id>/state/, its worktrees into
 projects/<product id>/worktrees/ with Git told where each now is, each external
 configuration into the project directory its product id names, and the
