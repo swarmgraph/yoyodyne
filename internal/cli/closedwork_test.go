@@ -186,7 +186,7 @@ func TestASweepOverClosedWorkThatBreaksAStandingGoalAdmitsAPriorityZeroCorrectio
 	if !strings.Contains(correction.Notes, "Corrects closed item example-1: Say why the line is held on the status line") {
 		t.Errorf("correction notes = %q, want the closed item it corrects named", correction.Notes)
 	}
-	if !strings.Contains(correction.Notes, "Admitted as a standing-goal correction on the pass product-manager-sweep#1.") {
+	if !strings.Contains(correction.Notes, "Admitted to correct a broken standing goal on the pass product-manager-sweep#1.") {
 		t.Errorf("correction notes = %q, want the pass that admitted it named", correction.Notes)
 	}
 

@@ -444,7 +444,7 @@ type TrackerAction struct {
 	// admitted beside the design without a proposal: the item is set aside, the
 	// sentence goes onto the new item, and an open item named here is refused.
 	DistinctFrom *Distinction `json:"distinct_from,omitempty"`
-	// Corrects names the closed items a standing-goal correction corrects, and
+	// Corrects names the closed items a correction for a broken standing goal corrects, and
 	// is taken by a creation and by an update. A creation carrying it is admitted
 	// at priority 0, matched by the duplicate check against every correction that
 	// already names one of the same items, and counted against the bound on how
@@ -2051,7 +2051,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 				outcome.Failure = refusal
 				return
 			}
-			change.AppendNotes += "\n\n" + s.trackerProvenance("Widened the standing-goal correction", action.Reason) + widened
+			change.AppendNotes += "\n\n" + s.trackerProvenance("Widened the correction for a broken standing goal", action.Reason) + widened
 			change.AppendNotes = strings.TrimPrefix(change.AppendNotes, "\n\n")
 		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {

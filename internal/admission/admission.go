@@ -91,7 +91,7 @@ type Candidate struct {
 	// hold their identifiers rather than as anybody typed them. A candidate citing
 	// none is the ordinary case.
 	Sources []string
-	// Corrects are the closed items a standing-goal correction says it corrects.
+	// Corrects are the closed items a correction for a broken standing goal says it corrects.
 	// A correction already admitted for any of them is the same violation, so it
 	// is matched exactly, as a source is: one violation found across several
 	// closed items or several passes is one item, widened rather than filed again.
@@ -124,7 +124,7 @@ type Match struct {
 	Corrected string `json:"corrected,omitempty"`
 }
 
-// correctionPrefix opens the line a standing-goal correction records for each
+// correctionPrefix opens the line a correction for a broken standing goal records for each
 // closed item it corrects. It is a line of its own, written by the harness, so
 // the guard reads an identifier the harness wrote rather than one somebody
 // mentioned in prose.

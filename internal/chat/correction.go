@@ -1,6 +1,6 @@
 package chat
 
-// Corrections the standing-goal audit admits.
+// Corrections the audit of closed work against the standing goals admits.
 //
 // The Lead Product Manager's sweep audits the work closed since its last pass
 // against the standing goals, and admits a correction for an item that breaks
@@ -22,7 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
 
-// maxPassCorrections is how many standing-goal corrections one pass admits. The
+// maxPassCorrections is how many corrections for broken standing goals one pass admits. The
 // rest wait for a later pass, named in this one's account as deferred. It is
 // the sweep account's number, so what a role is told and what is refused agree.
 const maxPassCorrections = sweep.MaxPassCorrections
@@ -58,7 +58,7 @@ func (a TrackerAction) correctionProblems() []error {
 		seen[id] = true
 	}
 	if a.Action == actionCreate && a.Priority != nil && *a.Priority != correctionPriority {
-		problems = append(problems, fmt.Errorf("a standing-goal correction is admitted at priority %d, and this one asks for %d; leave the priority out or give %d", correctionPriority, *a.Priority, correctionPriority))
+		problems = append(problems, fmt.Errorf("a correction for a broken standing goal is admitted at priority %d, and this one asks for %d; leave the priority out or give %d", correctionPriority, *a.Priority, correctionPriority))
 	}
 	return problems
 }
@@ -94,7 +94,7 @@ func (s *Session) correctionFor(action TrackerAction, admitted []beads.WorkItem)
 		case !found:
 			return nil, fmt.Sprintf("nothing was created: the tracker holds no item %s, so there is no closed work for this correction to correct", id)
 		case strings.TrimSpace(item.Status) != closedWorkItemStatus:
-			return nil, fmt.Sprintf("nothing was created: %s is %s rather than closed, and a standing-goal correction corrects closed work; open work that breaks a standing goal is updated, not corrected beside", id, strings.TrimSpace(item.Status))
+			return nil, fmt.Sprintf("nothing was created: %s is %s rather than closed, and a correction for a broken standing goal corrects closed work; open work that breaks a standing goal is updated, not corrected beside", id, strings.TrimSpace(item.Status))
 		}
 		corrected = append(corrected, item)
 	}
@@ -109,7 +109,7 @@ func (s *Session) correctionFor(action TrackerAction, admitted []beads.WorkItem)
 		}
 	}
 	if already >= maxPassCorrections {
-		return nil, fmt.Sprintf("nothing was created: this pass has already admitted %d standing-goal corrections, the most one pass admits. Name this one in your account's audits as deferred, and a later pass admits it",
+		return nil, fmt.Sprintf("nothing was created: this pass has already admitted %d corrections for broken standing goals, the most one pass admits. Name this one in your account's audits as deferred, and a later pass admits it",
 			already)
 	}
 	return corrected, ""
@@ -118,7 +118,7 @@ func (s *Session) correctionFor(action TrackerAction, admitted []beads.WorkItem)
 // passCorrectionLine is what a correction records about the pass that admitted
 // it, which is what the bound on a pass's corrections counts.
 func passCorrectionLine(pass string) string {
-	return "Admitted as a standing-goal correction on the pass " + strings.TrimSpace(pass) + "."
+	return "Admitted to correct a broken standing goal on the pass " + strings.TrimSpace(pass) + "."
 }
 
 // correctionNote is what a correction records about the closed items it
@@ -147,7 +147,7 @@ func correctionClause(corrected []beads.WorkItem) string {
 	for _, item := range corrected {
 		ids = append(ids, item.ID)
 	}
-	return ", a standing-goal correction of " + strings.Join(ids, ", ")
+	return ", correcting the closed work " + strings.Join(ids, ", ")
 }
 
 // widenedCorrection is the lines an update appends to widen a correction to the

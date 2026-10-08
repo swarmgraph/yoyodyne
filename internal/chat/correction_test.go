@@ -60,12 +60,12 @@ func TestACorrectionIsAdmittedAtPriorityZeroNamingTheClosedItems(t *testing.T) {
 		t.Errorf("priority = %v, want 0", created.Priority)
 	}
 	for _, want := range []string{"Corrects closed item yoyodyne-ifd.10: The status line names a held line",
-		"Admitted as a standing-goal correction on the pass product-manager-sweep#2."} {
+		"Admitted to correct a broken standing goal on the pass product-manager-sweep#2."} {
 		if !strings.Contains(created.Notes, want) {
 			t.Errorf("notes = %q, want %q", created.Notes, want)
 		}
 	}
-	if !strings.Contains(reply.Actions[0].Summary, "at priority 0") || !strings.Contains(reply.Actions[0].Summary, "a standing-goal correction of yoyodyne-ifd.10") {
+	if !strings.Contains(reply.Actions[0].Summary, "at priority 0") || !strings.Contains(reply.Actions[0].Summary, "correcting the closed work yoyodyne-ifd.10") {
 		t.Errorf("summary = %q, want the priority and the corrected item said", reply.Actions[0].Summary)
 	}
 }
@@ -103,11 +103,11 @@ func TestAPassAdmitsAtMostThreeCorrections(t *testing.T) {
 	all := []beads.WorkItem{{ID: closedItem, Title: "The status line names a held line", Status: "closed"}}
 	for _, id := range []string{"yoyodyne-ifd.31", "yoyodyne-ifd.32", "yoyodyne-ifd.33"} {
 		all = append(all, beads.WorkItem{ID: id, Title: "An earlier correction " + id, Status: "open",
-			Notes: "Admitted as a standing-goal correction on the pass product-manager-sweep#4."})
+			Notes: "Admitted to correct a broken standing goal on the pass product-manager-sweep#4."})
 	}
 	// A correction from another pass does not count against this one.
 	all = append(all, beads.WorkItem{ID: "yoyodyne-ifd.34", Title: "Another pass's", Status: "open",
-		Notes: "Admitted as a standing-goal correction on the pass product-manager-sweep#3."})
+		Notes: "Admitted to correct a broken standing goal on the pass product-manager-sweep#3."})
 	tracker := &fakeTracker{all: all}
 	session := correctionSession(t, tracker, correctionCreate(`"`+closedItem+`"`, ""))
 	session.ForPass("product-manager-sweep#4")
@@ -115,7 +115,7 @@ func TestAPassAdmitsAtMostThreeCorrections(t *testing.T) {
 	if reply.Actions[0].Applied || len(tracker.created) != 0 {
 		t.Fatalf("action = %#v, want the fourth correction refused", reply.Actions[0])
 	}
-	if !strings.Contains(reply.Actions[0].Failure, "already admitted 3 standing-goal corrections") || !strings.Contains(reply.Actions[0].Failure, "deferred") {
+	if !strings.Contains(reply.Actions[0].Failure, "already admitted 3 corrections for broken standing goals") || !strings.Contains(reply.Actions[0].Failure, "deferred") {
 		t.Errorf("failure = %q, want the bound and the deferral named", reply.Actions[0].Failure)
 	}
 }

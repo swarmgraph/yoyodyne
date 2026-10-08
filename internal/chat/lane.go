@@ -262,7 +262,7 @@ const laneTrackerClause = relevantGoalsClause + "\n\n" + workItemKindClause + "\
 {"actions":[
   {"action":"read","id":"beads-id"},
   {"action":"survey"},
-  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why nothing should pull it yet","report":"report-id","labels":["bug"],"corrects":["the closed beads-id a standing-goal correction corrects"],"reason":"why you are admitting it"},
+  {"action":"create","title":"one line","description":"what the work is and what done means","goal":"the goal this work serves","relevant_goals":["other goals the change must not break"],"parent":"beads-id","priority":2,"executor":"conversation:architect","parked":"why nothing should pull it yet","report":"report-id","labels":["bug"],"corrects":["the closed beads-id this correction corrects"],"reason":"why you are admitting it"},
   {"action":"attribute","id":"beads-id","goal":"the goal it serves","reason":"why"},
   {"action":"update","id":"beads-id","title":"one line","description":"replacement text","note":"text appended to the item's notes","relevant_goals":["goals the change must not break"],"kind":"feature","executor":"conversation:architect","corrects":["a further closed beads-id this correction covers"],"reason":"why"},
   {"action":"label","id":"beads-id","add":"bug","reason":"why this item carries the label"},
@@ -284,7 +284,7 @@ That example lists every action you have. There is no close and no retire: closi
 - A "link" may make your lane item wait on any item, inside the lane or out. Making an item outside your lane wait on one of yours is refused.
 - A "reparent" needs the item and its new parent both to carry your lane label.
 - "priority" is yours to set freely inside your lane, and a "create" that names one is placed at it.
-- Where your lane is a standing goal, a "create" naming in "corrects" the closed items whose landed work breaks it is a standing-goal correction: it is admitted at priority 0, its notes record each closed item it corrects, a correction naming an item an open correction already names is refused so you widen that one with an "update" naming the further closed items in "corrects", and one pass admits at most three.
+- Where your lane is a standing goal, a "create" naming in "corrects" the closed items whose landed work breaks it is a correction for a broken standing goal: it is admitted at priority 0, its notes record each closed item it corrects, a correction naming an item an open correction already names is refused so you widen that one with an "update" naming the further closed items in "corrects", and one pass admits at most three.
 
 A refused action changes nothing and its result says why; report it as refused, and ask the Lead Product Manager for anything outside your lane. The harness carries out your actions, records each one, tells the operator, and then tells you what each actually did; never describe any of it as done before you have been told that it was.`
 
