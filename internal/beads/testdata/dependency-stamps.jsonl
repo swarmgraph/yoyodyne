@@ -1,0 +1,12 @@
+{"id":"yoyodyne-ifd.1","created_at":"2026-08-15T04:10:01Z","dependencies":[{"issue_id":"yoyodyne-ifd.1","depends_on_id":"yoyodyne-ifd","type":"parent-child","created_at":"2026-08-14T21:10:00Z"}]}
+{"id":"yoyodyne-ifd.72","created_at":"2026-08-19T00:28:11Z","dependencies":[{"issue_id":"yoyodyne-ifd.72","depends_on_id":"yoyodyne-ifd","type":"parent-child","created_at":"2026-08-18T17:28:10Z"}]}
+{"id":"yoyodyne-ifd.87.1","created_at":"2026-08-23T15:03:30Z","dependencies":[{"issue_id":"yoyodyne-ifd.87.1","depends_on_id":"yoyodyne-ifd.87","type":"parent-child","created_at":"2026-08-23T08:03:30Z"}]}
+{"id":"yoyodyne-ifd.229","created_at":"2026-09-01T04:02:41Z","dependencies":[{"issue_id":"yoyodyne-ifd.229","depends_on_id":"yoyodyne-ifd","type":"parent-child","created_at":"2026-08-31T21:02:41Z"}]}
+{"id":"yoyodyne-ifd.436.7","created_at":"2026-09-24T17:53:54Z","dependencies":[{"issue_id":"yoyodyne-ifd.436.7","depends_on_id":"yoyodyne-ifd.436","type":"parent-child","created_at":"2026-09-24T10:53:53Z"}]}
+{"id":"yoyodyne-ifd.436.8","created_at":"2026-09-26T19:49:38Z","dependencies":[{"issue_id":"yoyodyne-ifd.436.8","depends_on_id":"yoyodyne-ifd.436","type":"parent-child","created_at":"2026-09-26T12:49:38Z"}]}
+{"id":"yoyodyne-ifd.437.26","created_at":"2026-09-29T15:16:05Z","dependencies":[{"issue_id":"yoyodyne-ifd.437.26","depends_on_id":"yoyodyne-ifd.437","type":"parent-child","created_at":"2026-09-29T08:16:05Z"}]}
+{"id":"yoyodyne-ifd.437.33","created_at":"2026-10-05T02:03:46Z","dependencies":[{"issue_id":"yoyodyne-ifd.437.33","depends_on_id":"yoyodyne-ifd.437","type":"parent-child","created_at":"2026-10-04T19:03:46Z"}]}
+{"id":"yoyodyne-ifd.2.1","created_at":"2026-08-15T04:56:00Z","dependencies":[{"issue_id":"yoyodyne-ifd.2.1","depends_on_id":"yoyodyne-ifd.5.6","type":"blocks","created_at":"2026-08-14T21:56:00Z"}]}
+{"id":"yoyodyne-ifd.25","created_at":"2026-08-16T18:23:34Z","dependencies":[{"issue_id":"yoyodyne-ifd.25","depends_on_id":"yoyodyne-ifd.18","type":"blocks","created_at":"2026-08-16T11:23:35Z"}]}
+{"id":"yoyodyne-ifd.32","created_at":"2026-08-16T20:47:44Z","dependencies":[{"issue_id":"yoyodyne-ifd.32","depends_on_id":"yoyodyne-ifd.31","type":"blocks","created_at":"2026-08-16T13:47:47Z"}]}
+{"id":"yoyodyne-ifd.241.1","created_at":"2026-09-02T19:52:00Z","dependencies":[{"issue_id":"yoyodyne-ifd.241.1","depends_on_id":"yoyodyne-ifd.241","type":"parent-child","created_at":"2026-09-02T22:52:00Z"}]}
