@@ -428,7 +428,13 @@ type Trigger struct {
 	// undecided ones against the woken role's own documents, which are put to
 	// it in the wake. Optional: a trigger wired without one puts no proposals to
 	// anybody, which is what every pass did until the queue had a cadence.
-	Amendments   RecurringAmendments
+	Amendments RecurringAmendments
+	// ClosedWork is the work the tracker closed, listed for every pass of a
+	// recurring task of the Lead Product Manager's so the pass audits it against
+	// the standing goals, with the program manager instances' own audits beside
+	// it. Optional: a trigger wired without it hands the pass nothing to audit.
+	// See closedwork.go.
+	ClosedWork   RecurringClosedWork
 	Clock        execution.Clock
 	Availability func(from, to time.Time, task string) readmodel.GapCause
 }
@@ -1097,6 +1103,16 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	failed := false
 	if t.PassFailures != nil {
 		message += "\n\n" + t.PassFailures(task.Role, f.agent)
+	}
+	// The closed work to audit goes in the first turn's message only: a later
+	// turn of the same pass is a continuation of the audit, not a second list.
+	if t.ClosedWork != nil && task.Role == domain.RoleProductManager && f.agent == "" {
+		section, through, problem := t.closedWorkSection(ctx, name)
+		recorded.ClosedThrough = through
+		if problem != "" {
+			problems = append(problems, problem)
+		}
+		message = section + "\n" + message
 	}
 	for turn := 0; turn < task.Turns(); turn++ {
 		if t.ConversationWork != nil && f.agent == "" {

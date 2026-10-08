@@ -858,6 +858,22 @@ manager` or whichever role's pass it was. It asks nothing of a person. The
 dashboard's factory-problems section, once it is built, is meant to show it as
 one of that section's problems.
 
+**The Lead Product Manager's sweep report carries its audit of closed work.**
+Her sweep checks the work closed since its last pass against the standing goals
+([the operations guide](operations.md#reading-what-the-recurring-tasks-found)
+says what it is handed and how it corrects a violation), and its durable report
+says what the audit found, item by item. `yoyo sweeps` shows how many closed
+items the pass audited, then one line for each — `BROKEN` or `MET`, the item,
+and the standing goals it was checked against — with where a broken goal is
+broken under it, and the correction admitted for it (`corrected by …`) or that
+it is deferred to a later pass because this one had already admitted its three.
+`--json` carries the same under `audits` on the pass's account, each with its
+`item`, `goals`, `finding`, `detail`, and `correction` or `deferred`. A
+correction the audit admitted is also among the pass's `admitted` work, which is
+the trace the finding leaves outside the account. A program manager instance
+whose lane is a standing goal reports its own audits the same way on its passes,
+and those are the audits her sweep is handed rather than repeating.
+
 **A factory stall is reported by the harness itself.** When no work has been
 pulled and no recurring pass has succeeded for longer than
 `execution.factory_stall_after`, the supervisor files a critical report in the

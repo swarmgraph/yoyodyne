@@ -44,8 +44,8 @@ func TestPersonasPassPromptsAndRemitWriteForAPerson(t *testing.T) {
 	resolved := loadScaffoldEdited(t, ScaffoldOptions{ProductID: "example", Repository: "."}, func(content string) string {
 		return uncommentScaffoldBlock(t, content, "recurring_tasks:")
 	})
-	if len(resolved.Config.RecurringTasks) != 4 {
-		t.Fatalf("got %d pass prompts, want four", len(resolved.Config.RecurringTasks))
+	if len(resolved.Config.RecurringTasks) != 5 {
+		t.Fatalf("got %d pass prompts, want five", len(resolved.Config.RecurringTasks))
 	}
 	// The pass prompts carry the model alone: the prompt is a string the
 	// terms check reads, and it refuses the retired words the bad example

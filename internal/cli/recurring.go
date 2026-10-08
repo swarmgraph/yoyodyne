@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -119,6 +120,12 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			},
 		}
 	}
+	// The work the tracker closed, so a pass of the Lead Product Manager's audits
+	// what landed since her last pass against the standing goals. The same
+	// tracker her conversation admits the corrections into.
+	trigger.ClosedWork = closedWork{
+		items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
+	}
 	// The program manager instances their triggers wake, with the cursor each
 	// keeps over the streams it watches and the streams themselves, and whether a
 	// turn is already in flight on an instance's conversation, which prevents
@@ -176,6 +183,71 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) 
 		return contextbundle.ConversationWorkSection(nil, problem.Error()), problem
 	}
 	return contextbundle.ConversationWorkSection(readmodel.ConversationWork(items, role), ""), nil
+}
+
+// closedWork lists the work the tracker closed after a moment, for the Lead
+// Product Manager's audit. It reads the closed listing and changes nothing.
+type closedWork struct {
+	items interface {
+		List(ctx context.Context, status string) ([]beads.WorkItem, error)
+	}
+}
+
+// Closed is the work closed after since, oldest first, at most limit of it. An
+// item the tracker gives no close time for cannot be placed after any moment,
+// so it is left out rather than listed on every pass.
+func (w closedWork) Closed(ctx context.Context, since time.Time, limit int) (orchestrator.ClosedWork, error) {
+	items, err := w.items.List(ctx, "closed")
+	if err != nil {
+		return orchestrator.ClosedWork{}, fmt.Errorf("list the closed work: %w", err)
+	}
+	var after []beads.WorkItem
+	for _, item := range items {
+		if item.ClosedAt.After(since) {
+			after = append(after, item)
+		}
+	}
+	slices.SortStableFunc(after, func(a, b beads.WorkItem) int {
+		if c := a.ClosedAt.Compare(b.ClosedAt); c != 0 {
+			return c
+		}
+		return strings.Compare(a.ID, b.ID)
+	})
+	reading := orchestrator.ClosedWork{}
+	if limit > 0 && len(after) > limit {
+		reading.More = len(after) - limit
+		after = after[:limit]
+	}
+	for _, item := range after {
+		reading.Items = append(reading.Items, orchestrator.ClosedItem{
+			ID:       item.ID,
+			Title:    item.Title,
+			ClosedAt: item.ClosedAt,
+			Landed:   landedSummary(item),
+		})
+	}
+	return reading, nil
+}
+
+// reviewSummaryLine opens the line a run's landing note carries the independent
+// reviewer's account of the approved change on.
+const reviewSummaryLine = "Review summary:"
+
+// landedSummary is the account of what landed on an item: the last reviewer's
+// summary its notes carry, which describes the change that was approved, and
+// the reason the tracker closed it with where it carries none — the close of a
+// conversation's item names the document revision it landed as.
+func landedSummary(item beads.WorkItem) string {
+	summary := ""
+	for _, line := range strings.Split(item.Notes, "\n") {
+		if rest, found := strings.CutPrefix(strings.TrimSpace(line), reviewSummaryLine); found && strings.TrimSpace(rest) != "" {
+			summary = strings.TrimSpace(rest)
+		}
+	}
+	if summary != "" {
+		return summary
+	}
+	return strings.TrimSpace(item.CloseReason)
 }
 
 // sweepDocket is the triage docket as a scheduled pass of the development
@@ -891,6 +963,23 @@ func renderSweep(recorded runstate.Sweep) string {
 		fmt.Fprintf(&rendered, "  > recommends %s for %s\n", verdict, recommendation.Proposal)
 		if reason := strings.TrimSpace(recommendation.Reason); reason != "" {
 			fmt.Fprintf(&rendered, "      %s\n", reason)
+		}
+	}
+	// What the pass found auditing closed work against the standing goals: every
+	// item it checked, which goals, and what became of each violation.
+	if len(recorded.Result.Audits) > 0 {
+		fmt.Fprintf(&rendered, "  audited %d closed item(s) against the standing goals\n", len(recorded.Result.Audits))
+	}
+	for _, audit := range recorded.Result.Audits {
+		fmt.Fprintf(&rendered, "  * %s %s, checked against %s\n", strings.ToUpper(string(audit.Finding)), audit.Item, strings.Join(audit.Goals, "; "))
+		if detail := strings.TrimSpace(audit.Detail); detail != "" {
+			fmt.Fprintf(&rendered, "      %s\n", detail)
+		}
+		switch {
+		case strings.TrimSpace(audit.Correction) != "":
+			fmt.Fprintf(&rendered, "      corrected by %s\n", strings.TrimSpace(audit.Correction))
+		case audit.Deferred:
+			rendered.WriteString("      deferred: this pass had admitted its corrections, so a later pass takes it\n")
 		}
 	}
 	if recorded.Problem != "" {

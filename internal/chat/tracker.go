@@ -233,9 +233,9 @@ const (
 var trackerActionArguments = map[string][]string{
 	actionRead:         {"report", "offset"},
 	actionSurvey:       {},
-	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals"},
+	actionCreate:       {"title", "description", "goal", "parent", "priority", "class", "kind", "executor", "parked", "directive", "report", "labels", "distinct_from", "relevant_goals", "corrects"},
 	actionAttribute:    {"goal"},
-	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind"},
+	actionUpdate:       {"title", "description", "note", "executor", "relevant_goals", "kind", "corrects"},
 	actionLabel:        {"add", "remove"},
 	actionReparent:     {"parent"},
 	actionReprioritize: {"priority"},
@@ -444,6 +444,14 @@ type TrackerAction struct {
 	// admitted beside the design without a proposal: the item is set aside, the
 	// sentence goes onto the new item, and an open item named here is refused.
 	DistinctFrom *Distinction `json:"distinct_from,omitempty"`
+	// Corrects names the closed items a standing-goal correction corrects, and
+	// is taken by a creation and by an update. A creation carrying it is admitted
+	// at priority 0, matched by the duplicate check against every correction that
+	// already names one of the same items, and counted against the bound on how
+	// many corrections one pass admits; an update carrying it widens a
+	// correction already admitted to name the further closed items it covers.
+	// See correction.go.
+	Corrects []string `json:"corrects,omitempty"`
 	// Proposal names the undecided proposal a withdrawal takes back, exactly as
 	// it was listed, and is taken by a withdrawal and by nothing else.
 	Proposal string `json:"proposal,omitempty"`
@@ -1148,6 +1156,7 @@ func (a TrackerAction) validateArguments() []error {
 		if a.DistinctFrom != nil {
 			problems = append(problems, a.DistinctFrom.problems()...)
 		}
+		problems = append(problems, a.correctionProblems()...)
 	case actionWithdraw:
 		problems = append(problems, proposalReferenceProblems(a.Proposal)...)
 	case actionDirective:
@@ -1159,9 +1168,10 @@ func (a TrackerAction) validateArguments() []error {
 	case actionUpdate:
 		if strings.TrimSpace(a.Title) == "" && strings.TrimSpace(a.Description) == "" &&
 			strings.TrimSpace(a.Note) == "" && strings.TrimSpace(string(a.Executor)) == "" && a.RelevantGoals == nil &&
-			strings.TrimSpace(string(a.Kind)) == "" {
-			problems = append(problems, errors.New("update must change the title, the description, the notes, the executor, the relevant goals, or the kind"))
+			strings.TrimSpace(string(a.Kind)) == "" && len(a.Corrects) == 0 {
+			problems = append(problems, errors.New("update must change the title, the description, the notes, the executor, the relevant goals, the kind, or the closed items a correction corrects"))
 		}
+		problems = append(problems, a.correctionProblems()...)
 		if kind := domain.WorkItemKind(strings.TrimSpace(string(a.Kind))); kind != "" {
 			problems = append(problems, kindProblem(kind))
 		}
@@ -1372,6 +1382,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if a.DistinctFrom != nil {
 		carried = append(carried, "distinct_from")
+	}
+	if len(a.Corrects) > 0 {
+		carried = append(carried, "corrects")
 	}
 	if strings.TrimSpace(a.Proposal) != "" {
 		carried = append(carried, "proposal")
@@ -1847,9 +1860,10 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		// the work is not one this creation should be written to on the strength of
 		// a guard that never ran.
 		matches, admitted, err := s.alreadyAdmitted(ctx, admission.Candidate{
-			Title:   strings.TrimSpace(action.Title),
-			Parent:  action.parent(),
-			Sources: admissionSources(prompting.ID, cited.ID),
+			Title:    strings.TrimSpace(action.Title),
+			Parent:   action.parent(),
+			Sources:  admissionSources(prompting.ID, cited.ID),
+			Corrects: trimmedCorrects(action.Corrects),
 		})
 		if err != nil {
 			outcome.fail(err)
@@ -1866,6 +1880,19 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		if len(matches) > 0 {
 			outcome.Failure = duplicateRefusal(creation, matches)
 			return
+		}
+		// A correction names closed work that exists, and one pass admits only so
+		// many: the rest are named in its account as deferred rather than put at
+		// the front of the queue all at once.
+		corrected, refusal := s.correctionFor(action, admitted)
+		if refusal != "" {
+			outcome.Failure = refusal
+			return
+		}
+		priority := action.Priority
+		if len(corrected) > 0 && priority == nil {
+			zero := 0
+			priority = &zero
 		}
 		// A done-condition no run may satisfy is refused before the item exists,
 		// which is the only moment refusing it costs a sentence rather than a run.
@@ -1910,7 +1937,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			// that wording leaves the attribution alone — which is the whole of what
 			// identity is for, and it has to be true of the moment the item is made
 			// or it is true of nothing.
-			Notes:  s.trackerProvenance(creation.note, action.Reason) + "\n\n" + s.options.Goals.NoteFor(action.Goal) + s.classNote(action.Class) + directiveNote(prompting) + reportNote(cited) + distinctionNote(distinct, action.DistinctFrom) + lane,
+			Notes:  s.trackerProvenance(creation.note, action.Reason) + "\n\n" + s.options.Goals.NoteFor(action.Goal) + s.classNote(action.Class) + directiveNote(prompting) + reportNote(cited) + distinctionNote(distinct, action.DistinctFrom) + s.correctionNote(corrected) + lane,
 			Parent: action.parent(),
 			// The executor is set as the item is admitted rather than after it,
 			// because the harness may choose an item the moment it is in the queue: a
@@ -1923,7 +1950,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			// next turn would leave it pullable across exactly the gap the marker
 			// exists to close.
 			Parking:  domain.WorkItemParking(strings.TrimSpace(action.Parked.Reason())),
-			Priority: action.Priority,
+			Priority: priority,
 			// Who asked for the work, and on whose behalf, goes on as fields in this
 			// same write: the notes above say it in prose, and prose is not something
 			// a listing can count.
@@ -1964,14 +1991,14 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		if action.Parked.Parked() {
 			parked = ", parked so nothing selects it until it is released: " + singleLine(action.Parked.Reason(), maxTrackerFailureBytes)
 		}
-		from := citedClause(cited) + distinctionClause(distinct)
+		from := citedClause(cited) + distinctionClause(distinct) + correctionClause(corrected)
 		// Labels applied at admission are said where the admission is reported, in
 		// the words the survey uses, because the label is what a seat watches for
 		// and the operator reads this line rather than the item.
 		labelled := labelsLabel(created.Labels)
-		if action.Priority != nil {
+		if priority != nil {
 			outcome.applied("%s at priority %d: %s%s%s%s%s%s",
-				creation.applied(created.ID), *action.Priority, singleLine(created.Title, maxSurveyTitleBytes), labelled, parked, from, answering, gating)
+				creation.applied(created.ID), *priority, singleLine(created.Title, maxSurveyTitleBytes), labelled, parked, from, answering, gating)
 			return
 		}
 		outcome.applied("%s: %s%s%s%s%s%s",
@@ -2017,6 +2044,15 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		}
 		if change.Kind != "" {
 			change.AppendNotes += "\n\n" + s.trackerProvenance("Recorded the kind as "+string(change.Kind), action.Reason)
+		}
+		if len(action.Corrects) > 0 {
+			widened, refusal := s.widenedCorrection(ctx, action)
+			if refusal != "" {
+				outcome.Failure = refusal
+				return
+			}
+			change.AppendNotes += "\n\n" + s.trackerProvenance("Widened the standing-goal correction", action.Reason) + widened
+			change.AppendNotes = strings.TrimPrefix(change.AppendNotes, "\n\n")
 		}
 		if _, err := s.options.Tracker.Update(ctx, id, change); err != nil {
 			outcome.fail(err)

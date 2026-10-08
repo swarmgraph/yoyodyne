@@ -6203,6 +6203,39 @@ what she did on the record the entry is about — a note on the work item, her
 decision on the run's stoppage, or, where she can write to neither, a finding
 on her pass naming the entry.
 
+**The Lead Product Manager's sweep has three jobs, and the third is an audit of
+the work closed since its last pass.** The first two are its own reading: where
+the goals, designs, decisions, and admitted work disagree, and whether a
+release should be cut. The third is the standing goals' check after the fact.
+The reviewer judges every change against them before it lands, and a goal
+enforced only where the reviewer happened to look is not enforced, so every
+pass of a recurring task of hers is handed, ahead of its prompt, the work items
+closed since that task's last completed pass, oldest first, each with what
+landed — the independent reviewer's summary of the approved change, or the
+reason the tracker closed it with where there is none — at most fifteen a pass,
+with how many more closed after them; the next pass starts where the listing
+stopped, so nothing closed is skipped for a listing being full. She checks each
+one against every standing goal and records it in the pass's account under
+`audits`: the goals checked, `met` or `broken`, and for a violation where it
+breaks the goal and either the correction or `deferred`. For each violation she
+admits a correction: a work item at priority 0 whose `corrects` names the closed
+items it corrects. Three things keep that from filling the front of the queue
+every cadence. The duplicate check matches a correction against every
+correction that already names one of the same closed items, so one violation
+across several closed items or several passes is one item, widened by an
+update naming the further items rather than filed again. One pass admits at
+most three corrections, taking first the violation shared by the most closed
+items, and a fourth is refused and named in the account as deferred for a later
+pass. And the audit is shared by lane: a
+[program manager](designs/program-manager.md) instance whose lane is a standing
+goal audits the closed work in its lane on its own passes and records those
+audits the same way, and her sweep is handed them under **Audits the program
+managers already made** rather than auditing those items against that goal
+again. `yoyo init` writes the sweep as the commented `product-manager-sweep`
+example; [recurring tasks](configuration.md#recurring-tasks) says how to turn it
+on. A listing the tracker would not give is said in the pass's message and on
+its record, and the next pass is handed the same range.
+
 **A pass of a role that owns documents carries what it recommended on the
 changes proposed to them.** The harness puts the undecided proposals against
 the role's documents in front of it on every firing — oldest first, at most ten

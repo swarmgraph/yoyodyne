@@ -285,6 +285,111 @@ func (r Recommendation) Validate() error {
 	return nil
 }
 
+// MaxAudits bounds how many closed items one turn may account for auditing, and
+// it is also the most closed items the harness lists for one pass: a listing
+// longer than the account could carry back would be one the role could not
+// finish. MaxPassCorrections is how many corrections one pass may say it
+// admitted; the rest of a pass's violations are deferred.
+const (
+	MaxAudits          = 25
+	MaxPassAudits      = MaxAudits * MaxMergedTurns
+	MaxPassCorrections = 3
+	maxAuditsText      = "25"
+	maxCorrectionsText = "three"
+	maxAuditGoals      = 10
+)
+
+// AuditFinding is what auditing one closed item against the standing goals
+// found.
+type AuditFinding string
+
+const (
+	// AuditMet is a closed item whose landed work breaks none of the standing
+	// goals checked.
+	AuditMet AuditFinding = "met"
+	// AuditBroken is a closed item whose landed work breaks at least one of
+	// them, named in the audit's detail.
+	AuditBroken AuditFinding = "broken"
+)
+
+func (f AuditFinding) Valid() bool {
+	return f == AuditMet || f == AuditBroken
+}
+
+// Audit is one closed work item checked against the standing goals after it
+// landed: which item, which goals were checked, what was found, and what became
+// of a violation — the correction admitted or widened for it, or deferred to a
+// later pass because this one had admitted its three.
+type Audit struct {
+	// Item is the closed work item, by identifier.
+	Item string `json:"item"`
+	// Goals are the standing goals the item was checked against, in the words or
+	// identities the goals document gives them.
+	Goals   []string     `json:"goals"`
+	Finding AuditFinding `json:"finding"`
+	// Detail is where the landed work breaks a goal, and is required on a
+	// violation: a correction nobody can trace to what it corrects is one the
+	// developer who picks it up has to rediscover.
+	Detail string `json:"detail,omitempty"`
+	// Correction is the work item admitted or widened to correct a violation.
+	// Deferred marks a violation this pass did not correct because it had
+	// already admitted its three. A violation carries exactly one of the two.
+	Correction string `json:"correction,omitempty"`
+	Deferred   bool   `json:"deferred,omitempty"`
+}
+
+// Validate reports every contract violation in the audit at once.
+func (a Audit) Validate() error {
+	var problems []error
+	switch item := strings.TrimSpace(a.Item); {
+	case item == "":
+		problems = append(problems, errors.New("item is required"))
+	case len(item) > MaxTextBytes:
+		problems = append(problems, fmt.Errorf("item is %d bytes, limit is %d", len(item), MaxTextBytes))
+	}
+	if len(a.Goals) == 0 {
+		problems = append(problems, errors.New("goals names the standing goals the item was checked against, and names none"))
+	}
+	if len(a.Goals) > maxAuditGoals {
+		problems = append(problems, fmt.Errorf("%d goals, limit is %d", len(a.Goals), maxAuditGoals))
+	}
+	for i, goal := range a.Goals {
+		switch trimmed := strings.TrimSpace(goal); {
+		case trimmed == "":
+			problems = append(problems, fmt.Errorf("goals[%d] is blank", i))
+		case len(trimmed) > MaxTextBytes:
+			problems = append(problems, fmt.Errorf("goals[%d] is %d bytes, limit is %d", i, len(trimmed), MaxTextBytes))
+		}
+	}
+	if !a.Finding.Valid() {
+		problems = append(problems, fmt.Errorf("finding %q must be %q or %q", a.Finding, AuditMet, AuditBroken))
+	}
+	if len(a.Detail) > MaxTextBytes {
+		problems = append(problems, fmt.Errorf("detail is %d bytes, limit is %d", len(a.Detail), MaxTextBytes))
+	}
+	if len(a.Correction) > MaxTextBytes {
+		problems = append(problems, fmt.Errorf("correction is %d bytes, limit is %d", len(a.Correction), MaxTextBytes))
+	}
+	correction := strings.TrimSpace(a.Correction)
+	switch a.Finding {
+	case AuditBroken:
+		if strings.TrimSpace(a.Detail) == "" {
+			problems = append(problems, errors.New("a broken goal says where in detail"))
+		}
+		if (correction == "") == !a.Deferred {
+			problems = append(problems, errors.New("a broken goal names the correction admitted or widened for it, or says it is deferred, and not both"))
+		}
+	case AuditMet:
+		if correction != "" || a.Deferred {
+			problems = append(problems, errors.New("an item that breaks no goal has nothing to correct or defer"))
+		}
+	}
+	if err := errors.Join(problems...); err != nil {
+		return fmt.Errorf("invalid audit: %w", err)
+	}
+	return nil
+}
+
 // Result is one turn's account of a recurring pass.
 type Result struct {
 	Status  Status `json:"status"`
@@ -303,6 +408,9 @@ type Result struct {
 	// are the batch the operator decides from, and they are empty on every pass
 	// of a role that owns no documents or was put none.
 	Recommendations []Recommendation `json:"recommendations,omitempty"`
+	// Audits are the closed work items this pass checked against the standing
+	// goals, and are empty on every pass that was handed none to check.
+	Audits []Audit `json:"audits,omitempty"`
 }
 
 // Validate reports every contract violation in the result at once.
@@ -349,10 +457,31 @@ func (r Result) Validate() error {
 			problems = append(problems, fmt.Errorf("recommendations[%d]: %w", i, err))
 		}
 	}
+	if len(r.Audits) > MaxPassAudits {
+		problems = append(problems, fmt.Errorf("%d audits in one pass, limit is %d", len(r.Audits), MaxPassAudits))
+	}
+	for i, audit := range r.Audits {
+		if err := audit.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("audits[%d]: %w", i, err))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
 	}
 	return nil
+}
+
+// Corrections counts the distinct corrections this pass's audits name. The
+// harness refuses a fourth correction as it is admitted; this is what the
+// account says it did.
+func (r Result) Corrections() int {
+	seen := map[string]bool{}
+	for _, audit := range r.Audits {
+		if correction := strings.TrimSpace(audit.Correction); correction != "" {
+			seen[correction] = true
+		}
+	}
+	return len(seen)
 }
 
 // validateTurn holds one turn's account to what a turn may send, which is the
@@ -369,6 +498,9 @@ func (r Result) validateTurn() error {
 	}
 	if len(r.Recommendations) > MaxRecommendations {
 		problems = append(problems, fmt.Errorf("%d recommendations in one turn, limit is %d", len(r.Recommendations), MaxRecommendations))
+	}
+	if len(r.Audits) > MaxAudits {
+		problems = append(problems, fmt.Errorf("%d audits in one turn, limit is %d", len(r.Audits), MaxAudits))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
@@ -409,6 +541,7 @@ func (r Result) Merge(next Result) Result {
 	findings := append(append([]Finding(nil), r.Findings...), next.Findings...)
 	questions := append(append([]string(nil), r.Questions...), next.Questions...)
 	recommendations := append(append([]Recommendation(nil), r.Recommendations...), next.Recommendations...)
+	audits := append(append([]Audit(nil), r.Audits...), next.Audits...)
 	dropped := droppedCounts{}
 	if len(findings) > MaxPassFindings {
 		dropped.findings = len(findings) - MaxPassFindings
@@ -422,20 +555,25 @@ func (r Result) Merge(next Result) Result {
 		dropped.recommendations = len(recommendations) - MaxPassRecommendations
 		recommendations = recommendations[:MaxPassRecommendations]
 	}
+	if len(audits) > MaxPassAudits {
+		dropped.audits = len(audits) - MaxPassAudits
+		audits = audits[:MaxPassAudits]
+	}
 	merged.Findings = findings
 	merged.Questions = questions
 	merged.Recommendations = recommendations
+	merged.Audits = audits
 	merged.Summary = noteDropped(merged.Summary, dropped)
 	return merged
 }
 
 // droppedCounts is what the pass bounds cut from a merged account.
 type droppedCounts struct {
-	findings, questions, recommendations int
+	findings, questions, recommendations, audits int
 }
 
 func (d droppedCounts) any() bool {
-	return d.findings > 0 || d.questions > 0 || d.recommendations > 0
+	return d.findings > 0 || d.questions > 0 || d.recommendations > 0 || d.audits > 0
 }
 
 // noteDropped says in the summary what the pass bounds cut, and keeps the summary
@@ -450,6 +588,9 @@ func noteDropped(summary string, dropped droppedCounts) string {
 	if dropped.recommendations > 0 {
 		note = fmt.Sprintf("(This pass reached its bound of %d findings, %d questions, and %d recommendations; %d finding(s), %d question(s), and %d recommendation(s) from its later turns are not listed.)",
 			MaxPassFindings, MaxPassQuestions, MaxPassRecommendations, dropped.findings, dropped.questions, dropped.recommendations)
+	}
+	if dropped.audits > 0 {
+		note += fmt.Sprintf(" (It also reached its bound of %d audits; %d audit(s) from its later turns are not listed.)", MaxPassAudits, dropped.audits)
 	}
 	joined := strings.TrimSpace(summary)
 	if joined != "" {
@@ -580,9 +721,9 @@ func ReportRequest() string {
 	return strings.Join([]string{
 		"Your previous reply omitted its closing report block. This is the only request for it on this pass. Reply with the block alone, accounting for that reply's findings and actions already taken. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded.",
 		Fence,
-		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}]}`,
+		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}]}`,
 		"```",
-		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply.",
+		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, and audits only for closed items it already audited.",
 	}, "\n")
 }
 
@@ -605,5 +746,19 @@ func RecommendationContract() string {
 		"",
 		`These are recommendations and not decisions. Nothing you say here changes a document or settles a proposal: the operator reads the batch and records each decision with "yoyo amendment approve" or "yoyo amendment decline", under your authority. "approve" argues for the change, "decline" argues against it, and "merge" says two proposals ask for one change and names the other; every one carries the reason, because the operator acts on the argument rather than the verdict.`,
 		"At most " + maxRecommendationsText + " recommendations in one turn, which is the most the harness puts to you on one pass.",
+	}, "\n")
+}
+
+// AuditContract is what a pass handed closed work to audit is told, beside the
+// contract above. It is separate for the reason RecommendationContract is: most
+// passes are handed no closed work, and a role told about a field it has
+// nothing to put in fills it with something.
+func AuditContract() string {
+	return strings.Join([]string{
+		`Your block also carries "audits": one entry for every closed item you checked on this pass, at most ` + maxAuditsText + ` in one turn:`,
+		"",
+		`"audits":[{"item":"beads-id","goals":["each standing goal you checked it against"],"finding":"met|broken","detail":"where the landed work breaks the goal (broken only)","correction":"the beads-id admitted or widened to correct it","deferred":true}]`,
+		"",
+		`A "broken" finding says where in "detail", and carries exactly one of "correction" — the correction you admitted at priority 0 naming the closed item in "corrects", or the open correction you widened to it — or "deferred": true. One pass admits at most ` + maxCorrectionsText + ` corrections: take the violations shared by the most closed items first, widen an open correction rather than filing a second, and mark the rest deferred so the next pass takes them. A "met" finding carries neither.`,
 	}, "\n")
 }

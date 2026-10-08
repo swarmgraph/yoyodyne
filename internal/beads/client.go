@@ -50,6 +50,12 @@ type WorkItem struct {
 	// say, and a caller that needs it reports that it does not know rather than
 	// treating an unknown admission time as the beginning of time.
 	CreatedAt time.Time
+	// ClosedAt is when the tracker recorded the item closed, and CloseReason what
+	// it was closed with. Both are empty on open work, and ClosedAt is the zero
+	// time where the tracker did not say. The Lead Product Manager's sweep reads
+	// them to list the work closed since its last pass.
+	ClosedAt    time.Time
+	CloseReason string
 	// Cost is what the runs made for this item have cost, as the tracker holds
 	// it. It is absent from an item nothing has ever priced, which is a different
 	// fact from an item that cost nothing.
@@ -1833,6 +1839,9 @@ type rawWorkItem struct {
 	// timestamp this cannot read must leave the admission time unknown, not fail
 	// every read of the work it belongs to.
 	CreatedAt string `json:"created_at"`
+	// ClosedAt is read as text for the reason CreatedAt is.
+	ClosedAt    string `json:"closed_at"`
+	CloseReason string `json:"close_reason"`
 	// Metadata is the tracker's own key-value store on an item. Only the keys
 	// the harness writes are read out of it; everything else in there belongs to
 	// whoever put it there.
@@ -1910,6 +1919,8 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 		Assignee:           raw.Assignee,
 		Parent:             raw.Parent,
 		CreatedAt:          admittedAt(raw.CreatedAt),
+		ClosedAt:           admittedAt(raw.ClosedAt),
+		CloseReason:        raw.CloseReason,
 		Dependencies:       make([]Dependency, 0, len(raw.Dependencies)),
 	}
 	for _, dependency := range raw.Dependencies {

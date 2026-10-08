@@ -414,6 +414,13 @@ type Sweep struct {
 	// Docket records what this pass delivered and what the next pass must put
 	// first. It is absent on older passes and on roles that read no docket.
 	Docket *DocketDelivery `json:"docket,omitempty"`
+	// ClosedThrough is how far the closed work handed to a Lead Product Manager's
+	// pass reached: the moment the listing was read where it listed everything
+	// closed since the last pass, or the close time of the last item it listed
+	// where it stopped at its bound. The task's next completed pass is handed what
+	// closed after it, so nothing closed is skipped for a listing being full. It
+	// is absent on every other pass and on records written before it existed.
+	ClosedThrough time.Time `json:"closed_through,omitzero"`
 	// Steps is what the harness's own maintenance pass did, one entry per step in
 	// the order it took them, each saying whether it ran, was skipped, or failed,
 	// and why. A step that was skipped says so rather than being left out,
