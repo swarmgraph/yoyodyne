@@ -7795,7 +7795,8 @@ works under; her sweep is handed those audits rather than repeating them
 ([the operations guide](operations.md#reading-what-the-recurring-tasks-found)).
 Which lanes are standing goals is the instance's remit to say: every instance's
 pass message carries the audit's contract and tells an instance in such a lane
-to use it, and the program manager persona `yoyo init` ships says so too.
+to use it, and the program manager persona says so too, both the copy this
+repository's instances read and the one `yoyo init` ships.
 
 ```yaml
 agents:
