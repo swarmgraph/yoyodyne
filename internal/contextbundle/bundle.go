@@ -80,6 +80,15 @@ type Request struct {
 	// happened to cite. Empty carries none, which is what a caller that is only
 	// validating the item passes.
 	Specifications string
+	// IntentRoot is the repository the specification home is read from where it
+	// is not RepositoryRoot: the project's companion intent repository
+	// (config.Product.IntentRoot). Empty, or the same directory, reads it from
+	// RepositoryRoot as before. Intent kept there is read as its checkout stands
+	// and never at Revision, which names a commit of the project's repository; a
+	// document the item names that the project's repository does not hold is
+	// looked for there too, so an item citing a design reads the design wherever
+	// it is kept.
+	IntentRoot string
 }
 
 // Revision is a recorded commit references are read at.
@@ -227,8 +236,17 @@ func Assemble(request Request) (Bundle, error) {
 		return Bundle{}, errors.New("max context bytes must be greater than zero")
 	}
 
+	intentSource, err := intentReferenceSource(root, request.IntentRoot)
+	if err != nil {
+		return Bundle{}, err
+	}
 	referencePaths := append([]string(nil), request.References...)
 	source := referenceSource{root: root, revision: request.Revision}
+	if intentSource != nil {
+		source.intent = intentSource
+	} else {
+		intentSource = &referenceSource{root: root, revision: request.Revision}
+	}
 	referencePaths = append(referencePaths, implicitReferenceCandidates(source, ExtractMarkdownReferences(request.WorkItem))...)
 	plans, err := planReferences(source, uniqueSorted(referencePaths), request.References)
 	if err != nil {
@@ -271,7 +289,7 @@ func Assemble(request Request) (Bundle, error) {
 	// most its share so a large home still leaves the item's references room.
 	pendingNotes -= intentReserve
 	intentBudget := max(min(maxBytes/maxIntentShareDivisor, maxBytes-bundle.Bytes-pendingNotes), intentReserve)
-	intent, intentReferences, err := renderWorkItemIntent(root, source, request.Specifications, intentBudget)
+	intent, intentReferences, err := renderWorkItemIntent(intentSource.root, *intentSource, request.Specifications, intentBudget)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -361,12 +379,44 @@ func implicitReferenceCandidates(source referenceSource, referencePaths []string
 type referenceSource struct {
 	root     string
 	revision *Revision
+	// intent is the companion intent repository, where the project keeps one: a
+	// reference this source does not hold is looked for there before it is named
+	// as unresolved. It is nil where the project's own repository holds the
+	// intent, and always nil on the intent source itself.
+	intent *referenceSource
+	// companion marks the source that is the companion intent repository, so
+	// what is read from it says where it was read.
+	companion bool
+}
+
+// intentReferenceSource is the source the specification home is read from when
+// the project keeps it in a companion intent repository, or nil when it is the
+// repository at root.
+func intentReferenceSource(root, intentRoot string) (*referenceSource, error) {
+	if strings.TrimSpace(intentRoot) == "" {
+		return nil, nil
+	}
+	resolved, err := filepath.Abs(intentRoot)
+	if err != nil {
+		return nil, fmt.Errorf("resolve intent repository: %w", err)
+	}
+	resolved, err = filepath.EvalSymlinks(resolved)
+	if err != nil {
+		return nil, fmt.Errorf("resolve intent repository %s: %w", intentRoot, err)
+	}
+	if resolved == root {
+		return nil, nil
+	}
+	return &referenceSource{root: resolved, companion: true}, nil
 }
 
 // exists says whether a validated path names anything at all in this source,
 // which is the question implicitReferenceCandidates asks before a path is
 // planned.
 func (s referenceSource) exists(clean string) bool {
+	if s.intent != nil && s.intent.exists(clean) {
+		return true
+	}
 	if s.revision != nil {
 		_, _, err := s.revision.Read(filepath.ToSlash(clean), 0)
 		return !errors.Is(err, ErrNotAtRevision)
@@ -377,6 +427,16 @@ func (s referenceSource) exists(clean string) bool {
 
 // resolve proves a reference names a regular file in this source.
 func (s referenceSource) resolve(referencePath string) (resolvedReference, error) {
+	resolved, err := s.resolveHere(referencePath)
+	if err != nil && s.intent != nil {
+		if fromIntent, intentErr := s.intent.resolve(referencePath); intentErr == nil {
+			return fromIntent, nil
+		}
+	}
+	return resolved, err
+}
+
+func (s referenceSource) resolveHere(referencePath string) (resolvedReference, error) {
 	if s.revision == nil {
 		return resolveReference(s.root, referencePath)
 	}

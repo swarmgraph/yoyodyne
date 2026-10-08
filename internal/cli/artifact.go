@@ -243,7 +243,7 @@ func approveArtifact(args []string, stdout, stderr io.Writer) int {
 		return writeJSON(stdout, stderr, artifactOutput{
 			Artifacts:     listed,
 			Approvals:     artifactApprovals(listed, policy),
-			PendingCommit: artifact.PendingCommit(store.RepositoryRoot, approved.Path),
+			PendingCommit: store.PendingCommit(approved.Path),
 		})
 	}
 	fmt.Fprintf(stdout, "%s [%s, %s] %s\n", approved.ID, approved.Kind, approved.Status, approved.Title)
@@ -257,7 +257,7 @@ func approveArtifact(args []string, stdout, stderr io.Writer) int {
 	// this command wrote into the checkout the configuration pointed it at, and
 	// the write stops there. It is printed after the approval rather than before
 	// it because what they asked for is the approval and this is what it cost.
-	fmt.Fprintln(stdout, artifact.PendingCommit(store.RepositoryRoot, approved.Path))
+	fmt.Fprintln(stdout, store.PendingCommit(approved.Path))
 	return 0
 }
 
@@ -305,14 +305,14 @@ func identifyArtifact(args []string, stdout, stderr io.Writer) int {
 		return writeJSON(stdout, stderr, artifactOutput{
 			Artifacts:     listed,
 			Approvals:     artifactApprovals(listed, policy),
-			PendingCommit: artifact.PendingCommit(store.RepositoryRoot, identified.Path),
+			PendingCommit: store.PendingCommit(identified.Path),
 		})
 	}
 	fmt.Fprintf(stdout, "%s [%s, %s] %s\n", identified.ID, identified.Kind, identified.Status, identified.Title)
 	fmt.Fprintf(stdout, "file: %s\n", identified.Path)
 	fmt.Fprintf(stdout, "recorded as an identity revision by the %s; no goal's words changed\n", owner)
 	fmt.Fprintf(stdout, "approval: %s\n", renderArtifactApproval(identified, policy))
-	fmt.Fprintln(stdout, artifact.PendingCommit(store.RepositoryRoot, identified.Path))
+	fmt.Fprintln(stdout, store.PendingCommit(identified.Path))
 	return 0
 }
 

@@ -271,7 +271,7 @@ func (f *invariantFlags) store(stderr io.Writer) (invariant.Store, int) {
 		fmt.Fprintf(stderr, "resolve product repository: %v\n", err)
 		return invariant.Store{}, 1
 	}
-	return invariant.Store{RepositoryRoot: repository, Directory: resolved.Config.Product.Invariants}, 0
+	return invariant.StoreFor(repository, resolved.Config.Product), 0
 }
 
 func reportInvariant(stdout, stderr io.Writer, jsonOutput bool, recorded invariant.Invariant, action string) int {

@@ -146,7 +146,7 @@ func TestTheStandingSetAndItsGoalStatementsReachReviewAtTheBase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch, err := AssembleIntent(root, "docs/product", revision)
+	branch, err := AssembleIntent(root, "", "docs/product", revision)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,7 +214,7 @@ func TestIntentBundleNamesRemovedAddedAndRenamedDocuments(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			branch, err := AssembleIntent(root, "docs/product", revision)
+			branch, err := AssembleIntent(root, "", "docs/product", revision)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -242,7 +242,7 @@ func TestIntentRevisionRequiresACompleteListing(t *testing.T) {
 		{Name: "base", Read: revisionOf("base", nil).Read},
 		{Name: "base", ListFiles: func() ([]string, error) { return nil, errors.New("listing incomplete") }},
 	} {
-		if _, err := AssembleIntent(t.TempDir(), "docs/product", revision); err == nil {
+		if _, err := AssembleIntent(t.TempDir(), "", "docs/product", revision); err == nil {
 			t.Fatal("accepted a revision without a complete listing")
 		}
 	}

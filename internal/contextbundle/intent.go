@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -33,8 +34,16 @@ const maxIntentShareDivisor = 2
 // AssembleIntent supplies the product home to a review with no single work
 // item. It uses the same revision reader and budget as work-item intent, so a
 // branch review receives the standing set without inventing an attribution.
-func AssembleIntent(repositoryRoot, directory string, revision *Revision) (string, error) {
-	text, _, err := renderWorkItemIntent(repositoryRoot, referenceSource{root: repositoryRoot, revision: revision}, directory, defaultMaxBytes/maxIntentShareDivisor)
+//
+// intentRoot is the project's companion intent repository where it keeps one
+// (config.Product.IntentRoot); the home is then read there as its checkout
+// stands, because revision names a commit of the project's repository.
+func AssembleIntent(repositoryRoot, intentRoot, directory string, revision *Revision) (string, error) {
+	source := referenceSource{root: repositoryRoot, revision: revision}
+	if strings.TrimSpace(intentRoot) != "" && filepath.Clean(intentRoot) != filepath.Clean(repositoryRoot) {
+		source = referenceSource{root: intentRoot, companion: true}
+	}
+	text, _, err := renderWorkItemIntent(source.root, source, directory, defaultMaxBytes/maxIntentShareDivisor)
 	return text, err
 }
 
@@ -66,7 +75,7 @@ func renderWorkItemIntent(repositoryRoot string, source referenceSource, directo
 		return "", nil, err
 	}
 
-	header := renderWorkItemIntentHeader(clean, source.revision)
+	header := renderWorkItemIntentHeader(clean, source.revision, source.companion)
 	if source.revision != nil {
 		var current []string
 		var err error
@@ -178,10 +187,13 @@ func readIntentDocument(root repowrite.Root, source referenceSource, documentPat
 	return Reference{Path: documentPath, Content: string(content)}, nil
 }
 
-func renderWorkItemIntentHeader(directory string, revision *Revision) string {
+func renderWorkItemIntentHeader(directory string, revision *Revision, companion bool) string {
 	at := ""
 	if revision != nil {
 		at = fmt.Sprintf(" Each is read as it stands at %s.", revision.Name)
+	}
+	if companion {
+		at = "\nThis project keeps them in its companion intent repository rather than in its\nown, and each is read there as that repository's checkout stands."
 	}
 	return fmt.Sprintf(`
 # Authoritative product intent

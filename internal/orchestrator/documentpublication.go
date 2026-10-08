@@ -20,7 +20,27 @@ import (
 
 // PublishesDocuments reports whether a confirmed document could land: a
 // reviewed run integrates only where the project integrates automatically.
+//
+// A project that keeps its intent in a companion intent repository is answered
+// the same way, so a document its automatic policy confirms stays confirmed by
+// that policy rather than being put to the operator: confirming a design is not
+// a decision only a person can make. PublishDocument then holds it — see
+// ErrCompanionPublicationNotBuilt.
 func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
+
+// ErrCompanionPublicationNotBuilt is why a confirmed document of a project that
+// keeps its intent in a companion intent repository is held rather than landed.
+// The reviewed run that would land it there — a branch cut from that repository,
+// checks that mean something for a repository holding only documents,
+// independent review, and promotion into its target under the promotion lease,
+// as docs/designs/machine-home.md describes — is not built yet. Running this
+// project's own checks over that repository, or landing the document in the
+// project's repository, would each be wrong, and putting it to the operator
+// would route a routine confirmation to a person. So the document stays
+// confirmed and saved in its conversation, the owning role is told once what
+// holds it, and it is offered again at every later message, which is what lands
+// it once that run exists.
+var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent in a companion intent repository, and the reviewed run that lands a document there is not built yet; the document stays confirmed and saved in this conversation and is tried again at each later message, and nothing about it is waiting on the operator")
 
 // PublishDocument enters the ordinary delivery gates with an already written
 // candidate. Only the owning conversation can supply this handoff; there is no
@@ -50,6 +70,9 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	if !p.automatic() {
 		return p.refuseDocument(document, errors.New("reviewed document publication requires automatic integration"))
+	}
+	if p.Config.Product.HasIntentRepository() {
+		return runstate.DocumentDelivery{}, ErrCompanionPublicationNotBuilt
 	}
 	// These tracker operations describe this run's document, not backlog work.
 	// The canonical account remains the conversation and the ordinary run store.

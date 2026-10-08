@@ -118,8 +118,12 @@ func (f Finding) Diverges() bool { return f.Outcome == OutcomeDiverges }
 type Sources struct {
 	// Repository is the repository root every file check is rooted at.
 	Repository string
+	// IntentRepository is the repository the governed documents are read from:
+	// the companion intent repository where the project keeps one, and
+	// Repository otherwise.
+	IntentRepository string
 	// InvariantsDirectory is where the architectural invariants live, relative to
-	// the repository root, as the product's configuration states it.
+	// the intent repository's root, as the product's configuration states it.
 	InvariantsDirectory string
 	// Artifacts is every canonical document the repository records, with whatever
 	// could not be read as one and whatever is wrong with the ones that were.
@@ -145,6 +149,7 @@ type Sources struct {
 func Gather(repository string, product config.Product, admitted []beads.WorkItem, trackerUnreadable string) Sources {
 	sources := Sources{
 		Repository:          repository,
+		IntentRepository:    product.IntentRoot(repository),
 		InvariantsDirectory: product.Invariants,
 		Admitted:            admitted,
 		TrackerUnreadable:   trackerUnreadable,
@@ -159,8 +164,19 @@ func Gather(repository string, product config.Product, admitted []beads.WorkItem
 		return sources
 	}
 	sources.Artifacts = artifacts
-	sources.Goals = goal.Collect(repository, artifacts)
+	sources.Goals = goal.Collect(sources.IntentRepository, artifacts)
 	return sources
+}
+
+// intentRepository is where the governed documents are read from. Sources
+// assembled by hand rather than by Gather name no intent repository, and read
+// them in the project's repository, as every project did before one could be
+// kept elsewhere.
+func (s Sources) intentRepository() string {
+	if s.IntentRepository != "" {
+		return s.IntentRepository
+	}
+	return s.Repository
 }
 
 // Assessment is one release-readiness assessment in progress: what the checks
@@ -334,7 +350,7 @@ func (a *Assessment) checkReferences() error {
 // it is what a reviewer is asked, with the relevant invariants in front of them —
 // and a gate claiming otherwise would be the most expensive kind of green.
 func (a *Assessment) checkInvariants() error {
-	set, err := invariant.Store{RepositoryRoot: a.sources.Repository, Directory: a.sources.InvariantsDirectory}.Load()
+	set, err := invariant.Store{RepositoryRoot: a.sources.intentRepository(), Directory: a.sources.InvariantsDirectory}.Load()
 	if err != nil {
 		a.record(CheckInvariants, "the invariants could not be read, so nothing says which constraints a run would be delivered",
 			[]string{"the invariants could not be read: " + err.Error()}, nil)

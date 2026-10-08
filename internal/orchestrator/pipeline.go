@@ -1499,7 +1499,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 	if err := validateClaimedItem(item, a.state.WorkItemID); err != nil {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository)})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
 	}
@@ -1764,7 +1764,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	if err := validateClaimedItem(item, state.WorkItemID); err != nil {
 		return Outcome{}, fmt.Errorf("validate resumed work item: %w", err)
 	}
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: p.Repository, WorkItem: item, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(p.Repository)})
 	if err != nil {
 		return Outcome{}, fmt.Errorf("assemble resumed work item context: %w", err)
 	}
@@ -2402,7 +2402,7 @@ func (a *activeRun) chargingProcess() (string, error) {
 // repository looks like and the whole point of an invariant is that a developer
 // whose own work looks correct is stopped by it.
 func (p Pipeline) loadInvariants() (invariant.Set, error) {
-	store := invariant.Store{RepositoryRoot: p.Repository, Directory: p.Config.Product.Invariants}
+	store := invariant.StoreFor(p.Repository, p.Config.Product)
 	set, err := store.Load()
 	if err != nil {
 		return invariant.Set{}, fmt.Errorf("load architectural invariants: %w",
@@ -7873,7 +7873,7 @@ func (a *activeRun) reviewedContext(ctx context.Context, baseCommit string) (str
 		return a.context, nil
 	}
 	revision := reviewedRevision(ctx, p.Worktrees, baseCommit)
-	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications})
+	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.worktree.Path, WorkItem: a.item, Revision: revision, Specifications: p.Config.Product.Specifications, IntentRoot: p.Config.Product.IntentRoot(a.worktree.Path)})
 	if err != nil {
 		return "", fmt.Errorf("assemble reviewed work item context at %s: %w", baseCommit, err)
 	}

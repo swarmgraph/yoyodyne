@@ -17,6 +17,11 @@ type ScaffoldOptions struct {
 	// confident proposals become the checks list; its candidates are written
 	// beside them, commented out and marked, for the operator to choose from.
 	Detection Detection
+	// IntentRepository names a companion intent repository, relative to the
+	// directory the configuration is written into, and is empty for a project
+	// whose own repository holds its intent. Only a configuration kept outside
+	// the repository may name one; see Intent.
+	IntentRepository string
 }
 
 // ScaffoldFile is one generated file, named relative to the project's
@@ -78,6 +83,7 @@ func NewScaffold(bundleName string, options ScaffoldOptions) (Scaffold, error) {
 	effective.Product.ID = domain.ProductID(strings.TrimSpace(options.ProductID))
 	effective.Product.Repository = strings.TrimSpace(options.Repository)
 	effective.Checks = options.Detection.Commands()
+	effective.Intent.Repository = strings.TrimSpace(options.IntentRepository)
 	// Validate what loading the rendered file will see rather than what the
 	// struct happens to hold, so the repository id is derived from the product
 	// id here exactly as it is derived there. It stays out of the rendered file
@@ -106,6 +112,34 @@ func NewScaffold(bundleName string, options ScaffoldOptions) (Scaffold, error) {
 		Personas: personas,
 		Lock:     ScaffoldFile{Path: LockFileName, Content: lock.Render()},
 	}, nil
+}
+
+// renderScaffoldIntent writes the companion intent repository, where the
+// initialization chose one, and nothing otherwise: a project whose own
+// repository holds its intent has nothing to say here, and a commented example
+// would invite a committed configuration to name one, which it may not.
+func renderScaffoldIntent(builder *strings.Builder, intent Intent) {
+	if intent.Repository == "" {
+		return
+	}
+	builder.WriteString(IntentSection(intent.Repository))
+}
+
+// IntentSection is the configuration's intent block naming a companion intent
+// repository, with the comment that says what it is. It is what `yoyo init
+// --intent` writes and what `yoyo setup` appends to a configuration kept outside
+// the repository when the operator chooses one there.
+func IntentSection(repository string) string {
+	return fmt.Sprintf(`
+# The companion intent repository. The specifications, designs, decision
+# records, and invariants named above are read there rather than in the
+# project's repository, so nothing of Yoyodyne's is committed to the project.
+# It is a Git repository of its own, relative to the directory this file is in:
+# push it wherever your team shares it, and a teammate clones it to the same
+# place under their own machine home.
+intent:
+  repository: %s
+`, repository)
 }
 
 // scaffoldPersonas collects the persona text every agent refers to, at the path
@@ -448,6 +482,8 @@ approvals:
 		effective.Approvals.Integration,
 		effective.Approvals.Publishing,
 	)
+
+	renderScaffoldIntent(&builder, effective.Intent)
 
 	renderScaffoldReporting(&builder)
 

@@ -9,12 +9,15 @@ import "github.com/mason-bryant/yoyodyne/internal/config"
 //
 // What it assembles is the three artifact homes, and the invariants directory
 // excluded from them because its files carry the identity scheme this one was
-// modeled on rather than this one.
+// modeled on rather than this one. The homes are read in the repository the
+// product's intent is kept in — the companion intent repository where the
+// configuration names one, and repositoryRoot otherwise (config.Product.IntentRoot).
 func StoreFor(repositoryRoot string, product config.Product) Store {
 	return Store{
-		RepositoryRoot: repositoryRoot,
-		Homes:          []string{product.Specifications, product.Designs, product.Decisions},
-		Excluded:       []string{product.Invariants},
+		RepositoryRoot:  product.IntentRoot(repositoryRoot),
+		CompanionIntent: product.HasIntentRepository(),
+		Homes:           []string{product.Specifications, product.Designs, product.Decisions},
+		Excluded:        []string{product.Invariants},
 		// Which home each kind is filed in, which the list above cannot say: three
 		// directories in configuration order do not tell anything which of them a
 		// design belongs in. It is read by the write path, where a role has to be

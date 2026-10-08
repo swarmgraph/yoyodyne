@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -32,6 +33,8 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	trackerRemote := flags.String("tracker-remote", "", "URL the tracker syncs through (default: this project's Git remote)")
 	force := flags.Bool("force", false, "overwrite files that already exist")
 	external := flags.Bool("external", false, "write the configuration outside the repository, where only this machine reads it")
+	intent := flags.Bool("intent", false, "with --external, keep the specifications, designs, decision records, and invariants in a companion intent repository in the project's directory in the machine home, so nothing of Yoyodyne's is committed to the project")
+	intentFrom := flags.String("intent-from", "", "with --external, clone the companion intent repository from this URL or path instead of creating an empty one")
 	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
@@ -47,6 +50,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		ProductID: *product,
 		Force:     *force,
 		External:  *external,
+		Intent:    *intent || strings.TrimSpace(*intentFrom) != "",
 	})
 	if err != nil {
 		// A reported failure exits nonzero whichever form it was reported in,
@@ -59,6 +63,16 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			fmt.Fprintln(stderr, err)
 		}
 		return 1
+	}
+
+	// The companion intent repository is made after the configuration naming it
+	// is written and loads, and like the tracker step it never changes the exit
+	// code: the configuration is right either way, and what is missing is said
+	// with what makes it.
+	var intentOutcome *companionIntent
+	if initialization.intentRepository != "" {
+		established := establishIntentRepository(ctx, execution.OSProcessRunner{}, initialization.product, *intentFrom)
+		intentOutcome = &established
 	}
 
 	tracker := configureTrackerRemote(ctx, initialization.repository, *trackerRemote, execution.OSProcessRunner{})
@@ -87,6 +101,7 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			"detected": initialization.detection,
 			"tracker":  tracker,
 			"ignored":  ignored,
+			"intent":   intentOutcome,
 		})
 	}
 	for _, path := range initialization.written {
@@ -95,6 +110,13 @@ func runInit(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fmt.Fprintln(stdout, "the configuration is complete and inherits nothing")
 	if initialization.external {
 		fmt.Fprintln(stdout, describeExternalConfiguration(initialization))
+	}
+	if intentOutcome != nil {
+		if intentOutcome.Status == intentFailed {
+			fmt.Fprintln(stderr, describeCompanionIntent(*intentOutcome, initialization.repository))
+		} else {
+			fmt.Fprintln(stdout, describeCompanionIntent(*intentOutcome, initialization.repository))
+		}
 	}
 	fmt.Fprintln(stdout, describeDetection(initialization.detection, initialization.config))
 	// The tracker step is reported on the stream its outcome belongs to and
@@ -283,6 +305,9 @@ type initializeOptions struct {
 	ProductID string
 	Force     bool
 	External  bool
+	// Intent names a companion intent repository in the configuration, which
+	// only an external configuration may do.
+	Intent bool
 }
 
 // initialized is what an initialization produced. Where the configuration went
@@ -300,6 +325,12 @@ type initialized struct {
 	// report what was found alongside what was written.
 	detection config.Detection
 	external  bool
+	// intentRepository is the companion intent repository the configuration
+	// names, absolute, and empty where the project's own repository holds its
+	// intent. product is the product the written configuration loaded as, which
+	// is what making that repository reads.
+	intentRepository string
+	product          config.Product
 }
 
 // initializeProject renders the scaffold and writes it, configuration file
@@ -307,6 +338,9 @@ type initialized struct {
 // overwrite leaves the project exactly as it was rather than half-configured.
 func initializeProject(options initializeOptions) (initialized, error) {
 	var result initialized
+	if options.Intent && !options.External {
+		return result, errors.New("a companion intent repository is kept with a configuration outside the repository, because it exists to keep everything of Yoyodyne's out of it; add --external")
+	}
 	// The project is the repository this reads and, ordinarily, writes into. What
 	// it writes there is confined to it: a scaffold that landed outside is a
 	// configuration the operator was told about and cannot find, in a place
@@ -362,10 +396,15 @@ func initializeProject(options initializeOptions) (initialized, error) {
 	if options.External {
 		repositoryValue = repository
 	}
+	intentRepository := ""
+	if options.Intent {
+		intentRepository = home.IntentDirectoryName
+	}
 	scaffold, err := config.NewScaffold(config.BuiltinV1, config.ScaffoldOptions{
-		ProductID:  identifier,
-		Repository: repositoryValue,
-		Detection:  detection,
+		ProductID:        identifier,
+		Repository:       repositoryValue,
+		Detection:        detection,
+		IntentRepository: intentRepository,
 	})
 	if err != nil {
 		return result, err
@@ -419,11 +458,13 @@ func initializeProject(options initializeOptions) (initialized, error) {
 	}
 
 	result = initialized{
-		config:     paths[0],
-		repository: repository,
-		written:    paths,
-		detection:  detection,
-		external:   options.External,
+		config:           paths[0],
+		repository:       repository,
+		written:          paths,
+		detection:        detection,
+		external:         options.External,
+		intentRepository: loaded.Product.IntentRepository,
+		product:          loaded.Product,
 	}
 	// An external configuration writes nothing into the repository at all, which
 	// is the whole of what it is for: an index at the door of somebody else's

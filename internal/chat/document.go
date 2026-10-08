@@ -65,6 +65,9 @@ type Documents interface {
 	// Checkout is the repository the writes land in, named when the operator is
 	// told the document is now an uncommitted change there.
 	Checkout() string
+	// PendingCommit is the sentence that tells the operator so, which differs
+	// where the repository is the project's companion intent repository.
+	PendingCommit(path string) string
 }
 
 // PendingWrite is one document awaiting confirmation or publication, together with
@@ -354,7 +357,7 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 	s.noteHandStep(intervention.KindApprove, nil, "", written.ID,
 		fmt.Sprintf("approved document %s, which wrote %s", record.pending.ID, written.ID))
 	outcome.Path = written.Path
-	outcome.PendingCommit = artifact.PendingCommit(s.options.Documents.Checkout(), written.Path)
+	outcome.PendingCommit = s.options.Documents.PendingCommit(written.Path)
 	s.notice("the operator approved document %s, and the harness wrote %s to %s under the %s's authority",
 		record.pending.ID, written.ID, written.Path, s.state.Role)
 	if err := s.emit(execution.EventDocumentWritten, map[string]any{
