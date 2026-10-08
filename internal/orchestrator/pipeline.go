@@ -8894,10 +8894,9 @@ func accountPrompt(invariants, scratchDirectory, reason string, checks []string)
 }
 
 // boundedCheckOutput is what a failing check gets to say, in the order a
-// terminal would have shown it. The tail is what is kept when a check says more
-// than the bound allows, because a suite prints its failures and its summary at
-// the end, and the truncation is stated so the developer reading it knows the
-// check did not simply stop there.
+// terminal would have shown it. When a check says more than the bound allows,
+// what is kept is the output around the first line reporting a failure and the
+// end of the output, each cut stated; checks.FailureOutput says how.
 func boundedCheckOutput(result checks.Result) string {
 	return checks.FailureOutput(result)
 }
