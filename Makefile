@@ -41,7 +41,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # split, not a figure to raise past the check's limit.
 TEST_TIMEOUT ?= 28m
 
-.PHONY: build test race vet fmt fmtcheck cachecheck check adoption dist dist-verify clean-dist release release-notes
+.PHONY: build test race vet fmt fmtcheck cachecheck check adoption codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -169,6 +169,24 @@ check: fmtcheck test race vet
 #   WALK_PROVIDER=1 make adoption    also hand an item to a developer agent
 adoption:
 	scripts/walk-adoption.sh
+
+# The Codex native-resume test, run where it can run and required to have run.
+# It launches the real Codex, so the harness's checks -- which hide the
+# provider CLIs from every other check -- run it only as the path check
+# .yoyodyne/config.yaml names with `needs_provider_clis: true`, for a change
+# touching a path scripts/codex-resume.paths lists. Inside a developer run the
+# test skips, because that run's sandbox will not let Codex apply its own; so
+# a skip here, for that or for want of Codex, fails this target rather than
+# reading as a pass. docs/configuration/runs.md says where the test runs.
+codex-resume: cachecheck
+	@result=$$($(GO) test -count=1 -v -run '^TestNativeResumeReplacesSavedDirectoryGrants$$' ./internal/backend/codex 2>&1); \
+	tested=$$?; \
+	printf '%s\n' "$$result"; \
+	if [ $$tested -ne 0 ]; then exit $$tested; fi; \
+	if ! printf '%s\n' "$$result" | grep -q '^--- PASS: TestNativeResumeReplacesSavedDirectoryGrants'; then \
+		echo "codex-resume: the Codex native-resume test did not run to a pass here, so nothing was checked; the lines above say why" >&2; \
+		exit 1; \
+	fi
 
 clean-dist:
 	rm -rf $(DIST)

@@ -71,6 +71,34 @@ func TestACheckThatNeedsAnInstalledProviderCLIFails(t *testing.T) {
 	}
 }
 
+// A check marked as needing the provider CLIs finds them, and only that check:
+// the checks before and after it in the same stage still have them hidden.
+func TestOnlyACheckMarkedForProviderCLIsFindsThem(t *testing.T) {
+	// t.Setenv is this process's environment, so this cannot run in parallel.
+	installed(t, "codex")
+	hidden := "! command -v codex >/dev/null"
+	results, _, err := (Runner{Process: execution.OSProcessRunner{}, HiddenExecutables: []string{"claude", "codex"}}).Run(
+		context.Background(),
+		Request{
+			RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(),
+			Commands:     []string{hidden, "command -v codex", hidden},
+			ProviderCLIs: map[int]bool{1: true},
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("results = %#v, want all three checks run", results)
+	}
+	for index, result := range results {
+		if !result.Passed {
+			t.Fatalf("check %d (%s) failed: only the marked check should find codex\n%s", index, result.Command, result.Process.Stdout)
+		}
+	}
+}
+
 // A provider configured by path is hidden by the name a lookup would find it
 // under, and the directory made for the stage is gone once the stage is over.
 func TestAConfiguredProviderPathIsHiddenAndTheStagesPathRemoved(t *testing.T) {

@@ -2525,7 +2525,10 @@ CLI usually is not installed as well — the forge's continuous integration, a
 collaborator's machine — and a test that passed only because one is installed
 here would fail there, after a review has been spent on it. Under this rule it
 fails in the check stage instead. A test that genuinely needs a provider CLI
-skips itself, saying why, where none is found.
+skips itself, saying why, where none is found. The one exception is a path
+check that sets `needs_provider_clis: true`: it runs with the provider CLIs on
+its search path, because what it vouches for is how the harness drives a real
+one, and every other check in the same stage still has them hidden.
 
 A provider invocation is given the same list with one thing more:
 `YOYODYNE_AGENT_ROLE`, naming the role the process was launched for —
@@ -2980,6 +2983,20 @@ and everything under it; and a leading `!` takes back what an earlier line
 covered, the last matching line deciding. A list that cannot be read — missing,
 or carrying a line that is not a pattern — runs its check rather than passing it
 over, because the gate has no declaration to skip it on, and the record says so.
+
+A path check runs with the provider CLIs hidden from its search path, like
+every other check, unless it sets `needs_provider_clis: true`. That is for a
+check whose whole point is how the harness drives a real provider CLI, such as
+`make codex-resume`, the Codex native-resume test
+([where it runs](configuration/runs.md)); it lifts the hiding for that check
+alone, and gives no agent anything.
+
+```yaml
+path_checks:
+  - command: make codex-resume
+    paths: scripts/codex-resume.paths
+    needs_provider_clis: true
+```
 
 Path checks are not landing checks and are not narrowed: a landing runs
 `landing_checks` alone. An entry with no command, or with a `paths` that is

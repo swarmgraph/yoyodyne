@@ -5679,10 +5679,12 @@ func (a *activeRun) verify(ctx context.Context) error {
 	a.state.CheckStage = stage
 	a.state.UpdatedAt = p.clock().Now()
 	_ = p.Store.Save(a.state)
+	stageCommands, providerCLIs := withPathChecks(p.Config.Checks, added)
 	checkResults, lastSequence, err := p.Checks.Run(ctx, checks.Request{
 		RunID:        a.state.RunID,
 		Directory:    a.worktree.Path,
-		Commands:     withPathChecks(p.Config.Checks, added),
+		Commands:     stageCommands,
+		ProviderCLIs: providerCLIs,
 		LastSequence: a.state.LastSequence,
 		Env:          []string{narrowing.Env()},
 		// The bound is read again as each check begins, because the load a

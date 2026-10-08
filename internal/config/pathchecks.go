@@ -21,6 +21,13 @@ type PathCheck struct {
 	// edits the list runs the check whatever the list now says, so no change can
 	// narrow the check that holds it.
 	Paths string `yaml:"paths" json:"paths"`
+	// NeedsProviderCLIs runs this check with the provider CLIs left on its
+	// search path, where every other check has them hidden: it is for a check
+	// whose whole point is how the harness drives a real one, such as the Codex
+	// native-resume test. It reaches no agent: a check is the project's own
+	// command, run by the harness, and the hiding it lifts is about where a
+	// test can pass, not about what anything may do.
+	NeedsProviderCLIs bool `yaml:"needs_provider_clis,omitempty" json:"needs_provider_clis,omitempty"`
 }
 
 func (c PathCheck) problems(index int) []string {

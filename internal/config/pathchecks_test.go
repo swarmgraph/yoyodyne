@@ -29,3 +29,26 @@ func TestAPathCheckNamesItsCommandAndAListInsideTheRepository(t *testing.T) {
 		}
 	}
 }
+
+// A path check may ask to run with the provider CLIs on its search path, and
+// one that does not ask is read as not needing them.
+func TestAPathCheckSaysWhetherItNeedsTheProviderCLIs(t *testing.T) {
+	t.Parallel()
+
+	document, err := decodeDocument(strings.NewReader(`path_checks:
+  - command: make codex-resume
+    paths: scripts/codex-resume.paths
+    needs_provider_clis: true
+  - command: make adoption
+    paths: scripts/walk-adoption.paths
+`))
+	if err != nil {
+		t.Fatalf("decodeDocument() error = %v", err)
+	}
+	if document.PathChecks == nil || len(*document.PathChecks) != 2 {
+		t.Fatalf("path checks = %#v, want two", document.PathChecks)
+	}
+	if checks := *document.PathChecks; !checks[0].NeedsProviderCLIs || checks[1].NeedsProviderCLIs {
+		t.Fatalf("path checks = %#v, want only the first to need the provider CLIs", checks)
+	}
+}
