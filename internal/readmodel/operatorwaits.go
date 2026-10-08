@@ -85,6 +85,10 @@ func (a Attention) Since() time.Time {
 		if a.TrackerListings != nil {
 			return a.TrackerListings.FailingSince
 		}
+	case AttentionUnrunCheck:
+		if a.UnrunCheck != nil {
+			return a.UnrunCheck.Since
+		}
 	}
 	return time.Time{}
 }

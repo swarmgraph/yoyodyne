@@ -297,6 +297,11 @@ execution:
   # files a note when passes succeed or work is pulled again, and "yoyo status"
   # names it while it stands.
   factory_stall_after: %s
+  # A check that prints a line beginning "yoyo check could not run:" and exits
+  # non-zero could not run at all; the change goes on without it and spends no
+  # repair attempt. Once the same check has been unable to run on this many
+  # changes in a row, "yoyo status" names it until it runs again.
+  could_not_run_before_status: %d
   # Replace a recurring role conversation after this many missing closing reports.
   missing_reports_before_fresh_conversation: %d
   # The failure-storm brake for a session left running unattended: this many runs
@@ -425,6 +430,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.WorkPoll),
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
+		effective.Execution.CouldNotRunBeforeStatus,
 		effective.Execution.MissingReportLimit(),
 		effective.Execution.BlockedRunsBeforeIntakeHold,
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),

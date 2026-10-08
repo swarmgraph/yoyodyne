@@ -5709,7 +5709,10 @@ func (a *activeRun) verify(ctx context.Context) error {
 		return stoppedBy(runstate.StopChecks, fmt.Errorf("verification infrastructure failed: %w", err))
 	}
 	for _, check := range checkResults {
-		if check.Passed {
+		// A check that said it could not run judged nothing about the change,
+		// so it is neither repair input nor a stop: the change goes on without
+		// it, and the record below says which check it went without and why.
+		if check.Passed || check.CouldNotRun != "" {
 			continue
 		}
 		// Only a check that actually ran and failed describes something the
@@ -5764,14 +5767,17 @@ func (a *activeRun) verify(ctx context.Context) error {
 	a.state.CheckFailure = nil
 	commands := make([]string, 0, len(checkResults))
 	for _, check := range checkResults {
-		commands = append(commands, check.Command)
+		if check.CouldNotRun == "" {
+			commands = append(commands, check.Command)
+		}
 	}
 	a.state.ChecksPassed = &runstate.ChecksPassed{
-		Content:  content,
-		Attempt:  a.state.RepairAttempts,
-		Commit:   a.state.HarnessCommit,
-		Commands: commands,
-		At:       p.clock().Now().UTC(),
+		Content:     content,
+		Attempt:     a.state.RepairAttempts,
+		Commit:      a.state.HarnessCommit,
+		Commands:    commands,
+		CouldNotRun: stage.CouldNotRun,
+		At:          p.clock().Now().UTC(),
 	}
 	// A replay conflict is cleared here too, and this is the moment it stops
 	// describing the change: it was moved into the worktree for its author to
@@ -5850,6 +5856,17 @@ func (a *activeRun) closeCheckStage(stage *runstate.CheckStage, results []checks
 		stage.Command = results[last].Command
 		stage.ElapsedSeconds = int64(results[last].StageElapsed / time.Second)
 		stage.StoppedAtBound = results[last].StoppedByStage
+	}
+	stage.Ran, stage.CouldNotRun = nil, nil
+	for _, result := range results {
+		switch {
+		case result.CouldNotRun != "":
+			stage.CouldNotRun = append(stage.CouldNotRun, runstate.CheckCouldNotRun{Command: result.Command, Reason: result.CouldNotRun})
+		case result.Process.Status == execution.ProcessSucceeded || result.Process.Status == execution.ProcessFailed:
+			// A check stopped on time, cancelled, or never started by the stage
+			// reached no verdict, so it is not said to have run.
+			stage.Ran = append(stage.Ran, result.Command)
+		}
 	}
 	a.outcome.CheckStage = stage
 	a.state.UpdatedAt = finished
@@ -6261,6 +6278,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 				ElapsedSeconds: int64(result.Elapsed() / time.Second),
 				StoppedAtBound: atBudget,
 				Output:         landingCheckOutput(result),
+				CouldNotRun:    result.CouldNotRun,
 			})
 		}
 		if stopped != "" {
@@ -6510,7 +6528,7 @@ func quotedOutput(output string) string {
 // landingCheckOutput is what a failing landing check said, cut as a repair
 // attempt's input is cut. A check that passed said nothing worth carrying.
 func landingCheckOutput(result checks.Result) string {
-	if result.Passed {
+	if result.Passed || result.CouldNotRun != "" {
 		return ""
 	}
 	return boundedCheckOutput(result)
@@ -9518,6 +9536,11 @@ func renderCheckNotes(outcome Outcome) []string {
 		lines = append(lines, line)
 	}
 	for _, check := range outcome.Checks {
+		if check.CouldNotRun != "" {
+			lines = append(lines, fmt.Sprintf("Check: %s could not run, so it judged nothing and spent no repair attempt: %s (exit=%d, %s of %s)",
+				check.Command, check.CouldNotRun, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("Check: %s (passed=%t, exit=%d, %s of %s)",
 			check.Command, check.Passed, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
 		if !check.Passed {

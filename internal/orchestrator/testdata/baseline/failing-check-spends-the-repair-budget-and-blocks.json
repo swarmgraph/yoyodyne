@@ -22,6 +22,9 @@
           "elapsed_seconds": "\u003celapsed\u003e",
           "finished_at": "\u003ctime\u003e",
           "narrowed": "the whole module (the repository root is not a Go module)",
+          "ran": [
+            "exit 1"
+          ],
           "started_at": "\u003ctime\u003e"
         },
         "checks": [
@@ -101,6 +104,9 @@
       "elapsed_seconds": "\u003celapsed\u003e",
       "finished_at": "\u003ctime\u003e",
       "narrowed": "the whole module (the repository root is not a Go module)",
+      "ran": [
+        "exit 1"
+      ],
       "started_at": "\u003ctime\u003e"
     },
     "completed_at": "\u003ctime\u003e",

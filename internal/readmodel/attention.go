@@ -114,6 +114,9 @@ const (
 	// AttentionTrackerUnanswered is the tracker failing listings after their
 	// retries, since the moment the first of them failed. That moment is the ID.
 	AttentionTrackerUnanswered AttentionKind = "tracker-unanswered"
+	// AttentionUnrunCheck is a configured check that said it could not run on
+	// several changes in a row. The check's command is the ID.
+	AttentionUnrunCheck AttentionKind = "check-could-not-run"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -140,6 +143,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionUntracedPass,
 		AttentionFactoryStall,
 		AttentionTrackerUnanswered,
+		AttentionUnrunCheck,
 	}
 }
 
@@ -190,6 +194,7 @@ func (a Attention) Label() string {
 		AttentionUntracedPass:      "findings not recorded",
 		AttentionFactoryStall:      "nothing completing",
 		AttentionTrackerUnanswered: "tracker not answering",
+		AttentionUnrunCheck:        "check not running",
 	}[a.Kind]
 }
 
@@ -354,6 +359,10 @@ type Attention struct {
 	// AttentionTrackerUnanswered entry: since when they have failed, how many,
 	// and what the latest said.
 	TrackerListings *runstate.TrackerListings `json:"tracker_listings,omitempty"`
+	// UnrunCheck is the check, how many changes in a row it could not run on,
+	// since when, and its latest reason, on an AttentionUnrunCheck entry; the
+	// check's command is the ID.
+	UnrunCheck *UnrunCheck `json:"unrun_check,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -654,6 +663,10 @@ func (a Attention) What() string {
 			said.Latest = singleLine(said.Latest, maxRefusalBytes)
 			return said.Says()
 		}
+	case AttentionUnrunCheck:
+		if a.UnrunCheck != nil {
+			return a.UnrunCheck.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -796,6 +809,8 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — every pass it attempts is failing, so no role is looking at anything; the critical report filed when it began names the failures, and the first pull or successful pass clears this and files the recovery"
 	case AttentionTrackerUnanswered:
 		return a.Mover.Possessive() + " — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
+	case AttentionUnrunCheck:
+		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }

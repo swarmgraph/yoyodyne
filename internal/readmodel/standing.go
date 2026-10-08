@@ -341,6 +341,11 @@ type Sources struct {
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
 	FactoryStallAfter time.Duration
+	// CouldNotRunBeforeStatus is execution.could_not_run_before_status as the
+	// caller read it: how many changes in a row a check has to have been unable
+	// to run on before the attention line says so. Zero takes
+	// DefaultCouldNotRunBeforeStatus.
+	CouldNotRunBeforeStatus int
 	// TrackerListings is how the tracker's listings stand, as every listing the
 	// harness's tracker client makes records it. Nil says nothing about them.
 	TrackerListings TrackerListingRecord
@@ -963,6 +968,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		needs = append(needs, trackerUnansweredAttention(*unanswered))
 	}
 	needsProblem = joinProblems(needsProblem, unansweredProblem)
+	// A check that keeps saying it could not run is said here once it has done
+	// so on several changes in a row: each run says so only on itself, and a
+	// gap that long is every change since landing without the check.
+	unrun, unrunProblem := ReadUnrunChecks(sources)
+	for _, check := range unrun {
+		needs = append(needs, unrunCheckAttention(check))
+	}
+	needsProblem = joinProblems(needsProblem, unrunProblem)
 	// Held work is on both lines for the reason handed-off work below is, and says
 	// a different thing on each: the queue's line says why nothing pulls each
 	// item, and this says who has to move and how many items are waiting on them.

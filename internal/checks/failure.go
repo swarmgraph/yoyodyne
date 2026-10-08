@@ -16,12 +16,19 @@ type failureCapture struct {
 	nameBytes int
 	cut       bool
 	observed  bool
+	// couldNotRun is the reason the latest could-not-run line gave, read from
+	// every line the check printed rather than from the bounded tail, so a
+	// line followed by a long wrapper's output is still found.
+	couldNotRun string
 }
 
 func (c *failureCapture) add(text string) {
 	c.observed = true
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
+		if reason, ok := couldNotRunReason(line); ok {
+			c.couldNotRun = reason
+		}
 		var name string
 		switch {
 		case strings.HasPrefix(line, "--- FAIL: "):

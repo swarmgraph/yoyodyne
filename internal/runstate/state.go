@@ -487,6 +487,14 @@ type CheckStage struct {
 	// without it a blocked run read as one still in its checks, with a spend
 	// that grew for as long as the record stood.
 	Interrupted bool `json:"interrupted,omitempty"`
+	// Ran is every check of the stage that ran to a verdict of its own, passed
+	// or failed, and CouldNotRun every check that said it could not run at all
+	// (checks.CouldNotRunPrefix), each with its reason. Both are written when
+	// the stage ends. A check the stage never reached is in neither, which is
+	// what lets a reading of many runs tell a check that has not run for a
+	// while from one nothing asked.
+	Ran         []string           `json:"ran,omitempty"`
+	CouldNotRun []CheckCouldNotRun `json:"could_not_run,omitempty"`
 }
 
 // CloseInterrupted ends a stage the process running it never ended: the sweep
@@ -745,6 +753,9 @@ type LandingCheckResult struct {
 	// Output is the bounded capture of a failing check, for the item a red
 	// landing files and for whoever reads the run.
 	Output string `json:"output,omitempty"`
+	// CouldNotRun is the reason a check that said it could not run gave. Such
+	// a check is neither a pass nor a failure, so it makes nothing red.
+	CouldNotRun string `json:"could_not_run,omitempty"`
 }
 
 // Validate reports every contract violation in the recorded landing at once.
@@ -812,10 +823,11 @@ func (l LandingChecks) Unverified() bool {
 	return l.Finished() && !l.Ran
 }
 
-// AllPassed reports every recorded check passed.
+// AllPassed reports every recorded check passed, leaving out a check that
+// could not run, which judged nothing.
 func (l LandingChecks) AllPassed() bool {
 	for _, check := range l.Checks {
-		if !check.Passed {
+		if !check.Passed && check.CouldNotRun == "" {
 			return false
 		}
 	}
@@ -827,11 +839,11 @@ func (l LandingChecks) Bound() time.Duration {
 	return time.Duration(l.BoundSeconds) * time.Second
 }
 
-// Failing is the first landing check that did not pass, and whether there is
-// one.
+// Failing is the first landing check that ran and did not pass, and whether
+// there is one.
 func (l LandingChecks) Failing() (LandingCheckResult, bool) {
 	for _, check := range l.Checks {
-		if !check.Passed {
+		if !check.Passed && check.CouldNotRun == "" {
 			return check, true
 		}
 	}
@@ -864,6 +876,11 @@ func (l LandingChecks) Describe() string {
 			said += "; filed as " + l.FiledWorkItem
 		case l.FilingProblem != "":
 			said += "; no item could be filed: " + l.FilingProblem
+		}
+	}
+	for _, check := range l.Checks {
+		if check.CouldNotRun != "" {
+			said += "; " + (CheckCouldNotRun{Command: check.Command, Reason: check.CouldNotRun}).Says()
 		}
 	}
 	if l.WaitingSince != nil && l.AdmittedAt != nil {
@@ -925,8 +942,12 @@ type ChecksPassed struct {
 	// commit is what the branch and the forge name the change by.
 	Commit string `json:"commit,omitempty"`
 	// Commands are the configured checks that passed, in the order they ran.
-	Commands []string  `json:"commands,omitempty"`
-	At       time.Time `json:"at"`
+	Commands []string `json:"commands,omitempty"`
+	// CouldNotRun are the configured checks that said they could not run, with
+	// why: the gate let the change on without them, and this is where the
+	// evidence says which checks it is short of.
+	CouldNotRun []CheckCouldNotRun `json:"could_not_run,omitempty"`
+	At          time.Time          `json:"at"`
 }
 
 // Validate rejects evidence that cannot describe checks that actually ran.
@@ -1819,6 +1840,16 @@ func (s *State) recordedTexts() []recordedText {
 	// is on is a command the configuration declares.
 	if s.CheckStage != nil {
 		unstated("check_stage.narrowed", "check_stage.narrowed", &s.CheckStage.Narrowed, MaxRecordedTextBytes)
+		for index := range s.CheckStage.CouldNotRun {
+			unstated("check_stage.could_not_run[].reason", at("check_stage.could_not_run", index, "reason"), &s.CheckStage.CouldNotRun[index].Reason, MaxRecordedTextBytes)
+		}
+	}
+	// A check's reason for not running is its own words, cut by the runner and
+	// held to the ordinary bound here for a runner that did not.
+	if s.ChecksPassed != nil {
+		for index := range s.ChecksPassed.CouldNotRun {
+			unstated("checks_passed.could_not_run[].reason", at("checks_passed.could_not_run", index, "reason"), &s.ChecksPassed.CouldNotRun[index].Reason, MaxRecordedTextBytes)
+		}
 	}
 	own("check_stage_continuation_refused", &s.CheckStageContinuationRefused, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
 	own("check_stage_continuation_wait_noted", &s.CheckStageContinuationWaitNoted, MaxBlockerBytes, truncatedNote(MaxBlockerBytes))
@@ -1829,6 +1860,7 @@ func (s *State) recordedTexts() []recordedText {
 	if s.LandingChecks != nil {
 		for index := range s.LandingChecks.Checks {
 			nested("landing_checks.checks[].output", at("landing_checks.checks", index, "output"), &s.LandingChecks.Checks[index].Output, MaxCheckOutputBytes)
+			unstated("landing_checks.checks[].could_not_run", at("landing_checks.checks", index, "could_not_run"), &s.LandingChecks.Checks[index].CouldNotRun, MaxRecordedTextBytes)
 		}
 		unstated("landing_checks.filing_problem", "landing_checks.filing_problem", &s.LandingChecks.FilingProblem, MaxRecordedTextBytes)
 		unstated("landing_checks.problem", "landing_checks.problem", &s.LandingChecks.Problem, MaxRecordedTextBytes)

@@ -64,7 +64,9 @@ ready work is picked up and how much of it runs at once.
 Each entry runs through `/bin/sh -c` in the run's worktree, so shell syntax is
 available. A check must be non-interactive and must exit non-zero on failure: a
 failing check ends the run before any reviewer is asked and before anything can
-be integrated. Checks are the project's own — the bundle supplies none — and the
+be integrated. A check that could not run at all says so instead, and is not
+counted as a failure; see [A check that could not run](#a-check-that-could-not-run).
+Checks are the project's own — the bundle supplies none — and the
 list is replaced wholesale rather than merged.
 
 ```yaml
@@ -433,6 +435,62 @@ settings that move them.
 A budget of `0` is refused rather than read as "unbounded": nothing else bounds a
 check, so one that never returns would hold a worktree, a claim, and a run open
 indefinitely.
+
+### A check that could not run
+
+A check can end a third way besides passing and failing: it could not run at
+all. The tool it drives is not installed where the harness runs its checks, or
+the service it talks to cannot be reached from there. Such a check has judged
+nothing about the change, and a developer cannot repair a missing tool, so
+treating it as a failure would spend repair attempts on a cause no change can
+fix.
+
+A check says it could not run by printing a line that begins
+`yoyo check could not run:`, followed by the reason, on either stream, and
+exiting non-zero:
+
+```sh
+command -v codex >/dev/null || {
+  echo "yoyo check could not run: codex is not installed on this machine" >&2
+  exit 1
+}
+```
+
+It is a line rather than a reserved exit status because a check is usually a
+make target, and `make` replaces whatever status its recipe exited with by its
+own; the line reaches the harness through any wrapper. A check that exits zero
+passed whatever it printed, a check stopped at its time budget was stopped on
+time, and the prefix with no reason after it is not recognized, so each of
+those is judged as it always was.
+
+A check that could not run:
+
+- spends no repair attempt and does not stop the change: the checks after it
+  still run, and if they pass the change goes on to review and can land;
+- is said on the run as could not run, naming why: in the reviewer's evidence,
+  in the run's notes on the work item, under the run in the list of recent runs
+  `yoyo status` prints, and in the run's record as `check_stage.could_not_run` and
+  `checks_passed.could_not_run`;
+- makes no landing red: a landing check that could not run is named in the
+  landing's line and the rest decide whether it is green.
+
+A real failure is still a failure: a check that ran and exited non-zero without
+that line is handed back to the developer exactly as before, whatever another
+check said.
+
+Every change that goes on without a check is a change nothing checked that
+way, and each run says so only on itself. So once the same check has been
+unable to run on several changes in a row, `yoyo status` says so on its fourth
+line, under the development manager, naming the check, how many changes, and
+since when, until a change the check runs on clears it:
+
+```yaml
+execution:
+  could_not_run_before_status: 3   # the default
+```
+
+A run whose checks stopped before reaching the check neither counts toward the
+number nor clears it.
 
 ## Scheduling ready work
 
