@@ -174,17 +174,21 @@ adoption:
 # It launches the real Codex, so the harness's checks -- which hide the
 # provider CLIs from every other check -- run it only as the path check
 # .yoyodyne/config.yaml names with `needs_provider_clis: true`, for a change
-# touching a path scripts/codex-resume.paths lists. Inside a developer run the
-# test skips, because that run's sandbox will not let Codex apply its own; so
-# a skip here, for that or for want of Codex, fails this target rather than
-# reading as a pass. docs/configuration/runs.md says where the test runs.
+# touching a path scripts/codex-resume.paths lists. The test skips where Codex
+# is not installed, and inside a developer run, whose sandbox will not let Codex
+# apply its own. A skip checked nothing, so it never reads as a pass: this
+# target exits non-zero with the line that tells the harness the check could
+# not run, carrying the test's own reason, so it spends no repair attempt. Only
+# a test that ran and failed is a failure. docs/configuration/runs.md says
+# where the test runs.
 codex-resume: cachecheck
 	@result=$$($(GO) test -count=1 -v -run '^TestNativeResumeReplacesSavedDirectoryGrants$$' ./internal/backend/codex 2>&1); \
 	tested=$$?; \
 	printf '%s\n' "$$result"; \
 	if [ $$tested -ne 0 ]; then exit $$tested; fi; \
 	if ! printf '%s\n' "$$result" | grep -q '^--- PASS: TestNativeResumeReplacesSavedDirectoryGrants'; then \
-		echo "codex-resume: the Codex native-resume test did not run to a pass here, so nothing was checked; the lines above say why" >&2; \
+		reason=$$(printf '%s\n' "$$result" | sed -n 's/^ *native_resume_test\.go:[0-9]*: //p' | head -n 1); \
+		echo "yoyo check could not run: the Codex native-resume test did not run here, so nothing was checked: $${reason:-the test neither passed nor said why}" >&2; \
 		exit 1; \
 	fi
 

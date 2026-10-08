@@ -1,7 +1,7 @@
 # What the Codex native-resume test vouches for: a change touching any of these
 # runs `make codex-resume` in the harness's per-run check stage, with the real
-# Codex on its search path, once .yoyodyne/config.yaml names it under
-# `path_checks` with `needs_provider_clis: true`. A change that edits this file
+# Codex on its search path: .yoyodyne/config.yaml names it under `path_checks`
+# with `needs_provider_clis: true`. A change that edits this file
 # runs the test whatever the file then says, so no change can narrow the check
 # that holds it.
 #

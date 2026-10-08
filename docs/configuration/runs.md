@@ -300,11 +300,16 @@ same refusal fails the test as it always did.
 The harness's checks hide the provider CLIs, so `make test` there skips the
 regression for want of Codex. `make codex-resume` is the check that runs it
 with the real Codex present, outside any developer run's sandbox, and records
-whether it passed: it fails when the test skips for any reason, so a machine
-without Codex, or a developer run, cannot read as a pass. It is a path check
-for a change touching what
-[`scripts/codex-resume.paths`](../../scripts/codex-resume.paths) lists, once
-`.yoyodyne/config.yaml` names it with the provider CLIs left on its search path:
+whether it passed. A skip never reads as a pass: where the test skips — Codex
+not installed, or a developer run — the target says the check
+[could not run](#a-check-that-could-not-run), giving the test's own reason, so
+it spends no repair attempt and the change goes on. Only a test that ran and
+failed fails the check. Signing in to Codex and its usage limits cannot stop
+it, because the test talks only to a stand-in model server it starts on the
+same machine. It is a path check for a change touching what
+[`scripts/codex-resume.paths`](../../scripts/codex-resume.paths) lists, and
+this project's `.yoyodyne/config.yaml` names it with the provider CLIs left on
+its search path:
 
 ```yaml
 path_checks:
