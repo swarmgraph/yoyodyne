@@ -681,7 +681,11 @@ Four things are worth knowing about it:
   into the project's repository, and no reviewed run promotes into the companion
   repository yet. So every document is confirmed by you, and your `y` writes it
   into the companion repository's checkout, for you to commit there — as
-  `yoyo artifact approve` and `yoyo invariant` write there too.
+  `yoyo artifact approve`, `yoyo artifact identify`, and `yoyo invariant`
+  write there too. A confirmed document and the two artifact commands say the
+  write is an uncommitted change in the companion repository and name it,
+  without saying a run will refuse to start over it, because no run starts from
+  that repository.
 - **The tracker stays where it was.** The tracker's export under `.beads/` and
   the developer-session instruction files are still the project's, so a fully
   local adoption excludes them as above.

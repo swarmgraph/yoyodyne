@@ -14,9 +14,10 @@ import "github.com/mason-bryant/yoyodyne/internal/config"
 // configuration names one, and repositoryRoot otherwise (config.Product.IntentRoot).
 func StoreFor(repositoryRoot string, product config.Product) Store {
 	return Store{
-		RepositoryRoot: product.IntentRoot(repositoryRoot),
-		Homes:          []string{product.Specifications, product.Designs, product.Decisions},
-		Excluded:       []string{product.Invariants},
+		RepositoryRoot:  product.IntentRoot(repositoryRoot),
+		CompanionIntent: product.HasIntentRepository(),
+		Homes:           []string{product.Specifications, product.Designs, product.Decisions},
+		Excluded:        []string{product.Invariants},
 		// Which home each kind is filed in, which the list above cannot say: three
 		// directories in configuration order do not tell anything which of them a
 		// design belongs in. It is read by the write path, where a role has to be

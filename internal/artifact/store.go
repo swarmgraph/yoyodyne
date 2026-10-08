@@ -73,6 +73,10 @@ type Store struct {
 	// store assembled without it, and a write is then refused rather than filed
 	// on a guess: see Filing.
 	KindHomes map[Kind]string
+	// CompanionIntent says RepositoryRoot is the project's companion intent
+	// repository rather than the project's own checkout, which changes what is
+	// true to say about a write landing there: see PendingCommitInCompanion.
+	CompanionIntent bool
 }
 
 // KindHome pairs one kind of document with the directory this project files it

@@ -411,3 +411,22 @@ func (s Store) Approve(id, reason string, now time.Time) (Artifact, error) {
 func PendingCommit(repositoryRoot, path string) string {
 	return fmt.Sprintf("%s is now an uncommitted change in %s, and a run against that checkout refuses to start while it is; committing it is yours, under your own identity", path, repositoryRoot)
 }
+
+// PendingCommitInCompanion is PendingCommit for a write that landed in a
+// project's companion intent repository rather than in the project's own
+// checkout. The write stops at that repository's working tree for the same
+// reasons, and is the operator's to commit there; what differs is that no run
+// starts from that repository, so nothing refuses to start over it, and saying
+// one does would send the operator looking for a refusal that never comes.
+func PendingCommitInCompanion(intentRepository, path string) string {
+	return fmt.Sprintf("%s is now an uncommitted change in %s, the project's companion intent repository; runs read it from that checkout as it stands, and committing it there, and pushing it where your team shares it, is yours, under your own identity", path, intentRepository)
+}
+
+// PendingCommit says where a write through this store landed, in whichever of
+// the two sentences above is true of the repository it writes into.
+func (s Store) PendingCommit(path string) string {
+	if s.CompanionIntent {
+		return PendingCommitInCompanion(s.RepositoryRoot, path)
+	}
+	return PendingCommit(s.RepositoryRoot, path)
+}

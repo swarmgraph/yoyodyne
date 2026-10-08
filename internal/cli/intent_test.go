@@ -2,12 +2,14 @@ package cli
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 )
 
@@ -105,5 +107,57 @@ func gitInCompanion(t *testing.T, directory string, args ...string) {
 	t.Helper()
 	if output, err := exec.Command("git", append([]string{"-C", directory}, args...)...).CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, output)
+	}
+}
+
+// An approval in a project that keeps its intent in a companion repository
+// lands there, and the command says so: it names that repository, the path
+// inside it, and does not claim a run will refuse to start over it, since no
+// run starts from that repository.
+func TestApprovingInACompanionIntentProjectNamesTheCompanionRepository(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	project := filepath.Join(root, "calc")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	projectDirectory := filepath.Join(root, "home", "projects", "calc")
+	intent := filepath.Join(projectDirectory, "intent")
+	writeArtifact(t, intent, "docs/product/brief.md", artifactDocument("brief", "brief", "Product brief", nil))
+	writeArtifact(t, intent, "docs/product/goals/v1-goals.md", artifactDocument("v1-goals", "goals", "V1 goals", []string{"brief"}))
+	configPath := filepath.Join(projectDirectory, config.FileName)
+	writeArtifact(t, projectDirectory, config.FileName, "version: 1\nextends: builtin:v1\nproduct:\n  id: calc\n  repository: "+project+"\nintent:\n  repository: intent\n")
+
+	stdout, stderr, code := runCLI(t, "artifact", "approve", "--config", configPath, "brief",
+		"--reason", "approved by the operator in conversation")
+	if code != 0 {
+		t.Fatalf("approve code = %d, stderr = %q", code, stderr)
+	}
+	want := artifact.PendingCommitInCompanion(intent, "docs/product/brief.md")
+	if !strings.Contains(stdout, want) {
+		t.Fatalf("approve stdout = %q, want %q", stdout, want)
+	}
+	if strings.Contains(stdout, "refuses to start") || strings.Contains(stdout, project+",") {
+		t.Fatalf("approve stdout = %q claims the project's checkout holds the write", stdout)
+	}
+	approved, err := os.ReadFile(filepath.Join(intent, "docs", "product", "brief.md"))
+	if err != nil || !strings.Contains(string(approved), "approved by the operator in conversation") {
+		t.Fatalf("the approval did not land in the companion repository: %v", err)
+	}
+
+	stdout, stderr, code = runCLI(t, "artifact", "approve", "--config", configPath, "--json", "v1-goals",
+		"--reason", "approved with the adoption goal added")
+	if code != 0 {
+		t.Fatalf("approve code = %d, stderr = %q", code, stderr)
+	}
+	var written struct {
+		PendingCommit string `json:"pending_commit"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &written); err != nil {
+		t.Fatalf("Unmarshal() error = %v over %q", err, stdout)
+	}
+	if written.PendingCommit != artifact.PendingCommitInCompanion(intent, "docs/product/goals/v1-goals.md") {
+		t.Fatalf("pending_commit = %q", written.PendingCommit)
 	}
 }

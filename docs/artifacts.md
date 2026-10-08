@@ -33,7 +33,10 @@ conversations' picture of the product, resolves them in the companion repository
 where the configuration names one and in the project's repository otherwise.
 What they are does not change: a write that lands, an approval, and a revision
 recorded from the command line land in that repository's checkout, for you to
-commit there.
+commit there. The command says so, naming that repository rather than the
+project's checkout; no run starts from it, so it does not say a run will refuse
+to start over the uncommitted file the way it does for a write in the project's
+own checkout.
 
 **The specifications directory is authoritative whole.** Everything filed under
 `product.specifications` — `docs/product` by default — is authoritative product
