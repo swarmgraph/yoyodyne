@@ -5673,7 +5673,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 		StartedAt:         p.clock().Now(),
 		BoundSeconds:      int64(configured / time.Second),
 		ConfiguredSeconds: int64(configured / time.Second),
-		Narrowed:          narrowing.Describe() + describePathChecks(added),
+		Narrowed:          narrowing.Describe() + describePathChecks(p.Config.PathChecks, added),
 	}
 	p.scaleCheckStage(stage)
 	a.state.CheckStage = stage

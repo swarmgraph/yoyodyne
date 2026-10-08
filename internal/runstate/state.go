@@ -476,7 +476,8 @@ type CheckStage struct {
 	// checks were given it in, so a run over a change to one package can be
 	// read afterwards as having been narrowed to it. Where the change touched
 	// what a configured path check vouches for, it also says which check the
-	// gate added and which path added it.
+	// gate added and which path added it, and it names each path check the gate
+	// passed over as not run because the change touches nothing its list covers.
 	Narrowed string `json:"narrowed,omitempty"`
 	// StoppedAtBound reports a stage that ended because it reached its bound,
 	// with Command naming the check it stopped.

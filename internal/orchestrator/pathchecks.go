@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"slices"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
@@ -10,7 +11,11 @@ import (
 // addedCheck is a path check the per-run gate runs for this change, and why.
 type addedCheck struct {
 	command string
-	reason  string
+	// paths is the check's paths file, which with its command is how
+	// describePathChecks tells the configured checks the gate added from the
+	// ones it passed over.
+	paths  string
+	reason string
 	// providerCLIs is the path check's needs_provider_clis.
 	providerCLIs bool
 }
@@ -33,6 +38,7 @@ func pathChecksFor(root string, configured []config.PathCheck, changed []string)
 		if checks.ChangesFile(changed, check.Paths) {
 			added = append(added, addedCheck{
 				command:      check.Command,
+				paths:        check.Paths,
 				providerCLIs: check.NeedsProviderCLIs,
 				reason:       "the change touches " + check.Paths + " itself, and a list is never judged by the change that edits it",
 			})
@@ -42,6 +48,7 @@ func pathChecksFor(root string, configured []config.PathCheck, changed []string)
 		if err != nil {
 			added = append(added, addedCheck{
 				command:      check.Command,
+				paths:        check.Paths,
 				providerCLIs: check.NeedsProviderCLIs,
 				reason:       "its paths file could not be read, so it runs rather than being passed over: " + err.Error(),
 			})
@@ -50,6 +57,7 @@ func pathChecksFor(root string, configured []config.PathCheck, changed []string)
 		if touched, ok := checks.Touching(patterns, changed); ok {
 			added = append(added, addedCheck{
 				command:      check.Command,
+				paths:        check.Paths,
 				providerCLIs: check.NeedsProviderCLIs,
 				reason:       "the change touches " + touched + ", which " + check.Paths + " lists",
 			})
@@ -76,15 +84,23 @@ func withPathChecks(configured []string, added []addedCheck) ([]string, map[int]
 	return commands, providerCLIs
 }
 
-// describePathChecks says what the gate added, for the stage's record; nothing
-// where it added nothing.
-func describePathChecks(added []addedCheck) string {
-	if len(added) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(added))
+// describePathChecks says, for the stage's record, what the gate added and what
+// it passed over: each configured path check is named either with the path that
+// added it or as not run because the change touches nothing its list covers,
+// so a run without one reads as having been judged not to need it rather than
+// as having forgotten it. Nothing where no path check is configured.
+func describePathChecks(configured []config.PathCheck, added []addedCheck) string {
+	parts := make([]string, 0, len(configured))
 	for _, check := range added {
 		parts = append(parts, check.command+" added because "+check.reason)
+	}
+	for _, check := range configured {
+		if !slices.ContainsFunc(added, func(ran addedCheck) bool { return ran.command == check.Command && ran.paths == check.Paths }) {
+			parts = append(parts, check.Command+" not run because the change touches nothing "+check.Paths+" lists")
+		}
+	}
+	if len(parts) == 0 {
+		return ""
 	}
 	return "; " + strings.Join(parts, "; ")
 }
