@@ -85,7 +85,7 @@
     "account_alias": "default",
     "backend": "claude-code",
     "base_commit": "\u003ccommit-1\u003e",
-    "blocker": "Yoyodyne stopped this item while reconciling an interrupted run. No developer was restarted for it.\nReason: the run was interrupted in the developing phase with nothing integrated, and no attempt of the harness can finish it\nRun: run-0123456789abcdef0123456789abcdef\nPhase when interrupted: developing\nPreserved worktree: \u003cworktrees\u003e/yoyodyne-task-01234567\nUncommitted changes in the worktree: false\nPreserved branch: yoyodyne/yoyodyne-task/01234567 at \u003ccommit-2\u003e\nIntegration target: main",
+    "blocker": "Yoyodyne stopped this item while reconciling an interrupted run. No developer was restarted for it.\nReason: the run was interrupted in the developing phase with nothing integrated, and no attempt of the harness can finish it\nRun: run-0123456789abcdef0123456789abcdef\nPhase when interrupted: developing\nPreserved worktree: \u003cworktrees\u003e/yoyodyne-task-01234567\nUncommitted changes in the worktree: false\nPreserved branch: yoyodyne/yoyodyne-task/01234567 at \u003ccommit-2\u003e\nTarget branch: main",
     "branch": "yoyodyne/yoyodyne-task/01234567",
     "changes": {
       "diff_stat": "feature.txt | 1 +\n 1 file changed, 1 insertion(+)",
@@ -179,7 +179,7 @@
       "Preserved worktree: \u003cworktrees\u003e/yoyodyne-task-01234567",
       "Uncommitted changes in the worktree: false",
       "Preserved branch: yoyodyne/yoyodyne-task/01234567 at \u003ccommit-2\u003e",
-      "Integration target: main"
+      "Target branch: main"
     ]
   },
   "provider_invocations": [

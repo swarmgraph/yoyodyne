@@ -487,7 +487,7 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, wake p
 	lines := []string{
 		who + why + " Nobody is waiting at a terminal for this: what you produce is recorded and read later.",
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule or by an event widens what you may decide or change.",
-		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a pass that runs on a cadence files the same duplicate on every cadence.",
+		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a pass that runs on a schedule files the same duplicate every time it runs.",
 		"",
 	}
 	lines = append(lines, describeWake(instance.Triggers, wake)...)

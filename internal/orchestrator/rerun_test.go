@@ -1169,7 +1169,7 @@ func TestThePreservedArtifactsAreKeptUntilTheFreshRunIntegratesAndThenRetired(t 
 		harness := newRerunHarness(t, stoppedState())
 		harness.integrated()
 		// The worktree went and the branch deletion then failed, which is what a
-		// run with no recorded integration target does to a retirement.
+		// run with no recorded target branch does to a retirement.
 		harness.retirement = gitworktree.Retirement{
 			Worktree: gitworktree.WorktreeRemoval{Path: "/state/worktrees/task", Removed: true},
 		}
@@ -1426,7 +1426,7 @@ func TestAClaimThatCouldNotBeGivenBackAfterAPauseIsReported(t *testing.T) {
 	if !strings.Contains(result.RecordProblem, "could not be given back") {
 		t.Fatalf("record problem = %q, want the spent claim named", result.RecordProblem)
 	}
-	if !strings.Contains(result.RecordProblem, "hold on all harness activity") {
+	if !strings.Contains(result.RecordProblem, "pause on all harness activity") {
 		t.Fatalf("record problem = %q, want it to name what the run met", result.RecordProblem)
 	}
 }

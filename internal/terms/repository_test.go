@@ -108,6 +108,42 @@ func TestThisRepositoryRefusesPosture(t *testing.T) {
 	}
 }
 
+// The guidance a role reads — the personas the executable ships, the role
+// contracts, and the pass prompts — carries none of the terms the register
+// lists as replaced, outside the quoted example of what not to write.
+func TestThisRepositoryShippedRoleGuidanceCarriesNoReplacedTerm(t *testing.T) {
+	t.Parallel()
+
+	files, err := GuidanceFiles(repositoryRoot)
+	if err != nil {
+		t.Fatalf("GuidanceFiles() error = %v", err)
+	}
+	// Both halves have to have been found, or the check reads nothing on one of
+	// them and passes for it.
+	var personas, contracts bool
+	for _, file := range files {
+		personas = personas || file == "internal/config/builtin/v1/personas/developer.md"
+		contracts = contracts || file == "internal/orchestrator/pipeline.go"
+	}
+	if !personas || !contracts {
+		t.Fatalf("GuidanceFiles() = %d files without the developer persona or the developer contract; the walk is looking in the wrong place", len(files))
+	}
+	replaced, err := Replaced(repositoryRoot)
+	if err != nil {
+		t.Fatalf("Replaced() error = %v", err)
+	}
+	if len(replaced) == 0 {
+		t.Fatalf("%s lists no replaced term, so nothing was looked for", RegisterPath)
+	}
+	problems, err := Guidance(repositoryRoot)
+	if err != nil {
+		t.Fatalf("Guidance() error = %v", err)
+	}
+	for _, problem := range problems {
+		t.Errorf("%s", problem)
+	}
+}
+
 // The compound half of the check, over this repository: every compound word a
 // person or a role reads is accounted for — registered, replaced, a term the
 // inventory is waiting on, ordinary English by form or by the register's list,

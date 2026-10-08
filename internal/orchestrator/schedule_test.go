@@ -1677,7 +1677,7 @@ func TestASessionWaitingOutAProvidersWindowSaysSoWithTheResetTime(t *testing.T) 
 	// The words a person reads, which lead with the window because it is the whole
 	// of why nothing started — and still say what the poll found behind it, because
 	// that is what gets pulled when the window lifts.
-	if !strings.HasPrefix(idle.reason, "Paused on the provider's usage window until 13:43Z") {
+	if !strings.HasPrefix(idle.reason, "Paused on the provider's usage limit until 13:43Z") {
 		t.Fatalf("idle reason = %q, want it to lead with the window and the reset time", idle.reason)
 	}
 	if !strings.Contains(idle.reason, "passed over") {

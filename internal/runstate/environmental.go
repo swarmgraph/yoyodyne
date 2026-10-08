@@ -260,7 +260,7 @@ func (c EnvironmentalCause) Title() string {
 	case CauseProcessVanished:
 		return "the process carrying the run was gone and no ending was ever recorded"
 	case CauseUsageWindow:
-		return "the provider's usage window refused it and resets past the maximum pause the harness will wait"
+		return "the provider's usage limit refused it and resets past the maximum pause the harness will wait"
 	case CauseReplayKilled:
 		return "the replay onto the moved target was ended by the harness before it finished"
 	case CauseDivergedTarget:

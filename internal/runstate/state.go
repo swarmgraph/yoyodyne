@@ -333,7 +333,7 @@ func PausedForProviderOutage(cause string) (domain.ProviderOutageCause, bool) {
 // limit and says nothing about any other cause.
 func DescribePause(cause, kind string) string {
 	if cause == PauseOperatorHold {
-		return "an operator hold on all harness activity"
+		return "the operator's pause on all harness activity"
 	}
 	if cause == PauseServerOverload {
 		return "a transient provider server overload"

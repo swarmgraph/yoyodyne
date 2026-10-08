@@ -1302,9 +1302,9 @@ type switches struct {
 func readSwitches(sources Sources) switches {
 	var read switches
 	if sources.OperatorHolds == nil {
-		read.problems = append(read.problems, "nothing was wired to read the operator's hold")
+		read.problems = append(read.problems, "nothing was wired to read the operator's pause")
 	} else if hold, held, err := sources.OperatorHolds.Held(); err != nil {
-		read.problems = append(read.problems, fmt.Sprintf("the operator's hold could not be read: %v", err))
+		read.problems = append(read.problems, fmt.Sprintf("the operator's pause could not be read: %v", err))
 	} else {
 		read.operator, read.operatorHeld = hold, held
 	}

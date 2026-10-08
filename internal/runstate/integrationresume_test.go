@@ -76,10 +76,10 @@ func conflictedState(t *testing.T) State {
 	state := integratedState(t, PhaseIntegrating)
 	state.Status = StatusFailed
 	state.Integration = nil
-	state.Failure = "change cannot be replayed onto the moved integration target: replay onto main failed with exit code 1\nrecord the replay conflict as a blocker: bd update failed with status timed_out and exit code -1: "
+	state.Failure = "change cannot be replayed onto the moved target branch: replay onto main failed with exit code 1\nrecord the replay conflict as a blocker: bd update failed with status timed_out and exit code -1: "
 	state.ReplayConflict = &ReplayConflict{
 		TargetBranch: "main",
-		Detail:       "change cannot be replayed onto the moved integration target",
+		Detail:       "change cannot be replayed onto the moved target branch",
 		Phase:        PhaseIntegrating,
 		RecordedAt:   state.UpdatedAt,
 	}

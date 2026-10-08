@@ -46,7 +46,7 @@ func TestReconcileFinishesAMergeThatLandedAmongOthers(t *testing.T) {
 	// The record as the old confirmation left it: merged, unconfirmed, outstanding.
 	residue := confirmed
 	residue.PullRequest.MergeCommit = ""
-	residue.PublishFailure = "confirm the queued merge reached main: remote integration target does not carry the promoted commit: main on origin is at " +
+	residue.PublishFailure = "confirm the queued merge reached main: remote target branch does not carry the promoted commit: main on origin is at " +
 		merge + ", which carries content the promoted commit " + outcome.Integration.TargetCommit + " does not"
 	if err := fixture.store.Save(residue); err != nil {
 		t.Fatalf("Save() error = %v", err)

@@ -595,7 +595,7 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 		batch.Deliveries = append(batch.Deliveries, f.holdDeliveries(cursors.Streams[productStream], held)...)
 	} else {
 		batch.Partial = true
-		f.readPast(unread, "the operator's holds", err)
+		f.readPast(unread, "the operator's pause and the intake hold", err)
 	}
 
 	// What is ready to pull is asked at most once a pass, however many of this
@@ -814,7 +814,7 @@ func (f *HarnessFeed) switches() (switches, error) {
 	}
 	operator, operatorHeld, err := f.Holds.Held()
 	if err != nil {
-		return switches{}, fmt.Errorf("read the operator hold: %w", err)
+		return switches{}, fmt.Errorf("read the operator's pause: %w", err)
 	}
 	read := switches{
 		intake:       intake,

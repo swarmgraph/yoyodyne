@@ -1124,7 +1124,7 @@ process is never a reason to ask a question nobody asked for.
 
 Its last reading is whether anything is happening at all. When nothing has started for
 --stall-after, the tracker reports work ready, and no hold, no still-moving run
-and no provider usage window accounts for it, that is recorded against the
+and no provider usage limit accounts for it, that is recorded against the
 product as a stall — which `+"`yoyo status`"+` reads back afterwards and the Slack sink,
 if one is running, takes to the operators once. It is here because this sweep runs
 whether or not reporting was ever turned on: how promptly a stopped harness is

@@ -21,7 +21,7 @@
     <main id="page" data-state="ready">
       <div class="state state-ready">
         <p id="stale" class="stale" role="status" hidden></p>
-        <p id="banner" class="banner" role="status">Every role is paused on the provider's usage window until 2026-09-19T18:50:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 7 turns refused since 2026-09-19T12:02:00Z</p>
+        <p id="banner" class="banner" role="status">Every role is paused on the provider's usage limit until 2026-09-19T18:50:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 7 turns refused since 2026-09-19T12:02:00Z</p>
         <section id="band" class="panel band" data-state="ready" aria-labelledby="band-heading">
           <div class="panel-head">
             <h2 id="band-heading">Where the harness stands</h2>
@@ -203,15 +203,15 @@
                 <ul class="piles">
                   <li class="pile pile-largest">
                     <span class="pile-figure">2</span>
-                    <button class="grouping-open pile-label" type="button" data-grouping="pile:stalled">are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z (most)</button>
-                    <span class="pile-whose">next: the harness asks again when the provider's usage window lifts; whose: nobody's</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:stalled">are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)</button>
+                    <span class="pile-whose">next: the harness asks again when the provider's usage limit resets; whose: nobody's</span>
                   </li>
                 </ul>
               </li>
               <li class="stage stage-held">
                 <button class="grouping-open stage-label" type="button" data-grouping="startable">Startable</button>
                 <span class="stage-figure">none</span>
-                <span class="stage-unit">the harness is choosing nothing: Paused on the provider's usage window until 18:50Z</span>
+                <span class="stage-unit">the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z</span>
               </li>
               <li class="stage stage-flowing">
                 <button class="grouping-open stage-label" type="button" data-grouping="running">Running</button>
@@ -302,7 +302,7 @@
         <section id="capacity" class="panel capacity" data-state="ready" aria-labelledby="capacity-heading">
           <div class="panel-head">
             <h2 id="capacity-heading">Provider capacity</h2>
-            <p class="panel-note">what is parked or held on the provider's usage windows, and what to do about it</p>
+            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
           </div>
           <div class="section-ready">
             <p id="capacity-hold" class="hold">Every role is held: 5 agents on opus, and none names an alternate; 7 turns refused since 2026-09-19 12:02:00, until 2026-09-19 18:50:00.</p>

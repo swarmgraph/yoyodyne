@@ -450,16 +450,16 @@ var (
 	// ErrTargetDrift reports that the target branch moved away from the base the
 	// work was written against, so the change must be reconciled rather than
 	// merged.
-	ErrTargetDrift = errors.New("integration target moved away from the recorded base commit")
+	ErrTargetDrift = errors.New("target branch moved away from the recorded base commit")
 	// ErrNotFastForward reports that the target could not be advanced by a
 	// fast-forward. The harness never resolves this by forcing or resetting.
-	ErrNotFastForward = errors.New("integration target cannot be fast-forwarded")
+	ErrNotFastForward = errors.New("target branch cannot be fast-forwarded")
 	// ErrRebaseConflict reports a change that could not be replayed onto its
 	// moved target. Nothing here resolves one: the harness replays work, and
 	// which side of a conflict is right is a judgement about the product rather
 	// than a Git operation. What the caller does with it — hand it to whoever
 	// wrote the change, or to a person — is the caller's.
-	ErrRebaseConflict = errors.New("change cannot be replayed onto the moved integration target")
+	ErrRebaseConflict = errors.New("change cannot be replayed onto the moved target branch")
 	// ErrReplayKilled reports a replay this harness ended before Git finished it:
 	// a budget that ran out, a context that was cancelled, or a process that went
 	// silent past its liveness bound. It is never a conflict. A killed rebase
@@ -469,7 +469,7 @@ var (
 	// replay has been abandoned and the worktree is back on its branch, so a
 	// caller may treat it as the environment having stopped the promotion rather
 	// than as anything about the change.
-	ErrReplayKilled = errors.New("the replay onto the moved integration target was ended by the harness before it finished")
+	ErrReplayKilled = errors.New("the replay onto the moved target branch was ended by the harness before it finished")
 	// ErrPrimaryNotReady reports the primary checkout carrying uncommitted state
 	// the harness does not own, so no worktree may be cut from it and no change
 	// may be promoted into it. It is a sentinel rather than only a message because
@@ -1242,10 +1242,10 @@ func (m *Manager) Create(ctx context.Context, request CreateRequest) (Worktree, 
 	if request.TargetBranch != "" {
 		targetCommit, err := m.resolveBranchCommit(ctx, request.TargetBranch)
 		if err != nil {
-			return Worktree{}, fmt.Errorf("resolve integration target: %w", err)
+			return Worktree{}, fmt.Errorf("resolve the target branch: %w", err)
 		}
 		if targetCommit != baseCommit {
-			return Worktree{}, fmt.Errorf("integration target %s is at %s, which is not the base commit %s", request.TargetBranch, targetCommit, baseCommit)
+			return Worktree{}, fmt.Errorf("target branch %s is at %s, which is not the base commit %s", request.TargetBranch, targetCommit, baseCommit)
 		}
 	}
 	if err := os.MkdirAll(m.worktreeRoot, 0o700); err != nil {
@@ -2637,7 +2637,7 @@ func (m *Manager) prepareIntegration(ctx context.Context, worktree Worktree, mes
 		return Integration{}, false, err
 	}
 	if target == worktree.Branch {
-		return Integration{}, false, errors.New("integration target must differ from the worktree branch")
+		return Integration{}, false, errors.New("target branch must differ from the worktree branch")
 	}
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -2722,7 +2722,7 @@ func (m *Manager) RebaseOntoTarget(ctx context.Context, worktree Worktree, messa
 		return Rebase{}, err
 	}
 	if target == worktree.Branch {
-		return Rebase{}, errors.New("integration target must differ from the worktree branch")
+		return Rebase{}, errors.New("target branch must differ from the worktree branch")
 	}
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -2920,7 +2920,7 @@ func (m *Manager) ReplayForRepair(ctx context.Context, worktree Worktree, messag
 		return Rebase{}, err
 	}
 	if target == worktree.Branch {
-		return Rebase{}, errors.New("integration target must differ from the worktree branch")
+		return Rebase{}, errors.New("target branch must differ from the worktree branch")
 	}
 	message = strings.TrimSpace(message)
 	if message == "" {
@@ -3347,7 +3347,7 @@ func (m *Manager) targetCheckout(ctx context.Context, target string) (bool, erro
 		if samePath(entry.path, m.repositoryRoot) {
 			return true, nil
 		}
-		return false, fmt.Errorf("integration target %s is checked out in another worktree: %s", target, entry.path)
+		return false, fmt.Errorf("target branch %s is checked out in another worktree: %s", target, entry.path)
 	}
 	return false, nil
 }
@@ -4329,7 +4329,7 @@ func validateCreateRequest(request CreateRequest) error {
 			return err
 		}
 		if request.TargetBranch == branchName(request.WorkItemID, request.RunID) {
-			return errors.New("integration target must differ from the worktree branch")
+			return errors.New("target branch must differ from the worktree branch")
 		}
 	}
 	return validateRef(request.BaseRef)
@@ -4340,13 +4340,13 @@ func validateCreateRequest(request CreateRequest) error {
 // fast-forward at something other than refs/heads/<target>.
 func validateTargetBranch(branch string) error {
 	if branch == "" {
-		return errors.New("worktree has no recorded integration target")
+		return errors.New("worktree has no recorded target branch")
 	}
 	if err := validateRef(branch); err != nil {
-		return fmt.Errorf("invalid integration target: %w", err)
+		return fmt.Errorf("invalid target branch: %w", err)
 	}
 	if branch == "HEAD" || strings.HasPrefix(branch, "refs/") {
-		return fmt.Errorf("integration target %q must be a local branch name", branch)
+		return fmt.Errorf("target branch %q must be a local branch name", branch)
 	}
 	return nil
 }

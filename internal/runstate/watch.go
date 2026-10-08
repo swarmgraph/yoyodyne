@@ -744,17 +744,17 @@ func (t WatchTransition) Validate() error {
 	// causing, which is the alarm this field exists to keep honest rather than to
 	// turn off.
 	if t.ProviderWindow && t.State != WatchIdle {
-		problems = append(problems, fmt.Errorf("a %s transition cannot be a poll made inside the provider's usage window, which is a thing only an idle one is", t.State))
+		problems = append(problems, fmt.Errorf("a %s transition cannot be a poll made while the provider's usage limit is reached, which is a thing only an idle one is", t.State))
 	}
 	// A reset time on a transition that is not waiting out a window is a moment
 	// nothing is waiting for, and a surface reading it would say the harness is
 	// held until a time nobody is holding it to.
 	if t.ProviderWindowResetsAt != nil {
 		if !t.ProviderWindow {
-			problems = append(problems, errors.New("a watch transition names when the provider's usage window lifts without saying it is waiting out one"))
+			problems = append(problems, errors.New("a watch transition names when the provider's usage limit resets without saying it is waiting for one"))
 		}
 		if t.ProviderWindowResetsAt.IsZero() {
-			problems = append(problems, errors.New("the provider's usage window is present and names no moment; a provider that named none records none"))
+			problems = append(problems, errors.New("the provider's usage limit is present and names no moment it resets; a provider that named none records none"))
 		}
 	}
 	// Only a stop can be a restart. A session marked as coming back while it is

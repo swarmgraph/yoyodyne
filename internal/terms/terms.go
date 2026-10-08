@@ -179,7 +179,11 @@ type Coinage struct {
 // harness ending a run whose session went quiet, and for resuming such a run in
 // its session, which reached the operator in one sentence with nothing saying
 // what any of them meant. They are held in the guides as well, because the
-// guides are where they had been written.
+// guides are where they had been written. The rest are the vocabulary
+// inventory's decisions of 2026-10-08 as the item replacing the coined
+// vocabulary in printed strings and role guidance (yoyodyne-ifd.437.19) carries
+// them out, each added here when it is gone from those places; a term with more
+// than one spelling is listed once for each.
 var Vocabulary = []Coinage{
 	{Term: "brake", Match: "brake", PlainWords: "the automatic stop after a set number of blocked runs in a row"},
 	{Term: "cadence", Match: "cadence", PlainWords: "how often it repeats"},
@@ -193,7 +197,13 @@ var Vocabulary = []Coinage{
 	{Term: "heartbeat", Match: "heartbeat", PlainWords: "how often to repeat"},
 	{Term: "idle bound", Match: "idle bound", Whole: true, Guides: true, PlainWords: "that the AI session produced no output for too long, so the harness ended the run"},
 	{Term: "in force", Match: "in force", Whole: true, PlainWords: "active, or still applies"},
+	{Term: "integration target", Match: "integration target", PlainWords: "the target branch"},
 	{Term: "minute zero", Match: "minute zero", PlainWords: "before development begins"},
+	// `operator's hold` is the same coinage with an apostrophe, and was written as
+	// often; the intake hold the operator places is not it, and is named as the
+	// intake hold.
+	{Term: "operator hold", Match: "operator hold", PlainWords: "the operator's pause, after the command that sets it, `yoyo pause`"},
+	{Term: "operator hold", Match: "operator's hold", PlainWords: "the operator's pause, after the command that sets it, `yoyo pause`"},
 	{Term: "pane of glass", Match: "pane of glass", PlainWords: "one window"},
 	{Term: "posture", Match: "posture", PlainWords: "tool access, meaning the tools a role may use"},
 	{Term: "re-arm", Match: "re-arm", Guides: true, PlainWords: "repeat the merge request"},
@@ -206,6 +216,7 @@ var Vocabulary = []Coinage{
 	{Term: "stall continuation", Match: "stall continuation", Guides: true, PlainWords: "that the development manager resumed the run in the same AI session"},
 	{Term: "supersession pile", Match: "supersession pile", PlainWords: "the list of superseded pull requests"},
 	{Term: "tranche", Match: "tranche", PlainWords: "stage, or part 1 of 4"},
+	{Term: "usage window", Match: "usage window", PlainWords: "the provider's usage limit, until it resets at a named time"},
 	{Term: "wedged", Match: "wedge", PlainWords: "stuck, or say the condition outright"},
 	{Term: "whose-move", Match: "whose-move", PlainWords: "waiting on you"},
 }

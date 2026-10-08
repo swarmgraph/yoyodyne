@@ -1376,7 +1376,7 @@ a window honours it from its first poll. That is what was missing on
 refusal: one limit, twelve failed runs.
 
 The session records the poll as one made inside the provider's window, so
-`yoyo status` opens with `Paused on the provider's usage window until …`, the
+`yoyo status` opens with `Paused on the provider's usage limit until …`, the
 channel says the same, and the watch log's idle line carries the window and its
 reset — which is what a maintenance script reads to stand its idle check down.
 It is never reported as a hold: nothing needs releasing, and the first poll past
@@ -4188,7 +4188,7 @@ has the rule.
   session are named apart on purpose — telling you to start a session you are
   already running, or one that is on its way back, sends you to the wrong place.
   A provider window is named apart from all of them for the same reason and says
-  `Paused on the provider's usage window until 13:43Z`: nobody has a move, the
+  `Paused on the provider's usage limit until 13:43Z`: nobody has a move, the
   window lifts on the provider's clock, and
   reporting it as a session finding nothing to start sends you to look at a queue
   that is fine.
@@ -4435,7 +4435,7 @@ state.
 out the provider's usage window, the reading opens with that and nothing else:
 
 ```text
-Paused on the provider's usage window until 13:43Z
+Paused on the provider's usage limit until 13:43Z
 Running: nothing
 Working: nothing
 Not startable (3 of 7 admitted items):
@@ -4454,11 +4454,11 @@ work never records because it is not the thing being refused: **the provider
 holding every role at once**.
 
 ```text
-Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 134 turns refused since 2026-09-08T07:38:40Z
+Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 134 turns refused since 2026-09-08T07:38:40Z
 Running: nothing
 ...
 Needs a human (1):
-  every role is held by the provider's usage window, since 2026-09-08T07:38:40Z, until 2026-09-13T03:00:00Z — the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does
+  every role is held by the provider's usage limit, since 2026-09-08T07:38:40Z, until 2026-09-13T03:00:00Z — the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does
 ```
 
 It is read from the [refusals the harness records outside a run](#a-provider-refusal-outside-a-run)

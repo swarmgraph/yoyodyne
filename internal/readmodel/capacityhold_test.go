@@ -90,7 +90,7 @@ func TestTheSeptemberStoppageReadsAsAHoldOverEveryRole(t *testing.T) {
 	}
 	said := hold.Says()
 	for _, want := range []string{
-		"Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z",
+		"Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z",
 		"all 5 agents run on opus and none names an alternate, so nothing fails over",
 		"20 turns refused since 2026-09-08T07:38:40Z",
 	} {
@@ -307,7 +307,7 @@ func TestRunsParkedOnTheLimitAreAHoldWithNoConversationRefused(t *testing.T) {
 	}
 	said := hold.Says()
 	for _, want := range []string{
-		"Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z",
+		"Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z",
 		"all 5 agents run on opus and none names an alternate, so nothing fails over",
 		"2 runs parked since 2026-09-08T07:38:40Z",
 	} {
@@ -432,7 +432,7 @@ func TestParkedRunsAreTheHoldWhereTheLogIsMissingOrUnreadable(t *testing.T) {
 	if standing.CapacityHold == nil || standing.CapacityHold.ParkedRuns != 1 {
 		t.Fatalf("standing = %+v, want the hold read from the runs with no log wired", standing.CapacityHold)
 	}
-	if !strings.HasPrefix(standing.Paused, "Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z") {
+	if !strings.HasPrefix(standing.Paused, "Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z") {
 		t.Fatalf("paused = %q, want the hold as the banner", standing.Paused)
 	}
 
@@ -464,7 +464,7 @@ func TestAHoldIsTheBannerAndAnAttentionEntry(t *testing.T) {
 	if standing.CapacityHold == nil || !standing.CapacityHold.Holding {
 		t.Fatalf("standing = %+v, want the hold carried", standing.CapacityHold)
 	}
-	if !strings.HasPrefix(standing.Paused, "Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z") {
+	if !strings.HasPrefix(standing.Paused, "Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z") {
 		t.Fatalf("paused = %q, want the hold as the banner", standing.Paused)
 	}
 	if !strings.HasPrefix(standing.Render(), standing.Paused) {
@@ -472,7 +472,7 @@ func TestAHoldIsTheBannerAndAnAttentionEntry(t *testing.T) {
 	}
 	found := false
 	for _, attention := range standing.NeedsHuman {
-		if strings.Contains(attention.What(), "every role is held by the provider's usage window") &&
+		if strings.Contains(attention.What(), "every role is held by the provider's usage limit") &&
 			strings.Contains(attention.Whose(), "the operator's") {
 			found = true
 		}

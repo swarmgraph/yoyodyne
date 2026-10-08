@@ -638,7 +638,7 @@ func unlandedChanges(runs []runstate.State) map[string]string {
 func UnlandedAccount(run runstate.State) string {
 	target := strings.TrimSpace(run.TargetBranch)
 	if target == "" {
-		target = "the integration target"
+		target = "the target branch"
 	}
 	account := fmt.Sprintf("the change run %s made for %s never reached %s", run.RunID, run.WorkItemID, target)
 	if branch := strings.TrimSpace(run.Branch); branch != "" {

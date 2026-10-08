@@ -45,17 +45,28 @@ make the check wrong.
 | Term          | In plain words                                                                                                                             | Where it is used                                                                                                                                                                                                                         |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `brake`       | the automatic stop after a set number of blocked runs in a row                                                                             | the scheduler's own messages about why it stopped choosing work; `internal/orchestrator`; the guides under `docs/`                                                                                                                       |
+| `direct-work` | one of the two authorities a person can hold in a project's configuration: authority over work already running. Its pair, `own-intent`, is authority over what the product is for | the authority a person is given in [the agents configuration](configuration/agents.md) and the Slack identities in [Slack setup](slack/setup.md); `internal/config` and `internal/slack` |
 | `discharge`   | to be the work an item asked for, so the item closes on it — as against landing evidence, which does not                                   | the developer's contract and the reviewer's; a work item's own notes after a run; `internal/landing` and `internal/orchestrator`; [how work flows](work.md)                                                                              |
 | `docket`      | the list of stopped runs, of runs that died before they started, and of items dispatch would not start, waiting on the development manager | `yoyo reconcile` and `yoyo triage` output, and the Lead Product Manager's context bundle; `internal/runstate`; [management and supervision](designs/management-and-supervision.md)                                                            |
+| `exchange` | a question one role puts to another, which the harness delivers by invoking the other role and records with what it cost | `yoyo exchange` and its output; [the conversation](conversation.md); `internal/exchange` |
 | `handback`    | handing the work back to the developer that made it                                                                                        | `internal/orchestrator` and `internal/runstate` only — it names no command output and no document                                                                                                                                        |
 | `heartbeat`   | how often to repeat                                                                                                                        | the `yoyo slack --heartbeat` flag, whose own help says it in plain words; [reporting into Slack](slack/setup.md)                                                                                                                         |
+| `intake hold` | a stop on the harness choosing new work by itself, placed by the operator or by the automatic stop after blocked runs; `yoyo release` lifts it, and work already running carries on | `yoyo status`, `yoyo release` and its help, the Slack posts, and the [selected-work-passes-intake-and-records-why](decisions/invariants/selected-work-passes-intake-and-records-why.md) invariant; [operations](operations.md); `internal/runstate` and `internal/orchestrator` |
 | `Lead Product Manager` | the role that owns what the product is for: the brief, the goals, and what is admitted to the backlog and in what order. Each program manager brings it everything outside its own work stream, which is what *Lead* says. *Lead PM* is the short form, for a label with no room for the whole name; *PM* on its own is not written, because it could mean either manager. It is the name a person reads, and only that: the identifier stays `product-manager` in configuration, agent names, persona file paths, command arguments, and every record already written | `yoyo chat`, which is the conversation with it, and every surface that names the role — `yoyo status`, the dashboard, the Slack posts, the other roles' contracts, and the personas; the guides under `docs/`; `internal/domain`, where `AgentRole.Title` derives the name from the identifier in one place |
 | `minute zero` | before development begins                                                                                                                  | the [developer-verifies-before-submitting](decisions/invariants/developer-verifies-before-submitting.md) invariant, whose wording only the architect changes — written there both spaced and as `minute-zero`, which this one row covers |
+| `park` | to keep an item in the Lead Product Manager's order but stop the harness selecting it until somebody releases it with `unpark`; the reason is shown wherever the item is listed | the Lead Product Manager's `park` and `unpark` actions in `yoyo chat`, the backlog listings, and a work item's notes; [how work flows](work.md); `internal/chat` |
 | `program manager` | a role instance that owns one named work stream: it admits work only under that stream's own tracker label, and asks the Lead Product Manager for anything outside it. There is one program manager role type, with what it may do fixed in code, and each configured instance owns one stream and one label. Written in full wherever a person reads it; `pgm` is the identifier form only — in configuration keys, code, and instance identifiers — because *PM* alone could mean either manager; the Lead Product Manager's short form is *Lead PM* | [the program manager design](designs/program-manager.md); `role: program-manager` on an agent block in [the configuration](configuration.md), which declares each instance; the role-capability registry and [the authority inventory](authority-inventory.md); and the surfaces that name role instances — each named here as it comes to exist |
+| `protected path` | a path a developer's change may not touch unless its work item carries a `protected-path grant:` line naming it | the refusal a developer run receives and the grant line a work item carries; [configuration](configuration.md); `internal/orchestrator` |
 | `re-arm`      | repeat the merge request a forge dropped, once per publication — the `yoyo triage rearm` verb and the budget it spends                     | `yoyo triage rearm` and its help; the merge re-arms count in `yoyo status`; the development manager's triage decisions and `yoyo ground`; the guides that say when to type it — [operations](operations.md), [recovery](configuration/recovery.md), [the conversation](conversation.md), and [configuration](configuration.md); `internal/orchestrator` and `internal/runstate` |
+| `repair` | a developer's further attempt at its own change, in the same worktree, after a failed check or review findings; `yoyo triage repair` asks for one | `yoyo triage repair` and its help, the repair budget `yoyo status` counts, and a work item's notes; [recovery](configuration/recovery.md); `internal/orchestrator` |
 | `seat`        | an instance of a specific persona type — a developer seat, the Lead Product Manager seat — often with persistent memory but not always. A *developer slot* is the harness's word for the capacity one developer seat fills: the seat is what does the work, and the slot is what it takes up while it does | the operator's own conversations, which is where the word came from; [a developer slot that prefers a label](configuration.md#a-developer-slot-that-prefers-a-label), the yoyodyne-ifd.388 mechanism, and the reliability seat yoyodyne-ifd.415 configured under it |
+| `shadow review` | a second review of the same change by another model, recorded for comparison and deciding nothing | `yoyo review --shadow`; [how work flows](work.md); `internal/shadow` and `internal/cli` |
+| `side thread` | a secondary conversation a role opens to work something out: it judges and drafts but acts on nothing, and its conclusion is merged back into the main conversation. *Side stream* names the same thing and is not written for a person; the `sidestream` package keeps its name | the role contracts in `internal/sidestream`, `yoyo chat` output, and [the conversation](conversation.md) |
 | `sink`        | the process that posts to Slack                                                                                                            | `yoyo slack` and `yoyo doctor` output; `internal/slack`; [the Slack reporting design](designs/slack-reporting-design.md)                                                                                                                 |
 | `steer`       | direct the work, or change what is being worked on                                                                                         | `yoyo chat` help and the Slack thread replies; `internal/chat`; [the Slack reporting design](designs/slack-reporting-design.md)                                                                                                          |
+| `sweep` | one run of a recurring task and the record it leaves; `yoyo sweeps` reads them | `yoyo sweeps` and its output, and the heading a recurring task's findings are listed under; [operations](operations.md); `internal/runstate` and `internal/orchestrator` |
+| `triage` | the development manager deciding what happens to each stopped run, and `yoyo triage` carrying the decision out | `yoyo triage` and its verbs; [recovery](configuration/recovery.md); `internal/triage` and `internal/orchestrator` |
+| `witness` | the tracker's recorded copy of an item's `Goal served:` line, kept so a destroyed attribution can be found and restored; `yoyo goals witness` records it | `yoyo goals witness` and its help; [goals configuration](configuration/goals.md) and [artifacts](artifacts.md); `internal/cli` |
 
 
 One entry is here because the word is still written somewhere no other role
@@ -124,6 +135,15 @@ names, persona paths, and the records already written still say
 `product-manager` and still load. The governed documents that name the role
 the old way are their owners' to amend.
 
+Eleven rows are the Lead Product Manager's decisions of 2026-10-08 on
+[the vocabulary inventory](vocabulary-inventory.md), which accepted every
+proposal in it unchanged: `direct-work`, `exchange`, `intake hold`, `park`,
+`protected path`, `repair`, `shadow review`, `side thread`, `sweep`, `triage`,
+and `witness`. Each names a command, a flag, a configuration value, or an action
+a role records, so it is defined here rather than swept out. The rows were
+written by the item replacing the coined vocabulary in printed strings, role
+contracts, shipped personas, and pass prompts (yoyodyne-ifd.437.19).
+
 ## Replaced rather than registered
 
 These were decoration: each named nothing a reader can point at, and each had an
@@ -152,7 +172,9 @@ longer says.
 | `held for a person` | the mover named: waiting on the development manager's decision, waiting on the harness carrying out her decision, waiting on the architect's ruling — *a person* or *a human* only where the mover is the operator |                                                                                                                                                |
 | `idle bound`        | what happened: *the AI session running the developer produced no output for five minutes, so the harness ended the run* |                                                                                                                                                |
 | `in force`          | active, or still applies                               |                                                                                                                                                |
+| `integration target` | the target branch |  |
 | `one pane of glass` | one window                                             |                                                                                                                                                |
+| `operator hold` | the operator's pause, after the command that sets it, `yoyo pause`; *the operator paused all harness activity* | `docs/designs/fresh-factory-health-and-preserved-run-recovery.md` `docs/designs/machine-home.md` `docs/designs/management-and-supervision.md` `docs/designs/observability-and-dashboard.md` `docs/designs/v1-harness-design.md` |
 | `posture`           | tool access, meaning the tools a role may use          |                                                                                                                                                |
 | `seam`              | the boundary, named for what attaches to what          |                                                                                                                                                |
 | `sidecar`           | a separate directory outside the repository            |                                                                                                                                                |
@@ -161,8 +183,20 @@ longer says.
 | `stall continuation` | what happened: *the development manager resumed the run in the same AI session*, after the harness ended it for producing no output |                                                                                                                                                |
 | `supersession pile` | the list of superseded pull requests                   |                                                                                                                                                |
 | `tranche`           | stage, or part 1 of 4                                  |                                                                                                                                                |
+| `usage window` | the provider's usage limit, until it resets at a named time: *paused on the provider's usage limit until 15:00 PDT* | `docs/designs/management-and-supervision.md` `docs/designs/ownership-and-the-operator.md` |
 | `wedged`            | stuck, or the condition said outright                  |                                                                                                                                                |
 | `whose-move`        | waiting on you — or, of a thing, who it is waiting on  | `docs/designs/observability-and-dashboard.md`                                                                                                  |
+
+`integration target`, `operator hold`, and `usage window` were retired under the
+same decisions of 2026-10-08, the first of the inventory's replacements carried
+out by the item replacing the coined vocabulary in printed strings and role
+guidance (yoyodyne-ifd.437.19). Each is gone from what the commands print, the
+role contracts, the shipped personas, and the pass prompts; the governed
+documents named on their rows are the architect's to amend. The record values
+and identifiers behind them keep their names: the run record's `usage-window`
+cause, the `operator-hold.json` file, and the `integration.target_branch` field.
+The rest of the inventory's replacements follow in further parts of that item,
+each listed here as it lands.
 
 
 
@@ -320,6 +354,21 @@ nobody would have to look up, a place on the ordinary list. What it does not
 read for compounds is anything that is not prose: a code span, a link's target,
 a fenced block, a flag, a path or a file name, a value between quotes, and a
 string with no space in it.
+
+The guidance a role reads is held more tightly than the strings a command
+prints, because a role copies its words from it. The personas and bundle the
+executable ships under `internal/config/builtin`, and every string literal in
+the packages that build the role contracts and the pass prompts — the developer
+contract and the recurring prompts in `internal/orchestrator`, the conversation
+contracts in `internal/chat`, the reviewer's in `internal/review`, the contract
+sections every role is given, and the prompts `yoyo init` writes — carry no term
+listed above as replaced, and a row naming a governed document excuses nothing
+there. The one exception is the quoted example of what not to write, *stopped by
+the harness's idle bound when the provider's stream went silent, settled as an
+environmental stop*, which the writing rule quotes on purpose and which is not
+read. The copies a project binds under `.yoyodyne/personas` are its own and are
+not read by this half. `internal/terms` (`roleguidance.go`) holds the list of
+places it reads.
 
 What no check can recognize is an ordinary word given a sense of its own this
 morning — a `lane`, a `docket` — because nothing in its shape says so. That is

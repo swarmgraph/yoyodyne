@@ -191,7 +191,7 @@ func TestNothingAccountedForIsEverRecordedAsAStall(t *testing.T) {
 			h.ready(3)
 			h.watched(t, runstate.WatchWatching, "watching the backlog until stopped", moment)
 			lifts := moment.Add(12 * time.Hour)
-			h.waitingOnProvider(t, "Paused on the provider's usage window until 18:05Z", moment.Add(time.Minute), &lifts)
+			h.waitingOnProvider(t, "Paused on the provider's usage limit until 18:05Z", moment.Add(time.Minute), &lifts)
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -356,7 +356,7 @@ func TestAWindowThatHasLiftedStopsAccountingForTheQuiet(t *testing.T) {
 	harness := newHarness(t)
 	harness.ready(3)
 	harness.watched(t, runstate.WatchWatching, "watching the backlog until stopped", opened.Add(-time.Hour))
-	harness.waitingOnProvider(t, "Paused on the provider's usage window until 13:43Z", opened, &lifts)
+	harness.waitingOnProvider(t, "Paused on the provider's usage limit until 13:43Z", opened, &lifts)
 
 	// Inside the window there is nothing to record, and the window itself is
 	// carried back so a surface can say the cause rather than only staying silent.
@@ -439,7 +439,7 @@ func TestACheckMissingASourceRefusesRatherThanDeciding(t *testing.T) {
 	if err == nil {
 		t.Fatal("Check() error = nil, want a checker with no sources refused")
 	}
-	for _, missing := range []string{"recorded runs", "sessions", "operator hold", "intake hold", "ready to pull", "stall record"} {
+	for _, missing := range []string{"recorded runs", "sessions", "operator's pause", "intake hold", "ready to pull", "stall record"} {
 		if !strings.Contains(err.Error(), missing) {
 			t.Fatalf("Check() error = %v, want %q named", err, missing)
 		}

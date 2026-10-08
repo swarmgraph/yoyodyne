@@ -435,7 +435,7 @@ func (r Reconciler) recoveryNeedsArtifacts(ctx context.Context, state runstate.S
 		return "the outstanding automatic check continuation still needs this run's branch and checkout", release
 	}
 	if !standing.Decided && state.HarnessContinuesStall() {
-		return "the outstanding automatic stall continuation still needs this run's branch and checkout", release
+		return "the harness has still to resume this run in the same AI session, which needs this run's branch and checkout", release
 	}
 	if standing.Decided && standing.Spends && (!standing.Repair || standing.GrantOutstanding) {
 		return "the development manager's outstanding recovery decision still needs this run's artifacts", release

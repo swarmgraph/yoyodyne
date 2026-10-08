@@ -108,7 +108,7 @@ func TestTheSeptemberStoppageReachesTheOperatorsOnTheFirstPass(t *testing.T) {
 		t.Fatalf("Render() error = %v", err)
 	}
 	for _, fact := range []string{
-		"Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z",
+		"Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z",
 		"all 5 agents run on opus and none names an alternate",
 		"Next: the operator's",
 		"enabling failover",
@@ -265,7 +265,7 @@ func TestARunParkedOnTheLimitReachesTheOperatorsOnceFromTheRunsAlone(t *testing.
 		t.Fatalf("Render() error = %v", err)
 	}
 	for _, fact := range []string{
-		"Every role is paused on the provider's usage window until 2026-09-13T03:00:00Z",
+		"Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z",
 		"1 run parked since 2026-09-08T07:38:40Z",
 	} {
 		if !strings.Contains(message.Body, fact) {

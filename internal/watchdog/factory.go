@@ -122,7 +122,7 @@ func (w *FactoryWatch) Check(ctx context.Context, now time.Time) (FactoryReading
 	}
 	_, paused, err := w.Holds.Held()
 	if err != nil {
-		return FactoryReading{}, fmt.Errorf("read the operator hold: %w", err)
+		return FactoryReading{}, fmt.Errorf("read the operator's pause: %w", err)
 	}
 	stall, stalled := readmodel.FactoryStallOf(runs, passes, paused, w.Limit, now)
 	observation := runstate.FactoryStallObservation{Stalled: stalled, At: now}
@@ -240,7 +240,7 @@ func (w *FactoryWatch) validate() error {
 		problems = append(problems, errors.New("a factory stall check requires the recurring passes"))
 	}
 	if w.Holds == nil {
-		problems = append(problems, errors.New("a factory stall check requires the operator hold"))
+		problems = append(problems, errors.New("a factory stall check requires the operator's pause"))
 	}
 	if w.Stalls == nil {
 		problems = append(problems, errors.New("a factory stall check requires the product's factory stall record"))

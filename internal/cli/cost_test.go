@@ -264,7 +264,7 @@ func TestCostBreaksOneItemDownByRunAndSaysWhenNothingWasRun(t *testing.T) {
 		"[succeeded, complete, integrated] $19.02 from 2 invocation(s)",
 		// Two waits of different kinds are named apart: one is a provider that
 		// would not serve the account and the other is the operator's own doing.
-		"waited 1h15m (1h00m for the provider, 15m00s on the operator's hold)",
+		"waited 1h15m (1h00m for the provider, 15m00s on the operator's pause)",
 	} {
 		if !strings.Contains(rendered, required) {
 			t.Fatalf("rendered breakdown = %q, want it to contain %q", rendered, required)

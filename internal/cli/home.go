@@ -238,7 +238,7 @@ file and external configurations — into the machine home, ~/.yoyodyne: each pr
 records into projects/<product id>/state/, its worktrees into
 projects/<product id>/worktrees/ with Git told where each now is, each external
 configuration into the project directory its product id names, and the
-operator's hold, the provider accounts, and the logs to the top. It then says
+operator's pause, the provider accounts, and the logs to the top. It then says
 what it moved and what it left behind.
 
 It moves nothing while any run, conversation turn, or recurring pass is in

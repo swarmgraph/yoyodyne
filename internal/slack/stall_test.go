@@ -313,7 +313,7 @@ func TestAProviderWindowIsSaidOnceAsANoteAndNeverAsAStall(t *testing.T) {
 	stalls := harness.watchesForStalls(t)
 	harness.ready(3)
 	harness.watched(t, runstate.WatchWatching, "watching the backlog until stopped", opened.Add(-time.Hour))
-	harness.waitingOnProvider(t, "Paused on the provider's usage window until 13:43Z", opened, &lifts)
+	harness.waitingOnProvider(t, "Paused on the provider's usage limit until 13:43Z", opened, &lifts)
 
 	// Half an hour in — past the threshold that fired the alarm on the day — and it
 	// is a note in the channel rather than a warning on somebody's phone.
@@ -335,7 +335,7 @@ func TestAProviderWindowIsSaidOnceAsANoteAndNeverAsAStall(t *testing.T) {
 	}
 	// The operator's own acceptance, stated as he stated it: the cause is the
 	// first words of the message, with the time the provider named.
-	if !strings.HasPrefix(said.Body, "Paused on the provider's usage window until 13:43Z") {
+	if !strings.HasPrefix(said.Body, "Paused on the provider's usage limit until 13:43Z") {
 		t.Fatalf("body %q does not open with the cause and the reset time", said.Body)
 	}
 	if !strings.Contains(said.Body, "Next: nobody's") {

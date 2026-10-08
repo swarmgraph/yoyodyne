@@ -590,12 +590,12 @@ func renderWaits(waits runstate.Waits) string {
 	operator := time.Duration(waits.OperatorHoldSeconds) * time.Second
 	switch {
 	case provider > 0 && operator > 0:
-		return fmt.Sprintf("waited %s (%s for the provider, %s on the operator's hold)",
+		return fmt.Sprintf("waited %s (%s for the provider, %s on the operator's pause)",
 			renderWait(waits.Total()), renderWait(provider), renderWait(operator))
 	case provider > 0:
 		return "waited " + renderWait(provider) + " for the provider"
 	case operator > 0:
-		return "waited " + renderWait(operator) + " on the operator's hold"
+		return "waited " + renderWait(operator) + " on the operator's pause"
 	}
 	return ""
 }

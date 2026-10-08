@@ -1,5 +1,5 @@
 // Package inventory is the harness's own vocabulary: every term of art a person
-// or a role reads, what it means, and the decision proposed for it. Two things
+// or a role reads, what it means, and the decision made on it. Two things
 // read it. `go run ./scripts/vocabulary` measures each term and writes
 // docs/vocabulary-inventory.md from it, and the terms check in internal/terms
 // allows a term listed here by name while its decision is pending, so a term
@@ -13,9 +13,10 @@ import (
 	"strings"
 )
 
-// Decision is what the inventory proposes for one term. The Lead Product
-// Manager records the decision that stands on yoyodyne-ifd.437.18; this is the
-// proposal it starts from.
+// Decision is what was decided for one term. The inventory proposed each one,
+// and on 2026-10-08 the Lead Product Manager recorded on yoyodyne-ifd.437.18
+// that every proposal stands as decided, unchanged. A decision changed later is
+// changed here.
 type Decision string
 
 const (
@@ -28,7 +29,7 @@ const (
 	// it, with Meaning as its row in docs/terms.md.
 	Register Decision = "register"
 	// Keep means the term already has a row in the register and the inventory
-	// proposes no change to it.
+	// decided no change to it.
 	Keep Decision = "keep"
 )
 
@@ -54,10 +55,10 @@ type Term struct {
 	Except []string
 	// Meaning is what the term means, in one plain sentence.
 	Meaning string
-	// Decision is what the inventory proposes.
+	// Decision is what was decided.
 	Decision Decision
-	// Words is what to write instead, for a term proposed for replacement, or
-	// the reason it is kept, for one proposed for registration or kept.
+	// Words is what to write instead, for a term decided for replacement, or
+	// the reason it is kept, for one decided for registration or kept.
 	Words string
 	// Note is anything a reader of the counts needs, such as a second meaning
 	// or ordinary uses the match cannot tell apart.
@@ -65,7 +66,7 @@ type Term struct {
 }
 
 // Inventory is the harness's own vocabulary as of 2026-09-28: every term of art
-// found where a person or a role reads it, with a proposed decision for each.
+// found where a person or a role reads it, with the decision made on each.
 // It was assembled by reading the printed strings, the shipped personas, the
 // guides, and the governed documents for words used in a sense ordinary English
 // does not give them, starting from the words the operator met on 2026-09-27
@@ -85,7 +86,7 @@ var Inventory = []Term{
 		Meaning:  "The development manager's list of stopped runs, runs that died before they started, and items dispatch would not start; `docketed` is being put on it.",
 		Decision: Replace,
 		Words:    "the development manager's list of stopped runs; for `docketed`, put in front of the development manager. The register's row is retired once the replacements land; `DocketStore` and other identifiers keep their names",
-		Note:     "Registered today. It is proposed for replacement because it is the most frequent term in this inventory and the operator asked what `docketed` meant.",
+		Note:     "Registered today. It is decided for replacement because it is the most frequent term in this inventory and the operator asked what `docketed` meant.",
 	},
 	{
 		Term:     "crossing",
@@ -187,7 +188,7 @@ var Inventory = []Term{
 		Meaning:  "The automatic hold on starting new work after a set number of blocked runs in a row, also written `storm brake`.",
 		Decision: Replace,
 		Words:    "the automatic stop on starting work; for `braked`, stopped. The register's row is retired once the replacements land",
-		Note:     "Registered today. Proposed for replacement because the operator has asked for 'stopped' in place of 'braked'.",
+		Note:     "Registered today. Decided for replacement because the operator has asked for 'stopped' in place of 'braked'.",
 	},
 	{
 		Term:     "probe",

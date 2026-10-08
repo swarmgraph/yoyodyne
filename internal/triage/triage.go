@@ -2553,7 +2553,7 @@ func (e Entry) renderArtifacts() string {
 		fmt.Fprintf(&rendered, "      Developer session (%s): %s\n", state, e.Artifacts.DeveloperSession)
 	}
 	if e.Artifacts.TargetBranch != "" {
-		fmt.Fprintf(&rendered, "      Integration target: %s\n", e.Artifacts.TargetBranch)
+		fmt.Fprintf(&rendered, "      Target branch: %s\n", e.Artifacts.TargetBranch)
 	}
 	// A publication entry says everything about its request below, so the line
 	// here is for the other classes: the request a stopped or escalated run left

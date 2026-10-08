@@ -527,7 +527,7 @@ func scheduleEvidence(due *RecurringDue, claim runstate.SweepClaim) {
 	due.LastFired = claim.FiredAt
 	if claim.Every != due.Every || claim.CadenceAt.IsZero() {
 		due.At = time.Time{}
-		due.ScheduleNote = "schedule adoption timing is unavailable; the age of the last firing does not establish overdue time under the current cadence"
+		due.ScheduleNote = "schedule adoption timing is unavailable; the age of the last firing does not establish overdue time under the current schedule"
 		return
 	}
 	due.At = claim.NextDue(due.Every)
@@ -652,7 +652,7 @@ func (t Trigger) instanceCadence(ctx context.Context, finder recurringFinder, ag
 // first pass that reaches it once what kept it clears.
 func (t Trigger) Missed(ctx context.Context, missed RecurringMiss) error {
 	if t.Reports == nil {
-		return errors.New("recording a missed cadence requires the sweep log")
+		return errors.New("recording a missed scheduled run requires the sweep log")
 	}
 	// A gap another session already recorded — the one that was running when it
 	// opened, before a restart — is not recorded or said again. What marks it is
@@ -711,7 +711,7 @@ func (m RecurringMiss) subject() string {
 	if m.Instance {
 		return fmt.Sprintf("%s of the program manager instance %s", m.trigger().Describe(), m.Task)
 	}
-	return "cadence of the recurring task " + m.Task
+	return "scheduled run of the recurring task " + m.Task
 }
 
 // says is the sweep record's account of the miss: what fell due, when, how long
@@ -965,7 +965,7 @@ func (t Trigger) refuse(ctx context.Context, name string, task config.RecurringT
 	}
 	recorded.EndedAt = recorded.StartedAt
 	problems := []string{fmt.Sprintf(
-		"the recurring task %s was not put to the %s: %s; nothing was asked, and its next firing is at its next cadence",
+		"the recurring task %s was not put to the %s: %s; nothing was asked, and it is asked again at its next scheduled time",
 		name, task.Role, outage.Says())}
 	// The forge is not the provider, so a pass the provider could not serve still
 	// reads it: a request held open for nothing is not made less so by an outage.
@@ -1647,7 +1647,7 @@ func (t Trigger) settle(ctx context.Context, fired *Fired, recorded runstate.Swe
 	}
 	if _, err := t.Claims.Settle(write, recorded.Task, boundedProblem([]string{fired.Problem})); err != nil {
 		fired.Problem = appendProblem(fired.Problem, fmt.Sprintf(
-			"what became of the firing of the recurring task %s could not be written against its cadence: %v", recorded.Task, err))
+			"what became of this run of the recurring task %s could not be written against its schedule: %v", recorded.Task, err))
 	}
 	if t.RecordFailures != nil {
 		if err := t.RecordFailures(write); err != nil {
@@ -1725,7 +1725,7 @@ func appendProblem(existing, addition string) string {
 func describeFailedTurn(name string, role domain.AgentRole, turn int, err error) string {
 	if errors.Is(err, ErrRoleUnreachable) {
 		if turn == 1 {
-			return fmt.Sprintf("the recurring task %s could not be put to the %s at all, so nothing was asked and its next firing is at its next cadence: %v", name, role, err)
+			return fmt.Sprintf("the recurring task %s could not be put to the %s at all, so nothing was asked and it is asked again at its next scheduled time: %v", name, role, err)
 		}
 		// A later turn losing the conversation is not a firing that asked nothing.
 		// The turns before it answered and the account this record carries is
@@ -1941,7 +1941,7 @@ func wakeMessage(name string, task config.RecurringTask, docket, overdue string,
 	lines := []string{
 		fmt.Sprintf("The harness woke you for the recurring task %q, which runs every %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.", name, task.Every),
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule widens what you may decide or change.",
-		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a task that runs on a cadence files the same duplicate on every cadence.",
+		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a task that runs on a schedule files the same duplicate every time it runs.",
 	}
 	lines = append(lines, docketLines(docket)...)
 	lines = append(lines, overdueLines(overdue)...)
@@ -1986,7 +1986,7 @@ func docketLines(docket string) []string {
 // that is waiting on her.
 func summonsMessage(name string, task config.RecurringTask, hold runstate.IntakeHold, docket string, batch amendmentBatch) string {
 	lines := []string{
-		fmt.Sprintf("The intake brake summoned you now, ahead of the cadence of %q: %s, and intake is held since %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.",
+		fmt.Sprintf("The intake brake summoned you now, ahead of the schedule of %q: %s, and intake is held since %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.",
 			name, strings.TrimSpace(hold.Reason), hold.HeldAt.UTC().Format(time.RFC3339)),
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra.",
 		"",
@@ -2072,7 +2072,7 @@ func (t Trigger) paused() (runstate.OperatorHold, bool, error) {
 func (t Trigger) validate() error {
 	var problems []error
 	if t.Claims == nil {
-		problems = append(problems, errors.New("firing a recurring task requires the durable claim that paces it, because a cadence nothing records fires on every pull"))
+		problems = append(problems, errors.New("firing a recurring task requires the durable claim that paces it, because a schedule nothing records runs the task every time work is picked"))
 	}
 	if t.Reports == nil {
 		problems = append(problems, errors.New("firing a recurring task requires somewhere to record what it found, because a pass nobody watched that wrote nothing down is a turn spent in private"))

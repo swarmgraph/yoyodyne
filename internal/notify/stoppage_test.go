@@ -82,7 +82,7 @@ func TestAStoppageIsSaidAtTheSeverityItsNextMoverAndItsCauseWarrant(t *testing.T
 			state.Phase = runstate.PhaseIntegrating
 			state.ReviewDecision = runstate.ReviewApprove
 			state.IntegrationRetries = 2
-			state.Failure = runstate.ContendedIntegrationFailure + " after 2 of 2 permitted retry(s): integrate approved change: integration target moved away from the recorded base commit"
+			state.Failure = runstate.ContendedIntegrationFailure + " after 2 of 2 permitted retry(s): integrate approved change: target branch moved away from the recorded base commit"
 		}, report.SeverityNote, ReachThread},
 		{"a replay the harness's budget killed", approvedAndStoppedBy(runstate.CauseReplayKilled), report.SeverityNote, ReachThread},
 		{"a tracker read that timed out", approvedAndStoppedBy(runstate.CauseTransportFailure), report.SeverityNote, ReachThread},

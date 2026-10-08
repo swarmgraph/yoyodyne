@@ -718,7 +718,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 		},
 		"held": {
-			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage window until 18:50Z (most)", "next: the harness asks again when the provider's usage window lifts; whose: nobody's", "Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z",
+			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
 			// One thing waiting, and it is the operator's: the figure says so and
 			// there is no breakdown to give.
 			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",
@@ -785,7 +785,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`data-item="yoyodyne-ifd.219"`,
 		},
 		"grouping-landed":  {`Landed last 7 days (4 items)`, "from 2026-09-13, local days, newest first", `data-item="yoyodyne-ifd.439"`, "landed 2026-09-19 13:41:00", `data-item="yoyodyne-ifd.435"`},
-		"grouping-empty":   {`<h2 id="grouping-heading" class="popup-title">Startable</h2>`, "the harness is choosing nothing: Paused on the provider's usage window until 18:50Z", `<p id="grouping-empty" class="empty">No admitted item is startable.</p>`},
+		"grouping-empty":   {`<h2 id="grouping-heading" class="popup-title">Startable</h2>`, "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z", `<p id="grouping-empty" class="empty">No admitted item is startable.</p>`},
 		"grouping-error":   {`<h2 id="grouping-heading" class="popup-title">Admitted</h2>`, "Could not be read: the admitted work could not be read: bd list", "yoyo doctor says whether bd answers in this checkout"},
 		"grouping-loading": {`<h2 id="grouping-heading" class="popup-title">Landed today</h2>`, `<span id="grouping-waiting">Reading what the runs came to…</span>`},
 		// The card over the grouping it was opened from: a stopped run with its

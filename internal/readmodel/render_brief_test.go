@@ -81,9 +81,9 @@ func TestTheBriefRenderingKeepsWhatCouldNotBeFullyRead(t *testing.T) {
 func TestTheBriefRenderingKeepsThePausedBanner(t *testing.T) {
 	t.Parallel()
 
-	standing := Standing{Paused: "Paused on the provider's usage window until 13:43Z"}
+	standing := Standing{Paused: "Paused on the provider's usage limit until 13:43Z"}
 	brief := standing.RenderBrief()
-	if !strings.HasPrefix(brief, "Paused on the provider's usage window until 13:43Z\n") {
+	if !strings.HasPrefix(brief, "Paused on the provider's usage limit until 13:43Z\n") {
 		t.Fatalf("brief:\n%s\ndoes not open with the cause", brief)
 	}
 	if strings.HasPrefix(standing.RenderBriefLines(), "Paused") {

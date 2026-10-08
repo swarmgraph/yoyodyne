@@ -182,7 +182,7 @@ func (r Reason) Whose() string {
 	case ReasonNoCapacity:
 		return "nobody's — a slot frees as a run in flight finishes"
 	case ReasonProviderWindow:
-		return "nobody's — the harness asks again when the provider's usage window lifts"
+		return "nobody's — the harness asks again when the provider's usage limit resets"
 	case ReasonTrackerWait:
 		return "nobody's — the dispatch asks the tracker again on its own, and puts the item on the development manager's docket only once the recovery window is spent"
 	case ReasonStoreUnreadable:

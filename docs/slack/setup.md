@@ -798,7 +798,7 @@ that window and the time the provider said it lifts, and every surface reads tha
 as the accounting it is. The channel gets one note per window rather than the
 alarm above, and nobody is messaged directly:
 
-> Paused on the provider's usage window until 13:43Z. Nothing has been chosen on
+> Paused on the provider's usage limit until 13:43Z. Nothing has been chosen on
 > this product for 30 minutes; nothing has stopped and nothing is waiting on
 > anybody, and the harness asks again when the window lifts.
 
