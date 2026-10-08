@@ -19,6 +19,10 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
+// MaxHomeMigrationByBytes bounds the account of who ran a migration, which is a
+// process's command line and can be as long as whoever typed it made it.
+const MaxHomeMigrationByBytes = 1024
+
 // HomeMigration is what a migration recorded on a run whose worktree it moved:
 // when, the path the run had recorded before, and who ran it.
 type HomeMigration struct {

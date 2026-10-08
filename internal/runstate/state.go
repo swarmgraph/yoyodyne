@@ -1721,6 +1721,9 @@ func (s *State) recordedTexts() []recordedText {
 		return fmt.Sprintf("%s[%d].%s", prefix, index, field)
 	}
 
+	if s.HomeMigration != nil {
+		unstated("home_migration.by", "home_migration.by", &s.HomeMigration.By, MaxHomeMigrationByBytes)
+	}
 	if s.Document != nil {
 		d := s.Document
 		nested("document.candidate.content", "document.candidate.content", &d.Candidate.Content, artifact.MaxFileBytes)

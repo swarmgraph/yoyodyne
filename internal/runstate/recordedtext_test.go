@@ -90,6 +90,7 @@ var structuredStrings = map[string]string{
 	"phase":                                       "an enumeration",
 	"stop_class":                                  "an enumeration, refused at the save when it names no class",
 	"worktree_path":                               "a path the harness cut",
+	"home_migration.from_worktree_path":           "a path the harness cut, kept as it was recorded",
 	"branch":                                      "a branch name the harness cut",
 	"base_commit":                                 "matched against the commit pattern",
 	"harness_commit":                              "matched against the commit pattern",
