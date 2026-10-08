@@ -75,7 +75,7 @@ func TestDeclaredCodexProviderKeepsReadOnlyPolicyThroughFactory(t *testing.T) {
 				t.Fatalf("binary=%q", command.Name)
 			}
 			args := strings.Join(command.Args, "\n")
-			for _, want := range []string{"--sandbox\nread-only", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "model_reasoning_effort=\"low\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
+			for _, want := range []string{"--config\n" + `default_permissions="yoyodyne-read-only"`, "--config\n" + `permissions.yoyodyne-read-only.filesystem={":root"="read"}`, "--config\npermissions.yoyodyne-read-only.network.enabled=false", "--ignore-user-config", "--ignore-rules", "--strict-config", "approval_policy=\"never\"", "model_reasoning_effort=\"low\"", "web_search=\"disabled\"", "--cd\n" + command.Dir, "--disable\nplugins", "--disable\nhooks", "--disable\ncomputer_use"} {
 				if !strings.Contains(args, want) {
 					t.Errorf("launch lacks %q: %v", want, command.Args)
 				}

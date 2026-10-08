@@ -538,7 +538,7 @@ var Unread = []string{
 	"capability-and-scope", "capacity-wait", "carried-out", "carry-back", "changed-file",
 	"changed-path", "channel-nobody-reads", "chat-spawns-subprocesses", "check-set",
 	"check-stage", "check-to-use", "checked-in", "checked-shape", "claim-audit",
-	"clean-tree", "cli-help", "closed-list", "closed-reason", "closed-status",
+	"clean-tree", "closed-list", "closed-reason", "closed-status",
 	"code-implementation", "coding-agent", "configuration-file", "configuration-guide",
 	"configured-check", "conflict-avoidance", "conflict-handling",
 	"content-security", "context-reconstruction", "context-size", "contributor-mode",
@@ -602,7 +602,7 @@ var Unread = []string{
 	"uncertain-save", "unmeetable-item-returns", "unowned-entry", "unresolved-at-cap",
 	"unresolved-escalation", "usage-limit", "usage-pause", "vanished-process",
 	"web-security", "web-service", "whole-content", "whole-spine", "whole-stage",
-	"work-turn", "worktree-write", "wrap-in-actions", "writable-root", "write-shell",
+	"work-turn", "worktree-write", "wrap-in-actions", "write-shell",
 }
 
 var termParts = regexp.MustCompile(`[-\s]+`)

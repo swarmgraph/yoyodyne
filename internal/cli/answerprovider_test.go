@@ -76,7 +76,7 @@ func TestAnsweringTurnsUseTheConfiguredProviderAndReadOnlyPolicy(t *testing.T) {
 				}
 				cmd := cli.commands[0]
 				args := strings.Join(cmd.Args, "\n")
-				if cmd.Name != binary || !strings.Contains(args, "--sandbox\nread-only") || !strings.Contains(args, "--model\n"+agent.Model) || !strings.Contains(args, `approval_policy="never"`) {
+				if cmd.Name != binary || !strings.Contains(args, "--config\n"+`default_permissions="yoyodyne-read-only"`) || !strings.Contains(args, "--model\n"+agent.Model) || !strings.Contains(args, `approval_policy="never"`) {
 					t.Fatalf("wrong answering invocation: %s %v", cmd.Name, cmd.Args)
 				}
 				account, accountErr := cfg.Endpoint(parts.stateRoot, "answering")

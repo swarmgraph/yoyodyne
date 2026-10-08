@@ -7,7 +7,8 @@ package orchestrator
 // adapter's own tests build a backend.RunRequest by hand, so they can only show
 // that the adapter honours what they asked for; what they cannot show is that
 // the request the harness itself builds is one the adapter accepts. That gap is
-// not academic: the adapter turns a role's tool posture into a Codex sandbox from
+// not academic: the adapter turns a role's tool posture into a Codex permission
+// profile from
 // a fixed table and refuses a role it has no entry for, and a refusal there lands
 // inside Run — after the item is claimed, the worktree is created, and the
 // operator is waiting — which is the opposite of the policy refusal a
@@ -15,7 +16,7 @@ package orchestrator
 // only way to see that.
 //
 // This test keeps the reviewer on the other provider to exercise mixed-provider
-// dispatch while the developer uses the Codex worktree-write sandbox.
+// dispatch while the developer uses the Codex worktree-write permission profile.
 
 import (
 	"context"
@@ -37,12 +38,12 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// The sandbox the developer's tool posture requires by the time the invocation
-// reaches the provider. It is spelled out here rather than imported from the
-// adapter on purpose: this test is the other side of that statement, and two
-// sides reading one constant would agree with each other whatever the adapter
-// did.
-const codexDeveloperSandbox = "workspace-write"
+// The permission profile the developer's tool posture requires by the time the
+// invocation reaches the provider. It is spelled out here rather than imported
+// from the adapter on purpose: this test is the other side of that statement,
+// and two sides reading one constant would agree with each other whatever the
+// adapter did.
+const codexDeveloperProfile = "yoyodyne-developer"
 
 func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T) {
 	t.Parallel()
@@ -87,15 +88,22 @@ func TestARunOnCodexReachesTheProviderWithThePostureItsRoleRequires(t *testing.T
 		t.Fatalf("recorded resolved model = %q, want the model the Codex stream named", state.ProviderResolvedModel)
 	}
 
-	// The invocation was launched under the sandbox the developer's tool posture
+	// The invocation was launched under the profile the developer's tool posture
 	// requires — able to edit the worktree — and in the run's own worktree, which
-	// is what makes `workspace-write` a bound rather than a permission.
+	// the profile names as the directory it may write.
 	developer := cli.developerInvocation(t)
 	if !strings.Contains(strings.Join(developer.Args, "\n"), "--config\nmodel_reasoning_effort=\"low\"") {
 		t.Errorf("the developer invocation lacks explicit default effort: %v", developer.Args)
 	}
-	if got := codexSandboxOf(t, developer.Args); got != codexDeveloperSandbox {
-		t.Errorf("the developer ran under sandbox %q, want %q", got, codexDeveloperSandbox)
+	if got := codexProfileOf(t, developer.Args); got != codexDeveloperProfile {
+		t.Errorf("the developer ran under permission profile %q, want %q", got, codexDeveloperProfile)
+	}
+	worktree, _ := json.Marshal(outcome.WorktreePath)
+	if !strings.Contains(strings.Join(developer.Args, "\n"), string(worktree)+`="write"`) {
+		t.Errorf("the developer's profile does not let it write the run's worktree %q: %v", outcome.WorktreePath, developer.Args)
+	}
+	if strings.Contains(strings.Join(developer.Args, "\n"), "--sandbox") {
+		t.Errorf("the developer invocation passes --sandbox, which replaces its permission profile: %v", developer.Args)
 	}
 	if developer.Dir != outcome.WorktreePath {
 		t.Errorf("the developer ran in %q, want the run's worktree %q", developer.Dir, outcome.WorktreePath)
@@ -215,14 +223,21 @@ func codexStream(message string) []string {
 	return []string{string(configured), string(complete)}
 }
 
-func codexSandboxOf(t *testing.T, args []string) string {
+func codexProfileOf(t *testing.T, args []string) string {
 	t.Helper()
 
 	for index, arg := range args {
-		if arg == "--sandbox" && index+1 < len(args) {
-			return args[index+1]
+		if arg != "--config" || index+1 >= len(args) {
+			continue
+		}
+		if selected, found := strings.CutPrefix(args[index+1], "default_permissions="); found {
+			var profile string
+			if err := json.Unmarshal([]byte(selected), &profile); err != nil {
+				t.Fatalf("default_permissions=%s is not a quoted name: %v", selected, err)
+			}
+			return profile
 		}
 	}
-	t.Fatalf("no sandbox on the command line: %#v", args)
+	t.Fatalf("no permission profile on the command line: %#v", args)
 	return ""
 }

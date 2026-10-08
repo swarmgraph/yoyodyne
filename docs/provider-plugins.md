@@ -4,8 +4,8 @@ Yoyo runs agents through a provider — a coding CLI or a harness that speaks to
 model API. Two are in the vocabulary and this build ships an adapter for both:
 Claude Code and Codex, which can serve every role. Developers use a worktree-write
 sandbox. Reviewers and management roles use read-only access: Claude Code refuses
-all tools, while Codex permits inspection under its native read-only sandbox with
-network access, escalation, and external integrations disabled
+all tools, while Codex permits inspection under a read-only Codex permission
+profile with network access, escalation, and external integrations disabled
 ([capability validation](#capability-validation)).
 
 The recorded codex-cli 0.159.2 streams cover session startup, reconnect notices,
@@ -290,8 +290,9 @@ one that declares only `worktree-write` is refused for a reviewer. A declaration
 cannot change the launch policy enforced by its compiled adapter.
 
 Both built-ins declare both kinds of access. For read-only roles, the Codex
-adapter fixes `--sandbox read-only` and `approval_policy="never"` on fresh and
-resumed invocations. It ignores user configuration and execution-policy rules,
+adapter fixes its read-only permission profile, which writes nothing and has
+the network off, and `approval_policy="never"` on fresh and resumed invocations
+([what each Codex profile permits](configuration/runs.md#the-environment-a-check-runs-in)). It ignores user configuration and execution-policy rules,
 launches from an empty temporary directory outside the repository, and supplies
 the repository's absolute path in the prompt. Project configuration cannot add
 MCP servers through the inspected repository. The adapter disables apps, plugins,
@@ -308,7 +309,7 @@ bundle or to the repository. Codex may inspect other locally readable files.
 Its model-visible Code Mode tools may remain available. The CLI may write its own
 session and authentication state; the read-only policy applies to agent execution.
 Managed organizational configuration remains an installation authority and must
-be compatible with the adapter's restrictions. The installed 0.159.2 exec command
+be compatible with the adapter's restrictions. The supported 0.160.0 exec command
 has no supported Plan-mode switch, so the harness supplies an analysis-only
 instruction rather than claiming native Plan mode. An installation that rejects
 the required flags or settings fails the invocation; the adapter does not retry
