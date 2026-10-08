@@ -265,6 +265,11 @@ type Dependency struct {
 	ID      string
 	Type    string
 	Status  string
+	// CreatedAt is when the link was made, with bd's stamp corrected where it
+	// is provably early (dependencyCreatedAt says which). It is the zero time
+	// where the tracker gave no stamp this could read, and on `bd show`, which
+	// does not carry the link's stamp at all.
+	CreatedAt time.Time
 }
 
 // parentChildDependency is how bd states decomposition when it states it as an
@@ -1754,7 +1759,7 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 		Name:           binary,
 		Args:           args,
 		Dir:            c.Dir,
-		Env:            withoutAutoExport(os.Environ()),
+		Env:            inUTC(withoutAutoExport(os.Environ())),
 		Timeout:        c.timeout(),
 		MaxOutputBytes: maxBDOutputBytes,
 	}
@@ -1841,6 +1846,7 @@ type rawDependency struct {
 	DependencyType string `json:"dependency_type"`
 	Type           string `json:"type"`
 	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
 }
 
 type dependencyResponse struct {
@@ -1904,12 +1910,20 @@ func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
 		if dependencyType == "" {
 			dependencyType = dependency.Type
 		}
+		// Only an edge — a listing's or the export's, naming what it depends on —
+		// carries the link's own stamp. `bd show` lists the linked items instead,
+		// and the created_at there is when that other item was made.
+		var linked time.Time
+		if dependency.DependsOnID != "" {
+			linked = dependencyCreatedAt(dependency.CreatedAt, item.CreatedAt, time.Local)
+		}
 		if id != "" {
 			item.Dependencies = append(item.Dependencies, Dependency{
-				IssueID: dependency.IssueID,
-				ID:      id,
-				Type:    dependencyType,
-				Status:  dependency.Status,
+				IssueID:   dependency.IssueID,
+				ID:        id,
+				Type:      dependencyType,
+				Status:    dependency.Status,
+				CreatedAt: linked,
 			})
 		}
 	}

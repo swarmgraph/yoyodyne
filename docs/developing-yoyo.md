@@ -203,6 +203,52 @@ are each reported by `internal/composition` — so replacing the version with
 whatever is newest fails a declared check on the machine of whoever wrote it,
 rather than on somebody else's release day.
 
+## When a dependency was added, as the tracker records it
+
+bd 1.1.2 stamps a dependency — the `created_at` of each entry under an item's
+`dependencies` in `.beads/issues.jsonl`, and in `bd list --json` and
+`bd ready --json` — with the wall-clock time of the zone the `bd` process ran
+in, followed by a `Z` that says UTC. Every other stamp it writes, the item's own
+`created_at` among them, is real UTC. So a link added on a machine in Pacific
+daylight time reads seven hours before the moment it was made, eight in winter,
+and one added in a zone east of UTC reads late by that zone's offset. Nothing in
+the harness converts it on the way: the export is `bd export`'s own output,
+copied byte for byte.
+
+The harness runs every `bd` command with `TZ=UTC`, so the links it adds itself —
+a child admitted under a parent, a blocker recorded between two items — are
+stamped at the instant they were made. That leaves two kinds of record wrong:
+
+- **Every link added before that change.** In the export of 2026-10-07, 1,084
+  links read as made before the item that carries them, 1,003 of them by seven
+  hours give or take a couple of minutes.
+- **Every link somebody adds with `bd` by hand**, which runs in their own zone.
+
+Those records are left as they are. The tracker wrote them, not the harness, and
+correcting them would mean rewriting a store that lives outside Git on a guess:
+a link added later than its item looks the same whether it was stamped in UTC or
+not, so nothing in a record says which of them are wrong.
+
+What the harness does instead is correct the ones that are provably wrong when it
+reads them. A link cannot have been made before the item that carries it, so
+`beads.Dependency.CreatedAt` reads a stamp more than a minute before its item's
+creation again as wall-clock time in the machine's own zone, and takes that if it
+is no longer impossible (`internal/beads/dependencystamp.go`). A link stamped
+after its item is taken as written. So anything that measures from these stamps —
+lead time from a link to the work it unblocked, or when an item was queued under
+a parent — reads the correction through that field rather than parsing the
+export's stamp itself, and still treats a link added well after its item, by hand
+or before the change, as possibly off by the writer's offset. `bd show --json`
+does not carry a link's stamp at all: the `created_at` beside each dependency
+there is when the linked item was made.
+
+`TestDependencyStampConformance` in `internal/beads` makes links with `bd`
+running nine hours east of UTC and fails if their stamps are not the instant they
+were made, so a `bd` on which running in UTC no longer gives a correct stamp is
+noticed when [the pinned version is bumped](#the-tracker-version-ci-pins). A
+`bd` that stamps links in UTC whatever its zone passes it, and needs nothing
+changed here: the correction on read touches only stamps that are impossible.
+
 ## Before you change how a run works
 
 [What the delivery pipeline actually guarantees](delivery-pipeline-baseline.md)
