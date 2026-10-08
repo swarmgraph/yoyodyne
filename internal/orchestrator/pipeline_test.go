@@ -4855,8 +4855,8 @@ func TestAUsageWindowResettingPastTheMaximumPauseEndsTheRunUnjudged(t *testing.T
 			if said := refused.ResetSays(); !strings.Contains(strings.ToLower(tracker.ReleaseReason), strings.ToLower(said)) {
 				t.Fatalf("release note = %q, want it to say %q", tracker.ReleaseReason, said)
 			}
-			if !strings.Contains(tracker.Notes, "usage window") {
-				t.Fatalf("the item's notes do not name the window:\n%s", tracker.Notes)
+			if !strings.Contains(tracker.Notes, "usage limit") {
+				t.Fatalf("the item's notes do not name the usage limit:\n%s", tracker.Notes)
 			}
 			// The branch and worktree are kept as a stopped run's are.
 			if _, statErr := os.Stat(stopped.WorktreePath); statErr != nil {

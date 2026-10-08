@@ -1426,7 +1426,7 @@ func TestAClaimThatCouldNotBeGivenBackAfterAPauseIsReported(t *testing.T) {
 	if !strings.Contains(result.RecordProblem, "could not be given back") {
 		t.Fatalf("record problem = %q, want the spent claim named", result.RecordProblem)
 	}
-	if !strings.Contains(result.RecordProblem, "hold on all harness activity") {
+	if !strings.Contains(result.RecordProblem, "pause on all harness activity") {
 		t.Fatalf("record problem = %q, want it to name what the run met", result.RecordProblem)
 	}
 }

@@ -87,7 +87,7 @@ func TestAutomaticStallContinuationKeepsUncommittedWorkBeyondTheTailWhileDelayed
 				t.Fatalf("worktree sweeps = %#v; want only the run beyond the tail", convergence.Worktrees)
 			}
 			checkout := convergence.Worktrees[0]
-			if checkout.RunID != s.RunID || checkout.Removed || checkout.Failure != "" || checkout.PreservedWork != "" || !strings.Contains(checkout.Kept, "automatic stall continuation") {
+			if checkout.RunID != s.RunID || checkout.Removed || checkout.Failure != "" || checkout.PreservedWork != "" || !strings.Contains(checkout.Kept, "resume this run in the same AI session") {
 				t.Fatalf("checkout sweep = %#v; want the unfinished checkout kept in place", checkout)
 			}
 			var branch BranchSweep
@@ -96,7 +96,7 @@ func TestAutomaticStallContinuationKeepsUncommittedWorkBeyondTheTailWhileDelayed
 					branch = swept
 				}
 			}
-			if branch.RunID != s.RunID || branch.Removed || branch.Failure != "" || !strings.Contains(branch.Kept, "automatic stall continuation") {
+			if branch.RunID != s.RunID || branch.Removed || branch.Failure != "" || !strings.Contains(branch.Kept, "resume this run in the same AI session") {
 				t.Fatalf("branch sweep = %#v; want the recorded branch kept", branch)
 			}
 			if !reflect.DeepEqual(s, loadRecoveryRun(t, store, s.RunID)) || starts != 0 {
