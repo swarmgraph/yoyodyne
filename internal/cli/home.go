@@ -81,6 +81,9 @@ func migrateHome(args []string, stdout, stderr io.Writer) int {
 		return fail(err)
 	}
 
+	// Said before anything moves, on the error stream so a --json answer stays
+	// the one document on standard output.
+	fmt.Fprintln(stderr, handStartedDashboardWarning)
 	now := time.Now()
 	by := home.ProcessAccount()
 	migration, err := home.MoveHome(home.MigrateOptions{
@@ -113,6 +116,14 @@ func migrateHome(args []string, stdout, stderr io.Writer) int {
 	}
 	return code
 }
+
+// handStartedDashboardWarning is what the migration says before it moves
+// anything. A dashboard started by hand holds no lease the in-flight check can
+// see, so one left running goes on reading the earlier home after its records
+// have moved; until the dashboard runs under the supervisor (yoyodyne-ifd.414),
+// stopping it is the person's to do.
+const handStartedDashboardWarning = "before anything moves: stop any dashboard you started by hand with `yoyo dashboard`; " +
+	"this command cannot see one, and one left running goes on reading the earlier home after its records have moved"
 
 // homeMigrationPlan is which home moves where.
 type homeMigrationPlan struct {
@@ -232,7 +243,9 @@ what it moved and what it left behind.
 
 It moves nothing while any run, conversation turn, or recurring pass is in
 flight, and says which. Nothing else moves the state: a build that finds it in
-the earlier home keeps using it there until this is run. Do not create
+the earlier home keeps using it there until this is run. It cannot see a
+dashboard you started by hand with yoyo dashboard, so stop that first: one left
+running goes on reading the earlier home after its records have moved. Do not create
 ~/.yoyodyne by hand first: a home that holds anything is the one every start
 uses, and an empty one is a home with no state in it.
 

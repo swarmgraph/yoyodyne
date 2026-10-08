@@ -898,6 +898,13 @@ it. A home `state_root` or `XDG_STATE_HOME` names is laid out the new way where
 it stands, and `YOYODYNE_STATE_HOME` set in the shell keeps the migration
 deferred: the command refuses rather than move a home that shell chose.
 
+**Stop a dashboard you started by hand before migrating.** `yoyo home migrate`
+cannot see a dashboard started with `yoyo dashboard`, because it holds nothing
+the in-flight check reads, and one left running goes on reading the earlier home
+after its records have moved. The command says so before it moves anything.
+Until adopting the dashboard as a supervised part (yoyodyne-ifd.414) lands, stopping it is
+yours to do; start it again afterwards and it reads the machine home.
+
 **Do not create `~/.yoyodyne` by hand before migrating.** The harness uses the
 earlier home only while `~/.yoyodyne` does not exist, or holds nothing but
 `machine.yaml`, so creating it for any other reason points the next start at an

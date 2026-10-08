@@ -72,6 +72,12 @@ func TestHomeMigrateRefusesWhileARunIsInFlightAndThenMovesTheHome(t *testing.T) 
 	if code != 0 {
 		t.Fatalf("migrate code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
 	}
+	if !strings.Contains(stderr, "stop any dashboard you started by hand") {
+		t.Errorf("migrate did not say to stop a dashboard started by hand before it moved anything: stderr = %q", stderr)
+	}
+	if help, _, _ := runCLI(t, "home", "help"); !strings.Contains(help, "dashboard you started by hand") {
+		t.Errorf("the migration's help does not say to stop a dashboard started by hand: %q", help)
+	}
 	for _, want := range []string{"moved the harness's state from " + earlier, "the records of yoyodyne", "the machine file", "left behind", "bound it to the repository"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("migrate said %q, want it to say %q", stdout, want)
