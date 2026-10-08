@@ -3,14 +3,19 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
+	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/maintain"
+	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 )
 
 // runYoyo runs one command the way the executable does, so what is recorded
@@ -45,6 +50,7 @@ func TestHandStepsAtTheCommandLineAreRecordedAndReadBack(t *testing.T) {
 	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
 	t.Setenv(execution.AgentRoleVariable, "")
 	t.Setenv(execution.StartedByVariable, "")
+	t.Setenv(execution.LaunchdJobVariable, "")
 	configPath := writeConfig(t, validConfig)
 
 	if listed := listedInterventions(t, configPath); len(listed.Interventions) != 0 {
@@ -127,6 +133,82 @@ func TestNothingIsRecordedForAnAgentOrTheHarnessItself(t *testing.T) {
 	t.Setenv(execution.AgentRoleVariable, "")
 	if listed := listedInterventions(t, configPath); len(listed.Interventions) != 0 {
 		t.Fatalf("listed %+v, want nothing recorded for the system's own work", listed.Interventions)
+	}
+}
+
+// A `yoyo reconcile` or `yoyo run` a schedule starts is the system's own work
+// whichever schedule it is: the supervisor's maintenance pass, which marks what
+// it starts, or a launchd job of the product's own, which launchd marks with
+// the job's label — the operator's retired maintenance job, which ran
+// reconcile from a script, among them. The same two verbs typed at a terminal
+// are the operator's hand steps, and a terminal's own launchd name does not
+// make them anything else.
+func TestAScheduledReconcileOrRunIsNotCountedAndOneTypedAtATerminalIs(t *testing.T) {
+	// Not parallel: the state root and the process's own markers are set here.
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	t.Setenv(execution.AgentRoleVariable, "")
+	t.Setenv(execution.StartedByVariable, "")
+	t.Setenv(execution.LaunchdJobVariable, "")
+
+	project := t.TempDir()
+	git(t, project, "init", "-b", "main")
+	git(t, project, "config", "user.name", "Yoyodyne Test")
+	git(t, project, "config", "user.email", "yoyodyne@example.invalid")
+	commit(t, project, "first")
+	directory := filepath.Join(project, config.DirectoryName)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	configPath := filepath.Join(directory, config.FileName)
+	if err := os.WriteFile(configPath, []byte(validConfig), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+
+	reconcile := func(by string) {
+		t.Helper()
+		if code, _, stderr := runYoyo(t, "reconcile", "--config", configPath); code != 0 {
+			t.Fatalf("yoyo reconcile %s exited %d: %s", by, code, stderr)
+		}
+	}
+	// The item does not exist, so the run fails; the step is recorded before the
+	// run starts, which is all this asks about it.
+	run := func() { runYoyo(t, "run", "--config", configPath, "calc-1") }
+
+	scheduled := []struct {
+		name  string
+		value string
+		by    string
+	}{
+		{execution.StartedByVariable, maintain.StartedByMaintenance, "from the supervisor's maintenance pass"},
+		{execution.LaunchdJobVariable, maintenancejob.Label, "from the operator's retired maintenance job"},
+		{execution.LaunchdJobVariable, launchd.Label("yoyodyne"), "from beneath the product's launch agent"},
+	}
+	for _, schedule := range scheduled {
+		t.Setenv(schedule.name, schedule.value)
+		reconcile(schedule.by)
+		run()
+		t.Setenv(schedule.name, "")
+	}
+	if listed := listedInterventions(t, configPath); len(listed.Interventions) != 0 {
+		t.Fatalf("listed %+v, want nothing recorded for a schedule's reconcile or run", listed.Interventions)
+	}
+
+	t.Setenv(execution.LaunchdJobVariable, "0")
+	reconcile("typed at a terminal")
+	run()
+	listed := listedInterventions(t, configPath)
+	kinds := map[intervention.Kind]intervention.Event{}
+	for _, event := range listed.Interventions {
+		kinds[event.Kind] = event
+	}
+	if len(listed.Interventions) != 2 {
+		t.Fatalf("listed %+v, want the reconcile and the run typed at a terminal", listed.Interventions)
+	}
+	if settle, ok := kinds[intervention.KindSettle]; !ok || settle.Via != viaCommandLine {
+		t.Errorf("the reconcile was recorded as %+v, want a settlement taken at the command line", settle)
+	}
+	if ran, ok := kinds[intervention.KindRun]; !ok || ran.Via != viaCommandLine || !ran.Names("calc-1", "") {
+		t.Errorf("the run was recorded as %+v, want calc-1 run by name at the command line", ran)
 	}
 }
 

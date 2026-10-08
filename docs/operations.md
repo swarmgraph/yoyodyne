@@ -1631,7 +1631,12 @@ Nothing is recorded for what the system does on its own account. A `yoyo` an
 agent's process runs carries `YOYODYNE_AGENT_ROLE` and records nothing, and the
 `yoyo reconcile` the [maintenance pass](#the-supervisors-maintenance-pass) runs
 every few minutes is marked with `YOYODYNE_STARTED_BY` so it is not counted as
-you settling runs.
+you settling runs. A `yoyo` that launchd started for one of the product's own
+jobs is not counted either: launchd names the job in `XPC_SERVICE_NAME`, and a
+label beginning `com.yoyodyne.` — the launch agent that starts the supervisor,
+or the old `com.yoyodyne.maintenance` job until the supervisor
+[retires it](#starting-the-product-and-stopping-it) — is read as the same mark. A terminal's
+own launchd name is not one of those, so what you type is still counted.
 
 **A step you take outside the harness is counted only if somebody writes it
 down.** Restarting the scheduler, resetting the target branch, editing a
