@@ -7270,6 +7270,14 @@ built for each firing and put in the message that wakes her, ahead of the
 prompt. A pass resumes her conversation rather than opening it, so the docket
 that conversation opened with is not what is waiting on her now.
 
+A Lead Product Manager's task is handed the work closed since that task's last
+completed pass, with what landed for each and the audits program manager
+instances made of their own lanes, on its first turn, for the audit of closed
+work against the standing goals that `yoyo init`'s commented
+`product-manager-sweep` example asks for as its third job.
+[The operations guide](operations.md#reading-what-the-recurring-tasks-found)
+says what the pass is handed and how a violation is corrected.
+
 Every recurring task turn also receives the live work assigned to that role's
 conversation, with each item's priority shown. The harness lists it in backlog
 order: highest priority first (P0 before P1), then oldest admitted within each
@@ -7778,6 +7786,17 @@ reads, filed under the instance's name â€” `yoyo sweeps --task reliability-pm` â
 with the model its turns ran on. A recurring task named for an instance its
 triggers wake is refused when the file loads, because the two would share one
 cadence and one record.
+
+An instance whose lane is a standing goal audits the work that closed in its
+lane against that goal on its passes, records each item it checked under
+`audits` in its account, and admits a priority 0 correction for a violation
+under the same bound and duplicate check the Lead Product Manager's sweep
+works under; her sweep is handed those audits rather than repeating them
+([the operations guide](operations.md#reading-what-the-recurring-tasks-found)).
+Which lanes are standing goals is the instance's remit to say: every instance's
+pass message carries the audit's contract and tells an instance in such a lane
+to use it, and the program manager persona says so too, both the copy this
+repository's instances read and the one `yoyo init` ships.
 
 ```yaml
 agents:

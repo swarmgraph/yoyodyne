@@ -91,6 +91,11 @@ type Candidate struct {
 	// hold their identifiers rather than as anybody typed them. A candidate citing
 	// none is the ordinary case.
 	Sources []string
+	// Corrects are the closed items a correction for a broken standing goal says it corrects.
+	// A correction already admitted for any of them is the same violation, so it
+	// is matched exactly, as a source is: one violation found across several
+	// closed items or several passes is one item, widened rather than filed again.
+	Corrects []string
 }
 
 // Match is one item the tracker already holds that a candidate looks like.
@@ -112,6 +117,60 @@ type Match struct {
 	// record genuinely prompted — which is admitted without the citation rather
 	// than not admitted.
 	Source string `json:"source,omitempty"`
+	// Corrected is the closed item both this item and the candidate correct, and
+	// is empty on every other match. What to do about it differs again: the
+	// correction already admitted is widened to name the closed items it also
+	// covers, rather than a second one filed beside it.
+	Corrected string `json:"corrected,omitempty"`
+}
+
+// correctionPrefix opens the line a correction for a broken standing goal records for each
+// closed item it corrects. It is a line of its own, written by the harness, so
+// the guard reads an identifier the harness wrote rather than one somebody
+// mentioned in prose.
+const correctionPrefix = "Corrects closed item "
+
+// CorrectionLine is the line a correction's notes carry for one closed item it
+// corrects, which is what a later correction naming the same item is matched
+// against.
+func CorrectionLine(id, title string) string {
+	return correctionPrefix + strings.TrimSpace(id) + ": " + singleLine(title, maxDescribedTitleBytes)
+}
+
+// Corrected reports the closed items an item's notes record it as correcting,
+// in the order the lines appear. An update that widens a correction appends the
+// line for each further item, so this reads every one of them.
+func Corrected(item beads.WorkItem) []string {
+	var corrected []string
+	for _, line := range strings.Split(item.Notes, "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), correctionPrefix)
+		if !found {
+			continue
+		}
+		id, _, _ := strings.Cut(rest, ":")
+		if id = strings.TrimSpace(id); id != "" {
+			corrected = append(corrected, id)
+		}
+	}
+	return corrected
+}
+
+// correctedBy reports which of a candidate's corrected items this item already
+// corrects, and is empty for the item that corrects none of them.
+func correctedBy(item beads.WorkItem, corrects []string) string {
+	if len(corrects) == 0 {
+		return ""
+	}
+	already := Corrected(item)
+	for _, wanted := range corrects {
+		wanted = strings.TrimSpace(wanted)
+		for _, held := range already {
+			if wanted != "" && held == wanted {
+				return wanted
+			}
+		}
+	}
+	return ""
 }
 
 // Resembling reports the work the tracker already holds that one candidate looks
@@ -130,6 +189,16 @@ func Resembling(candidate Candidate, admitted []beads.WorkItem) []Match {
 	wording := scopeWords(candidate.Title)
 	parent := strings.TrimSpace(candidate.Parent)
 	for _, item := range admitted {
+		if corrected := correctedBy(item, candidate.Corrects); corrected != "" {
+			fromSource = append(fromSource, Match{
+				ID:        item.ID,
+				Title:     strings.TrimSpace(item.Title),
+				Status:    strings.TrimSpace(item.Status),
+				Because:   "it already corrects " + corrected + ", which this correction names too",
+				Corrected: corrected,
+			})
+			continue
+		}
 		if cited := citedBy(item, candidate.Sources); cited != "" {
 			fromSource = append(fromSource, Match{
 				ID:      item.ID,

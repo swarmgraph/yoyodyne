@@ -492,6 +492,11 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, wake p
 	}
 	lines = append(lines, describeWake(instance.Triggers, wake)...)
 	lines = append(lines, "", sweep.Contract())
+	// An instance whose lane is a standing goal audits the closed work in its
+	// lane, and the Lead Product Manager's sweep is handed those audits rather
+	// than repeating them. Which lanes are standing goals is the instance's remit
+	// to say, so the contract is given to every instance and used by those.
+	lines = append(lines, "", "Where your lane is a standing goal, audit the work in your lane that closed since your last pass against that goal, and record every item you checked in \"audits\". The Lead Product Manager's sweep is handed your audits and does not repeat them.", sweep.AuditContract())
 	return strings.Join(lines, "\n")
 }
 

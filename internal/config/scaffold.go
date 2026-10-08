@@ -650,23 +650,29 @@ func renderScaffoldList(values []string) string {
 // given no sign of the shape is one whose operator has to be told the schema by
 // somebody, and uncommenting is the whole gesture asked for.
 //
-// The examples are the three standing loops this harness actually needs rather
-// than made-up ones: the development manager's sweep over work that has stopped
-// moving, the product manager's pass over the collected reports, and the
-// architect's pass over the changes proposed to her documents. The second is
-// here because the pile has no other standing reader — every role files into
-// it, only the product manager can record what became of a report, and a project
-// that schedules nothing works the pile only when somebody opens a conversation.
-// That is not a hypothetical: this project reached 564 unhandled reports with
-// the oldest three weeks old before the pass existed to be configured. The third
-// is here for the same shape of reason: proposals against the designs reach the
+// The examples are the standing loops this harness actually needs rather than
+// made-up ones: the development manager's sweep over work that has stopped
+// moving, the product manager's pass over the collected reports, her sweep over
+// coherence, releases, and the work closed since its last pass, and the
+// architect's passes over what waits on her and the changes proposed to her
+// documents. The sweep's third job is the audit of closed work against the
+// standing goals: the reviewer judges each change against them before it lands,
+// and a goal enforced only where the reviewer happened to look is not enforced,
+// so the harness hands the sweep what closed and it admits a correction for a
+// violation. The pass over the reports is here because the pile has no other
+// standing reader — every role files into it, only the product manager can
+// record what became of a report, and a project that schedules nothing works
+// the pile only when somebody opens a conversation. That is not a hypothetical:
+// this project reached 564 unhandled reports with the oldest three weeks old
+// before the pass existed to be configured. The pass over the proposals is here
+// for the same shape of reason: proposals against the designs reach the
 // architect only when somebody opens her conversation, and this project stood
 // at forty-four undecided with the oldest weeks old before the pass existed.
 //
 // They are still commented out and still off, because what is woken and how
 // often is the project's decision and not this file's. Every line is written so
 // that deleting its leading "# " leaves a valid entry, and a test in this package
-// uncomments the block and loads all three tasks to keep that true.
+// uncomments the block and loads every task in it to keep that true.
 //
 // What is deliberately absent from the schema is said in the comment rather than
 // left to be discovered: there is no key here for a capability, a tool, or an
@@ -769,6 +775,62 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       them, and keep the findings for what was worth more than a handling.
 #       A pass with more of the pile than one turn holds says so and takes
 #       another. When nothing is unhandled, that is the report.
+#       Name every work item by what it is, with its identifier after it:
+#       "retiring the maintenance job (434.9)", never "434.9" on its own. An
+#       identifier alone is a defect -- nobody reading later knows the item.
+#       Write anything a person reads in ordinary words, and say what
+#       happened, not the harness's category or mechanism for it: "the AI
+#       session running the developer produced no output for five minutes,
+#       so the harness ended the run; the cause was outside the work, so no
+#       repair attempt was spent and the change was kept." Coin no terms,
+#       and do not pass on the words the harness uses for itself: if a
+#       person would have to look a word up, write the plain words it
+#       stands for. Give every time in the operator's local time with the
+#       zone named, such as 08:20 PDT, not UTC.
+#       A decision your authority covers is yours: make it, and report it
+#       afterwards. Never ask the operator to approve it; an approval routed to
+#       them is a defect to report. Only a change of fundamental intent is
+#       theirs -- one after which the goals would admit any work they refused
+#       before, or refuse any work they admitted.
+#   product-manager-sweep:
+#     role: product-manager
+#     every: 12h
+#     enabled: true
+#     max_turns: 6
+#     prompt: |
+#       Apply the standing goals to everything you write and every decision
+#       you make, whichever goal the work item or your lane serves. Read
+#       the standing set in the goals documents' Standing goals section
+#       under product.specifications, the configured product specification
+#       home delivered as authoritative product intent (docs/product by
+#       default). In Yoyodyne, docs/product/goals/v1-goals.md names the
+#       plain-language and autonomy goals as that set. An output or
+#       decision that breaks a standing goal is a defect to report: name
+#       the goal and where it was broken.
+#       Three jobs this pass.
+#       First, read across the goals, the designs, the decisions, and the
+#       admitted work, and look for places where they disagree: a goal
+#       nothing serves, two items that are the same work, an item citing
+#       wording a document no longer states, a design ruling that never
+#       landed, work that contradicts a decision already recorded. Fix what
+#       your own authority covers and elevate the rest.
+#       Second, decide whether a release should be cut: worth it when a
+#       substantial set of features has landed since the last one, not when
+#       what landed is small or one unfinished thread. Never more than one a
+#       day. When the answer is yes, admit the release item in this pass.
+#       Third, audit the work closed since your last pass, which the pass
+#       carries with what landed for each, against every standing goal.
+#       Record each item in your block's audits: the goals you checked and
+#       what you found. For an item that breaks one, admit a correction at
+#       priority 0 naming the closed items it corrects in "corrects", or
+#       widen the open correction the duplicate check names. At most three
+#       corrections a pass, taking the violation shared by the most closed
+#       items first; mark the rest deferred. Where a program manager whose
+#       lane is a standing goal already audited an item, the pass carries
+#       its findings: read them, and do not audit that item against that
+#       goal again.
+#       End with a durable report. Put any questions for the operator at
+#       the top; when nothing needs them, say so and stop.
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
 #       identifier alone is a defect -- nobody reading later knows the item.

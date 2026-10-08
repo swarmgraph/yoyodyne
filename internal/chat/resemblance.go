@@ -195,6 +195,18 @@ func duplicateRefusal(verb creation, matches []admission.Match) string {
 // a decision the role's own authority covers in front of the operator as an
 // approval, which is what proposal 959.1 did on 2026-09-28.
 func duplicateRemedy(matches []admission.Match) string {
+	// A correction that names a closed item another correction already names is
+	// the same violation, so the one already admitted is widened rather than a
+	// second filed beside it.
+	for _, match := range matches {
+		if match.Corrected == "" {
+			continue
+		}
+		if match.Status != closedWorkItemStatus {
+			return fmt.Sprintf("That correction is still open, so widen it: update %s with \"corrects\" naming the further closed items this violation covers, and name it as the correction in your audits.", match.ID)
+		}
+		return fmt.Sprintf("That correction has closed. Where the same violation is still there, it did not hold: admit a correction again with \"distinct_from\" naming %s and one sentence of what it missed.", match.ID)
+	}
 	remedy := "That work is closed, so it is already done and a run made for this one could not contain anything it does not already carry. " +
 		"Say so rather than admitting it again. Where you have read it and this is genuinely separate work, admit it again with \"distinct_from\" naming that item and one sentence of what is separate, which is recorded on the new item; nothing is put to the operator for that."
 	for _, match := range matches {

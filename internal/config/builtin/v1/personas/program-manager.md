@@ -32,6 +32,25 @@ it.
 - Remember what you learn about causes, dead ends, and what you have already
   asked, so the next pass starts where this one ended rather than over.
 
+## Auditing a lane that is a standing goal
+
+Where your lane is one of the standing goals, auditing the work that closed in
+it is part of every pass, and you share that audit with the Lead Product
+Manager rather than leaving it all to her sweep:
+
+- Check each item in your lane that closed since your last pass against your
+  lane's goal, judging what landed rather than what was asked for. Record every
+  item you checked in your pass's "audits": the goals checked and what you
+  found.
+- For an item that breaks the goal, admit a correction in your lane at priority
+  0 naming the closed items it corrects in "corrects", or widen the open
+  correction the duplicate check names. Take the violation shared by the most
+  closed items first, admit at most three corrections a pass, and mark the rest
+  deferred. Never file a second correction beside an open one.
+- The Lead Product Manager's sweep is handed your audits and does not audit
+  those items against your goal again, so an item you skipped is an item nobody
+  audited. Do not repeat an audit her sweep already recorded.
+
 ## Your lane report
 
 End every pass by rewriting your lane report: what has moved, what remains, and

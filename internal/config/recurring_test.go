@@ -313,6 +313,34 @@ func TestScaffoldedRecurringExampleLoadsWhenUncommented(t *testing.T) {
 	if !strings.Contains(architect.Prompt, "priority first, then age within each priority") || strings.Contains(strings.ToLower(architect.Prompt), "oldest first") {
 		t.Errorf("prompt = %q, want priority then age", architect.Prompt)
 	}
+	// The Lead Product Manager's sweep carries the audit of closed work as its
+	// third job: what it records, the correction it admits, the bound on how many,
+	// and the program managers' audits it reads rather than repeats.
+	sweep, err := resolved.Config.RecurringTaskNamed("product-manager-sweep")
+	if err != nil {
+		t.Fatalf("RecurringTaskNamed() error = %v", err)
+	}
+	if sweep.Role != domain.RoleProductManager || !sweep.Enabled {
+		t.Errorf("task = %+v, want the Lead Product Manager's sweep", sweep)
+	}
+	flat := strings.Join(strings.Fields(sweep.Prompt), " ")
+	for _, want := range []string{
+		"Three jobs this pass.",
+		"Third, audit the work closed since your last pass",
+		"against every standing goal",
+		"audits",
+		`priority 0 naming the closed items it corrects in "corrects"`,
+		"widen the open correction",
+		"At most three corrections a pass, taking the violation shared by the most closed items first; mark the rest deferred.",
+		"a program manager whose lane is a standing goal already audited an item",
+	} {
+		if !strings.Contains(flat, want) {
+			t.Errorf("prompt = %q, want %q", flat, want)
+		}
+	}
+	if !namesWorkItemsByWhatTheyAre(sweep.Prompt) || !decidesAndReports(sweep.Prompt) {
+		t.Errorf("prompt = %q, want the naming and decide-and-report rules", sweep.Prompt)
+	}
 }
 
 func TestThisProjectsArchitectPassUsesPriorityThenAgeEvery45Minutes(t *testing.T) {

@@ -214,7 +214,7 @@ recurring_tasks:
     enabled: true
     max_turns: 6
     prompt: |
-      Two jobs this pass.
+      Three jobs this pass.
 
       First, read across the goals, the designs, the decisions, and the
       admitted work, and look for places where they disagree: a goal nothing
@@ -230,6 +230,18 @@ recurring_tasks:
       Never cut more than one a day. When the answer is yes, admit the release
       work item in this same pass at a priority that gets it built promptly,
       rather than noting it for later. Name in the item what is in the release.
+
+      Third, audit the work closed since your last pass, which the pass
+      carries with what landed for each, against every standing goal.
+      Record each item in your block's audits: the goals you checked and
+      what you found. For an item that breaks one, admit a correction at
+      priority 0 naming the closed items it corrects in "corrects", or
+      widen the open correction the duplicate check names. At most three
+      corrections a pass, taking the violation shared by the most closed
+      items first; mark the rest deferred. Where a program manager whose
+      lane is a standing goal already audited an item, the pass carries
+      its findings: read them, and do not audit that item against that
+      goal again.
 
       End with a durable report. Put any questions for the operator at the
       top; when nothing needs him, say so and stop.
