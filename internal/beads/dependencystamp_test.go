@@ -44,6 +44,9 @@ func TestTrackerRunsInUTC(t *testing.T) {
 // that carries them. Every sampled item was created with its link — `bd create
 // --parent`, or a blocker named at admission — so the instant each link was
 // really made is the item's own creation, give or take the second bd takes.
+// The sample is read the way the harness reads work items, through
+// decodeWorkItemsIn, so what is held is Dependency.CreatedAt as a reader gets
+// it.
 func TestDependencyStampsFromTheExportAreCorrected(t *testing.T) {
 	t.Parallel()
 	file, err := os.Open(filepath.Join("testdata", "dependency-stamps.jsonl"))
@@ -51,36 +54,50 @@ func TestDependencyStampsFromTheExportAreCorrected(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	zone := pacific(t)
-	corrected, untouched := 0, 0
+	var lines []string
+	written := map[string]string{}
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
 		var raw rawWorkItem
 		if err := json.Unmarshal(scanner.Bytes(), &raw); err != nil {
 			t.Fatal(err)
 		}
-		created := admittedAt(raw.CreatedAt)
 		for _, dependency := range raw.Dependencies {
-			written := admittedAt(dependency.CreatedAt)
-			got := dependencyCreatedAt(dependency.CreatedAt, created, zone)
-			if !written.Before(created.Add(-dependencyStampSlack)) {
-				// A link stamped after its item is left as written, whatever its
-				// writer's zone was: nothing in the stamp says it is wrong.
-				if !got.Equal(written) {
-					t.Errorf("%s -> %s: read %s, want %s as written", raw.ID, dependency.DependsOnID, got, written)
-				}
-				untouched++
-				continue
-			}
-			if gap := got.Sub(created); gap < -5*time.Second || gap > 5*time.Second {
-				t.Errorf("%s -> %s: written %s, read %s, want within seconds of the item's creation at %s",
-					raw.ID, dependency.DependsOnID, dependency.CreatedAt, got.Format(time.RFC3339), raw.CreatedAt)
-			}
-			corrected++
+			written[raw.ID+" -> "+dependency.DependsOnID] = dependency.CreatedAt
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		t.Fatal(err)
+	}
+	items, err := decodeWorkItemsIn([]byte("["+strings.Join(lines, ",")+"]"), pacific(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	corrected, untouched := 0, 0
+	for _, item := range items {
+		for _, dependency := range item.Dependencies {
+			link := item.ID + " -> " + dependency.ID
+			stamp := admittedAt(written[link])
+			if stamp.IsZero() {
+				t.Fatalf("%s: the sample has no stamp for this link", link)
+			}
+			got := dependency.CreatedAt
+			if !stamp.Before(item.CreatedAt.Add(-dependencyStampSlack)) {
+				// A link stamped after its item is left as written, whatever its
+				// writer's zone was: nothing in the stamp says it is wrong.
+				if !got.Equal(stamp) {
+					t.Errorf("%s: read %s, want %s as written", link, got, stamp)
+				}
+				untouched++
+				continue
+			}
+			if gap := got.Sub(item.CreatedAt); gap < -5*time.Second || gap > 5*time.Second {
+				t.Errorf("%s: written %s, read %s, want within seconds of the item's creation at %s",
+					link, written[link], got.Format(time.RFC3339), item.CreatedAt.Format(time.RFC3339))
+			}
+			corrected++
+		}
 	}
 	if corrected < 10 || untouched < 1 {
 		t.Fatalf("sample corrected %d link(s) and left %d alone, want at least 10 and 1", corrected, untouched)

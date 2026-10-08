@@ -1867,13 +1867,20 @@ func decodeSingleWorkItem(data []byte) (WorkItem, error) {
 }
 
 func decodeWorkItems(data []byte) ([]WorkItem, error) {
+	return decodeWorkItemsIn(data, time.Local)
+}
+
+// decodeWorkItemsIn is decodeWorkItems with the zone the tracker's links were
+// written in named, which dependencyCreatedAt reads a provably early stamp in.
+// The harness reads in its own machine's zone; a test names one.
+func decodeWorkItemsIn(data []byte, writerZone *time.Location) ([]WorkItem, error) {
 	var rawItems []rawWorkItem
 	if err := decodeJSON(data, &rawItems); err != nil {
 		return nil, fmt.Errorf("decode bd work item: %w", err)
 	}
 	items := make([]WorkItem, 0, len(rawItems))
 	for _, raw := range rawItems {
-		item, err := convertWorkItem(raw)
+		item, err := convertWorkItemIn(raw, writerZone)
 		if err != nil {
 			return nil, err
 		}
@@ -1883,6 +1890,10 @@ func decodeWorkItems(data []byte) ([]WorkItem, error) {
 }
 
 func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
+	return convertWorkItemIn(raw, time.Local)
+}
+
+func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, error) {
 	if err := validateIssueID(raw.ID); err != nil {
 		return WorkItem{}, fmt.Errorf("bd returned invalid work item: %w", err)
 	}
@@ -1915,7 +1926,7 @@ func convertWorkItem(raw rawWorkItem) (WorkItem, error) {
 		// and the created_at there is when that other item was made.
 		var linked time.Time
 		if dependency.DependsOnID != "" {
-			linked = dependencyCreatedAt(dependency.CreatedAt, item.CreatedAt, time.Local)
+			linked = dependencyCreatedAt(dependency.CreatedAt, item.CreatedAt, writerZone)
 		}
 		if id != "" {
 			item.Dependencies = append(item.Dependencies, Dependency{
