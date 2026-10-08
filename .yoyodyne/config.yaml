@@ -343,6 +343,13 @@ checks:
 path_checks:
   - command: make adoption
     paths: scripts/walk-adoption.paths
+  # The Codex native-resume test, the one check here that keeps the provider
+  # CLIs on its search path; every other check runs without them.
+  # docs/configuration/runs.md says why it runs only for a change touching what
+  # scripts/codex-resume.paths lists.
+  - command: make codex-resume
+    paths: scripts/codex-resume.paths
+    needs_provider_clis: true
 
 # Every agent is stated in full: nothing about them is inherited. A model
 # selector that names a family, such as "opus", floats to that family's current
