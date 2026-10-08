@@ -525,8 +525,9 @@ func TestProjectDirectoryIsTheProjectNotTheConfigurationDirectory(t *testing.T) 
 
 // earlierHomeReaders are the files allowed to name the configurations home
 // earlier builds kept at ~/.config/yoyodyne: the migration that moves what is
-// there, and nothing else. It is empty until the migration lands.
-var earlierHomeReaders = map[string]bool{}
+// there, which is also where the machine file's fallback finds it until then,
+// and the command that runs it, whose usage says where it reads.
+var earlierHomeReaders = map[string]bool{"internal/home/migrate.go": true, "internal/cli/home.go": true}
 
 // Nothing but the migration reads the earlier configurations home. The behaviour
 // tests above show discovery and the machine file no longer look there; this

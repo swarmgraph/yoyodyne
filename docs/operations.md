@@ -772,8 +772,10 @@ It is `YOYODYNE_STATE_HOME` where a shell exports it, otherwise the
 `~/.yoyodyne` does not exist, or holds only `machine.yaml`, and the earlier
 builds' default does (`~/Library/Application Support/Yoyodyne/state` on macOS),
 the earlier one is kept, because that is where the state is; nothing moves it on
-its own. A `machine.yaml` left in `~/.config/yoyodyne`, where earlier builds
-read it, is not read.
+its own, and [`yoyo home migrate`](#moving-into-the-machine-home) is what does.
+A `machine.yaml` left in `~/.config/yoyodyne`, where earlier builds read it, is
+read while `~/.yoyodyne/machine.yaml` does not exist, so the home it names is
+not lost before the migration moves the file.
 
 Inside it, each project has a directory of its own, `projects/<product id>/`,
 holding `repository.json` — which repository the id is bound to — and the
@@ -852,6 +854,57 @@ that way until it is moved), each product's checkout has its own marker, and the
 root one pause stops every product on it. Moving one product's state gives it
 a pause of its own. Moving every product's state together keeps one pause, and
 that means following the steps above in each product's checkout.
+
+### Moving into the machine home
+
+A build that finds the state in the earlier builds' home
+(`~/Library/Application Support/Yoyodyne/state` on macOS) and none in
+`~/.yoyodyne` moves nothing on its own: it keeps using the earlier home, says so
+once on every command that opens it and on `yoyo doctor`, and names the command
+that moves it. A run a deployed build's restart preserved is still where it was,
+so the session that comes back re-adopts it. `yoyo home migrate` moves it:
+
+```sh
+yoyo home migrate        # from the product's checkout, so its binding is written from it
+```
+
+It moves nothing while any run, conversation turn, or recurring pass is in
+flight, and says in one sentence which ones and in which product — a run a live
+process holds, a turn a live process is taking, the watch session and the passes
+it has claimed, the supervisor, the Slack sink. A run a redeploy preserved, with
+no process behind it, is not in flight and moves with everything else. So let
+the runs finish, or stop the product with `yoyo stop`, knowing that stopping the
+watch session cancels the runs it is hosting with their branches and worktrees
+kept, and run it again. Once nothing is in flight it moves, in order, each
+product's records — runs, the triage docket, collected reports, conversations
+and memory, sweep and pass records — from `products/<id>/` into
+`projects/<id>/state/`; each external configuration from
+`~/.config/yoyodyne/projects/<hash>/`, with whatever was kept beside it, into
+`projects/<id>/` for the id the file names; each worktree into
+`projects/<id>/worktrees/`, telling Git where it now is with
+`git worktree repair` and rewriting the worktree path on the run record that
+names it, with the old path kept beside it on the record; the operator's hold,
+the provider accounts, and the logs to the top; and
+`~/.config/yoyodyne/machine.yaml` to `~/.yoyodyne/machine.yaml` where it exists.
+It writes each project's binding from the checkout it was run from, from a moved
+worktree, or from the repository an external configuration names, and any it
+cannot is written by that project's next start. It then prints what it moved and
+what it left behind, naming each, and leaves a file in the emptied home naming
+`~/.yoyodyne`, so each checkout's [state-root marker](#where-the-state-is-and-moving-it)
+follows the state to its new place on its next command rather than refusing.
+Every step is one move that is made or not, so a migration that stops part way
+names what it did not move, marked `NOT MOVED`, and running it again finishes
+it. A home `state_root` or `XDG_STATE_HOME` names is laid out the new way where
+it stands, and `YOYODYNE_STATE_HOME` set in the shell keeps the migration
+deferred: the command refuses rather than move a home that shell chose.
+
+**Do not create `~/.yoyodyne` by hand before migrating.** The harness uses the
+earlier home only while `~/.yoyodyne` does not exist, or holds nothing but
+`machine.yaml`, so creating it for any other reason points the next start at an
+empty home, and every product starts as if it had no history. If that has
+happened, move whatever was put there aside, so that it holds at most
+`machine.yaml`, and the next start is back on the earlier home; then run the
+migration.
 
 ## Pausing everything, and resuming it
 

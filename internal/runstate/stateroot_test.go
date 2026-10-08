@@ -71,26 +71,50 @@ func TestTheStateRootResolvesInTheOrderTheDesignRules(t *testing.T) {
 	}
 }
 
-// The machine file is read from the machine home and nowhere else: one left in
-// the configurations home earlier builds kept it in, wherever YOYODYNE_CONFIG_HOME
-// or XDG_CONFIG_HOME pointed that, moves nothing.
-func TestAMachineFileInTheEarlierConfigurationsHomeIsNotRead(t *testing.T) {
+// Until the migration moves it, a machine file left where earlier builds kept
+// it — ~/.config/yoyodyne, or wherever YOYODYNE_CONFIG_HOME or XDG_CONFIG_HOME
+// pointed that home — is read when the machine home holds none, so a machine
+// whose state_root is set there resolves the home it always did rather than
+// refusing every command. One in the machine home is the one read wherever it
+// exists.
+func TestTheEarlierMachineFileIsReadOnlyWhileTheMachineHomeHasNone(t *testing.T) {
 	t.Parallel()
 
-	m := newMachine(t)
-	relocated := t.TempDir()
-	m.env["YOYODYNE_CONFIG_HOME"] = relocated
-	m.env["XDG_CONFIG_HOME"] = filepath.Join(m.home, "xdg")
-	for _, directory := range []string{relocated, filepath.Join(m.home, "xdg", "yoyodyne"), filepath.Join(m.home, ".config", "yoyodyne")} {
+	write := func(t *testing.T, directory, content string) string {
+		t.Helper()
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(directory, MachineFileName), []byte("state_root: /earlier\n"), 0o644); err != nil {
+		path := filepath.Join(directory, MachineFileName)
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		return path
 	}
-	if got := m.resolve(t); got.Path != filepath.Join(m.home, ".yoyodyne") || got.Origin != RootOriginDefault {
-		t.Fatalf("ResolveRoot() = %+v, want ~/.yoyodyne with the earlier machine files unread", got)
+
+	m := newMachine(t)
+	earlier := write(t, filepath.Join(m.home, ".config", "yoyodyne"), "state_root: /earlier\n")
+	if got := m.resolve(t); got.Path != "/earlier" || got.Origin != "machine:"+earlier {
+		t.Fatalf("ResolveRoot() = %+v, want the earlier machine file's state_root, naming that file", got)
+	}
+
+	relocated := newMachine(t)
+	relocated.env["YOYODYNE_CONFIG_HOME"] = filepath.Join(relocated.home, "relocated")
+	named := write(t, filepath.Join(relocated.home, "relocated"), "state_root: /relocated\n")
+	write(t, filepath.Join(relocated.home, ".config", "yoyodyne"), "state_root: /not-this\n")
+	if got := relocated.resolve(t); got.Path != "/relocated" || got.Origin != "machine:"+named {
+		t.Fatalf("ResolveRoot() = %+v, want the file in the configurations home YOYODYNE_CONFIG_HOME named", got)
+	}
+
+	current := m.writeMachineFile(t, "state_root: /current\n")
+	if got := m.resolve(t); got.Path != "/current" || got.Origin != "machine:"+current {
+		t.Fatalf("ResolveRoot() = %+v, want the machine home's file over the earlier one", got)
+	}
+
+	broken := newMachine(t)
+	write(t, filepath.Join(broken.home, ".config", "yoyodyne"), "state_rot: /typo\n")
+	if _, err := ResolveRoot(broken.getenv, broken.homeDir, "linux"); err == nil || !strings.Contains(err.Error(), filepath.Join(".config", "yoyodyne")) {
+		t.Fatalf("ResolveRoot() error = %v, want the earlier file refused by name like the current one", err)
 	}
 }
 

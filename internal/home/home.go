@@ -173,14 +173,32 @@ type machineDocument struct {
 
 // machineStateRoot is the home the machine file sets, or nothing where there is
 // no file or it sets none.
-func machineStateRoot(userHomeDir func() (string, error)) (string, string, error) {
+//
+// Until the migration has moved it, a machine whose file is still where earlier
+// builds kept it — EarlierMachinePath says where — has that file read in place
+// of the absent one, because the home it names is where that machine's
+// state is: reading neither would resolve another home, and every command from
+// a checkout whose marker names the first would refuse to start. A file in the
+// machine home is the one read wherever it exists.
+func machineStateRoot(getenv func(string) string, userHomeDir func() (string, error)) (string, string, error) {
 	machine, err := MachinePath(userHomeDir)
 	if err != nil {
 		return "", "", err
 	}
 	source, err := os.ReadFile(machine)
 	if errors.Is(err, os.ErrNotExist) {
-		return "", machine, nil
+		earlier, earlierErr := EarlierMachinePath(getenv, userHomeDir)
+		if earlierErr != nil {
+			return "", machine, nil
+		}
+		earlierSource, earlierErr := os.ReadFile(earlier)
+		if earlierErr != nil {
+			if errors.Is(earlierErr, os.ErrNotExist) {
+				return "", machine, nil
+			}
+			return "", earlier, fmt.Errorf("read the machine configuration %s: %w", earlier, earlierErr)
+		}
+		machine, source, err = earlier, earlierSource, nil
 	}
 	if err != nil {
 		return "", machine, fmt.Errorf("read the machine configuration %s: %w", machine, err)
@@ -205,7 +223,9 @@ func machineStateRoot(userHomeDir func() (string, error)) (string, string, error
 }
 
 // Resolve is the one resolution of the home every process makes:
-// YOYODYNE_STATE_HOME, then state_root in `~/.yoyodyne/machine.yaml`, then
+// YOYODYNE_STATE_HOME, then state_root in `~/.yoyodyne/machine.yaml` (or, until
+// the migration moves it, the earlier builds' machine file where that one is
+// absent), then
 // XDG_STATE_HOME/yoyodyne, then Default. The variable wins because it is an
 // explicit instruction for this shell; the machine key is the operator's
 // standing answer for the machine; the last two are what a machine nobody
@@ -220,7 +240,7 @@ func Resolve(getenv func(string) string, userHomeDir func() (string, error), goo
 		}
 		return Resolved{Path: filepath.Clean(value), Origin: OriginEnvironment}, nil
 	}
-	machine, machinePath, err := machineStateRoot(userHomeDir)
+	machine, machinePath, err := machineStateRoot(getenv, userHomeDir)
 	if err != nil {
 		return Resolved{}, err
 	}

@@ -3242,6 +3242,11 @@ type State struct {
 	// differently once it is known to have begun in the session a re-adoption
 	// resumed.
 	Readopted *RedeployStop `json:"readopted,omitempty"`
+	// HomeMigration is the one write to a run record the harness makes outside
+	// a run: `yoyo home migrate` moving the run's worktree into the machine home
+	// and rewriting WorktreePath to where it now is, with the path it had kept
+	// here beside it.
+	HomeMigration *HomeMigration `json:"home_migration,omitempty"`
 	// StallContinuationRefused is why the harness declined to continue a first
 	// silent-stream stall itself, where what declined it is something only a
 	// person settles — a worktree somebody has been in, a change that is no
@@ -3810,6 +3815,11 @@ func (s State) Validate() error {
 		// continuation nothing will ever make.
 		if s.Status.Terminal() {
 			problems = append(problems, errors.New("tracker_pause requires a run that is still in flight"))
+		}
+	}
+	if s.HomeMigration != nil {
+		if err := s.HomeMigration.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("home_migration: %w", err))
 		}
 	}
 	if s.RedeployStop != nil {

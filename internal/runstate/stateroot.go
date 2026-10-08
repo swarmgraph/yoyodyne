@@ -52,8 +52,8 @@ func MachinePath(userHomeDir func() (string, error)) (string, error) {
 // the root agrees it with the checkout's marker first, through AgreeRoot, which
 // is what the command package's productStateRoot does; only the surfaces that
 // report the root without opening anything under it — `yoyo config show`,
-// `yoyo doctor`, and `yoyo project list` and `rename`, which act on the home
-// rather than on one repository — call this without that.
+// `yoyo doctor`, and `yoyo project list` and `rename` and `yoyo home migrate`,
+// which act on the home rather than on one repository — call this without that.
 // TestNothingOpensTheStateRootUnguarded in the command package holds every
 // caller to that list.
 func ResolveRoot(getenv func(string) string, userHomeDir func() (string, error), goos string) (ResolvedRoot, error) {
@@ -170,9 +170,22 @@ func ReadRootMarker(checkout string) (RootMarker, error) {
 }
 
 // Agrees reports whether the marker leaves a process on this root free to
-// start: nothing recorded yet, or the same directory recorded.
+// start: nothing recorded yet, the same directory recorded, or a recorded home
+// `yoyo home migrate` emptied into this one.
 func (m RootMarker) Agrees(root string) bool {
-	return m.Recorded == "" || sameRoot(m.Recorded, root)
+	return m.Recorded == "" || sameRoot(m.Recorded, root) || m.MovedTo(root)
+}
+
+// MovedTo reports a marker naming a home the migration emptied, whose own
+// marker names root as where its state went. That is the same state at a new
+// path rather than a second root, so it splits nothing, and AgreeRoot records
+// the new path in the marker's place.
+func (m RootMarker) MovedTo(root string) bool {
+	if m.Recorded == "" {
+		return false
+	}
+	moved, ok := home.MovedTo(m.Recorded)
+	return ok && sameRoot(moved, root)
 }
 
 // RootGone reports whether the marker names a root that is not on disk. Such a
@@ -270,6 +283,22 @@ func AgreeRoot(checkout string, resolved ResolvedRoot) error {
 		return &SplitRootError{Marker: read.Path, Recorded: read.Recorded, Resolved: resolved,
 			WrittenBy: read.WrittenBy(), Gone: read.RootGone()}
 	}
+	if !created && read.MovedTo(resolved.Path) && !sameRoot(read.Recorded, resolved.Path) {
+		return replaceRootMarker(root, read.Path, resolved)
+	}
+	return nil
+}
+
+// replaceRootMarker records a new root in a checkout's marker, writing who did
+// first, so a marker never stands beside the previous writer's account of a root
+// it no longer names.
+func replaceRootMarker(root repowrite.Root, marker string, resolved ResolvedRoot) error {
+	if _, err := root.WriteFile(RootWriterName, writerAccount(time.Now())); err != nil {
+		return fmt.Errorf("record who rebound the state root beside %s: %w", marker, err)
+	}
+	if _, err := root.WriteFile(RootMarkerName, []byte(resolved.Path+"\n")); err != nil {
+		return fmt.Errorf("rebind the state root in %s: %w", marker, err)
+	}
 	return nil
 }
 
@@ -316,13 +345,8 @@ func RebindRoot(checkout string, resolved ResolvedRoot) (Rebinding, error) {
 	if err != nil {
 		return Rebinding{}, fmt.Errorf("rebind the state root in %s: %w", gitDirectory, err)
 	}
-	// The account is written first, so a marker never stands beside the
-	// previous writer's account of a root it no longer names.
-	if _, err := root.WriteFile(RootWriterName, writerAccount(time.Now())); err != nil {
-		return Rebinding{}, fmt.Errorf("record who rebound the state root beside %s: %w", before.Path, err)
-	}
-	if _, err := root.WriteFile(RootMarkerName, []byte(resolved.Path+"\n")); err != nil {
-		return Rebinding{}, fmt.Errorf("rebind the state root in %s: %w", before.Path, err)
+	if err := replaceRootMarker(root, before.Path, resolved); err != nil {
+		return Rebinding{}, err
 	}
 	return Rebinding{Before: before, Root: resolved, Replaced: true}, nil
 }
