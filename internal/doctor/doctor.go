@@ -42,6 +42,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -574,6 +575,15 @@ func (d *diagnosis) checkStateRoot(repository string) Finding {
 		}
 	}
 	summary := fmt.Sprintf("the durable records live in %s, from %s", root, resolved.Origin)
+	if said, still := home.StillEarlier(resolved); still && markerErr == nil {
+		return Finding{
+			Check:   "state",
+			Status:  StatusWarning,
+			Summary: summary + "; " + said,
+			Detail:  "do not create ~/.yoyodyne by hand before migrating: a home holding anything is the one every start uses, so an empty one points the next start at no state",
+			Remedy:  home.MigrateCommand,
+		}
+	}
 	switch {
 	case markerErr != nil:
 		return Finding{

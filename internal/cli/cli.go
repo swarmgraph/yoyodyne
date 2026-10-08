@@ -116,6 +116,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return runStateRoot(args[1:], stdout, stderr)
 	case "project":
 		return runProject(args[1:], stdout, stderr)
+	case "home":
+		return runHome(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown command %q\n\n", args[0])
 		printUsage(stderr)
@@ -781,6 +783,7 @@ Commands:
   dashboard         serve the read model to a browser on this machine, read-only
   state-root        rebind a state-root marker that names a root no longer on disk
   project           bind a repository to its project, rename a project, and list them
+  home              move the state earlier builds kept into the machine home
   version           print version information
   help              show this help`)
 }

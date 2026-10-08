@@ -559,3 +559,46 @@ func (r Root) RenameDirectory(from, to string) (string, error) {
 	}
 	return target, nil
 }
+
+// Move moves the file or directory one root-relative path names under one root
+// to a root-relative path under another, and returns where it landed. The two
+// roots may be the same.
+//
+// It is RenameDirectory across two roots, for `yoyo home migrate`, which moves a
+// machine's records from the home earlier builds kept them in to the machine
+// home: both ends are confined to their own root before anything moves, a
+// source that is a symlink is refused because the link would move and what it
+// names would not, and a destination that already exists is refused rather than
+// replaced. directoryMode is what the directories created above the
+// destination are given. A move is one rename, so it is either made or not: two
+// roots on different filesystems refuse rather than being copied, and the
+// source is left where it was.
+func Move(fromRoot Root, from string, toRoot Root, to string, directoryMode fs.FileMode) (string, error) {
+	cleanFrom, source, err := fromRoot.resolve(from)
+	if err != nil {
+		return "", err
+	}
+	cleanTo, target, err := toRoot.resolve(to)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return "", fmt.Errorf("inspect %s: %w", source, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", fmt.Errorf("refusing to move %s: it is a symlink", source)
+	}
+	if _, err := os.Lstat(target); err == nil {
+		return "", fmt.Errorf("refusing to move %s to %s: %s already exists", source, target, cleanTo)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("inspect %s: %w", target, err)
+	}
+	if err := os.MkdirAll(filepath.Dir(target), directoryMode); err != nil {
+		return "", fmt.Errorf("create %s: %w", path.Dir(cleanTo), err)
+	}
+	if err := os.Rename(source, target); err != nil {
+		return "", fmt.Errorf("move %s to %s: %w", cleanFrom, target, err)
+	}
+	return target, nil
+}

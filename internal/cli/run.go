@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -268,8 +269,17 @@ func productStateRootFrom(resolved config.Resolved, getenv func(string) string, 
 	if agreement.Bound {
 		fmt.Fprintln(os.Stderr, agreement.Says(string(resolved.Config.Product.ID)))
 	}
+	if resolvedRoot, err := runstate.ResolveRoot(getenv, homeDir, goos); err == nil {
+		if said, still := home.StillEarlier(resolvedRoot); still {
+			stillEarlierNotice.Do(func() { fmt.Fprintln(os.Stderr, said) })
+		}
+	}
 	return root, nil
 }
+
+// stillEarlierNotice says once per process, rather than once per store opened,
+// that the state is still in the earlier home and which command moves it.
+var stillEarlierNotice sync.Once
 
 // agreeProductStateRoot is productStateRootFrom without the sentence a first
 // start prints, for a verb that says what it did in a report of its own:

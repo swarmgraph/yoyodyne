@@ -240,6 +240,7 @@ func TestNothingOpensTheStateRootUnguarded(t *testing.T) {
 		"internal/doctor/doctor.go": true, // doctor: reports, reads the marker only
 		"internal/cli/stateroot.go": true, // state-root rebind: replaces only a marker whose root is gone
 		"internal/cli/project.go":   true, // project list and rename: act on the home, in no one repository
+		"internal/cli/home.go":      true, // home migrate: moves the whole home, which every checkout's marker then follows
 	}
 	// home.Resolve is the resolution itself, which runstate.ResolveRoot answers
 	// with; outside those two packages only configuration discovery calls it, to

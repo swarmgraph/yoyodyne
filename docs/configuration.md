@@ -182,9 +182,11 @@ a committed `.yoyodyne/` is read where it is. `repository.json` is the
 [binding](#a-product-id-names-one-repository-on-the-machine). A home the earlier
 builds laid out keeps each product's records under `products/<product id>/` and
 its worktrees under `worktrees/<product id>/` instead, and is read that way
-until it is moved; the harness never moves it on its own. Nothing of the
-harness's is kept anywhere else on the machine: the configurations home earlier
-builds kept at `~/.config/yoyodyne` is no longer read.
+until [`yoyo home migrate`](operations.md#moving-into-the-machine-home) moves
+it; the harness never moves it on its own. Nothing of the harness's is kept
+anywhere else on the machine once that has run: the configurations home earlier
+builds kept at `~/.config/yoyodyne` is read only for a `machine.yaml` still left
+there, and the migration moves that and every external configuration out of it.
 
 Committing it is the default rather than a requirement, and a contributor to a
 repository they do not own has two supported ways not to, both under
@@ -627,7 +629,10 @@ moves the rest of the home, because it is the file that says where that is. A
 `~/.yoyodyne` holding nothing but it does not count as a home in use, so
 writing one on a machine still running from the earlier builds' home moves
 nothing by itself. A `machine.yaml` left in `~/.config/yoyodyne`, where earlier
-builds read it, is not read. `state_root` is its only key; it must be
+builds read it, is read in its place while `~/.yoyodyne/machine.yaml` does not
+exist, so a machine whose `state_root` is set there keeps its home until
+[`yoyo home migrate`](operations.md#moving-into-the-machine-home) moves the file;
+once `~/.yoyodyne/machine.yaml` exists it is the one read. `state_root` is its only key; it must be
 an absolute path, and a key it does not have is refused rather than ignored. A
 missing file, an empty one, and an empty `state_root` all leave the root where
 the layers below put it.
