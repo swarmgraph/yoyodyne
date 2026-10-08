@@ -69,6 +69,18 @@ func (a Attention) Since() time.Time {
 		if a.FailingTask != nil {
 			return a.FailingTask.FirstAt
 		}
+	case AttentionServiceCopies:
+		// Since the latest copy started, which is when there came to be more than
+		// one.
+		if a.ServiceCopies != nil {
+			var latest time.Time
+			for _, running := range a.ServiceCopies.Copies {
+				if running.StartedAt.After(latest) {
+					latest = running.StartedAt
+				}
+			}
+			return latest
+		}
 	case AttentionOperatorAction:
 		if a.OperatorAction != nil {
 			return a.OperatorAction.Since

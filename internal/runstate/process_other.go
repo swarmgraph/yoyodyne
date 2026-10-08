@@ -11,3 +11,8 @@ import "errors"
 func processIsRunning(int) (bool, error) {
 	return false, errors.New("observing a lease holder is unsupported on this platform")
 }
+
+// LookProcess is the same question, unanswerable here for the same reason.
+func LookProcess(int) (ProcessLook, error) {
+	return ProcessLook{}, errors.New("observing a process is unsupported on this platform")
+}

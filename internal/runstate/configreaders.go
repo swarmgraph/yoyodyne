@@ -292,7 +292,53 @@ func (s *ConfigReaderStore) recordIn(root *repowrite.PinnedRoot, reader ConfigRe
 // watch and supervisor replace their builds with exec, which keeps the PID.
 // A record a newer build wrote is read tolerantly, for the reason the
 // supervision record is: the reader is often the older build.
+//
+// A recorded process is still there only while it is the process that wrote
+// the record: one that has exited and waits for its parent to collect it, and
+// one that started after the record under the same id, are not the part
+// (process_look.go says why).
 func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
+	processes, err := s.Processes()
+	var live []ConfigReader
+	for _, process := range processes {
+		if process.Running() {
+			live = append(live, process.Reader)
+		}
+	}
+	return live, err
+}
+
+// RecordedProcess is one part's latest record beside what the operating system
+// says now of the process it names. Superseded lists the older records of the
+// same process, which a restart in place leaves behind.
+type RecordedProcess struct {
+	Reader     ConfigReader
+	Look       ProcessLook
+	Superseded []ConfigReader
+}
+
+// Running is the recorded process still running as the part that recorded it.
+func (p RecordedProcess) Running() bool {
+	return p.Look.Running() && p.Look.Is(p.Reader.StartedAt)
+}
+
+// Exited is the recorded process having exited without its parent collecting
+// it, which only that parent can end.
+func (p RecordedProcess) Exited() bool {
+	return p.Look.Exists && p.Look.Exited && p.Look.Is(p.Reader.StartedAt)
+}
+
+// Gone is nothing left of the recorded process: no process has the id, or the
+// one that has it started after the record was written.
+func (p RecordedProcess) Gone() bool {
+	return !p.Look.Is(p.Reader.StartedAt)
+}
+
+// Processes is the latest record of every recorded process, in the order of
+// their names, with what the operating system says of each now. A process
+// whose state could not be read is a problem in the returned error rather than
+// a process reported either way.
+func (s *ConfigReaderStore) Processes() ([]RecordedProcess, error) {
 	entries, err := os.ReadDir(s.root)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
@@ -300,17 +346,12 @@ func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read configuration reader records: %w", err)
 	}
-	running := s.running
-	if running == nil {
-		running = processIsRunning
-	}
-	var readers []ConfigReader
 	var problems []error
 	type process struct {
 		service string
 		pid     int
 	}
-	latest := make(map[process]ConfigReader)
+	latest := make(map[process]*RecordedProcess)
 	for _, entry := range entries {
 		name := entry.Name()
 		if entry.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasPrefix(name, ".") {
@@ -325,26 +366,97 @@ func (s *ConfigReaderStore) Running() ([]ConfigReader, error) {
 		// latest startup, and duplicate copies still describe one process.
 		key := process{reader.Service, reader.PID}
 		previous, exists := latest[key]
-		if !exists || reader.StartedAt.After(previous.StartedAt) {
-			latest[key] = reader
+		switch {
+		case !exists:
+			latest[key] = &RecordedProcess{Reader: reader}
+		case reader.StartedAt.After(previous.Reader.StartedAt):
+			previous.Superseded = append(previous.Superseded, previous.Reader)
+			previous.Reader = reader
+		default:
+			previous.Superseded = append(previous.Superseded, reader)
 		}
 	}
-	for _, reader := range latest {
-		readers = append(readers, reader)
+	processes := make([]RecordedProcess, 0, len(latest))
+	for _, recorded := range latest {
+		processes = append(processes, *recorded)
 	}
-	sort.Slice(readers, func(i, j int) bool { return readers[i].InstanceID() < readers[j].InstanceID() })
-	live := readers[:0]
-	for _, reader := range readers {
-		alive, err := running(reader.PID)
+	sort.Slice(processes, func(i, j int) bool {
+		return processes[i].Reader.InstanceID() < processes[j].Reader.InstanceID()
+	})
+	looked := processes[:0]
+	for _, recorded := range processes {
+		look, err := s.look(recorded.Reader)
 		if err != nil {
-			problems = append(problems, fmt.Errorf("whether the %s service's process %d is running could not be read: %w", reader.Service, reader.PID, err))
+			problems = append(problems, fmt.Errorf("whether the %s service's process %d is running could not be read: %w", recorded.Reader.Service, recorded.Reader.PID, err))
 			continue
 		}
-		if alive {
-			live = append(live, reader)
+		recorded.Look = look
+		looked = append(looked, recorded)
+	}
+	return looked, errors.Join(problems...)
+}
+
+// look asks about one recorded process. A test's process check answers
+// whether it runs and nothing else, so a process it calls running is the one
+// the record names.
+func (s *ConfigReaderStore) look(reader ConfigReader) (ProcessLook, error) {
+	if s.running != nil {
+		alive, err := s.running(reader.PID)
+		return ProcessLook{Exists: alive}, err
+	}
+	return LookProcess(reader.PID)
+}
+
+// Forget removes the records nothing reads any more: every record of a process
+// that is gone, and the superseded records of one that restarted in place. The
+// directory then holds the parts running rather than every start the product
+// has ever made. The latest record of a process that is not gone is kept, and
+// so is a record a later startup has replaced since it was read.
+func (s *ConfigReaderStore) Forget(process RecordedProcess) error {
+	forgotten := process.Superseded
+	if process.Gone() {
+		forgotten = append([]ConfigReader{process.Reader}, forgotten...)
+	}
+	if len(forgotten) == 0 {
+		return nil
+	}
+	root, err := s.pinWriteRoot()
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	lock, err := s.lockRecords(root)
+	if err != nil {
+		return err
+	}
+	defer func() { unlockStateFile(lock); closeStateFile(lock) }()
+	for _, reader := range forgotten {
+		relative, err := filepath.Rel(s.stateRoot, reader.recordPath)
+		if err != nil {
+			return err
+		}
+		encoded, err := root.ReadFile(relative)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		var current ConfigReader
+		if _, err := decodeTolerating(encoded, &current); err != nil {
+			return err
+		}
+		if current.InstanceID() != reader.InstanceID() {
+			continue
+		}
+		if err := root.Unchanged(); err != nil {
+			return err
+		}
+		if err := root.Remove(relative); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
 		}
 	}
-	return live, errors.Join(problems...)
+	return root.Unchanged()
 }
 
 func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {

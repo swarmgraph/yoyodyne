@@ -104,6 +104,12 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		AttentionDegradedService: {degradedServiceAttention(child),
 			"the scheduler service is degraded: died 6 times in 10 minutes"},
 		AttentionConfigMismatch: {configMismatchAttention(mismatch), mismatch.Says()},
+		AttentionServiceCopies: {serviceCopiesAttention(ServiceCopies{Service: "slack", Deployed: "3d3d367a1b2c4d5e", Copies: []ServiceCopy{
+			{PID: 77, Build: "3d3d367a1b2c4d5e", StartedAt: moment.Add(-time.Hour), Supervised: true},
+			{PID: 99, Build: "1a2b3c4d5e6f7a8b", StartedAt: moment.Add(-2 * time.Hour), Behind: true},
+		}}),
+			"the slack service has 2 copies running, where one should run: pid 77 on build 3d3d367a1b2c since " + localMoment(moment.Add(-time.Hour)) +
+				" (the supervisor's); pid 99 on build 1a2b3c4d5e6f, an old build, since " + localMoment(moment.Add(-2*time.Hour)) + " (not the supervisor's, left running)"},
 		AttentionFailingTask: {failingTaskAttention(failingTask),
 			"the recurring task development-manager-sweep has failed before its first turn 2 times in a row since 2026-08-30T09:00:00Z: the harness refused the message it composed for the pass; latest: scheduled pass's message is 47768 bytes, limit is 32768"},
 		AttentionHold: {intakeHoldAttention(brake),
@@ -223,6 +229,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionDegradedService:   "scheduler",
 		AttentionFailingTask:       "development-manager-sweep",
 		AttentionConfigMismatch:    fixtures[AttentionConfigMismatch].entry.ConfigMismatch.InstanceID(),
+		AttentionServiceCopies:     "slack",
 		AttentionHold:              HoldIntake,
 		AttentionDirective:         "directive-4f2c",
 		AttentionOutage:            string(domain.ProviderUnauthenticated),

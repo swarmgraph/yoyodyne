@@ -929,6 +929,11 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		raised[entry.ID] = true
 		needs = append(needs, entry)
 	}
+	// More than one copy of a part running is a factory problem as well: a copy
+	// nobody accounts for posts, pulls, or reads beside the one that should.
+	copies := standing.Services.CopiesAttention()
+	standing.FactoryProblems = append(standing.FactoryProblems, copies...)
+	needs = append(needs, copies...)
 	// A watch session draining past its bound without restarting is a factory
 	// problem whatever the queue holds: it pulls nothing until it restarts, and
 	// from every other record it reads as a session at work. It is on the
