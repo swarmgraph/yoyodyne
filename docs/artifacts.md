@@ -18,6 +18,23 @@ files claiming one id refuse both, each naming the other.
 ./bin/yoyo artifact show v1-goals
 ```
 
+**Where these documents are kept.** By default they are committed in the
+project's own repository, beside the code they govern. A project whose
+configuration is [kept outside its
+repository](configuration.md#keeping-the-configuration-outside-the-repository)
+may keep them — the brief, the goals and every other specification, the designs,
+the decision records, and the invariants — in a [companion intent
+repository](configuration.md#keeping-the-intent-outside-the-repository-too)
+instead: a Git repository of their own in the project's directory in the machine
+home, which `yoyo init --external --intent` creates and `--intent-from` clones.
+The homes keep their names; every reader of them, from `yoyo artifact list` to
+the context a developer and a reviewer are handed and the management
+conversations' picture of the product, resolves them in the companion repository
+where the configuration names one and in the project's repository otherwise.
+What they are does not change: a write that lands, an approval, and a revision
+recorded from the command line land in that repository's checkout, for you to
+commit there.
+
 **The specifications directory is authoritative whole.** Everything filed under
 `product.specifications` — `docs/product` by default — is authoritative product
 intent, not only the brief and the goals: the non-goals, and any other document
@@ -214,7 +231,10 @@ written in.
 That needs `approvals.integration: automatic` too, because a reviewed run lands
 only where the project integrates automatically. Where it is `human`, nothing
 is confirmed by policy and you are asked as below, whatever the document's own
-policy says. A document confirmed while integration was automatic, whose run
+policy says. The same holds for a project that keeps its documents in a
+[companion intent repository](configuration.md#keeping-the-intent-outside-the-repository-too):
+no reviewed run promotes into that repository, so every document is put to you,
+and your confirmation writes it into that repository's checkout. A document confirmed while integration was automatic, whose run
 had not started when the setting changed, is put to you the same way, and the
 owning role is told.
 

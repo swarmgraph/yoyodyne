@@ -174,10 +174,13 @@ and at the top only what no single project owns:
     personas/            # its personas, beside it
     state/               # runs, conversations, spend, the docket, memory, reports
     worktrees/           # the developer worktrees of the bound repository
+    intent/              # the companion intent repository, where the project keeps one
 ```
 
 `config.yaml` and `personas/` are there only for a project whose configuration
-is [kept outside its repository](#keeping-the-configuration-outside-the-repository);
+is [kept outside its repository](#keeping-the-configuration-outside-the-repository),
+and `intent/` only for one that [keeps its intent there
+too](#keeping-the-intent-outside-the-repository-too);
 a committed `.yoyodyne/` is read where it is. `repository.json` is the
 [binding](#a-product-id-names-one-repository-on-the-machine). A home the earlier
 builds laid out keeps each product's records under `products/<product id>/` and
@@ -505,7 +508,9 @@ outside it is still refused, and the refusal names both roots. The artifact dire
 `product.specifications`, `product.invariants`, `product.designs`, and
 `product.decisions` — are the exceptions, and deliberately: each names a directory
 *inside the repository being worked on*, so all four resolve against
-`product.repository` and are refused if they leave it.
+`product.repository` and are refused if they leave it — or, for a project that
+[keeps its intent in a companion repository](#keeping-the-intent-outside-the-repository-too),
+against that repository instead.
 
 That refusal is checked twice. When the file loads it is a check on the text: a
 path that is absolute or climbs out with `..` is refused before any work is
@@ -531,7 +536,8 @@ refused rather than landing where nothing looks for it.
 
 A contributor to a repository they do not own has the configuration as theirs
 rather than the project's, and a pull request adding a tool directory nobody
-asked for is a pull request about the tool. There are two ways to keep it out.
+asked for is a pull request about the tool. There are two ways to keep it out,
+and a third step that keeps the project's intent out with it.
 
 **Keep it on disk and out of Git.** Discovery reads the checkout's filesystem
 and never consults the index, so an untracked `.yoyodyne/` loads exactly like a
@@ -600,7 +606,8 @@ Four things are worth knowing about it:
   project directory above it for a relative path to resolve against. The
   artifact directories are unaffected: `specifications`, `invariants`,
   `designs`, and `decisions` resolve against `product.repository` and go on
-  naming directories inside the repository being worked on.
+  naming directories inside the repository being worked on — unless the
+  project keeps its intent in a companion repository, below.
 - **It writes no artifact-home indexes.** `init` ordinarily puts a `README.md` at
   the door of each of the five artifact homes, and in a repository you are a
   guest in those are five untracked files in somebody else's `docs/` tree.
@@ -611,6 +618,73 @@ Four things are worth knowing about it:
 Either way, the project stops describing itself, which in this scenario is the
 intent: another clone, another machine, and anybody else working on it get no
 configuration at all, and `yoyo` there reports that it found none.
+
+### Keeping the intent outside the repository too
+
+The configuration is not the only thing of Yoyodyne's a project carries. Its
+intent — the brief, the goals, and the other specifications under
+`product.specifications`, the designs under `product.designs`, and the decision
+records and invariants under `product.decisions` and `product.invariants` — is
+ordinarily committed in the project's own repository. A project with an
+external configuration may keep all of it in a **companion intent
+repository** instead: an ordinary Git repository of its own, in the project's
+directory in the machine home, pushed and cloned wherever the team chooses.
+
+```sh
+cd ~/src/theirproject
+yoyo init --external --intent                    # create it, empty but for the indexes
+yoyo init --external --intent-from <its URL>     # or clone the one a teammate shares
+```
+
+Either writes the `intent` block into the configuration and makes the
+repository at `~/.yoyodyne/projects/<product id>/intent/`:
+
+```yaml
+intent:
+  repository: intent   # relative to the directory this configuration is in
+```
+
+`--intent` runs `git init` there and writes the index at the door of each
+artifact home into it rather than into the project's `docs/`; `--intent-from`
+clones it. Nothing is committed for you: commit what is there and push it where
+your team shares it. `yoyo setup` offers the same step — for a project with an
+external configuration it asks whether to keep the intent outside too, and
+offers to create a companion repository the configuration names and that is not
+there yet — and says what the repository holds either way.
+
+**Every reader of intent reads it there.** The homes keep meaning the same
+directories; what moves is the repository they are relative to. The artifact
+commands, the goals and their attributions, `yoyo stale`, `yoyo conformance`,
+the invariants delivered to a run, the specifications every developer and
+reviewer is handed, a document a work item cites, and the management
+conversations' picture of the product all resolve their root through one
+function, `config.Product.IntentRoot`, which answers the companion repository
+where the configuration names one and the project's repository otherwise. Intent
+read from the companion repository is read as its checkout stands, and the
+context says so, rather than at the project commit a review is measured
+against. A test drives a whole run against a project repository holding none of
+the harness's files.
+
+Four things are worth knowing about it:
+
+- **Only a configuration kept outside the repository may name one.** An
+  `intent` block in a committed `.yoyodyne/config.yaml` is refused when the
+  configuration loads: a committed configuration is already something of
+  Yoyodyne's in the repository, and every clone reads it while the companion
+  repository is a path on one machine. A path that is absolute or climbs out of
+  the project's directory is refused too.
+- **A missing companion repository is a problem `yoyo doctor` names**, with
+  `yoyo setup` as the remedy, because nothing can read the project's intent
+  until it is there.
+- **A document a role writes from a conversation is put to you.** A design
+  confirmed under an automatic policy ordinarily lands through a reviewed run
+  into the project's repository, and no reviewed run promotes into the companion
+  repository yet. So every document is confirmed by you, and your `y` writes it
+  into the companion repository's checkout, for you to commit there — as
+  `yoyo artifact approve` and `yoyo invariant` write there too.
+- **The tracker stays where it was.** The tracker's export under `.beads/` and
+  the developer-session instruction files are still the project's, so a fully
+  local adoption excludes them as above.
 
 ## Where the harness keeps its state: `state_root`
 
@@ -6572,6 +6646,11 @@ These are all errors, reported before any work is claimed:
   same four are checked again against the filesystem when something writes into
   them, which is where a symlink out of the repository is caught, and which is a
   refusal at the point of the write rather than at load;
+- an `intent.repository` that is absolute or climbs out of the directory the
+  configuration is in, or that is written in a configuration committed with the
+  repository, since a [companion intent
+  repository](#keeping-the-intent-outside-the-repository-too) exists to keep
+  everything of Yoyodyne's out of it;
 - a `product.shipped_documentation` entry that is empty, absolute, climbs out of
   the repository, or is not a Markdown file, since every entry is read into the
   Lead Product Manager's context as a description of what the product ships;

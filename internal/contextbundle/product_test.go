@@ -2057,3 +2057,42 @@ func TestTheDocketWindowListsWaitedStoppagesAfterEveryUndecidedOne(t *testing.T)
 		t.Fatalf("the docket did not say what remains, want %q:\n%s", want, crowded)
 	}
 }
+
+// A project that keeps its intent in a companion intent repository: the
+// conversation's specifications and the role's own documents are read there,
+// and nothing of them is looked for in the project's repository.
+func TestAssembleProductReadsIntentFromTheCompanionRepository(t *testing.T) {
+	t.Parallel()
+
+	project := t.TempDir()
+	intent := t.TempDir()
+	for path, content := range map[string]string{
+		"docs/product/brief.md": "# Brief\n\nThe companion brief.\n",
+		"docs/designs/sums.md":  "# Sums\n\nThe companion design.\n",
+	} {
+		full := filepath.Join(intent, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bundle, err := AssembleProduct(ProductRequest{
+		RepositoryRoot:          project,
+		IntentRoot:              intent,
+		SpecificationsDirectory: "docs/product",
+		RoleDocuments:           []DocumentSet{{Label: "Design", Directory: "docs/designs"}},
+	})
+	if err != nil {
+		t.Fatalf("AssembleProduct() error = %v", err)
+	}
+	for _, want := range []string{"The companion brief.", "The companion design."} {
+		if !strings.Contains(bundle.Text, want) {
+			t.Errorf("product context does not carry %q:\n%s", want, bundle.Text)
+		}
+	}
+	if bundle.SpecificationsIncluded != 1 {
+		t.Errorf("SpecificationsIncluded = %d, want 1", bundle.SpecificationsIncluded)
+	}
+}
