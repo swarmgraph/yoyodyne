@@ -49,6 +49,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/launchd"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -65,6 +66,7 @@ const (
 	stepTracker         = "tracker"
 	stepConfiguration   = "configuration"
 	stepTrackerRemote   = "tracker-remote"
+	stepIntent          = "intent-repository"
 	stepArtifactReadmes = "artifact-readmes"
 	stepSlack           = "slack"
 	stepSlackSecrets    = "slack-secrets"
@@ -275,7 +277,13 @@ func (s *setup) converge(ctx context.Context) setupReport {
 		// project itself: a repository configured before these existed has homes
 		// full of governed documents and nothing at the door of any of them, and
 		// this is the step that closes that for an installation that already
-		// works. `yoyo init` writes them for one that does not exist yet.
+		// works. `yoyo init` writes them for one that does not exist yet. Where
+		// the intent is kept is settled first, because that is the repository the
+		// indexes are written into.
+		s.record(s.ensureIntentRepository(ctx, resolved))
+		if reloaded, err := s.load(); err == nil {
+			resolved = reloaded
+		}
 		s.record(s.ensureArtifactHomeIndexes(resolved))
 		s.record(s.ensureSlackReporting(resolved))
 		// Reloaded rather than reused: the step above may have just turned
@@ -315,8 +323,26 @@ func (s *setup) load() (config.Resolved, error) {
 	return config.LoadResolved(s.configPath())
 }
 
+// A project with no configuration of its own may have one kept outside it, in
+// the machine home's project directory bound to this repository, which is what
+// `yoyo init --external` writes; setup reads that one rather than offering to
+// write a second into the repository.
 func (s *setup) configPath() string {
-	return filepath.Join(s.directory, config.DirectoryName, config.FileName)
+	inRepository := filepath.Join(s.directory, config.DirectoryName, config.FileName)
+	if _, err := os.Stat(inRepository); err == nil || s.homeDir == nil {
+		return inRepository
+	}
+	if external, err := config.BoundConfiguration(s.getenvOrEmpty, s.homeDir, s.directory); err == nil && external != "" {
+		return external
+	}
+	return inRepository
+}
+
+func (s *setup) getenvOrEmpty(name string) string {
+	if s.getenv == nil {
+		return ""
+	}
+	return s.getenv(name)
 }
 
 // diagnose asks doctor about the same project, through the same seams, so what
@@ -591,7 +617,8 @@ func (s *setup) ensureTrackerRemote(ctx context.Context, tracker setupStep) setu
 // would cost -- setup does not overwrite what is already there without being told
 // to, and an index somebody customized is exactly the case that rule is for.
 func (s *setup) ensureArtifactHomeIndexes(resolved config.Resolved) setupStep {
-	repository := s.repository()
+	// The homes are in whichever repository holds the project's intent.
+	repository := resolved.Config.Product.IntentRoot(s.repository())
 	root, err := repowrite.NewRoot(repository)
 	if err != nil {
 		return setupStep{
@@ -675,6 +702,92 @@ func (s *setup) ensureArtifactHomeIndexes(resolved config.Resolved) setupStep {
 			Summary: fmt.Sprintf("wrote %s at the door of the artifact homes", countOf(len(written), "README")),
 			Detail:  strings.Join(written, ", "),
 		}
+	}
+}
+
+// ensureIntentRepository settles where the project's intent is kept, and says
+// what that is: the specifications, the designs, and the decision records with
+// their invariants.
+//
+// A configuration committed in the repository keeps them in the repository, and
+// that is the whole answer: a companion intent repository is chosen only in a
+// configuration kept outside it. One kept outside is asked whether to keep the
+// intent outside too, declined by default because it moves documents a team may
+// already share. Where the configuration names one that is not there yet, setup
+// offers to create it, and says how to clone it instead.
+func (s *setup) ensureIntentRepository(ctx context.Context, resolved config.Resolved) setupStep {
+	product := resolved.Config.Product
+	repository := s.repository()
+	holds := intentHolds(product)
+	if !product.HasIntentRepository() {
+		if filepath.Base(filepath.Dir(resolved.Path)) == config.DirectoryName || filepath.Base(resolved.Path) == config.LegacyFileName {
+			return setupStep{
+				Step:    stepIntent,
+				Status:  setupAlready,
+				Summary: "this project's own repository holds its intent: " + holds,
+				Detail:  "a companion intent repository is chosen in a configuration kept outside the repository: yoyo init --external --intent",
+			}
+		}
+		question := fmt.Sprintf("Keep this project's intent -- %s -- in a companion intent repository in %s, so nothing of Yoyodyne's is committed to %s?",
+			holds, filepath.Join(filepath.Dir(resolved.Path), home.IntentDirectoryName), repository)
+		if !s.ask.confirm(question, false) {
+			return setupStep{
+				Step:    stepIntent,
+				Status:  setupSkipped,
+				Summary: "this project's own repository holds its intent: " + holds,
+				Remedy:  s.setupCommand(),
+			}
+		}
+		if err := chooseIntentRepository(resolved.Path); err != nil {
+			return setupStep{
+				Step:    stepIntent,
+				Status:  setupHandedOff,
+				Summary: "the configuration could not be told to keep the intent in a companion repository",
+				Detail:  err.Error(),
+				Remedy:  fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(resolved.Path)),
+			}
+		}
+		reloaded, err := s.load()
+		if err != nil {
+			return setupStep{Step: stepIntent, Status: setupHandedOff, Summary: "the configuration does not load after naming the companion intent repository", Detail: err.Error(), Remedy: fmt.Sprintf("${EDITOR:-vi} %s", shellQuote(resolved.Path))}
+		}
+		product = reloaded.Config.Product
+	}
+
+	path := product.IntentRepository
+	if isGitRepository(path) {
+		return setupStep{
+			Step:    stepIntent,
+			Status:  setupAlready,
+			Summary: "the companion intent repository holds this project's intent: " + holds,
+			Detail:  path,
+		}
+	}
+	cloneRemedy := fmt.Sprintf("git clone <your intent repository's URL> %s", shellQuote(path))
+	if !s.ask.confirm(fmt.Sprintf("Create the companion intent repository %s? (git init) It holds %s; to share one a teammate already has, answer no and clone it there instead", path, holds), true) {
+		return setupStep{
+			Step:    stepIntent,
+			Status:  setupSkipped,
+			Summary: "the configuration names a companion intent repository that is not there, so nothing reads this project's intent",
+			Detail:  path,
+			Remedy:  cloneRemedy,
+		}
+	}
+	outcome := establishIntentRepository(ctx, s.runner, product, "")
+	if outcome.Status == intentFailed {
+		return setupStep{
+			Step:    stepIntent,
+			Status:  setupHandedOff,
+			Summary: "the companion intent repository could not be created",
+			Detail:  outcome.Reason,
+			Remedy:  cloneRemedy,
+		}
+	}
+	return setupStep{
+		Step:    stepIntent,
+		Status:  setupDone,
+		Summary: describeCompanionIntent(outcome, repository),
+		Detail:  path,
 	}
 }
 

@@ -51,9 +51,13 @@ const interactionsLog = ".beads/interactions.jsonl"
 // the harness's own actions on the operator's instruction, exactly like running
 // a work item.
 type conversationGround struct {
-	runner         execution.ProcessRunner
-	repository     string
-	specifications string
+	runner     execution.ProcessRunner
+	repository string
+	// intentRepository is where the specifications and the role's own documents
+	// are read from: the companion intent repository where the project keeps
+	// one, and repository otherwise (config.Product.IntentRoot).
+	intentRepository string
+	specifications   string
 	// shippedDocumentation is the operator-facing documentation this project
 	// says it ships, from product.shipped_documentation. It comes from the
 	// configuration rather than from a set the harness holds, because the
@@ -85,6 +89,7 @@ func newConversationGround(parts components, role domain.AgentRole) conversation
 	return conversationGround{
 		runner:               parts.runner,
 		repository:           parts.repository,
+		intentRepository:     parts.config.Product.IntentRoot(parts.repository),
 		specifications:       parts.config.Product.Specifications,
 		shippedDocumentation: parts.config.Product.ShippedDocumentation,
 		roleDocuments:        roleDocumentSets(role, parts.config.Product),
@@ -616,6 +621,7 @@ func (g conversationGround) Gather(ctx context.Context) (chat.Briefing, error) {
 	window := g.docketWindowFor(trackerCtx, docket, &briefing)
 	bundle, err := contextbundle.AssembleProduct(contextbundle.ProductRequest{
 		RepositoryRoot:               g.repository,
+		IntentRoot:                   g.intentRepository,
 		SpecificationsDirectory:      g.specifications,
 		ShippedDocumentation:         g.shippedDocumentation,
 		RoleDocuments:                g.roleDocuments,

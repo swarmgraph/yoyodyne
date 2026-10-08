@@ -250,6 +250,9 @@ func Diagnose(ctx context.Context, env Environment) Report {
 	report.Findings = append(report.Findings, diagnosis.checkStateRoot(repository))
 	report.Findings = append(report.Findings, diagnosis.checkChecks(resolved, repository)...)
 	report.Findings = append(report.Findings, diagnosis.checkNode(repository)...)
+	if resolved.Config.Product.HasIntentRepository() {
+		report.Findings = append(report.Findings, diagnosis.checkIntentRepository(repository, resolved))
+	}
 	report.Findings = append(report.Findings, diagnosis.checkArtifactHomes(project, repository, resolved))
 	report.Findings = append(report.Findings, diagnosis.checkProviders(ctx, resolved)...)
 	report.Findings = append(report.Findings, diagnosis.checkProviderAuthentication(resolved))
@@ -727,7 +730,8 @@ func (d *diagnosis) checkNode(repository string) []Finding {
 // directory, which is exactly the cost a warning is for.
 func (d *diagnosis) checkArtifactHomes(project, repository string, resolved config.Resolved) Finding {
 	const check = "artifact-readmes"
-	root, err := repowrite.NewRoot(repository)
+	// The homes are in whichever repository holds the project's intent.
+	root, err := repowrite.NewRoot(resolved.Config.Product.IntentRoot(repository))
 	if err != nil {
 		return Finding{
 			Check:   check,
@@ -753,6 +757,31 @@ func (d *diagnosis) checkArtifactHomes(project, repository string, resolved conf
 		Status:  StatusOK,
 		Summary: fmt.Sprintf("every one of the %s says what is filed there, who owns it, and the hand-edit policy", countOf(len(statuses), "artifact home")),
 		Detail:  strings.Join(artifacthome.Paths(statuses), "; "),
+	}
+}
+
+// checkIntentRepository asks whether the companion intent repository the
+// configuration names is there. It is asked only of a project that names one.
+// Missing is a problem rather than a warning: every reader of the specifications,
+// the designs, the decision records, and the invariants reads them there, so a
+// run or a conversation started without it has no recorded intent to read.
+func (d *diagnosis) checkIntentRepository(repository string, resolved config.Resolved) Finding {
+	const check = "intent-repository"
+	path := resolved.Config.Product.IntentRepository
+	if _, err := os.Stat(filepath.Join(path, ".git")); err != nil {
+		return Finding{
+			Check:   check,
+			Status:  StatusProblem,
+			Summary: "the companion intent repository this configuration names is not there, so nothing can read this project's intent",
+			Detail:  path,
+			Remedy:  "yoyo setup" + inDirectory(repository),
+		}
+	}
+	return Finding{
+		Check:   check,
+		Status:  StatusOK,
+		Summary: "the companion intent repository holds this project's specifications, designs, decision records, and invariants",
+		Detail:  path,
 	}
 }
 

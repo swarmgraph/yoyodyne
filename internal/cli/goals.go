@@ -1101,7 +1101,7 @@ func loadGoals(repository string, product config.Product) (goal.Set, error) {
 	if err != nil {
 		return goal.Unreadable(err.Error()), fmt.Errorf("read the recorded goals: %w", err)
 	}
-	return goal.Collect(repository, artifacts), nil
+	return goal.Collect(product.IntentRoot(repository), artifacts), nil
 }
 
 // goalsFlags is the flag set every goals command shares.

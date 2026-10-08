@@ -208,6 +208,24 @@ func boundConfiguration(getenv func(string) string, userHomeDir func() (string, 
 	return project.Configuration, nil
 }
 
+// BoundConfiguration is the configuration kept in the machine home's project
+// directory for the repository a directory is in, or nothing where that
+// repository has none. It is the third place DiscoverIn looks, asked on its own
+// by `yoyo setup`, which sets up the directory it was pointed at and so must
+// not take a configuration from an ancestor project or from the environment.
+func BoundConfiguration(getenv func(string) string, userHomeDir func() (string, error), startDirectory string) (string, error) {
+	start, err := filepath.Abs(startDirectory)
+	if err != nil {
+		return "", fmt.Errorf("resolve start directory: %w", err)
+	}
+	found, err := boundConfiguration(getenv, userHomeDir, start)
+	var notFound NotFoundError
+	if errors.As(err, &notFound) {
+		return "", nil
+	}
+	return found, err
+}
+
 func isRegularFile(candidate string) (bool, error) {
 	info, err := os.Stat(candidate)
 	if err != nil {

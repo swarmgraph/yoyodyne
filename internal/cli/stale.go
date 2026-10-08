@@ -89,7 +89,7 @@ func reportStaleness(ctx context.Context, args []string, stdout, stderr io.Write
 	if err != nil {
 		return reportStaleError(stdout, stderr, *jsonOutput, fmt.Errorf("read the recorded artifacts: %w", err))
 	}
-	goals := goal.Collect(repository, artifacts)
+	goals := goal.Collect(resolved.Config.Product.IntentRoot(repository), artifacts)
 	unavailable := ""
 	admitted, err := admittedWorkItems(ctx, beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository})
 	if err != nil {

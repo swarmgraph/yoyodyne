@@ -212,7 +212,7 @@ func (b BranchReviewer) Review(ctx context.Context, request BranchReviewRequest)
 	outcome.Invariants = invariants.IDs()
 	revision := reviewedRevision(ctx, b.Worktrees, change.BaseCommit)
 	revision.CandidateFiles = reviewedRevision(ctx, b.Worktrees, change.HeadCommit).ListFiles
-	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.Specifications, revision)
+	intent, err := contextbundle.AssembleIntent(b.Repository, b.Config.Product.IntentRoot(b.Repository), b.Config.Product.Specifications, revision)
 	if err != nil {
 		return outcome, fmt.Errorf("assemble branch review product intent: %w", err)
 	}
@@ -334,7 +334,7 @@ func (b BranchReviewer) newReviewID() (string, error) {
 // exactly like a repository with no constraints, and a cross-cutting invariant
 // is precisely what this scope exists to catch a violation of.
 func (b BranchReviewer) deliveredInvariants(change gitworktree.BranchChange) (invariant.Delivery, error) {
-	store := invariant.Store{RepositoryRoot: b.Repository, Directory: b.Config.Product.Invariants}
+	store := invariant.StoreFor(b.Repository, b.Config.Product)
 	set, err := store.Load()
 	if err != nil {
 		return invariant.Delivery{}, fmt.Errorf("load architectural invariants: %w", err)

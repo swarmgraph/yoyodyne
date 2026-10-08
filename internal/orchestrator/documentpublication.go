@@ -19,8 +19,14 @@ import (
 )
 
 // PublishesDocuments reports whether a confirmed document could land: a
-// reviewed run integrates only where the project integrates automatically.
-func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
+// reviewed run integrates only where the project integrates automatically, and
+// only into the project's own repository. A project that keeps its intent in a
+// companion intent repository has no reviewed run that promotes into that
+// repository, so its documents are put to the operator, whose confirmation
+// writes them into that repository's checkout.
+func (p Pipeline) PublishesDocuments() bool {
+	return p.automatic() && !p.Config.Product.HasIntentRepository()
+}
 
 // PublishDocument enters the ordinary delivery gates with an already written
 // candidate. Only the owning conversation can supply this handoff; there is no
@@ -50,6 +56,9 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	if !p.automatic() {
 		return p.refuseDocument(document, errors.New("reviewed document publication requires automatic integration"))
+	}
+	if p.Config.Product.HasIntentRepository() {
+		return p.refuseDocument(document, errors.New("this project keeps its intent in a companion intent repository, which no reviewed run promotes into"))
 	}
 	// These tracker operations describe this run's document, not backlog work.
 	// The canonical account remains the conversation and the ordinary run store.

@@ -853,7 +853,7 @@ func (s repositoryStaleness) Stale(ctx context.Context) ([]staleness.WorkItem, e
 	if err != nil {
 		return nil, err
 	}
-	return staleness.Survey(artifacts, goal.Collect(s.repository, artifacts), admitted).WorkItems, nil
+	return staleness.Survey(artifacts, goal.Collect(s.product.IntentRoot(s.repository), artifacts), admitted).WorkItems, nil
 }
 
 func reportSchedule(stdout, stderr io.Writer, jsonOutput bool, schedule orchestrator.Schedule, err error) int {

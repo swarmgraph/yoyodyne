@@ -71,8 +71,11 @@ type Config struct {
 	// something a project opts into.
 	Conversation Conversation `yaml:"conversation" json:"conversation"`
 	Research     Research     `yaml:"research,omitempty" json:"research,omitempty"`
-	Approvals    Approvals    `yaml:"approvals" json:"approvals"`
-	Checks       []string     `yaml:"checks" json:"checks"`
+	// Intent says which repository holds the governed documents. It is absent
+	// from a project whose own repository holds them, which is the default.
+	Intent    Intent    `yaml:"intent,omitempty" json:"intent,omitempty"`
+	Approvals Approvals `yaml:"approvals" json:"approvals"`
+	Checks    []string  `yaml:"checks" json:"checks"`
 	// LandingChecks are the commands run once per landing on the target branch,
 	// over the integrated commit, after a run has integrated and closed its item.
 	// They are the other half of a per-run gate narrowed to what a change
@@ -242,6 +245,13 @@ type Product struct {
 	// adopting project's unrelated docs/work.md to its product manager labeled
 	// "what the product ships" is exactly the mistake a default would make.
 	ShippedDocumentation []string `yaml:"shipped_documentation,omitempty" json:"shipped_documentation,omitempty"`
+	// IntentRepository is the companion intent repository the configuration's
+	// intent.repository names, made absolute where the configuration was loaded.
+	// It is never written in a file: the key is Intent.Repository, and this is
+	// what it resolved to, carried on the product because that is what every
+	// reader of the governed documents is already handed. Empty means the
+	// project's own repository. Read it through IntentRoot.
+	IntentRepository string `yaml:"-" json:"-"`
 }
 
 type Execution struct {
@@ -940,6 +950,9 @@ func (c Config) Validate() error {
 		problems = append(problems, err.Error())
 	}
 	if err := validateRepositoryDirectory("product decisions", c.Product.Decisions); err != nil {
+		problems = append(problems, err.Error())
+	}
+	if err := validateIntentRepository(c.Intent.Repository); err != nil {
 		problems = append(problems, err.Error())
 	}
 	for _, documentPath := range c.Product.ShippedDocumentation {

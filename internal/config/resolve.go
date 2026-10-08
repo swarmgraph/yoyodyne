@@ -114,6 +114,9 @@ func loadResolved(path string, definitions bool) (Resolved, error) {
 	if err := resolved.Config.Validate(); err != nil {
 		return Resolved{}, err
 	}
+	if err := resolveIntentRepository(&resolved.Config, absolute); err != nil {
+		return Resolved{}, err
+	}
 	if definitions {
 		resolved.RoleDefinitions, err = LoadRoleDefinitions(absolute)
 		if err != nil {
@@ -428,6 +431,9 @@ func (r *resolution) apply(applied layer) error {
 		}
 		setValue(r.origins, "research.max_queries_per_turn", evidence.MaxQueriesPerTurn, &r.config.Research.MaxQueriesPerTurn, applied.origin)
 		setValue(r.origins, "research.timeout", evidence.Timeout, &r.config.Research.Timeout, applied.origin)
+	}
+	if intent := document.Intent; intent != nil {
+		setValue(r.origins, "intent.repository", intent.Repository, &r.config.Intent.Repository, applied.origin)
 	}
 	if approvals := document.Approvals; approvals != nil {
 		setValue(r.origins, "approvals.brief", approvals.Brief, &r.config.Approvals.Brief, applied.origin)

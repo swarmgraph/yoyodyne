@@ -33,6 +33,7 @@ type configDocument struct {
 	// measurement is not something a layer opts into, only something it times.
 	Conversation *conversationDocument `yaml:"conversation"`
 	Research     *researchDocument     `yaml:"research"`
+	Intent       *intentDocument       `yaml:"intent"`
 	Approvals    *approvalsDocument    `yaml:"approvals"`
 	Checks       *[]string             `yaml:"checks"`
 	// LandingChecks replaces an inherited list entirely rather than merging into

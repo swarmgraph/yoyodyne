@@ -277,6 +277,12 @@ const (
 // to a role that reads the code, which the harness does not have.
 type ProductRequest struct {
 	RepositoryRoot string
+	// IntentRoot is the repository the specifications and the role's own
+	// documents are read from where it is not RepositoryRoot: the project's
+	// companion intent repository (config.Product.IntentRoot). Empty reads them
+	// from RepositoryRoot. The shipped documentation is the project's and is read
+	// from RepositoryRoot either way.
+	IntentRoot string
 	// SpecificationsDirectory is the configured directory of specifications,
 	// relative to the repository root. It is required: there is no default here,
 	// because the default belongs to the configuration that every caller already
@@ -381,6 +387,13 @@ func AssembleProduct(request ProductRequest) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
+	intentRoot := root
+	if strings.TrimSpace(request.IntentRoot) != "" {
+		intentRoot, err = repowrite.NewRoot(request.IntentRoot)
+		if err != nil {
+			return Bundle{}, fmt.Errorf("open the intent repository: %w", err)
+		}
+	}
 	directory, err := validateSpecificationsDirectory("specifications", request.SpecificationsDirectory)
 	if err != nil {
 		return Bundle{}, err
@@ -405,7 +418,7 @@ func AssembleProduct(request ProductRequest) (Bundle, error) {
 		return Bundle{}, errors.New("max context bytes must be greater than zero")
 	}
 
-	specificationPaths, err := discoverSpecifications("specifications", root, directory)
+	specificationPaths, err := discoverSpecifications("specifications", intentRoot, directory)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -443,7 +456,7 @@ func AssembleProduct(request ProductRequest) (Bundle, error) {
 	stated := 0
 	bundle := Bundle{Bytes: reserved}
 	for _, specificationPath := range specificationPaths {
-		reference, err := readProductReference(root, specificationPath, maxBytes-bundle.Bytes)
+		reference, err := readProductReference(intentRoot, specificationPath, maxBytes-bundle.Bytes)
 		if err != nil {
 			// A specification that does not fit is reported as omitted rather than
 			// failing the conversation; anything else is a real problem.
@@ -519,7 +532,7 @@ func AssembleProduct(request ProductRequest) (Bundle, error) {
 	// documentation of what ships, so intent still wins the budget over
 	// everything and description still loses to both. What did not fit is named
 	// beside the specifications that did not fit, for the same reason.
-	roleSections, roleDocumentsFound, err := readRoleDocuments(root, roleDocuments, &bundle, maxBytes, &omitted)
+	roleSections, roleDocumentsFound, err := readRoleDocuments(intentRoot, roleDocuments, &bundle, maxBytes, &omitted)
 	if err != nil {
 		return Bundle{}, err
 	}
