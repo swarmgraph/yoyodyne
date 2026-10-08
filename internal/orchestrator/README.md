@@ -245,6 +245,7 @@ context bundle come from `internal/contextbundle`.
 | `recovery.go` | `readWorkItem` and tracker read retries |
 | `provideroutage.go`, `usagelimit.go` | `requireBackendReady`, provider-away handling |
 | `supervision.go` | the management loop's own pass over role exchanges |
+| `mergequeueworker.go` | `MergeQueueWorker.Work` — the merge queue's worker up to promotion: picks the first waiting entry, builds or reconciles its candidate generation (`current`, `reconcile`), runs the configured checks (`check`) and an independent review (`review`) on exactly that candidate, and rebuilds when the target moves (`moved`); the generation record and its `Gate` are `internal/runstate/mergequeuegeneration.go` |
 
 ## Tests
 

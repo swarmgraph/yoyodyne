@@ -3,9 +3,10 @@ package runstate
 // The merge queue's durable half: which approved changes wait to integrate into
 // one target branch, in what order, and which process is the one that works the
 // queue. docs/designs/integration-through-a-merge-queue.md is the design; this
-// file is its "Durable admission and ownership" section and nothing after it.
-// Nothing here selects an entry, builds a candidate, runs a check, or moves a
-// branch, and nothing in the harness admits to the queue yet.
+// file is its "Durable admission and ownership" section, and
+// mergequeuegeneration.go beside it keeps what the worker verified. Nothing
+// here selects an entry, builds a candidate, runs a check, or moves a branch,
+// and nothing in the harness admits to the queue yet.
 //
 // One queue exists per repository and target branch, as one record under the
 // product. Admission is a short critical section under the record's lock: read
@@ -59,6 +60,7 @@ const (
 	mergeQueueRecordName  = "queue.json"
 	mergeQueueRecordLock  = "queue.lock"
 	mergeQueueWorkerLease = "worker.lock"
+	mergeQueueWorkerLabel = "merge queue worker"
 	// mergeQueueRecordWait bounds the wait for the record's lock. What holds it
 	// is another process's read, one small write, and a readback, so the bound
 	// is there for a holder that is wedged rather than for one that is working.
@@ -300,6 +302,10 @@ type MergeQueueStore struct {
 	// for the same reason; every store the harness builds reads through
 	// readQueue.
 	readback func(queue *repowrite.PinnedRoot) ([]byte, error)
+	// saveGeneration and readGenerationBack are the same two seams for an
+	// entry's generations record; nil is the ordinary write and read.
+	saveGeneration     func(queue *repowrite.PinnedRoot, name string, encoded []byte) error
+	readGenerationBack func(queue *repowrite.PinnedRoot, name string) ([]byte, error)
 	// leaseWait is the grace a worker lease that looks held is waited out for,
 	// as a run's is; see leaseGrace.
 	leaseWait time.Duration
@@ -465,7 +471,7 @@ func (s *MergeQueueStore) LeaseWorker(ctx context.Context, key MergeQueueKey) (*
 		file.Close()
 		return nil, false, nil
 	}
-	return &Lease{label: "merge queue worker", file: file}, true, nil
+	return &Lease{label: mergeQueueWorkerLabel, file: file, scope: key.directory()}, true, nil
 }
 
 // openQueue pins the queue's directory, creating it on the way.
