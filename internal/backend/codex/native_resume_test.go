@@ -275,9 +275,9 @@ func nativeProbeTurn(t *testing.T, provider Backend, request backendapi.RunReque
 	return result
 }
 
-// The fixture selects a local transport and excludes
-// default temporary-directory grants. The adapter's cwd, sandbox, approvals,
-// and explicit writable roots stay intact.
+// The fixture selects a local transport and removes the developer profile's
+// grants of the temporary directories. The adapter's cwd, profile selection,
+// approvals, and every other file system entry stay intact.
 type sandboxCLIRunner struct {
 	home, url string
 	runner    execution.ProcessRunner
@@ -295,10 +295,22 @@ func (r *sandboxCLIRunner) Run(ctx context.Context, command execution.Command, o
 	prefix := []string{"exec", "--disable", "code_mode",
 		"--config", `model_provider="sandbox_probe"`,
 		"--config", fmt.Sprintf(`model_providers.sandbox_probe={name="sandbox probe",base_url=%q,wire_api="responses",requires_openai_auth=false,supports_websockets=false,request_max_retries=0,stream_max_retries=0}`, r.url),
-		// Temporary fixture siblings would otherwise be writable by default.
-		"--config", "sandbox_workspace_write.exclude_tmpdir_env_var=true",
-		"--config", "sandbox_workspace_write.exclude_slash_tmp=true"}
-	command.Args = append(prefix, command.Args[1:]...)
+	}
+	args := append([]string(nil), command.Args[1:]...)
+	// The fixture's denied directories are temporary siblings, which the
+	// developer's profile would otherwise let it write. The grants are removed
+	// from the profile the adapter wrote rather than overridden after it, and a
+	// profile without them fails the fixture rather than passing unconfined.
+	temporary := tomlString(":slash_tmp") + `="write",` + tomlString(":tmpdir") + `="write",`
+	for index, arg := range args {
+		if strings.HasPrefix(arg, "permissions."+profileDeveloper+"-") && strings.Contains(arg, ".filesystem=") {
+			if !strings.Contains(arg, temporary) {
+				return execution.ProcessResult{}, fmt.Errorf("the developer profile no longer grants the temporary directories as %q, so the fixture cannot remove them: %s", temporary, arg)
+			}
+			args[index] = strings.Replace(arg, temporary, "", 1)
+		}
+	}
+	command.Args = append(prefix, args...)
 	command.Env = append(execution.ExplicitEnvironment(command.Env), ProviderHomeVariable+"="+r.home)
 	process, err := runner.Run(ctx, command, observer)
 	// Backend.Run deliberately discards raw stdout after parsing it. Keep the

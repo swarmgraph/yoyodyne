@@ -19,6 +19,8 @@ package codex
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,30 +52,53 @@ const (
 	defaultAfterReplyTimeout = 5 * time.Minute
 )
 
-// The Codex sandbox setting this adapter will ask for. `danger-full-access` is
-// deliberately absent: it is the one setting that would let an agent write
-// anywhere on the machine, and nothing in the harness has a reason to ask for
-// it, so it is unreachable from here rather than merely unused.
+// The Codex permission profiles this adapter defines and asks for, one per
+// posture. Each is written out in full on every invocation by profileArgs and
+// extends none of the CLI's built-in profiles, so what a role may do is what
+// this file says rather than whatever a CLI release puts in a built-in. Nothing
+// here can name an unrestricted profile or the `--sandbox` option: codex-cli
+// 0.160.0 lets `--sandbox` replace a selected profile without a word, so a run
+// given both would run under the option and not under its profile.
+//
+// These are the start of each profile's name, and profileName adds a random
+// ending on every invocation. codex-cli 0.160.0 merges the entries of a
+// `[permissions.<name>]` table in the account's config.toml, or in a trusted
+// worktree's .codex/config.toml, into a profile of the same name given on the
+// command line: asked without a provider call, a config file naming
+// `yoyodyne-developer` made a directory outside the worktree writable. A name
+// drawn when the invocation starts is one no file written before it can name,
+// so nothing is merged into it. The same rendering showed that what those
+// files say about `sandbox_mode` and `default_permissions` gives way to the
+// profile the command line selects.
 const (
-	sandboxWorkspaceWrite = "workspace-write"
-	sandboxReadOnly       = "read-only"
+	profileDeveloper = "yoyodyne-developer"
+	profileReadOnly  = "yoyodyne-read-only"
 )
 
-// sandboxForPosture maps role-derived access onto the native sandbox. Read-only
-// permits repository inspection but does not isolate reads to that repository.
-func sandboxForPosture(posture backend.Posture) string {
+// protectedNames stay read-only inside every directory a developer may write,
+// which is what the CLI's own `workspace-write` sandbox kept read-only in each
+// writable root and so what a developer could not write before profiles: the
+// Git metadata, and the directories the CLI and other tools read their
+// instructions and credentials from.
+var protectedNames = []string{".git", ".agents", ".codex", ".aws"}
+
+// profileForPosture maps role-derived access onto a permission profile.
+// Read-only permits repository inspection but does not isolate reads to that
+// repository.
+func profileForPosture(posture backend.Posture) string {
 	switch posture {
 	case backend.PostureReadOnly:
-		return sandboxReadOnly
+		return profileReadOnly
 	case backend.PostureWorktreeWrite:
-		return sandboxWorkspaceWrite
+		return profileDeveloper
 	default:
 		return ""
 	}
 }
 
-// sandboxFor decides what this invocation runs under: the sandbox the role's
-// tool posture requires, and a refusal for a role that has no posture at all.
+// profileFor decides what this invocation runs under: the permission profile
+// the role's tool posture requires, and a refusal for a role that has no
+// posture at all.
 //
 // The posture decides and nothing else may. There is no permission mode on a
 // request for a caller to name one with — which role gets which session is a
@@ -82,13 +107,70 @@ func sandboxForPosture(posture backend.Posture) string {
 // than defaulted, because the only default available would be the developer's
 // and silently widening a role meant to have none is the failure this guard
 // exists to prevent.
-func sandboxFor(role domain.AgentRole) (string, error) {
+func profileFor(role domain.AgentRole) (string, error) {
 	posture := backend.PostureFor(role)
-	sandbox := sandboxForPosture(posture)
-	if sandbox == "" {
+	profile := profileForPosture(posture)
+	if profile == "" {
 		return "", fmt.Errorf("Codex backend does not support role %q", role)
 	}
-	return sandbox, nil
+	return profile, nil
+}
+
+// profileArgs selects the profile and defines it, as configuration overrides
+// given to `exec` ahead of `resume` so a resumed session runs under the profile
+// given now rather than the one it was saved with.
+//
+// Every profile may read the whole machine, as the CLI's sandboxes always did,
+// and has its network switched off. The developer's may also write the
+// directories it is given, each with protectedNames inside it kept read-only,
+// and the system and user temporary directories, which the `workspace-write`
+// sandbox granted too and which a project's tests write to. The read-only
+// profile writes nothing at all.
+//
+// name is the name the profile is defined and selected under, which
+// profileName makes from the profile.
+func profileArgs(profile, name string, writable []string) []string {
+	entries := []string{tomlString(":root") + `="read"`}
+	if profile == profileDeveloper {
+		entries = append(entries, tomlString(":slash_tmp")+`="write"`, tomlString(":tmpdir")+`="write"`)
+		seen := make(map[string]bool)
+		for _, root := range writable {
+			// A key given twice is a TOML error that refuses the whole invocation.
+			if seen[root] {
+				continue
+			}
+			seen[root] = true
+			entries = append(entries, tomlString(root)+`="write"`)
+			for _, name := range protectedNames {
+				entries = append(entries, tomlString(filepath.Join(root, name))+`="read"`)
+			}
+		}
+	}
+	return []string{
+		"--config", `default_permissions="` + name + `"`,
+		"--config", "permissions." + name + ".filesystem={" + strings.Join(entries, ",") + "}",
+		"--config", "permissions." + name + ".network.enabled=false",
+	}
+}
+
+// profileName is the name one invocation defines and selects profile under:
+// the profile's own name and sixteen random bytes, so no configuration file can
+// have named it in advance (see the profiles above). A resumed session is given
+// a new one with each turn, which the CLI accepts: it runs a resume under the
+// profile given then.
+func profileName(profile string) (string, error) {
+	suffix := make([]byte, 16)
+	if _, err := rand.Read(suffix); err != nil {
+		return "", fmt.Errorf("name the Codex permission profile: %w", err)
+	}
+	return profile + "-" + hex.EncodeToString(suffix), nil
+}
+
+// tomlString quotes a value as a TOML basic string. JSON's string escapes are
+// all valid in one, which is what lets a path with spaces or quotes through.
+func tomlString(value string) string {
+	quoted, _ := json.Marshal(value)
+	return string(quoted)
 }
 
 type Backend struct {
@@ -175,7 +257,7 @@ func readOnlyEnvironment(configDir string) []string {
 	return kept
 }
 
-// readOnlyArgs fixes the native sandbox's companion policy on every turn,
+// readOnlyArgs fixes the read-only profile's companion policy on every turn,
 // including resume. User settings and exec rules cannot enable integrations or
 // escalation. The directory is an empty launch directory outside the repository,
 // so repository configuration cannot inject MCP servers or other integrations.
@@ -380,35 +462,29 @@ func (Backend) Capabilities() backend.Capabilities {
 //
 // That placement is the whole difficulty, because the CLI refuses an option on a
 // level that does not take it and refuses it before anything starts. `exec`
-// takes all four of the options this adapter passes; `exec resume` takes
-// `--json`, `--skip-git-repo-check`, and `--model` but not `--sandbox`, so a
-// resumed invocation that put the sandbox after `resume` was refused outright
-// ("unexpected argument '--sandbox' found") and no resumed session ever started.
-// The sandbox is given to `exec`, ahead of `resume`, and that is not a
-// formality: asked without a provider call, codex-cli 0.159.2 recorded the
-// resumed turn under the sandbox given there rather than the one the session
-// was started under. It is never dropped to let a resume start — a session that
-// could not be given its sandbox would run under whatever it was started with,
-// or none. testdata/cli-help holds the help this was read from, and
-// conformance_test.go checks every invocation against it.
-func invocationArgs(request backend.RunRequest, sandbox string, directories []string) []string {
-	args := []string{"exec", "--sandbox", sandbox}
+// takes the options this adapter passes; `exec resume` takes `--json`,
+// `--skip-git-repo-check`, and `--model` but not `--cd` or `--sandbox`. The
+// permission profile is configuration given to `exec`, ahead of `resume`, and
+// that is not a formality: asked without a provider call, codex-cli 0.160.0
+// ran a resumed session under the profile given there, in both directions
+// between the two profiles, rather than the one the session was saved with. It
+// is never dropped to let a resume start — a session that could not be given
+// its profile would run under whatever it was started with, or none.
+// testdata/cli-help holds the help this was read from, and conformance_test.go
+// checks every invocation against it.
+func invocationArgs(request backend.RunRequest, profile, name string, directories []string) []string {
+	args := []string{"exec"}
 	args = append(args, "--config", "model_reasoning_effort="+fmt.Sprintf("%q", request.Effort))
 	args = append(args, contextArgs()...)
-	if sandbox == sandboxWorkspaceWrite {
-		// exec resume has no --add-dir option. A config override ahead of resume
-		// applies the same confined roots on every turn and replaces user roots.
-		if directories == nil {
-			directories = []string{}
-		}
-		roots, _ := json.Marshal(directories)
-		args = append(args,
-			"--config", `approval_policy="never"`,
-			"--config", "sandbox_workspace_write.writable_roots="+string(roots),
-			"--config", "sandbox_workspace_write.network_access=false",
-		)
+	if profile == profileDeveloper {
+		// The worktree is the directory the CLI runs in, and beside it only the
+		// declared cache and scratch the harness prepared for this run.
+		writable := append([]string{request.WorkingDirectory}, directories...)
+		args = append(args, "--config", `approval_policy="never"`)
+		args = append(args, profileArgs(profile, name, writable)...)
 	}
-	if sandbox == sandboxReadOnly {
+	if profile == profileReadOnly {
+		args = append(args, profileArgs(profile, name, nil)...)
 		args = append(args, readOnlyArgs(request.WorkingDirectory)...)
 	}
 	args = append(args, "--cd", request.WorkingDirectory)
@@ -451,17 +527,17 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if err := backend.CheckRequestSize(b, request); err != nil {
 		return backend.RunResult{}, err
 	}
-	sandbox, err := sandboxFor(request.Role)
+	profile, err := profileFor(request.Role)
 	if err != nil {
 		return backend.RunResult{}, err
 	}
 	// Codex has no per-tool control: what an agent may do is decided by the
-	// sandbox and by nothing else. A request naming tools is therefore refused
-	// rather than run with the list quietly dropped, because a caller that asked
-	// for a narrower set than the sandbox gives would otherwise get a wider one
-	// and be told nothing.
+	// permission profile and by nothing else. A request naming tools is therefore
+	// refused rather than run with the list quietly dropped, because a caller
+	// that asked for a narrower set than the profile gives would otherwise get a
+	// wider one and be told nothing.
 	if len(request.AllowedTools) > 0 {
-		return backend.RunResult{}, errors.New("Codex runs cannot be granted a tool list; the sandbox is what scopes what an agent may do")
+		return backend.RunResult{}, errors.New("Codex runs cannot be granted a tool list; the permission profile is what scopes what an agent may do")
 	}
 
 	descriptor, _ := backend.BuiltInDescriptor(domain.BackendCodex)
@@ -472,7 +548,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	}
 
 	invocation := request
-	if sandbox == sandboxReadOnly {
+	if profile == profileReadOnly {
 		repository, launch, err := prepareReadOnlyLaunch(request.WorkingDirectory)
 		if err != nil {
 			return backend.RunResult{}, err
@@ -494,13 +570,17 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if repository == "" {
 		repository = request.WorkingDirectory
 	}
-	if sandbox == sandboxWorkspaceWrite {
+	if profile == profileDeveloper {
 		directories, err = execution.PrepareDeveloperDirectories(repository, request.WorkingDirectory, request.RunID)
 		if err != nil {
 			return backend.RunResult{}, fmt.Errorf("prepare Codex developer sandbox: %w", err)
 		}
 	}
-	args := invocationArgs(invocation, sandbox, directories)
+	name, err := profileName(profile)
+	if err != nil {
+		return backend.RunResult{}, err
+	}
+	args := invocationArgs(invocation, profile, name, directories)
 
 	// What the role is given beside its prompt is what the project named, plus,
 	// for a developer, the repository's own instruction file the CLI reads from
@@ -509,7 +589,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if err != nil {
 		return backend.RunResult{}, err
 	}
-	if sandbox == sandboxWorkspaceWrite {
+	if profile == profileDeveloper {
 		instructions = append(repositoryInstructions(invocation.WorkingDirectory), instructions...)
 	}
 	loaded := backend.NewLoaded(skills, nil, instructions)
@@ -544,7 +624,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		configDir = b.ConfigDir
 	}
 	environment := environmentFor(configDir)
-	if sandbox == sandboxReadOnly {
+	if profile == profileReadOnly {
 		// Relative provider homes previously resolved from the repository. Keep
 		// that account mapping when the CLI runs from the isolated directory.
 		if strings.TrimSpace(configDir) == "" {
@@ -574,7 +654,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 		environment = withProviderHome(environment, home)
 	}
 	environment = execution.WithAgentRole(environment, request.Role)
-	if sandbox == sandboxWorkspaceWrite {
+	if profile == profileDeveloper {
 		environment = execution.WithGoBuildCache(environment, repository)
 		if len(directories) > 0 {
 			for index, entry := range environment {

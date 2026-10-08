@@ -17,6 +17,14 @@ Both are the CLI's own output, unedited. Neither was written by hand.
 about PATH aliases on standard error, which is not part of the help and is not
 recorded.
 
+**Rechecked against 0.160.0**, the supported version, on 2026-10-07 by the
+developer run moving the adapter to permission profiles (yoyodyne-ifd.435.27):
+both commands' standard output was byte for byte the same as the files here, so
+they stand for 0.160.0 unchanged. The same wrapper path (same SHA-256 as above)
+now starts the executable at
+`/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`
+(SHA-256 `6b582e8813ce7e8ed4c52814ee5cf230dba647bf2292df747a4003f2657ef201`).
+
 The defect this copy was recorded for was first reproduced against
 `codex-cli 0.153.4`, which rejects `--sandbox` after `exec resume` in the same
 way. The machine this was recorded on had no 0.153.4 to ask, so this copy is the

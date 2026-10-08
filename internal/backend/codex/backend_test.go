@@ -328,15 +328,16 @@ func TestRunNormalizesTheProviderStream(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
+	wantArgs := []string{"exec", "--config", `model_reasoning_effort="low"`,
 		"--config", "skills.include_instructions=false", "--config", `developer_instructions=""`,
 		"--disable", "skill_search", "--disable", "skill_mcp_dependency_install",
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--config", `approval_policy="never"`,
-		"--config", "sandbox_workspace_write.writable_roots=[]",
-		"--config", "sandbox_workspace_write.network_access=false",
+		"--config", `default_permissions="yoyodyne-developer"`,
+		"--config", `permissions.yoyodyne-developer.filesystem={":root"="read",":slash_tmp"="write",":tmpdir"="write","/worktree"="write","/worktree/.git"="read","/worktree/.agents"="read","/worktree/.codex"="read","/worktree/.aws"="read"}`,
+		"--config", "permissions.yoyodyne-developer.network.enabled=false",
 		"--cd", "/worktree", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
-	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
+	if !reflect.DeepEqual(withProfileNamesFixed(runner.commands[0].Args), wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
 	if runner.commands[0].Dir != "/worktree" {
@@ -400,20 +401,21 @@ func TestATerminalWithNoCountsCarriesNoUsage(t *testing.T) {
 	}
 }
 
-// Every known role maps to its native sandbox; unknown roles never inherit one.
-func TestTheSandboxIsWhatTheRolesPostureRequires(t *testing.T) {
+// Every known role maps to its permission profile; unknown roles never inherit
+// one.
+func TestTheProfileIsWhatTheRolesPostureRequires(t *testing.T) {
 	t.Parallel()
 	for _, role := range domain.Roles() {
-		want := sandboxReadOnly
+		want := profileReadOnly
 		if role == domain.RoleDeveloper {
-			want = sandboxWorkspaceWrite
+			want = profileDeveloper
 		}
-		got, err := sandboxFor(role)
+		got, err := profileFor(role)
 		if err != nil || got != want {
-			t.Errorf("sandboxFor(%q) = (%q, %v), want %q", role, got, err, want)
+			t.Errorf("profileFor(%q) = (%q, %v), want %q", role, got, err, want)
 		}
 	}
-	if got, err := sandboxFor("unknown"); err == nil || got != "" {
+	if got, err := profileFor("unknown"); err == nil || got != "" {
 		t.Fatalf("unknown role = (%q, %v), want refusal", got, err)
 	}
 }
@@ -433,7 +435,7 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 			// Which roles this backend serves is the registry's to say and the
 			// configuration's to refuse, before any work is assigned; what this
 			// adapter refuses is a role it could not assemble an invocation for at
-			// all, because the only sandbox left to default to would be the
+			// all, because the only profile left to default to would be the
 			// developer's.
 			name:    "a name that is not a role at all",
 			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: "security-reviewer"},
@@ -441,7 +443,7 @@ func TestRunRefusesRolesAndPoliciesItCannotHold(t *testing.T) {
 		},
 		{
 			// Codex has no per-tool control, so a caller that asked for a narrower
-			// set than the sandbox gives would otherwise get a wider one and be
+			// set than the profile gives would otherwise get a wider one and be
 			// told nothing.
 			name:    "a tool list this provider cannot scope",
 			request: backendapi.RunRequest{Model: "gpt-6.1-sol", Role: domain.RoleDeveloper, AllowedTools: []string{"Read"}},
@@ -486,8 +488,8 @@ func TestRunReadOnlyRolesOnFreshAndResumedInvocations(t *testing.T) {
 					t.Fatalf("launch directory left behind: %q (%v)", command.Dir, err)
 				}
 				args := command.Args
-				if got := sandboxArgument(t, args); got != sandboxReadOnly {
-					t.Fatalf("sandbox = %q, want read-only", got)
+				if got := profileArgument(t, args); got != profileReadOnly {
+					t.Fatalf("profile = %q, want the read-only one", got)
 				}
 				joined := strings.Join(args, " ")
 				for _, required := range []string{"--ignore-user-config", `approval_policy="never"`, `web_search="disabled"`, "agents.enabled=false", "orchestrator.mcp.enabled=false"} {
@@ -507,10 +509,10 @@ func TestRunReadOnlyRolesOnFreshAndResumedInvocations(t *testing.T) {
 // the record: what the harness knows about this work is in its own durable
 // state, so a session the provider has forgotten costs context rather than work.
 //
-// The sandbox goes to `exec`, ahead of `resume`, because `exec resume` does not
-// take one: the CLI refuses `--sandbox` after `resume` before anything starts.
-// The options `exec resume` does list go after it. The sequence this replaced
-// put the sandbox after `resume`, and this test asserted it, so every resumed
+// The permission profile goes to `exec`, ahead of `resume`, so the resumed
+// session runs under the profile given now. The options `exec resume` does list
+// go after it. An earlier sequence put the old `--sandbox` option after
+// `resume`, which the CLI refuses, and this test asserted it, so every resumed
 // session failed on its arguments while the suite stayed green.
 func TestRunResumesTheProvidersSession(t *testing.T) {
 	t.Parallel()
@@ -530,15 +532,16 @@ func TestRunResumesTheProvidersSession(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"exec", "--sandbox", sandboxWorkspaceWrite, "--config", `model_reasoning_effort="low"`,
+	wantArgs := []string{"exec", "--config", `model_reasoning_effort="low"`,
 		"--config", "skills.include_instructions=false", "--config", `developer_instructions=""`,
 		"--disable", "skill_search", "--disable", "skill_mcp_dependency_install",
 		"--disable", "plugins", "--disable", "remote_plugin", "--disable", "apps",
 		"--config", `approval_policy="never"`,
-		"--config", "sandbox_workspace_write.writable_roots=[]",
-		"--config", "sandbox_workspace_write.network_access=false",
+		"--config", `default_permissions="yoyodyne-developer"`,
+		"--config", `permissions.yoyodyne-developer.filesystem={":root"="read",":slash_tmp"="write",":tmpdir"="write","/worktree"="write","/worktree/.git"="read","/worktree/.agents"="read","/worktree/.codex"="read","/worktree/.aws"="read"}`,
+		"--config", "permissions.yoyodyne-developer.network.enabled=false",
 		"--cd", "/worktree", "resume", "session-1", "--json", "--skip-git-repo-check", "--model", "gpt-6.1-sol", "-"}
-	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
+	if !reflect.DeepEqual(withProfileNamesFixed(runner.commands[0].Args), wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}
 }
@@ -1068,18 +1071,6 @@ func runStream(t *testing.T, role domain.AgentRole, stream string) (backendapi.R
 		t.Fatalf("Run() error = %v", err)
 	}
 	return result, events
-}
-
-func sandboxArgument(t *testing.T, args []string) string {
-	t.Helper()
-
-	for index, arg := range args {
-		if arg == "--sandbox" && index+1 < len(args) {
-			return args[index+1]
-		}
-	}
-	t.Fatalf("no sandbox in %#v", args)
-	return ""
 }
 
 func hasEnvironment(environment []string, entry string) bool {

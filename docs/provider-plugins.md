@@ -4,12 +4,15 @@ Yoyo runs agents through a provider — a coding CLI or a harness that speaks to
 model API. Two are in the vocabulary and this build ships an adapter for both:
 Claude Code and Codex, which can serve every role. Developers use a worktree-write
 sandbox. Reviewers and management roles use read-only access: Claude Code refuses
-all tools, while Codex permits inspection under its native read-only sandbox with
-network access, escalation, and external integrations disabled
+all tools, while Codex permits inspection under a read-only Codex permission
+profile with network access, escalation, and external integrations disabled
 ([capability validation](#capability-validation)).
 
-The recorded codex-cli 0.159.2 streams cover session startup, reconnect notices,
-a provider reply, token usage, and a completed turn. Failed turns and shell,
+The supported Codex CLI is 0.160.0. The stream recordings below were made with
+codex-cli 0.159.2 and have not been re-recorded on 0.160.0, so they show what
+0.159.2 wrote rather than naming a second supported version. They cover
+session startup, reconnect notices, a provider reply, token usage, and a
+completed turn. Failed turns and shell,
 patch, and tool items still lack recorded live streams; see
 `internal/backend/codex/testdata/streams/README.md`. Separate bounded local probes
 of that CLI version verify read-only launch settings and native resume against a
@@ -290,8 +293,9 @@ one that declares only `worktree-write` is refused for a reviewer. A declaration
 cannot change the launch policy enforced by its compiled adapter.
 
 Both built-ins declare both kinds of access. For read-only roles, the Codex
-adapter fixes `--sandbox read-only` and `approval_policy="never"` on fresh and
-resumed invocations. It ignores user configuration and execution-policy rules,
+adapter fixes its read-only permission profile, which writes nothing and has
+the network off, and `approval_policy="never"` on fresh and resumed invocations
+([what each Codex profile permits](configuration/runs.md#the-environment-a-check-runs-in)). It ignores user configuration and execution-policy rules,
 launches from an empty temporary directory outside the repository, and supplies
 the repository's absolute path in the prompt. Project configuration cannot add
 MCP servers through the inspected repository. The adapter disables apps, plugins,
@@ -308,7 +312,7 @@ bundle or to the repository. Codex may inspect other locally readable files.
 Its model-visible Code Mode tools may remain available. The CLI may write its own
 session and authentication state; the read-only policy applies to agent execution.
 Managed organizational configuration remains an installation authority and must
-be compatible with the adapter's restrictions. The installed 0.159.2 exec command
+be compatible with the adapter's restrictions. The supported 0.160.0 exec command
 has no supported Plan-mode switch, so the harness supplies an analysis-only
 instruction rather than claiming native Plan mode. An installation that rejects
 the required flags or settings fails the invocation; the adapter does not retry
@@ -456,9 +460,9 @@ setting names were read from the CLI's own help and its list of configuration
 keys, and `codex features list` lists the features. Codex was also seen to save
 `auth.json` through a link rather than replace it, so a login refreshed during
 an invocation under the made home is written to the account's own file. The
-recorded help in `internal/backend/codex/testdata/cli-help` is 0.159.2's, which
-lists `--config` and `--disable` on `exec`, and every invocation is checked
-against it.
+recorded help in `internal/backend/codex/testdata/cli-help` was taken from
+0.159.2 and is the same, byte for byte, as 0.160.0's; it lists `--config` and
+`--disable` on `exec`, and every invocation is checked against it.
 
 ## Claude Code settings, memory, skills, connectors, and instruction files
 
