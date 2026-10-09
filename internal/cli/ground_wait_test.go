@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -134,5 +135,103 @@ func TestAWaitAfterACarriedOutRerunLeavesTheOriginalStoppageOffTheUndecidedDocke
 				t.Fatalf("List() = %#v, %v, want both stoppages still recorded", entries, err)
 			}
 		})
+	}
+}
+
+// A wait that names the admitted work it depends on is not put back when the
+// fixed window runs out: six stoppages waiting on recovery work due in days
+// came back undecided every two hours, and every sweep re-recorded the same six
+// decisions (yoyodyne-ifd.428.84). It comes back once that work is closed,
+// naming it, and once only.
+func TestAWaitOnNamedWorkStaysOffTheDocketUntilThatWorkClosesAndThenReturnsOnce(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	runs := stoppedRunState(t)
+	store, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewDocketStore() error = %v", err)
+	}
+	original := stoppedRunOf("yoyodyne-task")
+	docketed := original.CompletedAt.Add(time.Minute)
+	docketer := docketerOverDocket(runs, store)
+	docketer.Clock = stoppedClock{at: docketed}
+	built, err := docketer.Build()
+	if err != nil || len(built.Entries) != 1 {
+		t.Fatalf("Build() = %#v, %v, want the stoppage", built, err)
+	}
+	entry := built.Entries[0]
+
+	const recovery = "yoyodyne-recovery"
+	waited := docketed.Add(time.Minute)
+	closer := conversationDocketLog{store: store, clock: stoppedClock{at: waited}, revisitAfter: 2 * time.Hour}
+	if closed, err := closer.Close(ctx, chat.DocketClosure{
+		RunID: entry.RunID, Classes: []triage.Class{triage.ClassStoppedRun},
+		Decision: "wait", Reason: "nothing to do until the recovery work lands", Revisit: true,
+		WaitsOn:   recovery,
+		DecidedBy: "the development manager in conversation chat-0123456789abcdef",
+	}); err != nil || closed != 1 {
+		t.Fatalf("Close(wait on %s) = %d, %v, want the entry closed", recovery, closed, err)
+	}
+
+	// Well past the window a wait naming nothing would have lapsed at, and with
+	// a sweep over other closed work in between, the entry is still waiting.
+	docketer.Clock = stoppedClock{at: waited.Add(3 * time.Hour)}
+	if _, err := docketer.SettleClosedItems(map[string]string{"yoyodyne-other": "closed"}); err != nil {
+		t.Fatalf("SettleClosedItems(other work) error = %v", err)
+	}
+	later, err := docketer.Build()
+	if err != nil {
+		t.Fatalf("Build() past the window error = %v", err)
+	}
+	if len(later.Entries) != 0 {
+		t.Fatalf("undecided entries past the window = %#v, want none while %s is open", later.Entries, recovery)
+	}
+	if len(later.Waiting) != 1 || later.Waiting[0].Key != entry.Key {
+		t.Fatalf("waiting = %#v, want the stoppage listed as waiting on %s", later.Waiting, recovery)
+	}
+
+	// The work it waits on closes, and every sweep after that sees it closed.
+	docketer.Clock = stoppedClock{at: waited.Add(4 * time.Hour)}
+	for sweep := 0; sweep < 2; sweep++ {
+		if _, err := docketer.SettleClosedItems(map[string]string{recovery: "the tracker holds it as closed"}); err != nil {
+			t.Fatalf("SettleClosedItems(%s) sweep %d error = %v", recovery, sweep, err)
+		}
+	}
+	returned, err := docketer.Build()
+	if err != nil {
+		t.Fatalf("Build() after the work closed error = %v", err)
+	}
+	if len(returned.Entries) != 1 || returned.Entries[0].Key != entry.Key {
+		t.Fatalf("undecided entries = %#v, want the stoppage back", returned.Entries)
+	}
+	back := returned.Entries[0]
+	if back.Closed == nil || back.Closed.Landed != recovery ||
+		!strings.Contains(back.Closed.Describe(), recovery+" is closed") ||
+		!strings.Contains(back.Closed.Describe(), "nothing to do until the recovery work lands") {
+		t.Fatalf("returned entry's decision = %#v, want it naming the landed work and the earlier wait", back.Closed)
+	}
+	closures, err := store.Closures()
+	if err != nil || len(closures[entry.Key]) != 2 {
+		t.Fatalf("Closures() = %#v, %v, want the wait and one record of its end", closures[entry.Key], err)
+	}
+
+	// Decided again, it stays decided: the closed work does not put it back twice.
+	decided := waited.Add(5 * time.Hour)
+	closer.clock = stoppedClock{at: decided}
+	if closed, err := closer.Close(ctx, chat.DocketClosure{
+		RunID: entry.RunID, Classes: []triage.Class{triage.ClassStoppedRun},
+		Decision: "rerun", Reason: "the recovery landed, so run it again",
+		DecidedBy: "the development manager in conversation chat-0123456789abcdef",
+	}); err != nil || closed != 1 {
+		t.Fatalf("Close(rerun) = %d, %v, want the returned entry closed", closed, err)
+	}
+	docketer.Clock = stoppedClock{at: decided.Add(time.Hour)}
+	if _, err := docketer.SettleClosedItems(map[string]string{recovery: "the tracker holds it as closed"}); err != nil {
+		t.Fatalf("SettleClosedItems() after the second decision error = %v", err)
+	}
+	settled, err := docketer.Build()
+	if err != nil || len(settled.Entries) != 0 {
+		t.Fatalf("Build() after the second decision = %#v, %v, want nothing undecided", settled.Entries, err)
 	}
 }

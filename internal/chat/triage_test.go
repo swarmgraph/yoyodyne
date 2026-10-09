@@ -1561,3 +1561,70 @@ func TestADecisionAboutAnAttemptThatNeverBecameARunNamesTheItemAndNoRun(t *testi
 		})
 	}
 }
+
+// A wait can name the admitted work it depends on, and that work travels to the
+// docket so the entry stays off it until the work closes rather than for the
+// ordinary window (yoyodyne-ifd.428.84). Work that has already closed is not
+// something to wait on, and nothing is recorded for it.
+func TestAWaitNamesTheWorkItWaitsOnAndRefusesWorkAlreadyClosed(t *testing.T) {
+	t.Parallel()
+
+	for _, named := range []struct {
+		name    string
+		status  string
+		applied bool
+	}{
+		{name: "open work", status: "in_progress", applied: true},
+		{name: "closed work", status: "closed", applied: false},
+	} {
+		t.Run(named.name, func(t *testing.T) {
+			t.Parallel()
+
+			answer := trackerReply("Decided.",
+				`{"action":"triage","id":"yoyodyne-ifd.70","run":"`+stoppedRun+`","decision":"wait","waits_on":"yoyodyne-ifd.71","reason":"nothing to do until the recovery lands"}`)
+			tracker := &fakeTracker{items: map[string]beads.WorkItem{
+				"yoyodyne-ifd.70": {ID: "yoyodyne-ifd.70", Title: "the item that stopped", Status: "open"},
+				"yoyodyne-ifd.71": {ID: "yoyodyne-ifd.71", Title: "the recovery", Status: named.status},
+			}}
+			docket := &fakeDocket{closes: 1}
+			reply := triageReplyClosing(t, tracker, docket, answer)
+
+			if len(reply.Actions) != 1 || reply.Actions[0].Applied != named.applied {
+				t.Fatalf("actions = %#v, want applied = %t", reply.Actions, named.applied)
+			}
+			if !named.applied {
+				if len(docket.closed) != 0 {
+					t.Fatalf("closed = %#v, want nothing closed for a wait on closed work", docket.closed)
+				}
+				if !strings.Contains(reply.Actions[0].Failure+reply.Actions[0].Detail+reply.Actions[0].Summary, "already closed") {
+					t.Fatalf("refusal = %#v, want it to say the work is already closed", reply.Actions[0])
+				}
+				return
+			}
+			if len(docket.closed) != 1 || docket.closed[0].WaitsOn != "yoyodyne-ifd.71" || !docket.closed[0].Revisit {
+				t.Fatalf("closed = %#v, want the wait carrying the work it waits on", docket.closed)
+			}
+			if len(tracker.updates) != 1 || !strings.Contains(tracker.updates[0].change.AppendNotes, "waiting on yoyodyne-ifd.71") {
+				t.Fatalf("updates = %#v, want the note to name the work the wait is on", tracker.updates)
+			}
+		})
+	}
+}
+
+// Only a wait names the work it waits on, and never its own item.
+func TestOnlyAWaitNamesWorkToWaitOn(t *testing.T) {
+	t.Parallel()
+
+	for _, action := range []TrackerAction{
+		{Action: actionTriage, ID: "yoyodyne-ifd.70", Run: stoppedRun, Decision: "rerun", WaitsOn: "yoyodyne-ifd.71", Reason: "why"},
+		{Action: actionTriage, ID: "yoyodyne-ifd.70", Run: stoppedRun, Decision: "wait", WaitsOn: "yoyodyne-ifd.70", Reason: "why"},
+	} {
+		if problems := action.triageProblems(); len(problems) == 0 {
+			t.Fatalf("triageProblems(%#v) = none, want the waits_on refused", action)
+		}
+	}
+	fine := TrackerAction{Action: actionTriage, ID: "yoyodyne-ifd.70", Run: stoppedRun, Decision: "wait", WaitsOn: "yoyodyne-ifd.71", Reason: "why"}
+	if problems := fine.triageProblems(); len(problems) != 0 {
+		t.Fatalf("triageProblems(wait on other work) = %v, want none", problems)
+	}
+}

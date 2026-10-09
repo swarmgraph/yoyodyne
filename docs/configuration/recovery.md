@@ -1031,6 +1031,9 @@ long again — otherwise a merge or a stopped run nothing is happening to would
 disappear on the strength of a decision to look at it later, since nothing about
 it will ever change to bring it back. Until then the development manager's
 docket still lists it, after every entry nobody has decided, saying until when.
+A wait that names the admitted work item it depends on takes no window from this
+age at all: it lasts until that item is closed or retired
+([how a wait names its item](../conversation.md#deciding-what-becomes-of-stopped-work)).
 
 `review_rounds_cap` bounds the review rounds one work item may accumulate in
 total — across repairs, across runs — past which triage may no longer hand it

@@ -141,6 +141,11 @@ type TriageDecision struct {
 	// other: what a stop answers is why the run should not go on, and the item
 	// doing the work instead is the half of that a reader goes looking for.
 	SupersededBy string `json:"superseded_by,omitempty"`
+	// WaitsOn is the admitted work item a wait decision depends on, where the
+	// development manager named one. It is taken by that decision and by no
+	// other, and it is what tells a stoppage waiting on named work apart from one
+	// nobody has decided about wherever held work is counted.
+	WaitsOn string `json:"waits_on,omitempty"`
 }
 
 // Validate reports every contract violation in the decision at once.
@@ -188,6 +193,13 @@ func (d TriageDecision) Validate() error {
 		problems = append(problems, fmt.Errorf("only a %q decision names the item that supersedes a run, and this one is %q", TriageDecisionStop, d.Decision))
 	case len(superseded) > MaxTriageDecisionSupersededBytes:
 		problems = append(problems, fmt.Errorf("the superseding item is %d bytes, limit is %d", len(superseded), MaxTriageDecisionSupersededBytes))
+	}
+	switch waitsOn := strings.TrimSpace(d.WaitsOn); {
+	case waitsOn == "":
+	case d.Decision != TriageDecisionWait:
+		problems = append(problems, fmt.Errorf("only a %q decision names the work item it waits on, and this one is %q", TriageDecisionWait, d.Decision))
+	case len(waitsOn) > MaxTriageDecisionSupersededBytes:
+		problems = append(problems, fmt.Errorf("the item waited on is %d bytes, limit is %d", len(waitsOn), MaxTriageDecisionSupersededBytes))
 	}
 	if d.DecidedAt.IsZero() {
 		problems = append(problems, errors.New("a triage decision records when it was made"))

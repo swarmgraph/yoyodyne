@@ -883,16 +883,58 @@ type Closure struct {
 	// a repair, a re-run, a re-scope, a re-arm and an escalation each answer the
 	// entry, and what happens next is somebody else's or the harness's.
 	RevisitAfter time.Time `json:"revisit_after,omitempty"`
+	// WaitsOn is the admitted work item a decision to wait depends on, where the
+	// development manager named one. Such a wait has no revisit time: it holds
+	// until that item is closed or retired, because a fixed window over work due
+	// in days put the same stoppages back in front of her every two hours with
+	// nothing changed. What ends it is a later closure carrying Landed.
+	WaitsOn string `json:"waits_on,omitempty"`
+	// Landed is the item a wait was on, whose closing ended a wait, on the closure the
+	// harness records when it finds that item closed. It holds nothing: the entry
+	// is a question again, once, and the reason says what the wait was and that
+	// the work it waited on has landed.
+	Landed string `json:"landed,omitempty"`
 }
+
+// ItemClosedDecision is the word the harness closes an entry with when the
+// entry's own work item is closed. It is not a triage decision; it is here
+// because a wait on named work gives way to it (Supersedes).
+const ItemClosedDecision = "item-closed"
+
+// WaitLandedDecision is the word on the closure that ends a wait on named work
+// once that work is closed. It is the harness's, not a triage decision.
+const WaitLandedDecision = "waited-work-landed"
 
 // Holds reports the decision still standing at a moment. A closure with no
 // revisit time holds forever, which is what settling a stoppage means; one with
 // a revisit time holds until it, and after that the entry is a question again.
+// A wait on named work has no revisit time and holds until a later closure ends
+// it, and the closure that ends it holds nothing.
 func (c Closure) Holds(at time.Time) bool {
+	if strings.TrimSpace(c.Landed) != "" {
+		return false
+	}
 	if c.RevisitAfter.IsZero() {
 		return true
 	}
 	return at.Before(c.RevisitAfter)
+}
+
+// WaitsOnWork reports a decision to wait that names the work item it waits on.
+func (c Closure) WaitsOnWork() bool { return strings.TrimSpace(c.WaitsOn) != "" }
+
+// Supersedes reports this closure taking the place of a decision still holding
+// over the same entry. Only a wait on named work gives way, and only to the
+// harness: to the closure saying the item it waits on has landed, and to the
+// entry's own item closing, since a closed item asks nobody anything.
+func (c Closure) Supersedes(standing Closure) bool {
+	if !standing.WaitsOnWork() {
+		return false
+	}
+	if landed := strings.TrimSpace(c.Landed); landed != "" {
+		return landed == strings.TrimSpace(standing.WaitsOn)
+	}
+	return strings.TrimSpace(c.Decision) == ItemClosedDecision
 }
 
 // MaxDecisionBytes bounds the decision word a closure carries. The vocabulary is
@@ -951,6 +993,18 @@ func (c Closure) Validate() error {
 	if !c.RevisitAfter.IsZero() && !c.RevisitAfter.After(c.ClosedAt) {
 		problems = append(problems, errors.New("a decision to look again does so after it was made"))
 	}
+	waitsOn, landed := strings.TrimSpace(c.WaitsOn), strings.TrimSpace(c.Landed)
+	switch {
+	case waitsOn != "" && landed != "":
+		problems = append(problems, errors.New("a closure either waits on a work item or says the one waited on landed, not both"))
+	case (waitsOn != "" || landed != "") && !c.RevisitAfter.IsZero():
+		// A wait on named work lasts until that work closes, so a revisit time
+		// beside it would be two answers to when the entry comes back.
+		problems = append(problems, errors.New("a wait on a named work item has no revisit time: it lasts until that item is closed"))
+	}
+	if len(waitsOn) > MaxKeyBytes || len(landed) > MaxKeyBytes {
+		problems = append(problems, fmt.Errorf("the work item waited on is longer than %d bytes", MaxKeyBytes))
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid triage docket closure: %w", err)
 	}
@@ -966,6 +1020,12 @@ func (c Closure) Describe() string {
 		strings.TrimSpace(c.Decision), strings.TrimSpace(c.DecidedBy), c.ClosedAt.UTC().Format(time.RFC3339))
 	if !c.RevisitAfter.IsZero() {
 		described += ", to be looked at again after " + c.RevisitAfter.UTC().Format(time.RFC3339)
+	}
+	if waitsOn := strings.TrimSpace(c.WaitsOn); waitsOn != "" {
+		described += ", waiting until " + waitsOn + " is closed"
+	}
+	if landed := strings.TrimSpace(c.Landed); landed != "" {
+		described += ": the wait on " + landed + " is over because " + landed + " is closed, so this is yours to decide again"
 	}
 	if reason := strings.TrimSpace(c.Reason); reason != "" {
 		described += ": " + reason

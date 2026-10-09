@@ -94,6 +94,12 @@ type Hold struct {
 	// the reason, which names it too, because the reason is prose a reader may
 	// cut, and a decision about the stoppage has to name the run.
 	RunID string
+	// WaitsOn is the admitted work item the development manager decided to wait
+	// on for this stoppage, where her decision named one. The item is still held
+	// for her, and a surface counting held work counts it apart from the
+	// stoppages awaiting a decision for as long as that work is unfinished: she
+	// has decided, and what moves next is that work landing.
+	WaitsOn string
 }
 
 // Holds is the admitted work somebody has to release before anything pulls it,
@@ -328,6 +334,12 @@ type Entry struct {
 	// are one queue entry apiece and different people to go to, which is the
 	// distinction a single "held for a person" hid for days.
 	AwaitingCarryOut bool `json:"awaiting_carry_out,omitempty"`
+	// AwaitingWork is the work item the development manager decided to wait on
+	// for the stoppage holding this item, where her decision named one, and is
+	// empty otherwise. Like AwaitingCarryOut it is a fact about the wait. Whether
+	// that work is still unfinished is the reader's to ask, since this queue holds
+	// only the admitted items and not the ones a run is carrying.
+	AwaitingWork string `json:"awaiting_work,omitempty"`
 	// AwaitingSince is when the hold Awaiting names began, from the record that
 	// holds the item, and is nil where nothing is holding it or that record names
 	// no moment. Like AwaitingCarryOut it is a fact about the wait.
@@ -498,6 +510,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			// nothing is holding says nothing about why it is not being pulled, and
 			// carrying it here would put an item on the held count that no hold is on.
 			AwaitingCarryOut: awaiting != "" && holding.Decided && !landing,
+			AwaitingWork:     awaitingWork(awaiting, holding, landing),
 			AwaitingLanding:  landing,
 			AwaitingSince:    since,
 			// An item whose execution is not a developer run is never the next thing
@@ -523,6 +536,15 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 		})
 	}
 	return queue
+}
+
+// awaitingWork is the work a decision to wait named, carried only beside the
+// hold it is about, as AwaitingCarryOut is.
+func awaitingWork(awaiting string, holding Hold, landing bool) string {
+	if awaiting == "" || landing || holding.Decided {
+		return ""
+	}
+	return strings.TrimSpace(holding.WaitsOn)
 }
 
 // startable reports nothing unfinished standing between this item and a run.

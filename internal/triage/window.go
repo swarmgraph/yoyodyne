@@ -195,12 +195,14 @@ func (e Entry) decisionStands(at time.Time) bool {
 }
 
 // WaitStands reports an entry a decision to wait still holds over at a moment:
-// a decision that names when it is to be looked at again, which has not come.
-// Such an entry is closed and asks nobody anything, and the docket still lists
-// it, after everything else, so a reader can see what is being waited on and
-// till when rather than taking it for settled.
+// a decision that names when it is to be looked at again, which has not come,
+// or names the work item it waits on, which is not closed yet. Such an entry is
+// closed and asks nobody anything, and the docket still lists it, after
+// everything else, so a reader can see what is being waited on and till when
+// rather than taking it for settled.
 func (e Entry) WaitStands(at time.Time) bool {
-	return e.Closed != nil && !e.Closed.RevisitAfter.IsZero() && e.Closed.Holds(at) && !e.CarryOutStopped()
+	return e.Closed != nil && (!e.Closed.RevisitAfter.IsZero() || e.Closed.WaitsOnWork()) &&
+		e.Closed.Holds(at) && !e.CarryOutStopped()
 }
 
 // CarryOutStopped reports a settled entry whose decision the harness has tried to

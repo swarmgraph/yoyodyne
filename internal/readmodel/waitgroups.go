@@ -129,6 +129,8 @@ type waitGroups struct {
 	groups map[string]*WaitGroup
 	stall  Stall
 	held   switches
+	// unfinished is the work a decision to wait may still be waiting on.
+	unfinished map[string]bool
 }
 
 func newWaitGroups(stall Stall, held switches) *waitGroups {
@@ -162,6 +164,11 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 			return WaitGroup{Kind: kind, Awaiting: HeldAwaitingCarryOut, Mover: MoverHarness,
 				WaitsOn: "wait on the harness carrying out a decision already recorded",
 				Next:    "the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull"}
+		}
+		if waitingOnWork(entry, w.unfinished) {
+			return WaitGroup{Kind: kind, Awaiting: HeldAwaitingWork, Mover: MoverHarness,
+				WaitsOn: "wait on admitted work the development manager decided to wait for",
+				Next:    "once the work each waits on is closed, the harness puts the stoppage back on her docket for a decision"}
 		}
 		return WaitGroup{Kind: kind, Awaiting: HeldAwaitingDecision, Mover: MoverDevelopmentManager,
 			WaitsOn: "wait on the development manager's decision about a stopped run",

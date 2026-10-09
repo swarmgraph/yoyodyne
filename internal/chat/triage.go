@@ -349,7 +349,11 @@ type DocketClosure struct {
 	// Revisit says this decision holds for a while rather than settling the
 	// stoppage, which is what waiting is. How long is the harness's to decide, so
 	// what travels from here is that the decision lapses and not when.
-	Revisit   bool
+	Revisit bool
+	// WaitsOn is the admitted work item a decision to wait depends on, where one
+	// was named. Such a wait takes no window: it holds until that item is closed
+	// or retired, and the harness puts the entry back once it is.
+	WaitsOn   string
 	DecidedBy string
 }
 
@@ -437,7 +441,59 @@ func (a TrackerAction) triageProblems() []error {
 	}
 	problems = append(problems, a.crossingProblems()...)
 	problems = append(problems, a.supersededProblems()...)
+	problems = append(problems, a.waitsOnProblems()...)
 	return problems
+}
+
+// waitsOnProblems holds the work item a wait names to the one decision that
+// takes it. It is optional, since most waits are on something no work item
+// stands for — a merge the forge still has — and where it is given it names an
+// item other than the one the wait is about: an item's own closing already takes
+// its entries off the docket.
+func (a TrackerAction) waitsOnProblems() []error {
+	waitsOn := strings.TrimSpace(a.WaitsOn)
+	if waitsOn == "" {
+		return nil
+	}
+	if strings.TrimSpace(a.Decision) != decisionWait {
+		return []error{fmt.Errorf(
+			"only the %q decision names \"waits_on\", and this one is %q; it is the admitted work item the wait depends on",
+			decisionWait, strings.TrimSpace(a.Decision))}
+	}
+	if err := beads.ValidateIssueID(waitsOn); err != nil {
+		return []error{fmt.Errorf("triage waits_on: %w", err)}
+	}
+	if waitsOn == strings.TrimSpace(a.ID) {
+		return []error{errors.New("a wait does not wait on its own item, whose closing already takes its entries off the docket; name the item it depends on, or leave \"waits_on\" out")}
+	}
+	return nil
+}
+
+// refuseFinishedWaitsOn refuses a wait naming work the tracker does not hold as
+// unfinished. A wait on an item that is already closed would come straight back
+// on the next sweep, and one on an item that does not exist would never come
+// back at all, so neither is recorded. Nothing has been spent when this is asked.
+func (s *Session) refuseFinishedWaitsOn(ctx context.Context, waitsOn string) error {
+	if waitsOn == "" {
+		return nil
+	}
+	item, err := s.options.Tracker.Show(ctx, waitsOn)
+	if err != nil {
+		return fmt.Errorf("the work item the wait names, %s, could not be read, so nothing says it is unfinished work the wait can end on; nothing was recorded: %w", waitsOn, err)
+	}
+	if status := strings.TrimSpace(item.Status); status == closedWorkItemStatus {
+		return fmt.Errorf("%s is already closed, so a wait on it would end at once; nothing was recorded. Decide the stoppage as it now stands, or name the unfinished item the wait depends on", waitsOn)
+	}
+	return nil
+}
+
+// waitVerb is the sentence a wait records on its item, naming the work it waits
+// on where it names any.
+func waitVerb(waitsOn string) string {
+	if waitsOn == "" {
+		return triageVerbs[decisionWait]
+	}
+	return "Triaged: waiting on " + waitsOn + ", with nothing to be done about it until that item is closed"
 }
 
 // supersededProblems holds the item a stop names as superseding its run to the
@@ -635,6 +691,11 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		outcome.refused(err)
 		return
 	}
+	waitsOn := strings.TrimSpace(action.WaitsOn)
+	if err := s.refuseFinishedWaitsOn(ctx, waitsOn); err != nil {
+		outcome.refused(err)
+		return
+	}
 	spent, err := s.recordTriageDecision(ctx, id, runstate.TriageDecision{
 		Decision: decision,
 		RunID:    run,
@@ -646,6 +707,7 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		DecidedBy:    RoleTitle(s.state.Role),
 		Conversation: s.state.ConversationID,
 		Turn:         s.state.Turns,
+		WaitsOn:      waitsOn,
 	})
 	if err != nil {
 		outcome.refused(refusedPastCap(err))
@@ -659,7 +721,11 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	if spent.landed != "" {
 		outcome.noteLanded("%s", spent.landed)
 	}
-	note := s.trackerProvenance(triageVerbs[decision]+", on the stopped work of run "+run, action.Reason)
+	verb := triageVerbs[decision]
+	if decision == decisionWait {
+		verb = waitVerb(waitsOn)
+	}
+	note := s.trackerProvenance(verb+", on the stopped work of run "+run, action.Reason)
 	if decision == decisionEscalate {
 		// An escalation is recorded as a blocker rather than as a note, because
 		// the item itself has to say it is waiting on a person: a note leaves the
@@ -687,8 +753,8 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	if raised && decision == decisionRerun {
 		lifted = "; it is a re-run of a raise, so it starts from the raising run's preserved change where its branch still stands, once the item's owner has amended the item and released the raise's parking"
 	}
-	outcome.applied("triaged %s as %q, on the stopped work of run %s%s%s%s",
-		id, decision, run, spent.clause, lifted, s.closeDocketEntry(ctx, decision, run, action.Reason))
+	outcome.applied("triaged %s as %q%s, on the stopped work of run %s%s%s%s",
+		id, decision, waitsOnClause(waitsOn), run, spent.clause, lifted, s.closeDocketEntryWaiting(ctx, decision, run, action.Reason, waitsOn))
 }
 
 // carryOutRunlessTriage records a decision about an attempt that never became a
@@ -697,7 +763,16 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 // to the decisions in runlessDecisions.
 func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOutcome, id, decision string) {
 	action := outcome.Action
-	note := s.trackerProvenance(triageVerbs[decision]+", on an attempt to dispatch it that never became a run", action.Reason)
+	waitsOn := strings.TrimSpace(action.WaitsOn)
+	if err := s.refuseFinishedWaitsOn(ctx, waitsOn); err != nil {
+		outcome.refused(err)
+		return
+	}
+	verb := triageVerbs[decision]
+	if decision == decisionWait {
+		verb = waitVerb(waitsOn)
+	}
+	note := s.trackerProvenance(verb+", on an attempt to dispatch it that never became a run", action.Reason)
 	if decision == decisionEscalate {
 		if _, err := s.options.Tracker.Block(ctx, id, note); err != nil {
 			outcome.fail(err)
@@ -705,7 +780,7 @@ func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOut
 			return
 		}
 		outcome.applied("escalated %s to the operator and blocked it, on an attempt to dispatch it that never became a run%s",
-			id, s.closeRunlessDocketEntries(ctx, id, decision, action.Reason))
+			id, s.closeRunlessDocketEntries(ctx, id, decision, action.Reason, ""))
 		return
 	}
 	if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note}); err != nil {
@@ -713,13 +788,13 @@ func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOut
 		s.settleTrackerNote(ctx, outcome, id, note, "the decision recorded on the item")
 		return
 	}
-	outcome.applied("triaged %s as %q, on an attempt to dispatch it that never became a run%s",
-		id, decision, s.closeRunlessDocketEntries(ctx, id, decision, action.Reason))
+	outcome.applied("triaged %s as %q%s, on an attempt to dispatch it that never became a run%s",
+		id, decision, waitsOnClause(waitsOn), s.closeRunlessDocketEntries(ctx, id, decision, action.Reason, waitsOn))
 }
 
 // closeRunlessDocketEntries is closeDocketEntry for a decision that names an item
 // and no run.
-func (s *Session) closeRunlessDocketEntries(ctx context.Context, workItemID, decision, reason string) string {
+func (s *Session) closeRunlessDocketEntries(ctx context.Context, workItemID, decision, reason, waitsOn string) string {
 	if s.options.Docket == nil {
 		return ""
 	}
@@ -729,6 +804,7 @@ func (s *Session) closeRunlessDocketEntries(ctx context.Context, workItemID, dec
 		Decision:   decision,
 		Reason:     reason,
 		Revisit:    triageSettles[decision].revisit,
+		WaitsOn:    waitsOn,
 		DecidedBy:  fmt.Sprintf("the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID),
 	})
 	settled := ""
@@ -935,6 +1011,12 @@ func (s *Session) settlingRead(ctx context.Context, id string) (beads.WorkItem, 
 // close the other has done half of what it was going to, and a reader told only
 // about the failure would go looking for the entry that is no longer there.
 func (s *Session) closeDocketEntry(ctx context.Context, decision, runID, reason string) string {
+	return s.closeDocketEntryWaiting(ctx, decision, runID, reason, "")
+}
+
+// closeDocketEntryWaiting is closeDocketEntry for a decision that may name the
+// work item a wait depends on.
+func (s *Session) closeDocketEntryWaiting(ctx context.Context, decision, runID, reason, waitsOn string) string {
 	if s.options.Docket == nil {
 		return ""
 	}
@@ -945,6 +1027,7 @@ func (s *Session) closeDocketEntry(ctx context.Context, decision, runID, reason 
 		Decision: decision,
 		Reason:   reason,
 		Revisit:  settles.revisit,
+		WaitsOn:  waitsOn,
 		// The conversation the decision was made in, in the words the item's own
 		// notes attribute it with, so a closure and the note beside it name the same
 		// answerable thing.
@@ -958,6 +1041,16 @@ func (s *Session) closeDocketEntry(ctx context.Context, decision, runID, reason 
 		return settled + fmt.Sprintf("; a docket entry could not be closed and will be put to you again: %v", err)
 	}
 	return settled
+}
+
+// waitsOnClause names the work a wait depends on in what the role is told it
+// did, so the answer says the entry is off the docket until that work closes
+// rather than for the ordinary window.
+func waitsOnClause(waitsOn string) string {
+	if waitsOn == "" {
+		return ""
+	}
+	return fmt.Sprintf(" until %s is closed, when the harness puts the entry back on your docket once", waitsOn)
 }
 
 // carryOutCapCrossing raises one of the item's caps on this role's own delegated

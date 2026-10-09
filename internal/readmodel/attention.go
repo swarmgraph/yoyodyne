@@ -479,6 +479,9 @@ const (
 	// HeldAwaitingCarryOut is a decision she recorded that the harness has
 	// still to act on.
 	HeldAwaitingCarryOut HeldWait = "carry-out"
+	// HeldAwaitingWork is a stoppage she decided to wait on unfinished admitted
+	// work for, which comes back to her once that work is closed.
+	HeldAwaitingWork HeldWait = "work"
 )
 
 // HeldWork is how many admitted items are in one of the two waits.
