@@ -991,6 +991,7 @@ var notAStep = map[string]string{
 	"replayStopEnds":             "hands a spent integration budget to a person, on a replay that stopped on the change",
 	"blockOnReviewBound":         "hands a change too large for the reviewer's copy to a person, with its file sizes",
 	"chargeReplayStop":           "spends one of the run's charged replays before a replayed change is handed back",
+	"admitToMergeQueue":          "with execution.merge_queue on, hands the approved change to its target's queue in place of candidate.integrate; it takes no lease and moves no branch, and only the queue's own candidate gate authorizes a landing",
 
 	// The runtime envelope. Holds, directives, dependency waits, operator stops
 	// and provider pauses are guarantees wrapped around every step rather than

@@ -338,6 +338,7 @@ func newResolution() *resolution {
 			"execution.brake_cooldown":                            OriginDefault,
 			"execution.brake_escalation_cycles":                   OriginDefault,
 			"execution.declarative_delivery":                      OriginDefault,
+			"execution.merge_queue":                               OriginDefault,
 			"triage.stuck_merge_age":                              OriginDefault,
 			"triage.review_rounds_cap":                            OriginDefault,
 			"exchange.max_rounds":                                 OriginDefault,
@@ -409,6 +410,10 @@ func (r *resolution) apply(applied layer) error {
 		// path, `true` to state the default explicitly — takes the origin with it,
 		// so `config show --origins` names the file a rollback came from.
 		setValue(r.origins, "execution.declarative_delivery", execution.DeclarativeDelivery, &r.config.Execution.DeclarativeDelivery, applied.origin)
+		// The merge queue is off unless a layer turns it on, and the layer that
+		// does takes the origin, so `config show --origins` names the file that
+		// switched integration over to the queue.
+		setValue(r.origins, "execution.merge_queue", execution.MergeQueue, &r.config.Execution.MergeQueue, applied.origin)
 	}
 	if triage := document.Triage; triage != nil {
 		setValue(r.origins, "triage.stuck_merge_age", triage.StuckMergeAge, &r.config.Triage.StuckMergeAge, applied.origin)

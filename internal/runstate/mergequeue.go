@@ -7,9 +7,10 @@ package runstate
 // each entry was admitted in with the evidence it was chosen on; choosing the
 // mode is internal/queuemode's. mergequeuegeneration.go beside it keeps what
 // the worker verified, and mergequeuelanding.go what a promotion did to land
-// it, and how it was withdrawn or handed back. Nothing here selects an entry, builds a candidate, runs
-// a check, or moves a branch, and nothing in the harness admits to the queue
-// yet.
+// it, and how it was withdrawn or handed back. Nothing here selects an entry,
+// builds a candidate, runs a check, or moves a branch. The pipeline admits an
+// approved change here when execution.merge_queue is on (the orchestrator's
+// mergequeueadmission.go).
 //
 // One queue exists per repository and target branch, as one record under the
 // product. Admission is a short critical section under the record's lock: read
@@ -18,6 +19,13 @@ package runstate
 // landed. The order a queue has assigned is never assigned again, and an entry
 // once written is never rewritten, so a reader that saw an entry sees the same
 // entry later.
+//
+// A run has one entry at a time. It is admitted again only once its entry has
+// left the queue without landing — handed back for repair, or released after
+// its queued merge was withdrawn — and the new entry names the one it
+// supersedes, so the history of every attempt to land the change stays on the
+// record. An entry moved to the other queue mode (Transfer) also keeps the
+// place the entry it supersedes had; any other readmission joins the back.
 //
 // Working the queue is a lease beside the record, for the same reason every
 // lease in this package is a file lock: the operating system drops it when its
@@ -42,6 +50,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode"
@@ -211,6 +220,36 @@ type MergeQueueEntry struct {
 	// PredecessorOrder is the order of the entry admitted immediately before
 	// this one, and zero for a queue's first.
 	PredecessorOrder uint64 `json:"predecessor_order"`
+	// Supersedes is the earlier entry of the same run this one was admitted
+	// after, once that entry left the queue without landing. It is empty for a
+	// run's first entry.
+	Supersedes string `json:"supersedes,omitempty"`
+	// Place is where the entry is worked in the queue: its own Order, or, for an
+	// entry that moved its run's change to the other mode, the place of the
+	// entry it moved from. Zero, in a record written before places existed, is
+	// the entry's Order.
+	Place uint64 `json:"place,omitempty"`
+}
+
+// WorkPlace is where the entry is worked in its queue, earliest first.
+func (e MergeQueueEntry) WorkPlace() uint64 {
+	if e.Place == 0 {
+		return e.Order
+	}
+	return e.Place
+}
+
+// MergeQueueWorkOrder is a queue's entries in the order they are worked: by
+// place, and by admission between entries at the same place.
+func MergeQueueWorkOrder(entries []MergeQueueEntry) []MergeQueueEntry {
+	ordered := append([]MergeQueueEntry(nil), entries...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].WorkPlace() != ordered[j].WorkPlace() {
+			return ordered[i].WorkPlace() < ordered[j].WorkPlace()
+		}
+		return ordered[i].Order < ordered[j].Order
+	})
+	return ordered
 }
 
 // Key is the queue the entry was admitted to.
@@ -239,6 +278,12 @@ func (e MergeQueueEntry) validate() error {
 	problems = append(problems, e.ModeEvidence.validate(e.Mode)...)
 	if e.AdmittedAt.IsZero() {
 		problems = append(problems, errors.New("admission time is required"))
+	}
+	if e.Supersedes != "" && !mergeQueueEntryIDPattern.MatchString(e.Supersedes) {
+		problems = append(problems, fmt.Errorf("superseded entry id %q is not a merge queue entry id", e.Supersedes))
+	}
+	if e.Place > e.Order {
+		problems = append(problems, fmt.Errorf("place %d is after the entry's own order %d", e.Place, e.Order))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("merge queue entry %d: %w", e.Order, err)
@@ -283,7 +328,10 @@ func (q MergeQueue) validate(productID domain.ProductID, key MergeQueueKey) erro
 	}
 	var previous uint64
 	ids := make(map[string]bool, len(q.Entries))
-	runs := make(map[string]bool, len(q.Entries))
+	places := make(map[string]uint64, len(q.Entries))
+	// latest is each run's newest entry so far, which is the only one a later
+	// entry of the same run may supersede.
+	latest := make(map[string]string, len(q.Entries))
 	for _, entry := range q.Entries {
 		if err := entry.validate(); err != nil {
 			problems = append(problems, err)
@@ -298,10 +346,19 @@ func (q MergeQueue) validate(productID domain.ProductID, key MergeQueueKey) erro
 		if ids[entry.EntryID] {
 			problems = append(problems, fmt.Errorf("merge queue entry id %s is recorded twice", entry.EntryID))
 		}
-		if runs[entry.RunID] {
-			problems = append(problems, fmt.Errorf("run %s is admitted twice", entry.RunID))
+		earlier, admitted := latest[entry.RunID]
+		switch {
+		case admitted && entry.Supersedes != earlier:
+			problems = append(problems, fmt.Errorf("run %s is admitted again as entry %d without superseding its entry %s", entry.RunID, entry.Order, earlier))
+		case !admitted && entry.Supersedes != "":
+			problems = append(problems, fmt.Errorf("entry %d supersedes %s, which is no earlier entry of run %s", entry.Order, entry.Supersedes, entry.RunID))
 		}
-		ids[entry.EntryID], runs[entry.RunID] = true, true
+		if entry.Place != 0 && entry.Place != entry.Order && (entry.Supersedes == "" || entry.Place != places[entry.Supersedes]) {
+			problems = append(problems, fmt.Errorf("entry %d keeps place %d, which is neither its own order nor the place of the entry it supersedes", entry.Order, entry.Place))
+		}
+		ids[entry.EntryID] = true
+		latest[entry.RunID] = entry.EntryID
+		places[entry.EntryID] = entry.WorkPlace()
 		previous = entry.Order
 	}
 	if q.NextOrder <= previous || q.NextOrder == 0 {
@@ -334,6 +391,10 @@ var ErrMergeQueueSaveUncertain = errors.New("the merge queue admission may or ma
 type MergeQueueAdmitter interface {
 	Admit(ctx context.Context, admission MergeQueueAdmission) (MergeQueueEntry, bool, error)
 	Entries(key MergeQueueKey) ([]MergeQueueEntry, error)
+	// Standing is the run's entry the queue still holds: its newest, unless that
+	// entry left the queue without landing, in which case the run has none and
+	// its next admission is a new entry.
+	Standing(key MergeQueueKey, runID string) (MergeQueueEntry, bool, error)
 }
 
 // MergeQueueWorkerLeaser is what takes the one lease that makes a process the
@@ -439,11 +500,27 @@ func (s *MergeQueueStore) Admit(ctx context.Context, admission MergeQueueAdmissi
 		return MergeQueueEntry{}, false, err
 	}
 	if existing, found := queue.entryForRun(asked.RunID); found {
-		if !existing.sameContents(asked) {
-			return MergeQueueEntry{}, false, MergeQueueConflictError{Admitted: existing}
+		left, err := s.leftWithoutLanding(queueRoot, admission.Key, existing.EntryID)
+		if err != nil {
+			return MergeQueueEntry{}, false, err
 		}
-		return existing, false, nil
+		if !left {
+			if !existing.sameContents(asked) {
+				return MergeQueueEntry{}, false, MergeQueueConflictError{Admitted: existing}
+			}
+			return existing, false, nil
+		}
+		// The run's entry was handed back or released, so this admission is the
+		// change's next attempt to land, behind everything already waiting.
+		asked.Supersedes = existing.EntryID
 	}
+	return s.append(queueRoot, admission.Key, queue, asked)
+}
+
+// append writes an entry onto the end of the queue's record, assigning it the
+// next order, and reports it. Its caller holds the record's lock and has read
+// the record it is handed.
+func (s *MergeQueueStore) append(queueRoot *repowrite.PinnedRoot, key MergeQueueKey, queue MergeQueue, asked MergeQueueEntry) (MergeQueueEntry, bool, error) {
 	id, err := newMergeQueueEntryID()
 	if err != nil {
 		return MergeQueueEntry{}, false, err
@@ -455,7 +532,7 @@ func (s *MergeQueueStore) Admit(ctx context.Context, admission MergeQueueAdmissi
 	}
 	queue.Entries = append(queue.Entries, asked)
 	queue.NextOrder = asked.Order + 1
-	if err := queue.validate(s.productID, admission.Key); err != nil {
+	if err := queue.validate(s.productID, key); err != nil {
 		return MergeQueueEntry{}, false, err
 	}
 	encoded, err := encodeRecord("merge queue", queue)
@@ -463,7 +540,7 @@ func (s *MergeQueueStore) Admit(ctx context.Context, admission MergeQueueAdmissi
 		return MergeQueueEntry{}, false, err
 	}
 	if len(encoded) > maxEncodedStateBytes {
-		return MergeQueueEntry{}, false, StopError{Class: StopStateBound, Cause: fmt.Errorf("the merge queue for %s would be %d bytes, limit is %d", admission.Key.TargetBranch, len(encoded), maxEncodedStateBytes)}
+		return MergeQueueEntry{}, false, StopError{Class: StopStateBound, Cause: fmt.Errorf("the merge queue for %s would be %d bytes, limit is %d", key.TargetBranch, len(encoded), maxEncodedStateBytes)}
 	}
 	saveErr := s.save(queueRoot, encoded)
 	if saveErr == nil {
@@ -471,14 +548,14 @@ func (s *MergeQueueStore) Admit(ctx context.Context, admission MergeQueueAdmissi
 	}
 	// Whether a failed write landed is what the record says, and nothing else
 	// does: a rename can succeed and the directory sync behind it fail.
-	landed, readErr := s.readBack(queueRoot, admission.Key)
+	landed, readErr := s.readBack(queueRoot, key)
 	if readErr != nil {
 		return MergeQueueEntry{}, false, fmt.Errorf("%w: save: %w; readback: %w", ErrMergeQueueSaveUncertain, saveErr, readErr)
 	}
 	if entry, found := landed.entryForRun(asked.RunID); found && entry.EntryID == asked.EntryID {
 		return entry, true, nil
 	}
-	return MergeQueueEntry{}, false, fmt.Errorf("save the merge queue for %s: %w; reading it back found the admission was not saved", admission.Key.TargetBranch, saveErr)
+	return MergeQueueEntry{}, false, fmt.Errorf("save the merge queue for %s: %w; reading it back found the admission was not saved", key.TargetBranch, saveErr)
 }
 
 // Entries reports every entry admitted to a queue, in order. A queue nothing
@@ -629,13 +706,47 @@ func (s *MergeQueueStore) decode(encoded []byte, key MergeQueueKey, strict bool)
 	return queue, nil
 }
 
+// entryForRun is the run's newest entry, which is the only one that can still
+// be in the queue: every earlier one was superseded.
 func (q MergeQueue) entryForRun(runID string) (MergeQueueEntry, bool) {
-	for _, entry := range q.Entries {
-		if entry.RunID == runID {
-			return entry, true
+	for index := len(q.Entries) - 1; index >= 0; index-- {
+		if q.Entries[index].RunID == runID {
+			return q.Entries[index], true
 		}
 	}
 	return MergeQueueEntry{}, false
+}
+
+// leftWithoutLanding reports an entry handed back or released: one whose turn
+// in the queue ended with nothing landed.
+func (s *MergeQueueStore) leftWithoutLanding(queueRoot *repowrite.PinnedRoot, key MergeQueueKey, entryID string) (bool, error) {
+	landing, found, err := s.loadLanding(queueRoot, key, entryID, false)
+	if err != nil {
+		return false, err
+	}
+	return found && landing.Completion == nil && landing.Handback != nil, nil
+}
+
+// Standing is the run's entry the queue still holds; see MergeQueueAdmitter.
+func (s *MergeQueueStore) Standing(key MergeQueueKey, runID string) (MergeQueueEntry, bool, error) {
+	entries, err := s.Entries(key)
+	if err != nil {
+		return MergeQueueEntry{}, false, err
+	}
+	latest, found := MergeQueue{Entries: entries}.entryForRun(runID)
+	if !found {
+		return MergeQueueEntry{}, false, nil
+	}
+	queueRoot, err := s.openQueue(key)
+	if err != nil {
+		return MergeQueueEntry{}, false, err
+	}
+	defer queueRoot.Close()
+	left, err := s.leftWithoutLanding(queueRoot, key, latest.EntryID)
+	if err != nil || left {
+		return MergeQueueEntry{}, false, err
+	}
+	return latest, true, nil
 }
 
 // writeQueue replaces a queue's record whole and synced, then syncs the
@@ -715,4 +826,50 @@ func mergeQueueText(field, value string, required bool) error {
 		return fmt.Errorf("%s %q contains a control character", field, value)
 	}
 	return nil
+}
+
+// MergeQueueAdmissionRecord is what a run records of its change's admission to
+// a merge queue: the entry, and enough of it that a reader of the run alone can
+// say where the change is waiting.
+type MergeQueueAdmissionRecord struct {
+	EntryID      string         `json:"entry_id"`
+	Order        uint64         `json:"order"`
+	Repository   string         `json:"repository"`
+	TargetBranch string         `json:"target_branch"`
+	Mode         MergeQueueMode `json:"mode"`
+	ApprovedHead string         `json:"approved_head"`
+	AdmittedAt   time.Time      `json:"admitted_at"`
+}
+
+// AdmissionRecord is what a run records of its admission as this entry.
+func (e MergeQueueEntry) AdmissionRecord() MergeQueueAdmissionRecord {
+	return MergeQueueAdmissionRecord{
+		EntryID: e.EntryID, Order: e.Order, Repository: e.Repository, TargetBranch: e.TargetBranch,
+		Mode: e.Mode, ApprovedHead: e.ApprovedHead, AdmittedAt: e.AdmittedAt,
+	}
+}
+
+// Key is the queue the run's change was admitted to.
+func (r MergeQueueAdmissionRecord) Key() MergeQueueKey {
+	return MergeQueueKey{Repository: r.Repository, TargetBranch: r.TargetBranch}
+}
+
+func (r MergeQueueAdmissionRecord) validate() error {
+	var problems []error
+	if !mergeQueueEntryIDPattern.MatchString(r.EntryID) || r.Order == 0 {
+		problems = append(problems, fmt.Errorf("entry %q (order %d) is not a merge queue entry", r.EntryID, r.Order))
+	}
+	if err := r.Key().validate(); err != nil {
+		problems = append(problems, err)
+	}
+	if !r.Mode.valid() {
+		problems = append(problems, fmt.Errorf("merge queue mode %q is not one this build knows", r.Mode))
+	}
+	if !commitPattern.MatchString(r.ApprovedHead) {
+		problems = append(problems, fmt.Errorf("approved head %q is not a full commit id", r.ApprovedHead))
+	}
+	if r.AdmittedAt.IsZero() {
+		problems = append(problems, errors.New("admission time is required"))
+	}
+	return errors.Join(problems...)
 }

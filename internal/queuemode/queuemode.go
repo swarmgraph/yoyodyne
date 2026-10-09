@@ -17,7 +17,8 @@
 // later slice's explicit transfer, never a side effect of asking again.
 //
 // Nothing here enqueues, merges, rewrites a head, or moves an entry between
-// modes, and nothing in the harness calls it yet.
+// modes. The pipeline admits through it when execution.merge_queue is on, and
+// an explicit transfer chooses the other mode through Select.
 package queuemode
 
 import (
@@ -288,16 +289,13 @@ func (a Admitter) admitAsRecorded(ctx context.Context, admission runstate.MergeQ
 	return Admitted{Entry: entry}, nil
 }
 
-// existing is the queue's entry for the admission's run, if it has one.
+// existing is the queue's entry for the admission's run, if the queue still
+// holds one. A run whose entry was handed back or released has none: its next
+// admission is a new entry, and its mode is chosen afresh.
 func (a Admitter) existing(admission runstate.MergeQueueAdmission) (runstate.MergeQueueEntry, bool, error) {
-	entries, err := a.Queue.Entries(admission.Key)
+	entry, found, err := a.Queue.Standing(admission.Key, admission.RunID)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, false, fmt.Errorf("read the merge queue for %s before admitting to it: %w", admission.Key.TargetBranch, err)
 	}
-	for _, entry := range entries {
-		if entry.RunID == admission.RunID {
-			return entry, true, nil
-		}
-	}
-	return runstate.MergeQueueEntry{}, false, nil
+	return entry, found, nil
 }

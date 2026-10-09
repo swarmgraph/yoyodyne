@@ -113,6 +113,20 @@
             <p id="managers-remedy" class="remedy">The dashboard asks again every ten seconds. If this stays, yoyo status in the checkout says the same thing with more room, and yoyo doctor says what cannot be read.</p>
           </div>
         </section>
+        <section id="queues" class="panel queues" data-state="error" aria-labelledby="queues-heading">
+          <div class="panel-head">
+            <h2 id="queues-heading">Merge queues</h2>
+            <p class="panel-note">
+              each change waiting to land on its target branch, in the order it is worked, as
+              <code>yoyo status</code>
+              lists them; a change reads as landed only once the queue confirmed it on the target
+            </p>
+          </div>
+          <div class="section-error" role="alert">
+            <p id="queues-problem" class="problem">Could not be read: the merge queues could not be listed: open merge-queues: input/output error</p>
+            <p id="queues-remedy" class="remedy">The dashboard asks again every ten seconds. If this stays, yoyo status in the checkout says the same thing with more room, and yoyo doctor says what cannot be read.</p>
+          </div>
+        </section>
       </div>
     </main>
     <script src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"></script>

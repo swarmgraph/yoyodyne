@@ -100,6 +100,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return releaseIntake(args[1:], stdout, stderr)
 	case "gate":
 		return runGate(args[1:], stdout, stderr)
+	case "queue":
+		return runQueue(ctx, args[1:], stdout, stderr)
 	case "review":
 		return reviewBranch(ctx, args[1:], stdout, stderr)
 	case "cost":
@@ -775,6 +777,7 @@ Commands:
   resume            lift that pause, or release one run's wait on the provider
   release           lift a hold on intake, so the harness chooses work again
   gate              read the steps only a person can take, and record taking one
+  queue             move a queued change between the harness's merge queue and the forge's
   review            review what a branch accumulated over a base, as one change
   cost              price work items from the runs made for them, and record it
   reconcile         settle interrupted runs, then converge local state on the forge

@@ -1235,6 +1235,43 @@ var standingWarningAgeSeconds = 5 * 60;
     section("managers", "ready");
   }
 
+  function renderQueues() {
+    var standing = model.standing;
+    if (!standing) {
+      section("queues", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
+      return;
+    }
+    var queues = standing.merge_queues || [];
+    if (queues.length === 0 && standing.merge_queues_problem) {
+      section("queues", "error", standing.merge_queues_problem, whatToDoAboutTheStanding());
+      return;
+    }
+    if (queues.length === 0) {
+      section("queues", "empty", "No change has been admitted to a merge queue.");
+      return;
+    }
+    listProblems("queues-problems", [standing.merge_queues_problem]);
+    var list = document.getElementById("queues-list");
+    clear(list);
+    queues.forEach(function (queue) {
+      var row = el("li", "held");
+      row.appendChild(el("h3", "held-title", "Merge queue for " + queue.target_branch));
+      if (queue.refusal) {
+        row.appendChild(el("p", "held-reason", "Not in use: " + queue.refusal.requirement + " What would let it be used: " + queue.refusal.step + "."));
+      }
+      if (queue.last_pass && queue.last_pass.says) {
+        row.appendChild(el("p", "held-reason", "Last pass: " + queue.last_pass.outcome + " \u2014 " + queue.last_pass.says));
+      }
+      var entries = el("ul", "held-list");
+      (queue.entries || []).forEach(function (entry) {
+        entries.appendChild(el("li", "held-reason", entry.place + ". " + entry.work_item_id + " " + entry.title + " \u2014 " + entry.state + ", " + entry.mode + " queue \u2014 " + entry.why));
+      });
+      row.appendChild(entries);
+      list.appendChild(row);
+    });
+    section("queues", "ready");
+  }
+
   function renderFactory() {
     var standing = model.standing;
     if (!standing) {
@@ -2217,6 +2254,7 @@ var standingWarningAgeSeconds = 5 * 60;
     renderCapacity();
     renderFactory();
     renderManagers();
+    renderQueues();
     // An open grouping, and an open entry card, are drawn again from the
     // reading just taken, so each stays as live as what it was opened from.
     renderGrouping();

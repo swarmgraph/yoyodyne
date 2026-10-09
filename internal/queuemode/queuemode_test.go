@@ -458,6 +458,11 @@ func (q *uncertainQueue) Entries(key runstate.MergeQueueKey) ([]runstate.MergeQu
 	return q.MergeQueueStore.Entries(key)
 }
 
+func (q *uncertainQueue) Standing(key runstate.MergeQueueKey, runID string) (runstate.MergeQueueEntry, bool, error) {
+	q.calls = append(q.calls, "read")
+	return q.MergeQueueStore.Standing(key, runID)
+}
+
 func TestAnUncertainSaveIsReadBackBeforeAnotherAdmissionIsWritten(t *testing.T) {
 	t.Parallel()
 

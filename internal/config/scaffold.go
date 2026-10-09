@@ -364,6 +364,14 @@ execution:
   # reaches new runs only: a run already in flight finishes on whatever it
   # started on.
   declarative_delivery: %t
+  # Whether approved changes reach the target branch through a merge queue.
+  # Off, a run lands its own approved change: one whose target moved is
+  # replayed onto it, checked, and reviewed again first. On, an approved change
+  # joins its target branch's queue, and the queue builds a candidate from the
+  # target as it then stands, runs the checks above on it, has an independent
+  # reviewer approve it, and lands exactly that. Turning it off admits nothing
+  # new and still finishes what is already queued.
+  merge_queue: %t
 
 # When work that has stopped moving is looked at, and what looking at it may
 # spend. An approved publication nobody has merged is docketed once it has sat
@@ -470,6 +478,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),
 		effective.Execution.BrakeEscalationCycles,
 		effective.Execution.DeclarativeDelivery,
+		effective.Execution.MergeQueue,
 		renderScaffoldDuration(effective.Triage.StuckMergeAge),
 		effective.Triage.ReviewRoundsCap,
 		effective.Exchange.MaxRounds,

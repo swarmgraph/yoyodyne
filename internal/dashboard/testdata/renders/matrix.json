@@ -9,7 +9,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "ready",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -27,7 +28,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "error",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -45,7 +47,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -63,7 +66,8 @@
       "throughput": "loading",
       "capacity": "loading",
       "factory": "loading",
-      "managers": "loading"
+      "managers": "loading",
+      "queues": "loading"
     },
     "popups": {
       "grouping": "closed",
@@ -81,7 +85,8 @@
       "throughput": "loading",
       "capacity": "loading",
       "factory": "loading",
-      "managers": "loading"
+      "managers": "loading",
+      "queues": "loading"
     },
     "popups": {
       "grouping": "closed",
@@ -99,7 +104,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -117,7 +123,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -135,7 +142,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -153,7 +161,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -171,7 +180,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "closed",
@@ -189,7 +199,8 @@
       "throughput": "error",
       "capacity": "error",
       "factory": "empty",
-      "managers": "error"
+      "managers": "error",
+      "queues": "error"
     },
     "popups": {
       "grouping": "closed",
@@ -207,7 +218,8 @@
       "throughput": "loading",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -225,7 +237,8 @@
       "throughput": "error",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -243,7 +256,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -261,7 +275,8 @@
       "throughput": "loading",
       "capacity": "loading",
       "factory": "loading",
-      "managers": "loading"
+      "managers": "loading",
+      "queues": "loading"
     },
     "popups": {
       "grouping": "closed",
@@ -279,7 +294,8 @@
       "throughput": "loading",
       "capacity": "loading",
       "factory": "loading",
-      "managers": "loading"
+      "managers": "loading",
+      "queues": "loading"
     },
     "popups": {
       "grouping": "closed",
@@ -297,7 +313,8 @@
       "throughput": "loading",
       "capacity": "loading",
       "factory": "loading",
-      "managers": "loading"
+      "managers": "loading",
+      "queues": "loading"
     },
     "popups": {
       "grouping": "closed",
@@ -315,7 +332,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -333,7 +351,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -351,7 +370,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -369,7 +389,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -387,7 +408,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -405,7 +427,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -423,7 +446,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "ready",
@@ -441,7 +465,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "ready",
@@ -459,7 +484,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "ready",
@@ -477,7 +503,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "ready",
@@ -495,7 +522,8 @@
       "throughput": "empty",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "ready",
@@ -513,7 +541,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -531,7 +560,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -549,7 +579,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -567,7 +598,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -585,7 +617,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -603,7 +636,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "ready",
@@ -621,7 +655,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "empty",
@@ -639,7 +674,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "error",
@@ -657,7 +693,8 @@
       "throughput": "loading",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "loading",
@@ -675,7 +712,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -693,7 +731,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "empty",
@@ -711,7 +750,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "error",
@@ -729,7 +769,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "loading",
@@ -747,7 +788,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -765,7 +807,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -783,7 +826,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -801,7 +845,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -819,7 +864,8 @@
       "throughput": "ready",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "empty",
@@ -837,7 +883,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "error",
@@ -855,7 +902,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -873,7 +921,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -891,7 +940,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -909,7 +959,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "ready",
@@ -927,7 +978,8 @@
       "throughput": "ready",
       "capacity": "empty",
       "factory": "empty",
-      "managers": "empty"
+      "managers": "empty",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "empty",
@@ -945,7 +997,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "empty"
     },
     "popups": {
       "grouping": "error",
@@ -963,7 +1016,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -981,7 +1035,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -999,7 +1054,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -1017,7 +1073,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -1035,7 +1092,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -1053,7 +1111,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -1071,7 +1130,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",
@@ -1089,7 +1149,8 @@
       "throughput": "ready",
       "capacity": "ready",
       "factory": "empty",
-      "managers": "ready"
+      "managers": "ready",
+      "queues": "ready"
     },
     "popups": {
       "grouping": "closed",

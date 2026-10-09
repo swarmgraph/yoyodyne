@@ -142,6 +142,10 @@ type executionDocument struct {
 	// path; a layer that writes `false` is a project rolling back to the legacy
 	// one.
 	DeclarativeDelivery *bool `yaml:"declarative_delivery"`
+	// MergeQueue is absent from every file written before the merge queue
+	// existed, which leaves it off: a layer that does not supply it integrates
+	// approved work the way runs always have.
+	MergeQueue *bool `yaml:"merge_queue"`
 }
 
 type triageDocument struct {

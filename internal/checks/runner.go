@@ -285,6 +285,13 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			}
 			lastAccepted = sequence.Last()
 		})
+		// The gate's copy of the hold is this runner's to let go of once the check
+		// has ended, whatever runner it was handed to: the process runner closes it
+		// as the check starts, and a runner that never started one may not have.
+		// Closing an already closed file does nothing.
+		if gate != nil && gate.Hold != nil {
+			_ = gate.Hold.Close()
+		}
 		if err != nil {
 			return results, lastAccepted, fmt.Errorf("run check %q: %w", safeCommand, err)
 		}

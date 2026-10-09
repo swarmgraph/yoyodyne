@@ -2399,3 +2399,55 @@ request and stops: nothing is merged, the run branch survives on the remote, and
 the worktree is preserved for you — which is what a `human` integration policy
 means. See the
 [configuration guide](configuration.md#publishing-through-pull-requests).
+
+## Landing through a merge queue
+
+With `execution.merge_queue` on, an approved change does not land at the end of
+its own run. The run earns its gate as it always does — the protected-path gate,
+the configured checks, and an independent review — and then admits the change to
+the merge queue of its target branch and ends. The run is recorded succeeded,
+the item stays claimed, and the item's notes name the queue and the entry the
+change waits in; the run holds no developer slot meanwhile, so the next item
+starts beside it.
+
+The queue then lands the change on its own, one entry at a time in the order
+they were admitted. It builds a candidate — the target as it stands with the
+change merged onto it — and lands that candidate only once the candidate itself
+has passed the protected-path gate, the configured checks, and an independent
+review: the run's own approval admitted the change and authorizes no landing.
+When it lands, the landing is recorded on the run and the item is settled exactly
+as a run's own landing settles it — closed where the run's landing claim and its
+approval discharge the item, put back otherwise.
+
+What can happen to a queued change instead:
+
+- **The target moves under its candidate.** The candidate is built again on the
+  moved target and verified from nothing. Nobody is charged for it.
+- **A check fails on the candidate and passes on the target.** The failure is
+  the change's: the change is handed back to its own run, which records it as the
+  failing check and blocks the item, and the run goes on the development
+  manager's docket for the repair continuation, under the run's own repair
+  budget.
+- **A check fails on the candidate and on the target too.** The failure is the
+  target's: the item a red landing files for that check is found or filed, the
+  change is charged nothing, and it waits for the target to move while the
+  changes behind it — the fix among them — go ahead.
+- **The change will not merge onto the target.** It is handed back as a replay
+  conflict is, so a repair moves it onto the target and asks its developer to
+  reconcile it.
+- **The candidate touches a protected path its item does not grant.** It is
+  handed back before any check runs on it.
+- **Something no single run can take up** — a run that no longer has the branch
+  or the session a repair continues from — goes on the development manager's
+  docket by itself.
+
+Turning the switch off admits nothing new and lets what is queued finish in the
+queue it was admitted to. A target whose branch protection lands changes only
+through the forge's own merge queue cannot use the harness's queue; the change
+is then integrated the way it is with the switch off, and the item says which
+repository setting would let the queue be used. Moving a queued change between
+the harness's queue and the forge's is `yoyo queue transfer`, which withdraws
+first and moves nothing while that withdrawal is unconfirmed. `yoyo status` and
+the dashboard show every queue and where each change in it stands.
+[The configuration guide](configuration.md#integrating-through-a-merge-queue)
+has the whole of it.

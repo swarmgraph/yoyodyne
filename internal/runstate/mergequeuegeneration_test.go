@@ -71,6 +71,12 @@ func TestTheGateGivesNoCreditForMissingOrIncompleteEvidence(t *testing.T) {
 		change func(*MergeQueueGeneration)
 		want   string
 	}{
+		"no protected-path check": {func(g *MergeQueueGeneration) { g.Paths = nil }, "no protected-path check"},
+		// The candidate is what lands, and the protected-path gate is asked of
+		// it as it is of a run's own change: a path its item does not grant
+		// refuses it, whatever its checks and its review say.
+		"an ungranted protected path": {func(g *MergeQueueGeneration) { g.Paths.Refused = []string{"docs/designs/v1-harness-design.md"} },
+			"protected paths its work item does not grant: docs/designs/v1-harness-design.md"},
 		"no checks":                {func(g *MergeQueueGeneration) { g.CheckRun = nil }, "no checks were recorded"},
 		"checks never finished":    {func(g *MergeQueueGeneration) { g.CheckRun.FinishedAt = nil }, "never finished"},
 		"checks interrupted":       {func(g *MergeQueueGeneration) { g.CheckRun.Problem = "the runner died" }, "did not complete"},
@@ -321,6 +327,7 @@ func verifiedGeneration(t *testing.T) MergeQueueGeneration {
 	binding := generation.Binding()
 	started := time.Date(2026, 10, 8, 9, 1, 0, 0, time.UTC)
 	finished := started.Add(time.Minute)
+	generation.Paths = &MergeQueuePathEvidence{Binding: binding, CheckedAt: started, Changed: 2}
 	generation.CheckRun = &MergeQueueCheckEvidence{
 		Binding: binding, StartedAt: started, FinishedAt: &finished,
 		Results: []MergeQueueCheckResult{

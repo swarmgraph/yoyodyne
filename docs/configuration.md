@@ -5445,6 +5445,147 @@ compare-and-swap every other write makes — a remote branch carrying anything
 else is refused rather than overwritten — and the refusal stops the run, because
 nothing has been promoted yet and there is nothing outstanding to report.
 
+## Integrating through a merge queue
+
+A run that loses a race for its target replays its change, checks it, and has
+it reviewed again ([above](#losing-a-race-for-the-target-branch)). With several
+runs landing on one branch that is work repeated on every race. A merge queue
+does it once per landing instead, on exactly what lands:
+
+```yaml
+execution:
+  merge_queue: false   # the default; true integrates through the queue
+```
+
+**Off, which is the default and what a file without the key means,** nothing
+changes: a run promotes its own approved change, replaying it onto a target
+that moved and earning its checks and a fresh review again first, exactly as
+the sections above describe.
+
+**On, a run that earns its approval admits its change to the queue of its
+target branch and ends.** Its gate is the same — the protected-path gate, the
+configured checks, and an independent review of the change — and is read off
+the run's record before anything is admitted. What the run no longer does is
+promote the change or replay it: the change is committed as it was approved,
+admitted as the queue's next entry, and the run ends succeeded with its item
+still claimed and its branch and worktree kept, because the queue may hand the
+change back to it. A run waiting in the queue holds no developer slot, so the
+next item starts beside it, and the claim audit leaves its item alone. The
+item's notes say which queue and entry the change waits in.
+
+**The queue lands only a candidate it verified itself.** For the first waiting
+entry, in the order the queue is worked, the harness builds a candidate in a
+checkout of its own: the target branch as it stands, with the approved head
+merged onto it. That candidate is what would land, so it is what is judged:
+
+- the protected-path gate is asked of every path the candidate changes, against
+  what the entry's work item grants, before anything runs on it;
+- the configured checks run on it whole, told
+  `YOYODYNE_CHANGED_GO_PACKAGES=./...`;
+- an independent reviewer, under the run's account and charged to the run and
+  its item as review spend, is asked whether the change combined with what the
+  target now carries still does what the item asks.
+
+The approval the run earned admitted the change; it authorizes no landing, and
+evidence about one candidate never answers for another. The target moving while
+a candidate is checked or reviewed sets that candidate aside and builds a new
+one on the moved target, charged to nobody. The landing itself takes the
+target's promotion lease, reads the operator's pause, the item's directives and
+dependencies, and the integration approval policy again, checks the candidate's
+gate again, and moves the target only from the base the candidate was built on:
+a local fast-forward on an unprotected target, and the candidate's own pull
+request (on a branch named `yoyodyne/merge-queue/<entry>`) on a protected one,
+which the local target follows once the forge's merge is confirmed. The landing
+is then recorded on the run as its integration and the item is settled the way
+a run's own landing settles it.
+
+**The candidate's checks and review pass the doors a run's do.** Nothing starts
+while the operator has paused harness activity (`yoyo pause`), and the review
+also waits out a provider nobody can reach, a usage limit already known for its
+account and model, and a provider that is not installed or not logged in. A
+provider refusing the review earns nothing and is asked again later. Holding
+intake does not stop the queue: what it lands was approved already, which is
+the "let what is running finish" half of the hold.
+
+**A failing candidate is the change's only where the target passes.** The queue
+runs no checks of the target's own, so a check that fails on a candidate is run
+once more on the target at the candidate's base. Where the base passes it, the
+failure is the change's: the change is handed back to its run for repair under
+the run's own repair budget, or, with that spent, put to the development manager.
+Where the base fails it too, the failure is the target's: the item a red landing
+files for that check on that branch is found or filed, nothing is charged to the
+change, and the entry steps aside for the entries behind it — one of which may
+be the fix — and is built afresh once the target moves. A head that will not
+merge onto the target at all is handed back the way a replay conflict is, so the
+repair continuation moves the change onto the target and asks its developer to
+reconcile it. A handback no single run can take up goes on the development
+manager's docket.
+
+**Which queue an entry is in is chosen when it is admitted.** The harness runs
+the queue itself on any forge. The forge's own merge queue is used only where
+its adapter establishes, and the forge enforces before landing, everything the
+harness's queue gates on — the combined commit it lands, the project's
+configured checks bound to that commit, and an independent approval of it.
+GitHub's queue does not today: its required checks are named rather than the
+project's, and its required reviews approve a pull request's head rather than
+the commit it lands. The mode chosen, and why, is recorded on the entry and
+shown wherever the queue is.
+
+**A target that lands changes only through the forge's own queue cannot use the
+harness's**, because the forge would land a commit of its own rather than the
+candidate the harness checked and reviewed. With the switch on and such a
+target, the queue refuses the change and the run integrates it the way it does
+with the switch off, so nothing stops merging. The refusal is said on the item
+and kept beside the queue, where `yoyo status` and the dashboard show it, naming
+the repository setting a person has to change: remove the merge queue
+requirement from the branch's protection rules.
+
+**Turning the switch off admits nothing new and drains what is queued.** Each
+entry lands in the mode it was admitted in; nothing is discarded, admitted
+twice, or moved to another mode. A watching session works every queue that has
+an entry in it whatever the switch says, and a restarted one carries on from the
+queue's records.
+
+**Moving an entry to the other mode is something a person asks for:**
+
+```sh
+yoyo queue transfer <entry> --mode harness|forge
+```
+
+Whatever the entry's current queue was asked for is withdrawn first, and the
+withdrawal has to be confirmed: while the forge has not said it took a queued
+merge back, the transfer moves nothing. The entry is then released, and the
+change is admitted again in the other mode in the place it had, keeping the
+released entry, its candidates, and its landing record as history. The new
+entry has no candidate; it is built, checked and reviewed from nothing. A
+transfer interrupted part-way is finished by asking again.
+
+**Who works the queues.** A `yoyo work` session works every queue with an entry
+in it beside its pulls, one pass per queue at a time, each in its own
+goroutine, and never inside a developer slot. A queue is worked by one process
+at a time: each step takes the queue's own worker lease, which is not the
+promotion lease, so a second session finds the queue taken and leaves it. Queues
+for different target branches move independently. A pass ends on its own — when
+nothing can move, when what is left waits on the operator, a provider or the
+forge, or when it stops on something that needs a look — and a session draining
+to restart into a new build waits for its passes like its recurring firings, and
+stops them past the drain bound. A candidate's checks and review write to that
+candidate's own event stream under the product's merge queues.
+
+**What you can see.** `yoyo status` prints each queue under the four lines, and
+the dashboard has a section for them, both from the shared read model: each
+entry in the order it is worked, named by its work item's identifier and title,
+with its queue mode, where it stands — waiting, verifying, failed, waiting on the
+target, verified, landing, held by the forge, uncertain, landed, handed back, or
+released — and why, and what the queue's last pass found. Only a landing the
+queue confirmed on the target reads as landed: an approval, or a candidate that
+passed its gate, never does, and a merge asked of the target or the forge whose
+outcome nothing has established reads as uncertain.
+
+`execution.merge_queue` is a configuration key, so a running part of the product
+on a build from before it refuses a file that carries it; restart the product
+after upgrading and before turning it on.
+
 ## How long one role may ask another
 
 Roles can put a question to each other through the harness — the Lead Product Manager

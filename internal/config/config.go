@@ -481,6 +481,23 @@ type Execution struct {
 	// --effective` and the configuration revision would be unable to tell the
 	// two apart.
 	DeclarativeDelivery bool `yaml:"declarative_delivery" json:"declarative_delivery"`
+	// MergeQueue is the one switch that integrates approved changes through a
+	// merge queue (docs/designs/integration-through-a-merge-queue.md). Off, which
+	// is the default, a run promotes its own approved change: it replays the
+	// change onto a target that moved, checks and reviews it again, and
+	// fast-forwards or lands it through its pull request, as runs always have.
+	// On, an approved change is admitted to its target branch's queue instead,
+	// and the queue builds a candidate from the target as it stands and the
+	// approved head, runs the configured checks on it, has an independent
+	// reviewer approve it, and lands exactly that candidate.
+	//
+	// It chooses the way approved work is integrated and grants nothing: the
+	// integration and publishing approval policies, the protected-path gate,
+	// the checks and the independent review all still apply, to the candidate
+	// that lands rather than to the change alone. Turning it off admits nothing
+	// new; entries already admitted are still drained in the mode each was
+	// admitted in.
+	MergeQueue bool `yaml:"merge_queue" json:"merge_queue"`
 }
 
 const (

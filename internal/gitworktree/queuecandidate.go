@@ -147,6 +147,24 @@ func (m *Manager) RestoreQueueCandidate(ctx context.Context, entry, commit strin
 	return m.cutCandidateCheckout(ctx, entry, commit)
 }
 
+// CheckoutQueueBase cuts a checkout of the target commit a candidate of an
+// entry was built on, apart from the candidate's own, so a check that failed
+// on the candidate can be run on the base as it stood. RemoveQueueCandidate
+// removes it.
+func (m *Manager) CheckoutQueueBase(ctx context.Context, entry, base string) (string, error) {
+	if !queueCandidatePattern.MatchString(entry) {
+		return "", fmt.Errorf("entry %q is not one a candidate checkout can be named for", entry)
+	}
+	if !commitPattern.MatchString(base) {
+		return "", fmt.Errorf("base %q is not a full commit id", base)
+	}
+	return m.cutCheckout(ctx, queueBaseDirectoryName(entry), base)
+}
+
+func queueBaseDirectoryName(entry string) string {
+	return "candidate-base-" + strings.TrimPrefix(entry, "mqe-")[:12]
+}
+
 // RemoveQueueCandidate removes a candidate checkout. It refuses a path that is
 // not one, because it is handed a path a record carried and a record can be
 // wrong.
@@ -208,10 +226,16 @@ func (m *Manager) CandidateChanges(ctx context.Context, baseCommit, candidate st
 }
 
 func (m *Manager) cutCandidateCheckout(ctx context.Context, entry, commit string) (string, error) {
+	return m.cutCheckout(ctx, queueCandidateDirectoryName(entry), commit)
+}
+
+// cutCheckout cuts a detached checkout of commit under the worktree root,
+// replacing whatever an earlier worker left under the same name.
+func (m *Manager) cutCheckout(ctx context.Context, name, commit string) (string, error) {
 	if err := os.MkdirAll(m.worktreeRoot, 0o700); err != nil {
 		return "", fmt.Errorf("create worktree root: %w", err)
 	}
-	path := filepath.Join(m.worktreeRoot, queueCandidateDirectoryName(entry))
+	path := filepath.Join(m.worktreeRoot, name)
 	ctx, lease, err := m.leaseRegistry(ctx)
 	if err != nil {
 		return "", err

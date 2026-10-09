@@ -10,6 +10,16 @@ package runstate
 // beside it. The process each launch was is written down on the generation as
 // well (MergeQueueLaunch), so a process that let go of the file is still looked
 // for by its process group.
+//
+// One holder of the file is the hold of nothing. Every process this one starts
+// is forked first, and the fork carries a copy of every descriptor this process
+// has open until it replaces itself with the program it was starting, so a
+// hold closed a moment after a fork on another goroutine stays taken by that
+// copy for that moment. Read once, it is a stage still running when every
+// process the stage started has ended, and a worker waits a whole pass on a
+// stage that already finished. So a hold that no recorded process can be
+// keeping is looked at again for up to MergeQueueHoldForkGrace before it is
+// believed (settleForkedCopies).
 
 import (
 	"errors"
@@ -18,9 +28,31 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
+
+// MergeQueueHoldForkGrace bounds how long a stage's hold that no recorded
+// process can be keeping is looked at again before it is read as taken: the
+// time a process forked elsewhere in this one may take to replace itself with
+// the program it was starting, and so let go of the copy of the hold it was
+// forked with. A process a stage started is alive for longer than this, and one
+// whose process group was recorded is read as running at once.
+const MergeQueueHoldForkGrace = 5 * time.Second
+
+// settleForkedCopies takes the lock on file within MergeQueueHoldForkGrace,
+// and reports whether it was taken.
+func settleForkedCopies(file *os.File) (bool, error) {
+	deadline := time.Now().Add(MergeQueueHoldForkGrace)
+	for {
+		taken, err := tryLockStateFile(file)
+		if err != nil || taken || time.Now().After(deadline) {
+			return taken, err
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
 
 // MergeQueueStageRunningError is a stage a process started earlier may still
 // be running, so nothing is started beside it.
@@ -68,7 +100,10 @@ func (s *MergeQueueStore) HoldStage(worker *Lease, key MergeQueueKey, generation
 		queueRoot.Close()
 		return nil, fmt.Errorf("open the hold of the %s of generation %d: %w", stage, generation.Number, err)
 	}
-	taken, err := tryLockStateFile(file)
+	// StageRunning has just found nothing running and let go of its own look at
+	// the hold, so a hold taken now is a forked copy of that look rather than a
+	// process, and is waited out (settleForkedCopies).
+	taken, err := settleForkedCopies(file)
 	if err != nil || !taken {
 		file.Close()
 		queueRoot.Close()
@@ -135,7 +170,11 @@ func (s *MergeQueueStore) StageRunning(key MergeQueueKey, generation MergeQueueG
 	if err != nil {
 		return false, "", fmt.Errorf("open the hold of the %s of generation %d: %w", stage, generation.Number, err)
 	}
+	host, _ := os.Hostname()
 	taken, err := tryLockStateFile(file)
+	if err == nil && !taken && !anyRecordedAlive(launched, host) {
+		taken, err = settleForkedCopies(file)
+	}
 	if err != nil {
 		file.Close()
 		return true, fmt.Sprintf("its hold could not be locked: %v", err), nil
@@ -145,7 +184,6 @@ func (s *MergeQueueStore) StageRunning(key MergeQueueKey, generation MergeQueueG
 		return true, describeLaunches("a process it started is still running", launched), nil
 	}
 	_ = releaseStateFile(file)
-	host, _ := os.Hostname()
 	for _, launch := range launched {
 		if launch.Host != host {
 			return true, fmt.Sprintf("pid %d was started on %s, another machine, whose processes this one cannot see", launch.PID, launch.Host), nil
@@ -155,6 +193,21 @@ func (s *MergeQueueStore) StageRunning(key MergeQueueKey, generation MergeQueueG
 		}
 	}
 	return false, "", nil
+}
+
+// anyRecordedAlive reports whether a process a stage recorded may still be
+// alive: one on another machine, which this one cannot see, or one whose
+// process group still has members here.
+func anyRecordedAlive(launched []MergeQueueLaunch, host string) bool {
+	for _, launch := range launched {
+		if launch.Host != host {
+			return true
+		}
+		if alive, _ := groupAlive(launch.ProcessGroup); alive {
+			return true
+		}
+	}
+	return false
 }
 
 func describeLaunches(what string, launched []MergeQueueLaunch) string {

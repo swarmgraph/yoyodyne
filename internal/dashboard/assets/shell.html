@@ -152,6 +152,20 @@
       </div>
     </section>
 
+    <section id="queues" class="panel queues" data-state="loading" aria-labelledby="queues-heading">
+      <div class="panel-head">
+        <h2 id="queues-heading">Merge queues</h2>
+        <p class="panel-note">each change waiting to land on its target branch, in the order it is worked, as <code>yoyo status</code> lists them; a change reads as landed only once the queue confirmed it on the target</p>
+      </div>
+      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
+      <div class="section-error" role="alert"><p id="queues-problem" class="problem"></p><p id="queues-remedy" class="remedy"></p></div>
+      <div class="section-empty"><p id="queues-empty" class="empty"></p></div>
+      <div class="section-ready">
+        <ul id="queues-problems" class="degraded"></ul>
+        <ul id="queues-list" class="held-list"></ul>
+      </div>
+    </section>
+
     <div id="grouping" class="popup" role="dialog" aria-modal="true" aria-labelledby="grouping-heading" data-state="loading" hidden>
       <div id="grouping-backdrop" class="popup-backdrop"></div>
       <div class="popup-card">

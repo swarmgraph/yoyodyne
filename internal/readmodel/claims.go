@@ -140,6 +140,13 @@ func DeadClaims(claims []Claim, runs []runstate.State, now time.Time, threshold,
 		if latest.Integration != nil {
 			continue
 		}
+		// Nor is an item whose latest run handed its approved change to the
+		// merge queue: the queue lands it and settles the item, or hands it back
+		// to that run, and a claim given back would start the change again
+		// beside the one waiting to land.
+		if latest.AwaitingMergeQueue() {
+			continue
+		}
 		// And an item whose latest run ended holding its change is not work to be
 		// started again either. The claim is the one thing saying so, and the pull's
 		// hold reads the same endings: see stillHeld.

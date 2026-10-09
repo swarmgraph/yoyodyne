@@ -353,6 +353,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	if standing != nil {
 		fmt.Fprint(stdout, standing.Render())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
+		fmt.Fprint(stdout, standing.RenderMergeQueues())
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
@@ -716,6 +717,9 @@ func agentEndpoints(cfg config.Config) []readmodel.AgentEndpoint {
 // which the reading says rather than reporting what it could not read as none.
 func programManagerSources(sources *readmodel.Sources, cfg config.Config, stateRoot string) {
 	sources.ProgramManagers = programManagerInstances(cfg)
+	if store, err := runstate.NewMergeQueueStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.MergeQueues = store
+	}
 	if store, err := runstate.NewRestartRequestStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.RestartRequests = store
 	}
