@@ -188,6 +188,14 @@ const (
 	// is settled without asking the worktree: the change the attempt left is on
 	// the branch for the continuation to check, not a delivery the stop spent.
 	CauseCheckStageBound EnvironmentalCause = "check-stage-bound"
+	// CauseLaunchSettingsNotInForce is a run turned back before its developer
+	// was started because the developer's provider did not put in force what a
+	// developer is launched with: the sandbox, the notes guard, or the settings
+	// that keep the operator's personal configuration out. Starting it anyway
+	// would have run an unconfined or unguarded developer, so nothing ran, and
+	// the provider is held for every developer until a check finds the settings
+	// in force again (LaunchSettingsHold).
+	CauseLaunchSettingsNotInForce EnvironmentalCause = "launch-settings-not-in-force"
 )
 
 // Valid reports a cause this harness recognizes. A record naming anything else
@@ -199,6 +207,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
+		CauseLaunchSettingsNotInForce,
 	}
 }
 
@@ -271,6 +280,8 @@ func (c EnvironmentalCause) Title() string {
 		return "its queued merge's head fell behind the target and failed checks on files the change does not touch"
 	case CauseCheckStageBound:
 		return "the check stage reached its bound, already scaled for the machine's load, before the checks judged the change"
+	case CauseLaunchSettingsNotInForce:
+		return "the developer's provider did not put in force the sandbox, the notes guard, or the settings that keep personal configuration out"
 	default:
 		return string(c)
 	}

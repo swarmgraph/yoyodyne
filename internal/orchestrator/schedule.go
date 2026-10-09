@@ -272,6 +272,11 @@ const (
 	// converged; every run a drain started into it would stop on the same
 	// divergence after a whole development and review.
 	ScheduleDivergedTarget = "a target branch will not catch up to the remote's, so nothing more was chosen"
+	// ScheduleLaunchSettingsHeld reports a drain that stopped because the
+	// developer's provider was found not to put in force what a developer is
+	// launched with. A watch waits it out instead; every developer a drain
+	// started into it would be refused on the same check.
+	ScheduleLaunchSettingsHeld = "the developer's provider did not put its sandbox and guard in force, so nothing more was chosen"
 	// ScheduleSpendUnreadable reports a bounded session that stopped because it
 	// could not tell what it had spent. A budget measured against evidence
 	// nobody can read is not a smaller budget, it is no budget at all, so the
@@ -785,6 +790,13 @@ type Pull struct {
 	// pull wired without it chooses into a wedged target exactly as it did, and
 	// each run it starts stops on the divergence itself.
 	Divergences ScheduleDivergences
+	// LaunchSettings is the product's record of a developer's provider that did
+	// not put in force what a developer is launched with, and Build the harness
+	// revision this pull runs, which a hold another build placed is lifted on.
+	// Optional; see launchSettingsHeld. A pull wired without the record chooses
+	// as it did, and each dispatch it makes is refused on the check itself.
+	LaunchSettings ScheduleLaunchSettings
+	Build          string
 	// RedeployDrainLimit is execution.redeploy_drain_limit as this pull read it:
 	// how long a session that has found a build deployed over it waits out the
 	// runs it hosts before restarting anyway, with those runs stopped and
@@ -991,6 +1003,10 @@ type Started struct {
 	// to count the start toward nothing. It is not on the record because the
 	// failure already is, in words that say the same thing.
 	awayCause domain.ProviderOutageCause
+	// settingsHeld is set when Failure is the developer's provider found not to
+	// put in force what a developer is launched with, which the settle counts
+	// toward nothing for the same reason. See LaunchSettingsError.
+	settingsHeld bool
 	// environmental is set when the run stopped for a cause the environment
 	// answers for rather than a verdict on the change — a dirty checkout, a
 	// transport that did not answer, a sandbox that would not spawn, a target
@@ -1173,6 +1189,11 @@ type Schedule struct {
 	// read past as though none stood.
 	DivergedTargets       []runstate.DivergedTarget `json:"diverged_targets,omitempty"`
 	DivergedTargetProblem string                    `json:"diverged_target_problem,omitempty"`
+	// LaunchSettingsHold is the hold on developers the last pull found standing,
+	// nil once it is lifted or a pull was let through to check again.
+	// LaunchSettingsProblem names a record that could not be read or lifted.
+	LaunchSettingsHold    *runstate.LaunchSettingsHold `json:"launch_settings_hold,omitempty"`
+	LaunchSettingsProblem string                       `json:"launch_settings_problem,omitempty"`
 	// UsageWindowResetsAt is when the provider said the recorded window that held
 	// this pass's last pull lifts, nil once no recorded window holds it.
 	// UsageWindowProblem names a record that could not be read, which the pull
@@ -2272,6 +2293,23 @@ pulling:
 				break
 			}
 			if !awaitProvider(pull, account{reason: divergedTargetReason(diverged), running: running}) {
+				schedule.Stopped = ScheduleCancelled
+				break
+			}
+			continue
+		}
+		// A developer's provider found not to put its launch settings in force is
+		// read here, for the reason the divergence above is: nothing a person
+		// placed and nothing `yoyo release` lifts, and every developer a pull
+		// started into it would be refused on the same check. It lifts on a check
+		// that finds the settings in force, which this reading lets one dispatch
+		// make once the probe interval has passed, or on a new harness build.
+		if held, standing := s.launchSettingsHeld(&schedule, pull); standing {
+			if !s.Watching {
+				schedule.Stopped = ScheduleLaunchSettingsHeld
+				break
+			}
+			if !awaitProvider(pull, account{reason: held.Says(), running: running}) {
 				schedule.Stopped = ScheduleCancelled
 				break
 			}
@@ -5029,8 +5067,12 @@ func (s Started) blockedRun() bool {
 // read from the failure the dispatch reported rather than from anything the
 // scheduler remembers, so a pull that met it counts it the same whether or not
 // an outage store was wired.
+//
+// A dispatch refused because the provider did not put the developer's launch
+// settings in force is the same ending: the item is as startable as it was, and
+// the record of the hold is what the next pull reads.
 func (s Started) providerAway() bool {
-	return s.awayCause != ""
+	return s.awayCause != "" || s.settingsHeld
 }
 
 // idlePoll is what one pull found while it started nothing, in the product
@@ -6053,6 +6095,10 @@ func (s *Started) record(done completed) {
 		if errors.As(done.err, &away) {
 			s.awayCause = away.Cause
 		}
+		var held LaunchSettingsError
+		if errors.As(done.err, &held) {
+			s.settingsHeld = true
+		}
 		// A dispatch the environment turned away before any run recorded it — a
 		// worktree that could not be cut from a dirty checkout, a process the
 		// machine would not start — is the environment's stop as much as one a
@@ -6518,6 +6564,12 @@ func (s Schedule) Render() string {
 	}
 	if s.DivergedTargetProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.DivergedTargetProblem)
+	}
+	if s.LaunchSettingsHold != nil {
+		fmt.Fprintf(&rendered, "%s\n", s.LaunchSettingsHold.Says())
+	}
+	if s.LaunchSettingsProblem != "" {
+		fmt.Fprintf(&rendered, "%s\n", s.LaunchSettingsProblem)
 	}
 	if s.Braked != nil {
 		// The brake places a hold nobody chose, so the line that reports it says

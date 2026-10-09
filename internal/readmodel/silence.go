@@ -132,6 +132,13 @@ type Activity struct {
 	// attention line and in the channel; what bounds it is the record, which the
 	// convergence sweep lifts the moment it finds the branches converged.
 	Diverged []runstate.DivergedTarget
+	// LaunchSettings is the hold on developers whose provider was found not to
+	// put in force what a developer is launched with, where one stands. It
+	// accounts for the quiet because a watching session starts no developer
+	// while it stands, deliberately, and the harness reported it once when it
+	// began; what bounds it is the record, which the first check that finds the
+	// settings in force lifts.
+	LaunchSettings *runstate.LaunchSettingsHold
 	// TrackerWaits is every dispatch a session started that is waiting out a
 	// tracker failure before it has claimed anything, as WaitingOnTracker reads
 	// them. Such a dispatch holds a slot with no run record, so nothing above can
@@ -232,6 +239,8 @@ func (a Activity) explanation() string {
 		return a.ProviderOutage.Says()
 	case len(a.Diverged) > 0:
 		return a.Diverged[0].Says()
+	case a.LaunchSettings != nil:
+		return a.LaunchSettings.Says()
 	case a.Running > 0:
 		return fmt.Sprintf("%d developer run(s) are in flight and still moving", a.Running)
 	case a.ProviderWindow.Standing(a.Now):

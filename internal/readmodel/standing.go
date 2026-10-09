@@ -200,6 +200,13 @@ type DivergedTargets interface {
 	Standing() ([]runstate.DivergedTarget, error)
 }
 
+// LaunchSettingsHolds is the product's record of a developer's provider found
+// not to put in force what a developer is launched with, as a reading asks it.
+// It is satisfied by *runstate.LaunchSettingsHoldStore.
+type LaunchSettingsHolds interface {
+	Standing() (runstate.LaunchSettingsHold, bool, error)
+}
+
 // Gates is the human gates a person has recorded passing. It is read rather than
 // inferred, and it is read from the harness's own store rather than from the
 // tracker, because the tracker has no way to answer it: the only completion it

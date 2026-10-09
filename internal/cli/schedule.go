@@ -519,15 +519,16 @@ func openStallWatch(configPath string, threshold time.Duration, stderr io.Writer
 	}
 	watch := &stallWatch{
 		checker: watchdog.Checker{
-			Runs:        parts.store,
-			Sessions:    parts.watch,
-			Holds:       parts.holds,
-			Intake:      parts.intake,
-			Outages:     parts.outages,
-			Divergences: parts.divergences,
-			Backlog:     readyBacklog{tracker: parts.tracker()},
-			Stalls:      stalls,
-			Threshold:   threshold,
+			Runs:           parts.store,
+			Sessions:       parts.watch,
+			Holds:          parts.holds,
+			Intake:         parts.intake,
+			Outages:        parts.outages,
+			Divergences:    parts.divergences,
+			LaunchSettings: parts.launchSettings,
+			Backlog:        readyBacklog{tracker: parts.tracker()},
+			Stalls:         stalls,
+			Threshold:      threshold,
 		},
 		threshold: threshold,
 		stderr:    stderr,
@@ -770,7 +771,12 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// by the run that met it, holds the choosing until a sweep finds the
 		// branches converged.
 		Divergences: parts.divergences,
-		Developers:  developerEndpoints(parts.config),
+		// A developer's provider found not to put its launch settings in force,
+		// recorded by the dispatch that met it, holds the choosing until a check
+		// finds them in force again or this session runs another build.
+		LaunchSettings: parts.launchSettings,
+		Build:          buildinfo.Commit(),
+		Developers:     developerEndpoints(parts.config),
 		// Read against what the provider has served since and which conversations
 		// are still their roles', so intake is never held on a window a served
 		// turn has disproved or on a conversation nothing will speak in again.
