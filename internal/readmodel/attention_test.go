@@ -328,6 +328,33 @@ func TestTheIntakeHoldsMoverMatchesTheHoldsOwnWording(t *testing.T) {
 	}
 }
 
+// A merge the forge dropped is listed with the forge's own account the drop
+// recorded, and as the development manager's to move: nothing in either line
+// says a person is needed.
+func TestADroppedMergeIsListedWithTheForgesAccountAsTheDevelopmentManagers(t *testing.T) {
+	t.Parallel()
+	reason := `the forge dropped the queued merge of pull request 42: it is open and has no merge queued for it. The forge's reason: "Required status check \"build\" is expected.". The harness does not merge past a requirement of main, so the next move is the development manager's: she decides from her triage docket whether the change is repaired, run again, or its merge re-armed, and the harness carries that out`
+	entry := awaitingForgeAttention(runstate.State{RunID: "run-42", WorkItemID: "yoyodyne-task",
+		Integration: &runstate.Integration{TargetBranch: "main", ThroughPullRequest: true},
+		PullRequest: &runstate.PullRequest{Number: 42}, PublishFailure: reason, MergeDrop: &runstate.MergeDrop{At: moment, Reason: reason}})
+	if entry.Mover != MoverDevelopmentManager {
+		t.Fatalf("mover = %q, want the development manager", entry.Mover)
+	}
+	for name, line := range map[string]string{"what": entry.What(), "whose": entry.Whose()} {
+		if !strings.Contains(line, `The forge's reason: "Required status check`) {
+			t.Errorf("%s = %q, want the forge's own reason carried", name, line)
+		}
+		for _, refused := range []string{"needs a person", "the operator's"} {
+			if strings.Contains(line, refused) {
+				t.Errorf("%s = %q, says %q", name, line, refused)
+			}
+		}
+	}
+	if !strings.HasPrefix(entry.Whose(), MoverDevelopmentManager.Possessive()+" — ") {
+		t.Errorf("whose = %q, want it to open on the development manager", entry.Whose())
+	}
+}
+
 // The four movers of an unpublished promotion are read off the record's own
 // fields, in the order the sentence reads them.
 func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {

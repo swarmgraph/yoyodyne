@@ -419,7 +419,7 @@ var developmentManagerVoice = voice{
 		KindPublished:                "{item} is published as {pr} and still counts as in flight.",
 		KindMergeQueued:              "{pr} is queued to merge, so {item} stays in flight until the forge says otherwise.",
 		KindMergeCompleted:           "{pr} merged; {item} is done.",
-		KindMergeDropped:             "{pr} will not merge on its own: {cause}. {item} is promoted, and its publication is now somebody's to settle by hand.",
+		KindMergeDropped:             "{pr} will not merge on its own: {cause}. {item} is promoted, and its publication now waits on the development manager's decision.",
 		KindMergeWaitingOnTarget:     "{pr} waits on the target being fixed rather than on a decision: {cause}. The item filed for it is at the front of the queue.",
 		KindLandingGreen:             "{item} landed and the whole suite is green over it: {landing}.",
 		KindLandingRed:               "{item} landed and the whole suite is red over it: {landing}. The item that filed is at the front of the queue, and everything behind it is cut from that commit.",
@@ -499,7 +499,7 @@ var productManagerVoice = voice{
 		KindPublished:                "{item} is published as {pr}.",
 		KindMergeQueued:              "{pr} is queued to merge; {item} is not delivered until it lands.",
 		KindMergeCompleted:           "{pr} merged, so {item} is delivered.",
-		KindMergeDropped:             "{pr} is not merging: {cause}. {item} is built and promoted, and it is not delivered until somebody publishes it.",
+		KindMergeDropped:             "{pr} is not merging: {cause}. {item} is built and promoted, and it is not delivered until the development manager decides how its merge goes ahead.",
 		KindMergeWaitingOnTarget:     "{pr} is waiting on the target branch: {cause}. The fix is filed under the same goal {item} served.",
 		KindLandingGreen:             "{item} landed green: {landing}. Nothing about what it is for has changed.",
 		KindLandingRed:               "{item} landed red: {landing}. The work that answers it is filed under the same goal the item served.",
@@ -579,7 +579,7 @@ var architectVoice = voice{
 		KindPublished:                "{item} is published as {pr}. The local branch remains the authoritative one.",
 		KindMergeQueued:              "{pr} is queued to merge; the forge settles it, not this run.",
 		KindMergeCompleted:           "{pr} merged, so the forge's history and the local target agree again.",
-		KindMergeDropped:             "{pr} was dropped rather than merged: {cause}. The local target carries the promotion and the forge does not, which is the divergence somebody has to close.",
+		KindMergeDropped:             "{pr} was dropped rather than merged: {cause}. The local target carries the promotion and the forge does not, which is the divergence the development manager decides how to close.",
 		KindMergeWaitingOnTarget:     "{pr} waits on the target branch's own red check: {cause}. Nothing but the change differs from the target, so the failure is the target's.",
 		KindLandingGreen:             "{item} landed green: {landing}. The whole suite agrees with the narrowed gate.",
 		KindLandingRed:               "{item} landed red: {landing}. The narrowed gate passed and the whole suite did not, which is exactly the case the landing check exists to catch.",
@@ -663,7 +663,7 @@ var programManagerVoice = voice{
 		KindPublished:                "{item} is published as {pr}, and the local branch stays the one that counts.",
 		KindMergeQueued:              "{pr} is queued at the forge; whether it merges is the forge's to settle now.",
 		KindMergeCompleted:           "{pr} merged, and the forge agrees with the local target again.",
-		KindMergeDropped:             "{pr} was dropped instead of merged: {cause}. The local target has the change and the forge does not, and that gap stays open until somebody closes it.",
+		KindMergeDropped:             "{pr} was dropped instead of merged: {cause}. The local target has the change and the forge does not, and that gap stays open until the development manager decides how to close it.",
 		KindMergeWaitingOnTarget:     "{pr} waits on the target's red check: {cause}. One red check on the target holds every merge queued behind it until the filed item lands.",
 		KindRunParked:                "{item} is paused part-way, waiting on {cause}. A pause is not a stall, and I read them apart.",
 		KindRunContinued:             "{item} picked up again from where it paused.",
@@ -803,11 +803,13 @@ var nextMoves = map[Kind]string{
 	KindPublished:      "the forge's, until the request merges.",
 	KindMergeQueued:    "the forge's, until it settles.",
 	KindMergeCompleted: "nobody's — the item is done.",
-	// A dropped merge is the one crossing in this stretch whose move is a
-	// person's. The forge is done with it — it refused the merge or gave up on
-	// one it had queued, and asking again earns the same answer — so nothing
-	// happens to the publication until somebody makes it happen.
-	KindMergeDropped: "the operator's — the forge will not merge this by itself, and the publication stands until somebody settles it.",
+	// A dropped merge is the one crossing in this stretch that waits on a
+	// decision. The forge is done with it — it refused the merge or gave up on
+	// one it had queued — so nothing happens to the publication until the
+	// development manager decides a repair, a re-run, or a re-arm, and every one
+	// of those the harness carries out; none of them is a person's
+	// (orchestrator.droppedMerge).
+	KindMergeDropped: "the development manager's, in triage — the forge will not merge this by itself, and she decides a repair, a re-run, or a re-arm of the merge, which the harness carries out.",
 	// A merge waiting on its target's red check is the harness's: the failure is
 	// filed as the target's, and the harness takes the merge up once that closes.
 	KindMergeWaitingOnTarget: "the harness's, on the item filed for the target's red check — it takes the merge up again once that closes, and nobody has anything to decide.",

@@ -120,7 +120,7 @@ var reaches = map[Kind]Reach{
 	KindMergeCompleted: ReachThread,
 	// A merge that is not going to happen is the one publication fact nobody finds
 	// out about on their own: the change is promoted, the item reads as landed, and
-	// the request waits on a person who does not know it is theirs.
+	// the request waits on the development manager's decision while reading as done.
 	KindMergeDropped: ReachChannel,
 	// A merge waiting on its target's red check reaches the channel for the same
 	// reason: the change reads as done and the publication is not landing.

@@ -820,6 +820,9 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// A merge the forge still holds is read with its checks, and a red one is
 		// withdrawn before it is handed back or brought up to date.
 		Checks: forge,
+		// A merge the forge stopped holding is recorded with the forge's own
+		// account of why, read through the same access.
+		Drops: forge,
 		// A queued merge whose checks fail on the target itself is filed as the
 		// target's, through the same tracker a red landing files through, with the
 		// failing job's log read through the same forge access.

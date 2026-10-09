@@ -4243,13 +4243,20 @@ With both on, a run works like this:
    onto the forge's merge commit, with the branch the merge consumed deleted
    afterwards as hygiene that cannot hold the closure up) — or, if the forge dropped the queued merge
    because something it required went unmet, records an outstanding publication
-   and hands the item back to you with a blocker rather than closing it. A drop
+   carrying the forge's own account of the drop — the reason it stated, the
+   requirement its merge state reports unmet, or, where it gives neither, that
+   it gave none beside the checks and merge-queue events the harness could read
+   — and puts the item on the development manager's docket with a blocker
+   rather than closing it, whatever repair attempts the run has left. A drop
    on a protected target whose head fell behind, failing nothing the change
    touches, is not handed back: the change is brought up to date from the kept
    branch, checked and reviewed again, and queued again, as a queued head behind
    its target is. It never
-   merges anything itself: a requirement that stopped the forge is yours to
-   satisfy, and re-arming a dropped merge is a bounded triage decision — one per
+   merges anything itself: what is done about a requirement that stopped the
+   forge is the development manager's to decide — a repair, a re-run, or a
+   re-arm, each carried out by the harness, or, where the forge's account names
+   a repository setting only a person can change, that exact step asked of
+   you — and re-arming a dropped merge is a bounded triage decision — one per
    publication, carried out by `yoyo triage rearm` — rather than something a sweep
    does.
 

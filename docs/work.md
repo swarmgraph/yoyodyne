@@ -1243,7 +1243,7 @@ and her docket rather than left silent. An unfinished publication is the other
 hold that is a wait: the next `yoyo reconcile` re-asks the remote, and a merge
 the forge has since made — queued and then landed, landed among others, or made
 by hand after a drop — settles on that sweep with nobody acting, while a merge
-the forge dropped and nobody has made stays a person's. A stoppage is passed over
+the forge dropped and nobody has made stays the development manager's to decide. A stoppage is passed over
 as one of two things rather than one, because the two have different next
 movers: an item **awaiting a decision** is the development manager's to settle,
 and one **awaiting carry-out of a decision** is one she has settled into one of
@@ -2332,8 +2332,9 @@ because nothing has yet merged the change anywhere but locally;
 [`yoyo reconcile`](operations.md#recovering-interrupted-runs) settles it once the
 forge has merged — settling the item then, closed or put back as its own landing
 says — or, if the forge dropped the queued
-merge, records an outstanding publication and hands the item back with a
-blocker. A repository with no configured remote publishes nothing and behaves
+merge, records an outstanding publication carrying the forge's own account of
+the drop and puts the item on the development manager's docket with a blocker.
+A repository with no configured remote publishes nothing and behaves
 exactly as a purely local project does.
 
 **A target branch the forge protects is the exception to "local first."** Before

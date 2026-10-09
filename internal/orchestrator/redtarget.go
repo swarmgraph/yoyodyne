@@ -277,7 +277,7 @@ func (r Reconciler) waitOnRedTargetOwned(ctx context.Context, state runstate.Sta
 	}
 	if r.Filer == nil {
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d fail with its head level with %s, so nothing but this change differs from the target and bringing it up to date would change nothing: %s. Nothing is wired to this harness to file the target's failure as its own item, so the harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
+			"the forge's checks on pull request %d fail with its head level with %s, so nothing but this change differs from the target and bringing it up to date would change nothing: %s. Nothing is wired to this harness to file the target's failure as its own item, so the harness withdrew the queued merge rather than leave a red change queued, and "+developmentManagerMovesNext,
 			published.Number, target, describe))
 	}
 	left := func(why string) (Reconciliation, error) {
@@ -620,7 +620,7 @@ func (r Reconciler) resumeRedTarget(ctx context.Context, runID string) (Reconcil
 	case checks.BehindBy > 0:
 		if refusal := unreplayable(state); refusal != "" {
 			return handBack(fmt.Sprintf(
-				"the items pull request %d waited on for %s's red check are closed and its head is behind %s, and the harness cannot bring it up to date: %s: %s. The pull request needs a person",
+				"the items pull request %d waited on for %s's red check are closed and its head is behind %s, and the harness cannot bring it up to date: %s: %s; "+developmentManagerMovesNext,
 				published.Number, target, target, refusal, checks.Describe(target)))
 		}
 		published.Checks = &checks
@@ -691,7 +691,7 @@ func (r Reconciler) rerunEndedJobsAfterRedTarget(ctx context.Context, state runs
 	published.Checks = &checks
 	state.PullRequest = &published
 	return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-		"the items pull request %d waited on for %s's red check are closed, and its checks %s: %s. The forge's account of each, read under the harness's forge access, is in this item's notes, and the pull request needs a person",
+		"the items pull request %d waited on for %s's red check are closed, and its checks %s: %s. The forge's account of each, read under the harness's forge access, is in this item's notes, and "+developmentManagerMovesNext,
 		published.Number, target, why, checks.Describe(target)))
 }
 
