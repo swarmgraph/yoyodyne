@@ -168,6 +168,12 @@ type components struct {
 	// stands, and lifted by the convergence sweep that finds the branches
 	// converged.
 	divergences *runstate.DivergedTargetStore
+	// launchSettings is the product's record of a developer's provider found not
+	// to put in force what a developer is launched with: written by the dispatch
+	// whose check found it, read by a watching session that starts no developer
+	// while it stands, and lifted by the first check that finds the settings in
+	// force again or by a pull on another harness build.
+	launchSettings *runstate.LaunchSettingsHoldStore
 	// spend is the cost log every provider invocation this process makes lands
 	// in. It is built under the product beside the usage limits, and for the
 	// mirror-image reason: that log says when the harness could not spend, and
@@ -425,6 +431,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	launchSettings, err := runstate.NewLaunchSettingsHoldStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	spendLog, err := runstate.NewSpendStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -484,6 +494,7 @@ func buildComponents(configPath string) (components, error) {
 		outages:         outages,
 		capacityServed:  capacityServed,
 		divergences:     divergences,
+		launchSettings:  launchSettings,
 		spend:           spendLog,
 		trackerListings: trackerListings,
 		interventions:   interventions,
@@ -687,6 +698,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		// remote's is recorded against the product, so a watching session stops
 		// pulling items into the same refusal until the branches are settled.
 		DivergedTargets: parts.divergences,
+		// A developer's provider found not to put in force what a developer is
+		// launched with is recorded against the product, so a watching session
+		// starts no developer into the same refusal and it is reported once.
+		LaunchSettings: parts.launchSettings,
 		// A change an agent proposes to a document it may not edit is recorded
 		// here, for the same reason and in the same way: the run that argued the
 		// design was wrong is over long before anybody decides what to do about it,

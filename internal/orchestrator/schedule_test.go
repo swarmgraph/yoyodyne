@@ -3972,6 +3972,13 @@ type scheduleHarness struct {
 	// will not catch up to the remote's. A pull is wired with it only where a
 	// test asks, so every other test's pass reads no divergence at all.
 	divergences ScheduleDivergences
+	// launchSettings is the product's record of a developer's provider that did
+	// not apply its launch settings, build the harness revision the
+	// pull runs, and developerProvider the configured developer's provider. A
+	// pull is wired with them only where a test asks.
+	launchSettings    ScheduleLaunchSettings
+	build             string
+	developerProvider domain.Backend
 	// usageLimits is the product's record of the provider refusing the harness
 	// for want of capacity, and developers every endpoint a developer's turn can
 	// end on. A pull is wired with them only where a test asks, so every other
@@ -4196,6 +4203,9 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		Developers:                  h.developers,
 		CapacityServed:              h.capacityServed,
 		Divergences:                 h.divergences,
+		LaunchSettings:              h.launchSettings,
+		Build:                       h.build,
+		DeveloperProvider:           h.developerProvider,
 		RedeployDrainLimit:          drainLimit,
 	}, nil
 }

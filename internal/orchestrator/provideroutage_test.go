@@ -177,6 +177,11 @@ func (r *stderrRefusingRunner) Run(_ context.Context, command execution.Command,
 			return execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: `{"loggedIn":true,"authMethod":"claude.ai"}` + "\n"}, nil
 		}
 	}
+	// The check before a developer is started is answered as a CLI that applied
+	// the settings, so what this runner refuses is only the developer's turn.
+	if answered, ok := answerLaunchSettingsCheck(command, true); ok {
+		return answered, nil
+	}
 	if r.refused < r.refusals {
 		r.refused++
 		observer(execution.Output{Stream: execution.StreamStderr, Text: loginRefusedOnStderr})

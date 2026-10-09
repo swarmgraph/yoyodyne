@@ -465,6 +465,10 @@ func checkForStall(ctx context.Context, parts components, threshold time.Duratio
 		// A diverged target is a line held on purpose and said on the attention
 		// line, so it accounts for the quiet as the outage does.
 		Divergences: parts.divergences,
+		// So is a developer's provider held on its launch settings: the line
+		// starts no developer while it stands, deliberately, and the hold's own
+		// report has already said why.
+		LaunchSettings: parts.launchSettings,
 		// The tracker's own count of what a developer run could actually be started
 		// for, which is the same reading the sink's heartbeat takes: work marked for
 		// a conversation and work the product manager parked are ready to the tracker

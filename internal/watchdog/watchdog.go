@@ -82,6 +82,11 @@ type Checker struct {
 	// nothing while one stands, on purpose and saying why. Optional for the
 	// reason Outages is.
 	Divergences readmodel.DivergedTargets
+	// LaunchSettings is the product's record of a developer's provider found not
+	// to put in force what a developer is launched with, read because a watching
+	// session fills no developer slot on that provider while it stands, on purpose and after reporting
+	// it once. Optional for the reason Outages is.
+	LaunchSettings readmodel.LaunchSettingsHolds
 	// Backlog is asked only where nothing else accounts for the quiet, which is
 	// what keeps a healthy idle product from spawning a tracker process on every
 	// check.
@@ -171,6 +176,17 @@ func (c Checker) Check(ctx context.Context) (Reading, error) {
 		}
 	}
 
+	var launchSettings *runstate.LaunchSettingsHold
+	if c.LaunchSettings != nil {
+		hold, standing, err := c.LaunchSettings.Standing()
+		if err != nil {
+			return Reading{}, fmt.Errorf("read whether developers are held on their provider's launch settings: %w", err)
+		}
+		if standing {
+			launchSettings = &hold
+		}
+	}
+
 	activity := readmodel.Activity{
 		// Dated from the last moment a slot was held rather than the last start,
 		// so a batch of runs ending just before the pull that refills the slots
@@ -190,6 +206,7 @@ func (c Checker) Check(ctx context.Context) (Reading, error) {
 		ProviderOutage: outage,
 		ProviderAway:   providerAway,
 		Diverged:       diverged,
+		LaunchSettings: launchSettings,
 		// A dispatch waiting out the tracker before it claims anything, as the
 		// session that started it recorded: it holds a slot with no run to say so,
 		// and for up to the recovery window looks from here like a session that hung.

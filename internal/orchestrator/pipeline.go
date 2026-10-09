@@ -431,6 +431,11 @@ type Pipeline struct {
 	// would have, and what is lost is the record a watching session reads to
 	// stop pulling items into the same refusal.
 	DivergedTargets DivergedTargets
+	// LaunchSettings is the product's record of a developer's provider that did
+	// not put in force what a developer is launched with, written by the
+	// dispatch whose check found it and lifted by the first check that finds the
+	// settings in force again. It is optional; see LaunchSettingsHolds.
+	LaunchSettings LaunchSettingsHolds
 	// Selection is why this pipeline is running what it runs: who chose the work
 	// and on what grounds. It is recorded with the run so that an operator reading
 	// what is in flight can see why each item was picked, which is the question
@@ -1328,6 +1333,13 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	if err := p.requireBackendReady(ctx, workItemID, dispatchProvider, dispatchNamed); err != nil {
 		return Outcome{}, err
 	}
+	// And whether the provider puts in force what its developer would be
+	// launched with — the sandbox, the notes guard, the settings that keep
+	// personal configuration out — asked last for the reason the provider is
+	// asked late, and still before anything is claimed (launchsettings.go).
+	if err := p.requireLaunchSettings(ctx, "the dispatch of "+workItemID, dispatchProvider, dispatchNamed); err != nil {
+		return Outcome{}, err
+	}
 	// An automatic run is written against exactly the branch it will be promoted
 	// into, so the integration target is fixed before any work starts and never
 	// inferred afterwards. A published run fixes the same branch for the same
@@ -1812,6 +1824,19 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		switch {
 		case err == nil:
 			if err := p.requireBackendReady(ctx, state.WorkItemID, provider, named); err != nil {
+				return Outcome{}, err
+			}
+			// A resumed developer is launched with the same settings as a fresh
+			// one, on whatever CLI is installed now. A refusal leaves the run
+			// exactly as it was and says on it that the environment turned it
+			// back, as the repository's refusal above does.
+			if err := p.requireLaunchSettings(ctx, fmt.Sprintf("run %s of %s", state.RunID, state.WorkItemID), provider, named); err != nil {
+				var held LaunchSettingsError
+				if errors.As(err, &held) {
+					if recordErr := p.refuseDispatchEnvironmentally(state, runstate.CauseDeveloperSettingsNotApplied, held.Error()); recordErr != nil {
+						err = errors.Join(err, recordErr)
+					}
+				}
 				return Outcome{}, err
 			}
 		case state.Phase == runstate.PhaseDeveloping:

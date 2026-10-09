@@ -510,8 +510,80 @@ the flags from its `--help`, recorded in
 the settings handling in the shipped executable, which reads an empty
 `--setting-sources` as no settings files and always adds the `--settings`
 source and policy to whatever it names. Every flag the adapter passes is
-checked against the recorded help. A later CLI version that drops or renames
-one of these is not caught until that help is recorded again.
+checked against the recorded help, and on any other installed version the
+harness asks that CLI's own help before a developer is started; see
+[checking that a developer's settings took effect](#checking-that-a-developers-settings-took-effect).
+
+## Checking that a developer's settings took effect
+
+A developer's sandbox, its `yoyo goals guard` hook, and the settings above that
+keep personal configuration out all travel in the one JSON payload passed with
+`--settings`. Claude Code's help says settings that fail validation are silently
+ignored in print mode, and 2.1.286 does exactly that: one key of the wrong type
+and it drops the whole payload and starts anyway, unconfined and unguarded. So
+before a developer is started, on a fresh dispatch and on a resumed run, the
+harness checks that what it passes took effect, and refuses to start the
+developer where it did not.
+
+The check launches the installed CLI the way a developer is launched — the same
+settings, flags, directory (the primary checkout), and environment — with
+`--input-format stream-json` and `--no-session-persistence`, asks it three
+questions over its control protocol, and closes its input. No prompt is sent,
+so no provider call is made; it takes under a second. It refuses on any of:
+
+- **a rejected setting**: `get_settings` lists a settings file the CLI failed to
+  validate, which is the sign the whole payload was dropped;
+- **a setting not applied as passed**: the merged settings lack the sandbox
+  block, `autoMemoryEnabled: false`, `disableClaudeAiConnectors: true`, or any
+  of the `claudeMdExcludes` patterns passed;
+- **the guard missing**: `get_hooks_listing` has no `PreToolUse` hook on `Bash`
+  running `yoyo goals guard`, or lists it as disabled, or policy disables every
+  hook;
+- **the sandbox not running**: `get_sandbox_dialog` says it is unsupported on
+  the machine, not enabled, missing something it depends on, or would fall back
+  to running a command unconfined;
+- **a flag gone**: when the installed version differs from the recorded
+  2.1.286, any flag the adapter passes that the installed CLI's own `--help` no
+  longer names;
+- **no answer**: a CLI that answered none of the questions.
+
+That a write outside the worktree would be refused is established from the
+CLI's own account of its running sandbox, not by attempting a write: only the
+model can ask the CLI to run a command, and a model call before every run is a
+cost and depends on what the model chooses to do. The settings keys cannot be
+confirmed against the help, which names none, and the CLI keeps a key it does
+not recognize without complaint; what the check holds them to is their effect,
+read back, rather than their spelling.
+
+A refusal happens before anything is claimed or relaunched, and names the CLI's
+version and each setting or flag that did not take. It spends no repair
+attempt, dockets nothing, and does not count toward the intake brake. The first
+refusal records a hold on that provider and files one critical report; a
+watching session reads the hold at every pull and fills no developer slot that
+would start on that provider while it stands, so the rest of the ready queue is
+not refused one item at a time. A slot that starts its developer on another
+provider (its own endpoint pair names one) is still filled; only when every
+slot is on the held provider does the session stop choosing altogether. A resumed run turned back this way records
+`developer-settings-not-applied` as a cause outside the work and stays resumable.
+The hold lifts by itself: after `execution.usage_limit_unknown_reset_pause` the
+next pull lets one dispatch check again, which lifts the hold if the settings
+are in force (after a person repairs the installation or its policy, for
+instance) and confirms it without a second report if not; and a pull on a
+different harness build lifts it at once, since a landed change to the adapter
+is the other thing that ends it. A dispatch the operator names with `yoyo run`
+is checked the same way, and lifts the hold when it passes.
+
+A check that could not be made at all — the CLI did not start, or did not
+answer within thirty seconds — refuses that one dispatch as the machine's and
+holds nothing, because it says nothing about the settings.
+
+The check is the Claude Code adapter's alone. A Codex developer's sandbox is
+the `--sandbox` flag, which the CLI refuses rather than ignores when it does
+not know it, and an installation that rejects the required flags fails the
+invocation ([capability validation](#capability-validation)). Whether a later
+Codex would notice a `--config` key it no longer reads is not established, and
+nothing checks it yet. What the CLI answered is recorded in
+`internal/backend/claudecode/testdata/settings-check`.
 
 ## Writing one
 

@@ -43,7 +43,7 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    in-flight run via `resumeRun`, or refuse with `ExistingRunError`),
    `holdIntake`, `refuseSubstitutedHandback`, `validateReadyItem`,
    `refuseUngrantedCondition`, `loadInvariants`, `Worktrees.ValidateReady`,
-   `requireBackendReady`, `reserveRun`, `beginDeliveryTrial`, `claim`,
+   `requireBackendReady`, `requireLaunchSettings`, `reserveRun`, `beginDeliveryTrial`, `claim`,
    `Worktrees.Create`, `liftPreserved`, `prepareScratch`, then `develop` and
    `verifyReviewAndFinish`.
 5. **Continuing a run.** `Pipeline.Continue` (re-enter one named run;
@@ -245,6 +245,7 @@ context bundle come from `internal/contextbundle`.
 | `landing.go` | developer's closure claims, `arrangeUndischarged` |
 | `recovery.go` | `readWorkItem` and tracker read retries |
 | `provideroutage.go`, `usagelimit.go` | `requireBackendReady`, provider-away handling |
+| `launchsettings.go` | `requireLaunchSettings` (asked after `requireBackendReady` in `Pipeline.Run` and `resumeRun`): the developer's provider is asked whether its sandbox, notes guard and isolation settings took effect; `LaunchSettingsError`, the one report, and `Scheduler.launchSettingsHeld`, which passes over developer slots on the held provider while the product's `runstate.LaunchSettingsHold` stands |
 | `supervision.go` | the management loop's own pass over role exchanges |
 | `mergequeueworker.go` | `MergeQueueWorker.Work` — the merge queue's worker up to promotion: picks the first waiting entry, builds or reconciles its candidate generation (`current`, `reconcile`), runs the configured checks (`check`) and an independent review (`review`) on exactly that candidate, and rebuilds when the target moves (`moved`). Each stage passes the operator's pause (`paused`), the review also the provider checks a run's review passes (`reviewerReady`), and every process a stage starts is written down and holds the stage's hold (`launches`); a restarted worker waits on a stage still running (`awaitUnfinished`). The generation record and its `Gate` are `internal/runstate/mergequeuegeneration.go`, and the hold is `internal/runstate/mergequeuehold.go` |
 
