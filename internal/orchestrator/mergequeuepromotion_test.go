@@ -35,6 +35,7 @@ type promotionFixture struct {
 	tracker  *orchestratortest.Tracker
 	run      *recordingRun
 	remote   string
+	catchUps int
 }
 
 // landingWay is how the fixture's target lands.
@@ -66,6 +67,12 @@ func newPromotionFixture(t *testing.T, way landingWay) *promotionFixture {
 		*pipeline = publishing(*pipeline, f.forge)
 	}
 	f.worker.Waiting = MergeQueueWaiting(f.landings)
+	f.lander.onCatchUp = func() {
+		f.catchUps++
+		if !f.promotionLeaseHeld() {
+			t.Error("the local target was caught up without the promotion lease")
+		}
+	}
 	f.promoter = MergeQueuePromoter{
 		Pipeline: pipeline, Queue: f.landings, Lander: f.lander,
 		Completion: MergeQueueRunCompletion{Store: f.run, Tracker: f.tracker},
@@ -301,6 +308,46 @@ func TestACandidateReachingAProtectedPathTheItemDoesNotGrantLandsNothing(t *test
 		t.Fatalf("Promote() with the path granted = %#v, %v", landed, err)
 	}
 	f.assertLandedOnce(generation)
+}
+
+func TestADriftLeftUnrecordedIsRecordedUnderThePromotionLease(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landUnprotected)
+	generation := f.verify()
+	base := f.local("main")
+	// The target moves between the last read and the move, so the move is
+	// refused; the record of the drift that follows is then lost.
+	f.lander.beforeMove = func() { moveTarget(t, f.repository, "elsewhere.txt") }
+	lost := false
+	f.records.fail = func(g runstate.MergeQueueGeneration) (bool, error) {
+		if g.Invalidated != nil && !lost {
+			lost = true
+			return false, errors.New("the disk refused the write")
+		}
+		return false, nil
+	}
+	if _, err := f.promote(); err == nil {
+		t.Fatal("Promote() = nil, want the lost drift record reported")
+	}
+	attempt, _ := f.landing().Current()
+	if record, found := attempt.Mutation(runstate.MergeQueueMoveTarget); !found || record.Settled == nil || record.Settled.Result != runstate.MergeQueueMutationNotMade || attempt.SetAside != nil {
+		t.Fatalf("attempt = %#v, want the refused move recorded and the attempt still standing", attempt)
+	}
+	// The target comes back to the base, so taking up the drift catches the
+	// local target up onto the remote, which it may do only under the lease.
+	runPipelineGit(t, f.repository, "reset", "--hard", base)
+	catchUps := f.catchUps
+	drifted, err := f.promote()
+	if err != nil || !drifted.Drift || drifted.Landed {
+		t.Fatalf("Promote() = %#v, %v; want the drift recorded and nothing landed", drifted, err)
+	}
+	if f.catchUps == catchUps {
+		t.Fatal("taking up the drift did not catch the target up, so the lease was not exercised")
+	}
+	if f.generations()[0].Invalidated == nil || f.local("main") != base || f.local("main") == generation.Candidate {
+		t.Fatal("want generation 1 invalidated and main left at its base")
+	}
 }
 
 func TestAProtectedTargetLandsThroughThePullRequestAndFollowsOnlyAfterConfirmation(t *testing.T) {
@@ -882,6 +929,9 @@ type stoppingLander struct {
 	*gitworktree.Manager
 	stop       map[runstate.MergeQueueMutation]string
 	beforeMove func()
+	// onCatchUp runs whenever the local target is about to be caught up,
+	// which is how every test checks that it is moved under the lease.
+	onCatchUp func()
 }
 
 func (l *stoppingLander) at(mutation runstate.MergeQueueMutation) string {
@@ -903,6 +953,9 @@ func (l *stoppingLander) PublishQueueCandidate(ctx context.Context, branch, cand
 }
 
 func (l *stoppingLander) CatchUpTarget(ctx context.Context, branch string) (gitworktree.Catchup, error) {
+	if l.onCatchUp != nil {
+		l.onCatchUp()
+	}
 	var catchup gitworktree.Catchup
 	err := stopAround(l.at(runstate.MergeQueueFollowTarget), func() error {
 		var err error

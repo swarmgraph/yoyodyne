@@ -745,7 +745,21 @@ func (q *queuePromotion) standing(attempt *runstate.MergeQueuePromotionAttempt) 
 	return generation, "", nil
 }
 
-// driftFrom reads where the target went and records the drift.
+// driftUnderLease is driftFrom for a caller that does not hold the target's
+// promotion lease: it takes the lease first, because driftFrom may catch the
+// local target up onto the remote, and nothing moves a target without it.
+func (q *queuePromotion) driftUnderLease(ctx context.Context) error {
+	lease, err := q.p.Pipeline.Store.LeasePromotion(ctx, q.key.TargetBranch)
+	if err != nil {
+		return fmt.Errorf("wait for the turn to read where %s went: %w", q.key.TargetBranch, err)
+	}
+	defer func() { _ = lease.Release() }()
+	return q.driftFrom(ctx)
+}
+
+// driftFrom reads where the target went and records the drift. Its caller
+// holds the target's promotion lease, because it may move the local target
+// (driftUnderLease is for one that does not).
 func (q *queuePromotion) driftFrom(ctx context.Context) error {
 	attempt := q.attempt()
 	target, err := q.p.Lander.TargetCommit(ctx, q.key.TargetBranch)
@@ -954,9 +968,9 @@ func (q *queuePromotion) notMade(ctx context.Context, last runstate.MergeQueueMu
 		if target == attempt.TargetBase {
 			return q.setAside(attempt, "the process that moved the target stopped before the target moved", false)
 		}
-		return q.driftFrom(ctx)
+		return q.driftUnderLease(ctx)
 	case !interrupted && last.Mutation == runstate.MergeQueueMoveTarget:
-		return q.driftFrom(ctx)
+		return q.driftUnderLease(ctx)
 	case interrupted && (last.Mutation == runstate.MergeQueuePushCandidate || last.Mutation == runstate.MergeQueueOpenPullRequest):
 		if !attempt.MovedTarget() {
 			return q.setAside(attempt, fmt.Sprintf("the process that asked for the %s stopped before it was made", last.Mutation), false)
