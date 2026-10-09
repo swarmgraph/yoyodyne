@@ -810,8 +810,8 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 	}, true, nil
 }
 
-// stallTask reports a first silent-stream stall the harness continues itself
-// now, and whether there is one. A decision the development manager recorded
+// stallTask reports a first stall — a silent stream or a spent session budget —
+// the harness continues itself now, and whether there is one. A decision the development manager recorded
 // about the stoppage is hers to have carried out instead, so only an entry
 // nobody decided anything about is taken.
 func (c CarryOut) stallTask(entry triage.Entry, item outstandingItem) (CarryOutTask, bool, error) {
@@ -833,7 +833,7 @@ func (c CarryOut) stallTask(entry triage.Entry, item outstandingItem) (CarryOutT
 		RunID:      entry.RunID,
 		DocketKey:  entry.Key,
 		Decision:   DecisionContinueStall,
-		Reason:     "the harness stopped this run for a silent provider stream, and continues it itself once",
+		Reason:     "the harness stopped this run's AI session itself, because it went silent or its total budget ran out, and continues the run itself once",
 	}, true, nil
 }
 
@@ -1511,7 +1511,7 @@ func (carried CarriedOut) Render() string {
 		fmt.Fprintf(&rendered, "continued the check stage the bound stopped on run %s of %s, at its checks on the change it already has\n",
 			carried.RunID, carried.WorkItemID)
 	case carried.Carried && carried.Decision == DecisionContinueStall:
-		fmt.Fprintf(&rendered, "continued run %s of %s after the harness stopped it for a silent provider stream, in its own session and at the phase it stalled in\n",
+		fmt.Fprintf(&rendered, "continued run %s of %s after the harness stopped its AI session for going silent or running out of its total budget, in its own session and at the phase it stopped in\n",
 			carried.RunID, carried.WorkItemID)
 	case carried.Carried:
 		fmt.Fprintf(&rendered, "carried out the %q the development manager decided about %s, on the stopped work of run %s\n",

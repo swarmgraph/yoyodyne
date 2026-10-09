@@ -189,7 +189,8 @@ In `develop` (and `reviewChange` for review): a transient death
 (`diedTransiently`) is relaunched while `mayRelaunch`, counted by
 `recordRelaunch`, and ends in `blockOnSpentRelaunchBudget`. A harness timeout
 (idle or budget) becomes `providerStop` via `recordProviderStop`; the first
-silent stall is continued by `StallContinuer` in `stallcontinue.go`. Usage
+such stop, idle or budget, is continued by `StallContinuer` in
+`stallcontinue.go`. Usage
 limits and overloads wait in `pauseForUsageLimit` / `pauseForServerOverload`;
 a reset past the maximum wait ends the run through `stopOnUsageWindow`. Login
 and outage refusals: `provideroutage.go`.

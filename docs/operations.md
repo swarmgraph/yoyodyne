@@ -2441,8 +2441,12 @@ or a repair already underway must still hold the change. One that fails either i
 again for her. **The harness does this at most once for one run.** A run that
 stalls again after the harness carried it on is settled and docketed as before,
 and its entry says the harness's continuation is spent and what happens next is
-her decision. A provider stopped for running out of its total budget rather
-than for going silent is not continued this way. Where the run had been stopped
+her decision. A provider the harness stopped because it was still working when
+its total budget ran out is continued exactly the same way, under the same
+bound of one, and the entry and the item's note say it was the budget rather
+than a silent session; both are the harness's own stop and judge nothing. A
+stop whose cause is inside the work — reviewer findings, a failing check — is
+never continued this way. Where the run had been stopped
 for a [redeploy](#a-session-draining-to-restart-into-a-deployed-build) and
 re-adopted before it stalled, the entry and the item's note say so. Where it
 stalled at the phase it was re-adopted at, they say the stall began in the
@@ -5099,7 +5103,7 @@ comes from a small fixed set:
 | word | what it means |
 | --- | --- |
 | `succeeded` | the work landed |
-| `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream, including during a repair, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
+| `stopped` | it ended on a durable blocker: the item carries it and nothing was discarded; the development manager decides what happens next, except for a first stall of a silent provider stream or of a session whose total budget ran out, including during a repair, which the harness [continues once itself](#when-a-provider-stalls-or-runs-out-of-budget) and which becomes hers only if it stalls again |
 | `cancelled` | something stopped it rather than judged it — the operator, a killed process, or retirement after another run confirmed the item's merge |
 | `timed out` | the harness stopped it on time; nothing judged the change, and only a check stage its bound stopped is acted on afterwards — [continued at its checks by the harness](#what-a-check-stage-may-cost-and-where-the-whole-suite-runs), then the development manager's once those continuations are spent |
 | `failed` | it ended without succeeding and without leaving anybody a blocker |
