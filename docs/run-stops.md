@@ -224,8 +224,8 @@ describes the pass that applies those rules.
 ```text
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
-| `internal/orchestrator/documentpublication.go` | `(Pipeline).PublishDocument` | `call:fail` | 1 | Ends a document preparation failure and returns its cause to the owning conversation. |
-| `internal/orchestrator/documentpublication.go` | `(Pipeline).PublishDocument` | `call:finish` | 1 | Completes an already recorded document integration through ordinary settlement. |
+| `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `call:fail` | 2 | Ends one attempt at a document whose checkout could not be cut or whose preparation failed; a stop that judged nothing is tried again with the same text, and one that judged the document returns its cause to the owning conversation. |
+| `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `call:finish` | 1 | Completes an already recorded document integration through ordinary settlement. |
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:fail` | 1 | Returns an independent review refusal to the document owner without invoking a developer. |
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `classified-stop` | 1 | Classifies the document review refusal as a review failure. |
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:stop` | 3 | Settles a directive, check, or review operation that stopped; failed publication returns to the document owner. |
@@ -243,6 +243,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).promoteApproved` | `call:fail` | 1 | Refuses missing independence, honours late holds, or finishes the approved promotion. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).promoteApproved` | `call:stop` | 2 | Refuses missing independence, honours late holds, or finishes the approved promotion. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).promoteApproved` | `call:finish` | 1 | Refuses missing independence, honours late holds, or finishes the approved promotion. |
+| `internal/orchestrator/pipeline.go` | `callerStoppedCheck` | `classified-stop` | 1 | Classifies a check stopped when the deadline of the work that started its run passed as a time limit, naming that deadline rather than a budget the check did not reach; the run ends through the shared dispatcher. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).promoteApproved` | `classified-stop` | 1 | Refuses missing independence, honours late holds, or finishes the approved promotion. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).endPromotion` | `call:fail` | 1 | Settles promotion failure or redeploy cancellation; any promotion already made stands. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).endPromotion` | `call:stop` | 1 | Settles promotion failure or redeploy cancellation; any promotion already made stands. |
@@ -341,7 +342,7 @@ describes the pass that applies those rules.
 ```text
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
-| `internal/orchestrator/documentpublication.go` | `(Pipeline).PublishDocument` | `status-write` | 2 | Marks the document run and its temporary bookkeeping as running; changes no backlog item. |
+| `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `status-write` | 2 | Marks the document run and its temporary bookkeeping as running; changes no backlog item. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Block` | `status-write` | 1 | Changes temporary document bookkeeping; ordinary durable run state records the failure. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Claim` | `status-write` | 1 | Changes temporary document bookkeeping; creates no backlog claim. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Complete` | `status-write` | 1 | Changes temporary document bookkeeping; ordinary durable run state records completion. |

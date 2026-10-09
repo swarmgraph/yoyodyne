@@ -84,6 +84,7 @@ var sequencers = []string{
 	"(Pipeline).Run",
 	"(Pipeline).resumeRun",
 	"(Pipeline).PublishDocument",
+	"(Pipeline).publishDocumentAttempt",
 	"(*activeRun).reviewDocument",
 	"(*activeRun).verifyReviewAndFinish",
 	"(*activeRun).promoteApproved",
