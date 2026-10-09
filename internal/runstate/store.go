@@ -113,6 +113,10 @@ type Lease struct {
 	// one. It is empty on the rest: a lease nobody has to watch from outside
 	// carries nothing to keep in step with the lock.
 	holder string
+	// scope names the one thing of its kind this lease owns, on the leases a
+	// write is asked to present: a merge queue's worker lease names its queue,
+	// so a worker for one queue cannot write another's generations.
+	scope string
 }
 
 // releaseStateFile drops a lock and closes the file it was taken on, in that

@@ -167,6 +167,11 @@ type Request struct {
 	// home, which is what an installation with one account has always used.
 	AccountAlias     string
 	AccountConfigDir string
+	// LaunchGate, when set, starts the reviewer's provider behind it, so the
+	// caller has written down which process the review is before the review
+	// does any work (execution.LaunchGate). Nil starts it the ordinary way,
+	// which is how a run's own review has always been made.
+	LaunchGate *execution.LaunchGate
 }
 
 // Result is one completed review: the resolved verdict plus the provider and
@@ -390,6 +395,7 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		EventSink:        backendEventSink,
 		AccountAlias:     request.AccountAlias,
 		AccountConfigDir: request.AccountConfigDir,
+		LaunchGate:       request.LaunchGate,
 	})
 	if err != nil {
 		return Result{

@@ -66,16 +66,17 @@ type strictSite struct {
 // strictSites is every strict site in the tree, by file and function.
 var strictSites = map[string]strictSite{
 	// The doors.
-	"internal/runstate/tolerantread.go:decodeStrictly":                {strictDoor, "the strict door itself"},
-	"internal/runstate/tolerantread.go:decodeTolerating":              {strictDoor, "tries the strict door first and steps over only an unknown field"},
-	"internal/runstate/store.go:(*Store).load":                        {strictDoor, "Load is strict for the pipeline's writes; Read, the listings, and the stream listing are tolerant"},
-	"internal/runstate/conversation.go:(*ConversationStore).decode":   {strictDoor, "Load is strict for the resuming agent; Read and the listings are tolerant"},
-	"internal/runstate/exchange.go:(*ExchangeStore).load":             {strictDoor, "Load is strict for the conductor that answers and settles; Read, List, and the spend totals are tolerant"},
-	"internal/runstate/directive.go:(*DirectiveStore).load":           {strictDoor, "Find and Pausing are strict for settling and gating; List, which the read model and the sink read, is tolerant"},
-	"internal/runstate/firstseen.go:(*FirstSeenStore).read":           {strictDoor, "Observe is strict under its lock before it rewrites the record; FirstSeen, which the read model reads, is tolerant"},
-	"internal/runstate/capacityserved.go:(*CapacityServedStore).read": {strictDoor, "Record is strict because it rewrites what it read; List, which the read model, the sink, and the watch read, is tolerant"},
-	"internal/runstate/trackerlisting.go:(*TrackerListingStore).read": {strictDoor, "Failed and Answered are strict because they rewrite what they read; Read, which the read model reads, is tolerant"},
-	"internal/runstate/mergequeue.go:(*MergeQueueStore).decode":       {strictDoor, "Admit and its readback are strict because they rewrite and settle what they read; Entries is tolerant"},
+	"internal/runstate/tolerantread.go:decodeStrictly":                               {strictDoor, "the strict door itself"},
+	"internal/runstate/tolerantread.go:decodeTolerating":                             {strictDoor, "tries the strict door first and steps over only an unknown field"},
+	"internal/runstate/store.go:(*Store).load":                                       {strictDoor, "Load is strict for the pipeline's writes; Read, the listings, and the stream listing are tolerant"},
+	"internal/runstate/conversation.go:(*ConversationStore).decode":                  {strictDoor, "Load is strict for the resuming agent; Read and the listings are tolerant"},
+	"internal/runstate/exchange.go:(*ExchangeStore).load":                            {strictDoor, "Load is strict for the conductor that answers and settles; Read, List, and the spend totals are tolerant"},
+	"internal/runstate/directive.go:(*DirectiveStore).load":                          {strictDoor, "Find and Pausing are strict for settling and gating; List, which the read model and the sink read, is tolerant"},
+	"internal/runstate/firstseen.go:(*FirstSeenStore).read":                          {strictDoor, "Observe is strict under its lock before it rewrites the record; FirstSeen, which the read model reads, is tolerant"},
+	"internal/runstate/capacityserved.go:(*CapacityServedStore).read":                {strictDoor, "Record is strict because it rewrites what it read; List, which the read model, the sink, and the watch read, is tolerant"},
+	"internal/runstate/trackerlisting.go:(*TrackerListingStore).read":                {strictDoor, "Failed and Answered are strict because they rewrite what they read; Read, which the read model reads, is tolerant"},
+	"internal/runstate/mergequeue.go:(*MergeQueueStore).decode":                      {strictDoor, "Admit and its readback are strict because they rewrite and settle what they read; Entries is tolerant"},
+	"internal/runstate/mergequeuegeneration.go:(*MergeQueueStore).decodeGenerations": {strictDoor, "RecordGeneration is strict because it rewrites what it reads; Generations and VerifiedGeneration are tolerant"},
 
 	// Reads that precede a write.
 	"internal/runstate/workflowinstance.go:(*Store).LoadWorkflowInstance": {strictWriter, "an instance is only ever read to be advanced and saved back"},

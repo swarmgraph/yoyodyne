@@ -485,7 +485,23 @@ var expresses = map[string]expression{
 	},
 	"merge-queue.worker-lease": {
 		question: "no role holds it; the harness takes it in the process that works the queue",
-		gap:      "no capability names it yet: it makes one harness process the worker for a queue, and nothing in the harness takes it until a later part of the merge queue does, so there is nothing a role could be asked whether it holds",
+		gap:      "no capability names it yet: it makes one harness process the worker for a queue, and only the harness's own merge queue worker takes it, so there is nothing a role could be asked whether it holds",
+	},
+	"merge-queue.generation-writer": {
+		question: "no role holds it; only the harness process holding the queue's worker lease records a candidate's generations",
+		gap:      "the same as the worker lease it is checked against: writing the queue's own verification record is the harness's bookkeeping, and no role could be asked whether it holds it",
+	},
+	"merge-queue.candidate-review": {
+		question: "the role asked about the candidate is the reviewer, the same role a run's own review asks",
+		gap:      "no capability names giving a verdict; the reviewer's independence is the run.independent-invocations question, asked again of the candidate by the gate",
+	},
+	"merge-queue.stage-hold": {
+		question: "no role holds it; the harness takes it in the process that works the queue, and the processes the stage starts inherit it",
+		gap:      "it keeps one stage of the harness's own verification from running twice at once, which is load control over the harness's work rather than authority a role could hold",
+	},
+	"merge-queue.candidate-gate": {
+		question: "none: whether a candidate earned promotion is read from its recorded evidence, and the reviewer who earns half of it is the reviewer role already asked about above",
+		gap:      "the gate is a reading of evidence rather than authority any role holds; the authority it guards is the promotion, which is the promotion lease's question",
 	},
 	"converge.catch-up-under-lease": {
 		question: "no role holds either half; the reconciler is the harness under the same lease",
