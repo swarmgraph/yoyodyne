@@ -309,6 +309,18 @@ func ProductDirectory(root, productID string) string {
 	return filepath.Join(filepath.Clean(root), filepath.FromSlash(ProductDirectoryWithin(root, productID)))
 }
 
+// ProductDirectories is every product's records directory under a home, in the
+// layout the home has: what ProductDirectory resolves for each product the
+// home keeps records for.
+func ProductDirectories(root string) []string {
+	pattern := filepath.Join(filepath.Clean(root), ProjectsDirectoryName, "*", StateDirectoryName)
+	if EarlierLayout(root) {
+		pattern = filepath.Join(filepath.Clean(root), earlierProductsDirectoryName, "*")
+	}
+	directories, _ := filepath.Glob(pattern)
+	return directories
+}
+
 // ProductDirectoryWithin is ProductDirectory relative to the home, in slash
 // form, for a caller writing through the confined-write primitive rooted there.
 func ProductDirectoryWithin(root, productID string) string {
