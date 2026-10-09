@@ -2179,7 +2179,7 @@ func TestRerunChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
 			t.Fatal(err)
 		}
 		rerunner := harness.rerunner()
-		rerunner.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		rerunner.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
 		// The re-run starts either way; what the repository holds decides what it
 		// records as kept, whatever the flags say.
 		result, err := rerunner.Rerun(context.Background(), rerunRequest())
