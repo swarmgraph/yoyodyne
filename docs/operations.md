@@ -4294,10 +4294,12 @@ has the rule.
   a switch or a missing session stops (whoever the reason names — the operator
   for his hold or a session that is not running, the development manager or the
   harness for a hold the brake placed, nobody for a usage window); other items
-  (the harness's, as they land); a role's conversation, one group per role (that
-  role's); parked by the Lead Product Manager (hers); covered by other work, its
-  own unfinished children (the harness's); and not offered by the tracker for a
-  reason nothing here can read. **The last `-` line says in one sentence whether
+  (the harness's, as they land); an item above them in the tracker's tree that
+  waits on other work, one group per waiting item, naming it and what it waits
+  on (the harness's, as that work lands); a role's conversation, one group per
+  role (that role's); parked by the Lead Product Manager (hers); covered by
+  other work, its own unfinished children (the harness's); and not offered by
+  the tracker for a reason nothing here can read. **The last `-` line says in one sentence whether
   anything on the line is the operator's** — under his rule of 2026-09-26 only a
   change to the fundamental goals is — naming what is where something is, and
   saying `nothing here is the operator's` where nothing is. The items themselves

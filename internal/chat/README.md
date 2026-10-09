@@ -183,7 +183,8 @@ removes them from the record once a turn has delivered them.
 
 ### How are a work item's full text and its runs shown to a role?
 `readActionTarget` and `renderWorkItemEvidence` (`tracker.go`);
-`itemruns.go` adds the runs made for the item.
+`inherited.go` adds the block the item is under through a waiting parent, and
+`itemruns.go` the runs made for the item.
 
 ## Sibling files
 

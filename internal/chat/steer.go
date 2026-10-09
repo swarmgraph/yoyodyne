@@ -251,6 +251,7 @@ func (s *Session) command(ctx context.Context, line string, out io.Writer) (bool
 		// It is the same rendering the product manager is given when it reads an
 		// item, so what the operator sees here is what the agent could see.
 		fmt.Fprint(out, renderWorkItemEvidence(item, s.options.Goals))
+		fmt.Fprint(out, s.renderInheritedBlocks(ctx, item))
 		// What it cost comes from the run records rather than the tracker, and it
 		// is broken down by attempt: a single total answers what an item cost, and
 		// only the breakdown says what the harness spent it on. A price nobody

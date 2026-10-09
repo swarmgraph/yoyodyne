@@ -1797,7 +1797,7 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 			outcome.fail(err)
 			return
 		}
-		outcome.Detail = detail + s.renderItemRuns(ctx, item.ID)
+		outcome.Detail = detail + s.renderInheritedBlocks(ctx, item) + s.renderItemRuns(ctx, item.ID)
 		outcome.applied("read %s: %s", item.ID, singleLine(item.Title, maxSurveyTitleBytes))
 	case actionSurvey:
 		// The one action about the queue rather than about an item in it. It is the

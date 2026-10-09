@@ -1427,8 +1427,10 @@ func TestTheOperatorReadsItemsAndRunsFromInsideTheConversation(t *testing.T) {
 				t.Fatalf("transcript = %q, want it to contain %q", transcript, required)
 			}
 		}
-		if len(tracker.shown) != 1 || tracker.shown[0] != "yoyodyne-ifd.39" {
-			t.Fatalf("items read = %#v, want the one the operator named", tracker.shown)
+		// The item named is the one read, and the only other read is of its parent,
+		// which is how the read says whether it is blocked through it.
+		if len(tracker.shown) != 2 || tracker.shown[0] != "yoyodyne-ifd.39" || tracker.shown[1] != "yoyodyne-ifd.1" {
+			t.Fatalf("items read = %#v, want the one the operator named and then its parent", tracker.shown)
 		}
 	})
 

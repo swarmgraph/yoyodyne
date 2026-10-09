@@ -871,8 +871,13 @@ dependencies out, or hold an item back forever for a blocker that finished
 months ago. So the harness asks Beads what is ready — the same blocker-aware
 question `bd ready` answers — and a dependency is named as a wait only when the
 work it points at is itself still in the backlog. An unready item says which of
-the three things is holding it: named work it waits for, a blocker recorded on
-the item, or the tracker simply not offering it. A tracker slice it cannot read,
+the four things is holding it: named work it waits for, a blocker recorded on
+the item, an item it was broken out of that waits on other work, or the tracker
+simply not offering it. The third is how Beads treats a parent that waits: it
+holds back every item under it, and the child's own links say nothing about
+it, so the queue names the parent — and the grandparent, where the wait is
+further up — and what it waits on, in the words [an item
+read](#steering-the-work-from-the-conversation) uses. A tracker slice it cannot read,
 including that readiness answer, fails the whole report instead of returning the
 half it could: a survey describing part of what is happening is still worth
 reading, and half a queue answers "what happens next" wrongly rather than
@@ -1010,6 +1015,26 @@ hold is about is always listed. A record that could not be read is said as
 unread rather than left out. On 2026-09-26 the development manager could not
 find the run to record a decision on for `yoyodyne-ifd.430.13.4`, because the
 note naming it was in the part of the notes the read cut.
+
+A read also says when the item is blocked through an item it was broken out
+of. Beads holds back every item under a parent that waits on unfinished work,
+and nothing on the child's own links says so. So between the item and its runs
+the read walks the item's parents as the tracker holds them now, and where one
+waits on work the item does not record itself, it says so on an `inherited
+block:` line naming the chain of parents and what the waiting one waits on:
+
+```text
+inherited block: blocked through its parent yoyodyne-ifd.433.21, which waits on yoyodyne-ifd.437.14 (open). The item records no such link itself; the tracker holds it back with its parent, and offers it once that work is finished.
+```
+
+A wait further up names every link — `its parent yoyodyne-ifd.9.1, whose parent
+is yoyodyne-ifd.9, which waits on …` — and an item no parent of which waits
+says nothing. A parent the tracker would not describe is said as unread rather
+than read as holding nothing. This reports what the tracker already holds; it
+changes nothing about what blocks an item or what is ready. On 2026-10-05 a
+slice of automatic document publication (`yoyodyne-ifd.433.21.1`) went about
+nineteen hours without a run this way, read as ready by three roles while its
+parent waited on the architect's design.
 
 An item read carries at most 8 KiB before the separate runs section. Long text
 before the notes is returned in parts: each part names its starting byte, how
