@@ -20,16 +20,29 @@ package orchestrator
 // failure and is charged to nobody, and the entry is built again on the new
 // target and verified from nothing. A restarted worker reads what the last one
 // recorded before it starts anything: a stage that finished is not run again,
-// a stage that started and never finished is written down as interrupted and
-// earns nothing, and the candidate's checkout is restored from its commit
-// rather than rebuilt, so what was recorded against it still describes it.
-// Only the lease holder writes or runs anything, so one generation is never
-// verified twice at once.
+// and a stage that started and never finished is first looked for. Every check
+// and every review is started behind its stage's hold (runstate's
+// mergequeuehold.go), written down before it may do any work, so a process an
+// earlier worker left running keeps the hold taken; while it does, nothing is
+// started beside it and its checkout is left alone, and the call reports what
+// it is waiting on. Only once it has stopped is the stage written down as
+// interrupted, earning nothing, and run again on the candidate restored from
+// its commit rather than rebuilt, so what was recorded against it still
+// describes it.
+//
+// A stage is a spend like a run's, and passes the same doors a run's does
+// before it starts: the operator's pause on harness activity holds both
+// stages, and the review also waits out a provider nobody can reach, a usage
+// limit already known for its account and model, and a provider that is not
+// installed or not logged in. A provider that refuses the review for capacity,
+// overload, login or reachability made no review, so the attempt earns nothing
+// and the call reports a wait rather than a failure.
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -70,6 +83,8 @@ type MergeQueueRecords interface {
 	LeaseWorker(ctx context.Context, key runstate.MergeQueueKey) (*runstate.Lease, bool, error)
 	Generations(key runstate.MergeQueueKey, entryID string) ([]runstate.MergeQueueGeneration, error)
 	RecordGeneration(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) error
+	HoldStage(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (*runstate.MergeQueueStageHold, error)
+	StageRunning(key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (bool, string, error)
 }
 
 // ErrMergeQueueWorkerBusy is a queue another process is already working.
@@ -93,7 +108,18 @@ type MergeQueueWorker struct {
 	// Landing and withdrawal belong to later work, which supplies it; nil is
 	// every admitted entry waiting.
 	Waiting func(entry runstate.MergeQueueEntry) bool
+	// UsageLimits is where a provider refusing the review for want of capacity
+	// is written down, as a branch review writes it; nil records nothing.
+	UsageLimits UsageLimitRecorder
 }
+
+// mergeQueueWait is a stage the worker did not start, and why: a process an
+// earlier worker started still running, the operator's pause, or a provider
+// that cannot serve the review now. It is not a failure, and nothing is
+// charged for it.
+type mergeQueueWait struct{ reason string }
+
+func (w mergeQueueWait) Error() string { return w.reason }
 
 // MergeQueueVerification is what one call to Work found and did.
 type MergeQueueVerification struct {
@@ -107,6 +133,9 @@ type MergeQueueVerification struct {
 	// Drift counts the generations this call invalidated because the target
 	// moved. It is reported apart because it is charged to nothing.
 	Drift int
+	// Waiting is what the call stopped short of starting a stage for, and
+	// empty where it started everything it had to. A later call takes it up.
+	Waiting string
 }
 
 // Work verifies the first waiting entry of a queue. It refuses with
@@ -144,35 +173,49 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 	}
 	configured := runstate.NewMergeQueueCheckConfiguration(w.Pipeline.Config.Checks)
 	for {
-		generation, err := w.current(ctx, lease, key, entry, author, configured)
-		outcome.Generation = generation
-		if err != nil {
-			return outcome, err
-		}
-		generation, moved, err := w.check(ctx, lease, key, generation)
-		outcome.Generation = generation
-		if err == nil && !moved && generation.CheckRun != nil && checksPassed(generation) {
-			generation, moved, err = w.review(ctx, lease, key, entry, run, generation)
-			outcome.Generation = generation
-		}
-		if err != nil {
-			return outcome, err
-		}
-		if moved {
-			outcome.Drift++
-			if outcome.Drift > maxMergeQueueDriftRebuilds {
-				outcome.Refusal = fmt.Sprintf("the target branch moved under %d candidates in a row; the next attempt builds on wherever it then stands", outcome.Drift)
-				return outcome, nil
-			}
-			continue
-		}
-		if gate := generation.Gate(configured); gate != nil {
-			outcome.Refusal = gate.Error()
+		outcome, err = w.verify(ctx, lease, key, entry, run, author, configured, outcome)
+		var wait mergeQueueWait
+		if errors.As(err, &wait) {
+			outcome.Waiting = wait.reason
 			return outcome, nil
 		}
-		outcome.Verified = true
+		if err != nil || outcome.Verified || outcome.Refusal != "" {
+			return outcome, err
+		}
+	}
+}
+
+// verify takes one generation as far as it goes: to a gate it passes or
+// refuses, to a wait, or to the target moving under it, which is reported by
+// returning with neither a verdict nor a refusal so the caller builds again.
+func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key runstate.MergeQueueKey, entry runstate.MergeQueueEntry, run runstate.State, author string, configured runstate.MergeQueueCheckConfiguration, outcome MergeQueueVerification) (MergeQueueVerification, error) {
+	generation, err := w.current(ctx, lease, key, entry, author, configured)
+	outcome.Generation = generation
+	if err != nil {
+		return outcome, err
+	}
+	generation, moved, err := w.check(ctx, lease, key, generation)
+	outcome.Generation = generation
+	if err == nil && !moved && generation.CheckRun != nil && checksPassed(generation) {
+		generation, moved, err = w.review(ctx, lease, key, entry, run, generation)
+		outcome.Generation = generation
+	}
+	if err != nil {
+		return outcome, err
+	}
+	if moved {
+		outcome.Drift++
+		if outcome.Drift > maxMergeQueueDriftRebuilds {
+			outcome.Refusal = fmt.Sprintf("the target branch moved under %d candidates in a row; the next attempt builds on wherever it then stands", outcome.Drift)
+		}
 		return outcome, nil
 	}
+	if gate := generation.Gate(configured); gate != nil {
+		outcome.Refusal = gate.Error()
+		return outcome, nil
+	}
+	outcome.Verified = true
+	return outcome, nil
 }
 
 func (w MergeQueueWorker) validate() error {
@@ -181,8 +224,8 @@ func (w MergeQueueWorker) validate() error {
 	case w.Pipeline == nil:
 		problems = append(problems, errors.New("the merge queue worker needs the pipeline its checks and reviews are made with"))
 	default:
-		if w.Pipeline.Checks == nil || w.Pipeline.Reviewer == nil || w.Pipeline.Store == nil || w.Pipeline.Tracker == nil {
-			problems = append(problems, errors.New("the merge queue worker needs a check runner, a reviewer, a run store and a tracker"))
+		if w.Pipeline.Checks == nil || w.Pipeline.Reviewer == nil || w.Pipeline.Store == nil || w.Pipeline.Tracker == nil || w.Pipeline.Holds == nil {
+			problems = append(problems, errors.New("the merge queue worker needs a check runner, a reviewer, a run store, a tracker, and the operator's pause on harness activity"))
 		}
 		if len(w.Pipeline.Config.Checks) == 0 {
 			problems = append(problems, errors.New("the project configures no checks, so no merge queue candidate can earn its gate"))
@@ -222,6 +265,14 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 	generations, err := w.Queue.Generations(key, entry.EntryID)
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, err
+	}
+	// A stage an earlier worker started and never finished may still be
+	// running, and its checkout with it, so it is looked for before anything is
+	// started, set aside, rebuilt, or restored.
+	if count := len(generations); count > 0 {
+		if err := w.awaitUnfinished(key, generations[count-1]); err != nil {
+			return generations[count-1], err
+		}
 	}
 	target, err := w.Candidates.TargetCommit(ctx, key.TargetBranch)
 	if err != nil {
@@ -283,6 +334,132 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 		return generation, fmt.Errorf("record generation %d of merge queue entry %d: %w", generation.Number, entry.Order, err)
 	}
 	return generation, nil
+}
+
+// awaitUnfinished reports a wait where a stage of the generation was started
+// and never finished and a process it started may still be running.
+func (w MergeQueueWorker) awaitUnfinished(key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) error {
+	for _, stage := range []struct {
+		stage   runstate.MergeQueueStage
+		started bool
+	}{
+		{runstate.MergeQueueStageChecks, generation.CheckRun != nil && generation.CheckRun.FinishedAt == nil},
+		{runstate.MergeQueueStageReview, generation.Review != nil && generation.Review.FinishedAt == nil},
+	} {
+		if !stage.started {
+			continue
+		}
+		running, reason, err := w.Queue.StageRunning(key, generation, stage.stage)
+		if err != nil {
+			return err
+		}
+		if running {
+			return mergeQueueWait{reason: runstate.MergeQueueStageRunningError{Generation: generation.Number, Stage: stage.stage, Reason: reason}.Error()}
+		}
+	}
+	return nil
+}
+
+// paused reports the operator's pause on harness activity as a wait, and a
+// pause that cannot be read as an error, as everywhere else it is read.
+func (w MergeQueueWorker) paused(stage runstate.MergeQueueStage) error {
+	hold, held, err := w.Pipeline.operatorHold()
+	if err != nil {
+		return err
+	}
+	if held {
+		return mergeQueueWait{reason: fmt.Sprintf("the operator has paused harness activity since %s, so the %s is not started until the pause is lifted",
+			hold.HeldAt.Local().Format("2006-01-02 15:04 MST"), stage)}
+	}
+	return nil
+}
+
+// reviewerReady is the doors a run's review passes before its provider is
+// asked, applied to the candidate's review: a provider recorded as answering
+// nobody, a usage limit already known for the account and the reviewer's
+// model, and a provider that is not installed or not logged in.
+func (w MergeQueueWorker) reviewerReady(ctx context.Context, entry runstate.MergeQueueEntry, run runstate.State) error {
+	p := w.Pipeline
+	if p.ProviderOutages != nil {
+		outage, standing, err := p.ProviderOutages.Standing()
+		if err != nil {
+			return fmt.Errorf("read whether the provider is answering: %w", err)
+		}
+		if standing {
+			return mergeQueueWait{reason: "the review is not asked for while " + outage.Says()}
+		}
+	}
+	if p.EndpointLimits != nil {
+		limit, limited, err := p.EndpointLimits.KnownLimited(run.AccountAlias, p.reviewer().Model, p.clock().Now())
+		if err != nil {
+			return fmt.Errorf("read whether the reviewer's account is out of capacity: %w", err)
+		}
+		if limited {
+			reason := "the reviewer's account and model are out of capacity: " + limit.Says
+			if limit.ResetsAt != nil {
+				reason += fmt.Sprintf("; the limit resets at %s", limit.ResetsAt.Local().Format("2006-01-02 15:04 MST"))
+			}
+			return mergeQueueWait{reason: reason}
+		}
+	}
+	named := p.reviewer().Backend
+	provider, ok := p.adapterFor(named)
+	if !ok {
+		return fmt.Errorf("the reviewer runs on %s, which this harness cannot check is ready", named)
+	}
+	if err := p.requireBackendReady(ctx, entry.WorkItemID, provider, named); err != nil {
+		var outage ProviderOutageError
+		if errors.As(err, &outage) {
+			return mergeQueueWait{reason: outage.Error()}
+		}
+		return err
+	}
+	return nil
+}
+
+// launches writes each process a stage starts onto the generation before the
+// process may do any work, and hands it the stage's hold.
+type launches struct {
+	worker     MergeQueueWorker
+	lease      *runstate.Lease
+	key        runstate.MergeQueueKey
+	generation *runstate.MergeQueueGeneration
+	hold       *runstate.MergeQueueStageHold
+	stage      runstate.MergeQueueStage
+}
+
+func (l launches) gate(command string) (*execution.LaunchGate, error) {
+	inherited, err := l.hold.Inherited()
+	if err != nil || inherited == nil {
+		return nil, err
+	}
+	host, err := os.Hostname()
+	if err != nil {
+		inherited.Close()
+		return nil, fmt.Errorf("name this host for the launch record: %w", err)
+	}
+	return &execution.LaunchGate{Hold: inherited, Register: func(process execution.StartedProcess) error {
+		recorded := *l.generation
+		recorded.Launches = append(append([]runstate.MergeQueueLaunch(nil), recorded.Launches...), runstate.MergeQueueLaunch{
+			Stage: l.stage, Command: command, Host: host,
+			PID: process.PID, ProcessGroup: process.ProcessGroup, StartedAt: process.StartedAt.UTC(),
+		})
+		if err := l.worker.Queue.RecordGeneration(l.lease, l.key, recorded); err != nil {
+			return fmt.Errorf("record the process the %s of generation %d was started as: %w", l.stage, recorded.Number, err)
+		}
+		*l.generation = recorded
+		return nil
+	}}, nil
+}
+
+// holdStage takes a stage's hold, reporting a hold still taken as a wait.
+func (w MergeQueueWorker) holdStage(lease *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (*runstate.MergeQueueStageHold, error) {
+	hold, err := w.Queue.HoldStage(lease, key, generation, stage)
+	var running runstate.MergeQueueStageRunningError
+	if errors.As(err, &running) {
+		return nil, mergeQueueWait{reason: running.Error()}
+	}
+	return hold, err
 }
 
 // reconcile takes up a standing generation a worker before this one left: its
@@ -348,10 +525,19 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		generation = setAside(generation, runstate.MergeQueueStageChecks, generation.CheckRun.StartedAt, generation.CheckRun.Problem, w.now())
 	}
 	p := w.Pipeline
+	if err := w.paused(runstate.MergeQueueStageChecks); err != nil {
+		return generation, false, err
+	}
+	hold, err := w.holdStage(lease, key, generation, runstate.MergeQueueStageChecks)
+	if err != nil {
+		return generation, false, err
+	}
+	defer hold.Close()
 	generation.CheckRun = &runstate.MergeQueueCheckEvidence{Binding: generation.Binding(), StartedAt: w.now()}
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's checks began: %w", generation.Number, err)
 	}
+	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageChecks}
 	results, lastSequence, runErr := p.Checks.Run(ctx, checks.Request{
 		RunID:        generation.EventStream(),
 		Directory:    generation.Checkout,
@@ -359,7 +545,8 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		LastSequence: generation.LastSequence,
 		// The candidate is checked whole: it is what would land, and nothing
 		// narrows what a landing has to answer for.
-		Env: []string{checks.Narrowing{Whole: true, Reason: "a merge queue candidate is checked whole"}.Env()},
+		Env:  []string{checks.Narrowing{Whole: true, Reason: "a merge queue candidate is checked whole"}.Env()},
+		Gate: launched.gate,
 	}, w.Events)
 	finished := w.now()
 	if lastSequence > generation.LastSequence {
@@ -435,6 +622,12 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		generation = setAside(generation, runstate.MergeQueueStageReview, generation.Review.StartedAt, generation.Review.Problem, w.now())
 	}
 	p := w.Pipeline
+	if err := w.paused(runstate.MergeQueueStageReview); err != nil {
+		return generation, false, err
+	}
+	if err := w.reviewerReady(ctx, entry, run); err != nil {
+		return generation, false, err
+	}
 	item, err := p.Tracker.Show(ctx, entry.WorkItemID)
 	if err != nil {
 		return generation, false, fmt.Errorf("read work item %s for the candidate's review: %w", entry.WorkItemID, err)
@@ -455,9 +648,19 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		return generation, false, fmt.Errorf("assemble product intent for the candidate's review: %w", err)
 	}
 
+	hold, err := w.holdStage(lease, key, generation, runstate.MergeQueueStageReview)
+	if err != nil {
+		return generation, false, err
+	}
+	defer hold.Close()
 	generation.Review = &runstate.MergeQueueReviewEvidence{Binding: generation.Binding(), StartedAt: w.now()}
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record that generation %d's review began: %w", generation.Number, err)
+	}
+	launched := launches{worker: w, lease: lease, key: key, generation: &generation, hold: hold, stage: runstate.MergeQueueStageReview}
+	gate, err := launched.gate("")
+	if err != nil {
+		return generation, false, err
 	}
 	account := p.accountFor(run.AccountAlias)
 	result, reviewErr := p.Reviewer.Review(ctx, review.Request{
@@ -484,7 +687,13 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 		},
 		AccountAlias:     account.Alias,
 		AccountConfigDir: account.Directory,
+		LaunchGate:       gate,
 	})
+	if gate != nil && gate.Hold != nil {
+		// The gate closes its copy once the provider has started; one the
+		// provider never started is closed here, and closing twice is harmless.
+		_ = gate.Hold.Close()
+	}
 	finished := w.now()
 	if result.LastSequence > generation.LastSequence {
 		generation.LastSequence = result.LastSequence
@@ -498,7 +707,11 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if result.Decision.Valid() {
 		evidence.Decision = string(result.Decision)
 	}
+	refusal := w.refusedReview(entry, result, reviewErr)
 	switch {
+	case refusal != "":
+		evidence.Decision = ""
+		evidence.Problem = boundedEvidence("the provider made no review: " + refusal)
 	case reviewErr != nil:
 		evidence.Decision = ""
 		evidence.Problem = boundedEvidence("the review failed: " + reviewErr.Error())
@@ -513,10 +726,40 @@ func (w MergeQueueWorker) review(ctx context.Context, lease *runstate.Lease, key
 	if err := w.Queue.RecordGeneration(lease, key, generation); err != nil {
 		return generation, false, fmt.Errorf("record generation %d's review: %w", generation.Number, err)
 	}
+	if refusal != "" {
+		return generation, false, mergeQueueWait{reason: fmt.Sprintf("the provider made no review of generation %d: %s; it is asked again on a later pass", generation.Number, refusal)}
+	}
 	if reviewErr != nil {
 		return generation, false, fmt.Errorf("review generation %d: %w", generation.Number, reviewErr)
 	}
+	if err := p.noticeProviderServed(); err != nil {
+		return generation, false, err
+	}
 	return w.moved(ctx, lease, key, generation)
+}
+
+// refusedReview names a review the provider never made — refused for
+// capacity, overloaded, not logged in or unreachable, or killed by something
+// that judged nothing — and records what a run's review records of the same
+// refusal. It is empty for a review the provider answered.
+func (w MergeQueueWorker) refusedReview(entry runstate.MergeQueueEntry, result review.Result, reviewErr error) string {
+	p := w.Pipeline
+	what := fmt.Sprintf("the merge queue review of %s for run %s", entry.WorkItemID, entry.RunID)
+	if limit, refused := refusedReviewForUsageLimit(result.UsageLimit, reviewErr); refused {
+		_ = recordUsageLimit(w.UsageLimits, p.Config.Product.ID, p.clock().Now(), what, &limit)
+		return "the provider's usage limit was reached"
+	}
+	if _, refused := refusedReviewForServerOverload(result.ServerOverload, reviewErr); refused {
+		return "the provider's servers were overloaded"
+	}
+	if outage := result.ProviderOutage; outage != nil && reviewErr != nil {
+		_ = p.noticeProviderOutage(outage.Cause, outage.Channel, outage.Detail, what, "")
+		return fmt.Sprintf("the provider is not answering (%s)", outage.Cause)
+	}
+	if transient := result.TransientFailure; transient != nil && reviewErr != nil {
+		return "the provider's invocation died before it judged anything"
+	}
+	return ""
 }
 
 // candidateReviewContext is what the harness knows about the candidate, and

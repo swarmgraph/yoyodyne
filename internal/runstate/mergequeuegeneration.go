@@ -50,6 +50,11 @@ const maxMergeQueueGenerations = 200
 // a reviewer's summary, or why a stage did not finish.
 const maxMergeQueueEvidenceText = 4 << 10
 
+// maxMergeQueueLaunches bounds the processes one generation records: one per
+// configured check and one review, each attempt, for as many attempts as a
+// generation that keeps being interrupted plausibly takes.
+const maxMergeQueueLaunches = 500
+
 // MergeQueueCheckConfiguration is the checks a generation is verified by: the
 // commands the project configured, in order, and a digest of them. A
 // configuration that changes is a different gate, so the digest is part of a
@@ -138,6 +143,11 @@ type MergeQueueGeneration struct {
 	// aside: started and never ended, or ended without a result. Each is kept so
 	// a reader can see why a stage ran twice.
 	Interruptions []MergeQueueInterruption `json:"interruptions,omitempty"`
+	// Launches are the processes the generation's checks and review were
+	// started as, each written down before it could do any work. They are what
+	// a later worker reads, beside the stage's hold, to tell whether a process
+	// an earlier worker started is still running before it starts another.
+	Launches []MergeQueueLaunch `json:"launches,omitempty"`
 	// Invalidated is set once the generation can no longer be promoted, and is
 	// never cleared: a generation that stopped being promotable is replaced by a
 	// new one rather than revived.
@@ -234,6 +244,17 @@ type MergeQueueInterruption struct {
 	// Problem is why a finished attempt earned nothing, and empty for one that
 	// never finished.
 	Problem string `json:"problem,omitempty"`
+}
+
+// MergeQueueLaunch is one process a stage of a generation was started as.
+type MergeQueueLaunch struct {
+	Stage MergeQueueStage `json:"stage"`
+	// Command is the check the process runs, and empty for the review.
+	Command      string    `json:"command,omitempty"`
+	Host         string    `json:"host"`
+	PID          int       `json:"pid"`
+	ProcessGroup int       `json:"process_group"`
+	StartedAt    time.Time `json:"started_at"`
 }
 
 // MergeQueueInvalidationReason says why a generation stopped being one a
@@ -413,6 +434,15 @@ func (g MergeQueueGeneration) validate() error {
 		}
 		if len(g.Review.Summary) > maxMergeQueueEvidenceText || len(g.Review.Problem) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("its review's text exceeds its bound"))
+		}
+	}
+	if len(g.Launches) > maxMergeQueueLaunches {
+		problems = append(problems, fmt.Errorf("%d launches exceeds the %d a generation keeps", len(g.Launches), maxMergeQueueLaunches))
+	}
+	for _, launch := range g.Launches {
+		if (launch.Stage != MergeQueueStageChecks && launch.Stage != MergeQueueStageReview) || launch.PID <= 0 || launch.StartedAt.IsZero() ||
+			len(launch.Command) > maxMergeQueueEvidenceText || mergeQueueText("launch host", launch.Host, true) != nil {
+			problems = append(problems, fmt.Errorf("a launch of the %s is not a whole record of a process", launch.Stage))
 		}
 	}
 	for _, interruption := range g.Interruptions {
@@ -630,6 +660,14 @@ func revisable(recorded, revised MergeQueueGeneration) error {
 	}
 	if revised.LastSequence < recorded.LastSequence {
 		return conflict("its event stream never goes backwards")
+	}
+	if len(revised.Launches) < len(recorded.Launches) {
+		return conflict("a launch is never removed")
+	}
+	for index, launch := range recorded.Launches {
+		if revised.Launches[index] != launch {
+			return conflict("a launch is never rewritten")
+		}
 	}
 	if len(revised.Interruptions) < len(recorded.Interruptions) {
 		return conflict("an interruption is never removed")

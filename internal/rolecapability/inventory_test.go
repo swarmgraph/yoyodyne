@@ -495,6 +495,10 @@ var expresses = map[string]expression{
 		question: "the role asked about the candidate is the reviewer, the same role a run's own review asks",
 		gap:      "no capability names giving a verdict; the reviewer's independence is the run.independent-invocations question, asked again of the candidate by the gate",
 	},
+	"merge-queue.stage-hold": {
+		question: "no role holds it; the harness takes it in the process that works the queue, and the processes the stage starts inherit it",
+		gap:      "it keeps one stage of the harness's own verification from running twice at once, which is load control over the harness's work rather than authority a role could hold",
+	},
 	"merge-queue.candidate-gate": {
 		question: "none: whether a candidate earned promotion is read from its recorded evidence, and the reviewer who earns half of it is the reviewer role already asked about above",
 		gap:      "the gate is a reading of evidence rather than authority any role holds; the authority it guards is the promotion, which is the promotion lease's question",

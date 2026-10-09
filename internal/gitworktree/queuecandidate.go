@@ -124,7 +124,10 @@ func (m *Manager) BuildQueueCandidate(ctx context.Context, request QueueCandidat
 
 // RestoreQueueCandidate puts the checkout of an already-built candidate back
 // where a restarted worker expects it: the checkout standing there is kept if
-// it is clean and at the candidate, and cut again from the commit otherwise.
+// it is at the candidate with no tracked file changed, and cut again from the
+// commit otherwise. Untracked files do not count against it: they are what the
+// checks built, which is worth keeping, and they change nothing the candidate
+// commit says.
 // The commit is not rebuilt, so the candidate and everything recorded against
 // it are the same ones as before the restart.
 func (m *Manager) RestoreQueueCandidate(ctx context.Context, entry, commit string) (string, error) {
@@ -136,7 +139,8 @@ func (m *Manager) RestoreQueueCandidate(ctx context.Context, entry, commit strin
 	}
 	path := filepath.Join(m.worktreeRoot, queueCandidateDirectoryName(entry))
 	if head, err := m.resolveWorktreeHead(ctx, path); err == nil && head == commit {
-		if dirty, err := m.isDirty(ctx, path); err == nil && !dirty {
+		status, err := m.run(ctx, "-C", path, "status", "--porcelain", "--untracked-files=no")
+		if err == nil && status.Status == execution.ProcessSucceeded && strings.TrimSpace(status.Stdout) == "" {
 			return path, nil
 		}
 	}

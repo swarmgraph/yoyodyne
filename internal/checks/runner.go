@@ -102,6 +102,12 @@ type Request struct {
 	// machine's load grows as the load does and never takes back time a check
 	// was already given. Unbounded still wins over it.
 	StageBound func() time.Duration
+	// Gate, when set, is asked for the launch gate each check is started
+	// behind, so a caller can write down which process a check is before the
+	// check does any work, and hand it a file that shows afterwards whether any
+	// process it started is still alive (execution.LaunchGate). Nil starts every
+	// check the ordinary way.
+	Gate func(command string) (*execution.LaunchGate, error)
 }
 
 type Runner struct {
@@ -238,6 +244,13 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		if request.ProviderCLIs[index] {
 			checkEnvironment = withProviders
 		}
+		var gate *execution.LaunchGate
+		if request.Gate != nil {
+			var gateErr error
+			if gate, gateErr = request.Gate(safeCommand); gateErr != nil {
+				return results, lastAccepted, fmt.Errorf("prepare the launch of check %q: %w", safeCommand, gateErr)
+			}
+		}
 		processResult, err := r.Process.Run(ctx, execution.Command{
 			Name:    shell,
 			Args:    []string{"-c", command},
@@ -249,6 +262,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			// the marker in the cut copy is what says so.
 			OutputRecord: execution.EventLogOf(request.RunID),
 			Redactor:     redactor,
+			Gate:         gate,
 		}, func(output execution.Output) {
 			failure.add(redactor.Redact(output.Text))
 			if len(observerErrors) > 0 {

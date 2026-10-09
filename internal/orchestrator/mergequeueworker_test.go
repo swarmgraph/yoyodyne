@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -575,6 +576,8 @@ type countingReviewer struct {
 	mu       sync.Mutex
 	reviewer ChangeReviewer
 	before   func(call int)
+	// instead answers a call in the reviewer's place where it says so.
+	instead  func(call int) (review.Result, error, bool)
 	requests []review.Request
 }
 
@@ -585,6 +588,11 @@ func (r *countingReviewer) Review(ctx context.Context, request review.Request) (
 	r.mu.Unlock()
 	if r.before != nil {
 		r.before(call)
+	}
+	if r.instead != nil {
+		if result, err, answered := r.instead(call); answered {
+			return result, err
+		}
 	}
 	return r.reviewer.Review(ctx, request)
 }
@@ -617,4 +625,158 @@ func (e *eventRecorder) count() int {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	return len(e.events)
+}
+
+func TestEveryCheckIsWrittenDownBeforeItRunsAndHoldsItsStage(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	// Descriptor 4 is the stage's hold, which every check inherits.
+	f.worker.Pipeline.Config.Checks = append(append([]string(nil), queueChecks...), "test -e /dev/fd/4")
+	verification, err := f.work()
+	if err != nil || !verification.Verified {
+		t.Fatalf("Work() = %#v, %v", verification, err)
+	}
+	launches := verification.Generation.Launches
+	if len(launches) != 3 {
+		t.Fatalf("launches = %#v, want one for each check", launches)
+	}
+	for index, launch := range launches {
+		if launch.Stage != runstate.MergeQueueStageChecks || launch.Command != f.worker.Pipeline.Config.Checks[index] || launch.PID <= 0 || launch.Host == "" {
+			t.Fatalf("launch %d = %#v, want the check's process written down", index, launch)
+		}
+	}
+}
+
+func TestARestartWaitsOutAStageAnEarlierWorkerLeftRunning(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	f.records.fail = func(g runstate.MergeQueueGeneration) (bool, error) {
+		if g.CheckRun != nil && g.CheckRun.FinishedAt != nil {
+			return false, errors.New("the worker died")
+		}
+		return false, nil
+	}
+	if _, err := f.work(); err == nil {
+		t.Fatal("Work() succeeded past a lost record")
+	}
+	f.records.fail = nil
+	generation := f.generations()[0]
+	writeQueueFile(t, generation.Checkout, "still-building.out", "half\n")
+
+	// A process the dead worker started still holds the checks' hold.
+	orphan, err := os.OpenFile(f.queue.StageHoldPath(queueKey, generation, runstate.MergeQueueStageChecks), os.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.Flock(int(orphan.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+	verification, err := f.work()
+	if err != nil || verification.Waiting == "" || verification.Verified || !strings.Contains(verification.Waiting, "still running") {
+		t.Fatalf("Work() = %#v, %v; want it to wait for the running checks", verification, err)
+	}
+	if f.checks.calls() != 1 || readQueueFile(t, generation.Checkout, "still-building.out") != "half\n" {
+		t.Fatal("a second run of the checks started, or their checkout was touched, while the first was still running")
+	}
+	if recorded := f.generations()[0]; len(recorded.Interruptions) != 0 || recorded.CheckRun == nil || recorded.CheckRun.FinishedAt != nil {
+		t.Fatalf("generation = %#v, want the running checks left exactly as recorded", recorded)
+	}
+
+	// Once it has ended, the checks are set aside and run again.
+	orphan.Close()
+	verification, err = f.work()
+	if err != nil || !verification.Verified || len(verification.Generation.Interruptions) != 1 || f.checks.calls() != 2 {
+		t.Fatalf("Work() = %#v, %v with %d check runs; want the checks run again once the first ended", verification, err, f.checks.calls())
+	}
+}
+
+func TestTheOperatorsPauseHoldsTheQueuesChecksAndReview(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	holds := f.worker.Pipeline.Holds.(*runstate.OperatorHoldStore)
+	if _, err := holds.Hold(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	verification, err := f.work()
+	if err != nil || !strings.Contains(verification.Waiting, "paused harness activity") || f.checks.calls() != 0 {
+		t.Fatalf("Work() = %#v, %v with %d check runs; want nothing started while paused", verification, err, f.checks.calls())
+	}
+	if _, _, err := holds.Release(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Paused while the checks run: the checks finish, and the review waits.
+	f.checks.before = func(call int) {
+		if call == 1 {
+			if _, err := holds.Hold(time.Now()); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	verification, err = f.work()
+	if err != nil || !strings.Contains(verification.Waiting, "review") || f.reviewer.calls() != 0 {
+		t.Fatalf("Work() = %#v, %v with %d reviews; want the review held", verification, err, f.reviewer.calls())
+	}
+	if _, _, err := holds.Release(); err != nil {
+		t.Fatal(err)
+	}
+	verification, err = f.work()
+	if err != nil || !verification.Verified || f.checks.calls() != 1 || f.reviewer.calls() != 1 {
+		t.Fatalf("Work() = %#v, %v; want the review asked once the pause lifted, and the checks kept", verification, err)
+	}
+}
+
+func TestAReviewTheProviderRefusedIsAWaitThatEarnsNothing(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	limits := &countingUsageLimits{}
+	f.worker.UsageLimits = limits
+	f.reviewer.instead = func(call int) (review.Result, error, bool) {
+		if call != 1 {
+			return review.Result{}, nil, false
+		}
+		return review.Result{UsageLimit: &backend.UsageLimit{Kind: "five_hour"}}, errors.New("usage limit reached"), true
+	}
+	verification, err := f.work()
+	if err != nil || verification.Verified || !strings.Contains(verification.Waiting, "usage limit") || limits.count != 1 {
+		t.Fatalf("Work() = %#v, %v; want a wait with the refusal recorded", verification, err)
+	}
+	if err := verification.Generation.Gate(f.configured()); err == nil {
+		t.Fatal("a refused review passed the gate")
+	}
+	verification, err = f.work()
+	if err != nil || !verification.Verified || f.reviewer.calls() != 2 || f.checks.calls() != 1 {
+		t.Fatalf("Work() = %#v, %v; want the review asked again and approved", verification, err)
+	}
+	if set := verification.Generation.Interruptions; len(set) != 1 || set[0].Stage != runstate.MergeQueueStageReview || !strings.Contains(set[0].Problem, "usage limit") {
+		t.Fatalf("interruptions = %#v, want the refused review set aside", set)
+	}
+}
+
+func TestAKnownUsageLimitHoldsTheReviewBeforeTheProviderIsAsked(t *testing.T) {
+	t.Parallel()
+
+	f := newQueueFixture(t)
+	f.worker.Pipeline.EndpointLimits = knownLimit{says: "the five-hour limit"}
+	verification, err := f.work()
+	if err != nil || !strings.Contains(verification.Waiting, "out of capacity") || f.reviewer.calls() != 0 || f.checks.calls() != 1 {
+		t.Fatalf("Work() = %#v, %v; want the checks run and the review held", verification, err)
+	}
+}
+
+type countingUsageLimits struct{ count int }
+
+func (c *countingUsageLimits) Record(runstate.UsageLimitExhaustion) error {
+	c.count++
+	return nil
+}
+
+type knownLimit struct{ says string }
+
+func (k knownLimit) KnownLimited(string, string, time.Time) (KnownLimit, bool, error) {
+	return KnownLimit{Says: k.says}, true, nil
 }

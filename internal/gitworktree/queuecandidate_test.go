@@ -99,10 +99,15 @@ func TestARestoredCandidateIsTheSameCommitNotARebuild(t *testing.T) {
 		t.Fatalf("BuildQueueCandidate() error = %v", err)
 	}
 
-	// A clean checkout at the candidate is kept as it stands.
+	// A checkout at the candidate is kept as it stands, with whatever the
+	// checks built in it.
+	writeFile(t, candidate.Path, "build/output.bin", "built\n")
 	path, err := manager.RestoreQueueCandidate(ctx, testQueueEntry, candidate.Commit)
 	if err != nil || path != candidate.Path {
 		t.Fatalf("RestoreQueueCandidate() = %s, %v; want the standing checkout", path, err)
+	}
+	if readFile(t, path, "build/output.bin") != "built\n" {
+		t.Fatal("restoring the checkout threw away what the checks built")
 	}
 	// One a dead worker left dirty, or one that is gone, is cut again from the
 	// recorded commit.
