@@ -1746,6 +1746,9 @@ func (s *State) recordedTexts() []recordedText {
 	if s.HomeMigration != nil {
 		unstated("home_migration.by", "home_migration.by", &s.HomeMigration.By, MaxHomeMigrationByBytes)
 	}
+	if s.DocumentRetry != nil {
+		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
+	}
 	if s.Document != nil {
 		d := s.Document
 		nested("document.candidate.content", "document.candidate.content", &d.Candidate.Content, artifact.MaxFileBytes)
@@ -2521,6 +2524,9 @@ type ReconcileFinding struct {
 
 type State struct {
 	Document *DocumentPublication `json:"document,omitempty"`
+	// DocumentRetry is what a document run stopped by something that judged
+	// nothing says about the attempt after it. See DocumentRetry.
+	DocumentRetry *DocumentRetry `json:"document_retry,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement   `json:"retirement,omitempty"`
 	SchemaVersion int              `json:"schema_version"`

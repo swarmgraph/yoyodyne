@@ -5821,6 +5821,12 @@ func (a *activeRun) verify(ctx context.Context) error {
 		switch {
 		case check.Process.Status == execution.ProcessFailed:
 			cause = checkFailure{result: check}
+		case check.StoppedByCaller:
+			// The context the run was given ended under the check: a deadline
+			// on whatever started the run, or its cancellation. Neither is the
+			// check's budget nor the stage's bound, so the stop names what did
+			// end and keeps the budget beside it only as the one it did not reach.
+			cause = callerStoppedCheck(ctx, check)
 		case check.StoppedByStage:
 			// The stage reached its bound, which is a different fact from a
 			// check reaching its own: raising the per-check budget would not
@@ -5844,9 +5850,9 @@ func (a *activeRun) verify(ctx context.Context) error {
 			// was flat and a contended suite grew past it. So the failure names
 			// both numbers and the setting that moves the ceiling, rather than
 			// reporting the kill as an exit code nobody chose.
-			cause = stoppedBy(runstate.StopCheckTimeout, fmt.Errorf(
-				"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget; raise that budget or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
-				check.Command, check.Elapsed().Round(time.Second), check.Timeout))
+			cause = stoppedBy(runstate.StopCheckTimeout, checkTimedOut(check))
+		case check.Process.Status == execution.ProcessCancelled || check.Process.Status == execution.ProcessStalled:
+			cause = fmt.Errorf("verification was stopped: %s was %s after %s and judged nothing about the change", check.Command, check.Process.Status, check.Elapsed().Round(time.Second))
 		}
 		return stoppedBy(runstate.StopChecks, phaseError{status: statusForProcess(check.Process.Status), cause: cause})
 	}
@@ -5990,6 +5996,40 @@ func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
 	if scaled > stage.BoundSeconds {
 		stage.BoundSeconds = scaled
 	}
+}
+
+// checkTimedOut is the stop of a check the process runner reported as timed
+// out, in words that cannot contradict themselves: the budget is named as what
+// stopped the check only where the check ran for the whole of it. One stopped
+// short of it was stopped by a limit the record does not name, and saying it
+// reached a budget it did not is a reason nobody can act on.
+func checkTimedOut(check checks.Result) error {
+	ran := check.Elapsed().Round(time.Second)
+	if check.Timeout > 0 && check.Elapsed() < check.Timeout-time.Second {
+		return fmt.Errorf(
+			"verification timed out: %s ran for %s and was stopped by a time limit before it reached its own %s execution.check_timeout budget, which judged nothing about the change; the limit that stopped it is not one this run records",
+			check.Command, ran, check.Timeout)
+	}
+	return fmt.Errorf(
+		"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget; raise that budget or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
+		check.Command, ran, check.Timeout)
+}
+
+// callerStoppedCheck is the stop of a check whose run's own context ended
+// under it. A deadline is a time limit and is classified as one; a
+// cancellation is the run being stopped.
+func callerStoppedCheck(ctx context.Context, check checks.Result) error {
+	ran := check.Elapsed().Round(time.Second)
+	if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return fmt.Errorf("verification was stopped: %s was cancelled after %s because the run it belonged to was stopped, and judged nothing about the change", check.Command, ran)
+	}
+	at := ""
+	if deadline, ok := ctx.Deadline(); ok {
+		at = " at " + deadline.Local().Format("15:04:05 MST")
+	}
+	return stoppedBy(runstate.StopCheckTimeout, fmt.Errorf(
+		"verification timed out: %s ran for %s and was stopped when the deadline of the work that started this run passed%s, before its own %s execution.check_timeout budget; the check judged nothing about the change",
+		check.Command, ran, at, check.Timeout))
 }
 
 // stageBoundLoad is what a stoppage at the stage bound says about the load the

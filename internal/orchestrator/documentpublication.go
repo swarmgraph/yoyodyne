@@ -7,12 +7,15 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/review"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -45,6 +48,14 @@ var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent 
 // PublishDocument enters the ordinary delivery gates with an already written
 // candidate. Only the owning conversation can supply this handoff; there is no
 // developer invocation or repair of its content inside a publication run.
+//
+// One handoff may take more than one run. A run that stops for a cause that
+// judged nothing about the document — a check stopped by a time limit, the
+// forge or the network failing, the machine or the harness stopping — is
+// followed by another run of the same stored text, up to MaxDocumentAttempts,
+// at most one run per call; see runstate.State.DocumentJudged for what judges a
+// document. Only a run that judged it is handed back to its owner. Where the
+// attempts are spent, the last run is handed to the development manager instead.
 func (p Pipeline) PublishDocument(ctx context.Context, document runstate.DocumentPublication) (runstate.DocumentDelivery, error) {
 	if err := document.Validate(); err != nil {
 		return p.refuseDocument(document, err)
@@ -74,12 +85,15 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if p.Config.Product.HasIntentRepository() {
 		return runstate.DocumentDelivery{}, ErrCompanionPublicationNotBuilt
 	}
-	// These tracker operations describe this run's document, not backlog work.
-	// The canonical account remains the conversation and the ordinary run store.
-	item := beads.WorkItem{ID: document.RunID(), Title: "Publishing " + document.Candidate.Artifact.Title, Status: "open", Description: "Publish exactly the document confirmed in its owning conversation.\nprotected-path grant: " + document.Candidate.Artifact.Path}
-	tracker := &documentTracker{item: item}
-	p.Tracker, p.Docket, p.Prices = tracker, nil, nil
+	// The tracker and docket below are replaced for the run itself, which has
+	// no backlog item; the real ones are kept for the two things a document run
+	// does write there — the start and end of each run, on the work item its
+	// document's revision names, and a run handed to the development manager.
+	record := documentItemRecorder{tracker: p.Tracker, document: document}
+	docket := p.Docket
+	p.Docket, p.Prices = nil, nil
 	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Conversation %s supplied document %s, written by the %s at turn %d and confirmed under %s; publish its exact content through independent review.", document.ConversationID, document.WriteID, document.Owner.Title(), document.Turn, name)}
+	p.Tracker = &documentTracker{item: documentItem(document, 0)}
 	if err := p.validateDispatch(); err != nil {
 		return runstate.DocumentDelivery{}, err
 	}
@@ -89,59 +103,299 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 		return runstate.DocumentDelivery{RunID: document.RunID(), Detail: fmt.Sprint(hold)}, nil
 	}
-	publishing, skipped, err := p.resolvePublishing(ctx)
+	attempt, previous, err := p.documentAttempt(document)
 	if err != nil {
 		return runstate.DocumentDelivery{}, err
 	}
-	state, err := p.Store.Load(document.RunID())
-	var lease *runstate.Lease
-	if err == nil {
-		state, lease, err = p.Store.AdoptRun(ctx, document.RunID())
+	if attempt == runstate.MaxDocumentAttempts {
+		return p.handOverDocument(ctx, docket, record, *previous)
+	}
+	if previous != nil {
+		if _, err := p.Store.Load(document.RunIDFor(attempt)); errors.Is(err, os.ErrNotExist) {
+			waiting, waited, err := p.awaitDocumentRetry(*previous)
+			if err != nil || waiting != "" {
+				return runstate.DocumentDelivery{RunID: previous.RunID, Retrying: waiting}, err
+			}
+			p.Selection.Reason += fmt.Sprintf(" Attempt %d of %d: run %s stopped without judging the document (%s); %s.", attempt+1, runstate.MaxDocumentAttempts, previous.RunID, documentStopSays(*previous), waited)
+			if err := p.recordDocumentRetry(ctx, previous.RunID, func(retry *runstate.DocumentRetry) {
+				retry.WaitedFor, retry.Next = waited, document.RunIDFor(attempt)
+			}); err != nil {
+				return runstate.DocumentDelivery{}, err
+			}
+		} else if err != nil {
+			return runstate.DocumentDelivery{}, err
+		}
+	}
+	p.Tracker = &documentTracker{item: documentItem(document, attempt)}
+	saved, ran, err := p.publishDocumentAttempt(ctx, document, attempt, approval.Policy, record)
+	if !ran || !saved.Status.Terminal() {
+		// A pause retains the confirmed handoff in the conversation. A store or
+		// infrastructure failure must never be claimed as delivered.
+		if saved.RunID == "" {
+			return runstate.DocumentDelivery{}, err
+		}
+		return documentDelivery(saved), err
+	}
+	if !retryable(saved) {
+		return documentDelivery(saved), nil
+	}
+	// The run this call made stopped without judging the document. Where its
+	// checks ran out of time, how many developer runs were going when it stopped
+	// is recorded, so the next attempt can wait for fewer.
+	if saved.DocumentStoppedOnTime() {
+		if active, err := p.Store.Incomplete(); err == nil {
+			if recordErr := p.recordDocumentRetry(ctx, saved.RunID, func(retry *runstate.DocumentRetry) {
+				retry.DevelopersAtStop = runstate.HoldingDeveloperSlots(active) + 1
+			}); recordErr != nil {
+				return runstate.DocumentDelivery{}, recordErr
+			}
+		}
+	}
+	if attempt+1 >= runstate.MaxDocumentAttempts {
+		saved, err = p.Store.Load(saved.RunID)
 		if err != nil {
 			return runstate.DocumentDelivery{}, err
+		}
+		return p.handOverDocument(ctx, docket, record, saved)
+	}
+	return runstate.DocumentDelivery{RunID: saved.RunID, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and run %s stopped without judging it: %s. Nothing about the document was found wrong, so the harness runs the same text again (attempt %d of %d); it does not need writing again, and nothing is counted against it.\n", document.WriteID, document.Candidate.Artifact.Title, saved.RunID, documentStopSays(saved), attempt+2, runstate.MaxDocumentAttempts)}, nil
+}
+
+// ResumableDocuments reads one conversation's document runs from the run store
+// and answers two things about them. Judged is, for each document, how many of
+// its handoffs ended on a run that judged it, which is the only kind of return
+// MaxDocumentReturns counts. Resumable is, for each document, its latest handoff
+// where that handoff's last run stopped without judging it and was not handed
+// to the development manager: a document a build that returned every stop to
+// its owner may have stopped publishing over nothing, and which PublishDocument
+// continues from its stored text.
+func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.DocumentPublication, map[string]int, error) {
+	recorded, err := p.Store.Recorded()
+	if err != nil {
+		return nil, nil, err
+	}
+	// The last run of each handoff is the one with the highest attempt.
+	last := map[string]runstate.State{}
+	for _, state := range recorded {
+		if state.Document == nil || state.Document.ConversationID != conversationID {
+			continue
+		}
+		attempt := state.DocumentAttempt()
+		if attempt < 0 {
+			continue
+		}
+		if seen, ok := last[state.Document.WriteID]; !ok || seen.DocumentAttempt() < attempt {
+			last[state.Document.WriteID] = state
+		}
+	}
+	judged := map[string]int{}
+	latest := map[string]runstate.State{}
+	for _, state := range last {
+		id := state.Document.Candidate.Artifact.ID
+		if state.Status.Terminal() && state.Status != runstate.StatusSucceeded && state.DocumentJudged() {
+			judged[id]++
+		}
+		if seen, ok := latest[id]; !ok || state.Document.Turn > seen.Document.Turn || (state.Document.Turn == seen.Document.Turn && state.Document.WriteID > seen.Document.WriteID) {
+			latest[id] = state
+		}
+	}
+	var resumable []runstate.DocumentPublication
+	for _, state := range latest {
+		if retryable(state) && !documentHandedOver(state) {
+			resumable = append(resumable, *state.Document)
+		}
+	}
+	slices.SortFunc(resumable, func(a, b runstate.DocumentPublication) int { return strings.Compare(a.WriteID, b.WriteID) })
+	return resumable, judged, nil
+}
+
+// documentItem is the bookkeeping item one attempt's run is recorded under.
+func documentItem(document runstate.DocumentPublication, attempt int) beads.WorkItem {
+	return beads.WorkItem{ID: document.RunIDFor(attempt), Title: "Publishing " + document.Candidate.Artifact.Title, Status: "open", Description: "Publish exactly the document confirmed in its owning conversation.\nprotected-path grant: " + document.Candidate.Artifact.Path}
+}
+
+// retryable reports a document run that ended without landing and without
+// judging its document: the one ending that is followed by another attempt.
+func retryable(state runstate.State) bool {
+	return state.Status.Terminal() && state.Status != runstate.StatusSucceeded && !state.DocumentJudged()
+}
+
+// documentAttempt finds where a handoff's runs stand: the attempt to start or
+// continue now, and the run before it that stopped without judging the
+// document. An attempt equal to MaxDocumentAttempts means every attempt
+// stopped that way, and previous is the last of them.
+func (p Pipeline) documentAttempt(document runstate.DocumentPublication) (int, *runstate.State, error) {
+	var previous *runstate.State
+	for attempt := 0; attempt < runstate.MaxDocumentAttempts; attempt++ {
+		state, err := p.Store.Load(document.RunIDFor(attempt))
+		if errors.Is(err, os.ErrNotExist) {
+			return attempt, previous, nil
+		}
+		if err != nil {
+			return 0, nil, err
+		}
+		if !retryable(state) {
+			return attempt, previous, nil
+		}
+		previous = &state
+	}
+	return runstate.MaxDocumentAttempts, previous, nil
+}
+
+// awaitDocumentRetry decides whether the attempt after a stopped run may start
+// now. After a check time limit it may not while as many developer runs are
+// going as were when that run stopped: the same suite under the same load is
+// stopped the same way, and a retry spent on that is an attempt lost. It
+// answers what the conversation is told while it waits, or, once it may start,
+// what it waited for.
+func (p Pipeline) awaitDocumentRetry(previous runstate.State) (waiting, waited string, err error) {
+	at := 0
+	if previous.DocumentRetry != nil {
+		at = previous.DocumentRetry.DevelopersAtStop
+	}
+	if !previous.DocumentStoppedOnTime() {
+		return "", "started at once, because nothing about the stop depends on how busy the machine is", nil
+	}
+	if at <= 1 {
+		return "", "started at once after its checks ran out of time, because no other developer run was going when they did, so there was no load to wait out", nil
+	}
+	active, err := p.Store.Incomplete()
+	if err != nil {
+		return "", "", fmt.Errorf("count the developer runs a document retry waits on: %w", err)
+	}
+	now := runstate.HoldingDeveloperSlots(active)
+	if now+1 >= at {
+		d := previous.Document
+		return fmt.Sprintf("Document %s (%s) is confirmed, and run %s ran out of check time while %d developer runs were going. The next attempt waits until fewer are going than that; %d are going now, with this one it would be %d. It is checked again at the next message, and the document does not need writing again.\n", d.WriteID, d.Candidate.Artifact.Title, previous.RunID, at, now, now+1), "", nil
+	}
+	return "", fmt.Sprintf("started once fewer developer runs were going: %d when its checks ran out of time, %d with this attempt", at, now+1), nil
+}
+
+// recordDocumentRetry writes what one document run says about the attempt
+// after it, under that run's lease.
+func (p Pipeline) recordDocumentRetry(ctx context.Context, runID string, change func(*runstate.DocumentRetry)) error {
+	state, lease, err := p.Store.AdoptRun(ctx, runID)
+	if err != nil {
+		return err
+	}
+	defer lease.Release()
+	if state.DocumentRetry == nil {
+		state.DocumentRetry = &runstate.DocumentRetry{}
+	}
+	change(state.DocumentRetry)
+	return p.Store.Save(state)
+}
+
+// handOverDocument puts the last of a document's runs to the development
+// manager once every attempt stopped without judging it. The confirmed text
+// stays on each run's record, so whatever she decides starts from it rather
+// than from the owner writing it again; the owner is told so, and nothing is
+// counted against the document.
+func (p Pipeline) handOverDocument(ctx context.Context, docket *Docketer, record documentItemRecorder, last runstate.State) (runstate.DocumentDelivery, error) {
+	d := last.Document
+	delivery := documentDelivery(last)
+	delivery.HandedOver = true
+	delivery.Detail = fmt.Sprintf("Document %s (%s) did not land: %d runs in a row stopped without judging it, the last being run %s (%s). It is handed to the development manager as a stopped run, with the confirmed text kept on the run's record; the %s does not need to write it again, and nothing is counted against it.\n", d.WriteID, d.Candidate.Artifact.Title, runstate.MaxDocumentAttempts, last.RunID, documentStopSays(last), d.Owner.Title())
+	if last.DocumentRetry != nil && last.DocumentRetry.HandedOver {
+		return delivery, nil
+	}
+	state, lease, err := p.Store.AdoptRun(ctx, last.RunID)
+	if err != nil {
+		return runstate.DocumentDelivery{}, err
+	}
+	defer lease.Release()
+	if state.DocumentRetry == nil {
+		state.DocumentRetry = &runstate.DocumentRetry{}
+	}
+	state.DocumentRetry.HandedOver = true
+	if strings.TrimSpace(state.Blocker) == "" {
+		state.Blocker = fmt.Sprintf("Publishing document %s (%s) from conversation %s stopped %d times without anything judging the document; the last stop: %s. The confirmed text is on this run's record.", d.WriteID, d.Candidate.Artifact.Title, d.ConversationID, runstate.MaxDocumentAttempts, documentStopSays(state))
+	}
+	if err := p.Store.Save(state); err != nil {
+		return runstate.DocumentDelivery{}, err
+	}
+	if docket != nil {
+		if _, err := docket.RecordStoppedRun(state); err != nil {
+			return runstate.DocumentDelivery{}, fmt.Errorf("hand the stopped document run %s to the development manager: %w", state.RunID, err)
+		}
+	}
+	record.note(ctx, fmt.Sprintf("Yoyodyne handed the publishing of document %s (%s) to the development manager: %d runs stopped without anything judging the document, the last being run %s. The confirmed text is kept on that run's record.", d.WriteID, d.Candidate.Artifact.Title, runstate.MaxDocumentAttempts, state.RunID))
+	return delivery, nil
+}
+
+// documentStopSays is a stopped document run's reason in one line, never empty.
+func documentStopSays(state runstate.State) string {
+	if said := strings.TrimSpace(runstate.StopReason(state.RecordedStopClass(), state.Failure)); said != "" {
+		return oneline.Fold(said, 600)
+	}
+	return fmt.Sprintf("it ended %s at its %s step and recorded no reason", state.Status, nonEmpty(string(state.Phase), "unrecorded"))
+}
+
+// publishDocumentAttempt starts or continues the run that makes one attempt,
+// reporting the record it left and whether a run was entered at all.
+func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.DocumentPublication, attempt int, policy string, record documentItemRecorder) (runstate.State, bool, error) {
+	tracker := p.Tracker.(*documentTracker)
+	item := tracker.item
+	publishing, skipped, err := p.resolvePublishing(ctx)
+	if err != nil {
+		return runstate.State{}, false, err
+	}
+	runID := document.RunIDFor(attempt)
+	state, err := p.Store.Load(runID)
+	var lease *runstate.Lease
+	started := false
+	if err == nil {
+		state, lease, err = p.Store.AdoptRun(ctx, runID)
+		if err != nil {
+			return runstate.State{}, false, err
 		}
 		defer lease.Release()
 		if !reflect.DeepEqual(state.Document, &document) {
-			return runstate.DocumentDelivery{}, errors.New("the run already records a different document handoff")
+			return runstate.State{}, false, errors.New("the run already records a different document handoff")
 		}
 		if state.Status.Terminal() {
-			return documentDelivery(state), nil
+			return state, true, nil
 		}
 	} else {
 		if !errors.Is(err, os.ErrNotExist) {
-			return runstate.DocumentDelivery{}, err
+			return runstate.State{}, false, err
 		}
 		if err := p.Worktrees.ValidateReady(ctx); err != nil {
-			return runstate.DocumentDelivery{}, err
+			return runstate.State{}, false, err
 		}
-		if outcome, held, err := p.holdIntake(item.ID); err != nil || held {
-			return runstate.DocumentDelivery{RunID: document.RunID(), Detail: outcome.Summary}, err
+		if _, held, err := p.holdIntake(item.ID); err != nil || held {
+			if err != nil {
+				return runstate.State{}, false, err
+			}
+			return runstate.State{RunID: runID, Document: &document}, false, nil
 		}
 		target, err := p.Worktrees.CurrentBranch(ctx)
 		if err != nil {
-			return runstate.DocumentDelivery{}, err
+			return runstate.State{}, false, err
 		}
-		state = runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: document.RunID(), ProductID: p.Config.Product.ID, RepositoryID: string(p.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: p.reviewer().Backend, ConfigRevision: p.Config.Revision(), Build: p.Build, Status: runstate.StatusPending, Document: &document, TargetBranch: target}
+		state = runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: runID, ProductID: p.Config.Product.ID, RepositoryID: string(p.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: p.reviewer().Backend, ConfigRevision: p.Config.Revision(), Build: p.Build, Status: runstate.StatusPending, Document: &document, TargetBranch: target}
 		state, lease, err = p.reserveRun(ctx, state)
 		if err != nil {
-			return runstate.DocumentDelivery{}, err
+			return runstate.State{}, false, err
 		}
 		defer lease.Release()
+		started = true
+		record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to publish document %s (%s), written by the %s in conversation %s at turn %d; attempt %d of at most %d.", runID, document.WriteID, document.Candidate.Artifact.Title, document.Owner.Title(), document.ConversationID, document.Turn, attempt+1, runstate.MaxDocumentAttempts))
 	}
 	tracker.item.Status = "in_progress"
 	invariants, err := p.loadInvariants()
 	if err != nil {
-		return runstate.DocumentDelivery{}, err
+		return runstate.State{}, false, err
 	}
-	a := &activeRun{pipeline: p, state: state, item: tracker.item, claimed: true, publishing: publishing, invariants: invariants, context: fmt.Sprintf("Publish the %s's exact document %s from conversation %s, turn %d. Confirmed under %s. No developer may rewrite it.\n", document.Owner.Title(), document.Candidate.Artifact.Title, document.ConversationID, document.Turn, approval.Policy), outcome: Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: state.Status, Phase: state.Phase, PublishSkipped: skipped, Summary: "Publish the owning role's confirmed document without rewriting its content.", PullRequest: state.PullRequest}}
+	a := &activeRun{pipeline: p, state: state, item: tracker.item, claimed: true, publishing: publishing, invariants: invariants, context: fmt.Sprintf("Publish the %s's exact document %s from conversation %s, turn %d. Confirmed under %s. No developer may rewrite it.\n", document.Owner.Title(), document.Candidate.Artifact.Title, document.ConversationID, document.Turn, policy), outcome: Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: state.Status, Phase: state.Phase, PublishSkipped: skipped, Summary: "Publish the owning role's confirmed document without rewriting its content.", PullRequest: state.PullRequest}}
 	a.worktree = gitworktree.Worktree{RunID: state.RunID, WorkItemID: state.WorkItemID, Path: state.WorktreePath, Branch: state.Branch, BaseCommit: state.BaseCommit, TargetBranch: state.TargetBranch, HarnessCommit: state.HarnessCommit}
 	a.outcome.Branch, a.outcome.WorktreePath, a.outcome.BaseCommit = state.Branch, state.WorktreePath, state.BaseCommit
 	if err := a.claim(ctx); err != nil {
-		return runstate.DocumentDelivery{}, err
+		return runstate.State{}, false, err
 	}
 	if state.WorktreePath == "" {
 		if err := a.beginDeliveryTrial(); err != nil {
-			return runstate.DocumentDelivery{}, err
+			return runstate.State{}, false, err
 		}
 		a.observe(ctx, deliveryClaim, "claimed")
 	} else {
@@ -150,7 +404,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	a.carryReviewEvidence()
 	if state.Integration == nil && state.Phase == runstate.PhaseIntegrating {
 		if err := a.recoverDocumentIntegration(ctx); err != nil {
-			return runstate.DocumentDelivery{}, err
+			return runstate.State{}, false, err
 		}
 		state = a.state
 	}
@@ -161,14 +415,17 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		_, err = a.finish(ctx)
 	} else {
 		if state.WorktreePath == "" {
+			// A checkout that cannot be cut ends this attempt like any other stop
+			// that judged nothing, rather than leaving a pending run behind it.
 			worktree, createErr := p.Worktrees.Create(ctx, gitworktree.CreateRequest{ResumeCreation: true, RunID: state.RunID, WorkItemID: item.ID, BaseRef: state.TargetBranch, TargetBranch: state.TargetBranch})
 			if createErr != nil {
-				return runstate.DocumentDelivery{}, createErr
+				_, err = a.fail(fmt.Errorf("cut the checkout for the document run: %w", createErr), runstate.StatusFailed)
+				return p.settledDocumentAttempt(ctx, state.RunID, started, record, err)
 			}
 			a.recordWorktree(worktree)
 			a.state.Status, a.state.Phase = runstate.StatusRunning, runstate.PhaseDeveloping
 			if err := p.Store.Save(a.state); err != nil {
-				return runstate.DocumentDelivery{}, err
+				return runstate.State{}, false, err
 			}
 		}
 		if err = a.prepareDocument(ctx); err == nil {
@@ -180,16 +437,31 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 			_, err = a.fail(err, runstate.StatusFailed)
 		}
 	}
-	saved, loadErr := p.Store.Load(state.RunID)
+	return p.settledDocumentAttempt(ctx, state.RunID, true, record, err)
+}
+
+// settledDocumentAttempt reads back what an attempt left, and writes its end
+// on the work item the document names where it ended.
+func (p Pipeline) settledDocumentAttempt(ctx context.Context, runID string, ran bool, record documentItemRecorder, err error) (runstate.State, bool, error) {
+	saved, loadErr := p.Store.Load(runID)
 	if loadErr != nil {
-		return runstate.DocumentDelivery{}, errors.Join(err, loadErr)
+		return runstate.State{}, ran, errors.Join(err, loadErr)
 	}
-	if saved.Status.Terminal() {
-		return documentDelivery(saved), nil
+	if !saved.Status.Terminal() {
+		return saved, ran, err
 	}
-	// A pause retains the confirmed handoff in the conversation. A store or
-	// infrastructure failure must never be claimed as delivered.
-	return documentDelivery(saved), err
+	d := saved.Document
+	switch {
+	case saved.Status == runstate.StatusSucceeded && saved.Integration != nil:
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s published document %s (%s) at %s.", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, d.Candidate.Artifact.Path))
+	case saved.DocumentJudged():
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s did not publish document %s (%s), and handed it back to the %s to revise: %s", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, d.Owner.Title(), documentStopSays(saved)))
+	default:
+		record.note(ctx, fmt.Sprintf("Yoyodyne's run %s stopped publishing document %s (%s) without judging it: %s", saved.RunID, d.WriteID, d.Candidate.Artifact.Title, documentStopSays(saved)))
+	}
+	// A run that ended is settled whatever error came with ending it; the
+	// record says what happened.
+	return saved, ran, nil
 }
 
 // refuseDocument reports a confirmation that no longer holds. Where no run was
@@ -305,6 +577,7 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 	if !result.Settled {
 		return result
 	}
+	result.Judged = !result.Landed && state.DocumentJudged()
 	if state.PullRequest != nil && state.PullRequest.MergeQueued {
 		result.Settled = false
 		return result
@@ -326,6 +599,51 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 		result.Detail = detail.String()
 	}
 	return result
+}
+
+// documentItemRecorder writes a document run's start and end onto the work item
+// the document's latest revision names, so a reader of that item sees its
+// document being published without finding the run. The item is named by the
+// revision reason's first word, which is how an owning role records the item a
+// revision was written for ("yoyodyne-ifd.433.11: ..."); a first word the
+// tracker holds no item under names nothing, and nothing is written.
+//
+// The writes are bounded and never stop the run: the run's own record is the
+// account, and a tracker too busy to take a note costs the note.
+type documentItemRecorder struct {
+	tracker  WorkTracker
+	document runstate.DocumentPublication
+}
+
+// documentWorkItem is the work item a document's latest revision names, or
+// empty where it names none.
+func documentWorkItem(document artifact.ConfirmedDocument) string {
+	revisions := document.Artifact.Revisions
+	if len(revisions) == 0 {
+		return ""
+	}
+	fields := strings.Fields(revisions[len(revisions)-1].Reason)
+	if len(fields) == 0 {
+		return ""
+	}
+	id := strings.TrimRight(fields[0], ":,;")
+	if !strings.Contains(id, "-") || !beads.ValidIssueID(id) {
+		return ""
+	}
+	return id
+}
+
+func (r documentItemRecorder) note(ctx context.Context, note string) {
+	id := documentWorkItem(r.document.Candidate)
+	if r.tracker == nil || id == "" {
+		return
+	}
+	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer cancel()
+	if _, err := r.tracker.Show(bounded, id); err != nil {
+		return
+	}
+	_, _ = r.tracker.RecordOutcome(bounded, id, note)
 }
 
 // documentTracker implements the pipeline's bookkeeping for a document run.

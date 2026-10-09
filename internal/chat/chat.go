@@ -640,6 +640,10 @@ type Session struct {
 	// nobody could name after the process exited went back to being one a person
 	// transcribed by hand.
 	writes []*writeRecord
+	// documentsResumed says this process has already looked for documents whose
+	// automatic publication stopped over returns that judged nothing; see
+	// resumeStoppedDocuments.
+	documentsResumed bool
 	// concerns is what the product manager has raised instead of proposing, and
 	// whether the operator has answered it. It is kept the same way and for the
 	// same reason: a question nobody answered is a loose end, not silence.

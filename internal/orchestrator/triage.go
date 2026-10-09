@@ -764,7 +764,7 @@ func rerunOf(entry triage.Entry, claimed []runstate.Rerun) *triage.Rerun {
 // A run that neither dockets anything and is not an error: that is every run that
 // ended for a reason nobody has to decide about, which is most of them.
 func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
-	if state.Document != nil {
+	if state.Document != nil && !documentHandedOver(state) {
 		return false, nil
 	}
 	if err := d.validate(); err != nil {
@@ -1476,7 +1476,7 @@ func (d Docketer) unreadyEntry(item beads.WorkItem, unmet []readiness.Unmet, now
 // before the verb existed can carry it. So an escalation whose docket write
 // failed as the run ended is picked up by the next scan, exactly as a blocker is.
 func (d Docketer) entriesFor(state runstate.State, now time.Time, already standingDocket) ([]triage.Entry, error) {
-	if state.Document != nil {
+	if state.Document != nil && !documentHandedOver(state) {
 		return nil, nil
 	}
 	var entries []triage.Entry
@@ -1547,6 +1547,15 @@ func publicationDocketed(state runstate.State, already standingDocket) bool {
 // It is the whole of what the scan below re-derives, and deliberately not the
 // whole of what is docketed: preservedDeath is the other half, and is recorded
 // where the death happens rather than found by walking the history.
+// documentHandedOver reports a document run that is the development manager's
+// to decide about: the last of its document's attempts, every one of which
+// stopped without judging the document. Every other document run is its owning
+// conversation's, which retries it or hands it back to its owner, so none of
+// them is docketed; see Pipeline.PublishDocument.
+func documentHandedOver(state runstate.State) bool {
+	return state.Document != nil && state.DocumentRetry != nil && state.DocumentRetry.HandedOver
+}
+
 func stoppedRun(state runstate.State) bool {
 	return state.Blocker != "" && state.Status.Terminal()
 }

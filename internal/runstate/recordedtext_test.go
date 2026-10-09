@@ -37,6 +37,7 @@ var structuredStrings = map[string]string{
 	"document.author_model":                          "validated publication identity, policy, or author attribution",
 	"document.author_account":                        "validated publication identity, policy, or author attribution",
 	"document.author_config_revision":                "validated publication identity, policy, or author attribution",
+	"document_retry.next":                            "the run identifier the harness minted for the next attempt",
 
 	"retirement.run_id":                                     "the validated run whose publication superseded this run",
 	"retirement.commit":                                     "the validated confirmed merge revision",

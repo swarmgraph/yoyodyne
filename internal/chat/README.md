@@ -151,7 +151,10 @@ rendered by `renderDocumentRefusal` and handed back to the role with
 saves the complete
 candidate, and calls the ordinary delivery pipeline before any prompt. Its
 `PublishDocuments` also resumes saved handoffs and carries failures to the owner,
-with three returns allowed per document per conversation. It confirms nothing
+with three returns allowed per document per conversation; only a run that
+judged the document counts as one, a run that judged nothing is retried by the
+publisher, and `resumeStoppedDocuments` puts back a document an older build
+stopped over such runs. It confirms nothing
 where the publisher cannot integrate automatically, puts a saved handoff the
 publisher refuses outright back to the operator, and keeps one whose run could
 not start for the next message; none of these stops the operator's message. Other policies retain
