@@ -4285,7 +4285,12 @@ has the rule.
   **Under it, the refused work is counted by what it waits on**, one `-` line
   per group, each saying how many, what they wait on, the next step, and whose
   move that is: the development manager's decision about a stopped run (hers);
-  the harness carrying out a decision already recorded (the harness's); an
+  the harness carrying out a decision already recorded (the harness's);
+  admitted work the development manager decided to wait for, where her `wait`
+  [named the item it waits on](conversation.md#deciding-what-becomes-of-stopped-work)
+  and that item is unfinished (the harness's, which puts each stoppage back on
+  her docket once the work is closed) — counted in the heading as well, apart
+  from the stoppages awaiting her decision; an
   unresolved directive (the operator's, by `yoyo directive resolve` — or the
   Lead Product Manager's, where she has carried it into a document or an item
   and [resolves it into that](conversation.md#directives-and-the-work-they-pause)

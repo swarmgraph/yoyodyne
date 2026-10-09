@@ -215,8 +215,10 @@ func (s *DocketStore) Close(closure triage.Closure) (bool, error) {
 				closure.Key, entry.RecordedAt.UTC().Format(time.RFC3339), closure.ClosedAt.UTC().Format(time.RFC3339))
 		}
 		// A decision still holding over this entry has already settled it. One that
-		// has lapsed has not, and what is being recorded is the next decision.
-		if entry.Closed != nil && entry.Closed.Holds(closure.ClosedAt) {
+		// has lapsed has not, and what is being recorded is the next decision. A wait
+		// on named work is the one holding decision a later closure may end: the
+		// harness ends it when that work, or the entry's own item, is closed.
+		if entry.Closed != nil && entry.Closed.Holds(closure.ClosedAt) && !closure.Supersedes(*entry.Closed) {
 			return false, nil
 		}
 		encoded, err := encodeDocketClosure(closure)

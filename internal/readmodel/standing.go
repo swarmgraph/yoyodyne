@@ -620,6 +620,11 @@ type Standing struct {
 	// the wrong role for days.
 	AwaitingDecision int `json:"awaiting_decision"`
 	AwaitingCarryOut int `json:"awaiting_carry_out"`
+	// AwaitingWork is the held stoppages the development manager decided to wait
+	// on unfinished admitted work for. She has decided them, so they are not in
+	// AwaitingDecision; what moves next is that work landing, after which each is
+	// back on her docket and counted as awaiting a decision again.
+	AwaitingWork int `json:"awaiting_work"`
 	// CarryOutsRefused and CarryOutsUnattempted count, over the same held items,
 	// the recorded decisions the harness has not carried out, by what became of
 	// them: a gate refused the attempt, or no pass attempted it at all. They are
@@ -766,6 +771,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Admitted = len(queue.Entries)
 	standing.AwaitingDecision = waits.awaitingDecision
 	standing.AwaitingCarryOut = waits.awaitingCarryOut
+	standing.AwaitingWork = waits.awaitingWork
 	standing.CarryOutsRefused = waits.carryOutsRefused
 	standing.CarryOutsUnattempted = waits.carryOutsUnattempted
 	standing.Startable = len(waits.startable)
@@ -1426,7 +1432,19 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	stalled := false
 	waits := heldWork{admitted: make([]WorkItemRef, 0, len(queue.Entries)), startable: []WorkItemRef{}}
 	refused := make([]Refused, 0, len(queue.Entries))
+	// The work a decision to wait can still be waiting for: what is admitted and
+	// what a run is carrying. Anything else has been closed, and a wait on it is
+	// over.
+	unfinished := make(map[string]bool, len(queue.Entries)+len(inFlight))
+	for _, entry := range queue.Entries {
+		unfinished[entry.ID] = true
+	}
+	for id := range inFlight {
+		unfinished[id] = true
+	}
+	waits.unfinished = unfinished
 	groups := newWaitGroups(stopped, held)
+	groups.unfinished = unfinished
 	// A full machine refuses nothing. Every developer slot being taken is the
 	// harness working, and an item ready behind it is the next one started as a
 	// run finishes — so it is counted as startable and on a line of its own, and
@@ -1541,6 +1559,9 @@ func oldestHoldFirst(refused []Refused) {
 type heldWork struct {
 	awaitingDecision int
 	awaitingCarryOut int
+	awaitingWork     int
+	// unfinished is the work items a decision to wait may still be waiting on.
+	unfinished map[string]bool
 	// startable is the other side of the same count: the entries nothing
 	// refuses, named rather than counted so the surface that lists them lists
 	// the entries the count was taken over. admitted is every entry the reading
@@ -1579,9 +1600,19 @@ func (h *heldWork) count(entry backlog.Entry) {
 	case !held:
 	case carryOut:
 		h.awaitingCarryOut++
+	case waitingOnWork(entry, h.unfinished):
+		h.awaitingWork++
 	default:
 		h.awaitingDecision++
 	}
+}
+
+// waitingOnWork reports a held entry whose stoppage the development manager
+// decided to wait on a work item for, while that item is unfinished. Once it is
+// closed the wait is over and the stoppage is hers to decide again.
+func waitingOnWork(entry backlog.Entry, unfinished map[string]bool) bool {
+	waitsOn := strings.TrimSpace(entry.AwaitingWork)
+	return waitsOn != "" && unfinished[waitsOn]
 }
 
 // readDrainOverrun reads the watch log for a session draining past its bound

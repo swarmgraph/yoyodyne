@@ -2049,7 +2049,9 @@ was decided last time so whoever gets it knows they have seen it. Until it comes
 back it is still listed, last, after every entry nobody has decided, saying until
 when, and the line counting what the docket could not list says how many of
 those are waits; once the wait runs out it is among the undecided again, at the
-age it had when it first stopped. **A repair or
+age it had when it first stopped. A wait that names the work it waits on has no
+such window, and comes back when that work is closed instead, as the next
+section says. **A repair or
 a re-run the harness tried to carry out and could not comes back the same way**:
 the entry is listed again carrying the decision she made and the gate that
 stopped it — which gate, what it said, and what would clear it — so a decision
@@ -2107,7 +2109,8 @@ claimed, and the escalation a role raised from it the run carries, and a re-run
 closes the unfinished publication's entry too, and retiring a raise closes the
 raise's; a re-arm closes the unfinished publication's entry for good; a wait
 closes any of them, the run's own entries and the publication's alike, only
-until the entry has been sitting there as long again; and an escalation closes
+until the entry has been sitting there as long again, or until the work item it
+names is closed; and an escalation closes
 all of them, because an escalated item is waiting on you and none of it is hers
 to decide until you answer. Those are the entries a decision answers; what it
 closes is the run's whole live entry, so a decision that answers any of a run's
@@ -2130,6 +2133,33 @@ is the usual answer to a refusal only a person can clear, such as a dirty primar
 checkout. Either lands on the item as a note or a blocker and closes the item's
 open attempts; neither spends anything, and no other decision may leave out the
 run.
+
+**A wait can name the work it depends on.** Some stoppages can only wait on
+admitted work that is days away — a fix that has to merge first, or a recovery
+still being built — and a wait that came back every
+[`triage.stuck_merge_age`](configuration.md#triage-thresholds) put the same
+stoppages back in front of her undecided, with nothing changed, so every sweep
+recorded the same decisions again. So a `wait` may carry `waits_on`, naming the
+work item it depends on:
+
+```text
+{"action":"triage","id":"yoyodyne-ifd.209.31","run":"run-…","decision":"wait","waits_on":"yoyodyne-ifd.433.22","reason":"the claim died on the tracker write that work fixes; nothing to do until it lands"}
+```
+
+The entry then stays off the docket, listed last as a wait saying which item it
+waits on, for as long as that item is open, however long that takes. When the
+item is closed or retired, the next thing that closes entries with their items —
+the close or retire itself, a run landing it, or a `yoyo reconcile` sweep — puts
+the entry back on her docket, once, saying which work landed and what she
+decided before; whatever she decides then stands as any decision does. The
+named item has to be one the tracker holds as unfinished and not the item the
+stoppage is about: a wait on closed work would come straight back, and one on an
+item the tracker cannot read would never come back, so either is refused and
+nothing is recorded. A wait that names nothing keeps the window. While such a
+wait stands, [`yoyo status`](operations.md#where-the-harness-stands-the-four-lines)
+counts the item as waiting on admitted work rather than as awaiting her
+decision, and counts it as awaiting her decision again once the work is closed.
+A wait naming work can also be recorded on an attempt that never became a run.
 
 **An item a role raised as unmeetable is decided with two of these, and a
 repair is not one of them.** The run that raised it did not stop: it succeeded

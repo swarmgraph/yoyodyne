@@ -94,7 +94,9 @@ package orchestrator
 // changes, so a wait that settled the entry for good would be a stuck publication
 // disappearing on the strength of a decision to look at it again. It comes back
 // when the decision lapses, carrying what was decided, and nothing is docketed
-// twice for it.
+// twice for it. A wait that names the admitted work item it depends on has no
+// window: it lapses when that item is closed or retired, found by the same
+// sweeps that close an entry with its own item (endWaitOnClosedWork).
 //
 // # One live entry per stopped run
 //
@@ -1159,7 +1161,7 @@ const clearedUnreadyDecision = "no-longer-unready"
 // closedItemDecision is the word a closure made by SettleClosedItems carries.
 // Like the two beside it it is the harness's and not a triage decision, and it
 // says what settled the entry: the item it is about left the backlog.
-const closedItemDecision = "item-closed"
+const closedItemDecision = triage.ItemClosedDecision
 
 // SettleClosedItem closes every entry standing on the docket for one work item,
 // because the item has been closed or retired. It reports how many it closed.
@@ -1188,7 +1190,9 @@ func (d Docketer) SettleClosedItem(workItemID, reason string) (int, error) {
 // dropped or stuck afterwards — which is what `rearm` is for. Its entry closes
 // when the publication settles, or on a decision about it. A decision standing
 // over an entry is left as it is, since that entry is already off the docket; one
-// that has lapsed is not, and the entry is closed here.
+// that has lapsed is not, and the entry is closed here. A wait on named work is
+// not left either way: the entry closes with its own item, and an entry waiting
+// on one of the closed items is put back on the docket (endWaitOnClosedWork).
 func (d Docketer) SettleClosedItems(closed map[string]string) (int, error) {
 	if d.Docket == nil {
 		return 0, errors.New("a triage docket is required to close the entries of closed items")
@@ -1206,9 +1210,16 @@ func (d Docketer) SettleClosedItems(closed map[string]string) (int, error) {
 	for _, entry := range entries {
 		reason, isClosed := closed[entry.WorkItemID]
 		if !isClosed || !closesWithItem(entry.Class) {
+			// An entry whose own item is open may still be waiting on one of these.
+			// Ending that wait closes nothing, so it is not counted.
+			if _, err := d.endWaitOnClosedWork(entry, closed, now); err != nil {
+				problems = append(problems, err)
+			}
 			continue
 		}
-		if entry.Closed != nil && entry.Closed.Holds(now) {
+		// A wait on named work gives way to the item closing: nothing about a closed
+		// item is anybody's to decide, whatever it was waiting on.
+		if entry.Closed != nil && entry.Closed.Holds(now) && !entry.Closed.WaitsOnWork() {
 			continue
 		}
 		// Never before the entry itself, which the docket would refuse as a decision
@@ -1237,6 +1248,51 @@ func (d Docketer) SettleClosedItems(closed map[string]string) (int, error) {
 		}
 	}
 	return settled, errors.Join(problems...)
+}
+
+// endWaitOnClosedWork puts an entry back on the docket once the work item a
+// decision to wait named is among the closed ones, and reports whether it did.
+//
+// A wait on named work has no window, so this is the only thing that ends it.
+// It records a closure that holds nothing and names the item that landed, so
+// the entry is a question again exactly once: the next decision about it is
+// recorded over that closure, and a later sweep finds no wait standing to end.
+// The development manager's earlier reasoning is carried in it, because what
+// she is shown is the closure standing, and a second look that did not say
+// what the first one concluded would be read as a first.
+func (d Docketer) endWaitOnClosedWork(entry triage.Entry, closed map[string]string, now time.Time) (bool, error) {
+	if entry.Closed == nil || !entry.Closed.WaitsOnWork() || !entry.Closed.Holds(now) {
+		return false, nil
+	}
+	waitedOn := strings.TrimSpace(entry.Closed.WaitsOn)
+	if _, landed := closed[waitedOn]; !landed {
+		return false, nil
+	}
+	// Strictly after the wait, so the docket reads this as the closure standing
+	// over the entry rather than as one made at the same moment as the wait.
+	endedAt := now
+	if !endedAt.After(entry.Closed.ClosedAt) {
+		endedAt = entry.Closed.ClosedAt.Add(time.Second)
+	}
+	reason := fmt.Sprintf("%s decided to wait on %s at %s: %s",
+		strings.TrimSpace(entry.Closed.DecidedBy), waitedOn,
+		entry.Closed.ClosedAt.UTC().Format(time.RFC3339), strings.TrimSpace(entry.Closed.Reason))
+	took, err := d.Docket.Close(triage.Closure{
+		SchemaVersion: triage.ClosureSchemaVersion,
+		Key:           entry.Key,
+		ProductID:     entry.ProductID,
+		RunID:         entry.RunID,
+		WorkItemID:    entry.WorkItemID,
+		Decision:      triage.WaitLandedDecision,
+		Reason:        singleLine(reason, triage.MaxMessageBytes),
+		DecidedBy:     "the harness, finding the work the wait named closed",
+		ClosedAt:      endedAt,
+		Landed:        waitedOn,
+	})
+	if err != nil {
+		return false, fmt.Errorf("put the %s entry of %s back on the docket now that %s is closed: %w", entry.Class, entry.WorkItemID, waitedOn, err)
+	}
+	return took, nil
 }
 
 // closesWithItem reports an entry class whose question is answered by its item

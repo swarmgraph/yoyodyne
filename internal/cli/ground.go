@@ -314,7 +314,10 @@ func (d conversationDocketLog) Close(_ context.Context, closure chat.DocketClosu
 	}
 	decidedAt := d.clock.Now().UTC()
 	revisit := time.Time{}
-	if closure.Revisit {
+	waitsOn := strings.TrimSpace(closure.WaitsOn)
+	// A wait naming the work it depends on lasts until that work closes, so it
+	// takes no window; see orchestrator's endWaitOnClosedWork for what ends it.
+	if closure.Revisit && waitsOn == "" {
 		// A decision that means "not yet" leaves the entry alone for as long again
 		// as the wait that docketed it. Where the project configured no such age —
 		// which its own validation refuses — nothing is closed at all rather than a
@@ -364,6 +367,7 @@ func (d conversationDocketLog) Close(_ context.Context, closure chat.DocketClosu
 			DecidedBy:     closure.DecidedBy,
 			ClosedAt:      decidedAt,
 			RevisitAfter:  revisit,
+			WaitsOn:       waitsOn,
 		})
 		if err != nil {
 			if entry.RunID == "" {

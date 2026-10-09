@@ -177,6 +177,9 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 	}
 	if decision, found := counters.DecisionOf(run.RunID); found && problem == "" {
 		reading.rerun = decision.Decision == runstate.TriageDecisionRerun
+		if decision.Decision == runstate.TriageDecisionWait {
+			reading.waitsOn = strings.TrimSpace(decision.WaitsOn)
+		}
 	}
 	return reading
 }
@@ -190,7 +193,9 @@ type decidedStanding struct {
 	carryOut bool
 	refused  *runstate.TriageCarryOut
 	rerun    bool
-	problem  string
+	// waitsOn is the work item a wait standing about the run names.
+	waitsOn string
+	problem string
 }
 
 // releasesRerun reports a re-run decision that no longer holds its item: the
@@ -241,6 +246,9 @@ func standingDecisions(decisions Decisions) standing {
 const (
 	awaitingDecisionClause = "the development manager decides what happens to it, and nothing pulls it until she has"
 	awaitingCarryOutClause = "the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision"
+	// awaitingWorkClause closes the hold of a stoppage the development manager
+	// decided to wait on named work for; %s is that work item.
+	awaitingWorkClause = "the development manager decided to wait on %s, and once it is closed the stoppage is back on her docket for a decision"
 	// harnessContinuesStallClause closes the hold of a first silent-stream stall,
 	// which nobody decides: the harness continues it itself, once.
 	harnessContinuesStallClause = "the harness stopped its provider for a silent stream and nothing was judged, so the harness continues the run itself, in its own session and at the phase it stalled in, at the next pull with a developer slot free — it waits on the harness rather than on a decision"
@@ -265,6 +273,8 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 		return backlog.Hold{Reason: account + "; " + refusedCarryOut(*reading.refused), Since: since, RunID: runID}
 	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
+	case reading.waitsOn != "":
+		return backlog.Hold{Reason: account + "; " + fmt.Sprintf(awaitingWorkClause, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
 	default:
 		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause, Since: since, RunID: runID}
 	}

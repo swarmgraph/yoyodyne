@@ -2053,7 +2053,7 @@ func TestTheDocketWindowListsWaitedStoppagesAfterEveryUndecidedOne(t *testing.T)
 	if strings.Contains(strings.Join(listedDocketItems(crowded), " "), "yoyodyne-waited-") {
 		t.Fatalf("a waited entry was listed while undecided ones were left out:\n%s", crowded)
 	}
-	if want := "14 further live docket entry(s) are not listed here, the oldest of them stopped 40d ago. 3 of them nobody has decided, and 11 are stoppages you decided to wait on, each one undecided again once its wait runs out."; !strings.Contains(crowded, want) {
+	if want := "14 further live docket entry(s) are not listed here, the oldest of them stopped 40d ago. 3 of them nobody has decided, and 11 are stoppages you decided to wait on, each one undecided again once its wait runs out or the work it waits on is closed."; !strings.Contains(crowded, want) {
 		t.Fatalf("the docket did not say what remains, want %q:\n%s", want, crowded)
 	}
 }

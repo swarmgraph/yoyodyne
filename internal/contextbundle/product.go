@@ -1899,7 +1899,7 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 				counts = append(counts, fmt.Sprintf("%d are decisions of yours already recorded and waiting on the harness carrying them out", decided))
 			}
 			if waiting > 0 {
-				counts = append(counts, fmt.Sprintf("%d are stoppages you decided to wait on, each one undecided again once its wait runs out", waiting))
+				counts = append(counts, fmt.Sprintf("%d are stoppages you decided to wait on, each one undecided again once its wait runs out or the work it waits on is closed", waiting))
 			}
 			last := len(counts) - 1
 			fmt.Fprintf(&rendered, " %s, and %s.", strings.Join(counts[:last], ", "), counts[last])
@@ -2048,7 +2048,8 @@ last docket you were given stopped. Last, where there is room, come decisions of
 yours the harness was stopped carrying out, the ones stopped by a gate that will
 not clear on its own ahead of the ones waiting on a gate that will, and after
 those the stoppages you decided to wait on, each of which is back among the
-undecided, at the age it had, once its wait runs out. An entry too
+undecided, at the age it had, once its wait runs out or the work item it
+waits on is closed. An entry too
 long for its share of the docket is cut, and says so. A run that ended on
 a durable blocker is here, and so is an approved publication the forge has not
 merged.

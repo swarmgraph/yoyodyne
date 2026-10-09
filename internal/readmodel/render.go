@@ -452,6 +452,11 @@ func (s Standing) heldSplit() string {
 	case s.AwaitingCarryOut > 0:
 		split = "; " + carryOut
 	}
+	// Waits on named work are said apart from both, because neither person has
+	// anything to do about them until that work lands.
+	if s.AwaitingWork > 0 {
+		split += fmt.Sprintf("; %d %s admitted work the development manager decided to wait for", s.AwaitingWork, awaits(s.AwaitingWork))
+	}
 	if s.CarryOutsRefused > 0 || s.CarryOutsUnattempted > 0 {
 		split += fmt.Sprintf("; decisions not carried out: %d refused, %d unattempted", s.CarryOutsRefused, s.CarryOutsUnattempted)
 	}

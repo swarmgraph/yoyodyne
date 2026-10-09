@@ -578,6 +578,11 @@ var standingWarningAgeSeconds = 5 * 60;
         if (standing.awaiting_decision || standing.awaiting_carry_out) {
           detail += "; awaiting a decision: " + standing.awaiting_decision + ", awaiting carry-out: " + standing.awaiting_carry_out;
         }
+        // Stoppages the development manager decided to wait on named work for are
+        // counted apart: nobody has anything to do about them until that work lands.
+        if (standing.awaiting_work) {
+          detail += "; waiting on admitted work: " + standing.awaiting_work;
+        }
         // Ready work waiting only for a developer slot is counted apart and
         // never in the figure: it is the work the harness starts next.
         if (standing.waiting_for_slot) {

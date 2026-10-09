@@ -246,7 +246,7 @@ var trackerActionArguments = map[string][]string{
 	actionRepair:       {"state", "depends_on", "goal"},
 	actionClose:        {},
 	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by"},
+	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on"},
 	actionInFlight:     {"decision", "superseded_by"},
 	actionHandle:       {"report", "requests", "needs", "person_only"},
 	actionBrake:        {"decision"},
@@ -533,6 +533,10 @@ type TrackerAction struct {
 	// retirement, since a run narrowed or launched by mistake was not superseded
 	// by anything, and required on a supersession.
 	SupersededBy string `json:"superseded_by,omitempty"`
+	// WaitsOn is the admitted work item a decision to wait depends on, on a
+	// "wait" and nothing else. A wait naming one takes its entry off the docket
+	// until that item is closed or retired rather than for a fixed window.
+	WaitsOn string `json:"waits_on,omitempty"`
 	// Reason is why this is being done. It is required on everything that
 	// changes something: the operator reads the queue afterwards and is owed the
 	// reasoning, not only the edit.
@@ -1412,6 +1416,9 @@ func (a TrackerAction) arguments() []string {
 	}
 	if strings.TrimSpace(a.SupersededBy) != "" {
 		carried = append(carried, "superseded_by")
+	}
+	if strings.TrimSpace(a.WaitsOn) != "" {
+		carried = append(carried, "waits_on")
 	}
 	if strings.TrimSpace(a.Decision) != "" {
 		carried = append(carried, "decision")
