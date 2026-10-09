@@ -134,8 +134,8 @@ type Activity struct {
 	Diverged []runstate.DivergedTarget
 	// LaunchSettings is the hold on developers whose provider was found not to
 	// put in force what a developer is launched with, where one stands. It
-	// accounts for the quiet because a watching session starts no developer
-	// while it stands, deliberately, and the harness reported it once when it
+	// accounts for the quiet because a watching session fills no developer slot
+	// on that provider while it stands, deliberately, and the harness reported it once when it
 	// began; what bounds it is the record, which the first check that finds the
 	// settings in force lifts.
 	LaunchSettings *runstate.LaunchSettingsHold

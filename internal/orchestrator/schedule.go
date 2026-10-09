@@ -276,7 +276,7 @@ const (
 	// developer's provider was found not to apply what a developer is
 	// launched with. A watch waits it out instead; every developer a drain
 	// started into it would be refused on the same check.
-	ScheduleLaunchSettingsHeld = "the developer's provider did not apply its sandbox and guard, so nothing more was chosen"
+	ScheduleLaunchSettingsHeld = "every developer slot is on a provider that did not apply its sandbox and guard, so nothing more was chosen"
 	// ScheduleSpendUnreadable reports a bounded session that stopped because it
 	// could not tell what it had spent. A budget measured against evidence
 	// nobody can read is not a smaller budget, it is no budget at all, so the
@@ -694,6 +694,11 @@ type Pull struct {
 	// flight. Empty is every slot pulling in the product manager's order, which
 	// is what every pull did before slots could prefer anything.
 	Slots []domain.DeveloperSlot
+	// DeveloperProvider is the backend the configured developer runs on, which
+	// is the provider a dispatch into a slot without an endpoint pair of its own
+	// first invokes. Empty is a pull that cannot say, and every slot is then read
+	// as being on whatever provider a hold names.
+	DeveloperProvider domain.Backend
 	// Poll is execution.work_poll as this pull read it: how long a watch session
 	// waits before reading the queue again. It is read per pull like everything
 	// else here, so an interval changed under a running session takes effect at
@@ -2304,7 +2309,14 @@ pulling:
 		// started into it would be refused on the same check. It lifts on a check
 		// that finds the settings in force, which this reading lets one dispatch
 		// make once the probe interval has passed, or on a new harness build.
-		if held, standing := s.launchSettingsHeld(&schedule, pull); standing {
+		//
+		// The hold is on one provider. Where some developer slot dispatches onto
+		// another, the pull carries on and only the held provider's slots are
+		// passed over below; it stops whole only when every slot is on it.
+		var heldProvider domain.Backend
+		if held, standing := s.launchSettingsHeld(&schedule, pull); standing && !pull.everySlotOn(held.Provider) {
+			heldProvider = held.Provider
+		} else if standing {
 			if !s.Watching {
 				schedule.Stopped = ScheduleLaunchSettingsHeld
 				break
@@ -3024,6 +3036,9 @@ pulling:
 		for _, pass := range passes {
 			for _, slot := range freeSlots {
 				if filled[slot.Number] || slot.Preferring() != pass.preferring || bounded() {
+					continue
+				}
+				if heldProvider != "" && pull.slotOn(slot.Number, heldProvider) {
 					continue
 				}
 				walked, err := fill(slot, pass.labelled)

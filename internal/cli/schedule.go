@@ -776,7 +776,10 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// finds them in force again or this session runs another build.
 		LaunchSettings: parts.launchSettings,
 		Build:          buildinfo.Commit(),
-		Developers:     developerEndpoints(parts.config),
+		// The provider a slot without an endpoint pair of its own dispatches onto,
+		// so a hold on one provider passes over only the slots on it.
+		DeveloperProvider: agentForRole(parts.config, domain.RoleDeveloper).Backend,
+		Developers:        developerEndpoints(parts.config),
 		// Read against what the provider has served since and which conversations
 		// are still their roles', so intake is never held on a window a served
 		// turn has disproved or on a conversation nothing will speak in again.

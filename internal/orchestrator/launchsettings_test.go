@@ -323,3 +323,63 @@ func TestALaunchSettingsHoldLiftsOnANewBuildAndAfterTheProbeInterval(t *testing.
 		})
 	}
 }
+
+// A hold is on one provider. A developer slot that dispatches onto another
+// provider is still filled while it stands; the slot on the held provider is
+// passed over; and only when every slot is on the held provider does the pull
+// stop whole.
+func TestALaunchSettingsHoldPassesOverOnlyTheSlotsOnItsProvider(t *testing.T) {
+	t.Parallel()
+
+	codexSlot := domain.DeveloperSlot{Routing: &domain.EndpointPair{
+		Enabled:   true,
+		Primary:   &domain.EndpointSpec{Provider: domain.BackendCodex, Model: "gpt-6-astra"},
+		Alternate: &domain.EndpointSpec{Provider: domain.BackendCodex, Model: "gpt-6.1-sol"},
+	}}
+	for _, tc := range []struct {
+		name    string
+		slots   []domain.DeveloperSlot
+		started int
+		stopped bool
+	}{
+		{name: "a second slot on another provider", slots: []domain.DeveloperSlot{{}, codexSlot}, started: 1},
+		{name: "every slot on the held provider", slots: []domain.DeveloperSlot{{}, {}}, stopped: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			holds := newLaunchSettingsStore(t)
+			harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+			if _, _, err := holds.Notice(runstate.LaunchSettingsObservation{
+				Provider: domain.BackendClaudeCode, Version: "2.2.0 (Claude Code)", Build: "aaa1111",
+				NotInForce: []string{"the sandbox is not running"}, At: harness.now,
+			}); err != nil {
+				t.Fatal(err)
+			}
+			harness.launchSettings = holds
+			harness.build = "aaa1111"
+			harness.outageProbe = 30 * time.Minute
+			harness.capacity = 2
+			harness.slots = tc.slots
+			harness.developerProvider = domain.BackendClaudeCode
+
+			schedule, err := Scheduler{Open: harness.open, Sleep: harness.sleep, Now: harness.clock}.Schedule(context.Background())
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			if tc.stopped != (schedule.Stopped == ScheduleLaunchSettingsHeld) {
+				t.Fatalf("stopped = %q, want stopped on the hold = %t: %s", schedule.Stopped, tc.stopped, schedule.Render())
+			}
+			if order := harness.pullOrder(); len(order) < tc.started || (tc.stopped && len(order) != 0) {
+				t.Fatalf("pulled %v, want %d started", order, tc.started)
+			}
+			for _, started := range schedule.Started {
+				if started.Slot == 1 {
+					t.Fatalf("started %#v in the slot on the held provider", started)
+				}
+			}
+			if _, standing, err := holds.Standing(); err != nil || !standing {
+				t.Fatalf("Standing() = %t, %v; want the hold still standing", standing, err)
+			}
+		})
+	}
+}

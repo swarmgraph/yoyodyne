@@ -84,7 +84,7 @@ type Checker struct {
 	Divergences readmodel.DivergedTargets
 	// LaunchSettings is the product's record of a developer's provider found not
 	// to put in force what a developer is launched with, read because a watching
-	// session starts no developer while it stands, on purpose and after reporting
+	// session fills no developer slot on that provider while it stands, on purpose and after reporting
 	// it once. Optional for the reason Outages is.
 	LaunchSettings readmodel.LaunchSettingsHolds
 	// Backlog is asked only where nothing else accounts for the quiet, which is

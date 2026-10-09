@@ -558,10 +558,12 @@ read back, rather than their spelling.
 A refusal happens before anything is claimed or relaunched, and names the CLI's
 version and each setting or flag that did not take. It spends no repair
 attempt, dockets nothing, and does not count toward the intake brake. The first
-refusal records a hold on developers for the product and files one critical
-report; a watching session reads the hold at every pull and starts no developer
-while it stands, so the rest of the ready queue is not refused one item at a
-time. A resumed run turned back this way records
+refusal records a hold on that provider and files one critical report; a
+watching session reads the hold at every pull and fills no developer slot that
+would start on that provider while it stands, so the rest of the ready queue is
+not refused one item at a time. A slot that starts its developer on another
+provider (its own endpoint pair names one) is still filled; only when every
+slot is on the held provider does the session stop choosing altogether. A resumed run turned back this way records
 `developer-settings-not-applied` as a cause outside the work and stays resumable.
 The hold lifts by itself: after `execution.usage_limit_unknown_reset_pause` the
 next pull lets one dispatch check again, which lifts the hold if the settings

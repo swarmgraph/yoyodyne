@@ -11,8 +11,8 @@ package runstate
 // the provider decline the settings — a CLI upgrade, a policy on the machine —
 // declines them for every item alike, so a line that went on dispatching would
 // refuse its whole ready queue one item at a time and say the same thing for
-// each. A watching session reads this at every pull and starts no developer
-// while it stands.
+// each. A watching session reads this at every pull and fills no developer slot
+// on the held provider while it stands; slots on another provider carry on.
 //
 // It is lifted by the cause going away: a check that finds the settings in
 // force again, which the dispatch a pull lets through once the probe interval

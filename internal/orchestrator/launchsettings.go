@@ -89,8 +89,12 @@ func (p Pipeline) requireLaunchSettings(ctx context.Context, waiting string, pro
 	if check.InForce() {
 		// A hold that could not be lifted here is lifted by the next check that
 		// passes; this dispatch is not refused over the record of one.
+		// Only a hold on this provider is lifted: a check on one provider says
+		// nothing about another's.
 		if p.LaunchSettings != nil {
-			_, _, _ = p.LaunchSettings.Clear()
+			if standing, found, err := p.LaunchSettings.Standing(); err == nil && found && standing.Provider == named {
+				_, _, _ = p.LaunchSettings.Clear()
+			}
 		}
 		return nil
 	}
@@ -139,8 +143,8 @@ func (p Pipeline) reportLaunchSettingsHold(hold runstate.LaunchSettingsHold) err
 		return nil
 	}
 	message := fmt.Sprintf("%s. "+
-		"No developer runs while it stands, because one started now would have no sandbox or no guard; a person has to look at what changed in the installed CLI or the machine's policy, or a change to the adapter has to land.",
-		oneline.Fold(strings.TrimSuffix(hold.Says(), "."), report.MaxMessageBytes*3/4))
+		"No developer runs on %s while it stands, because one started now would have no sandbox or no guard, and developer slots on other providers carry on; a person has to look at what changed in the installed CLI or the machine's policy, or a change to the adapter has to land.",
+		oneline.Fold(strings.TrimSuffix(hold.Says(), "."), report.MaxMessageBytes*3/4), hold.Provider)
 	collected, err := report.Collect([]report.Entry{{Severity: report.SeverityCritical, Message: message}}, report.Attribution{
 		Role:         report.HarnessReporter,
 		RunID:        "launch-settings@" + hold.Since.UTC().Format(time.RFC3339),
@@ -198,4 +202,37 @@ func (s Scheduler) launchSettingsHeld(schedule *Schedule, pull Pull) (runstate.L
 	}
 	schedule.LaunchSettingsHold = &hold
 	return hold, true
+}
+
+// slotProvider is the provider a dispatch into a developer slot first invokes:
+// the primary of the slot's own endpoint pair where it has an enabled one that
+// names a provider, and the configured developer's otherwise. It is the same
+// choice dispatchBackend makes once the dispatch is under way.
+func (p Pull) slotProvider(number int) domain.Backend {
+	if number >= 1 && number <= len(p.Slots) {
+		if routing := p.Slots[number-1].Routing; routing != nil && routing.Enabled && routing.Primary != nil && routing.Primary.Provider != "" {
+			return routing.Primary.Provider
+		}
+	}
+	return p.DeveloperProvider
+}
+
+// slotOn reports a slot whose dispatch would start on provider. A slot whose
+// provider this pull cannot say is read as being on it, so a hold is never
+// dispatched through for want of knowing.
+func (p Pull) slotOn(number int, provider domain.Backend) bool {
+	on := p.slotProvider(number)
+	return on == "" || on == provider
+}
+
+// everySlotOn reports a pull none of whose developer slots dispatches onto
+// anything but provider, which is when a hold on provider stops the pull whole.
+func (p Pull) everySlotOn(provider domain.Backend) bool {
+	slots := max(p.Capacity, len(p.Slots), 1)
+	for number := 1; number <= slots; number++ {
+		if !p.slotOn(number, provider) {
+			return false
+		}
+	}
+	return true
 }
