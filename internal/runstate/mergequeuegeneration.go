@@ -3,9 +3,9 @@ package runstate
 // What the merge queue's worker verified, kept beside the queue's record:
 // docs/designs/integration-through-a-merge-queue.md, "Harness-run queue". An
 // admitted entry is verified as a generation — one candidate built from one
-// target base and the entry's approved head — and the checks and the review
-// are each recorded against that generation's binding, a digest of everything
-// that makes the candidate what it is. Evidence recorded against one binding
+// target base and the entry's approved head — and the protected-path gate, the
+// checks and the review are each recorded against that generation's binding, a
+// digest of everything that makes the candidate what it is. Evidence recorded against one binding
 // is no evidence about another, so a generation whose base, heads, candidate,
 // content, check configuration, or author changes is a new generation that
 // earns its own checks and review from nothing.
@@ -49,6 +49,10 @@ const maxMergeQueueGenerations = 200
 // maxMergeQueueEvidenceText bounds the free text a piece of evidence carries:
 // a reviewer's summary, or why a stage did not finish.
 const maxMergeQueueEvidenceText = 4 << 10
+
+// maxMergeQueueRefusedPaths bounds the refused paths a generation records,
+// as a replay conflict's paths are bounded.
+const maxMergeQueueRefusedPaths = MaxConflictedPaths
 
 // maxMergeQueueLaunches bounds the processes one generation records: one per
 // configured check and one review, each attempt, for as many attempts as a
@@ -136,9 +140,16 @@ type MergeQueueGeneration struct {
 	// LastSequence is the last event written to the generation's own event
 	// stream, which its checks and its review append to.
 	LastSequence uint64 `json:"last_sequence,omitempty"`
-	// CheckRun and Review are the two halves of the candidate's gate.
+	// Paths, CheckRun and Review are the three parts of the candidate's gate:
+	// the protected-path gate asked of exactly what would land, the configured
+	// checks, and an independent review.
+	Paths    *MergeQueuePathEvidence   `json:"paths,omitempty"`
 	CheckRun *MergeQueueCheckEvidence  `json:"checks,omitempty"`
 	Review   *MergeQueueReviewEvidence `json:"review,omitempty"`
+	// BaseCheck is a check that failed on the candidate, asked of the target at
+	// the candidate's base, which is what says whether the failure is the
+	// change's or the target's (ClassifyMergeQueueFailure in the orchestrator).
+	BaseCheck *MergeQueueBaseEvidence `json:"base_check,omitempty"`
 	// Interruptions are attempts at a stage that earned nothing and were set
 	// aside: started and never ended, or ended without a result. Each is kept so
 	// a reader can see why a stage ran twice.
@@ -188,7 +199,69 @@ type MergeQueueStage string
 const (
 	MergeQueueStageChecks MergeQueueStage = "checks"
 	MergeQueueStageReview MergeQueueStage = "review"
+	// MergeQueueStageBase is a check that failed on the candidate run again on
+	// the target at the candidate's base.
+	MergeQueueStageBase MergeQueueStage = "base-check"
 )
+
+func (s MergeQueueStage) valid() bool {
+	return s == MergeQueueStageChecks || s == MergeQueueStageReview || s == MergeQueueStageBase
+}
+
+// MergeQueuePathEvidence is the protected-path gate asked of a generation's
+// candidate: every path the candidate changes against its base, less what the
+// entry's work item grants. A candidate with any path refused earns nothing,
+// whatever its checks and review say.
+type MergeQueuePathEvidence struct {
+	Binding   string    `json:"binding"`
+	CheckedAt time.Time `json:"checked_at"`
+	// Changed is how many paths the candidate changes against its base.
+	Changed int `json:"changed"`
+	// Refused is every changed path the gate refuses, and empty where it
+	// refuses none.
+	Refused []string `json:"refused,omitempty"`
+}
+
+// MergeQueueBaseEvidence is one check that failed on a candidate, asked of the
+// target at the candidate's base. A candidate's failure is the change's only
+// where the target is known to pass the same check at that base; where the
+// target fails it too, the failure is the target's.
+type MergeQueueBaseEvidence struct {
+	Binding    string     `json:"binding"`
+	Base       string     `json:"base"`
+	Command    string     `json:"command"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at,omitempty"`
+	// Passed is the check passing on the base by its own exit.
+	Passed   bool `json:"passed,omitempty"`
+	ExitCode int  `json:"exit_code,omitempty"`
+	// KnownFrom says the base's result was known without running the check
+	// again, and how: the base is a candidate this queue verified and landed
+	// under the checks configured now.
+	KnownFrom string `json:"known_from,omitempty"`
+	// Problem is why the check judged nothing on the base: stopped, unable to
+	// run, or a runner that failed. Evidence with a problem says nothing.
+	Problem string `json:"problem,omitempty"`
+	// RedItem is the unfinished work item that records the target red on this
+	// check, found or filed once the base failed it.
+	RedItem string `json:"red_item,omitempty"`
+}
+
+// Settled reports base evidence that says something: finished, with nothing
+// that stopped it from judging.
+func (b *MergeQueueBaseEvidence) Settled() bool {
+	return b != nil && b.FinishedAt != nil && b.Problem == ""
+}
+
+// WaitsOnTarget reports a generation whose failing check fails on the target
+// at its base as well. Nothing about the change can pass that check until the
+// target moves, so the entry steps aside for the entries behind it — one of
+// which may be the change that makes the target pass again — and is built
+// afresh once the target has moved.
+func (g MergeQueueGeneration) WaitsOnTarget() bool {
+	base := g.BaseCheck
+	return g.Invalidated == nil && base.Settled() && !base.Passed && base.Base == g.TargetBase && base.Binding == g.Binding()
+}
 
 // MergeQueueCheckEvidence is one run of the configured checks over a
 // generation's candidate. It is written when the checks start, with no
@@ -298,10 +371,11 @@ func (e MergeQueueGateError) Error() string {
 }
 
 // Gate reports whether this generation's candidate earned promotion under the
-// checks configured now: every configured check ran to its own end and passed
-// over this binding, and an independent reviewer approved this binding. Any
-// missing, unfinished, mismatched, or failed half refuses, and so does a
-// generation already invalidated. It is the only question a promotion asks of
+// checks configured now: the protected-path gate refused none of the paths it
+// changes, every configured check ran to its own end and passed over this
+// binding, and an independent reviewer approved this binding. Any missing,
+// unfinished, mismatched, or failed part refuses, and so does a generation
+// already invalidated. It is the only question a promotion asks of
 // a generation, and the promotion asks it again under its own lease.
 func (g MergeQueueGeneration) Gate(configured MergeQueueCheckConfiguration) error {
 	refuse := func(format string, args ...any) error {
@@ -317,6 +391,15 @@ func (g MergeQueueGeneration) Gate(configured MergeQueueCheckConfiguration) erro
 		return refuse("it was verified by checks %s, and the project now configures %s", g.Checks.Digest, configured.Digest)
 	}
 	binding := g.Binding()
+	paths := g.Paths
+	switch {
+	case paths == nil:
+		return refuse("no protected-path check was recorded")
+	case paths.Binding != binding:
+		return refuse("its protected-path check was recorded against another generation")
+	case len(paths.Refused) > 0:
+		return refuse("it changes protected paths its work item does not grant: %s", strings.Join(paths.Refused, ", "))
+	}
 	checks := g.CheckRun
 	switch {
 	case checks == nil:
@@ -409,6 +492,27 @@ func (g MergeQueueGeneration) validateBinding() error {
 func (g MergeQueueGeneration) validate() error {
 	problems := []error{g.validateBinding()}
 	binding := g.Binding()
+	if g.Paths != nil {
+		if g.Paths.Binding != binding || g.Paths.CheckedAt.IsZero() || g.Paths.Changed < len(g.Paths.Refused) {
+			problems = append(problems, errors.New("its protected-path check is not a whole record of this generation"))
+		}
+		if len(g.Paths.Refused) > maxMergeQueueRefusedPaths {
+			problems = append(problems, fmt.Errorf("%d refused paths exceeds the %d a generation keeps", len(g.Paths.Refused), maxMergeQueueRefusedPaths))
+		}
+		for _, refused := range g.Paths.Refused {
+			if refused == "" || len(refused) > maxMergeQueueEvidenceText {
+				problems = append(problems, errors.New("a refused path is empty or exceeds its bound"))
+			}
+		}
+	}
+	if base := g.BaseCheck; base != nil {
+		if base.Binding != binding || base.Base != g.TargetBase || base.StartedAt.IsZero() || mergeQueueText("base check command", base.Command, true) != nil {
+			problems = append(problems, errors.New("its base check is not a whole record of this generation's base"))
+		}
+		if len(base.Problem) > maxMergeQueueEvidenceText || len(base.KnownFrom) > maxMergeQueueEvidenceText || mergeQueueText("red item", base.RedItem, false) != nil {
+			problems = append(problems, errors.New("its base check's text exceeds its bound"))
+		}
+	}
 	if g.CheckRun != nil {
 		if g.CheckRun.Binding != binding {
 			problems = append(problems, errors.New("its checks name another generation"))
@@ -440,7 +544,7 @@ func (g MergeQueueGeneration) validate() error {
 		problems = append(problems, fmt.Errorf("%d launches exceeds the %d a generation keeps", len(g.Launches), maxMergeQueueLaunches))
 	}
 	for _, launch := range g.Launches {
-		if (launch.Stage != MergeQueueStageChecks && launch.Stage != MergeQueueStageReview) || launch.PID <= 0 || launch.StartedAt.IsZero() ||
+		if !launch.Stage.valid() || launch.PID <= 0 || launch.StartedAt.IsZero() ||
 			len(launch.Command) > maxMergeQueueEvidenceText || mergeQueueText("launch host", launch.Host, true) != nil {
 			problems = append(problems, fmt.Errorf("a launch of the %s is not a whole record of a process", launch.Stage))
 		}
@@ -449,8 +553,8 @@ func (g MergeQueueGeneration) validate() error {
 		if len(interruption.Problem) > maxMergeQueueEvidenceText {
 			problems = append(problems, errors.New("an interruption's problem exceeds its bound"))
 		}
-		if interruption.Stage != MergeQueueStageChecks && interruption.Stage != MergeQueueStageReview {
-			problems = append(problems, fmt.Errorf("interrupted stage %q is neither checks nor review", interruption.Stage))
+		if !interruption.Stage.valid() {
+			problems = append(problems, fmt.Errorf("interrupted stage %q is not one of the stages a generation has", interruption.Stage))
 		}
 	}
 	if g.Invalidated != nil {
@@ -658,6 +762,12 @@ func revisable(recorded, revised MergeQueueGeneration) error {
 	if recorded.Review != nil && recorded.Review.FinishedAt != nil && recorded.Review.Problem == "" && !sameReviewEvidence(recorded.Review, revised.Review) {
 		return conflict("its review finished, and a finished review is never replaced")
 	}
+	if recorded.Paths != nil && !samePathEvidence(recorded.Paths, revised.Paths) {
+		return conflict("its protected-path check is recorded, and is never replaced")
+	}
+	if recorded.BaseCheck.Settled() && !sameBaseEvidence(recorded.BaseCheck, revised.BaseCheck) {
+		return conflict("its base check finished, and a finished base check is never replaced")
+	}
 	if revised.LastSequence < recorded.LastSequence {
 		return conflict("its event stream never goes backwards")
 	}
@@ -702,6 +812,35 @@ func sameReviewEvidence(a, b *MergeQueueReviewEvidence) bool {
 	return a.Binding == b.Binding && a.StartedAt.Equal(b.StartedAt) && sameTime(a.FinishedAt, b.FinishedAt) &&
 		a.Decision == b.Decision && a.SessionID == b.SessionID && a.Model == b.Model &&
 		a.ResolvedModel == b.ResolvedModel && a.Summary == b.Summary && a.Problem == b.Problem
+}
+
+func samePathEvidence(a, b *MergeQueuePathEvidence) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.Binding != b.Binding || !a.CheckedAt.Equal(b.CheckedAt) || a.Changed != b.Changed || len(a.Refused) != len(b.Refused) {
+		return false
+	}
+	for index := range a.Refused {
+		if a.Refused[index] != b.Refused[index] {
+			return false
+		}
+	}
+	return true
+}
+
+// sameBaseEvidence compares a finished base check with its revision, which
+// may add the red item it was found or filed under and nothing else.
+func sameBaseEvidence(a, b *MergeQueueBaseEvidence) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if a.RedItem != "" && a.RedItem != b.RedItem {
+		return false
+	}
+	return a.Binding == b.Binding && a.Base == b.Base && a.Command == b.Command && a.StartedAt.Equal(b.StartedAt) &&
+		sameTime(a.FinishedAt, b.FinishedAt) && a.Passed == b.Passed && a.ExitCode == b.ExitCode &&
+		a.KnownFrom == b.KnownFrom && a.Problem == b.Problem
 }
 
 func sameTime(a, b *time.Time) bool {

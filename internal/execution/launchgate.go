@@ -33,7 +33,9 @@ import (
 type LaunchGate struct {
 	// Hold is handed to the process as an inherited descriptor and passes to
 	// everything it starts. Run closes this process's copy once the process has
-	// started, so what holds the file afterwards is the process tree alone.
+	// started, so what holds the file afterwards is the process tree alone, and
+	// closes it as well on every return that started nothing, so a launch that
+	// never happened leaves nothing holding the file.
 	Hold *os.File
 	// Register is called once the process exists and before it may do any
 	// work. Returning an error ends the process before the gate opens, so a

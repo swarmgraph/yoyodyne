@@ -702,14 +702,15 @@ func TestARestartWaitsOutAStageAnEarlierWorkerLeftRunning(t *testing.T) {
 }
 
 // lockOrphan takes the stage's hold for the test's stand-in orphan. The checks
-// that held it have exited by the time Work returns, but the operating system
-// may take a moment to release the hold they carried, more so on a machine
-// running the whole suite at once. So the lock is asked for again for a
-// bounded while rather than once: a hold that something keeps for the whole
-// bound still fails the test.
+// that held it have exited by the time Work returns, and the worker has closed
+// its own copies, but a process another test forked at that moment carries a
+// copy of the hold until it starts its own program: the same moment the worker
+// itself waits out before it believes a hold (runstate.MergeQueueHoldForkGrace).
+// So the lock is asked for again for that long and no longer; a hold something
+// keeps past it fails the test.
 func lockOrphan(t *testing.T, orphan *os.File) {
 	t.Helper()
-	deadline := time.Now().Add(30 * time.Second)
+	deadline := time.Now().Add(runstate.MergeQueueHoldForkGrace)
 	for {
 		err := syscall.Flock(int(orphan.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {

@@ -3064,6 +3064,14 @@ type State struct {
 	// its approval standing and no attempt, round, or grant charged. Absent is
 	// every run nothing resumed, which is nearly all of them.
 	IntegrationResumptions []IntegrationResumption `json:"integration_resumptions,omitempty"`
+	// MergeQueue is this run's approved change admitted to its target branch's
+	// merge queue rather than promoted by the run itself, which is what
+	// execution.merge_queue on means. The run ends succeeded once it is admitted,
+	// with its item still claimed and its branch and worktree kept: the queue
+	// lands the change and records the landing here as the run's integration,
+	// or hands it back to this run for repair. Absent is every run that
+	// promoted its own change.
+	MergeQueue *MergeQueueAdmissionRecord `json:"merge_queue,omitempty"`
 	// SweepContinuations are the times the reconcile sweep continued this run
 	// after the process serving its usage-limit wait had exited on the
 	// in-process bound: the wait served by the sweep rather than by a person
@@ -3420,6 +3428,11 @@ func NewRunID() (string, error) {
 
 func (s State) Validate() error {
 	var problems []error
+	if s.MergeQueue != nil {
+		if err := s.MergeQueue.validate(); err != nil {
+			problems = append(problems, fmt.Errorf("merge_queue: %w", err))
+		}
+	}
 	if s.Document != nil {
 		if err := s.Document.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("document publication: %w", err))
@@ -4682,4 +4695,12 @@ func (s Status) InFlight() bool {
 // each says is free is one fact.
 func (s State) HoldsDeveloperSlot() bool {
 	return s.Status.InFlight() && s.DependencyPause == nil
+}
+
+// AwaitingMergeQueue reports a run whose approved change waits in a merge
+// queue: the run ended once its change was admitted, and nothing has landed it
+// or handed it back yet. Such a run holds its item's claim and no developer
+// slot.
+func (s State) AwaitingMergeQueue() bool {
+	return s.MergeQueue != nil && s.Status == StatusSucceeded && s.Integration == nil
 }
