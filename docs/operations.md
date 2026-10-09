@@ -2995,7 +2995,10 @@ so the entry carries what the record would have: the item, why the scheduler
 selected it, what stopped the dispatch, and that the session will not try it
 again until the item changes. It is keyed to the item and the failure rather
 than to a run, so the same dead dispatch is one entry however many sessions meet
-it. **The sweep also closes the entries of closed items**: every entry still
+it. Once its item is dispatched again and a run is recorded for it, the next
+build of the docket — the sweep's or a conversation's — closes the attempt with a
+note naming that run, so it is not put to the development manager again; an
+attempt whose item has not been dispatched since stays. **The sweep also closes the entries of closed items**: every entry still
 standing for an item the tracker holds as closed or retired is closed with it,
 with the reason, and the sweep says how many (`closed_with_item` in `--json`).
 It also tells the item of each escalation to you that has ended — the item

@@ -441,8 +441,10 @@ func TestATriageDecisionIsRefusedWhenItNamesNoDecisionOrNoStoppage(t *testing.T)
 			want:   `triage requires "decision"`,
 		},
 		{
+			// Waiting and escalating may name no run, for an attempt that never became
+			// one; every decision that acts on a run needs the run it acts on.
 			name:   "no run",
-			action: `{"action":"triage","id":"yoyodyne-ifd.90","decision":"wait","reason":"why"}`,
+			action: `{"action":"triage","id":"yoyodyne-ifd.90","decision":"rerun","reason":"why"}`,
 			want:   `triage requires "run"`,
 		},
 		{
@@ -1493,5 +1495,69 @@ func TestABrakeDecisionIsRecordedOnTheBrakesOwnHold(t *testing.T) {
 	}
 	if len(intake.decisions) != 1 {
 		t.Fatalf("decisions = %d, want the refused blocks to have recorded nothing", len(intake.decisions))
+	}
+}
+
+// An attempt that never became a run names no run, so a decision about it names
+// the item instead. Waiting and escalating are the two that need no run: the note
+// or the blocker lands on the item, and the closure goes to the item's attempts
+// rather than to a run's entries.
+func TestADecisionAboutAnAttemptThatNeverBecameARunNamesTheItemAndNoRun(t *testing.T) {
+	t.Parallel()
+
+	for _, decided := range []struct {
+		decision string
+		revisit  bool
+	}{
+		{decision: "wait", revisit: true},
+		{decision: "escalate"},
+	} {
+		t.Run(decided.decision, func(t *testing.T) {
+			t.Parallel()
+
+			answer := trackerReply("Decided.",
+				`{"action":"triage","id":"yoyodyne-ifd.90","decision":"`+decided.decision+`","reason":"the primary checkout is dirty, and only a person can clean it"}`)
+			if decided.decision == "escalate" {
+				answer = reportReply(answer, `{"severity":"warning","message":"yoyodyne-ifd.90 cannot be dispatched while the primary checkout has uncommitted changes."}`)
+			}
+			tracker := &fakeTracker{items: map[string]beads.WorkItem{
+				"yoyodyne-ifd.90": {ID: "yoyodyne-ifd.90", Title: "the item that never started", Status: "open"},
+			}}
+			docket := &fakeDocket{closes: 1}
+			reply := triageReplyClosing(t, tracker, docket, answer)
+
+			if len(reply.Actions) != 1 || !reply.Actions[0].Applied {
+				t.Fatalf("actions = %#v, want the decision recorded", reply.Actions)
+			}
+			var written string
+			switch decided.decision {
+			case "escalate":
+				if len(tracker.blocked) != 1 || tracker.blocked[0][0] != "yoyodyne-ifd.90" {
+					t.Fatalf("blocked = %#v, want the item blocked", tracker.blocked)
+				}
+				written = tracker.blocked[0][1]
+			default:
+				if len(tracker.updates) != 1 || tracker.updates[0].id != "yoyodyne-ifd.90" {
+					t.Fatalf("updates = %#v, want the decision noted on the item", tracker.updates)
+				}
+				written = tracker.updates[0].change.AppendNotes
+			}
+			if !strings.Contains(written, "never became a run") || !strings.Contains(written, "only a person can clean it") {
+				t.Fatalf("the item records %q, want what was decided about and why", written)
+			}
+			if len(docket.closed) != 1 {
+				t.Fatalf("closed = %#v, want one closure", docket.closed)
+			}
+			closure := docket.closed[0]
+			if closure.RunID != "" || closure.WorkItemID != "yoyodyne-ifd.90" || closure.Decision != decided.decision || closure.Revisit != decided.revisit {
+				t.Fatalf("closure = %#v, want the item's attempts closed by %q and no run named", closure, decided.decision)
+			}
+			if fmt.Sprint(closure.Classes) != fmt.Sprint([]triage.Class{triage.ClassUnstartedAttempt}) {
+				t.Fatalf("classes = %#v, want only the attempts that never became a run", closure.Classes)
+			}
+			if rendered := renderTrackerOutcomes(domain.RoleDevelopmentManager, reply.Actions); !strings.Contains(rendered, "docket entry(s) of attempts at that item are closed") {
+				t.Fatalf("the operator was not told the entry was closed:\n%s", rendered)
+			}
+		})
 	}
 }

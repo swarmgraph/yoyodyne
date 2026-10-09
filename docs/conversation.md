@@ -2088,13 +2088,22 @@ closes is the run's whole live entry, so a decision that answers any of a run's
 open entries closes the rest of them with it, and a re-run decided on a stopped
 run settles the stuck publication folded beneath it too. Every decision but `wait` closes its entry for good,
 and what puts one of those back on the docket is the same work stopping again
-rather than anything about the decision. The two entries that name no run are
-closed by no decision of hers, because a decision names a run and neither has
-one. An item the tree is not ready for is closed by the harness instead: every
+rather than anything about the decision. Two entries name no run. An item the
+tree is not ready for is closed by no decision of hers but by the harness: every
 pull reads the item again, and takes the entry off once the item asks for nothing
 the tree lacks, has left the backlog, or has been restated — in which case it is
 docketed again in its new words. An attempt that never became a run is closed by
-nothing of hers either; like every entry, it closes when its item does.
+the harness too, once its item is dispatched again: the next time the docket is
+built after a run of that item is recorded as starting, the attempt is closed
+with a note naming that run, because what became of the item is that run's to
+say, and it is docketed on its own if it stops. An attempt whose item has not
+been dispatched since stays; like every entry, it also closes when its item does,
+and the same refusal met again later is docketed again. Where she wants to decide
+one before then, `wait` and `escalate` may name the item and no run — escalating
+is the usual answer to a refusal only a person can clear, such as a dirty primary
+checkout. Either lands on the item as a note or a blocker and closes the item's
+open attempts; neither spends anything, and no other decision may leave out the
+run.
 
 **An item a role raised as unmeetable is decided with two of these, and a
 repair is not one of them.** The run that raised it did not stop: it succeeded
