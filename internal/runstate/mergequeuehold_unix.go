@@ -11,12 +11,21 @@ import (
 
 // duplicateHold is a second descriptor on the held file's open file
 // description, which is what a lock taken with flock belongs to.
+//
+// The copy is made and marked close-on-exec under the fork lock, as Go's own
+// descriptor-creating calls are. Without it, a process this one starts on
+// another goroutine between the two steps inherits a copy nothing ever closes,
+// and the stage reads as still running for as long as that process lives.
 func duplicateHold(file *os.File) (*os.File, error) {
+	syscall.ForkLock.RLock()
 	duplicate, err := syscall.Dup(int(file.Fd()))
+	if err == nil {
+		syscall.CloseOnExec(duplicate)
+	}
+	syscall.ForkLock.RUnlock()
 	if err != nil {
 		return nil, fmt.Errorf("copy the stage's hold for the process it starts: %w", err)
 	}
-	syscall.CloseOnExec(duplicate)
 	return os.NewFile(uintptr(duplicate), file.Name()), nil
 }
 
