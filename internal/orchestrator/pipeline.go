@@ -3131,6 +3131,14 @@ func (a *activeRun) repairLoop(ctx context.Context) error {
 			return err
 		}
 		if err := a.verify(ctx); err != nil {
+			// A change too large for the reviewer's copy is not repair input: the
+			// bound is the harness's, so it ends the run where it was measured and
+			// goes to the development manager with the sizes.
+			var overBound reviewBoundRefusal
+			if errors.As(err, &overBound) {
+				a.observeCheckEnded(ctx, err, budgetSpent)
+				return a.blockOnReviewBound(overBound)
+			}
 			// A change refused for what it touched is answered before anything else,
 			// because it is what the gate decided first: the checks never ran on this
 			// attempt, so there is no check failure competing with it.
@@ -5723,6 +5731,13 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// suite spent on it first.
 	changed, err := a.gateProtectedPaths(ctx)
 	if err != nil {
+		return err
+	}
+	// Then whether the reviewer could be shown it at all, for the same reason
+	// again: a change the review bound would keep source or test files of out of
+	// the reviewer's copy cannot be approved, so neither a check suite nor a
+	// review round is spent finding that out (gateReviewBound).
+	if err := a.gateReviewBound(ctx); err != nil {
 		return err
 	}
 	// And the developer's own execution record is settled before the suite too,

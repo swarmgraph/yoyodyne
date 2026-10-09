@@ -988,6 +988,7 @@ var notAStep = map[string]string{
 	"blockOnMissingVerification": "hands a spent repair budget to a person",
 	"blockOnSpentRelaunchBudget": "hands a spent relaunch budget to a person",
 	"replayStopEnds":             "hands a spent integration budget to a person, on a replay that stopped on the change",
+	"blockOnReviewBound":         "hands a change too large for the reviewer's copy to a person, with its file sizes",
 	"chargeReplayStop":           "spends one of the run's charged replays before a replayed change is handed back",
 
 	// The runtime envelope. Holds, directives, dependency waits, operator stops
@@ -1061,6 +1062,7 @@ var notAStep = map[string]string{
 	"attemptReview":              "one provider invocation inside candidate.review",
 	"recordReviewVerdict":        "records a verdict against the item, charging a round where it sent the work back, inside candidate.review",
 	"gateProtectedPaths":         "the scope refusal candidate.check makes before it spends a suite",
+	"gateReviewBound":            "the review-bound refusal candidate.check makes before it spends a suite or a review",
 	"integrationEarned":          "the reading of the gate off the record that candidate.integrate makes before it takes anything",
 	"gateCandidateVerification":  "the execution-evidence refusal candidate.check makes; a conversation author has no execution tools, so its document still receives the configured checks",
 	"validateIndependentReview":  "checks the author and reviewer identities before promotion; conversation documents have an owning role rather than a developer invocation",

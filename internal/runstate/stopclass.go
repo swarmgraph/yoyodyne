@@ -42,6 +42,9 @@ const (
 	StopEventBound        StopClass = "event-bound"
 	StopIntegrationPolicy StopClass = "integration-policy"
 	StopRecoveryWindow    StopClass = "recovery-window"
+	// StopReviewBound is a change whose source or test files the review bound
+	// would keep out of the reviewer's copy, measured before any check ran.
+	StopReviewBound StopClass = "review-bound"
 
 	// StopChecks is the checking gate: a configured check that kept failing or
 	// could not run, a protected path the change kept touching, or a change nobody
@@ -96,6 +99,7 @@ var stopClasses = []StopClass{
 	StopUsagePause, StopOperator, StopManager, StopRedeploy, StopDeadClaim,
 	StopDeveloperAccount, StopReviewAccount, StopEscalated, StopContextBound,
 	StopStateBound, StopEventBound, StopIntegrationPolicy, StopRecoveryWindow,
+	StopReviewBound,
 }
 
 // StopClasses is the stop vocabulary as a caller outside this package reads it,

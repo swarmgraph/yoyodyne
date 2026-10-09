@@ -575,6 +575,13 @@ func (a *activeRun) observeCheckEnded(ctx context.Context, err error, unrepaired
 		a.observe(ctx, deliveryCheck, "refused")
 		return
 	}
+	// A change too large for the reviewer's copy is refused by the same state and
+	// never handed back, whatever budget is left.
+	var overBound reviewBoundRefusal
+	if errors.As(err, &overBound) {
+		a.observe(ctx, deliveryCheck, "refused-unrepaired")
+		return
+	}
 	var failing checkFailure
 	if errors.As(err, &failing) {
 		if unrepaired {

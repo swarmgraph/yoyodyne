@@ -129,7 +129,7 @@ func deliverySteps() []deliveryStep {
 		{
 			action: action.Action[*activeRun]{
 				Name:    "candidate.check",
-				Summary: "refuse a change that touched paths this work item does not grant or that its developer ran nothing against, then run the project's configured checks over it",
+				Summary: "refuse a change that touched paths this work item does not grant, that is too large for the reviewer's copy, or that its developer ran nothing against, then run the project's configured checks over it",
 				Wraps:   "(*activeRun).verify",
 				Capabilities: []capability.Capability{
 					capability.RepositoryRead,

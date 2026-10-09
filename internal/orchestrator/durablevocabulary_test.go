@@ -167,7 +167,8 @@ func TestTheDurableSchemaStoresEveryStopClassThePipelineRecords(t *testing.T) {
 		"unknown", "check-timeout", "provider-idle", "provider-budget", "relaunch-budget",
 		"repair-budget", "integration-budget", "promotion-wait", "usage-pause", "operator-stop",
 		"manager-stop", "redeploy-drain", "dead-claim", "developer-account", "review-account",
-		"work-item-escalated", "context-bound", "state-bound", "event-bound", "integration-policy", "recovery-window"}
+		"work-item-escalated", "context-bound", "state-bound", "event-bound", "integration-policy", "recovery-window",
+		"review-bound"}
 	for _, cause := range runstate.EnvironmentalCauses() {
 		want = append(want, cause.StopClass())
 	}
