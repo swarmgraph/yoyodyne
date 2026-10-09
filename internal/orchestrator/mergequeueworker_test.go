@@ -681,9 +681,7 @@ func TestARestartWaitsOutAStageAnEarlierWorkerLeftRunning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := syscall.Flock(int(orphan.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatal(err)
-	}
+	lockOrphan(t, orphan)
 	verification, err := f.work()
 	if err != nil || verification.Waiting == "" || verification.Verified || !strings.Contains(verification.Waiting, "still running") {
 		t.Fatalf("Work() = %#v, %v; want it to wait for the running checks", verification, err)
@@ -700,6 +698,27 @@ func TestARestartWaitsOutAStageAnEarlierWorkerLeftRunning(t *testing.T) {
 	verification, err = f.work()
 	if err != nil || !verification.Verified || len(verification.Generation.Interruptions) != 1 || f.checks.calls() != 2 {
 		t.Fatalf("Work() = %#v, %v with %d check runs; want the checks run again once the first ended", verification, err, f.checks.calls())
+	}
+}
+
+// lockOrphan takes the stage's hold for the test's stand-in orphan. The checks
+// that held it have exited by the time Work returns, but the operating system
+// may take a moment to release the hold they carried, more so on a machine
+// running the whole suite at once. So the lock is asked for again for a
+// bounded while rather than once: a hold that something keeps for the whole
+// bound still fails the test.
+func lockOrphan(t *testing.T, orphan *os.File) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		err := syscall.Flock(int(orphan.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
+			t.Fatalf("take the checks' hold for the stand-in orphan: %v", err)
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 

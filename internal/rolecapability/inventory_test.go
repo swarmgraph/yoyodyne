@@ -507,6 +507,14 @@ var expresses = map[string]expression{
 		question: "none: whether a candidate earned promotion is read from its recorded evidence, and the reviewer who earns half of it is the reviewer role already asked about above",
 		gap:      "the gate is a reading of evidence rather than authority any role holds; the authority it guards is the promotion, which is the promotion lease's question",
 	},
+	"merge-queue.promote-under-lease": {
+		question: "no role holds either half; moving the target onto a queue candidate without the lease is refused where the harness does it",
+		asks:     []capability.Capability{capability.PromotionLease, capability.TargetBranchMutate},
+	},
+	"merge-queue.landing-writer": {
+		question: "no role holds it; only the harness process holding the queue's worker lease records how an entry landed",
+		gap:      "the same as the generation writer beside it: writing the queue's own record of its mutations is the harness's bookkeeping, and no role could be asked whether it holds it",
+	},
 	"converge.catch-up-under-lease": {
 		question: "no role holds either half; the reconciler is the harness under the same lease",
 		asks:     []capability.Capability{capability.PromotionLease, capability.TargetBranchMutate},

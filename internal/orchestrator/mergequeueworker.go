@@ -10,10 +10,9 @@ package orchestrator
 //
 // What it leaves is evidence and nothing else. It never takes the promotion
 // lease — the checks and the review are the long part of the queue, and the
-// promotion lease is held only for the short step a later promotion takes —
-// and it never moves a branch. A promotion reads the generation it leaves
-// (runstate.MergeQueueStore.VerifiedGeneration) and checks its gate again
-// under its own lease.
+// promotion lease is held only for the short step a promotion takes — and it
+// never moves a branch. The promotion (mergequeuepromotion.go) reads the
+// generation it leaves and checks its gate again under its own lease.
 //
 // The target moving while the checks or the review run makes the generation
 // one nothing may promote: it is invalidated as drift, which is nobody's
@@ -105,7 +104,7 @@ type MergeQueueWorker struct {
 	// Events records the event stream of each generation's checks and review.
 	Events func(event execution.Event) error
 	// Waiting reports whether an admitted entry still waits to be integrated.
-	// Landing and withdrawal belong to later work, which supplies it; nil is
+	// MergeQueueWaiting answers it from the queue's landing records; nil is
 	// every admitted entry waiting.
 	Waiting func(entry runstate.MergeQueueEntry) bool
 	// UsageLimits is where a provider refusing the review for want of capacity
