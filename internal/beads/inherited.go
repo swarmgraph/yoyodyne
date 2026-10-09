@@ -3,7 +3,8 @@ package beads
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
+
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // InheritedBlock is a wait an item is under that it does not record itself: an
@@ -158,9 +159,9 @@ func (b InheritedBlock) Name(id, status string) string {
 	title := b.Titles[id]
 	switch {
 	case title != "" && status != "":
-		return fmt.Sprintf("'%s' (%s, %s)", oneLine(title), id, status)
+		return fmt.Sprintf("'%s' (%s, %s)", oneline.Fold(title, maxInheritedTitleBytes), id, status)
 	case title != "":
-		return fmt.Sprintf("'%s' (%s)", oneLine(title), id)
+		return fmt.Sprintf("'%s' (%s)", oneline.Fold(title, maxInheritedTitleBytes), id)
 	case status != "":
 		return fmt.Sprintf("%s (%s)", id, status)
 	default:
@@ -171,19 +172,6 @@ func (b InheritedBlock) Name(id, status string) string {
 // maxInheritedTitleBytes bounds one title in the sentence, so a long title
 // cannot become the read.
 const maxInheritedTitleBytes = 120
-
-// oneLine folds a title onto one bounded line.
-func oneLine(title string) string {
-	title = strings.Join(strings.Fields(title), " ")
-	if len(title) <= maxInheritedTitleBytes {
-		return title
-	}
-	cut := maxInheritedTitleBytes
-	for cut > 0 && !utf8.RuneStart(title[cut]) {
-		cut--
-	}
-	return title[:cut] + "…"
-}
 
 // DescribeInheritedBlocks is every inherited block on one line, followed by
 // what that means for the item, and empty where there is none.
