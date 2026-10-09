@@ -24,6 +24,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // withdrawingForge withdraws the fixture forge's queued merge, answering each
@@ -666,8 +667,20 @@ func TestTheRunHandbackBlocksTheSameRunOnceAndChargesNothing(t *testing.T) {
 	t.Parallel()
 
 	f, _ := failingFixture(t, 2, 1)
+	// The run as the queue finds it: it ended succeeded once its change was
+	// approved, and keeps its branch, checkout, and session.
 	f.run.admittedRun.state.Status = runstate.StatusSucceeded
-	handback := MergeQueueRunHandback{Store: f.run, Tracker: f.tracker}
+	f.run.admittedRun.state.ProductID = "yoyodyne"
+	f.run.admittedRun.state.TargetBranch = "main"
+	f.run.admittedRun.state.WorktreePath = f.repository
+	f.run.admittedRun.state.BaseCommit = f.local("main")
+	store := f.run.admittedRun.StateStore.(*runstate.Store)
+	docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	docketer := &Docketer{Docket: docket, Runs: latestRun{f.run}, Decisions: store.Triage(), Reruns: store.Reruns()}
+	handback := MergeQueueRunHandback{Store: f.run, Tracker: f.tracker, Docket: docketer}
 	f.promoter.Repair = handback
 	recovered, err := f.recover()
 	if err != nil || recovered.Handback == nil || recovered.Handback.Continuation != runstate.MergeQueueContinueRepair {
@@ -689,6 +702,19 @@ func TestTheRunHandbackBlocksTheSameRunOnceAndChargesNothing(t *testing.T) {
 	if !strings.Contains(strings.Join(f.tracker.Calls, " "), "block") {
 		t.Fatalf("tracker calls %v, want the item blocked on the hand-back", f.tracker.Calls)
 	}
+	// The run is a stopped run now, docketed for the development manager the
+	// way the repair continuation takes a stoppage up: failed, with its
+	// failing check returned to its developer.
+	if saved.Status != runstate.StatusFailed || !saved.HandedBack() {
+		t.Fatalf("run status %s, handed back %v; want a failed run whose failure was returned for repair", saved.Status, saved.HandedBack())
+	}
+	if err := continuableRepair(saved, triage.Found{BranchThere: true, WorktreeThere: true}); err != nil {
+		t.Fatalf("the repair continuation refuses the handed-back run: %v", err)
+	}
+	entries, err := docket.List()
+	if err != nil || len(entries) != 1 || entries[0].RunID != f.entry.RunID || entries[0].WorkItemID != f.entry.WorkItemID {
+		t.Fatalf("docket = %#v, %v; want the same run docketed once", entries, err)
+	}
 	// Asked again for the same candidate — a process that stopped after the
 	// hand-back and before writing it down — it makes nothing twice.
 	calls := len(f.tracker.Calls)
@@ -697,5 +723,46 @@ func TestTheRunHandbackBlocksTheSameRunOnceAndChargesNothing(t *testing.T) {
 	}
 	if f.run.saveCount() != 1 || len(f.tracker.Calls) != calls {
 		t.Fatal("handing the same candidate back again wrote to the run or the item again")
+	}
+	if again, err := docket.List(); err != nil || len(again) != 1 {
+		t.Fatalf("docket after a second hand-back = %#v, %v; want one entry", again, err)
+	}
+}
+
+// latestRun is the docket's view of the fixture's one run as it stands.
+type latestRun struct{ run *recordingRun }
+
+func (l latestRun) Recorded() ([]runstate.State, error) {
+	return []runstate.State{l.run.latest()}, nil
+}
+
+func TestAWithdrawalConfirmedByAPromotionIsReleasedByTheNextRecovery(t *testing.T) {
+	t.Parallel()
+
+	f, withdrawer, _ := queuedMergeFixture(t)
+	withdrawer.answer = func(call int) error {
+		if call == 1 {
+			return orchestratortest.ConnectionReset("disable auto-merge")
+		}
+		return nil
+	}
+	if standing, err := f.withdraw(); err != nil || standing.Unresolved == "" {
+		t.Fatalf("Withdraw() = %#v, %v; want the withdrawal left standing", standing, err)
+	}
+	// The promotion finishes the standing withdrawal, and cannot tell what it
+	// was for, so it records nothing past the confirmation.
+	confirmed, err := f.promote()
+	if err != nil || !confirmed.Withdrawn || f.landing().Handback != nil {
+		t.Fatalf("Promote() = %#v, %v; want the withdrawal confirmed and nothing decided", confirmed, err)
+	}
+	// The verified candidate has not failed, so recovery releases the entry
+	// rather than leaving it at the head of the queue.
+	recovered, err := f.recover()
+	released := f.landing().Handback
+	if err != nil || recovered.Handback == nil || released == nil || released.Continuation != runstate.MergeQueueReleased || released.Mover != ownership.MoverHarness {
+		t.Fatalf("Recover() = %#v, %v, handback %#v; want the entry released to the harness", recovered, err, released)
+	}
+	if after, err := f.promote(); err != nil || after.Entry.EntryID != "" || len(f.forge.MergeRequests()) != 1 {
+		t.Fatalf("Promote() after the release = %#v, %v; want nothing left and nothing asked again", after, err)
 	}
 }

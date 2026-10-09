@@ -553,8 +553,25 @@ func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueue
 		return MergeQueueRecovery{}, err
 	}
 	recovered := MergeQueueRecovery{Entry: entry}
-	if entry.Mode != runstate.MergeQueueHarness {
+	// An entry whose merge was withdrawn and that nothing has handed back or
+	// released yet — a Withdraw or a promotion that stopped short of recording
+	// what followed — is decided here and never left refusing the entries
+	// behind it: handed back where its candidate is a defect, released
+	// otherwise. The promotion cannot tell the two apart, so it is decided here.
+	releaseIfWithdrawn := func(why string) (MergeQueueRecovery, error) {
+		attempt, ok := landing.Current()
+		if !ok || !attempt.Withdrawn() || landing.Handback != nil {
+			return recovered, nil
+		}
+		q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
+		if err := q.release("its queued merge was withdrawn (" + attempt.Withdrawal.Reason + ") and " + why); err != nil {
+			return recovered, err
+		}
+		recovered.Handback = q.landing.Handback
 		return recovered, nil
+	}
+	if entry.Mode != runstate.MergeQueueHarness {
+		return releaseIfWithdrawn("the entry was in the forge's own queue, whose failures are not read here")
 	}
 	generations, readErr := p.Queue.Generations(key, entry.EntryID)
 	failure, failed, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{
@@ -562,8 +579,11 @@ func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueue
 		Configured: runstate.NewMergeQueueCheckConfiguration(p.Pipeline.Config.Checks),
 		TargetRed:  p.targetRed(ctx, key.TargetBranch),
 	})
-	if err != nil || !failed {
+	if err != nil {
 		return recovered, err
+	}
+	if !failed {
+		return releaseIfWithdrawn("its candidate has not failed")
 	}
 	recovered.Failure = failure
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
@@ -753,7 +773,11 @@ func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.Merg
 	state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes)}
 	state.Blocker = runstate.RecordBlocker(notes)
 	now := h.now()
-	if !state.Status.Terminal() {
+	// A run admitted to the queue ended succeeded once its change was approved;
+	// the change has not landed, so it is a stopped run now, failed as a run the
+	// harness stops is, which is the status the docket and the repair
+	// continuation take a stoppage from. A cancelled run keeps its own account.
+	if !state.Status.Terminal() || state.Status == runstate.StatusSucceeded {
 		state.Status = runstate.StatusFailed
 		state.CompletedAt = &now
 	}
