@@ -15,7 +15,8 @@ func TestItemsBlockedThroughAParentAreAGroupNamingIt(t *testing.T) {
 	t.Parallel()
 
 	block := beads.InheritedBlock{Through: []string{"yoyodyne-ifd.433.21"},
-		WaitsOn: []beads.Dependency{{ID: "yoyodyne-ifd.437.14", Type: beads.BlocksDependency}}}
+		WaitsOn: []beads.Dependency{{ID: "yoyodyne-ifd.437.14", Type: beads.BlocksDependency}},
+		Titles:  map[string]string{"yoyodyne-ifd.433.21": "Automatic document publication", "yoyodyne-ifd.437.14": "Amendment ownership design"}}
 	groups := newWaitGroups(Stall{}, switches{})
 	for _, id := range []string{"yoyodyne-ifd.433.21.1", "yoyodyne-ifd.433.21.2"} {
 		entry := backlog.Entry{ID: id, Status: "open", InheritedBlocks: []beads.InheritedBlock{block}}
@@ -28,7 +29,7 @@ func TestItemsBlockedThroughAParentAreAGroupNamingIt(t *testing.T) {
 		t.Fatalf("groups = %+v, want the inherited group of two first, the harness's", listed)
 	}
 	says := listed[0].Says()
-	if want := "2 are blocked through yoyodyne-ifd.433.21, which waits on yoyodyne-ifd.437.14 and holds back the items under it"; !strings.HasPrefix(says, want) {
+	if want := "2 are blocked through 'Automatic document publication' (yoyodyne-ifd.433.21), which waits on 'Amendment ownership design' (yoyodyne-ifd.437.14) and holds back the items under it"; !strings.HasPrefix(says, want) {
 		t.Fatalf("says = %q, want it to open %q", says, want)
 	}
 	if listed[1].Kind != backlog.HeldUnread || listed[1].Count != 1 {

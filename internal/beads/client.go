@@ -271,6 +271,9 @@ type Dependency struct {
 	ID      string
 	Type    string
 	Status  string
+	// Title is the linked item's title where the reading carried it: `bd show`
+	// lists the linked items themselves, and a listing's edge carries none.
+	Title string
 	// CreatedAt is when the link was made, with bd's stamp corrected where it
 	// is provably early (dependencyCreatedAt says which). It is the zero time
 	// where the tracker gave no stamp this could read, and on `bd show`, which
@@ -1852,6 +1855,7 @@ type rawDependency struct {
 	ID             string `json:"id"`
 	IssueID        string `json:"issue_id"`
 	DependsOnID    string `json:"depends_on_id"`
+	Title          string `json:"title"`
 	DependencyType string `json:"dependency_type"`
 	Type           string `json:"type"`
 	Status         string `json:"status"`
@@ -1945,6 +1949,7 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 				ID:        id,
 				Type:      dependencyType,
 				Status:    dependency.Status,
+				Title:     dependency.Title,
 				CreatedAt: linked,
 			})
 		}

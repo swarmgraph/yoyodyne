@@ -3,6 +3,7 @@ package beads
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // InheritedBlock is a wait an item is under that it does not record itself: an
@@ -21,6 +22,10 @@ type InheritedBlock struct {
 	// WaitsOn is the unfinished work that ancestor waits on, with the status the
 	// reading carried where it carried one.
 	WaitsOn []Dependency `json:"waits_on"`
+	// Titles is the title of each item named above, by identifier, where the
+	// reading had one, so a person is told what each item is and not only its
+	// identifier.
+	Titles map[string]string `json:"titles,omitempty"`
 }
 
 // maxInheritedDepth bounds how far up the parent chain a reading walks. A
@@ -45,6 +50,7 @@ func InheritedBlocks(item WorkItem, lookup func(id string) (WorkItem, bool, erro
 	seen := map[string]struct{}{strings.TrimSpace(item.ID): {}}
 	var blocks []InheritedBlock
 	var through []string
+	titles := map[string]string{}
 	current := item
 	for depth := 0; depth < maxInheritedDepth; depth++ {
 		parent := current.DecomposedFrom()
@@ -63,19 +69,46 @@ func InheritedBlocks(item WorkItem, lookup func(id string) (WorkItem, bool, erro
 			break
 		}
 		through = append(through, parent)
+		if title := strings.TrimSpace(ancestor.Title); title != "" {
+			titles[parent] = title
+		}
 		var waits []Dependency
+		blockTitles := map[string]string{}
 		for _, id := range waiting(ancestor) {
 			if _, recorded := own[id]; recorded {
 				continue
 			}
-			waits = append(waits, dependencyOn(ancestor, id))
+			dependency := dependencyOn(ancestor, id)
+			waits = append(waits, dependency)
+			if title := awaitedTitle(dependency, lookup); title != "" {
+				blockTitles[id] = title
+			}
 		}
 		if len(waits) > 0 {
-			blocks = append(blocks, InheritedBlock{Through: append([]string(nil), through...), WaitsOn: waits})
+			for _, id := range through {
+				if title, known := titles[id]; known {
+					blockTitles[id] = title
+				}
+			}
+			blocks = append(blocks, InheritedBlock{Through: append([]string(nil), through...), WaitsOn: waits, Titles: blockTitles})
 		}
 		current = ancestor
 	}
 	return blocks, nil
+}
+
+// awaitedTitle is the title of the work an ancestor waits on: the one its link
+// carried, or else the one a lookup of that work gives. A lookup that fails
+// leaves the work named by its identifier alone, which is all that is lost.
+func awaitedTitle(dependency Dependency, lookup func(id string) (WorkItem, bool, error)) string {
+	if title := strings.TrimSpace(dependency.Title); title != "" {
+		return title
+	}
+	awaited, _, err := lookup(dependency.ID)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(awaited.Title)
 }
 
 // dependencyOn is the blocking link an ancestor records to id.
@@ -97,19 +130,59 @@ func (b InheritedBlock) Describe() string {
 		return ""
 	}
 	var chain strings.Builder
-	fmt.Fprintf(&chain, "its parent %s", b.Through[0])
+	fmt.Fprintf(&chain, "its parent %s", b.Name(b.Through[0], ""))
 	for i := 1; i < len(b.Through); i++ {
-		fmt.Fprintf(&chain, ", whose parent is %s", b.Through[i])
+		fmt.Fprintf(&chain, ", whose parent is %s", b.Name(b.Through[i], ""))
 	}
 	waits := make([]string, 0, len(b.WaitsOn))
 	for _, dependency := range b.WaitsOn {
-		if status := strings.TrimSpace(dependency.Status); status != "" {
-			waits = append(waits, fmt.Sprintf("%s (%s)", dependency.ID, status))
-			continue
-		}
-		waits = append(waits, dependency.ID)
+		waits = append(waits, b.Name(dependency.ID, dependency.Status))
 	}
 	return fmt.Sprintf("blocked through %s, which waits on %s", chain.String(), strings.Join(waits, ", "))
+}
+
+// Waiting is the ancestor that waits, the last of the chain.
+func (b InheritedBlock) Waiting() string {
+	if len(b.Through) == 0 {
+		return ""
+	}
+	return b.Through[len(b.Through)-1]
+}
+
+// Name names one item of the block by what it is and then its identifier —
+// 'Automatic document publication' (yoyodyne-ifd.433.21) — with its status
+// beside the identifier where one is given. An item whose title the reading did
+// not have is named by its identifier alone.
+func (b InheritedBlock) Name(id, status string) string {
+	status = strings.TrimSpace(status)
+	title := b.Titles[id]
+	switch {
+	case title != "" && status != "":
+		return fmt.Sprintf("'%s' (%s, %s)", oneLine(title), id, status)
+	case title != "":
+		return fmt.Sprintf("'%s' (%s)", oneLine(title), id)
+	case status != "":
+		return fmt.Sprintf("%s (%s)", id, status)
+	default:
+		return id
+	}
+}
+
+// maxInheritedTitleBytes bounds one title in the sentence, so a long title
+// cannot become the read.
+const maxInheritedTitleBytes = 120
+
+// oneLine folds a title onto one bounded line.
+func oneLine(title string) string {
+	title = strings.Join(strings.Fields(title), " ")
+	if len(title) <= maxInheritedTitleBytes {
+		return title
+	}
+	cut := maxInheritedTitleBytes
+	for cut > 0 && !utf8.RuneStart(title[cut]) {
+		cut--
+	}
+	return title[:cut] + "…"
 }
 
 // DescribeInheritedBlocks is every inherited block on one line, followed by

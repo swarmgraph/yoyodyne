@@ -189,11 +189,11 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 		if len(entry.InheritedBlocks) > 0 {
 			block := entry.InheritedBlocks[0]
 			waits = fmt.Sprintf("%s, which waits on %s and holds back the items under it",
-				block.Through[len(block.Through)-1], inheritedWaits(block))
+				block.Name(block.Waiting(), ""), inheritedWaits(block))
 		}
 		return WaitGroup{Kind: kind, Mover: MoverHarness,
 			WaitsOn: "are blocked through " + waits,
-			Next:    "the tracker offers each once that work lands; the refusal beside each item names its chain of parents"}
+			Next:    "the tracker offers each once that work lands; each item's own line names the parents between it and the waiting item"}
 	case backlog.HeldByConversation:
 		role := entry.Executor.Role()
 		carrier := "a role's conversation"
@@ -222,7 +222,7 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 func inheritedWaits(block beads.InheritedBlock) string {
 	waits := make([]string, 0, len(block.WaitsOn))
 	for _, dependency := range block.WaitsOn {
-		waits = append(waits, dependency.ID)
+		waits = append(waits, block.Name(dependency.ID, ""))
 	}
 	return strings.Join(waits, ", ")
 }

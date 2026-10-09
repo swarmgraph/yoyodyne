@@ -27,7 +27,7 @@ func TestAChildTheTrackerHoldsBackWithItsParentSaysWhatTheParentWaitsOn(t *testi
 	if child.HoldKind() != HeldInherited {
 		t.Fatalf("kind = %q, want %q", child.HoldKind(), HeldInherited)
 	}
-	want := "blocked through its parent yoyodyne-ifd.433.21, which waits on yoyodyne-ifd.437.14. The item records no such link itself"
+	want := "blocked through its parent 'Publication' (yoyodyne-ifd.433.21), which waits on 'Amendment ownership design' (yoyodyne-ifd.437.14). The item records no such link itself"
 	if !strings.Contains(child.Hold(), want) {
 		t.Fatalf("hold = %q, want it to contain %q", child.Hold(), want)
 	}

@@ -43,8 +43,10 @@ func TestAnItemReadSaysItIsBlockedThroughItsParent(t *testing.T) {
 		"yoyodyne-ifd.433.21": {ID: "yoyodyne-ifd.433.21", Title: "Automatic document publication", Status: "open", IssueType: "feature",
 			Dependencies: []beads.Dependency{{ID: "yoyodyne-ifd.437.14", Type: beads.BlocksDependency, Status: "open"}}},
 	}
+	items["yoyodyne-ifd.437.14"] = beads.WorkItem{ID: "yoyodyne-ifd.437.14", Title: "Amendment ownership design", Status: "open", IssueType: "task"}
 	detail := readItemAsRole(t, items, "yoyodyne-ifd.433.21.1")
-	want := "inherited block: blocked through its parent yoyodyne-ifd.433.21, which waits on yoyodyne-ifd.437.14 (open). " +
+	want := "inherited block: blocked through its parent 'Automatic document publication' (yoyodyne-ifd.433.21), " +
+		"which waits on 'Amendment ownership design' (yoyodyne-ifd.437.14, open). " +
 		"The item records no such link itself; the tracker holds it back with its parent, and offers it once that work is finished."
 	if !strings.Contains(detail, want) {
 		t.Fatalf("the read does not say the inherited block:\n%s", detail)
@@ -69,7 +71,9 @@ func TestShowSaysAnItemIsBlockedThroughItsParent(t *testing.T) {
 	if err := session.Converse(context.Background(), testConsole(strings.NewReader("/show yoyodyne-ifd.433.21.1\n/exit\n"), &out)); err != nil {
 		t.Fatalf("Converse() error = %v", err)
 	}
-	if want := "inherited block: blocked through its parent yoyodyne-ifd.433.21, which waits on yoyodyne-ifd.437.14 (open)."; !strings.Contains(out.String(), want) {
+	// The work the parent waits on is not one the tracker here describes, so it is
+	// named by its identifier alone.
+	if want := "inherited block: blocked through its parent 'Automatic document publication' (yoyodyne-ifd.433.21), which waits on yoyodyne-ifd.437.14 (open)."; !strings.Contains(out.String(), want) {
 		t.Fatalf("/show does not say the inherited block:\n%s", out.String())
 	}
 }
@@ -86,7 +90,7 @@ func TestAnItemReadNamesBothLinksOfAnInheritedBlockThroughAChainOfTwo(t *testing
 			Dependencies: []beads.Dependency{{ID: "yoyodyne-ifd.12", Type: beads.BlocksDependency, Status: "in_progress"}}},
 	}
 	detail := readItemAsRole(t, items, "yoyodyne-ifd.9.1.1")
-	want := "inherited block: blocked through its parent yoyodyne-ifd.9.1, whose parent is yoyodyne-ifd.9, which waits on yoyodyne-ifd.12 (in_progress)."
+	want := "inherited block: blocked through its parent 'Middle' (yoyodyne-ifd.9.1), whose parent is 'Top' (yoyodyne-ifd.9), which waits on yoyodyne-ifd.12 (in_progress)."
 	if !strings.Contains(detail, want) {
 		t.Fatalf("the read does not name both links of the chain:\n%s", detail)
 	}

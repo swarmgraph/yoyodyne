@@ -1024,12 +1024,13 @@ waits on work the item does not record itself, it says so on an `inherited
 block:` line naming the chain of parents and what the waiting one waits on:
 
 ```text
-inherited block: blocked through its parent yoyodyne-ifd.433.21, which waits on yoyodyne-ifd.437.14 (open). The item records no such link itself; the tracker holds it back with its parent, and offers it once that work is finished.
+inherited block: blocked through its parent 'Automatic document publication' (yoyodyne-ifd.433.21), which waits on 'Amendment ownership design' (yoyodyne-ifd.437.14, open). The item records no such link itself; the tracker holds it back with its parent, and offers it once that work is finished.
 ```
 
-A wait further up names every link — `its parent yoyodyne-ifd.9.1, whose parent
-is yoyodyne-ifd.9, which waits on …` — and an item no parent of which waits
-says nothing. A parent the tracker would not describe is said as unread rather
+Each item is named by its title and then its identifier, and by its identifier
+alone where the tracker gave no title. A wait further up names every link —
+`its parent 'Middle' (yoyodyne-ifd.9.1), whose parent is 'Top' (yoyodyne-ifd.9),
+which waits on …` — and an item no parent of which waits says nothing. A parent the tracker would not describe is said as unread rather
 than read as holding nothing. This reports what the tracker already holds; it
 changes nothing about what blocks an item or what is ready. On 2026-10-05 a
 slice of automatic document publication (`yoyodyne-ifd.433.21.1`) went about
