@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1671,10 +1672,11 @@ func TestAssembleProductBoundsTheDocketAndSaysWhatItCutOut(t *testing.T) {
 	// The oldest are what is kept, because a stoppage waiting longest for a
 	// decision is the one that must not be pushed out by the latest; and what
 	// was left out is counted with how long the oldest of it has waited.
-	if !strings.Contains(bundle.Text, "5 further live docket entry(s) are not listed here, the oldest of them stopped 15d ago") {
+	if !strings.Contains(bundle.Text, "5 further live docket entry(s) have no room here for their evidence, so each is named below in one line with who moves next and the command that shows it whole; the oldest of them stopped 15d ago") {
 		t.Fatalf("a cut docket did not say what it cut:\n%s", bundle.Text)
 	}
-	if !strings.Contains(bundle.Text, "on yoyodyne-0 ") || strings.Contains(bundle.Text, "on yoyodyne-29 ") {
+	listed, named := strings.Join(listedDocketItems(bundle.Text), " "), namedDocketItems(bundle.Text)
+	if !strings.Contains(listed+" ", "yoyodyne-0 ") || strings.Contains(listed+" ", "yoyodyne-29 ") || !slices.Contains(named, "yoyodyne-29") {
 		t.Fatalf("the docket kept the newest entries rather than the oldest:\n%s", bundle.Text)
 	}
 }
@@ -1767,7 +1769,7 @@ func TestTheDocketWindowIsTheLiveDeduplicatedDocketOldestFirstAndResumes(t *test
 	for _, required := range []string{
 		"Docketed 1 time(s) before for this run",
 		"This run has waited since " + repeatFirst.Format(time.RFC3339) + ", when it was first docketed.",
-		"3 further live docket entry(s) are not listed here, the oldest of them stopped 12d ago",
+		"3 further live docket entry(s) have no room here for their evidence, so each is named below in one line with who moves next and the command that shows it whole; the oldest of them stopped 12d ago",
 		"40 docket entry(s) are not listed because the work item they stopped is closed.",
 	} {
 		if !strings.Contains(bundle.Text, required) {
@@ -1846,7 +1848,7 @@ func TestTheDocketWindowListsEveryUndecidedStoppageBeforeAnyDecidedOne(t *testin
 	if len(rendered) > MaxTriageDocketBytes {
 		t.Fatalf("the docket is %d bytes, past its bound of %d", len(rendered), MaxTriageDocketBytes)
 	}
-	if want := "8 further live docket entry(s) are not listed here, the oldest of them stopped 60d ago. 4 of them nobody has decided, and 4 are decisions of yours already recorded and waiting on the harness carrying them out."; !strings.Contains(rendered, want) {
+	if want := "8 further live docket entry(s) have no room here for their evidence, so each is named below in one line with who moves next and the command that shows it whole; the oldest of them stopped 60d ago. 4 of them nobody has decided, and 4 are decisions of yours already recorded and waiting on the harness carrying them out."; !strings.Contains(rendered, want) {
 		t.Fatalf("the docket did not say what remains, want %q:\n%s", want, rendered)
 	}
 	if position == nil {
@@ -1859,8 +1861,11 @@ func TestTheDocketWindowListsEveryUndecidedStoppageBeforeAnyDecidedOne(t *testin
 	if got, want := resumed[:4], []string{"yoyodyne-undecided-25", "yoyodyne-undecided-26", "yoyodyne-undecided-27", "yoyodyne-undecided-28"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("the next window opened with %v, want %v", got, want)
 	}
-	if strings.Contains(next, "yoyodyne-decided-") {
+	if strings.Contains(strings.Join(resumed, " "), "yoyodyne-decided-") {
 		t.Fatalf("a decided entry was listed while undecided ones were left out:\n%v", resumed)
+	}
+	if named := strings.Join(namedDocketItems(next), " "); !strings.Contains(named, "yoyodyne-decided-0") {
+		t.Fatalf("the decided entries with no room for their evidence were not named: %v", named)
 	}
 }
 
@@ -1911,11 +1916,13 @@ func TestCutDocketEntryKeepsWholeLinesAndItsHeading(t *testing.T) {
 	t.Parallel()
 
 	section := "  [stopped run] heading\n" + strings.Repeat("      evidence line\n", 200)
-	if got := cutDocketEntry(section, 0); got != section {
+	entry := docketEntry("run-heading", "yoyodyne-ifd.9")
+	if got := cutDocketEntry(section, 0, entry); got != section {
 		t.Fatal("an entry with no share was cut")
 	}
-	cut := cutDocketEntry(section, 600)
-	if len(cut) > 600 || !strings.HasPrefix(cut, "  [stopped run] heading\n") || !strings.HasSuffix(cut, "shows more of it]\n") {
+	cut := cutDocketEntry(section, 600, entry)
+	if len(cut) > 600 || !strings.HasPrefix(cut, "  [stopped run] heading\n") ||
+		!strings.HasSuffix(cut, "Next mover: you. `yoyo triage show run-heading` shows it whole]\n") {
 		t.Fatalf("cut entry is %d bytes:\n%s", len(cut), cut)
 	}
 	if share := docketEntryShare([]string{"aa", "bbbbbbbbbb", "cccccccccc"}, 12); share != 5 {
@@ -1923,12 +1930,21 @@ func TestCutDocketEntryKeepsWholeLinesAndItsHeading(t *testing.T) {
 	}
 }
 
-// listedDocketItems is the work item each listed docket entry is on, in the
-// order the window lists them.
+// listedDocketItems is the work item each docket entry shown with its evidence
+// is on, in the order the window lists them; namedDocketItems is the same for
+// the entries named in one line.
 func listedDocketItems(text string) []string {
+	return docketItems(text, false)
+}
+
+func namedDocketItems(text string) []string {
+	return docketItems(text, true)
+}
+
+func docketItems(text string, named bool) []string {
 	var items []string
 	for _, line := range strings.Split(text, "\n") {
-		if !strings.HasPrefix(line, "  [") {
+		if !strings.HasPrefix(line, "  [") || strings.HasSuffix(line, "` shows it whole") != named {
 			continue
 		}
 		_, after, found := strings.Cut(line, " on ")
@@ -2053,7 +2069,7 @@ func TestTheDocketWindowListsWaitedStoppagesAfterEveryUndecidedOne(t *testing.T)
 	if strings.Contains(strings.Join(listedDocketItems(crowded), " "), "yoyodyne-waited-") {
 		t.Fatalf("a waited entry was listed while undecided ones were left out:\n%s", crowded)
 	}
-	if want := "14 further live docket entry(s) are not listed here, the oldest of them stopped 40d ago. 3 of them nobody has decided, and 11 are stoppages you decided to wait on, each one undecided again once its wait runs out."; !strings.Contains(crowded, want) {
+	if want := "14 further live docket entry(s) have no room here for their evidence, so each is named below in one line with who moves next and the command that shows it whole; the oldest of them stopped 40d ago. 3 of them nobody has decided, and 11 are stoppages you decided to wait on, each one undecided again once its wait runs out."; !strings.Contains(crowded, want) {
 		t.Fatalf("the docket did not say what remains, want %q:\n%s", want, crowded)
 	}
 }

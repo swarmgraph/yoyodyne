@@ -45,6 +45,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // CapCleared is the ceiling a budget an operator cleared stands at. It is the
@@ -2197,6 +2198,60 @@ func (e Entry) renderNextMover() string {
 	}
 	return "      Next mover: you — " + gone + "nothing the harness has still to carry out is recorded about this stoppage, so what happens to it next is your decision.\n"
 }
+
+// NextMover is who moves next on this entry, in the words its rendering names
+// them in: "you", "the harness", "the next pull", or "unknown". It is read off
+// the rendered line rather than decided beside it, so the one line an entry is
+// cut down to can never name a different mover from the entry shown whole.
+func (e Entry) NextMover() string {
+	line := e.renderNextMover()
+	if e.Class == ClassProductDecision {
+		line = e.renderProductDecision()
+	}
+	_, rest, found := strings.Cut(line, "Next mover: ")
+	if !found {
+		return "unknown"
+	}
+	mover, _, _ := strings.Cut(rest, " —")
+	return strings.TrimSpace(mover)
+}
+
+// ShowCommand is the command that prints this entry whole. It names the run
+// where there is one, as every other triage verb does, and the entry's key where
+// nothing ran.
+func (e Entry) ShowCommand() string {
+	if run := strings.TrimSpace(e.RunID); run != "" {
+		return "yoyo triage show " + run
+	}
+	return "yoyo triage show '" + strings.TrimSpace(e.Key) + "'"
+}
+
+// Line is the entry cut down to one line: what kind of stoppage it is, the
+// item, the run, who moves next, and the command that shows the rest. It is
+// what a docket with no room for an entry's evidence lists in its place, so a
+// stoppage is never left out of a docket for being one too many to show whole.
+// The title is folded so the line stays one line of bounded length
+// (MaxLineBytes).
+func (e Entry) Line() string {
+	run := strings.TrimSpace(e.RunID)
+	if run == "" {
+		run = "nothing ran"
+	}
+	item := e.WorkItemID
+	if title := oneline.Fold(e.WorkItemTitle, maxLineTitleBytes); title != "" {
+		item += " — " + title
+	}
+	return fmt.Sprintf("  [%s] %s on %s (%s); next mover: %s; `%s` shows it whole\n",
+		e.Class.Title(), e.RecordedAt.UTC().Format(time.RFC3339), item, run, e.NextMover(), e.ShowCommand())
+}
+
+// maxLineTitleBytes is how much of an item's title its one line carries, and
+// MaxLineBytes what the whole line comes to with the title at that bound, each
+// identifier as long as a key may be, and the words around them.
+const (
+	maxLineTitleBytes = 160
+	MaxLineBytes      = maxLineTitleBytes + 3*MaxKeyBytes + 256
+)
 
 // integrationResumable is IntegrationResumable over what this entry last found
 // of its run's change.

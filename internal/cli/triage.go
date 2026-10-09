@@ -66,6 +66,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 type triageOutput struct {
@@ -106,11 +107,77 @@ func runTriage(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		return resumeIntegration(ctx, args[1:], stdout, stderr)
 	case "override":
 		return overrideTriageCap(ctx, args[1:], stdout, stderr)
+	case "show":
+		return showStoppage(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown triage command %q\n\n", args[0])
 		printTriageUsage(stderr)
 		return 2
 	}
+}
+
+// showStoppage prints live docket entries whole, as the development manager's
+// docket shows an entry it has room for. It is the command an entry the docket
+// had no room to show whole names, so it matches what that line names: the run,
+// or the entry's key where nothing ran, and also the work item, which prints
+// every live entry on it. It decides nothing and carries nothing out, but it
+// does bring the docket up to date before printing, as the conversation's own
+// reading does: a stoppage no entry recorded yet is recorded then.
+func showStoppage(args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("triage show", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
+	jsonOutput := flags.Bool("json", false, "emit machine-readable JSON")
+	positional, err := parseArguments(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 1 || strings.TrimSpace(positional[0]) == "" {
+		fmt.Fprintln(stderr, "triage show requires exactly one run identifier, docket entry key, or work item identifier")
+		printTriageUsage(stderr)
+		return 2
+	}
+	named := strings.TrimSpace(positional[0])
+	parts, err := buildComponents(*configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	if parts.docket == nil {
+		fmt.Fprintln(stderr, "this product keeps no triage docket, so there is no entry to show")
+		return 1
+	}
+	built, buildErr := docketerFrom(parts).Build()
+	listed := built.Listed()
+	if buildErr != nil && len(listed) == 0 {
+		fmt.Fprintf(stderr, "the triage docket could not be read: %v\n", buildErr)
+		return 1
+	}
+	if buildErr != nil {
+		fmt.Fprintf(stderr, "the triage docket could only be built in part, so an entry it names may be missing: %v\n", buildErr)
+	}
+	var matched []triage.Entry
+	for _, entry := range listed {
+		if entry.Key == named || entry.RunID == named || entry.WorkItemID == named {
+			matched = append(matched, entry)
+		}
+	}
+	if len(matched) == 0 {
+		fmt.Fprintf(stderr, "no live docket entry is on %s: an entry somebody decided, or whose work item is closed, is not live\n", named)
+		return 1
+	}
+	if *jsonOutput {
+		return writeJSON(stdout, stderr, struct {
+			Entries []triage.Entry `json:"entries"`
+		}{matched})
+	}
+	for index, entry := range matched {
+		if index > 0 {
+			fmt.Fprintln(stdout)
+		}
+		fmt.Fprint(stdout, entry.Render())
+	}
+	return 0
 }
 
 func rerunStoppage(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -873,6 +940,7 @@ func printTriageUsage(writer io.Writer) {
        yoyo triage rearm    [options] <run-id>
        yoyo triage resume   [options] <run-id>
        yoyo triage override [options] <beads-id>
+       yoyo triage show     [options] <run-id | docket entry key | beads-id>
 
 "rerun", "repair", and "rearm" carry out a decision the development manager
 recorded about a docketed entry. "resume" carries out no decision, because the
@@ -1011,6 +1079,16 @@ else: the development manager then records the decision the escalation was about
 which spends the item's budget as it always did, and the carry-out acts on that
 decision under every condition it already asks. Crossing a cap and spending it
 are two decisions and stay two.
+
+"show" decides nothing and carries nothing out: it prints live docket entries
+whole, exactly as the development manager's docket shows an entry it has room
+for. Every entry that docket has no room to show whole is named there in one
+line ending in this command. It takes the run the line names, or the entry's key
+where nothing ran, or a work item, which prints every live entry on it. An entry
+somebody decided, or whose work item is closed, is not live and is not shown.
+Before printing it brings the docket up to date, exactly as the development
+manager's own reading of it does, so a stoppage nothing had recorded yet is
+recorded then.
 
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)

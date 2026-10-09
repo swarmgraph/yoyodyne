@@ -287,6 +287,9 @@ type sweepDocketPass struct {
 	next     contextbundle.DocketWindow
 	complete bool
 	known    []triage.Stoppage
+	// whole and cut are the entries this pass's answered turns showed whole and
+	// showed only cut, for the counts its record keeps.
+	whole, cut map[triage.WindowPosition]bool
 }
 
 func (p *sweepDocketPass) Window() string {
@@ -313,8 +316,23 @@ func (p *sweepDocketPass) Window() string {
 }
 
 func (p *sweepDocketPass) Delivered() string {
+	if p.whole == nil {
+		p.whole, p.cut = map[triage.WindowPosition]bool{}, map[triage.WindowPosition]bool{}
+	}
+	cutShort := make(map[triage.WindowPosition]bool, len(p.next.Cut))
+	for _, at := range p.next.Cut {
+		cutShort[at] = true
+	}
 	for _, standing := range p.next.Listed {
 		p.shown = append(p.shown, standing.At())
+		if cutShort[standing.At()] {
+			p.cut[standing.At()] = true
+		} else {
+			p.whole[standing.At()] = true
+		}
+	}
+	for _, standing := range p.next.Unlisted {
+		p.cut[standing.At()] = true
 	}
 	if p.complete {
 		p.pending = nil
@@ -340,7 +358,12 @@ func (p *sweepDocketPass) Remaining() (runstate.DocketDelivery, string) {
 	for _, at := range p.shown {
 		seen[at] = true
 	}
-	delivery := runstate.DocketDelivery{Delivered: len(p.shown)}
+	delivery := runstate.DocketDelivery{Delivered: len(p.shown), Whole: len(p.whole)}
+	for at := range p.cut {
+		if !p.whole[at] {
+			delivery.Cut++
+		}
+	}
 	for _, standing := range p.known {
 		if seen[standing.At()] {
 			continue
@@ -924,6 +947,13 @@ func renderSweep(recorded runstate.Sweep) string {
 	// instance once reads as one pass carrying the burst.
 	if carried := describeCarried(recorded.Events); carried != "" {
 		fmt.Fprintf(&rendered, "  carried %s since its last pass\n", carried)
+	}
+	// A development manager's pass says how much of the docket it showed whole,
+	// so a pass that only saw most of it in one line reads as one that did.
+	if recorded.Docket != nil {
+		if shown := recorded.Docket.Shown(); shown != "" {
+			fmt.Fprintf(&rendered, "  %s\n", shown)
+		}
 	}
 	if recorded.Result == nil {
 		fmt.Fprintf(&rendered, "  no account of this pass was recorded: %s\n", nonEmptySweepProblem(recorded.Problem))

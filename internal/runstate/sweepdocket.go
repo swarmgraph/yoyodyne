@@ -13,10 +13,27 @@ import (
 // than the role's claim about what it read. Undelivered keeps the order for the
 // next pass; Oldest names the longest wait among them for someone reading the
 // pass's record. A provider refusal leaves its attempted slice undelivered.
+//
+// Whole and Cut are how many entries the pass showed whole and how many it
+// showed only cut: with their evidence cut short of its end, or named in one
+// line and never shown with their evidence. An entry named in one line on one
+// turn and shown whole on a later one is counted whole. Both are absent on
+// records written before they were kept.
 type DocketDelivery struct {
 	Delivered   int                     `json:"delivered"`
+	Whole       int                     `json:"whole,omitempty"`
+	Cut         int                     `json:"cut,omitempty"`
 	Undelivered []triage.WindowPosition `json:"undelivered,omitempty"`
 	Oldest      *UndeliveredDocketEntry `json:"oldest,omitempty"`
+}
+
+// Shown says how many entries the pass showed whole and how many cut, or
+// nothing on a record that kept neither count.
+func (d DocketDelivery) Shown() string {
+	if d.Whole == 0 && d.Cut == 0 {
+		return ""
+	}
+	return fmt.Sprintf("showed %d docket entry(s) whole and %d cut — cut short of their evidence, or named in one line", d.Whole, d.Cut)
 }
 
 type UndeliveredDocketEntry struct {
@@ -30,6 +47,12 @@ func (d DocketDelivery) Validate() error {
 	var problems []error
 	if d.Delivered < 0 {
 		problems = append(problems, errors.New("docket delivered count cannot be negative"))
+	}
+	if d.Whole < 0 || d.Cut < 0 {
+		problems = append(problems, errors.New("the counts of docket entries shown whole and cut cannot be negative"))
+	}
+	if d.Whole > d.Delivered {
+		problems = append(problems, errors.New("a pass cannot have shown more docket entries whole than it delivered"))
 	}
 	seen := map[triage.WindowPosition]bool{}
 	for _, at := range d.Undelivered {
