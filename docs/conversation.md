@@ -2967,8 +2967,8 @@ the session budget above.
 When a reconstruction is over the bound, the harness lowers the existing
 rebuild's allowance for old messages until the request fits, oldest first. The
 role is told how many messages are omitted and where they remain. Its current
-turn, role instructions, working picture, saved memories and pending results
-are kept intact. Decisions and docket entries stay in their durable stores;
+turn, role instructions, saved memories and pending results are kept intact.
+Decisions and docket entries stay in their durable stores;
 shortening a request removes no stored record. The event log records the
 shortening as `session.compacted` with reason `request_size`. The check runs
 after endpoint selection, so failover uses the receiving endpoint's bound.
@@ -2981,9 +2981,26 @@ while it waits, the harness rebuilds from that newer record with the reduced
 history allowance. A second size refusal ends that turn.
 A reconstruction that cannot read the durable record ends without another
 provider attempt, returns the read error, and retains the event position of
-any session replacement already recorded. If the fixed instructions and current
-evidence alone cannot fit, the harness refuses before starting the provider and
-says why rather than cutting them to obtain an answer.
+any session replacement already recorded.
+
+**The briefing is fitted to the endpoint as well.** The product briefing may
+be up to 2.5 MiB, which is more than Codex accepts, and a first turn has no
+old messages to drop. So once no old messages are left to drop, the briefing's
+own sections give way, in this order: the shipped documentation, the command
+help, decision records, designs, architectural invariants, directory indexes,
+and last the specifications. Within each kind the longest goes first. A section
+that only has to lose part of itself keeps its opening; one that would keep
+less than 4 KiB is left out whole. Each keeps its heading with a note saying
+what became of it, and the briefing ends with a list of what gave way, with
+each document's path and how to read it with a repository read. The role's
+instructions, a specification carrying the standing goals, the recorded-intent
+section, the work items and docket, memories, pending results and the
+operator's message never give way. The `session.compacted` event records the
+briefing's size before and after and each section that gave way. If even the
+parts that never give way are over the bound, the turn is refused once, before
+the provider is started, with an error naming the size of the role's
+instructions, of the shortest briefing, and of the turn's own evidence; nothing
+is retried.
 
 A memory write that would exceed the 32,768-byte live memory budget is refused
 whole, including a memory compaction: it changes no memory. The refusal names

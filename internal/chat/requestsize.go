@@ -3,10 +3,12 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 )
@@ -85,10 +87,13 @@ func (b requestBounded) Run(ctx context.Context, request backend.RunRequest) (re
 }
 
 // fitRequest measures what this adapter will send, with five percent reserved
-// for endpoint framing or a slightly different character count. Only recorded
-// conversation messages can be removed: the briefing, memory, role contract,
-// pending results and current turn stay intact. A fixed input that cannot fit
-// is refused here without starting the provider.
+// for endpoint framing or a slightly different character count. Old
+// conversation messages are removed first, oldest first. Where none are left
+// to remove, the briefing's sections give way in contextbundle.GiveWayOrder,
+// and the role is told in the briefing which ones and how to read them. The
+// role contract, memory, pending results, the current turn, and the briefing's
+// fixed sections and standing goals stay intact. A turn those alone cannot fit
+// is refused here, once, without starting the provider.
 func (s *Session) fitRequest(adapter Backend, request backend.RunRequest) (backend.RunRequest, error) {
 	sizer, ok := adapter.(backend.RequestSizer)
 	if !ok {
@@ -100,28 +105,131 @@ func (s *Session) fitRequest(adapter Backend, request backend.RunRequest) (backe
 	}
 	budget := limit - limit/20
 	before := size
+	var fitted *briefingFit
 	for size > budget {
 		smaller, changed, err := s.shortenRequest(request)
 		if err != nil {
 			return request, err
 		}
-		if !changed {
-			return request, errors.Join(ErrTurnUnassembled, &backend.RequestTooLarge{Bytes: size, LimitBytes: budget})
+		if changed {
+			request = smaller
+			size, _ = sizer.RequestSize(request)
+			continue
 		}
-		request = smaller
+		shorter, fit, ok := s.fitBriefing(sizer, request, size, budget)
+		if !ok {
+			return request, errors.Join(ErrTurnUnassembled, &TurnTooLarge{
+				RequestBytes: size, LimitBytes: limit, BudgetBytes: budget,
+				InstructionsBytes: len(request.SystemPrompt), BriefingBytes: len(fit.text),
+				TurnBytes: len(request.Prompt) - len(fit.full),
+			})
+		}
+		request, fitted = shorter, &fit
 		size, _ = sizer.RequestSize(request)
 	}
 	if size != before {
 		s.state.LastSequence = max(s.state.LastSequence, request.LastSequence)
-		if err := s.emit(execution.EventSessionCompacted, map[string]any{
+		payload := map[string]any{
 			"reason": "request_size", "request_bytes": before, "limit_bytes": limit,
 			"budget_bytes": budget, "rebuilt_bytes": size,
-		}); err != nil {
+		}
+		if fitted != nil {
+			payload["briefing_bytes"] = len(fitted.full)
+			payload["briefing_fitted_bytes"] = len(fitted.text)
+			payload["briefing_sections"] = fitted.sections
+		}
+		if err := s.emit(execution.EventSessionCompacted, payload); err != nil {
 			return request, err
 		}
 		request.LastSequence = s.state.LastSequence
 	}
 	return request, nil
+}
+
+// TurnTooLarge is a turn refused before sending because the parts of it that
+// never give way are past what the endpoint accepts. It names each part's size,
+// because what has to change is one of them and not the turn's luck.
+type TurnTooLarge struct {
+	RequestBytes      int
+	LimitBytes        int
+	BudgetBytes       int
+	InstructionsBytes int
+	BriefingBytes     int
+	TurnBytes         int
+}
+
+func (e *TurnTooLarge) Error() string {
+	return fmt.Sprintf("this turn was not sent: it is %d bytes as the provider would receive it, and the provider accepts at most %d, or %d once the harness keeps five percent spare. "+
+		"Nothing left in it may be shortened: the role's own instructions are %d bytes, the briefing is %d bytes with every section that may give way already left out, "+
+		"and this turn's evidence and message are %d bytes. None of those is cut to make a turn fit, so the turn is not tried again",
+		e.RequestBytes, e.LimitBytes, e.BudgetBytes, e.InstructionsBytes, e.BriefingBytes, e.TurnBytes)
+}
+
+// Unwrap lets a caller matching the adapter's own refusal match this one.
+func (e *TurnTooLarge) Unwrap() error {
+	return &backend.RequestTooLarge{Bytes: e.RequestBytes, LimitBytes: e.BudgetBytes}
+}
+
+// briefingFit is the briefing a request carried and what it was fitted to.
+type briefingFit struct {
+	full     string
+	text     string
+	sections []contextbundle.FittedSection
+}
+
+// maxBriefingFitAttempts bounds how often a fitted briefing is measured again.
+// An adapter can count escaped text as more than its bytes, so a first fit to
+// the excess in bytes may still be over; each attempt takes off what is left.
+const maxBriefingFitAttempts = 4
+
+// fitBriefing shortens the briefing a request carries until the adapter
+// measures the request within budget. It is false where the request carries no
+// briefing or where the briefing's fixed sections alone do not fit; the fit is
+// then the shortest briefing there is, for naming sizes.
+func (s *Session) fitBriefing(sizer backend.RequestSizer, request backend.RunRequest, size, budget int) (backend.RunRequest, briefingFit, bool) {
+	full := s.briefingIn(request.Prompt)
+	if full == "" {
+		return request, briefingFit{}, false
+	}
+	at := strings.Index(request.Prompt, full)
+	target := len(full) - (size - budget)
+	for attempt := 0; attempt < maxBriefingFitAttempts && target > 0; attempt++ {
+		fit := contextbundle.FitProductContext(full, target)
+		if !fit.Fits {
+			break
+		}
+		candidate := request
+		candidate.Prompt = request.Prompt[:at] + fit.Text + request.Prompt[at+len(full):]
+		measured, _ := sizer.RequestSize(candidate)
+		if measured <= budget {
+			return candidate, briefingFit{full: full, text: fit.Text, sections: fit.Sections}, true
+		}
+		target -= measured - budget
+	}
+	return request, briefingFit{full: full, text: contextbundle.FitProductContext(full, 0).Text}, false
+}
+
+// briefingIn is the picture a request's prompt carries: the one this turn
+// carries itself, or the one a rebuild put in front of it, which is trimmed.
+// The longest that appears is the one fitted, so a picture is never mistaken
+// for part of a longer one.
+func (s *Session) briefingIn(prompt string) string {
+	candidates := []string{s.options.Briefing.Text}
+	if s.carried != nil {
+		candidates = append(candidates, s.carried.Text)
+	}
+	if s.refresh != nil {
+		candidates = append(candidates, s.refresh.briefing.Text)
+	}
+	found := ""
+	for _, candidate := range candidates {
+		for _, text := range []string{candidate, strings.TrimSpace(candidate)} {
+			if len(text) > len(found) && strings.Contains(prompt, text) {
+				found = text
+			}
+		}
+	}
+	return found
 }
 
 // shortenRequest uses the existing reconstruction, oldest messages first. Keep
