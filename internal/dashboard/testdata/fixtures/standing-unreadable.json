@@ -23,5 +23,6 @@
   },
   "reports_problem": "the report pile could not be read: open reports: input/output error",
   "startable": 0,
-  "program_managers_problem": "the program managers' restart requests could not be read: open program-managers/restart-requests.jsonl: input/output error; the pass records could not be read, so no program manager is called stale: open sweeps: input/output error"
+  "program_managers_problem": "the program managers' restart requests could not be read: open program-managers/restart-requests.jsonl: input/output error; the pass records could not be read, so no program manager is called stale: open sweeps: input/output error",
+  "merge_queues_problem": "the merge queues could not be listed: open merge-queues: input/output error"
 }

@@ -516,5 +516,47 @@
       "report_written_at": "2026-09-19T13:40:00Z",
       "restart_requests": []
     }
+  ],
+  "merge_queues": [
+    {
+      "repository": "yoyodyne",
+      "target_branch": "main",
+      "entries": [
+        {
+          "entry_id": "mqe-4f1c2d9e8a7b6c5d4e3f2a1b0c9d8e7f",
+          "order": 3,
+          "place": 3,
+          "work_item_id": "yoyodyne-ifd.230",
+          "title": "Say on the run which check the stage is on",
+          "run_id": "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
+          "mode": "harness",
+          "mode_why": "The forge's merge queue cannot be used for main: the forge has none for it. The harness runs the queue itself.",
+          "state": "verifying",
+          "why": "candidate 1 passed its checks and its review has not finished",
+          "generation": 1
+        },
+        {
+          "entry_id": "mqe-0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+          "order": 2,
+          "place": 2,
+          "work_item_id": "yoyodyne-ifd.222",
+          "title": "Name the stale program managers on the channel",
+          "run_id": "run-1a2b3c4d5e6f708192a3b4c5d6e7f809",
+          "mode": "harness",
+          "state": "landed",
+          "why": "landed on main as 4b825dc642cb, confirmed on the target",
+          "generation": 2,
+          "landed": "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+        }
+      ],
+      "finished": 2,
+      "last_pass": {
+        "at": "2026-09-19T14:04:00Z",
+        "outcome": "waiting",
+        "entry_id": "mqe-4f1c2d9e8a7b6c5d4e3f2a1b0c9d8e7f",
+        "work_item_id": "yoyodyne-ifd.230",
+        "says": "the review is not asked for while the provider is answering nobody"
+      }
+    }
   ]
 }

@@ -614,6 +614,29 @@
             </ul>
           </div>
         </section>
+        <section id="queues" class="panel queues" data-state="ready" aria-labelledby="queues-heading">
+          <div class="panel-head">
+            <h2 id="queues-heading">Merge queues</h2>
+            <p class="panel-note">
+              each change waiting to land on its target branch, in the order it is worked, as
+              <code>yoyo status</code>
+              lists them; a change reads as landed only once the queue confirmed it on the target
+            </p>
+          </div>
+          <div class="section-ready">
+            <ul id="queues-problems" class="degraded" hidden></ul>
+            <ul id="queues-list" class="held-list">
+              <li class="held">
+                <h3 class="held-title">Merge queue for main</h3>
+                <p class="held-reason">Last pass: waiting — the review is not asked for while the provider is answering nobody</p>
+                <ul class="held-list">
+                  <li class="held-reason">3. yoyodyne-ifd.230 Say on the run which check the stage is on — verifying, harness queue — candidate 1 passed its checks and its review has not finished</li>
+                  <li class="held-reason">2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, harness queue — landed on main as 4b825dc642cb, confirmed on the target</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </section>
       </div>
     </main>
     <script src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"></script>

@@ -153,8 +153,8 @@ func (f *promotionFixture) assertLandedOnce(generation runstate.MergeQueueGenera
 	if f.run.saveCount() != 1 {
 		f.t.Fatalf("the run was saved %d times, want its integration recorded once", f.run.saveCount())
 	}
-	if saved := f.run.latest(); saved.Integration == nil || saved.Integration.TargetCommit != generation.Candidate || saved.Integration.SourceCommit != f.head {
-		f.t.Fatalf("run integration = %#v, want the candidate landed from the approved head", saved.Integration)
+	if saved := f.run.latest(); saved.Integration == nil || saved.Integration.TargetCommit != generation.Candidate || saved.Integration.SourceCommit != generation.Candidate {
+		f.t.Fatalf("run integration = %#v, want the candidate landed, recorded as a run's fast-forward is", saved.Integration)
 	}
 	if completes := strings.Count(strings.Join(f.tracker.Calls, " "), "complete"); completes != 1 || !f.tracker.Closed {
 		f.t.Fatalf("work item completed %d times (closed %v), want once", completes, f.tracker.Closed)
@@ -776,8 +776,8 @@ func TestTheForgesQueueIsHandedOnlyAnEntryItStillGatesOnTheCombinedCommit(t *tes
 	if forgeLanded == head || completion == nil || completion.Landed != forgeLanded || completion.RemoteMerge != forgeLanded {
 		t.Fatalf("completion = %#v, want the forge's landed commit %s rather than the head %s", completion, forgeLanded, head)
 	}
-	if integration := f.run.latest().Integration; integration == nil || integration.TargetCommit != forgeLanded || integration.SourceCommit != head {
-		t.Fatalf("run integration = %#v, want the forge's commit landed from the approved head", integration)
+	if integration := f.run.latest().Integration; integration == nil || integration.TargetCommit != forgeLanded || integration.SourceCommit != forgeLanded {
+		t.Fatalf("run integration = %#v, want the forge's commit landed", integration)
 	}
 	if !strings.Contains(f.tracker.CloseReason, forgeLanded) || !strings.Contains(f.tracker.CloseReason, "forge's merge queue") {
 		t.Fatalf("close reason = %q, want it to name the forge's landed commit", f.tracker.CloseReason)
@@ -842,8 +842,10 @@ func TestTheRunCompletionMakesItsRecordsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if run.saveCount() != 1 || !run.latest().Integration.ThroughPullRequest || run.latest().Integration.TargetCommit != landed.Landed {
-		t.Fatalf("run saved %d times as %#v, want once, through the pull request", run.saveCount(), run.latest().Integration)
+	// The landing is confirmed on the target before it is recorded, so the
+	// run's integration is recorded settled rather than waiting on a forge.
+	if run.saveCount() != 1 || run.latest().Integration.ThroughPullRequest || run.latest().Integration.TargetCommit != landed.Landed {
+		t.Fatalf("run saved %d times as %#v, want once, recorded settled", run.saveCount(), run.latest().Integration)
 	}
 	if strings.Count(strings.Join(tracker.Calls, " "), "complete") != 1 {
 		t.Fatalf("tracker calls = %v, want one completion", tracker.Calls)
@@ -884,6 +886,10 @@ func (r *recordingRun) Save(state runstate.State) error {
 	if r.failSaves > 0 {
 		r.failSaves--
 		return errors.New("the run store refused the write")
+	}
+	if _, other := r.admittedRun.others[state.RunID]; other {
+		r.admittedRun.others[state.RunID] = state
+		return nil
 	}
 	r.saves = append(r.saves, state)
 	r.admittedRun.state = state

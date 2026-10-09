@@ -35,10 +35,9 @@ package orchestrator
 // for it. A refusal, a merge the forge stopped holding, and a remote target
 // that moved after the local one was moved are retained as they are and
 // reported. Withdrawing a queued merge and deciding what a failed candidate
-// costs are mergequeuerecovery.go's; moving an entry between modes belongs to
-// later work.
-//
-// Nothing in the harness calls this yet.
+// costs are mergequeuerecovery.go's, and moving an entry between modes is
+// mergequeuetransfer.go's. The merge queue's driver (mergequeuedriver.go)
+// calls it once the worker has verified an entry.
 
 import (
 	"context"
@@ -82,6 +81,7 @@ type MergeQueueLandingRecords interface {
 	RecordGeneration(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) error
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 	RecordLanding(worker *runstate.Lease, key runstate.MergeQueueKey, landing runstate.MergeQueueLanding) error
+	Transfer(ctx context.Context, key runstate.MergeQueueKey, entryID string, mode runstate.MergeQueueMode, evidence runstate.MergeQueueModeEvidence, at time.Time) (runstate.MergeQueueEntry, bool, error)
 }
 
 // MergeQueueCompletion records a confirmed landing outside the queue: on the
@@ -218,27 +218,36 @@ func (p MergeQueuePromoter) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry in admission order whose completion is not whole
-// and that was not handed back, with its landing record.
+// next is the first entry, in the order the queue is worked, whose completion
+// is not whole and that was not handed back, with its landing record. An entry
+// with nothing under way whose candidate waits on its target being made to
+// pass a check (runstate's WaitsOnTarget) is passed over, as the worker passes
+// it over, so it holds back none of the entries behind it.
 func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
 	entries, err := p.Queue.Entries(key)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, err
 	}
-	for _, entry := range entries {
+	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
 		landing, found, err := p.Queue.Landing(key, entry.EntryID)
 		if err != nil {
 			return entry, runstate.MergeQueueLanding{}, false, err
 		}
 		if !found {
-			return entry, runstate.NewMergeQueueLanding(entry), true, nil
+			landing = runstate.NewMergeQueueLanding(entry)
 		}
-		if landing.Handback != nil {
+		if landing.Handback != nil || (landing.Completion != nil && landing.Completion.Whole()) {
 			continue
 		}
-		if landing.Completion == nil || !landing.Completion.Whole() {
-			return entry, landing, true, nil
+		if attempt, attempted := landing.Current(); !attempted || attempt.SetAside != nil {
+			// A candidate record that cannot be read steps nothing aside: it is
+			// evidence that says nothing either way, which Recover reads it as.
+			generations, err := p.Queue.Generations(key, entry.EntryID)
+			if count := len(generations); err == nil && count > 0 && generations[count-1].WaitsOnTarget() {
+				continue
+			}
 		}
+		return entry, landing, true, nil
 	}
 	return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, nil
 }
@@ -1107,9 +1116,12 @@ func (c MergeQueueRunCompletion) now() time.Time {
 	return time.Now()
 }
 
-// RecordRun writes the landing onto the run as its integration. The change the
-// run made is its source; what landed is the commit that carried it — the
-// harness's candidate, or the forge queue's combined commit.
+// RecordRun writes the landing onto the run as its integration: the target
+// moved from the candidate's base onto the commit that landed — the harness's
+// candidate, or the forge queue's combined commit — and that commit is both
+// the integration's source and its target, as a run's own fast-forward is. The
+// run's approved head is inside it, which is what lets the run's branch and
+// worktree be cleaned up on the proof a landed run's are.
 func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
 	state, err := c.Store.Load(entry.RunID)
 	if err != nil {
@@ -1118,12 +1130,15 @@ func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.Mer
 	if state.Integration != nil && state.Integration.TargetCommit == completion.Landed {
 		return nil
 	}
+	// The landing is confirmed on the target by the time this is recorded, and
+	// the local target has followed it, so nothing about the run's integration
+	// waits on a forge: it is recorded as settled, which is what leaves the
+	// run's branch and worktree to the cleanup a landed run is owed.
 	state.Integration = &runstate.Integration{
 		TargetBranch:         entry.TargetBranch,
-		SourceCommit:         entry.ApprovedHead,
+		SourceCommit:         completion.Landed,
 		TargetCommit:         completion.Landed,
 		PreviousTargetCommit: completion.TargetBase,
-		ThroughPullRequest:   completion.Path.ThroughForge() && !completion.Path.MovesLocalTargetFirst(),
 	}
 	state.UpdatedAt = c.now()
 	return c.Store.Save(state)

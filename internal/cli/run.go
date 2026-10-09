@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
+	"github.com/mason-bryant/yoyodyne/internal/queuemode"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/review"
@@ -188,8 +189,12 @@ type components struct {
 	// verb that carries one out writes, and what a conversation's operator
 	// commands write (see intervention.go).
 	interventions *runstate.InterventionStore
-	worktrees     *gitworktree.Manager
-	redactValues  []string
+	// mergeQueues is the product's merge queues: where an approved change is
+	// admitted with execution.merge_queue on, and what the queue's driver
+	// works.
+	mergeQueues  *runstate.MergeQueueStore
+	worktrees    *gitworktree.Manager
+	redactValues []string
 }
 
 // roots is where a product's three durable places are: the checkout the runs
@@ -391,6 +396,10 @@ func buildComponents(configPath string) (components, error) {
 	if err != nil {
 		return components{}, err
 	}
+	mergeQueues, err := runstate.NewMergeQueueStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return components{}, err
+	}
 	branchReviews, err := runstate.NewBranchReviewStore(stateRoot, cfg.Product.ID)
 	if err != nil {
 		return components{}, err
@@ -484,6 +493,7 @@ func buildComponents(configPath string) (components, error) {
 		evaluations:     evaluations,
 		restartRequests: restartRequests,
 		docket:          docket,
+		mergeQueues:     mergeQueues,
 		branchReviews:   branchReviews,
 		directives:      directives,
 		holds:           holds,
@@ -653,6 +663,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			PushRemote:   cfg.Execution.PushRemote,
 			RedactValues: redactValues,
 		},
+		// Where an approved change goes with execution.merge_queue on. It is
+		// wired whatever the switch says and read only where it is on, so turning
+		// the switch off admits nothing new.
+		MergeQueue: parts.mergeQueues,
 		// What the developer and the reviewer report while their work carries on
 		// is collected here. It is wired as its own store rather than through the
 		// run state, because a report outlives the run that made it: the run is
@@ -1390,4 +1404,45 @@ func printRunUsage(writer io.Writer) {
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON`)
+}
+
+// mergeQueueDriverFrom is what works the product's merge queues, built over
+// the same parts and the same pipeline a run is: the queue's checks and
+// reviews pass the doors a run's do and are charged as a run's are. It is
+// built whether or not execution.merge_queue is on, because a queue already
+// admitted to drains in the mode each entry was admitted in after the switch
+// is turned off.
+func mergeQueueDriverFrom(parts components) orchestrator.MergeQueueDriver {
+	pipeline := pipelineFrom(parts)
+	forge := publish.GitHub{
+		Runner: parts.runner, Dir: parts.repository,
+		Remote: parts.config.Execution.Remote, PushRemote: parts.config.Execution.PushRemote,
+		RedactValues: parts.redactValues,
+	}
+	promoter := orchestrator.MergeQueuePromoter{
+		Pipeline: &pipeline,
+		Queue:    parts.mergeQueues,
+		Lander:   parts.worktrees,
+		Harness: queuemode.Harness{
+			PullRequests:       parts.config.Approvals.Publishing == domain.ApprovalAutomatic,
+			CheckConfiguration: runstate.NewMergeQueueCheckConfiguration(parts.config.Checks).Digest,
+		},
+		Completion: orchestrator.MergeQueueRunCompletion{Store: parts.store, Tracker: pipeline.Tracker},
+		Repair:     orchestrator.MergeQueueRunHandback{Store: parts.store, Tracker: pipeline.Tracker, Docket: docketerFrom(parts)},
+	}
+	// The forge is asked about its own queue, and asked to withdraw a merge it
+	// holds, only for a project that publishes through it.
+	if parts.config.Approvals.Publishing == domain.ApprovalAutomatic {
+		promoter.Forge, promoter.Withdrawer = forge, forge
+	}
+	return orchestrator.MergeQueueDriver{
+		Worker: orchestrator.MergeQueueWorker{
+			Pipeline: &pipeline, Queue: parts.mergeQueues, Candidates: parts.worktrees,
+			Events:      parts.mergeQueues.AppendEvent,
+			Waiting:     orchestrator.MergeQueueWaiting(parts.mergeQueues),
+			UsageLimits: parts.usageLimits,
+		},
+		Promoter: promoter,
+		Queues:   parts.mergeQueues,
+	}
 }

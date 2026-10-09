@@ -775,7 +775,11 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// recorded by the dispatch that met it, holds the choosing until a check
 		// finds them in force again or this session runs another build.
 		LaunchSettings: parts.launchSettings,
-		Build:          buildinfo.Commit(),
+		// The merge queues are worked beside every pull, whatever
+		// execution.merge_queue says now: an entry admitted while it was on
+		// drains in the mode it was admitted in after it is turned off.
+		MergeQueues: mergeQueueDriverFrom(parts),
+		Build:       buildinfo.Commit(),
 		// The provider a slot without an endpoint pair of its own dispatches onto,
 		// so a hold on one provider passes over only the slots on it.
 		DeveloperProvider: agentForRole(parts.config, domain.RoleDeveloper).Backend,

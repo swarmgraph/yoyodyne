@@ -44,7 +44,7 @@ var updateRenders = flag.Bool("update-renders", false, "rewrite the rendered pag
 // sections are the eight the page carries, by the id each carries in the
 // shell: the five the design names, the spend box above Running now, and the
 // factory problems and program managers under Provider capacity.
-var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
+var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers", "queues"}
 
 // popups are the three dialogs the page opens over the sections: a grouping —
 // of the pipeline listed by title, or of the attention line listed by what
@@ -78,7 +78,7 @@ func strict(t *testing.T, name string, body []byte, into any) {
 	}
 }
 
-// The shell carries the eight sections, and each of them carries its four states
+// The shell carries the nine sections, and each of them carries its four states
 // with the lines the script fills, so a section the script has not reached yet
 // says it is reading rather than being blank.
 func TestTheShellCarriesEverySectionEachWithItsStates(t *testing.T) {

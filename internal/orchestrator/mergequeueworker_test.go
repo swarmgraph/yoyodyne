@@ -517,13 +517,18 @@ func readQueueFile(t *testing.T, root, relative string) string {
 	return string(content)
 }
 
-// admittedRun answers for the run an entry was admitted for.
+// admittedRun answers for the run an entry was admitted for, and for any
+// other run a test admits beside it.
 type admittedRun struct {
 	StateStore
-	state runstate.State
+	state  runstate.State
+	others map[string]runstate.State
 }
 
 func (r *admittedRun) Load(runID string) (runstate.State, error) {
+	if other, found := r.others[runID]; found {
+		return other, nil
+	}
 	if runID != r.state.RunID {
 		return runstate.State{}, runstate.ErrNoRunInFlight
 	}

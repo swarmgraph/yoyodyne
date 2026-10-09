@@ -549,7 +549,7 @@ async function run(scenario) {
   }
 
   const page = document.getElementById("page");
-  const sections = ["band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
+  const sections = ["band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers", "queues"];
   const popups = ["grouping", "card", "report"];
   const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
   sections.forEach((id) => {
