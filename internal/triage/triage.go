@@ -1818,7 +1818,7 @@ func (e Entry) Render() string {
 		}
 	}
 	if e.StallStop != "" {
-		rendered.WriteString(indented("Stopped by the harness for a silent provider stream", e.StallStop))
+		rendered.WriteString(indented("Stopped by the harness, not by the work", e.StallStop))
 	}
 	if e.Summary != "" {
 		rendered.WriteString(indented("Review summary", e.Summary))

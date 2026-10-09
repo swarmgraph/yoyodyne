@@ -3,7 +3,9 @@ package orchestrator
 // Continuing a first silent-stream stall, by the harness itself.
 //
 // The harness stops a provider invocation whose stream has gone silent for
-// longer than it allows, and leaves the run in flight to be continued. Nothing
+// longer than it allows, or that is still working when its total budget runs
+// out, and leaves the run in flight to be continued; both are continued here
+// (runstate.State.SettledSilentStreamStall). Nothing
 // continues it, so half an hour later the reconciling sweep settles it and
 // dockets it. Until yoyodyne-a0s that entry waited on the development manager
 // recording a repair, which the carry-out then made as a continuation of the
@@ -306,7 +308,7 @@ func (c StallContinuer) closeEntry(entry triage.Entry, reason string) error {
 		WorkItemID:    entry.WorkItemID,
 		Decision:      continuedStallDocketDecision,
 		Reason:        singleLine(reason, triage.MaxMessageBytes),
-		DecidedBy:     "the harness, continuing a run it stopped for a silent provider stream",
+		DecidedBy:     "the harness, continuing a run whose AI session it stopped for going silent or running out of its total budget",
 		ClosedAt:      c.now(),
 	})
 	return err
@@ -324,8 +326,8 @@ func stallContinueReason(prior runstate.State, resumesAt runstate.Phase) string 
 		readopted = " Earlier, " + says + "."
 	}
 	return singleLine(fmt.Sprintf(
-		"Continued after a stall: the AI session running run %s produced no output for longer than the harness allows, so the harness stopped it and the sweep settled it; nothing was judged, so the harness continued the run itself %s, in the same worktree, with no decision asked of anybody (continuation %d of %d). No review round, repair attempt, repair grant, or re-run was spent on it; if it stalls again, it is docketed for the development manager.%s",
-		prior.RunID, where, prior.HarnessStallContinuations()+1, runstate.MaxHarnessStallContinuations, readopted), runstate.MaxSelectionReasonBytes)
+		"Continued after a stall: the AI session running run %s %s, so the harness stopped it and the sweep settled it; the cause was outside the work and nothing was judged, so the harness continued the run itself %s, in the same worktree, with no decision asked of anybody (continuation %d of %d). No review round, repair attempt, repair grant, or re-run was spent on it; if it is stopped this way again, it is docketed for the development manager.%s",
+		prior.RunID, prior.HarnessStopSays(), where, prior.HarnessStallContinuations()+1, runstate.MaxHarnessStallContinuations, readopted), runstate.MaxSelectionReasonBytes)
 }
 
 func (c StallContinuer) validate() error {

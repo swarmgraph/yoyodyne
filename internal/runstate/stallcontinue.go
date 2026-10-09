@@ -3,7 +3,8 @@ package runstate
 // A first silent-stream stall, and the harness continuing it itself.
 //
 // The harness stops a provider invocation that has written nothing for longer
-// than it allows, and leaves the run in flight to be continued. Nothing
+// than it allows, or one still working when its total budget runs out, and
+// leaves the run in flight to be continued. Nothing
 // continues it, so half an hour later the reconciling sweep settles it as a run
 // whose process vanished and dockets it. Until yoyodyne-a0s that entry then
 // waited on the development manager deciding a repair — a decision about a stop
@@ -18,6 +19,12 @@ package runstate
 // was before. This is what the run's record says about that — whether the
 // stoppage is one, whether the harness still continues it, and the sentence
 // every surface says it in.
+//
+// A session the harness stopped because its total budget ran out is continued
+// the same way and counted against the same bound. Both stops are the harness's
+// own clock rather than anything judging the change, and the recovery design
+// says either "owes a continuation rather than a retry"
+// (docs/designs/recoverable-and-terminal-failures.md).
 
 import (
 	"fmt"
@@ -41,14 +48,15 @@ func (s State) HandedBack() bool {
 }
 
 // SettledSilentStreamStall reports a run the sweep settled while it was parked
-// on the harness's own stop of a silent provider stream. This includes a repair
-// already underway: the stop returned no new failure, so continuing that same
-// attempt preserves its repair input and the budget it already consumed.
+// on the harness's own stop of its provider: a silent stream, or a session
+// whose total budget ran out (HarnessStopSays says which). This includes a
+// repair already underway: the stop returned no new failure, so continuing that
+// same attempt preserves its repair input and the budget it already consumed.
 func (s State) SettledSilentStreamStall() bool {
 	if !s.Status.Terminal() || s.Integration != nil || s.IntegrationStop != nil {
 		return false
 	}
-	if s.Environmental == nil || s.Environmental.Cause != CauseProcessVanished || s.Environmental.ProviderStop != ProviderStopStalled {
+	if s.Environmental == nil || s.Environmental.Cause != CauseProcessVanished || s.HarnessStopSays() == "" {
 		return false
 	}
 	switch s.Phase {
@@ -56,6 +64,23 @@ func (s State) SettledSilentStreamStall() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// HarnessStopSays is which of the harness's own two stops ended the AI session,
+// in the words every surface says it in, and is empty for a run the harness did
+// not stop either way.
+func (s State) HarnessStopSays() string {
+	if s.Environmental == nil {
+		return ""
+	}
+	switch s.Environmental.ProviderStop {
+	case ProviderStopStalled:
+		return "produced no output for longer than the harness allows"
+	case ProviderStopBudgetExhausted:
+		return "was still working when its total budget ran out"
+	default:
+		return ""
 	}
 }
 
@@ -100,7 +125,7 @@ func (s State) StallStopSays() string {
 	if !s.SettledSilentStreamStall() {
 		return ""
 	}
-	stopped := "the AI session running this run produced no output for longer than the harness allows, so the harness stopped it: the stop judged nothing and preserved the change and any earlier repair input"
+	stopped := "the AI session running this run " + s.HarnessStopSays() + ", so the harness stopped it: the cause was outside the work, so the stop judged nothing and preserved the change and any earlier repair input"
 	if readopted := s.ReadoptedSays(); readopted != "" {
 		stopped += "; " + readopted
 	}
