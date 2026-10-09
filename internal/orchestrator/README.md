@@ -71,7 +71,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `refuseDispatchEnvironmentally`, `stepCauseOf`, `withFailedRecord`.
 10. **Developer invocation.** `develop` (one attempt plus relaunches and
     waits), `attemptDevelopment` (the metered backend call),
-    `recordDevelopment`, `carrySession`, `mayRelaunch`, `diedTransiently`,
+    `recordDevelopment`, `developerFailure` / `sessionLastLines` (what a
+    failed attempt is recorded as ending on), `carrySession`, `mayRelaunch`,
+    `diedTransiently`,
     `recordRelaunch`, `blockOnSpentRelaunchBudget`, `account`,
     `developerModel`, `developerEffort`.
 11. **Provider refusals and pauses.** `refusedForUsageLimit`,
