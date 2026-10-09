@@ -46,6 +46,10 @@ type DocumentDelivery struct {
 	Settled bool   `json:"settled"`
 	Landed  bool   `json:"landed"`
 	Detail  string `json:"detail"`
+	// WaitingForSlot is the developer capacity that refused the run, where every
+	// slot was taken and the document is waiting for one (see DocumentWait), and
+	// nil otherwise.
+	WaitingForSlot *CapacityError `json:"waiting_for_slot,omitempty"`
 }
 
 func (d DocumentPublication) Validate() error {

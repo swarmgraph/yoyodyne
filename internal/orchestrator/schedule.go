@@ -790,6 +790,10 @@ type Pull struct {
 	// item waits on once that work has closed. Optional; see
 	// ScheduleContinuations.
 	Continuations ScheduleContinuations
+	// Documents is the confirmed documents waiting for a developer slot, which a
+	// pull starts into its free slots before anything else takes one. Optional;
+	// see ScheduleDocuments.
+	Documents ScheduleDocuments
 	// Divergences is the product's record of the target branches the harness
 	// will not catch up to the remote's. Optional; see ScheduleDivergences. A
 	// pull wired without it chooses into a wedged target exactly as it did, and
@@ -1156,6 +1160,10 @@ type Schedule struct {
 	// nothing it was doing, so it is reported beside the pull rather than stopping
 	// it, and the paused run is read again at the next pull.
 	ContinuationProblem string `json:"continuation_problem,omitempty"`
+	// DocumentProblem says the documents waiting for a developer slot could not
+	// be read. Like a continuation problem it stops nothing else the pass does,
+	// and the waits are read again at the next pull.
+	DocumentProblem string `json:"document_problem,omitempty"`
 	// Fired is the recurring tasks this pass woke a role for, and what came back.
 	// It is on the schedule for the reason the escalations are: a pass that woke a
 	// role and spent turns doing it is a pass that did something, and an operator
@@ -1568,11 +1576,38 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// pull leaves each for continuationRetry rather than attempting it every poll.
 	continuing := map[int]string{}
 	refusedContinuations := map[string]refusedContinuation{}
+	// refusedDocuments is the waiting documents this session started whose start
+	// failed, so a pull leaves each for continuationRetry rather than attempting
+	// it every poll.
+	refusedDocuments := map[string]refusedDocument{}
 
 	// settle takes one finished run into the schedule: what became of it, what it
 	// cost, and what it does to the storm the brake is counting.
 	settle := func(done completed) {
 		started := &schedule.Started[done.index]
+		// A waiting document's run is the owning role's document being landed, not
+		// development work: what became of it says nothing about the backlog or
+		// the machine, so it is recorded and priced and counts toward no storm and
+		// no item's exclusion. A start that failed is left for continuationRetry; one
+		// that lost the slot to another run is tried at the next pull.
+		if done.document {
+			started.record(done)
+			if cancel, live := hosted[done.index]; live {
+				cancel(nil)
+				delete(hosted, done.index)
+			}
+			if started.Failure != "" {
+				refusedDocuments[started.WorkItemID] = refusedDocument{at: s.now(), why: started.Failure}
+			} else {
+				delete(refusedDocuments, started.WorkItemID)
+			}
+			if cost, problem := priceRun(spend, started.Outcome); problem != "" {
+				schedule.SpendProblem = problem
+			} else {
+				schedule.SpentUSD += cost
+			}
+			return
+		}
 		if runID, continuation := continuing[done.index]; continuation {
 			delete(continuing, done.index)
 			record := *started
@@ -2441,6 +2476,43 @@ pulling:
 		// a carried-out decision took before the queue was read.
 		freeAtPoll, filledByCarryOut := max(free, 0), 0
 
+		// A confirmed document waiting for a developer slot takes the first free
+		// one, ahead of the development manager's decisions, the paused runs, and
+		// the queue below: it is a short reviewed run of a document a role has
+		// already written, and what it unblocks is usually work waiting behind it.
+		// Nothing already running is stopped for it; it waits for a slot to free.
+		// It is held back by the same switches a continuation is, for the same
+		// reasons, and the run reads them again itself.
+		startedDocuments := 0
+		if _, declining := drain.declinesStarts(pull.Poll, s.now()); !paused && !held && !declining {
+			documents, err := s.nextDocuments(pull, occupied, mine, refusedDocuments, free, len(schedule.Started), passOver)
+			if err != nil {
+				schedule.DocumentProblem = err.Error()
+			} else {
+				schedule.DocumentProblem = ""
+			}
+			for _, wait := range documents {
+				runID := wait.RunID()
+				delete(deferred, runID)
+				index := len(schedule.Started)
+				schedule.Started = append(schedule.Started, Started{WorkItemID: runID, Reason: documentReason(wait)})
+				occupied[runID] = runstate.State{WorkItemID: runID}
+				mine[runID] = index
+				running++
+				free--
+				startedDocuments++
+				// Hosted like any run this session starts, so a drain bound that runs
+				// out stops it exactly as it stops a chosen one.
+				runCtx, cancel := context.WithCancelCause(session.dispatching(ctx, runID))
+				runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
+				hosted[index] = cancel
+				go func(document runstate.DocumentPublication) {
+					outcome, err := pull.Documents.Publish(runCtx, document)
+					deliver(completed{index: index, outcome: outcome, err: err, document: true})
+				}(wait.Document)
+			}
+		}
+
 		// A decision the development manager recorded is fired here, against the same
 		// capacity the queue's own work is chosen against and before any of it at
 		// its item's priority or below: a stoppage she has already judged is work
@@ -3118,7 +3190,7 @@ pulling:
 			}
 			continue
 		}
-		if started > 0 || carrying {
+		if started > 0 || carrying || startedDocuments > 0 {
 			// A run the provider accepted is the provider serving again, whatever
 			// deadline it last named. Keeping the window would have the session go on
 			// reporting itself held while it works, which is the false half of the same
@@ -3148,10 +3220,17 @@ pulling:
 			// held them, because a slot another process's run freed is refilled here
 			// with nothing of this session's having ended, and a reader who sees only
 			// the count cannot tell where the room came from.
-			slots := filledLine(filledByCarryOut+started, freeAtPoll, running-firedCarryOuts-started)
+			slots := filledLine(filledByCarryOut+startedDocuments+started, freeAtPoll, running-firedCarryOuts-startedDocuments-started)
 			if started == 0 {
-				session.filled(fmt.Sprintf("%s; a triage decision the development manager recorded was carried out; nothing was pulled from a backlog of %d admitted, %d of them ready",
-					slots, len(queue.Entries), queue.Ready()) + freedLine(freed))
+				what := "a triage decision the development manager recorded was carried out"
+				switch {
+				case startedDocuments > 0 && carrying:
+					what = "a confirmed document that waited for a slot was started, and " + what
+				case startedDocuments > 0:
+					what = "a confirmed document that waited for a slot was started"
+				}
+				session.filled(fmt.Sprintf("%s; %s; nothing was pulled from a backlog of %d admitted, %d of them ready",
+					slots, what, len(queue.Entries), queue.Ready()) + freedLine(freed))
 				continue
 			}
 			session.filled(fmt.Sprintf("%s; %d item(s) pulled from a backlog of %d admitted, %d of them ready", slots, started, len(queue.Entries), queue.Ready()) + freedLine(freed))
@@ -6084,6 +6163,9 @@ type completed struct {
 	// for every ordinary run: the queue chose those, and there is no decision behind
 	// them to account for.
 	carriedOut *CarriedOut
+	// document marks the run of a confirmed document that waited for a slot;
+	// see nextDocuments.
+	document bool
 }
 
 // record takes a finished run into its schedule entry. A refusal that means the
@@ -6501,6 +6583,9 @@ func (s Schedule) Render() string {
 	// is the stall it exists to end.
 	if s.ContinuationProblem != "" {
 		fmt.Fprintf(&rendered, "a run paused on work its item waits on was not continued: %s\n", s.ContinuationProblem)
+	}
+	if s.DocumentProblem != "" {
+		fmt.Fprintf(&rendered, "a confirmed document waiting for a developer slot was not started: %s\n", s.DocumentProblem)
 	}
 	// And what the pass woke on a cadence, said beside both: a session that spent
 	// turns on a sweep is a session that did something, and the whole account of
