@@ -313,7 +313,7 @@ func fittedSections(segments []briefingSegment) []FittedSection {
 func renderFittedList(sections []FittedSection) string {
 	var rendered strings.Builder
 	rendered.WriteString("\n" + FittedHeading + "\n\n")
-	rendered.WriteString("This briefing did not fit beside your instructions and this turn's evidence in what the provider serving this turn accepts, so the harness shortened it. Your own instructions, the standing goals, the recorded intent section, the work items and docket, and this turn's evidence and message are carried whole. These sections gave way, in this order:\n\n")
+	rendered.WriteString("This briefing did not fit beside your instructions and this turn's evidence in what the provider serving this turn accepts, so the harness shortened it. Your own instructions, the standing goals, the section saying whether a brief and goals are recorded, the work items and docket, and this turn's evidence and message are carried whole. These sections gave way, in this order:\n\n")
 	for _, section := range sections {
 		rendered.WriteString(renderFittedEntry(section))
 	}

@@ -2993,9 +2993,9 @@ that only has to lose part of itself keeps its opening; one that would keep
 less than 4 KiB is left out whole. Each keeps its heading with a note saying
 what became of it, and the briefing ends with a list of what gave way, with
 each document's path and how to read it with a repository read. The role's
-instructions, a specification carrying the standing goals, the recorded-intent
-section, the work items and docket, memories, pending results and the
-operator's message never give way. The `session.compacted` event records the
+instructions, a specification carrying the standing goals, the section saying
+whether a brief and goals are recorded, the work items and docket, memories,
+pending results and the operator's message never give way. The `session.compacted` event records the
 briefing's size before and after and each section that gave way. If even the
 parts that never give way are over the bound, the turn is refused once, before
 the provider is started, with an error naming the size of the role's
