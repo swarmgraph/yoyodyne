@@ -219,19 +219,23 @@ state, and call records as exported fields. Among them are `RecoveryCheckout`
 and `ResumeOwnership` for recovery, `CheckedForge` and `PublicationAnswers` for
 publication, and the conversation, re-arm, and scheduler fakes.
 
-The in-package tests are moving onto them in two changes, split by file name
+The in-package tests moved onto them in two changes, split by file name
 because one change was too large to review:
 
 - **First (yoyodyne-ifd.429.13.6.1).** Every test file whose name sorts before
-  `publish_test.go` takes its fakes from `orchestratortest` and declares none of
-  its own. The old in-package `fakeTracker`, `fakeBackend`, `fakeForge`, and
-  `fakePricer` are gone, because no test uses them any more.
-- **Second (yoyodyne-ifd.429.13.6.2).** The files from `publish_test.go` on move
-  too, and the old names go with them.
+  `publish_test.go` took its fakes from `orchestratortest`. The old in-package
+  `fakeTracker`, `fakeBackend`, `fakeForge`, and `fakePricer` went, because no
+  test used them any more.
+- **Second (yoyodyne-ifd.429.13.6.2).** The files from `publish_test.go` on
+  moved too. The last two old names, `looked` and `answeringForge`, gave way to
+  `orchestratortest`'s `Survival` and `AnsweringForge`, and `fakes_test.go`,
+  which held them, is gone.
 
-The shared fixtures the earlier files reach already use the exported fakes.
-Until the second change, `fakes_test.go` keeps `looked` and `answeringForge` for
-the later files that use them.
+The fakes of the tracker, the backends, the forge, and the worktree manager now
+live only in `orchestratortest`. Nothing under `internal/orchestrator` declares a
+copy of one. A test that needs one answer changed still declares a small type of
+its own, but it wraps an `orchestratortest` fake or the real interface rather
+than repeating one.
 
 The census below was taken on the tree of pull request #757 (base 230c2a83),
 with the same type-checked walk as 429.12. It counted 834 tests, 8 more than

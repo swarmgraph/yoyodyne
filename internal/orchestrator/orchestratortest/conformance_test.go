@@ -4,6 +4,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 )
 
 // Each fake answers for the interface the orchestrator asks of it. This is a
@@ -22,4 +23,6 @@ var (
 	_ orchestrator.RestorableWorktrees   = (*orchestratortest.RecoveryCheckout)(nil)
 	_ orchestrator.PullRequests          = (*orchestratortest.CheckedForge)(nil)
 	_ orchestrator.ReconcilePullRequests = orchestratortest.PublicationAnswers{}
+	_ orchestrator.ReconcilePullRequests = (*orchestratortest.AnsweringForge)(nil)
+	_ readmodel.Remains                  = (*orchestratortest.Survival)(nil)
 )

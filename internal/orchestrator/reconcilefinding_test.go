@@ -16,7 +16,7 @@ func TestReconcileRetriesAnUndeliveredFindingAndClearsItWhenTheForgeAnswers(t *t
 	t.Parallel()
 	fixture, state := newPublicationFixture(t)
 	tracker := &refuseSettlementNoteOnce{WorkTracker: fixture.tracker}
-	forge := &answeringForge{err: errors.New("the forge is unreachable")}
+	forge := &orchestratortest.AnsweringForge{Err: errors.New("the forge is unreachable")}
 	reconciler := Reconciler{Tracker: tracker, Worktrees: newObserver(t, fixture.repository, fixture.worktreeRoot), Store: fixture.store, Publisher: forge}
 	notes := len(fixture.tracker.NoteRecords)
 	first, err := reconciler.RefreshPublications(context.Background())
@@ -38,8 +38,8 @@ func TestReconcileRetriesAnUndeliveredFindingAndClearsItWhenTheForgeAnswers(t *t
 	if saved := loadRun(t, fixture.store, state.RunID); saved.ReconcileFindings == nil || saved.ReconcileFindings[0].Pending {
 		t.Fatal("delivered finding still pending")
 	}
-	forge.err = nil
-	forge.answer = publish.PullRequest{Number: state.PullRequest.Number, State: "MERGED", Merged: true}
+	forge.Err = nil
+	forge.Answer = publish.PullRequest{Number: state.PullRequest.Number, State: "MERGED", Merged: true}
 	results, err := reconciler.RefreshPublications(context.Background())
 	if err != nil || len(results) != 1 || !results[0].Updated || results[0].Finding != nil {
 		t.Fatalf("working refresh = %#v, %v", results, err)
@@ -196,7 +196,7 @@ func TestReconcileDoesNotRepeatAFindingWhoseDeliveryMarkerCannotBeSaved(t *testi
 	fixture, state := newPublicationFixture(t)
 	tracker := &durableFindingNotes{Tracker: fixture.tracker}
 	store := &refusedFindingDeliveryMarker{ReconcileStore: fixture.store, refuse: true}
-	reconciler := Reconciler{Tracker: tracker, Store: store, Worktrees: newObserver(t, fixture.repository, fixture.worktreeRoot), Publisher: &answeringForge{err: errors.New("forge unreadable")}}
+	reconciler := Reconciler{Tracker: tracker, Store: store, Worktrees: newObserver(t, fixture.repository, fixture.worktreeRoot), Publisher: &orchestratortest.AnsweringForge{Err: errors.New("forge unreadable")}}
 	notes := len(fixture.tracker.NoteRecords)
 	for pass := 0; pass < 2; pass++ {
 		results, err := reconciler.RefreshPublications(context.Background())
@@ -375,7 +375,7 @@ func finishedFindingFixture(t *testing.T, step runstate.ReconcileStep, refuseNot
 	if step == runstate.ReconcileRefresh {
 		fixture, state := newPublicationFixture(t)
 		tracker := &refusedFindingNotes{durableFindingNotes: &durableFindingNotes{Tracker: fixture.tracker}, refuse: refuseNotes}
-		forge := &answeringForge{err: errors.New("forge answer unreadable")}
+		forge := &orchestratortest.AnsweringForge{Err: errors.New("forge answer unreadable")}
 		reconciler := &Reconciler{Tracker: tracker, Store: fixture.store, Worktrees: newObserver(t, fixture.repository, fixture.worktreeRoot), Publisher: forge}
 		if results, err := reconciler.RefreshPublications(context.Background()); err != nil || len(results) != 1 || results[0].Finding == nil {
 			t.Fatalf("initial refresh = %+v, %v", results, err)
@@ -389,8 +389,8 @@ func finishedFindingFixture(t *testing.T, step runstate.ReconcileStep, refuseNot
 			t.Fatal(err)
 		}
 		return reconciler, fixture.store, state.RunID, tracker, func() {
-			forge.err = nil
-			forge.answer = publish.PullRequest{Number: state.PullRequest.Number, State: "MERGED", Merged: true}
+			forge.Err = nil
+			forge.Answer = publish.PullRequest{Number: state.PullRequest.Number, State: "MERGED", Merged: true}
 			if results, err := reconciler.RefreshPublications(context.Background()); err != nil || len(results) != 1 || !results[0].Updated || results[0].FindingProblem == "" {
 				t.Fatalf("successful refresh with refused finding maintenance = %+v, %v", results, err)
 			}

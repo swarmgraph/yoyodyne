@@ -1185,7 +1185,7 @@ func TestARepairOfAnApprovedChangeWhoseBranchIsGoneNamesNoResume(t *testing.T) {
 
 	harness := newContinueHarness(t, approvedStoppedState())
 	continuer := harness.continuer()
-	continuer.Remains = &looked{survival: gitworktree.Survival{WorktreePresent: true}}
+	continuer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{WorktreePresent: true}}
 	_, err := continuer.Continue(context.Background(), continueRequest())
 	if err == nil {
 		t.Fatal("Continue() error = nil, want an approved change the environment stopped refused a repair")
@@ -1762,7 +1762,7 @@ func TestRepairChecksTheRepositoryEvenWhenRemovalFlagsDisagree(t *testing.T) {
 		}
 		harness := newContinueHarness(t, state)
 		continuer := harness.continuer()
-		continuer.Remains = &looked{survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
+		continuer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: there, WorktreePresent: there}}
 		result, err := continuer.Continue(context.Background(), continueRequest())
 		if (err == nil) != there || result.Continued != there || (len(harness.started) > 0) != there {
 			t.Fatalf("Continue() = %#v, %v, want continued %t", result, err, there)
@@ -1786,7 +1786,7 @@ func TestRepairOfAStageTimeoutContinuesItsChecksOnThePreservedChange(t *testing.
 	state.CheckStage = &runstate.CheckStage{StartedAt: state.StartedAt, BoundSeconds: 1800, Command: "make race", StoppedAtBound: true}
 	harness := newContinueHarness(t, state)
 	continuer := harness.continuer()
-	continuer.Remains = &looked{survival: gitworktree.Survival{BranchExists: true, WorktreePresent: true}}
+	continuer.Remains = &orchestratortest.Survival{Survival: gitworktree.Survival{BranchExists: true, WorktreePresent: true}}
 	result, err := continuer.Continue(context.Background(), continueRequest())
 	if err != nil || !result.Continued || !result.Checks || result.ResumesAt != runstate.PhaseChecking || len(harness.started) != 1 {
 		t.Fatalf("Continue() = %#v, %v", result, err)
