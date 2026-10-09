@@ -363,7 +363,7 @@ func TestARearmIsRefusedPastOnePerPublication(t *testing.T) {
 	// question is whether one decision buys a second repeat.
 	dropped := harness.reload(t)
 	dropped.PullRequest.MergeQueued = false
-	dropped.PublishFailure = droppedMerge(*dropped.PullRequest, "open", "main")
+	dropped.PublishFailure = droppedMerge(*dropped.PullRequest, "open", "main", "The forge gave no reason for the drop.")
 	if err := harness.runs.Save(dropped); err != nil {
 		t.Fatalf("Save() error = %v", err)
 	}

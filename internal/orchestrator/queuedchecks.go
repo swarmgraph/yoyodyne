@@ -151,7 +151,7 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 			why = fmt.Sprintf("were ended by the forge before any step failed, and the forge would not run them again (%s)", rerunRefused)
 		}
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d %s: %s. The forge's account of each, read under the harness's forge access, is in this item's notes. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
+			"the forge's checks on pull request %d %s: %s. The forge's account of each, read under the harness's forge access, is in this item's notes. The harness withdrew the queued merge rather than leave a red change queued, and "+developmentManagerMovesNext,
 			published.Number, why, checks.Describe(target)))
 	default:
 		// A head level with its target, failing on no file its change touches:
@@ -365,7 +365,7 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	describe := published.Checks.Describe(target)
 	if refusal := unreplayable(state); refusal != "" && !dropped {
 		return r.handBackRedMerge(ctx, state, fmt.Sprintf(
-			"the forge's checks on pull request %d fail on files this change does not touch while its head is behind %s, and the harness cannot bring it up to date: %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and the pull request needs a person",
+			"the forge's checks on pull request %d fail on files this change does not touch while its head is behind %s, and the harness cannot bring it up to date: %s: %s. The harness withdrew the queued merge rather than leave a red change queued, and "+developmentManagerMovesNext,
 			published.Number, target, refusal, describe))
 	}
 	// A head that fell behind is a race the change lost after its merge was

@@ -1131,3 +1131,23 @@ func TestSubstitutionRefusesALineNamingSomethingNoRecordHolds(t *testing.T) {
 		t.Fatal("substituted an unclosed placeholder")
 	}
 }
+
+// A dropped merge is the development manager's to move, in what follows the
+// message and in every persona's own line: a repair, a re-run, or a re-arm is
+// hers to decide and the harness's to carry out, and none of them is on the
+// closed list of acts only a person can perform.
+func TestADroppedMergeNamesTheDevelopmentManagerAsMovingNext(t *testing.T) {
+	t.Parallel()
+
+	if move := nextMoves[KindMergeDropped]; !strings.HasPrefix(move, "the development manager's") {
+		t.Fatalf("whose move follows a dropped merge = %q, want the development manager's", move)
+	}
+	for persona, spoken := range voices {
+		line := spoken.lines[KindMergeDropped]
+		for _, refused := range []string{"somebody", "a person", "by hand", "the operator"} {
+			if strings.Contains(line, refused) {
+				t.Errorf("%s says a dropped merge waits on %q: %q", persona, refused, line)
+			}
+		}
+	}
+}

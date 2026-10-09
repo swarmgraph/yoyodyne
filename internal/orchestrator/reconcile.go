@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -80,6 +81,13 @@ type ReconcilePullRequests interface {
 	State(ctx context.Context, head string) (publish.PullRequest, error)
 	Merge(ctx context.Context, request publish.MergeRequest) (publish.MergeResult, error)
 	SupersededPublications
+}
+
+// ReconcileDrops is the forge access that reads why the forge stopped holding a
+// queued merge. It only reads, and grants nothing. It is satisfied by
+// publish.GitHub.
+type ReconcileDrops interface {
+	QueueRemoval(ctx context.Context, number int) (publish.QueueRemoval, error)
 }
 
 // ReconcileStore is the durable run state reconciliation reads and settles.
@@ -193,6 +201,10 @@ type Reconciler struct {
 	// Optional: a reconciler wired without it reads a queued merge as queued and
 	// nothing more.
 	Checks ReconcileChecks
+	// Drops reads the forge's own account of a queued merge it stopped holding,
+	// which the record of the drop carries (dropAccount). Optional: a reconciler
+	// wired without it records that the forge's reason was not read.
+	Drops ReconcileDrops
 	// Filer files the item a queued merge's check red on the target itself is,
 	// one per target branch and check, as a red landing files its own; the merge
 	// then waits on that item rather than being handed to a person. Optional: a
@@ -799,8 +811,9 @@ func (r Reconciler) blockContradictedIntegration(ctx context.Context, state runs
 //     for it any more. Something the base branch requires went unmet, and the
 //     harness does not merge past a requirement — not with administrator
 //     privileges, not by asking again. The publication is recorded as
-//     outstanding and the item is handed to a person with a durable blocker
-//     rather than closed as integrated: the run that promoted the change left
+//     outstanding, with the forge's own account of the drop (dropAccount), and
+//     the item is handed to the development manager's docket with a durable
+//     blocker rather than closed as integrated: the run that promoted the change left
 //     that closure to the forge's answer, and this is the answer. The change
 //     itself is not at risk — the local target branch it was integrated into is
 //     the authoritative one and moved before any of this — so what the blocker
@@ -840,7 +853,8 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 		published = *state.PullRequest
 		published.MergeQueued = false
 		state.PullRequest = &published
-		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch)
+		account := r.dropAccount(ctx, published, state.Integration.TargetBranch)
+		state.PublishFailure = droppedMerge(published, strings.ToLower(nonEmpty(observed.State, "in an unreported state")), state.Integration.TargetBranch, account)
 		// The moment the drop was found out, written down rather than left to be
 		// worked out again by whoever next reads the record. It is the one thing a
 		// channel can be told, and it is stamped here — before the settlement below
@@ -979,17 +993,25 @@ func itemSettled(state runstate.State, itemStatus string) bool {
 // and it is two different facts depending on what has already been done about
 // this publication.
 //
-// A first drop is work for a person, and where the cause turns out to have been
-// transient it is also the one thing triage may re-arm: the identical
-// already-authorized request, repeated once. A drop of a publication that has
-// already been re-armed is not that. The request has been through the forge's
-// requirements twice and been dropped twice, which is a repository somebody has
-// to look at rather than a transient cause to repeat past — so what is recorded
-// says so, and says it on the item, because the blocker this becomes is what the
-// development manager reads before deciding anything.
-func droppedMerge(published runstate.PullRequest, observedState, targetBranch string) string {
-	dropped := fmt.Sprintf("the forge dropped the queued merge of pull request %d: it is %s and has no merge queued for it. A requirement of %s went unmet, and the harness does not merge past one, so the pull request needs a person",
-		published.Number, observedState, targetBranch)
+// Either way it carries the forge's own account of the drop (dropAccount) and
+// names the development manager as the one who moves next. A dropped merge is
+// a decision about one change — repair it, run it again, or re-arm the
+// identical request — and every one of those is hers to make and the harness's
+// to carry out, so nothing here names a person. Where the forge's account turns
+// out to be a repository setting only a person can change, that is hers to find
+// and to ask for by its exact step.
+//
+// A first drop, where the cause turns out to have been transient, is also the
+// one thing triage may re-arm: the identical already-authorized request,
+// repeated once. A drop of a publication that has already been re-armed is not
+// that. The request has been through the forge's requirements twice and been
+// dropped twice, which is a repository she has to look at rather than a
+// transient cause to repeat past — so what is recorded says so, and says it on
+// the item, because the blocker this becomes is what she reads before deciding
+// anything.
+func droppedMerge(published runstate.PullRequest, observedState, targetBranch, account string) string {
+	dropped := fmt.Sprintf("the forge dropped the queued merge of pull request %d: it is %s and has no merge queued for it. %s The harness does not merge past a requirement of %s, so "+developmentManagerMovesNext,
+		published.Number, observedState, account, targetBranch)
 	if published.MergeRearms == 0 {
 		return dropped
 	}
@@ -1008,6 +1030,81 @@ func ordinalDrop(count int) string {
 	default:
 		return fmt.Sprintf("%dth", count)
 	}
+}
+
+// developmentManagerMovesNext ends the record of a queued merge the harness
+// cannot take further by itself — dropped by the forge, or withdrawn over its
+// checks — by naming who moves it next. Every remedy for one is a decision
+// about one change, which is hers, and carrying it out is the harness's; see
+// droppedMerge for why none of them names a person.
+const developmentManagerMovesNext = "the next move is the development manager's: she decides from her triage docket whether the change is repaired, run again, or its merge re-armed, and the harness carries that out"
+
+// maxDropEvents bounds how many of the forge's queue events a drop's record
+// lists, newest kept, so the account fits the bound the record holds it to.
+const maxDropEvents = 6
+
+// maxDropAccountBytes keeps the forge's account well inside the bound the
+// publication failure is recorded under, with room for the sentences around it.
+const maxDropAccountBytes = 2 << 10
+
+// dropAccount is the forge's own account of why it stopped holding a queued
+// merge, in sentences the drop's record carries: the reason the forge stated
+// for removing the request from its merge queue or turning its auto-merge off,
+// and the requirement of the target its merge state reports unmet. Where the
+// forge stated neither, it says so in as many words. Either way it adds what
+// the harness could read at the moment it found the drop — the checks on the
+// head and the queue events on the request's timeline — so whoever decides
+// about the drop has the evidence on the record rather than on the forge.
+func (r Reconciler) dropAccount(ctx context.Context, published runstate.PullRequest, target string) string {
+	var removal publish.QueueRemoval
+	var unread string
+	if r.Drops == nil {
+		unread = "this sweep has no forge access wired to read them"
+	} else if read, err := r.Drops.QueueRemoval(ctx, published.Number); err != nil {
+		unread = fmt.Sprintf("they could not be read: %v", err)
+	} else {
+		removal = read
+	}
+	var sentences []string
+	reason, requirement := removal.Reason(), removal.Requirement()
+	if reason != "" {
+		sentences = append(sentences, fmt.Sprintf("The forge's reason: %q.", reason))
+	}
+	if requirement != "" {
+		sentences = append(sentences, fmt.Sprintf("The requirement of %s the forge reports unmet: %s.", target, requirement))
+	}
+	if reason == "" && requirement == "" {
+		switch {
+		case unread != "":
+			sentences = append(sentences, fmt.Sprintf("The forge's reason and its merge state were not read, because %s.", unread))
+		case removal.MergeStatusError != "":
+			sentences = append(sentences, fmt.Sprintf("The forge gave no reason for the drop, and its merge state could not be read: %s.", removal.MergeStatusError))
+		default:
+			sentences = append(sentences, fmt.Sprintf("The forge gave no reason for the drop and reports no unmet requirement of %s (its merge state is %s).",
+				target, nonEmpty(removal.MergeStatus, "unreported")))
+		}
+	}
+	checks := "no check reading was taken"
+	if published.Checks != nil {
+		checks = published.Checks.Describe(target)
+	}
+	events := "none recorded"
+	switch {
+	case unread != "":
+		events = "not read"
+	case len(removal.Events) > 0:
+		kept := removal.Events
+		if len(kept) > maxDropEvents {
+			kept = kept[len(kept)-maxDropEvents:]
+		}
+		described := make([]string, 0, len(kept))
+		for _, event := range kept {
+			described = append(described, event.Describe())
+		}
+		events = strings.Join(described, "; ")
+	}
+	sentences = append(sentences, fmt.Sprintf("What the harness could read when it found the drop: %s; merge queue events: %s.", checks, events))
+	return oneline.Fold(strings.Join(sentences, " "), maxDropAccountBytes)
 }
 
 // settleDroppedMerge settles a run whose queued merge the forge gave up on. The
@@ -2092,6 +2189,12 @@ func renderReconcileBlockerNotes(state runstate.State, observation gitworktree.O
 	}
 	if state.RepairAttempts > 0 {
 		lines = append(lines, "Repair attempts already spent: "+strconv.Itoa(state.RepairAttempts))
+	}
+	// A dropped merge sends nothing back to a developer by itself, whatever repair
+	// allowance the run has left, so the note says whose move it is rather than
+	// leaving a reader to infer that nobody's is.
+	if state.MergeDrop != nil {
+		lines = append(lines, "Next move: the development manager's. This stoppage is on her triage docket with the forge's account above; nothing sends the change back to a developer by itself, whatever repair attempts remain, so it moves when she decides a repair, a re-run, or a re-arm of the merge.")
 	}
 	// The relaunch budget is durable for exactly this reader: a run interrupted
 	// after absorbing provider deaths has already spent part of it, and a note

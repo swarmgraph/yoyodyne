@@ -1662,8 +1662,8 @@ func TestReconcileRecordsASecondDropAsAnEscalationRatherThanAReArm(t *testing.T)
 	}
 	for _, want := range []string{
 		// Still everything a first drop says, because it is still a dropped merge
-		// somebody has to look at.
-		"dropped the queued merge", "needs a person",
+		// the development manager decides about.
+		"dropped the queued merge", "the next move is the development manager's",
 		// And what this one is beyond that.
 		"second drop of this publication", "escalation rather than something to re-arm again",
 	} {
@@ -1698,8 +1698,8 @@ func TestReconcileRecordsASecondDropAsAnEscalationRatherThanAReArm(t *testing.T)
 // A queued merge the forge dropped is a requirement that went unmet, and the
 // harness does not merge past one — not by asking again and not with
 // administrator privileges. The publication is reported as outstanding, on the
-// run and on the work item, and the item is handed to a person with a blocker
-// rather than closed as integrated: nothing merged the change anywhere but here.
+// run and on the work item, and the item is handed to the development manager
+// with a blocker rather than closed as integrated: nothing merged the change anywhere but here.
 // The change itself is safe: the local target branch it was integrated into is
 // the authoritative one.
 func TestReconcileReportsAQueuedMergeTheForgeDropped(t *testing.T) {
@@ -1714,7 +1714,7 @@ func TestReconcileReportsAQueuedMergeTheForgeDropped(t *testing.T) {
 	if len(results) != 1 || results[0].Action != ActionBlocked || results[0].Failure != "" {
 		t.Fatalf("reconciliation = %#v, want the run settled on a blocker", results)
 	}
-	for _, want := range []string{"dropped the queued merge", "needs a person"} {
+	for _, want := range []string{"dropped the queued merge", "the next move is the development manager's", "The forge gave no reason for the drop"} {
 		if !strings.Contains(results[0].Detail, want) {
 			t.Errorf("detail %q does not name %q", results[0].Detail, want)
 		}
@@ -1724,10 +1724,10 @@ func TestReconcileReportsAQueuedMergeTheForgeDropped(t *testing.T) {
 		t.Fatalf("a dropped merge closed the item as integrated: reason = %q", fixture.tracker.Record().CloseReason)
 	}
 	if !fixture.tracker.Record().Blocked || !strings.Contains(fixture.tracker.Record().BlockReason, "dropped the queued merge") {
-		t.Fatalf("blocked = %t, reason = %q; want the dropped merge handed to a person",
+		t.Fatalf("blocked = %t, reason = %q; want the dropped merge handed to the development manager",
 			fixture.tracker.Record().Blocked, fixture.tracker.Record().BlockReason)
 	}
-	// A first drop is work for a person and is also the one drop triage may
+	// A first drop is the development manager's and is also the one drop triage may
 	// re-arm, so it must not read as the escalation a second one is.
 	if strings.Contains(fixture.tracker.Record().BlockReason, "escalation rather than something to re-arm again") {
 		t.Fatalf("a first drop was handed over as an escalation: %q", fixture.tracker.Record().BlockReason)
@@ -2081,6 +2081,7 @@ func (f queuedFixture) reconciler(t *testing.T) Reconciler {
 		Worktrees: worktrees,
 		Store:     f.store,
 		Publisher: f.forge,
+		Drops:     f.forge,
 		Sleep:     f.sleep,
 	}
 	if f.docket != nil {

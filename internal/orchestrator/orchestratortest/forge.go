@@ -81,6 +81,10 @@ type Forge struct {
 	Closable map[string]publish.PullRequest
 	Closed   []publish.CloseRequest
 	CloseErr error
+	// Removal is the forge's account of a queued merge it stopped holding, and
+	// RemovalErr is a forge that could not be asked for it.
+	Removal    publish.QueueRemoval
+	RemovalErr error
 }
 
 // ConnectionReset is what the transport writes when it drops a request, in the
@@ -171,6 +175,16 @@ func (f *Forge) PerformQueuedMerge(t *testing.T) {
 // waiting to merge it.
 func (f *Forge) DropQueuedMerge() {
 	f.Queued = false
+}
+
+// QueueRemoval answers with the account the test gave the forge.
+func (f *Forge) QueueRemoval(_ context.Context, number int) (publish.QueueRemoval, error) {
+	if f.RemovalErr != nil {
+		return publish.QueueRemoval{}, f.RemovalErr
+	}
+	removal := f.Removal
+	removal.Number = number
+	return removal, nil
 }
 
 // MergeIntoRemote writes the forge's own merge of a request into the bare

@@ -258,7 +258,7 @@ func TestAQueuedHeadLevelWithItsTargetFailingAnUnrelatedCheckIsHandedBackOnTheFi
 	if len(forge.Withdrawn) != 1 || forge.HoldsQueuedMerge() {
 		t.Fatalf("withdrawn = %v, queued = %t; want the queued merge withdrawn", forge.Withdrawn, forge.HoldsQueuedMerge())
 	}
-	for _, want := range []string{"build (on internal/backend/codex/codex_test.go, which this change does not touch)", "level with main", "needs a person"} {
+	for _, want := range []string{"build (on internal/backend/codex/codex_test.go, which this change does not touch)", "level with main", "the next move is the development manager's"} {
 		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
 			t.Errorf("blocker does not say %q:\n%s", want, fixture.tracker.Record().BlockReason)
 		}
@@ -343,7 +343,7 @@ func TestAQueuedHeadWhoseJobTheForgeEndedIsRunAgainBeforeItIsHandedBack(t *testi
 	if len(results) != 1 || results[0].Action != ActionBlocked || len(forge.Reruns) != runstate.MaxCheckReruns {
 		t.Fatalf("reconciliation = %#v, re-runs = %v; want it handed back once the re-runs are spent", results, forge.Reruns)
 	}
-	for _, want := range []string{"adoption (the forge cancelled the job before any step failed, naming no file)", "ended that way again on each of 2 re-run(s)", "The forge's account of each, read under the harness's forge access, is in this item's notes", "needs a person"} {
+	for _, want := range []string{"adoption (the forge cancelled the job before any step failed, naming no file)", "ended that way again on each of 2 re-run(s)", "The forge's account of each, read under the harness's forge access, is in this item's notes", "the next move is the development manager's"} {
 		if !strings.Contains(fixture.tracker.Record().BlockReason, want) {
 			t.Errorf("blocker does not say %q:\n%s", want, fixture.tracker.Record().BlockReason)
 		}
