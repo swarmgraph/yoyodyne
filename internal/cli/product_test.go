@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/home/hometest"
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/shutdown"
@@ -33,39 +34,9 @@ const productHelperVariable = "YOYODYNE_PRODUCT_TEST_COMMAND"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(productHelperVariable) == "" {
-		// The harness develops itself, so this suite is run from a developer's
-		// own shell as often as from the harness's check -- and that shell is
-		// marked as the developer's, which the verbs that record a person's
-		// decision refuse. The tests exercise those verbs as a person would, so
-		// the marker is cleared here; the tests that assert the refusal set it
-		// again for themselves.
-		os.Unsetenv(execution.AgentRoleVariable)
-		// Every CLI test and detached helper inherits a private default store.
-		root, err := os.MkdirTemp("", "yoyodyne-cli-state-")
-		if err != nil {
-			panic(err)
-		}
-		if err := os.Setenv("YOYODYNE_STATE_HOME", root); err != nil {
-			panic(err)
-		}
-		code := m.Run()
-		// Direct supervisor and installer tests must use their product's own
-		// store, rather than leaking records into even the suite's default.
-		paths, err := filepath.Glob(filepath.Join(root, "projects", "*", "state", "config-readers", "supervisor-*.json"))
-		if err != nil || len(paths) != 0 {
-			fmt.Fprintf(os.Stderr, "supervisor tests leaked configuration records into the default state: %v, %v\n", paths, err)
-			code = 1
-		}
-		// The store began as a new machine home, and every command the suite ran
-		// without a home of its own wrote into it. A products/ directory in it
-		// would switch the whole home to the earlier layout under every store
-		// reading it (home.EarlierLayout), so a writer that made one fails here.
-		if _, err := os.Stat(filepath.Join(root, "products")); !os.IsNotExist(err) {
-			fmt.Fprintf(os.Stderr, "a new machine home acquired a products/ directory, which switches it to the earlier layout: %v\n", err)
-			code = 1
-		}
-		os.RemoveAll(root)
-		os.Exit(code)
+		// No test here leaves a record in the machine's live home, whatever
+		// the private default store below misses (hometest).
+		os.Exit(hometest.GuardLiveHomes(func() int { return runCLITests(m) }, os.Stderr))
 	}
 	// The process answers a stop signal exactly as the real binary does, and it
 	// carries a bound of its own: a helper the test failed to stop ends itself
@@ -76,6 +47,42 @@ func TestMain(m *testing.M) {
 	cancel()
 	stop()
 	os.Exit(code)
+}
+
+func runCLITests(m *testing.M) int {
+	// The harness develops itself, so this suite is run from a developer's
+	// own shell as often as from the harness's check -- and that shell is
+	// marked as the developer's, which the verbs that record a person's
+	// decision refuse. The tests exercise those verbs as a person would, so
+	// the marker is cleared here; the tests that assert the refusal set it
+	// again for themselves.
+	os.Unsetenv(execution.AgentRoleVariable)
+	// Every CLI test and detached helper inherits a private default store.
+	root, err := os.MkdirTemp("", "yoyodyne-cli-state-")
+	if err != nil {
+		panic(err)
+	}
+	if err := os.Setenv("YOYODYNE_STATE_HOME", root); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	// Direct supervisor and installer tests must use their product's own
+	// store, rather than leaking records into even the suite's default.
+	paths, err := filepath.Glob(filepath.Join(root, "projects", "*", "state", "config-readers", "supervisor-*.json"))
+	if err != nil || len(paths) != 0 {
+		fmt.Fprintf(os.Stderr, "supervisor tests leaked configuration records into the default state: %v, %v\n", paths, err)
+		code = 1
+	}
+	// The store began as a new machine home, and every command the suite ran
+	// without a home of its own wrote into it. A products/ directory in it
+	// would switch the whole home to the earlier layout under every store
+	// reading it (home.EarlierLayout), so a writer that made one fails here.
+	if _, err := os.Stat(filepath.Join(root, "products")); !os.IsNotExist(err) {
+		fmt.Fprintf(os.Stderr, "a new machine home acquired a products/ directory, which switches it to the earlier layout: %v\n", err)
+		code = 1
+	}
+	os.RemoveAll(root)
+	return code
 }
 
 // A product with every part off, so starting it exercises the supervisor and
