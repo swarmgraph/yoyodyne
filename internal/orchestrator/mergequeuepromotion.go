@@ -34,8 +34,9 @@ package orchestrator
 // nothing on the new target by the worker. Nothing about the run is charged
 // for it. A refusal, a merge the forge stopped holding, and a remote target
 // that moved after the local one was moved are retained as they are and
-// reported; deciding what each of them costs, withdrawing a queued merge, and
-// moving an entry between modes belong to later work.
+// reported. Withdrawing a queued merge and deciding what a failed candidate
+// costs are mergequeuerecovery.go's; moving an entry between modes belongs to
+// later work.
 //
 // Nothing in the harness calls this yet.
 
@@ -109,6 +110,13 @@ type MergeQueuePromoter struct {
 	Harness queuemode.Harness
 	// Completion records a landing on the run and the work item.
 	Completion MergeQueueCompletion
+	// Withdrawer takes back a merge the forge holds queued, before the change
+	// is handed to repair (mergequeuerecovery.go); nil withdraws nothing, and
+	// a queued merge then stays armed and refuses its hand-back.
+	Withdrawer MergeQueueWithdrawer
+	// Repair hands a defective candidate's run back to its own repair loop;
+	// nil records the decision and leaves the hand-back for a later call.
+	Repair MergeQueueRepair
 }
 
 // MergeQueuePromotion is what one call to Promote found and did. At most one
@@ -134,6 +142,9 @@ type MergeQueuePromotion struct {
 	// Unresolved is a mutation whose outcome is retained as it stands, because
 	// observation did not establish it or it is for later work to settle.
 	Unresolved string
+	// Withdrawn is nothing the queue asked for able to land the change any
+	// more: no merge was asked for, or the forge confirmed it withdrawn.
+	Withdrawn bool
 }
 
 func (o MergeQueuePromotion) stopped() bool {
@@ -177,9 +188,11 @@ func (p MergeQueuePromoter) Promote(ctx context.Context, key runstate.MergeQueue
 
 // MergeQueueWaiting is the worker's Waiting for a queue a promoter lands: an
 // entry waits to be verified until a promotion of it is under way or its
-// landing is recorded. An attempt the promoter set aside is no longer under
-// way, so the entry waits again. A record that cannot be read is taken as
-// waiting, because verifying an entry moves nothing.
+// landing or its handback is recorded. An attempt the promoter set aside is no
+// longer under way, so the entry waits again, except one whose merge was
+// withdrawn: that entry waits for its recovery to be decided instead. A record
+// that cannot be read is taken as waiting, because verifying an entry moves
+// nothing.
 func MergeQueueWaiting(records MergeQueueLandingRecords) func(runstate.MergeQueueEntry) bool {
 	return func(entry runstate.MergeQueueEntry) bool {
 		landing, found, err := records.Landing(entry.Key(), entry.EntryID)
@@ -187,7 +200,7 @@ func MergeQueueWaiting(records MergeQueueLandingRecords) func(runstate.MergeQueu
 			return true
 		}
 		attempt, attempted := landing.Current()
-		return landing.Waiting() && (!attempted || attempt.SetAside != nil)
+		return landing.Waiting() && (!attempted || (attempt.SetAside != nil && !attempt.Withdrawn()))
 	}
 }
 
@@ -205,8 +218,8 @@ func (p MergeQueuePromoter) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry in admission order whose completion is not whole,
-// with its landing record.
+// next is the first entry in admission order whose completion is not whole
+// and that was not handed back, with its landing record.
 func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
 	entries, err := p.Queue.Entries(key)
 	if err != nil {
@@ -219,6 +232,9 @@ func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueu
 		}
 		if !found {
 			return entry, runstate.NewMergeQueueLanding(entry), true, nil
+		}
+		if landing.Handback != nil {
+			continue
 		}
 		if landing.Completion == nil || !landing.Completion.Whole() {
 			return entry, landing, true, nil
@@ -266,6 +282,19 @@ func (q *queuePromotion) promote(ctx context.Context) error {
 	begun := 0
 	for {
 		attempt := q.attempt()
+		if attempt != nil && attempt.Withdrawal != nil && attempt.Withdrawal.Settled == nil {
+			// A withdrawal that was asked for is finished before anything else:
+			// the merge it takes back is what decides whether the attempt lands.
+			if err := q.withdrawQueued(ctx); err != nil || q.outcome.stopped() || q.outcome.Withdrawn {
+				return err
+			}
+			continue
+		}
+		if attempt != nil && attempt.Withdrawn() {
+			q.outcome.Refusal = fmt.Sprintf("the merge of promotion attempt %d was withdrawn (%s), and nothing is asked for again until the entry's recovery is decided",
+				attempt.Number, attempt.Withdrawal.Reason)
+			return nil
+		}
 		if attempt == nil || attempt.SetAside != nil {
 			if begun == maxMergeQueueBegins {
 				return nil

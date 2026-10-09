@@ -7,7 +7,7 @@ package runstate
 // each entry was admitted in with the evidence it was chosen on; choosing the
 // mode is internal/queuemode's. mergequeuegeneration.go beside it keeps what
 // the worker verified, and mergequeuelanding.go what a promotion did to land
-// it. Nothing here selects an entry, builds a candidate, runs
+// it, and how it was withdrawn or handed back. Nothing here selects an entry, builds a candidate, runs
 // a check, or moves a branch, and nothing in the harness admits to the queue
 // yet.
 //

@@ -47,9 +47,9 @@ const (
 	landProtected
 )
 
-func newPromotionFixture(t *testing.T, way landingWay) *promotionFixture {
+func newPromotionFixture(t *testing.T, way landingWay, verdicts ...string) *promotionFixture {
 	t.Helper()
-	f := &promotionFixture{queueFixture: newQueueFixture(t)}
+	f := &promotionFixture{queueFixture: newQueueFixture(t, verdicts...)}
 	pipeline := f.worker.Pipeline
 	f.tracker = pipeline.Tracker.(*orchestratortest.Tracker)
 	admitted := f.runs.(*admittedRun)
