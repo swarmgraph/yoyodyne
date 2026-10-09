@@ -369,6 +369,47 @@ type CheckFailure struct {
 	// forge revision was already promoted locally. It is not current integration
 	// or approval credit: a repair must pass the gates again.
 	LocalPromotion *Integration `json:"local_promotion,omitempty"`
+	// ReviewBefore is the reviewer's verdict this check failed after: a review
+	// recorded findings, the developer answered them, and the answer failed this
+	// check before any reviewer saw it. It is kept beside the failure rather than
+	// cleared with the rest of the review, because the findings are still what the
+	// reviewer asked for and a repair that cannot see them can undo them. Its
+	// place on the failure is the order: the review came first.
+	ReviewBefore *ReviewBefore `json:"review_before,omitempty"`
+}
+
+// ReviewBefore is what a review that came before a failing check asked for.
+type ReviewBefore struct {
+	// Decision is the reviewer's decision, such as repair.
+	Decision string `json:"decision,omitempty"`
+	Summary  string `json:"summary,omitempty"`
+	// ReviewedCommit is the tip of the change the reviewer read, which is an
+	// earlier commit than the one the check failed on.
+	ReviewedCommit string    `json:"reviewed_commit,omitempty"`
+	Findings       []Finding `json:"findings"`
+}
+
+// Validate reports every contract violation in the recorded review at once.
+func (r ReviewBefore) Validate() error {
+	var problems []error
+	if len(r.Findings) == 0 {
+		problems = append(problems, errors.New("findings are required"))
+	}
+	if r.Decision != "" && !slices.Contains(reviewDecisions, r.Decision) {
+		problems = append(problems, fmt.Errorf("decision %q must be %s or omitted", r.Decision, quotedAlternatives(reviewDecisions)))
+	}
+	if r.ReviewedCommit != "" && !commitPattern.MatchString(r.ReviewedCommit) {
+		problems = append(problems, errors.New("reviewed_commit must be a full commit id"))
+	}
+	if len(r.Summary) > MaxReviewSummaryBytes {
+		problems = append(problems, fmt.Errorf("summary is %d bytes, which exceeds the %d byte bound", len(r.Summary), MaxReviewSummaryBytes))
+	}
+	for index, finding := range r.Findings {
+		if err := finding.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("findings[%d]: %w", index, err))
+		}
+	}
+	return errors.Join(problems...)
 }
 
 // Validate reports every contract violation in the recorded check at once.
@@ -376,6 +417,11 @@ func (c CheckFailure) Validate() error {
 	var problems []error
 	if strings.TrimSpace(c.Command) == "" {
 		problems = append(problems, errors.New("command is required"))
+	}
+	if c.ReviewBefore != nil {
+		if err := c.ReviewBefore.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("review_before: %w", err))
+		}
 	}
 	if c.ForgeHeadCommit != "" && !commitPattern.MatchString(c.ForgeHeadCommit) {
 		problems = append(problems, errors.New("forge_head_commit must be a full commit id"))
@@ -1815,8 +1861,22 @@ func (s *State) recordedTexts() []recordedText {
 	// The routing record's operations refuse text over this bound, so a cut here
 	// only ever meets a record something else wrote.
 	s.Routing.recordedTexts(func(key, path string, text *string) { unstated(key, path, text, maxRoutingText) })
+	// The review a check failed after carries the reviewer's prose at the bounds
+	// the review fields beside the record's top level are held to.
+	reviewBefore := func(key, path string, before *ReviewBefore) {
+		if before == nil {
+			return
+		}
+		add(key+".summary", path+".summary", &before.Summary, MaxReviewSummaryBytes, reviewSummaryCutNote, true)
+		for index := range before.Findings {
+			finding := &before.Findings[index]
+			unstated(key+".findings[].message", at(path+".findings", index, "message"), &finding.Message, MaxRecordedTextBytes)
+			unstated(key+".findings[].file", at(path+".findings", index, "file"), &finding.File, MaxRecordedTextBytes)
+		}
+	}
 	if s.CheckFailure != nil {
 		nested("check_failure.output", "check_failure.output", &s.CheckFailure.Output, MaxCheckOutputBytes)
+		reviewBefore("check_failure.review_before", "check_failure.review_before", s.CheckFailure.ReviewBefore)
 	}
 	if s.Verification != nil {
 		if s.Verification.Probe != nil {
@@ -1878,6 +1938,7 @@ func (s *State) recordedTexts() []recordedText {
 		nested("repair_continuations[].fresh_session", at("repair_continuations", index, "fresh_session"), &continuation.FreshSession, MaxSelectionReasonBytes)
 		if continuation.SupersededCheckFailure != nil {
 			nested("repair_continuations[].superseded_check_failure.output", at("repair_continuations", index, "superseded_check_failure.output"), &continuation.SupersededCheckFailure.Output, MaxCheckOutputBytes)
+			reviewBefore("repair_continuations[].superseded_check_failure.review_before", at("repair_continuations", index, "superseded_check_failure.review_before"), continuation.SupersededCheckFailure.ReviewBefore)
 		}
 	}
 	environmental := func(key, path string, refusal *EnvironmentalRefusal) {

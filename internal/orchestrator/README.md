@@ -62,7 +62,7 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `blockOnPromotedDivergence`. Budget: `repairBudget`, `repair`,
    `chargeReplayStop`, `blockOnChargedReplay`.
 8. **Repair inputs and budget-spent stops.** `recordCheckFailure`,
-   `recordPathRefusal`, `blockOnUnresolvedFindings`, `blockOnFailingCheck`,
+   `reviewBeforeCheck`, `recordPathRefusal`, `blockOnUnresolvedFindings`, `blockOnFailingCheck`,
    `blockOnRefusedPaths`, `verifyHandback`, `blockOnMissingPreservedChange`,
    `block` (writes the blocker on the item).
 9. **Environment-caused stops.** `recordEnvironmentalRefusal`,

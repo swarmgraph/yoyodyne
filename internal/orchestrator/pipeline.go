@@ -3280,20 +3280,45 @@ func (a *activeRun) repair(ctx context.Context, prompt string) error {
 }
 
 // recordCheckFailure makes the failing check the run's outstanding repair input.
-// Any findings recorded beside it described the change an earlier attempt was
-// judged on, and that change no longer passes its checks, so they are cleared
-// rather than left to compete with the check for the next attempt.
+// The review recorded beside it judged an earlier change, so its verdict is
+// cleared: nothing may read it as a judgement of the change that now fails. Its
+// findings are not dropped with it. They are what the reviewer asked for, the
+// failing change is the developer's answer to them, and no reviewer has yet
+// seen whether that answer holds, so they go onto the failure as the review it
+// came after (see reviewBeforeCheck).
 func (a *activeRun) recordCheckFailure(result checks.Result) {
+	before := a.reviewBeforeCheck()
 	a.clearReviewEvidence()
 	a.state.ChecksPassed = nil
 	// A conflict handed back before this attempt has been answered by it: what
 	// is outstanding now is the check the answer fails.
 	a.state.ReplayConflict = nil
 	a.state.CheckFailure = &runstate.CheckFailure{
-		Command:  result.Command,
-		ExitCode: result.Process.ExitCode,
-		Output:   boundedCheckOutput(result),
+		Command:      result.Command,
+		ExitCode:     result.Process.ExitCode,
+		Output:       boundedCheckOutput(result),
+		ReviewBefore: before,
 	}
+}
+
+// reviewBeforeCheck is the review a check failing now came after, if one
+// recorded findings no reviewer has judged answered since. That is the review
+// recorded beside the failure, or, where this is a second failure in a row, the
+// one the first failure kept: the attempt between them never reached a
+// reviewer, so the findings are as outstanding as they were.
+func (a *activeRun) reviewBeforeCheck() *runstate.ReviewBefore {
+	if len(a.state.ReviewFindingDetails) > 0 {
+		return &runstate.ReviewBefore{
+			Decision:       a.state.ReviewDecision,
+			Summary:        a.state.ReviewSummary,
+			ReviewedCommit: a.state.ReviewHeadCommit,
+			Findings:       slices.Clone(a.state.ReviewFindingDetails),
+		}
+	}
+	if a.state.CheckFailure != nil {
+		return a.state.CheckFailure.ReviewBefore
+	}
+	return nil
 }
 
 // recordPathRefusal makes the refused paths the run's outstanding repair input.
@@ -8984,6 +9009,28 @@ func checkRepairPrompt(invariants, scratchDirectory string, checks []string, fai
 		prompt.WriteString("Captured output:\n\n```\n")
 		prompt.WriteString(failure.Output)
 		prompt.WriteString("\n```\n\n")
+	}
+	if before := failure.ReviewBefore; before != nil {
+		encoded, err := json.MarshalIndent(before.Findings, "", "  ")
+		if err == nil {
+			prompt.WriteString("## The review this check failed after\n\n")
+			prompt.WriteString("First an independent reviewer examined an earlier version of your change")
+			if before.ReviewedCommit != "" {
+				prompt.WriteString(" (commit " + before.ReviewedCommit + ")")
+			}
+			if before.Decision == runstate.ReviewApprove {
+				prompt.WriteString(" and approved it with the findings below.")
+			} else {
+				prompt.WriteString(" and sent it back with the findings below.")
+			}
+			prompt.WriteString(" Then the change that answered them failed the check above, so no reviewer has yet seen whether it resolves them. Fix the check without undoing what these findings ask for; the reviewer reads the change again once every check passes.\n\n")
+			if trimmed := strings.TrimSpace(before.Summary); trimmed != "" {
+				prompt.WriteString("Reviewer summary: " + trimmed + "\n\n")
+			}
+			prompt.WriteString("Findings:\n\n")
+			prompt.Write(encoded)
+			prompt.WriteString("\n\n")
+		}
 	}
 	if failure.ForgeHeadCommit != "" {
 		prompt.WriteString("Work from the forge's account above; nothing asks you to fetch the forge. Run the relevant local checks and finish with a concise summary of what you changed. The harness runs fresh configured checks and independent review before publishing the repaired change.")
