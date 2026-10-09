@@ -202,6 +202,14 @@ func undecodable(cause error) error {
 // verdicts are model-generated and a model asked for structured output will
 // occasionally embellish the schema -- so the extras are named for the caller to
 // record as evidence of drift and the verdict is decoded without them.
+//
+// A verdict written inside one Markdown code fence is read as the bare verdict
+// it encloses, for the same reason: the fence is formatting around the document
+// rather than a different document, and the contract's ban on it is about how
+// the reply should look, not about what it decides. Only a fence around the
+// whole reply is lifted — prose beside a fenced verdict is still not a single
+// JSON document — so nothing this accepts was ambiguous about what the
+// reviewer decided.
 func Decode(data []byte) (Verdict, []string, error) {
 	if len(data) == 0 {
 		return Verdict{}, nil, undecodable(errors.New("input is empty"))
@@ -209,6 +217,7 @@ func Decode(data []byte) (Verdict, []string, error) {
 	if len(data) > MaxVerdictBytes {
 		return Verdict{}, nil, undecodable(fmt.Errorf("input is %d bytes, limit is %d", len(data), MaxVerdictBytes))
 	}
+	data = unfence(data)
 
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	var verdict Verdict
@@ -226,6 +235,42 @@ func Decode(data []byte) (Verdict, []string, error) {
 		return Verdict{}, unknown, err
 	}
 	return verdict, unknown, nil
+}
+
+// unfence returns what one code fence around the whole reply encloses, and the
+// reply unchanged where it is not exactly that. The opening line is three or
+// more backticks followed by nothing or by "json", in any case, and the closing
+// line is backticks alone; anything outside the pair leaves the reply as it
+// was, so the decoder refuses it as it always has.
+func unfence(data []byte) []byte {
+	trimmed := bytes.TrimSpace(data)
+	opening, body, found := bytes.Cut(trimmed, []byte("\n"))
+	if !found {
+		return data
+	}
+	fence := opening[:len(opening)-len(bytes.TrimLeft(opening, "`"))]
+	if len(fence) < 3 {
+		return data
+	}
+	if info := strings.TrimSpace(string(opening[len(fence):])); info != "" && !strings.EqualFold(info, "json") {
+		return data
+	}
+	body = bytes.TrimRight(body, " \t\r\n")
+	closing := bytes.LastIndexByte(body, '\n')
+	last := body[closing+1:]
+	if !bytes.Equal(bytes.TrimSpace(last), fence) {
+		return data
+	}
+	if closing < 0 {
+		return nil
+	}
+	enclosed := body[:closing]
+	// A fence nested inside the body would make "the whole reply is one fenced
+	// block" a guess about where the block ends, so it is not lifted.
+	if bytes.Contains(enclosed, fence) {
+		return data
+	}
+	return enclosed
 }
 
 // The closed schema, named once so the decoder and the drift walk below cannot

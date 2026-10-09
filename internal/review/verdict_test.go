@@ -384,6 +384,71 @@ func TestDecodeReportsWhichRejectionsAreUnreadableReplies(t *testing.T) {
 	}
 }
 
+// A verdict written inside one code fence decodes exactly as the bare verdict it
+// encloses, drift and all: the fence is formatting around the document. This is
+// the shape of the reply that stopped run-f940f785 after review twice.
+func TestDecodeReadsAVerdictWrittenInsideACodeFenceAsTheBareOne(t *testing.T) {
+	t.Parallel()
+
+	bare := `{"decision":"repair","summary":"Uses ` + "`~/.yoyodyne`" + `.","findings":[{"severity":"major","message":"Fix it.","note":"x"}],"extra":1}`
+	want, wantUnknown, err := Decode([]byte(bare))
+	if err != nil {
+		t.Fatalf("Decode(bare) error = %v", err)
+	}
+	for name, input := range map[string]string{
+		"json info string":   "```json\n" + bare + "\n```",
+		"no info string":     "```\n" + bare + "\n```",
+		"capitalized info":   "```JSON\n" + bare + "\n```",
+		"longer fence":       "````json\n" + bare + "\n````",
+		"surrounding blanks": "\n  ```json\n" + bare + "\n```  \n\n",
+		"carriage returns":   "```json\r\n" + bare + "\r\n```\r\n",
+		"verdict over lines": "```json\n{\n  \"decision\": \"repair\",\n  \"summary\": \"Uses `~/.yoyodyne`.\",\n  \"findings\": [{\"severity\":\"major\",\"message\":\"Fix it.\",\"note\":\"x\"}],\n  \"extra\": 1\n}\n```",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			got, unknown, err := Decode([]byte(input))
+			if err != nil {
+				t.Fatalf("Decode() error = %v, want the fenced verdict read", err)
+			}
+			assertVerdictEqual(t, got, want)
+			if !reflect.DeepEqual(unknown, wantUnknown) {
+				t.Fatalf("Decode() unknown = %v, want %v as for the bare verdict", unknown, wantUnknown)
+			}
+		})
+	}
+}
+
+// Only a fence around the whole reply is lifted. Anything else about a fenced
+// reply still leaves it something other than one JSON document, and it is
+// refused as unreadable — which is what asks for it again — rather than guessed
+// at.
+func TestDecodeStillRefusesAFencedReplyThatIsNotOnlyTheVerdict(t *testing.T) {
+	t.Parallel()
+
+	bare := `{"decision":"approve","approves":"implementation","summary":"Fine."}`
+	for name, input := range map[string]string{
+		"prose before the fence": "Here is my verdict:\n```json\n" + bare + "\n```",
+		"prose after the fence":  "```json\n" + bare + "\n```\nHope that helps.",
+		"another language":       "```yaml\n" + bare + "\n```",
+		"unclosed fence":         "```json\n" + bare,
+		"mismatched fence":       "````json\n" + bare + "\n```",
+		"two fenced blocks":      "```json\n" + bare + "\n```\n```json\n" + bare + "\n```",
+		"fence on one line":      "```" + bare + "```",
+		"an empty fence":         "```json\n```",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			_, _, err := Decode([]byte(input))
+			var undecodable UndecodableVerdictError
+			if !errors.As(err, &undecodable) {
+				t.Fatalf("Decode() error = %v, want the reply refused as unreadable", err)
+			}
+		})
+	}
+}
+
 func TestDecodeRejectsOversizedInput(t *testing.T) {
 	t.Parallel()
 

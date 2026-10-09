@@ -66,6 +66,87 @@ func TestReviewCarriesModelEvidenceThroughRejectedVerdicts(t *testing.T) {
 	}
 }
 
+// The second asking of a review continues the reviewer's own session and tells
+// it what was wrong with its reply, rather than handing a fresh invocation the
+// same evidence and the same contract that produced the slip. Where no session
+// was named, the evidence is given again whole with the problem said after it.
+func TestReviewAsksAgainInTheReviewersOwnSessionNamingWhatWasWrong(t *testing.T) {
+	t.Parallel()
+
+	problem := "it is not one JSON object in the verdict's schema (decode review verdict: invalid character '`' looking for beginning of value)"
+	t.Run("in the session that gave the reply", func(t *testing.T) {
+		t.Parallel()
+
+		var events []execution.Event
+		provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+		request := newRequest(func(event execution.Event) error {
+			events = append(events, event)
+			return nil
+		})
+		request.Changes = gitworktree.ChangeDiff{Patch: "diff --git a/runner.go b/runner.go\n+added\n"}
+		request.Reask = &Reask{SessionID: "review-session", Problem: problem}
+
+		result, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request)
+		if err != nil || result.Decision != DecisionApprove {
+			t.Fatalf("Review() = %#v, %v", result, err)
+		}
+		if provider.request.SessionID != "review-session" {
+			t.Fatalf("second asking ran in session %q, want the reviewer's own", provider.request.SessionID)
+		}
+		for _, want := range []string{problem, "Write it bare", "no code fence"} {
+			if !strings.Contains(provider.request.Prompt, want) {
+				t.Errorf("second asking prompt is missing %q:\n%s", want, provider.request.Prompt)
+			}
+		}
+		// The session already holds the evidence, so it is not sent again.
+		if strings.Contains(provider.request.Prompt, "diff --git a/runner.go") {
+			t.Fatalf("second asking in the same session sent the evidence again:\n%s", provider.request.Prompt)
+		}
+		if !strings.Contains(provider.request.SystemPrompt, "Write the verdict bare") {
+			t.Fatal("second asking dropped the review contract")
+		}
+		if len(events) == 0 || events[0].Type != execution.EventReviewStarted ||
+			!strings.Contains(string(events[0].Payload), `"reask":true`) ||
+			!strings.Contains(string(events[0].Payload), `"resumed_session":"review-session"`) {
+			t.Fatalf("review.started does not say it was a second asking: %v", events)
+		}
+	})
+	t.Run("where no session was named", func(t *testing.T) {
+		t.Parallel()
+
+		provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+		request := newRequest(nil)
+		request.Changes = gitworktree.ChangeDiff{Patch: "diff --git a/runner.go b/runner.go\n+added\n"}
+		request.Reask = &Reask{Problem: problem}
+
+		if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+			t.Fatalf("Review() error = %v", err)
+		}
+		if provider.request.SessionID != "" {
+			t.Fatalf("second asking resumed session %q, want a fresh one", provider.request.SessionID)
+		}
+		evidence := strings.Index(provider.request.Prompt, "diff --git a/runner.go")
+		said := strings.Index(provider.request.Prompt, problem)
+		if evidence < 0 || said < evidence {
+			t.Fatalf("second asking without a session should give the evidence and then the problem:\n%s", provider.request.Prompt)
+		}
+	})
+}
+
+// A first asking never resumes any session: the reviewer's independence is a
+// fresh invocation, and only its own second asking continues one.
+func TestAFirstReviewResumesNoSession(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), newRequest(nil)); err != nil {
+		t.Fatalf("Review() error = %v", err)
+	}
+	if provider.request.SessionID != "" {
+		t.Fatalf("first review resumed session %q", provider.request.SessionID)
+	}
+}
+
 func TestReviewApprovesAndCarriesTheBoundedEvidence(t *testing.T) {
 	t.Parallel()
 
