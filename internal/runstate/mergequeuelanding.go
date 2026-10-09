@@ -23,6 +23,14 @@ package runstate
 // here as it is made, and a promotion that finds a landing whose completion is
 // partial makes only the parts still missing.
 //
+// A merge the forge holds queued can be taken back: the withdrawal is written
+// on its attempt before the forge is asked and settled only once the forge's
+// answer and the pull request say what happened, and an attempt whose merge
+// was asked for is set aside only once that withdrawal is confirmed. An entry
+// whose candidate is a defect of its change is handed back, which ends its
+// turn in the queue as a completion does; HeadRewriteRefusal is what anything
+// that would rewrite or re-admit the change asks first.
+//
 // Nothing here moves a branch, asks a forge anything, or decides whether a
 // promotion may happen; internal/orchestrator's merge queue promoter does those
 // and records them here.
@@ -33,10 +41,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"reflect"
 	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -223,6 +233,81 @@ type MergeQueueLanded struct {
 	ConfirmedAt time.Time `json:"confirmed_at"`
 }
 
+// MaxMergeQueueWithdrawalAnswers bounds the answers one withdrawal keeps: each
+// is the forge refusing or not answering a request to withdraw, asked again on
+// a later call. A withdrawal past it keeps asking and stops writing answers
+// down.
+const MaxMergeQueueWithdrawalAnswers = 50
+
+// MergeQueueWithdrawalResult is how a withdrawal of a queued merge settled.
+type MergeQueueWithdrawalResult string
+
+const (
+	// MergeQueueWithdrawalConfirmed is the forge having turned the merge off and
+	// taken the request out of its queue, and the request still unmerged after
+	// it did.
+	MergeQueueWithdrawalConfirmed MergeQueueWithdrawalResult = "withdrawn"
+	// MergeQueueWithdrawalLanded is the merge found made: the forge landed it
+	// before the withdrawal reached it. The landing is completed the way any
+	// confirmed landing is, and is never asked for again.
+	MergeQueueWithdrawalLanded MergeQueueWithdrawalResult = "landed"
+)
+
+func (r MergeQueueWithdrawalResult) valid() bool {
+	return r == MergeQueueWithdrawalConfirmed || r == MergeQueueWithdrawalLanded
+}
+
+// MergeQueueWithdrawal is the merge an attempt asked the forge for, taken
+// back: written down before the forge is asked to withdraw it, and settled
+// only once the forge's answer and the pull request's state together say what
+// happened. Until it settles the merge may still land, so nothing rewrites
+// the change's head, hands it to repair, moves the entry to another mode, or
+// admits it again (MergeQueueLanding.MergeArmed).
+type MergeQueueWithdrawal struct {
+	// Key names the withdrawal, as a mutation's key names the mutation.
+	Key string `json:"key"`
+	// PullRequest and Pinned are the request and the commit its merge was
+	// pinned to: what is being withdrawn, fixed when it is written down.
+	PullRequest int       `json:"pull_request"`
+	Pinned      string    `json:"pinned"`
+	Reason      string    `json:"reason"`
+	IntendedAt  time.Time `json:"intended_at"`
+	// Answers are the requests to withdraw that did not settle it: the forge
+	// refused, or its answer did not say. Each is kept so a reader can see why
+	// the merge is still armed.
+	Answers []MergeQueueWithdrawalAnswer `json:"answers,omitempty"`
+	// Settled is set once the withdrawal's result is known, and never cleared.
+	Settled *MergeQueueWithdrawalSettlement `json:"settled,omitempty"`
+}
+
+// MergeQueueWithdrawalAnswer is one request to withdraw that left the merge
+// possibly armed.
+type MergeQueueWithdrawalAnswer struct {
+	At time.Time `json:"at"`
+	// Rejected is the forge refusing the request outright; otherwise its answer
+	// did not say whether the merge was withdrawn.
+	Rejected bool   `json:"rejected,omitempty"`
+	Detail   string `json:"detail"`
+}
+
+// MergeQueueWithdrawalSettlement is how a withdrawal turned out.
+type MergeQueueWithdrawalSettlement struct {
+	Result MergeQueueWithdrawalResult `json:"result"`
+	At     time.Time                  `json:"at"`
+	Detail string                     `json:"detail,omitempty"`
+}
+
+// MergeQueueWithdrawalKey is the key an attempt's withdrawal is written under.
+func (a MergeQueuePromotionAttempt) MergeQueueWithdrawalKey() string {
+	return a.Key + "/withdraw"
+}
+
+// Withdrawn reports an attempt whose queued merge the forge confirmed
+// withdrawn.
+func (a MergeQueuePromotionAttempt) Withdrawn() bool {
+	return a.Withdrawal != nil && a.Withdrawal.Settled != nil && a.Withdrawal.Settled.Result == MergeQueueWithdrawalConfirmed
+}
+
 // MergeQueueSetAside is an attempt given up on before it landed, and why.
 type MergeQueueSetAside struct {
 	At     time.Time `json:"at"`
@@ -253,8 +338,11 @@ type MergeQueuePromotionAttempt struct {
 	PullRequest    int                        `json:"pull_request,omitempty"`
 	PullRequestURL string                     `json:"pull_request_url,omitempty"`
 	Mutations      []MergeQueueMutationRecord `json:"mutations,omitempty"`
-	Landed         *MergeQueueLanded          `json:"landed,omitempty"`
-	SetAside       *MergeQueueSetAside        `json:"set_aside,omitempty"`
+	// Withdrawal is the attempt's queued merge being taken back, once that is
+	// intended.
+	Withdrawal *MergeQueueWithdrawal `json:"withdrawal,omitempty"`
+	Landed     *MergeQueueLanded     `json:"landed,omitempty"`
+	SetAside   *MergeQueueSetAside   `json:"set_aside,omitempty"`
 }
 
 // Mutation is the attempt's newest record of one mutation, if it has one.
@@ -347,6 +435,163 @@ func (c MergeQueueCompletion) Whole() bool {
 	return c.RunAt != nil && c.WorkItemAt != nil
 }
 
+// MergeQueueFailureClass is what a candidate that did not earn its gate is
+// taken to say: docs/designs/integration-through-a-merge-queue.md, "Failure,
+// withdrawal and continuation". Only a defect of the change is charged to the
+// change; every other class is somebody else's, or nobody's, and costs the
+// run nothing.
+type MergeQueueFailureClass string
+
+const (
+	// MergeQueueCandidateDefect is the candidate's own checks or its reviewer
+	// finding against it, on evidence complete enough to say so.
+	MergeQueueCandidateDefect MergeQueueFailureClass = "candidate-defect"
+	// MergeQueueTargetFailure is a check that fails on the target as well,
+	// which existing triage has already filed against the target.
+	MergeQueueTargetFailure MergeQueueFailureClass = "target-failure"
+	// MergeQueueTargetDrift is the target having moved off the candidate's base.
+	MergeQueueTargetDrift MergeQueueFailureClass = "target-drift"
+	// MergeQueueInfrastructureFailure is a check or a review that judged
+	// nothing: a runner that failed, a process stopped on time, a provider that
+	// made no review.
+	MergeQueueInfrastructureFailure MergeQueueFailureClass = "infrastructure"
+	// MergeQueueUnreadableEvidence is evidence that could not be read or is not
+	// whole, which says nothing either way.
+	MergeQueueUnreadableEvidence MergeQueueFailureClass = "unreadable-evidence"
+)
+
+// Charged reports a class the change itself answers for.
+func (c MergeQueueFailureClass) Charged() bool {
+	return c == MergeQueueCandidateDefect
+}
+
+func (c MergeQueueFailureClass) valid() bool {
+	switch c {
+	case MergeQueueCandidateDefect, MergeQueueTargetFailure, MergeQueueTargetDrift, MergeQueueInfrastructureFailure, MergeQueueUnreadableEvidence:
+		return true
+	}
+	return false
+}
+
+// MergeQueueContinuation is what follows an entry handed back from the queue.
+type MergeQueueContinuation string
+
+const (
+	// MergeQueueContinueRepair is the same run taking the failure back into its
+	// own repair loop, with its saved change, under the repair budget it already
+	// has.
+	MergeQueueContinueRepair MergeQueueContinuation = "repair"
+	// MergeQueueBudgetExhausted is a run that has already spent every repair
+	// attempt its budget allows; the work stays where it is for whoever
+	// replans it.
+	MergeQueueBudgetExhausted MergeQueueContinuation = "exhausted"
+	// MergeQueueMissingPrerequisite is a run that no longer has what a repair
+	// continues from: its record, its branch, or the developer session that
+	// wrote the change.
+	MergeQueueMissingPrerequisite MergeQueueContinuation = "missing-prerequisite"
+	// MergeQueueUnattributed is a candidate combining more than one head, whose
+	// failure no evidence attributes to one of them.
+	MergeQueueUnattributed MergeQueueContinuation = "unattributed"
+)
+
+func (c MergeQueueContinuation) valid() bool {
+	switch c {
+	case MergeQueueContinueRepair, MergeQueueBudgetExhausted, MergeQueueMissingPrerequisite, MergeQueueUnattributed:
+		return true
+	}
+	return false
+}
+
+// MergeQueueHandback is an entry the queue has stopped trying to land because
+// its candidate is defective, and what follows for the work. It is written
+// once its merge, if one was asked for, is confirmed withdrawn, and ends the
+// entry's turn in the queue: neither the worker nor the promotion takes the
+// entry up again. Everything but HandedBackAt is fixed when it is written.
+//
+// The failed candidate's evidence stays on its generation, which is never
+// removed; this names it, and the run, branch, and approved head that are the
+// preserved work.
+type MergeQueueHandback struct {
+	At           time.Time              `json:"at"`
+	Class        MergeQueueFailureClass `json:"class"`
+	Continuation MergeQueueContinuation `json:"continuation"`
+	// Mover is who moves next, in ownership's words. A handback never names
+	// the operator: nothing in it is a change of intent or an act only a person
+	// can perform.
+	Mover  ownership.Mover `json:"mover"`
+	Reason string          `json:"reason"`
+	// Generation through Candidate are the failed candidate, as its generation
+	// records it.
+	Generation uint64   `json:"generation"`
+	Binding    string   `json:"binding"`
+	TargetBase string   `json:"target_base"`
+	Heads      []string `json:"heads"`
+	Candidate  string   `json:"candidate"`
+	// Branch and ApprovedHead are the run's saved change.
+	Branch       string `json:"branch,omitempty"`
+	ApprovedHead string `json:"approved_head"`
+	// RepairAttempts and RepairBudget are the run's own repair counters as they
+	// stood when this was decided. They are read, never granted: the run's
+	// record is what bounds its repairs.
+	RepairAttempts int `json:"repair_attempts"`
+	RepairBudget   int `json:"repair_budget"`
+	// HandedBackAt is when the run was given the failure for its repair loop,
+	// and is set only for a repair.
+	HandedBackAt *time.Time `json:"handed_back_at,omitempty"`
+}
+
+func (h MergeQueueHandback) validate() []error {
+	var problems []error
+	if h.At.IsZero() {
+		problems = append(problems, errors.New("the handback records no time"))
+	}
+	if !h.Class.Charged() {
+		problems = append(problems, fmt.Errorf("a %s is never handed back: only a defect of the change ends its turn in the queue", h.Class))
+	}
+	if !h.Continuation.valid() {
+		problems = append(problems, fmt.Errorf("continuation %q is not one this build knows", h.Continuation))
+	}
+	if !h.Mover.Valid() || h.Mover == ownership.MoverOperator {
+		problems = append(problems, fmt.Errorf("a handback names mover %q, and it names a role, never the operator", h.Mover))
+	}
+	if err := mergeQueueText("handback reason", h.Reason, true); err != nil {
+		problems = append(problems, err)
+	}
+	if h.Generation == 0 || len(h.Binding) != 64 || len(h.Heads) == 0 {
+		problems = append(problems, errors.New("the handback names no failed generation"))
+	}
+	for field, value := range map[string]string{"target base": h.TargetBase, "candidate": h.Candidate, "approved head": h.ApprovedHead} {
+		if !commitPattern.MatchString(value) {
+			problems = append(problems, fmt.Errorf("handback %s %q is not a full commit id", field, value))
+		}
+	}
+	for _, head := range h.Heads {
+		if !commitPattern.MatchString(head) {
+			problems = append(problems, fmt.Errorf("handback head %q is not a full commit id", head))
+		}
+	}
+	if h.Branch != "" && !validLocalBranch(h.Branch) {
+		problems = append(problems, fmt.Errorf("handback branch %q is not a branch name", h.Branch))
+	}
+	if h.RepairAttempts < 0 || h.RepairBudget < 0 {
+		problems = append(problems, errors.New("repair counters are never negative"))
+	}
+	switch h.Continuation {
+	case MergeQueueContinueRepair:
+		if h.RepairAttempts >= h.RepairBudget {
+			problems = append(problems, fmt.Errorf("a repair is handed back with %d of %d attempts spent", h.RepairAttempts, h.RepairBudget))
+		}
+	case MergeQueueBudgetExhausted:
+		if h.RepairAttempts < h.RepairBudget {
+			problems = append(problems, fmt.Errorf("a budget recorded exhausted has %d of %d attempts spent", h.RepairAttempts, h.RepairBudget))
+		}
+	}
+	if h.HandedBackAt != nil && (h.Continuation != MergeQueueContinueRepair || h.HandedBackAt.IsZero()) {
+		problems = append(problems, errors.New("only a repair is handed back to its run"))
+	}
+	return problems
+}
+
 // MergeQueueLanding is one entry's landing record.
 type MergeQueueLanding struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -362,6 +607,9 @@ type MergeQueueLanding struct {
 	Attempts    []MergeQueuePromotionAttempt `json:"attempts,omitempty"`
 	Recoveries  []MergeQueueRecovery         `json:"recoveries,omitempty"`
 	Completion  *MergeQueueCompletion        `json:"completion,omitempty"`
+	// Handback is the entry handed back for its defective candidate, which
+	// ends its turn in the queue as a completion does.
+	Handback *MergeQueueHandback `json:"handback,omitempty"`
 }
 
 // NewMergeQueueLanding is the empty landing record of an entry.
@@ -374,9 +622,39 @@ func NewMergeQueueLanding(entry MergeQueueEntry) MergeQueueLanding {
 }
 
 // Waiting reports an entry the queue has not finished with: nothing has
-// recorded its completion.
+// recorded its completion, and it has not been handed back.
 func (l MergeQueueLanding) Waiting() bool {
-	return l.Completion == nil
+	return l.Completion == nil && l.Handback == nil
+}
+
+// HeadRewriteRefusal says why the entry's change may not have its head
+// rewritten, be handed to repair, be moved to another queue mode, or be
+// admitted again, and is empty where nothing the queue asked for can still
+// land it. A merge the forge was asked for, or a target already moved, is
+// refused until a withdrawal of it is confirmed; a withdrawal still unsettled
+// is the forge's answer not yet known, and is refused the same way.
+func (l MergeQueueLanding) HeadRewriteRefusal() string {
+	if l.Completion != nil {
+		return "the change has landed through the merge queue"
+	}
+	attempt, ok := l.Current()
+	switch {
+	case !ok || attempt.SetAside != nil:
+		return ""
+	case attempt.Landed != nil:
+		return fmt.Sprintf("promotion attempt %d landed the change", attempt.Number)
+	case attempt.Withdrawal != nil && attempt.Withdrawal.Settled == nil:
+		return fmt.Sprintf("the withdrawal of pull request %d's merge is not confirmed, so the forge may still land it", attempt.Withdrawal.PullRequest)
+	}
+	for _, record := range attempt.Mutations {
+		if record.Mutation != MergeQueueMoveTarget && record.Mutation != MergeQueueRequestMerge {
+			continue
+		}
+		if record.Settled == nil || record.Settled.Result != MergeQueueMutationNotMade {
+			return fmt.Sprintf("promotion attempt %d asked for the %s, and nothing has confirmed it withdrawn", attempt.Number, record.Mutation)
+		}
+	}
+	return ""
 }
 
 // Current is the newest attempt, if there is one.
@@ -449,6 +727,16 @@ func (l MergeQueueLanding) validate(productID domain.ProductID, key MergeQueueKe
 		}
 		if err := mergeQueueText("completion pull request", c.PullRequest, false); err != nil {
 			problems = append(problems, err)
+		}
+	}
+	if h := l.Handback; h != nil {
+		problems = append(problems, h.validate()...)
+		if l.Completion != nil {
+			problems = append(problems, errors.New("an entry that landed is never handed back"))
+		}
+		// An entry is handed back only once nothing it asked for can still land.
+		if attempt, ok := l.Current(); ok && attempt.SetAside == nil {
+			problems = append(problems, fmt.Errorf("it was handed back with promotion attempt %d still standing", attempt.Number))
 		}
 	}
 	return errors.Join(problems...)
@@ -563,14 +851,61 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 		if record, unsettled := a.Unsettled(); unsettled {
 			problems = append(problems, fmt.Errorf("it was set aside with its %s still unsettled", record.Mutation))
 		}
-		if a.MovedTarget() {
+		if a.MovedTarget() && !a.Withdrawn() {
 			problems = append(problems, errors.New("it was set aside after it had moved the target"))
 		}
 	}
+	problems = append(problems, a.validateWithdrawal()...)
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("promotion attempt %d: %w", a.Number, err)
 	}
 	return nil
+}
+
+// validateWithdrawal checks the attempt's withdrawal: one is written only for a
+// merge the forge holds queued and the local target has not been moved for,
+// names that merge, and settles once, consistently with the attempt.
+func (a MergeQueuePromotionAttempt) validateWithdrawal() []error {
+	w := a.Withdrawal
+	if w == nil {
+		return nil
+	}
+	var problems []error
+	requested, found := a.Mutation(MergeQueueRequestMerge)
+	switch {
+	case a.Path.MovesLocalTargetFirst():
+		problems = append(problems, errors.New("a withdrawal is written for an attempt that moved the local target, which no withdrawal takes back"))
+	case !found || requested.Settled == nil || requested.Settled.Result != MergeQueueMutationQueued:
+		problems = append(problems, errors.New("a withdrawal is written for a merge the forge does not hold queued"))
+	}
+	if w.Key != a.MergeQueueWithdrawalKey() || w.PullRequest <= 0 || w.PullRequest != a.PullRequest || w.Pinned != a.Candidate || w.IntendedAt.IsZero() {
+		problems = append(problems, errors.New("its withdrawal does not name the merge it asked for"))
+	}
+	if err := mergeQueueText("withdrawal reason", w.Reason, true); err != nil {
+		problems = append(problems, err)
+	}
+	if len(w.Answers) > MaxMergeQueueWithdrawalAnswers {
+		problems = append(problems, fmt.Errorf("%d withdrawal answers exceeds the %d a withdrawal keeps", len(w.Answers), MaxMergeQueueWithdrawalAnswers))
+	}
+	for _, answer := range w.Answers {
+		if answer.At.IsZero() || len(answer.Detail) > maxMergeQueueEvidenceText || strings.TrimSpace(answer.Detail) == "" {
+			problems = append(problems, errors.New("a withdrawal answer is not a whole record"))
+		}
+	}
+	if settled := w.Settled; settled != nil {
+		if !settled.Result.valid() || settled.At.IsZero() || len(settled.Detail) > maxMergeQueueEvidenceText {
+			problems = append(problems, errors.New("its withdrawal's settlement is not a whole record"))
+		}
+		if settled.Result == MergeQueueWithdrawalConfirmed && a.Landed != nil {
+			problems = append(problems, errors.New("a merge confirmed withdrawn is recorded as landed"))
+		}
+		if settled.Result == MergeQueueWithdrawalLanded && a.SetAside != nil {
+			problems = append(problems, errors.New("a merge found landed is set aside"))
+		}
+	} else if a.SetAside != nil {
+		problems = append(problems, errors.New("it was set aside with its withdrawal unsettled"))
+	}
+	return problems
 }
 
 // MovedTarget reports an attempt that has changed the target or asked the
@@ -719,7 +1054,33 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 			return conflict("a part of a completion, once made, is never withdrawn")
 		}
 	}
+	if was := recorded.Handback; was != nil {
+		now := revised.Handback
+		switch {
+		case now == nil:
+			return conflict("a handback is never withdrawn")
+		case was.HandedBackAt != nil && !sameTime(was.HandedBackAt, now.HandedBackAt):
+			return conflict("a handback, once given to its run, is never withdrawn")
+		case !sameHandback(*was, *now):
+			return conflict("a handback is never rewritten")
+		}
+	}
 	return nil
+}
+
+// sameHandback compares everything a handback fixes when it is written, which
+// is all of it but when it was given to its run.
+func sameHandback(a, b MergeQueueHandback) bool {
+	if len(a.Heads) != len(b.Heads) || !a.At.Equal(b.At) {
+		return false
+	}
+	for index := range a.Heads {
+		if a.Heads[index] != b.Heads[index] {
+			return false
+		}
+	}
+	a.Heads, b.Heads, a.HandedBackAt, b.HandedBackAt, a.At, b.At = nil, nil, nil, nil, time.Time{}, time.Time{}
+	return reflect.DeepEqual(a, b)
 }
 
 func extendsAttempt(was, now MergeQueuePromotionAttempt) string {
@@ -749,6 +1110,25 @@ func extendsAttempt(was, now MergeQueuePromotionAttempt) string {
 	}
 	if was.SetAside != nil && (now.SetAside == nil || *now.SetAside != *was.SetAside) {
 		return "a setting aside is never withdrawn or rewritten"
+	}
+	if before := was.Withdrawal; before != nil {
+		after := now.Withdrawal
+		switch {
+		case after == nil:
+			return "a withdrawal, once intended, is never removed"
+		case after.Key != before.Key || after.PullRequest != before.PullRequest || after.Pinned != before.Pinned ||
+			after.Reason != before.Reason || !after.IntendedAt.Equal(before.IntendedAt):
+			return "what a withdrawal takes back is fixed when it is intended"
+		case len(after.Answers) < len(before.Answers):
+			return "a withdrawal answer is never removed"
+		case before.Settled != nil && (after.Settled == nil || *after.Settled != *before.Settled):
+			return "a settled withdrawal is never unsettled or settled again"
+		}
+		for index, answer := range before.Answers {
+			if after.Answers[index] != answer {
+				return "a withdrawal answer is never rewritten"
+			}
+		}
 	}
 	return ""
 }
