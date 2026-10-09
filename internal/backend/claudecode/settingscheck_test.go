@@ -103,7 +103,7 @@ func droppingCLI(t *testing.T) func(string) string {
 	return func(string) string { return recorded }
 }
 
-// A CLI that applied the developer's settings is in force: the version it gave
+// A CLI that applied the developer's settings is active: the version it gave
 // is the one the flags were read from, so its help is not asked for, and the
 // check launched it exactly as a developer is launched in that directory and
 // sent it questions and no prompt.
@@ -116,7 +116,7 @@ func TestACLIThatAppliedTheDevelopersSettingsIsInForce(t *testing.T) {
 		t.Fatalf("CheckLaunchSettings() error = %v", err)
 	}
 	if !check.InForce() || check.Version != "2.1.286 (Claude Code)" {
-		t.Fatalf("check = %#v, want everything in force on 2.1.286", check)
+		t.Fatalf("check = %#v, want everything active on 2.1.286", check)
 	}
 	for _, command := range cli.commands {
 		if slices.Equal(command.Args, []string{"--help"}) {
@@ -168,7 +168,7 @@ func TestACLIThatDroppedTheSettingsPayloadIsNotInForce(t *testing.T) {
 		t.Fatalf("CheckLaunchSettings() error = %v", err)
 	}
 	if check.InForce() {
-		t.Fatal("a dropped payload was found in force")
+		t.Fatal("a dropped payload was found active")
 	}
 	said := check.Says()
 	for _, want := range []string{
@@ -193,7 +193,7 @@ func TestAnUpgradedCLIIsHeldToItsOwnHelp(t *testing.T) {
 	cli := &scriptedCLI{version: "2.2.0 (Claude Code)", help: help, answers: acceptingCLI(t)}
 	check, err := (Backend{Runner: cli}).CheckLaunchSettings(context.Background(), t.TempDir())
 	if err != nil || !check.InForce() {
-		t.Fatalf("check = %#v, %v; want an upgraded CLI that names every flag in force", check, err)
+		t.Fatalf("check = %#v, %v; want an upgraded CLI that names every flag active", check, err)
 	}
 
 	var renamed []string
@@ -210,7 +210,7 @@ func TestAnUpgradedCLIIsHeldToItsOwnHelp(t *testing.T) {
 	}
 }
 
-// A CLI that answered none of the questions is not in force, and is said with
+// A CLI that answered none of the questions is not active, and is said with
 // its exit and what it printed; one that never answered in time is a check that
 // could not be made.
 func TestACLIThatDoesNotAnswerIsNotInForceAndOneThatHangsIsNoCheck(t *testing.T) {

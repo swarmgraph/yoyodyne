@@ -467,6 +467,10 @@ var expresses = map[string]expression{
 		question: "none: turning off the account's memory and connectors, and the instruction files above a worktree, withholds from every role and grants nothing",
 		gap:      "the same as the row above: what it withholds is the same for every role, and the developer's sandbox it keeps is the posture question the Codex sandbox row already names",
 	},
+	"backend.claude-code-launch-settings": {
+		question: "none: confirming the developer's sandbox, guard and isolation settings took effect withholds a developer start and grants nothing",
+		gap:      "it refuses on what the installed CLI answers, the same for every dispatch, and the sandbox it confirms is the posture question the Codex sandbox row already names",
+	},
 	"promotion.lease": {
 		question: "no role holds it; the registry records it as the harness's own, with the reason",
 		asks:     []capability.Capability{capability.PromotionLease},

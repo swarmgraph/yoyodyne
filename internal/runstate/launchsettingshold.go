@@ -1,6 +1,6 @@
 package runstate
 
-// A developer's provider that did not put in force what a developer is
+// A developer's provider that did not apply what a developer is
 // launched with, recorded where every pull reads it.
 //
 // Before a developer is started the harness asks the provider whether the
@@ -45,7 +45,7 @@ const LaunchSettingsHoldSchemaVersion = 1
 const MaxLaunchSettingsTextBytes = 4 << 10
 
 // LaunchSettingsHold is the recorded fact that a developer's provider did not
-// put in force what a developer is launched with: which provider and version,
+// apply what a developer is launched with: which provider and version,
 // on which harness build, what did not take, and since when.
 type LaunchSettingsHold struct {
 	SchemaVersion int              `json:"schema_version"`
@@ -104,7 +104,7 @@ func (h LaunchSettingsHold) Validate() error {
 // Says is the hold in the one sentence every surface states it in: what is held,
 // why, and what ends it.
 func (h LaunchSettingsHold) Says() string {
-	return fmt.Sprintf("No developer is started on %s: the installed CLI (%s) did not put in force what a developer is launched with: %s. "+
+	return fmt.Sprintf("No developer is started on %s: the installed CLI (%s) did not apply what a developer is launched with: %s. "+
 		"The harness checks again by itself at the first dispatch after the probe interval and on a new harness build; held since %s",
 		h.Provider, h.version(), strings.Join(h.NotInForce, "; "), h.Since.Local().Format("2006-01-02 15:04 MST"))
 }
@@ -135,7 +135,7 @@ func NewLaunchSettingsHoldStore(root string, productID domain.ProductID) (*Launc
 	return &LaunchSettingsHoldStore{root: home.ProductDirectory(root, string(productID)), productID: productID}, nil
 }
 
-// LaunchSettingsObservation is one check finding the settings not in force.
+// LaunchSettingsObservation is one check finding the settings not active.
 type LaunchSettingsObservation struct {
 	Provider   domain.Backend
 	Version    string
@@ -145,7 +145,7 @@ type LaunchSettingsObservation struct {
 	At         time.Time
 }
 
-// Notice records a check finding the settings not in force, and reports the
+// Notice records a check finding the settings not active, and reports the
 // hold as it now stands and whether this observation opened it. A finding on
 // the provider, version, and build of the hold already standing is the same
 // hold: it keeps when it began and counts the refusal. Any other is a different

@@ -17,7 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
-// Establishing, before a developer is started, that the CLI put in force what
+// Establishing, before a developer is started, that the CLI apply what
 // the developer is launched with.
 //
 // A developer's sandbox, its notes guard, and the settings that keep the
@@ -111,7 +111,7 @@ var settingsQuestions = func() string {
 	return questions.String()
 }()
 
-// CheckLaunchSettings establishes that the installed CLI puts in force, in
+// CheckLaunchSettings establishes that the installed CLI applies, in
 // directory, what a developer is launched with there. See the top of this file.
 func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (backend.LaunchSettingsCheck, error) {
 	if b.Runner == nil {

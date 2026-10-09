@@ -1,6 +1,6 @@
 package orchestrator
 
-// A developer is started only on a provider that has been seen to put in force
+// A developer is started only on a provider that has been seen to apply
 // what a developer is launched with.
 //
 // The developer's sandbox, its notes guard, and the settings that keep the
@@ -14,7 +14,7 @@ package orchestrator
 // the refusal is recorded once for the product (runstate.LaunchSettingsHold).
 // The first refusal files one report; every pull reads the record and starts
 // no developer while it stands, so the ready queue is not refused one item at
-// a time. What lifts it is a check finding the settings in force — which a pull
+// a time. What lifts it is a check finding the settings active — which a pull
 // lets one dispatch make once the probe interval has passed since the last —
 // or a pull on a harness build other than the one that placed it.
 
@@ -33,7 +33,7 @@ import (
 )
 
 // LaunchSettingsHolds is the product's record of a developer's provider that
-// did not put its launch settings in force, as a run writes and lifts it. It is
+// did not apply its launch settings, as a run writes and lifts it. It is
 // satisfied by *runstate.LaunchSettingsHoldStore.
 //
 // It is optional. A pipeline wired without one still refuses every dispatch the
@@ -57,7 +57,7 @@ type ScheduleLaunchSettings interface {
 const defaultLaunchSettingsProbe = 30 * time.Minute
 
 // LaunchSettingsError is a dispatch refused because the developer's provider
-// did not put in force what a developer is launched with. Like a provider
+// did not apply what a developer is launched with. Like a provider
 // nobody can reach, it counts toward nothing, dockets nothing, and excludes
 // nothing: the item is exactly as startable as it was, and is started once the
 // provider is seen to apply the settings.
@@ -83,7 +83,7 @@ func (p Pipeline) requireLaunchSettings(ctx context.Context, waiting string, pro
 	}
 	check, err := checker.CheckLaunchSettings(ctx, p.Repository)
 	if err != nil {
-		return fmt.Errorf("check what the developer's provider puts in force: %w",
+		return fmt.Errorf("check what the developer's provider applies: %w",
 			refusedByEnvironment("whether the developer's provider applies its sandbox and guard could not be checked", err))
 	}
 	if check.InForce() {
@@ -169,7 +169,7 @@ func (p Pipeline) reportLaunchSettingsHold(hold runstate.LaunchSettingsHold) err
 // that changed what the adapter passes or how it checks is one of the two
 // things that end it. And a hold last confirmed a probe interval ago lets this
 // pull through: the dispatch it makes is the check, which lifts the hold if the
-// settings are in force again and confirms it, filing nothing more, if not.
+// settings are active again and confirms it, filing nothing more, if not.
 func (s Scheduler) launchSettingsHeld(schedule *Schedule, pull Pull) (runstate.LaunchSettingsHold, bool) {
 	schedule.LaunchSettingsHold = nil
 	if pull.LaunchSettings == nil {

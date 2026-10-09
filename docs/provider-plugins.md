@@ -562,7 +562,7 @@ refusal records a hold on developers for the product and files one critical
 report; a watching session reads the hold at every pull and starts no developer
 while it stands, so the rest of the ready queue is not refused one item at a
 time. A resumed run turned back this way records
-`launch-settings-not-in-force` as a cause outside the work and stays resumable.
+`developer-settings-not-applied` as a cause outside the work and stays resumable.
 The hold lifts by itself: after `execution.usage_limit_unknown_reset_pause` the
 next pull lets one dispatch check again, which lifts the hold if the settings
 are in force (after a person repairs the installation or its policy, for

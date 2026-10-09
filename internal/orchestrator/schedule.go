@@ -273,10 +273,10 @@ const (
 	// divergence after a whole development and review.
 	ScheduleDivergedTarget = "a target branch will not catch up to the remote's, so nothing more was chosen"
 	// ScheduleLaunchSettingsHeld reports a drain that stopped because the
-	// developer's provider was found not to put in force what a developer is
+	// developer's provider was found not to apply what a developer is
 	// launched with. A watch waits it out instead; every developer a drain
 	// started into it would be refused on the same check.
-	ScheduleLaunchSettingsHeld = "the developer's provider did not put its sandbox and guard in force, so nothing more was chosen"
+	ScheduleLaunchSettingsHeld = "the developer's provider did not apply its sandbox and guard, so nothing more was chosen"
 	// ScheduleSpendUnreadable reports a bounded session that stopped because it
 	// could not tell what it had spent. A budget measured against evidence
 	// nobody can read is not a smaller budget, it is no budget at all, so the

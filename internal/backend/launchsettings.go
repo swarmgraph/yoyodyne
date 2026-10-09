@@ -6,7 +6,7 @@ import (
 )
 
 // LaunchSettingsChecker is an adapter that can establish, before a developer's
-// session is started, that the installed provider puts in force the safety
+// session is started, that the installed provider applies the safety
 // settings the adapter launches a developer with: the sandbox that confines its
 // shell, the guard in front of that shell, and whatever keeps the operator's
 // personal configuration out.
@@ -32,7 +32,7 @@ type LaunchSettingsChecker interface {
 }
 
 // LaunchSettingsCheck is what one check found: which version of the provider
-// was asked, and each setting or flag it did not put in force, in words a
+// was asked, and each setting or flag it did not apply, in words a
 // person reads.
 type LaunchSettingsCheck struct {
 	// Version is the provider's own answer to being asked its version.

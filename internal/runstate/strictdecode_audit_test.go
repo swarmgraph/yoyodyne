@@ -88,19 +88,20 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/memory.go:(*MemoryStore).decodeTip":                {strictWriter, "a memory tip is read only by the write it numbers, under the agent's lock, and one that will not decode is rebuilt from the history rather than refused"},
 
 	// Gates: a refusal the caller declines to proceed on and reports.
-	"internal/runstate/hold.go:(*OperatorHoldStore).Held":                 {strictValidator, "a hold nobody can read is never spent through as though it were absent; the read model reports it as a problem and the sink reads it past"},
-	"internal/runstate/intake.go:(*IntakeHoldStore).Held":                 {strictValidator, "an intake hold nobody can read is never taken for a clear one; the read model reports it and the sink reads it past"},
-	"internal/runstate/provideroutage.go:(*ProviderOutageStore).Standing": {strictValidator, "an outage nobody can read is never started through; the read model reports it and the sink reads it past"},
-	"internal/runstate/divergedtarget.go:(*DivergedTargetStore).Standing": {strictWriter, "a divergence nobody can read is never pulled through as though absent, and the same read precedes every write of the record"},
-	"internal/runstate/conversation.go:(*ConversationStore).readHolder":   {strictValidator, "who is mid-turn with an agent is refused rather than guessed at from part of a record"},
-	"internal/runstate/presence.go:readRunHolder":                         {strictValidator, "whether a process is behind a run is refused rather than guessed at from part of a stamp; the reading then reports the run as found"},
-	"internal/runstate/humanact.go:readHumanAct":                          {strictValidator, "a gate is passed only by an act the harness can read whole; one it cannot is refused where the gate is asked, so the gate holds and the refusal is named rather than read past"},
-	"internal/runstate/stop.go:(*Store).StopRequested":                    {strictValidator, "a run acts on a stop request, and one it cannot read fails its step rather than being ignored"},
-	"internal/runstate/release.go:(*Store).ReleasedWait":                  {strictValidator, "a run acts on the operator's release of a wait, and one it cannot read fails its step rather than being ignored"},
-	"internal/runstate/passcursor.go:(*PassCursorStore).Load":             {strictWriter, "an instance's cursor is read to be advanced and written back, and a cursor nobody can read must stop its passes rather than hand them nothing or everything"},
-	"internal/runstate/lanereport.go:(*LaneReportStore).decode":           {strictWriter, "the writer numbers the next version from the history and writes it back; Current and History read through the tolerant door"},
-	"internal/runstate/memory.go:decodeMemoryRevision":                    {strictValidator, "a revision that will not decode is reported as a problem against its line, and the lines beside it are read"},
-	"internal/readmodel/attention.go:(*Attention).UnmarshalJSON":          {strictValidator, "no stored record is read through it; it holds the dashboard's fixtures and scripted readers to the shape"},
+	"internal/runstate/hold.go:(*OperatorHoldStore).Held":                         {strictValidator, "a hold nobody can read is never spent through as though it were absent; the read model reports it as a problem and the sink reads it past"},
+	"internal/runstate/intake.go:(*IntakeHoldStore).Held":                         {strictValidator, "an intake hold nobody can read is never taken for a clear one; the read model reports it and the sink reads it past"},
+	"internal/runstate/provideroutage.go:(*ProviderOutageStore).Standing":         {strictValidator, "an outage nobody can read is never started through; the read model reports it and the sink reads it past"},
+	"internal/runstate/launchsettingshold.go:(*LaunchSettingsHoldStore).Standing": {strictWriter, "a hold on developers nobody can read is never pulled through as though absent, and the same read precedes every write of the record"},
+	"internal/runstate/divergedtarget.go:(*DivergedTargetStore).Standing":         {strictWriter, "a divergence nobody can read is never pulled through as though absent, and the same read precedes every write of the record"},
+	"internal/runstate/conversation.go:(*ConversationStore).readHolder":           {strictValidator, "who is mid-turn with an agent is refused rather than guessed at from part of a record"},
+	"internal/runstate/presence.go:readRunHolder":                                 {strictValidator, "whether a process is behind a run is refused rather than guessed at from part of a stamp; the reading then reports the run as found"},
+	"internal/runstate/humanact.go:readHumanAct":                                  {strictValidator, "a gate is passed only by an act the harness can read whole; one it cannot is refused where the gate is asked, so the gate holds and the refusal is named rather than read past"},
+	"internal/runstate/stop.go:(*Store).StopRequested":                            {strictValidator, "a run acts on a stop request, and one it cannot read fails its step rather than being ignored"},
+	"internal/runstate/release.go:(*Store).ReleasedWait":                          {strictValidator, "a run acts on the operator's release of a wait, and one it cannot read fails its step rather than being ignored"},
+	"internal/runstate/passcursor.go:(*PassCursorStore).Load":                     {strictWriter, "an instance's cursor is read to be advanced and written back, and a cursor nobody can read must stop its passes rather than hand them nothing or everything"},
+	"internal/runstate/lanereport.go:(*LaneReportStore).decode":                   {strictWriter, "the writer numbers the next version from the history and writes it back; Current and History read through the tolerant door"},
+	"internal/runstate/memory.go:decodeMemoryRevision":                            {strictValidator, "a revision that will not decode is reported as a problem against its line, and the lines beside it are read"},
+	"internal/readmodel/attention.go:(*Attention).UnmarshalJSON":                  {strictValidator, "no stored record is read through it; it holds the dashboard's fixtures and scripted readers to the shape"},
 
 	// An agent's reply, held to exactly what it was asked to write: the block
 	// was written seconds ago by a role this build instructed, and the refusal

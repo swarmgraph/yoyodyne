@@ -1833,7 +1833,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			if err := p.requireLaunchSettings(ctx, fmt.Sprintf("run %s of %s", state.RunID, state.WorkItemID), provider, named); err != nil {
 				var held LaunchSettingsError
 				if errors.As(err, &held) {
-					if recordErr := p.refuseDispatchEnvironmentally(state, runstate.CauseLaunchSettingsNotInForce, held.Error()); recordErr != nil {
+					if recordErr := p.refuseDispatchEnvironmentally(state, runstate.CauseDeveloperSettingsNotApplied, held.Error()); recordErr != nil {
 						err = errors.Join(err, recordErr)
 					}
 				}
