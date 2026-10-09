@@ -6,7 +6,8 @@ package runstate
 // file is its "Durable admission and ownership" section, and keeps the mode
 // each entry was admitted in with the evidence it was chosen on; choosing the
 // mode is internal/queuemode's. mergequeuegeneration.go beside it keeps what
-// the worker verified. Nothing here selects an entry, builds a candidate, runs
+// the worker verified, and mergequeuelanding.go what a promotion did to land
+// it. Nothing here selects an entry, builds a candidate, runs
 // a check, or moves a branch, and nothing in the harness admits to the queue
 // yet.
 //
@@ -365,6 +366,10 @@ type MergeQueueStore struct {
 	// entry's generations record; nil is the ordinary write and read.
 	saveGeneration     func(queue *repowrite.PinnedRoot, name string, encoded []byte) error
 	readGenerationBack func(queue *repowrite.PinnedRoot, name string) ([]byte, error)
+	// saveLanding and readLandingBack are the same two seams for an entry's
+	// landing record.
+	saveLanding     func(queue *repowrite.PinnedRoot, name string, encoded []byte) error
+	readLandingBack func(queue *repowrite.PinnedRoot, name string) ([]byte, error)
 	// leaseWait is the grace a worker lease that looks held is waited out for,
 	// as a run's is; see leaseGrace.
 	leaseWait time.Duration
