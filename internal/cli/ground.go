@@ -328,10 +328,17 @@ func (d conversationDocketLog) Close(_ context.Context, closure chat.DocketClosu
 	// The run's open entries: an entry a standing decision already settled is not
 	// this one's; one whose decision has lapsed is, because that entry is a
 	// question again and this is the answer to it.
+	//
+	// A decision naming no run is about an item's entries that name none, and
+	// answers only those of its classes: there is no run whose other entries it
+	// could settle, and an item's runless entries are not folded together.
 	var open []triage.Entry
 	answers := false
 	for _, entry := range entries {
 		if entry.RunID != closure.RunID || (entry.Closed != nil && entry.Closed.Holds(decidedAt)) {
+			continue
+		}
+		if closure.RunID == "" && (entry.WorkItemID != closure.WorkItemID || !slices.Contains(closure.Classes, entry.Class)) {
 			continue
 		}
 		open = append(open, entry)
@@ -359,6 +366,10 @@ func (d conversationDocketLog) Close(_ context.Context, closure chat.DocketClosu
 			RevisitAfter:  revisit,
 		})
 		if err != nil {
+			if entry.RunID == "" {
+				problems = append(problems, fmt.Errorf("close the docket entry of an attempt at %s: %w", entry.WorkItemID, err))
+				continue
+			}
 			problems = append(problems, fmt.Errorf("close the docket entry of run %s: %w", entry.RunID, err))
 			continue
 		}

@@ -181,9 +181,10 @@ var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross)
 //
 // A decision whose class the run has no open entry of closes nothing, which is
 // the safe direction: the entry stands and is put to her again, exactly as every
-// entry did before closing existed. The two entries that name no run — an item
-// the tree is not ready for, and an attempt that never became a run — are closed
-// by nothing here, because a triage decision names a run and neither has one.
+// entry did before closing existed. An item the tree is not ready for names no
+// run and is closed by nothing here: the pull that finds it ready takes it off.
+// An attempt that never became a run names none either, and is answered by the
+// runless decisions below.
 var triageSettles = map[string]triageSettlement{
 	decisionRepair: {classes: runEntryClasses},
 	// A re-run also answers a publication: handing the change back for a fresh run
@@ -201,6 +202,24 @@ var triageSettles = map[string]triageSettlement{
 	// that raised nothing before it gets this far.
 	decisionRetireRaise: {classes: []triage.Class{triage.ClassEscalation}},
 }
+
+// runlessDecisions are the decisions that may be recorded on an attempt that
+// never became a run, naming the item and no run. The harness settles such an
+// attempt itself once the item is dispatched again (orchestrator's
+// docketredispatch.go), so what is left for her is the attempt nothing has
+// overtaken: waiting says nothing is to be done about it yet, and escalating
+// hands it to the operator — a dirty primary checkout is the common cause, and
+// only a person can clean it. Every other decision acts on a run, and is refused
+// without one.
+//
+// Neither is written to the item's durable triage record, which holds one
+// decision per run and is read only by the carry-outs of the decisions that
+// spend; neither of these spends or is carried out. The note or blocker on the
+// item and the closure on the docket are the whole of the record.
+var runlessDecisions = map[string]bool{decisionWait: true, decisionEscalate: true}
+
+// runlessClasses are the entries a runless decision answers.
+var runlessClasses = []triage.Class{triage.ClassUnstartedAttempt}
 
 // runEntryClasses are the docket entries a decision about a run answers: what a
 // run can be docketed as under its own identifier, other than the publication of
@@ -319,10 +338,14 @@ type ClosedItemEntries interface {
 // because a closure attributed to the harness rather than to the conversation
 // that made it is a decision nobody can be asked about.
 type DocketClosure struct {
-	RunID    string
-	Classes  []triage.Class
-	Decision string
-	Reason   string
+	RunID string
+	// WorkItemID names the item a decision naming no run is about, and is read only
+	// where RunID is empty: such a decision answers the item's open entries of the
+	// given classes that name no run.
+	WorkItemID string
+	Classes    []triage.Class
+	Decision   string
+	Reason     string
 	// Revisit says this decision holds for a while rather than settling the
 	// stoppage, which is what waiting is. How long is the harness's to decide, so
 	// what travels from here is that the decision lapses and not when.
@@ -396,8 +419,10 @@ func (a TrackerAction) triageProblems() []error {
 			decision, strings.Join(triageDecisions, ", ")))
 	}
 	switch run := strings.TrimSpace(a.Run); {
+	case run == "" && !runlessDecisions[strings.TrimSpace(a.Decision)]:
+		problems = append(problems, fmt.Errorf("triage requires \"run\", the run the docket entry names; only %q and %q may leave it out, for an attempt that never became a run, which names none",
+			decisionWait, decisionEscalate))
 	case run == "":
-		problems = append(problems, errors.New("triage requires \"run\", the run the docket entry names"))
 	case !runstate.ValidRunID(run):
 		problems = append(problems, fmt.Errorf("triage run %q is not a run identifier; a docket entry names the run it is about", run))
 	}
@@ -580,6 +605,10 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	id := strings.TrimSpace(action.ID)
 	decision := strings.TrimSpace(action.Decision)
 	run := strings.TrimSpace(action.Run)
+	if run == "" {
+		s.carryOutRunlessTriage(ctx, outcome, id, decision)
+		return
+	}
 	if err := s.refuseTransposedStoppage(ctx, id, run); err != nil {
 		outcome.fail(err)
 		return
@@ -660,6 +689,62 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	}
 	outcome.applied("triaged %s as %q, on the stopped work of run %s%s%s%s",
 		id, decision, run, spent.clause, lifted, s.closeDocketEntry(ctx, decision, run, action.Reason))
+}
+
+// carryOutRunlessTriage records a decision about an attempt that never became a
+// run: onto the item, as a note or, for an escalation, a blocker, and then onto
+// the docket, closing the item's open attempts. Validation has already held it
+// to the decisions in runlessDecisions.
+func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOutcome, id, decision string) {
+	action := outcome.Action
+	note := s.trackerProvenance(triageVerbs[decision]+", on an attempt to dispatch it that never became a run", action.Reason)
+	if decision == decisionEscalate {
+		if _, err := s.options.Tracker.Block(ctx, id, note); err != nil {
+			outcome.fail(err)
+			s.settleTrackerBlock(ctx, outcome, id, note)
+			return
+		}
+		outcome.applied("escalated %s to the operator and blocked it, on an attempt to dispatch it that never became a run%s",
+			id, s.closeRunlessDocketEntries(ctx, id, decision, action.Reason))
+		return
+	}
+	if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note}); err != nil {
+		outcome.fail(err)
+		s.settleTrackerNote(ctx, outcome, id, note, "the decision recorded on the item")
+		return
+	}
+	outcome.applied("triaged %s as %q, on an attempt to dispatch it that never became a run%s",
+		id, decision, s.closeRunlessDocketEntries(ctx, id, decision, action.Reason))
+}
+
+// closeRunlessDocketEntries is closeDocketEntry for a decision that names an item
+// and no run.
+func (s *Session) closeRunlessDocketEntries(ctx context.Context, workItemID, decision, reason string) string {
+	if s.options.Docket == nil {
+		return ""
+	}
+	closed, err := s.options.Docket.Close(ctx, DocketClosure{
+		WorkItemID: workItemID,
+		Classes:    runlessClasses,
+		Decision:   decision,
+		Reason:     reason,
+		Revisit:    triageSettles[decision].revisit,
+		DecidedBy:  fmt.Sprintf("the %s in conversation %s", RoleTitle(s.state.Role), s.state.ConversationID),
+	})
+	settled := ""
+	if closed > 0 {
+		settled = fmt.Sprintf("; %d docket entry(s) of attempts at that item are closed", closed)
+	}
+	if err != nil {
+		return settled + fmt.Sprintf("; a docket entry could not be closed and will be put to you again: %v", err)
+	}
+	if closed == 0 {
+		// Said rather than left out, because a decision about an attempt that closed
+		// nothing is one the docket will put to her again or never had: the attempt
+		// was already settled, or the item has none.
+		return settled + "; no open attempt at that item was on the docket, so nothing on it was closed"
+	}
+	return settled
 }
 
 // raiseDecisions is the sentence that names what answers a raise, said wherever

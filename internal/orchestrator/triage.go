@@ -74,6 +74,10 @@ package orchestrator
 // elsewhere. An unfinished publication is the exception, because it asks about a
 // merge the forge holds rather than about the item, which closes on integration.
 //
+// An attempt that never became a run is also closed by its item becoming one:
+// a build settles it once a run of the same item is recorded as starting after
+// it (docketredispatch.go).
+//
 // # What puts one back
 //
 // Two things, and neither is the scan changing its mind. The same work stopping
@@ -334,6 +338,11 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// has no run left to stop, so it is settled before the docket is read for
 	// somebody to decide from. See productdecision.go.
 	if _, err := d.settleEndedProductDecisions(byID, now); err != nil {
+		problems = append(problems, err)
+	}
+	// So is an attempt that never became a run whose item has since become one: see
+	// docketredispatch.go.
+	if _, err := d.settleRedispatchedAttempts(recorded, now); err != nil {
 		problems = append(problems, err)
 	}
 	entries, err := d.Docket.List()

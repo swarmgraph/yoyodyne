@@ -957,3 +957,60 @@ func docketerOverDocket(runs *runstate.Store, docket *runstate.DocketStore) *orc
 		Triage:    triage,
 	}
 }
+
+// A decision about an attempt that never became a run names the item and no
+// run, and closes that item's attempts and nothing else: not another item's
+// attempt, and not an entry of the item that names a run.
+func TestADecisionNamingNoRunClosesOnlyThatItemsAttempts(t *testing.T) {
+	t.Parallel()
+
+	store, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewDocketStore() error = %v", err)
+	}
+	const runID = "run-0123456789abcdef0123456789abcdef"
+	refused := time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC)
+	const failure = "repository is not ready for an isolated run: the primary checkout has uncommitted changes"
+	attempt := func(item string) triage.Entry {
+		return triage.Entry{
+			SchemaVersion: triage.SchemaVersion, Key: triage.AttemptKey(item, failure), Class: triage.ClassUnstartedAttempt,
+			ProductID: "yoyodyne", WorkItemID: item, RecordedAt: refused, Failure: failure,
+			Attempt: &triage.Attempt{SelectedBecause: "first in the order"},
+		}
+	}
+	for _, entry := range []triage.Entry{
+		attempt("yoyodyne-task"),
+		attempt("yoyodyne-other"),
+		{
+			SchemaVersion: triage.SchemaVersion, Key: triage.Key(triage.ClassStoppedRun, runID), Class: triage.ClassStoppedRun,
+			ProductID: "yoyodyne", RunID: runID, WorkItemID: "yoyodyne-task", RecordedAt: refused,
+			Blocker: "Yoyodyne stopped this item: its target branch moved.",
+		},
+	} {
+		if _, err := store.RecordOnce(entry); err != nil {
+			t.Fatalf("RecordOnce() error = %v", err)
+		}
+	}
+	closer := conversationDocketLog{store: store, clock: stoppedClock{at: refused.Add(time.Hour)}, revisitAfter: 2 * time.Hour}
+	closed, err := closer.Close(context.Background(), chat.DocketClosure{
+		WorkItemID: "yoyodyne-task",
+		Classes:    []triage.Class{triage.ClassUnstartedAttempt},
+		Decision:   "escalate",
+		Reason:     "the primary checkout is dirty, and only a person can clean it",
+		DecidedBy:  "the development manager in conversation chat-0123456789abcdef",
+	})
+	if err != nil || closed != 1 {
+		t.Fatalf("Close() = %d, error = %v, want the one attempt at the item closed", closed, err)
+	}
+	entries, err := store.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	for _, entry := range entries {
+		decided := entry.Closed != nil
+		want := entry.Class == triage.ClassUnstartedAttempt && entry.WorkItemID == "yoyodyne-task"
+		if decided != want {
+			t.Fatalf("entry %s of %s closed = %v, want %v", entry.Class, entry.WorkItemID, decided, want)
+		}
+	}
+}
