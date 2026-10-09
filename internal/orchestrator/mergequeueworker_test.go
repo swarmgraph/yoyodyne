@@ -78,6 +78,7 @@ func newQueueFixture(t *testing.T, verdicts ...string) *queueFixture {
 	entry, _, err := queue.Admit(context.Background(), runstate.MergeQueueAdmission{
 		Key: queueKey, WorkItemID: "yoyodyne-task", WorkItemTitle: "Add the feature", RunID: runID,
 		ApprovedHead: head, IntegrationPolicy: "automatic", Mode: runstate.MergeQueueHarness,
+		ModeEvidence: harnessModeEvidence(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -462,6 +463,7 @@ func TestOneWorkerVerifiesAQueueAtATimeInAdmissionOrder(t *testing.T) {
 	later, _, err := f.queue.Admit(context.Background(), runstate.MergeQueueAdmission{
 		Key: queueKey, WorkItemID: "yoyodyne-task", WorkItemTitle: "Later work on the same item", RunID: runID,
 		ApprovedHead: f.head, IntegrationPolicy: "automatic", Mode: runstate.MergeQueueHarness,
+		ModeEvidence: harnessModeEvidence(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -479,6 +481,15 @@ func TestOneWorkerVerifiesAQueueAtATimeInAdmissionOrder(t *testing.T) {
 }
 
 // moveTarget lands one commit on main in the primary checkout.
+// harnessModeEvidence is the reason an admission records for being in the
+// harness's queue, which every entry these tests work is in.
+func harnessModeEvidence() runstate.MergeQueueModeEvidence {
+	return runstate.MergeQueueModeEvidence{
+		ObservedAt:  time.Date(2026, 10, 7, 9, 0, 0, 0, time.UTC),
+		Explanation: "The project has no forge that can say whether it has a merge queue. The harness runs the queue itself.",
+	}
+}
+
 func moveTarget(t *testing.T, repository, file string) {
 	t.Helper()
 	writeQueueFile(t, repository, file, file+"\n")

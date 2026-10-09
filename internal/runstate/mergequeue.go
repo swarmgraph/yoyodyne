@@ -3,10 +3,12 @@ package runstate
 // The merge queue's durable half: which approved changes wait to integrate into
 // one target branch, in what order, and which process is the one that works the
 // queue. docs/designs/integration-through-a-merge-queue.md is the design; this
-// file is its "Durable admission and ownership" section, and
-// mergequeuegeneration.go beside it keeps what the worker verified. Nothing
-// here selects an entry, builds a candidate, runs a check, or moves a branch,
-// and nothing in the harness admits to the queue yet.
+// file is its "Durable admission and ownership" section, and keeps the mode
+// each entry was admitted in with the evidence it was chosen on; choosing the
+// mode is internal/queuemode's. mergequeuegeneration.go beside it keeps what
+// the worker verified. Nothing here selects an entry, builds a candidate, runs
+// a check, or moves a branch, and nothing in the harness admits to the queue
+// yet.
 //
 // One queue exists per repository and target branch, as one record under the
 // product. Admission is a short critical section under the record's lock: read
@@ -86,6 +88,53 @@ func (m MergeQueueMode) valid() bool {
 	return m == MergeQueueHarness || m == MergeQueueForge
 }
 
+// MergeQueueModeEvidence is what the forge was observed to establish when an
+// entry's mode was chosen, recorded with the entry so the reason it is in its
+// mode outlives the observation. internal/queuemode chooses the mode and
+// writes this.
+type MergeQueueModeEvidence struct {
+	// Forge names the adapter that was asked, and is empty where the project
+	// has none that can read a merge queue.
+	Forge           string    `json:"forge,omitempty"`
+	ObservedAt      time.Time `json:"observed_at"`
+	TargetProtected bool      `json:"target_protected,omitempty"`
+	// ForgeQueue is the forge having its own merge queue for the target.
+	ForgeQueue bool `json:"forge_queue,omitempty"`
+	// TimeoutMinutes is the forge's queue timeout as the forge reported it,
+	// and zero where it reported none.
+	TimeoutMinutes int `json:"timeout_minutes,omitempty"`
+	// Unmet names each requirement the forge's queue did not establish and
+	// enforce, which is empty only for an entry in the forge's queue.
+	Unmet []string `json:"unmet,omitempty"`
+	// Explanation says in ordinary words why the entry is in its mode.
+	Explanation string `json:"explanation"`
+}
+
+func (e MergeQueueModeEvidence) validate(mode MergeQueueMode) []error {
+	var problems []error
+	if e.ObservedAt.IsZero() {
+		problems = append(problems, errors.New("the time the mode's evidence was observed is required"))
+	}
+	if err := mergeQueueText("forge", e.Forge, false); err != nil {
+		problems = append(problems, err)
+	}
+	if err := mergeQueueText("mode explanation", e.Explanation, true); err != nil {
+		problems = append(problems, err)
+	}
+	if e.TimeoutMinutes < 0 {
+		problems = append(problems, fmt.Errorf("queue timeout %d minutes is negative", e.TimeoutMinutes))
+	}
+	for _, unmet := range e.Unmet {
+		if err := mergeQueueText("unmet requirement", unmet, true); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if mode == MergeQueueForge && (len(e.Unmet) > 0 || !e.ForgeQueue) {
+		problems = append(problems, errors.New("an entry in the forge's queue records a queue that met every requirement"))
+	}
+	return problems
+}
+
 // MergeQueueKey names one queue: a repository and a target branch in it.
 // Repository is the repository a run records itself against
 // (State.RepositoryID), compared exactly.
@@ -130,6 +179,8 @@ type MergeQueueAdmission struct {
 	// under, which admission records and never interprets.
 	IntegrationPolicy string
 	Mode              MergeQueueMode
+	// ModeEvidence is the observation Mode was chosen from.
+	ModeEvidence MergeQueueModeEvidence
 	// At is when the change was admitted; zero means now.
 	At time.Time
 }
@@ -151,7 +202,11 @@ type MergeQueueEntry struct {
 	ApprovedHead      string           `json:"approved_head"`
 	IntegrationPolicy string           `json:"integration_policy"`
 	Mode              MergeQueueMode   `json:"mode"`
-	AdmittedAt        time.Time        `json:"admitted_at"`
+	// ModeEvidence is why the entry is in Mode, as observed when it was
+	// admitted. A later observation never revises it, and never moves the
+	// entry to another mode.
+	ModeEvidence MergeQueueModeEvidence `json:"mode_evidence"`
+	AdmittedAt   time.Time              `json:"admitted_at"`
 	// PredecessorOrder is the order of the entry admitted immediately before
 	// this one, and zero for a queue's first.
 	PredecessorOrder uint64 `json:"predecessor_order"`
@@ -180,6 +235,7 @@ func (e MergeQueueEntry) validate() error {
 		problems = append(problems, err)
 	}
 	problems = append(problems, mergeQueueContents(e.WorkItemID, e.WorkItemTitle, e.RunID, e.Publication, e.ApprovedHead, e.IntegrationPolicy, e.Mode)...)
+	problems = append(problems, e.ModeEvidence.validate(e.Mode)...)
 	if e.AdmittedAt.IsZero() {
 		problems = append(problems, errors.New("admission time is required"))
 	}
@@ -191,7 +247,10 @@ func (e MergeQueueEntry) validate() error {
 
 // sameContents reports whether an entry records exactly what an admission
 // asks for. The identity, order, predecessor, and time are the queue's, not
-// the caller's, so a retry is the same admission whatever they are.
+// the caller's, so a retry is the same admission whatever they are. The mode's
+// evidence is an observation rather than something asked for: a retry that
+// observed the forge again, and chose the same mode, is the same admission,
+// and the entry keeps the evidence it was admitted on.
 func (e MergeQueueEntry) sameContents(other MergeQueueEntry) bool {
 	return e.ProductID == other.ProductID && e.Repository == other.Repository && e.TargetBranch == other.TargetBranch &&
 		e.WorkItemID == other.WorkItemID && e.WorkItemTitle == other.WorkItemTitle && e.RunID == other.RunID &&
@@ -356,9 +415,12 @@ func (s *MergeQueueStore) Admit(ctx context.Context, admission MergeQueueAdmissi
 		ProductID: s.productID, Repository: admission.Key.Repository, TargetBranch: admission.Key.TargetBranch,
 		WorkItemID: admission.WorkItemID, WorkItemTitle: admission.WorkItemTitle, RunID: admission.RunID,
 		Publication: admission.Publication, ApprovedHead: admission.ApprovedHead,
-		IntegrationPolicy: admission.IntegrationPolicy, Mode: admission.Mode, AdmittedAt: at.UTC(),
+		IntegrationPolicy: admission.IntegrationPolicy, Mode: admission.Mode, ModeEvidence: admission.ModeEvidence, AdmittedAt: at.UTC(),
 	}
-	if err := errors.Join(admission.Key.validate(), errors.Join(mergeQueueContents(asked.WorkItemID, asked.WorkItemTitle, asked.RunID, asked.Publication, asked.ApprovedHead, asked.IntegrationPolicy, asked.Mode)...)); err != nil {
+	asked.ModeEvidence.ObservedAt = asked.ModeEvidence.ObservedAt.UTC()
+	asked.ModeEvidence.Unmet = append([]string(nil), asked.ModeEvidence.Unmet...)
+	if err := errors.Join(admission.Key.validate(), errors.Join(mergeQueueContents(asked.WorkItemID, asked.WorkItemTitle, asked.RunID, asked.Publication, asked.ApprovedHead, asked.IntegrationPolicy, asked.Mode)...),
+		errors.Join(asked.ModeEvidence.validate(asked.Mode)...)); err != nil {
 		return MergeQueueEntry{}, false, fmt.Errorf("merge queue admission: %w", err)
 	}
 	queueRoot, unlock, err := s.lockQueue(ctx, admission.Key)
