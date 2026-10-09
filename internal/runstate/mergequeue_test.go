@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"sync"
@@ -78,7 +79,7 @@ func TestConcurrentAdmissionsEachGetOneOrderAndKeepIt(t *testing.T) {
 		byRun[entry.RunID] = entry
 	}
 	for i, entry := range entries {
-		if byRun[asked[i].RunID] != entry {
+		if !reflect.DeepEqual(byRun[asked[i].RunID], entry) {
 			t.Fatalf("Admit() reported %#v, but the record holds %#v", entry, byRun[asked[i].RunID])
 		}
 	}
@@ -119,7 +120,7 @@ func TestRepeatedAdmissionIsTheEntryAlreadyThere(t *testing.T) {
 		if admitted[i] {
 			newly++
 		}
-		if reported[i] != reported[0] {
+		if !reflect.DeepEqual(reported[i], reported[0]) {
 			t.Fatalf("retries reported %#v and %#v", reported[0], reported[i])
 		}
 	}
@@ -149,19 +150,22 @@ func TestAnAdmittedEntryIsNeverRewritten(t *testing.T) {
 		"work item":   func(a *MergeQueueAdmission) { a.WorkItemID = "yoyodyne-other" },
 		"publication": func(a *MergeQueueAdmission) { a.Publication = "https://example.test/pull/2" },
 		"policy":      func(a *MergeQueueAdmission) { a.IntegrationPolicy = "local" },
-		"mode":        func(a *MergeQueueAdmission) { a.Mode = MergeQueueForge },
+		"mode": func(a *MergeQueueAdmission) {
+			a.Mode = MergeQueueForge
+			a.ModeEvidence = MergeQueueModeEvidence{Forge: "test", ObservedAt: a.At, ForgeQueue: true, Explanation: "the forge's queue met every requirement"}
+		},
 	}
 	for name, change := range changes {
 		conflicting := original
 		change(&conflicting)
 		_, _, err := store.Admit(context.Background(), conflicting)
 		var conflict MergeQueueConflictError
-		if !errors.As(err, &conflict) || conflict.Admitted != entry {
+		if !errors.As(err, &conflict) || !reflect.DeepEqual(conflict.Admitted, entry) {
 			t.Fatalf("Admit() with another %s error = %v, want the conflict naming the entry", name, err)
 		}
 	}
 	recorded, err := store.Entries(mainQueue)
-	if err != nil || len(recorded) != 1 || recorded[0] != entry {
+	if err != nil || len(recorded) != 1 || !reflect.DeepEqual(recorded[0], entry) {
 		t.Fatalf("Entries() = %#v, %v; want only the original entry", recorded, err)
 	}
 }
@@ -181,11 +185,11 @@ func TestAdmissionsSurviveARestart(t *testing.T) {
 
 	restarted := newMergeQueueStore(t, root)
 	recorded, err := restarted.Entries(mainQueue)
-	if err != nil || len(recorded) != 1 || recorded[0] != before {
+	if err != nil || len(recorded) != 1 || !reflect.DeepEqual(recorded[0], before) {
 		t.Fatalf("Entries() after a restart = %#v, %v; want %#v", recorded, err, before)
 	}
 	again, admitted, err := restarted.Admit(context.Background(), first)
-	if err != nil || admitted || again != before {
+	if err != nil || admitted || !reflect.DeepEqual(again, before) {
 		t.Fatalf("Admit() of the same run after a restart = %#v, %t, %v; want the entry already there", again, admitted, err)
 	}
 	second, _, err := restarted.Admit(context.Background(), testAdmission(t, mainQueue))
@@ -297,6 +301,90 @@ func TestAnAdmissionThatCannotBeRecordedAsGivenIsRefused(t *testing.T) {
 		"no policy":       func(a *MergeQueueAdmission) { a.IntegrationPolicy = "" },
 		"unknown mode":    func(a *MergeQueueAdmission) { a.Mode = "github" },
 		"long title":      func(a *MergeQueueAdmission) { a.WorkItemTitle = strings.Repeat("a", MaxMergeQueueTextBytes+1) },
+	}
+	for name, change := range refusals {
+		admission := testAdmission(t, mainQueue)
+		change(&admission)
+		if _, _, err := store.Admit(context.Background(), admission); err == nil {
+			t.Fatalf("Admit() with %s was accepted", name)
+		}
+	}
+}
+
+func TestAnEntryKeepsTheModeEvidenceItWasAdmittedOn(t *testing.T) {
+	t.Parallel()
+
+	// The evidence is an observation: a retry that observed the forge again and
+	// chose the same mode is the same admission, and the entry keeps what it was
+	// admitted on, through a restart as well.
+	root := t.TempDir()
+	admission := testAdmission(t, mainQueue)
+	entry, _, err := newMergeQueueStore(t, root).Admit(context.Background(), admission)
+	if err != nil {
+		t.Fatalf("Admit() error = %v", err)
+	}
+	if !reflect.DeepEqual(entry.ModeEvidence, admission.ModeEvidence) {
+		t.Fatalf("Admit() recorded evidence %#v, want %#v", entry.ModeEvidence, admission.ModeEvidence)
+	}
+	reobserved := admission
+	reobserved.ModeEvidence = MergeQueueModeEvidence{Forge: "github", ObservedAt: admission.At.Add(time.Hour), ForgeQueue: true, TimeoutMinutes: 15,
+		Unmet: []string{"independent-approval"}, Explanation: "the forge's reviews approve the pull request's head"}
+	again, admitted, err := newMergeQueueStore(t, root).Admit(context.Background(), reobserved)
+	if err != nil || admitted || !reflect.DeepEqual(again, entry) {
+		t.Fatalf("Admit() after a new observation = %#v, %t, %v; want the entry as admitted", again, admitted, err)
+	}
+	assertQueue(t, newMergeQueueStore(t, root), entry)
+}
+
+func TestAnUncertainSaveIsReadBackBeforeAnotherAdmissionIsWritten(t *testing.T) {
+	t.Parallel()
+
+	// An admission whose save landed but could not be confirmed is in the
+	// record, so the next admission — another run's, after a restart — reads it
+	// and is ordered after it, and a retry of the first finds it with the
+	// evidence it was saved with rather than the retry's.
+	root := t.TempDir()
+	store := newMergeQueueStore(t, root)
+	first := testAdmission(t, mainQueue)
+	store.save = func(queue *repowrite.PinnedRoot, encoded []byte) error {
+		return errors.Join(writeQueue(queue, encoded), errors.New("connection to the disk lost"))
+	}
+	store.readback = func(*repowrite.PinnedRoot) ([]byte, error) { return nil, errors.New("still lost") }
+	if _, _, err := store.Admit(context.Background(), first); !errors.Is(err, ErrMergeQueueSaveUncertain) {
+		t.Fatalf("Admit() error = %v, want the save named uncertain", err)
+	}
+
+	restarted := newMergeQueueStore(t, root)
+	second, admitted, err := restarted.Admit(context.Background(), testAdmission(t, mainQueue))
+	if err != nil || !admitted || second.Order != 2 || second.PredecessorOrder != 1 {
+		t.Fatalf("Admit() of another run after the uncertain save = %#v, %t, %v; want order 2 after the landed entry", second, admitted, err)
+	}
+	retried := first
+	retried.ModeEvidence.Explanation = "a later observation"
+	retried.ModeEvidence.ObservedAt = first.At.Add(time.Hour)
+	entry, admitted, err := restarted.Admit(context.Background(), retried)
+	if err != nil || admitted || entry.Order != 1 || !reflect.DeepEqual(entry.ModeEvidence, first.ModeEvidence) {
+		t.Fatalf("retried Admit() = %#v, %t, %v; want the entry the uncertain save landed, with its own evidence", entry, admitted, err)
+	}
+}
+
+func TestAnAdmissionWithoutUsableModeEvidenceIsRefused(t *testing.T) {
+	t.Parallel()
+
+	store := newMergeQueueStore(t, t.TempDir())
+	refusals := map[string]func(*MergeQueueAdmission){
+		"no explanation":    func(a *MergeQueueAdmission) { a.ModeEvidence.Explanation = "" },
+		"no observed time":  func(a *MergeQueueAdmission) { a.ModeEvidence.ObservedAt = time.Time{} },
+		"negative timeout":  func(a *MergeQueueAdmission) { a.ModeEvidence.TimeoutMinutes = -1 },
+		"blank requirement": func(a *MergeQueueAdmission) { a.ModeEvidence.Unmet = []string{""} },
+		"forge mode with an unmet requirement": func(a *MergeQueueAdmission) {
+			a.Mode = MergeQueueForge
+			a.ModeEvidence.ForgeQueue = true
+		},
+		"forge mode with no forge queue": func(a *MergeQueueAdmission) {
+			a.Mode = MergeQueueForge
+			a.ModeEvidence.Unmet = nil
+		},
 	}
 	for name, change := range refusals {
 		admission := testAdmission(t, mainQueue)
@@ -569,7 +657,11 @@ func testAdmission(t *testing.T, key MergeQueueKey) MergeQueueAdmission {
 		ApprovedHead:      strings.Repeat("a", 40),
 		IntegrationPolicy: "pull-request",
 		Mode:              MergeQueueHarness,
-		At:                time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC),
+		ModeEvidence: MergeQueueModeEvidence{
+			Forge: "github", ObservedAt: time.Date(2026, 10, 6, 11, 59, 0, 0, time.UTC), TargetProtected: true,
+			Unmet: []string{"candidate-commit"}, Explanation: "the forge's queue does not name the combined commit it lands",
+		},
+		At: time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC),
 	}
 }
 
