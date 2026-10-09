@@ -963,6 +963,27 @@ func (d ChangeDiff) UnreviewableOmissions() []string {
 	return problems
 }
 
+// OverReviewBound is every source or test file the patch's size and count bounds
+// kept out: the omissions that refuse an approval and that no review round can
+// change, because the bound is the harness's and not the reviewer's. A fixture
+// is never one of them — the rules allow an approval over omitted test data —
+// and neither is content kept out for being binary or unreadable, which is not
+// the bound at all. It is what the pipeline measures a change against before any
+// check or review is spent on it.
+func (d ChangeDiff) OverReviewBound() []OmittedFile {
+	var over []OmittedFile
+	for _, file := range d.OmittedFiles {
+		if file.Class == FileClassFixture {
+			continue
+		}
+		switch file.Reason {
+		case OmittedTooLarge, OmittedPatchFull, OmittedTooManyFiles:
+			over = append(over, file)
+		}
+	}
+	return over
+}
+
 // DeletedFile is one file whose change is removal alone, described by what it
 // was at the base commit rather than rendered as the diff that removes it.
 //

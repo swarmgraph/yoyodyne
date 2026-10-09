@@ -5126,7 +5126,7 @@ without landing. It uses the existing closed list, extended with the bounds in
 `relaunch-budget`, `promotion-wait`, `usage-pause`, `operator-stop`, `manager-stop`,
 `redeploy-drain`, `dead-claim`, `developer-account`, `review-account`,
 `work-item-escalated`, `integration-policy`, `recovery-window`, `context-bound`,
-`state-bound`, `event-bound`, and the
+`state-bound`, `event-bound`, `review-bound`, and the
 inventory's causes outside the work. Other refusals retain their gate names.
 The refusal record still controls refunds; a stop class changes no budget
 or recovery rule. An older record with no class reads as `unknown`, without

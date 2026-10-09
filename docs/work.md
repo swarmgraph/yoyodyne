@@ -125,6 +125,23 @@ change behind each grant and to raise a finding when none is named.
 [Configuration](configuration.md#protected-paths-in-a-developers-change)
 has the details.
 
+**The review bound is measured before the checks.** Straight after that gate,
+a run the harness will integrate itself renders its committed change the way
+the reviewer's copy is rendered and measures it against the review bound
+the patch is held to further down this page — 256 KiB for the whole patch, 64 KiB for one uncommitted new file, 200 new files. A change
+whose source or test files that bound would keep out of the reviewer's copy
+could never be approved, since a source or test file the patch does not show
+refuses an approval, and no repair changes a bound that is the harness's. So it
+is not checked and not reviewed: the run ends at developing with the stop cause
+`review-bound`, the item is blocked with each such file's path, kind, size, the
+size of its diff where it has one, and the bound it was measured against, and
+the development manager's docket entry carries the same words. The branch and
+worktree are kept for her decision, which is usually to split the item. A
+change whose only files over the bound are test data goes on to its checks and
+review exactly as before, because an approval may be given over omitted test
+data. Before this, the bound was found only after the checks had passed and a
+review round had been spent on a change that could not land.
+
 The change is then gated on whether anybody ran it. A developer's reply records
 what it executed — the probe it ran in the worktree before it changed anything,
 and the checks it ran against the change itself — and a change that records

@@ -87,8 +87,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `pausedFor…` predicate — `directivePause`, `dependencyPause`,
     `trackerPause`, `operatorHoldPause`. Also `operatorHold`, `holdWorkItem`,
     `holdIntake`, `stopRequested` / `operatorStop`, `holdForOperator`.
-13. **Checks.** `verify` (path gate, self-verification gate, configured
-    checks), `integrationEarned` (reads the record, compares
+13. **Checks.** `verify` (path gate, review-bound gate — `gateReviewBound`
+    and `blockOnReviewBound` in `reviewbound.go` — self-verification gate,
+    configured checks), `integrationEarned` (reads the record, compares
     `ContentIdentity`), `closeCheckStage`, `scaleCheckStage`,
     `checkStageTimeout`, `landingCheckTimeout`, `gateProtectedPaths`,
     `pathRefusal`, `checkFailure`.
@@ -131,9 +132,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 
 ### Where does a run move from checks to review, and back to the developer?
 `repairLoop`. Each round: `holdForDirective`, `holdForDependency`, then
-`verify`. A `pathRefusal`, `missingVerification` (in `selfcheck.go`) or
-`checkFailure` goes back to the developer through `repair` with the matching
-prompt; any other `verify` error ends the run. When `verify` passes,
+`verify`. A `reviewBoundRefusal` (in `reviewbound.go`) ends the run at once
+through `blockOnReviewBound`, because no repair changes the bound. A
+`pathRefusal`, `missingVerification` (in `selfcheck.go`) or `checkFailure` goes
+back to the developer through `repair` with the matching prompt; any other
+`verify` error ends the run. When `verify` passes,
 `reviewChange` runs. Approve returns to `verifyReviewAndFinish`; escalate
 returns `escalationRaised`; anything else is handed back with `repairPrompt`
 until `repairBudget` is spent, then `blockOnUnresolvedFindings`. Without
