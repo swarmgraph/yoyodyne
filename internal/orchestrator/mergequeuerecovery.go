@@ -281,7 +281,7 @@ func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueu
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 	q.outcome.Entry = entry
 	err = q.withdraw(ctx, reason)
-	return q.finish(), err
+	return q.result(), err
 }
 
 // entry is one admitted entry and its landing record.
@@ -306,7 +306,7 @@ func (p MergeQueuePromoter) entry(key runstate.MergeQueueKey, entryID string) (r
 	return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, fmt.Errorf("the merge queue for %s admits no entry %s", key.TargetBranch, entryID)
 }
 
-func (q *queuePromotion) finish() MergeQueuePromotion {
+func (q *queuePromotion) result() MergeQueuePromotion {
 	if attempt, ok := q.landing.Current(); ok {
 		q.outcome.Attempt = attempt
 		q.outcome.Landed = attempt.Landed != nil
@@ -528,7 +528,7 @@ func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueue
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 	q.outcome.Entry = entry
 	err = q.withdraw(ctx, "generation "+fmt.Sprint(failure.Generation.Number)+" is defective: "+failure.Reason)
-	recovered.Withdrawal = q.finish()
+	recovered.Withdrawal = q.result()
 	if err != nil || !q.outcome.Withdrawn {
 		return recovered, err
 	}
