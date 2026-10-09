@@ -37,12 +37,27 @@ package orchestrator
 // A candidate defect ends the entry's turn with a handback naming the failed
 // generation and the run's saved change. The run's own repair counters decide
 // what follows, read and never granted: a run with attempts left is handed the
-// failure for its repair loop, the same run with its same branch; one with none
+// failure for its repair, the same run with its same branch; one with none
 // left is recorded exhausted, with its work kept, for the development manager.
+// Either is handed to the run the way a red queued merge's change is
+// (MergeQueueRunHandback): the failure and a blocker go on the run and the
+// item, and the run goes on the docket, where the existing repair
+// continuation carries the repair out on the same run and session.
+//
+// A merge withdrawn for anything other than a defect — a head about to be
+// rewritten, an entry moving to the other queue mode — releases the entry
+// (release): its turn ends naming the harness as who moves next, so it never
+// stands at the head of the queue refusing every entry behind it.
 // A candidate combining more than one head is not handed to any one of them:
 // a forge annotation or log naming one head is evidence, not proof that head
 // caused the failure. Restarting changes none of it — the handback is written
 // once and read back, and the counters are the run's durable record.
+//
+// The harness's queue does not run the target's own checks, so a target that
+// is red with no red-landing item filed for that check yet cannot be told from
+// a defect of the change, and is read as one. The red landing of the target's
+// own last change files that item, so this is a window rather than a standing
+// gap; closing it would mean checking the base as well as the candidate.
 //
 // The forge's own queue builds and checks its own combined commit, and its
 // failures are read from the forge's account of that commit; recovering an
@@ -53,6 +68,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
@@ -69,12 +85,13 @@ type MergeQueueWithdrawer interface {
 	DisableAutoMerge(ctx context.Context, number int) error
 }
 
-// MergeQueueRepair hands a defective candidate's run back to its own repair
-// loop: the same run, its saved change, and the failure as the handback
-// records it. It charges nothing itself — the run's repair loop records its
-// attempt as every repair does — and must hand the run back once however often
-// it is asked, because a process can stop after handing it back and before
-// that is written down.
+// MergeQueueRepair hands a defective candidate's run back: the same run, its
+// saved change, and the failure as the handback records it, for a repair or,
+// where the run's budget is spent, for the development manager to decide on.
+// It charges nothing itself — the run's repair loop records its attempt as
+// every repair does — and must hand the run back once however often it is
+// asked, because a process can stop after handing it back and before that is
+// written down. MergeQueueRunHandback is the harness's.
 type MergeQueueRepair interface {
 	HandBack(ctx context.Context, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error
 }
@@ -280,8 +297,35 @@ func (p MergeQueuePromoter) Withdraw(ctx context.Context, key runstate.MergeQueu
 	}
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 	q.outcome.Entry = entry
-	err = q.withdraw(ctx, reason)
-	return q.result(), err
+	if err := q.withdraw(ctx, reason); err != nil || !q.outcome.Withdrawn {
+		return q.result(), err
+	}
+	return q.result(), q.release("its queued merge was withdrawn: " + reason)
+}
+
+// release ends the turn of an entry whose merge was withdrawn for something
+// other than a defect, so it neither stands at the head of the queue refusing
+// every later entry nor is asked for again. The harness moves next: whatever
+// asked for the withdrawal — a head to rewrite, a move to the other queue
+// mode — admits the change again once it is done. An entry already handed
+// back keeps what it was given.
+func (q *queuePromotion) release(why string) error {
+	if q.landing.Handback != nil || q.landing.Completion != nil {
+		return nil
+	}
+	if refusal := q.landing.HeadRewriteRefusal(); refusal != "" {
+		return fmt.Errorf("merge queue entry %d cannot be released: %s", q.entry.Order, refusal)
+	}
+	q.landing.Handback = &runstate.MergeQueueHandback{
+		At: q.now(), Continuation: runstate.MergeQueueReleased, Mover: ownership.MoverHarness,
+		Reason:       oneline.Fold(why+"; the entry leaves the queue, and the change is admitted again once what the withdrawal was for is done", 1500),
+		ApprovedHead: q.entry.ApprovedHead,
+	}
+	if err := q.save(); err != nil {
+		q.landing.Handback = nil
+		return err
+	}
+	return nil
 }
 
 // entry is one admitted entry and its landing record.
@@ -522,11 +566,20 @@ func (p MergeQueuePromoter) Recover(ctx context.Context, key runstate.MergeQueue
 		return recovered, err
 	}
 	recovered.Failure = failure
-	if failure.Class != runstate.MergeQueueCandidateDefect {
-		return recovered, nil
-	}
 	q := &queuePromotion{p: p, worker: worker, key: key, entry: entry, landing: landing}
 	q.outcome.Entry = entry
+	if failure.Class != runstate.MergeQueueCandidateDefect {
+		// A merge withdrawn by a recovery that stopped before it recorded the
+		// handback, on evidence that no longer reads as a defect, is released
+		// rather than left refusing every entry behind it.
+		if attempt, ok := landing.Current(); ok && attempt.Withdrawn() {
+			if err := q.release("its queued merge was withdrawn for a defect its evidence no longer shows (" + failure.Reason + ")"); err != nil {
+				return recovered, err
+			}
+			recovered.Handback = q.landing.Handback
+		}
+		return recovered, nil
+	}
 	err = q.withdraw(ctx, "generation "+fmt.Sprint(failure.Generation.Number)+" is defective: "+failure.Reason)
 	recovered.Withdrawal = q.result()
 	if err != nil || !q.outcome.Withdrawn {
@@ -564,7 +617,7 @@ func (p MergeQueuePromoter) pendingHandback(key runstate.MergeQueueKey) (pending
 		if err != nil {
 			return pendingHandback{}, false, err
 		}
-		if found && landing.Handback != nil && landing.Handback.Continuation == runstate.MergeQueueContinueRepair && landing.Handback.HandedBackAt == nil {
+		if found && landing.Handback != nil && landing.Handback.Continuation.HandsBackToRun() && landing.Handback.HandedBackAt == nil {
 			return pendingHandback{entry: entry, landing: landing}, true, nil
 		}
 	}
@@ -627,7 +680,7 @@ func (q *queuePromotion) decide(failure MergeQueueFailure) *runstate.MergeQueueH
 // was given.
 func (q *queuePromotion) handBack(ctx context.Context) error {
 	handback := q.landing.Handback
-	if handback == nil || handback.Continuation != runstate.MergeQueueContinueRepair || handback.HandedBackAt != nil || q.p.Repair == nil {
+	if handback == nil || !handback.Continuation.HandsBackToRun() || handback.HandedBackAt != nil || q.p.Repair == nil {
 		return nil
 	}
 	if err := q.p.Repair.HandBack(ctx, q.entry, *handback); err != nil {
@@ -636,4 +689,107 @@ func (q *queuePromotion) handBack(ctx context.Context) error {
 	at := q.now()
 	handback.HandedBackAt = &at
 	return q.save()
+}
+
+// MergeQueueRunHandback hands a defective candidate's run back the way a red
+// queued merge's change is handed back (handBackFailedChange): the failure is
+// recorded on the run as the check that failed, the work item is blocked on
+// it, and the stopped run goes on the docket. From there it is the existing
+// repair continuation that carries the repair out on the same run, branch, and
+// developer session, under the item's existing grants and the run's existing
+// repair count; nothing here grants an attempt or invokes a developer.
+type MergeQueueRunHandback struct {
+	Store   StateStore
+	Tracker WorkTracker
+	// Docket is where the stopped run is put for the development manager;
+	// nil dockets nothing.
+	Docket *Docketer
+	// Now is the clock; nil is time.Now.
+	Now func() time.Time
+}
+
+var _ MergeQueueRepair = MergeQueueRunHandback{}
+
+// mergeQueueHandbackMarker is the line a hand-back writes on the run's failure
+// and blocker, which is how a second hand-back of the same candidate finds the
+// first already made.
+func mergeQueueHandbackMarker(entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) string {
+	return fmt.Sprintf("Merge queue entry %s, generation %d (%s)", entry.EntryID, handback.Generation, handback.Candidate)
+}
+
+func (h MergeQueueRunHandback) HandBack(ctx context.Context, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error {
+	if h.Store == nil || h.Tracker == nil {
+		return errors.New("handing a merge queue entry back needs the run store and the tracker")
+	}
+	state, err := h.Store.Load(entry.RunID)
+	if err != nil {
+		return fmt.Errorf("read run %s: %w", entry.RunID, err)
+	}
+	marker := mergeQueueHandbackMarker(entry, handback)
+	if failure := state.CheckFailure; failure != nil && strings.Contains(failure.Output, marker) && strings.TrimSpace(state.Blocker) != "" {
+		return h.docket(state)
+	}
+	item, err := h.Tracker.Show(ctx, entry.WorkItemID)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", entry.WorkItemID, err)
+	}
+	notes := fmt.Sprintf("The merge queue handed this change back. %s\n%s\nRun %s keeps its branch %s and its approved head %s.",
+		handback.Reason, marker, entry.RunID, nonEmpty(handback.Branch, "(none recorded)"), handback.ApprovedHead)
+	if handback.Continuation == runstate.MergeQueueBudgetExhausted {
+		notes += fmt.Sprintf(" It has spent %d of its %d repair attempts, so what follows is the development manager's decision.", handback.RepairAttempts, handback.RepairBudget)
+	}
+	if item.Status == "blocked" {
+		_, err = h.Tracker.RecordOutcome(ctx, entry.WorkItemID, notes)
+	} else {
+		_, err = h.Tracker.Block(ctx, entry.WorkItemID, notes)
+	}
+	if err != nil {
+		return fmt.Errorf("block %s on the merge queue's hand-back: %w", entry.WorkItemID, err)
+	}
+	command := "the merge queue candidate's review"
+	if check := strings.TrimSpace(handbackCheck(handback.Reason)); check != "" {
+		command = check
+	}
+	state.CheckFailure = &runstate.CheckFailure{Command: command, ExitCode: 1, Output: boundedTail(marker+"\n"+handback.Reason, runstate.MaxCheckOutputBytes)}
+	state.Blocker = runstate.RecordBlocker(notes)
+	now := h.now()
+	if !state.Status.Terminal() {
+		state.Status = runstate.StatusFailed
+		state.CompletedAt = &now
+	}
+	if strings.TrimSpace(state.Failure) == "" {
+		state.Failure = runstate.RecordFailure("the merge queue handed the change back: " + handback.Reason)
+	}
+	state.UpdatedAt = now
+	if err := h.Store.Save(state); err != nil {
+		return fmt.Errorf("record the hand-back on run %s: %w", entry.RunID, err)
+	}
+	return h.docket(state)
+}
+
+func (h MergeQueueRunHandback) docket(state runstate.State) error {
+	if h.Docket == nil {
+		return nil
+	}
+	if _, err := h.Docket.RecordStoppedRun(state); err != nil {
+		return fmt.Errorf("docket the stopped run %s: %w", state.RunID, err)
+	}
+	return nil
+}
+
+func (h MergeQueueRunHandback) now() time.Time {
+	if h.Now != nil {
+		return h.Now()
+	}
+	return time.Now()
+}
+
+// handbackCheck is the configured check a handback's reason names as failing,
+// which every check failure's reason opens with; a reviewer's verdict names
+// none.
+func handbackCheck(reason string) string {
+	if command, _, found := strings.Cut(reason, " failed on generation "); found {
+		return command
+	}
+	return ""
 }

@@ -492,11 +492,25 @@ const (
 	// MergeQueueUnattributed is a candidate combining more than one head, whose
 	// failure no evidence attributes to one of them.
 	MergeQueueUnattributed MergeQueueContinuation = "unattributed"
+	// MergeQueueReleased is an entry whose queued merge was withdrawn for
+	// something other than a defect — its head to be rewritten, or the entry to
+	// move to the other queue mode — and that leaves the queue for whatever asked
+	// for the withdrawal to admit again. It names no failed candidate and charges
+	// nothing.
+	MergeQueueReleased MergeQueueContinuation = "released"
 )
+
+// HandsBackToRun reports a continuation whose failure is recorded on the run
+// and the run docketed: a repair, which the run's repair loop takes up, and an
+// exhausted budget, which the development manager decides on from the same
+// docket. The others have no single run to give it to, or nothing failed.
+func (c MergeQueueContinuation) HandsBackToRun() bool {
+	return c == MergeQueueContinueRepair || c == MergeQueueBudgetExhausted
+}
 
 func (c MergeQueueContinuation) valid() bool {
 	switch c {
-	case MergeQueueContinueRepair, MergeQueueBudgetExhausted, MergeQueueMissingPrerequisite, MergeQueueUnattributed:
+	case MergeQueueContinueRepair, MergeQueueBudgetExhausted, MergeQueueMissingPrerequisite, MergeQueueUnattributed, MergeQueueReleased:
 		return true
 	}
 	return false
@@ -535,8 +549,8 @@ type MergeQueueHandback struct {
 	// record is what bounds its repairs.
 	RepairAttempts int `json:"repair_attempts"`
 	RepairBudget   int `json:"repair_budget"`
-	// HandedBackAt is when the run was given the failure for its repair loop,
-	// and is set only for a repair.
+	// HandedBackAt is when the failure was recorded on the run and the run
+	// docketed, and is set only for a continuation that HandsBackToRun.
 	HandedBackAt *time.Time `json:"handed_back_at,omitempty"`
 }
 
@@ -545,7 +559,11 @@ func (h MergeQueueHandback) validate() []error {
 	if h.At.IsZero() {
 		problems = append(problems, errors.New("the handback records no time"))
 	}
-	if !h.Class.Charged() {
+	released := h.Continuation == MergeQueueReleased
+	switch {
+	case released && h.Class != "":
+		problems = append(problems, fmt.Errorf("a released entry was withdrawn, not failed, and names no failure class (%s)", h.Class))
+	case !released && !h.Class.Charged():
 		problems = append(problems, fmt.Errorf("a %s is never handed back: only a defect of the change ends its turn in the queue", h.Class))
 	}
 	if !h.Continuation.valid() {
@@ -557,10 +575,13 @@ func (h MergeQueueHandback) validate() []error {
 	if err := mergeQueueText("handback reason", h.Reason, true); err != nil {
 		problems = append(problems, err)
 	}
-	if h.Generation == 0 || len(h.Binding) != 64 || len(h.Heads) == 0 {
+	if !released && (h.Generation == 0 || len(h.Binding) != 64 || len(h.Heads) == 0) {
 		problems = append(problems, errors.New("the handback names no failed generation"))
 	}
 	for field, value := range map[string]string{"target base": h.TargetBase, "candidate": h.Candidate, "approved head": h.ApprovedHead} {
+		if released && value == "" && field != "approved head" {
+			continue
+		}
 		if !commitPattern.MatchString(value) {
 			problems = append(problems, fmt.Errorf("handback %s %q is not a full commit id", field, value))
 		}
@@ -586,8 +607,11 @@ func (h MergeQueueHandback) validate() []error {
 			problems = append(problems, fmt.Errorf("a budget recorded exhausted has %d of %d attempts spent", h.RepairAttempts, h.RepairBudget))
 		}
 	}
-	if h.HandedBackAt != nil && (h.Continuation != MergeQueueContinueRepair || h.HandedBackAt.IsZero()) {
-		problems = append(problems, errors.New("only a repair is handed back to its run"))
+	if released && (h.RepairAttempts != 0 || h.RepairBudget != 0) {
+		problems = append(problems, errors.New("a released entry reads no repair budget"))
+	}
+	if h.HandedBackAt != nil && (!h.Continuation.HandsBackToRun() || h.HandedBackAt.IsZero()) {
+		problems = append(problems, fmt.Errorf("a %s is not handed back to its run", h.Continuation))
 	}
 	return problems
 }
@@ -607,8 +631,9 @@ type MergeQueueLanding struct {
 	Attempts    []MergeQueuePromotionAttempt `json:"attempts,omitempty"`
 	Recoveries  []MergeQueueRecovery         `json:"recoveries,omitempty"`
 	Completion  *MergeQueueCompletion        `json:"completion,omitempty"`
-	// Handback is the entry handed back for its defective candidate, which
-	// ends its turn in the queue as a completion does.
+	// Handback is the entry handed back for its defective candidate, or
+	// released after its merge was withdrawn for something else; either ends its
+	// turn in the queue as a completion does.
 	Handback *MergeQueueHandback `json:"handback,omitempty"`
 }
 

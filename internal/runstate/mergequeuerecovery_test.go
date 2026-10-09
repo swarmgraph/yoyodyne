@@ -205,8 +205,8 @@ func TestAHandbackNeverNamesTheOperatorAndReadsTheBudgetAsItStood(t *testing.T) 
 		"infrastructure handed back":   func(h *MergeQueueHandback) { h.Class = MergeQueueInfrastructureFailure },
 		"a repair with nothing left":   func(h *MergeQueueHandback) { h.RepairAttempts = 2 },
 		"exhausted with attempts left": func(h *MergeQueueHandback) { h.Continuation = MergeQueueBudgetExhausted },
-		"an exhausted budget handed out": func(h *MergeQueueHandback) {
-			h.Continuation, h.RepairAttempts = MergeQueueBudgetExhausted, 2
+		"an unattributed failure handed to a run": func(h *MergeQueueHandback) {
+			h.Continuation = MergeQueueUnattributed
 			at := time.Now()
 			h.HandedBackAt = &at
 		},
@@ -220,5 +220,24 @@ func TestAHandbackNeverNamesTheOperatorAndReadsTheBudgetAsItStood(t *testing.T) 
 	}
 	if problems := repairHandback().validate(); len(problems) != 0 {
 		t.Fatalf("a whole handback = %v", problems)
+	}
+	released := &MergeQueueHandback{
+		At: time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC), Continuation: MergeQueueReleased, Mover: ownership.MoverHarness,
+		Reason: "its queued merge was withdrawn to rewrite its head", ApprovedHead: strings.Repeat("f", 40),
+	}
+	if problems := released.validate(); len(problems) != 0 {
+		t.Fatalf("a whole release = %v", problems)
+	}
+	for name, revise := range map[string]func(*MergeQueueHandback){
+		"a failure class":    func(h *MergeQueueHandback) { h.Class = MergeQueueCandidateDefect },
+		"a repair budget":    func(h *MergeQueueHandback) { h.RepairBudget = 2 },
+		"handed to its run":  func(h *MergeQueueHandback) { at := time.Now(); h.HandedBackAt = &at },
+		"the operator moves": func(h *MergeQueueHandback) { h.Mover = ownership.MoverOperator },
+	} {
+		revised := *released
+		revise(&revised)
+		if problems := revised.validate(); len(problems) == 0 {
+			t.Errorf("a release with %s validated", name)
+		}
 	}
 }

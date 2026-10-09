@@ -153,14 +153,36 @@ func TestAConfirmedWithdrawalSetsTheQueuedMergeAsideAndAsksForNothingMore(t *tes
 	if refusal := f.landing().HeadRewriteRefusal(); refusal != "" {
 		t.Fatalf("HeadRewriteRefusal() after confirmation = %q, want none", refusal)
 	}
-	// Nothing asks for the merge again, and nothing builds the entry again,
-	// until its recovery is decided.
-	again, err := f.promote()
-	if err != nil || again.Refusal == "" || len(f.forge.MergeRequests()) != 1 || len(f.landing().Attempts) != 1 {
-		t.Fatalf("Promote() after the withdrawal = %#v, %v; want a refusal and no new attempt", again, err)
+	// A withdrawal asked for outside a recovery releases the entry: its turn
+	// ends with the harness named as who moves next, and nothing asks for the
+	// merge again or builds the entry again.
+	released := f.landing().Handback
+	if released == nil || released.Continuation != runstate.MergeQueueReleased || released.Mover != ownership.MoverHarness || released.Class != "" {
+		t.Fatalf("handback = %#v, want the entry released to the harness", released)
 	}
-	if verification, err := f.work(); err != nil || verification.Entry.EntryID != "" {
-		t.Fatalf("Work() after the withdrawal = %#v, %v; want the entry left to its recovery", verification, err)
+	// An entry admitted behind it is the next one promoted, not held behind it.
+	runID, err := runstate.NewRunID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	behind, _, err := f.queue.Admit(context.Background(), runstate.MergeQueueAdmission{
+		Key: queueKey, WorkItemID: "yoyodyne-later", WorkItemTitle: "Later work", RunID: runID,
+		ApprovedHead: f.head, IntegrationPolicy: "automatic", Mode: runstate.MergeQueueHarness, ModeEvidence: harnessModeEvidence(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := f.promote()
+	if err != nil || again.Entry.EntryID != behind.EntryID || len(f.forge.MergeRequests()) != 1 || len(f.landing().Attempts) != 1 {
+		t.Fatalf("Promote() after the withdrawal = %#v, %v; want the entry behind it taken up and nothing asked again", again, err)
+	}
+	if recovered, err := f.recover(); err != nil || recovered.Entry.EntryID == f.entry.EntryID {
+		t.Fatalf("Recover() after the release = %#v, %v; want the released entry left alone", recovered, err)
+	}
+	// The worker moves on to the entry behind it, whose run this fixture never
+	// made, so reading that run is the error it stops on.
+	if verification, _ := f.work(); verification.Entry.EntryID != behind.EntryID {
+		t.Fatalf("Work() after the withdrawal = %#v; want the entry behind the released one taken up", verification)
 	}
 	if f.local("main") != base || f.run.saveCount() != 0 {
 		t.Fatal("a withdrawal moved the target or wrote to the run")
@@ -456,11 +478,11 @@ func TestAnExhaustedBudgetStaysExhaustedAcrossRestarts(t *testing.T) {
 	}
 	handback := f.landing().Handback
 	if handback.Continuation != runstate.MergeQueueBudgetExhausted || handback.Mover != ownership.MoverDevelopmentManager ||
-		handback.RepairAttempts != 2 || handback.RepairBudget != 2 || handback.HandedBackAt != nil || handback.Branch != "change" {
-		t.Fatalf("handback = %#v, want the budget recorded exhausted with the work kept for the development manager", handback)
+		handback.RepairAttempts != 2 || handback.RepairBudget != 2 || handback.HandedBackAt == nil || handback.Branch != "change" {
+		t.Fatalf("handback = %#v, want the budget recorded exhausted and the run handed to the development manager with its work", handback)
 	}
-	if repair.count() != 0 || f.run.saveCount() != 0 {
-		t.Fatal("an exhausted run was handed back for repair or written to")
+	if repair.count() != 1 || repair.given[0].Continuation != runstate.MergeQueueBudgetExhausted || f.run.saveCount() != 0 {
+		t.Fatal("an exhausted run was not handed back once as exhausted, or recovery wrote to the run itself")
 	}
 	// A restarted harness reads the same record: nothing refills the budget,
 	// and the decision is not made again on whatever the run says later.
@@ -638,4 +660,42 @@ type unreadableGenerations struct {
 
 func (unreadableGenerations) Generations(runstate.MergeQueueKey, string) ([]runstate.MergeQueueGeneration, error) {
 	return nil, errors.New("the generations record is truncated")
+}
+
+func TestTheRunHandbackBlocksTheSameRunOnceAndChargesNothing(t *testing.T) {
+	t.Parallel()
+
+	f, _ := failingFixture(t, 2, 1)
+	f.run.admittedRun.state.Status = runstate.StatusSucceeded
+	handback := MergeQueueRunHandback{Store: f.run, Tracker: f.tracker}
+	f.promoter.Repair = handback
+	recovered, err := f.recover()
+	if err != nil || recovered.Handback == nil || recovered.Handback.Continuation != runstate.MergeQueueContinueRepair {
+		t.Fatalf("Recover() = %#v, %v; want a repair handed back", recovered, err)
+	}
+	if f.landing().Handback.HandedBackAt == nil {
+		t.Fatal("the hand-back to the run was not written down")
+	}
+	saved := f.run.latest()
+	if f.run.saveCount() != 1 || saved.RunID != f.entry.RunID || saved.Branch != "change" || saved.ProviderSessionID != "developer-session" {
+		t.Fatalf("run saved %d times as %#v, want the same run with its branch and session saved once", f.run.saveCount(), saved)
+	}
+	if saved.CheckFailure == nil || saved.CheckFailure.Command != "test -f missing.txt" || saved.Blocker == "" {
+		t.Fatalf("run = %#v, want the failing check and a blocker recorded for its repair", saved)
+	}
+	if saved.RepairAttempts != 1 || saved.RepairBudget(f.worker.Pipeline.Config.Execution.RepairAttemptsBeforeReplan) != 2 || saved.GrantedRepairAttempts() != 0 {
+		t.Fatalf("run repair attempts %d of %d, want them as they stood", saved.RepairAttempts, saved.RepairBudget(2))
+	}
+	if !strings.Contains(strings.Join(f.tracker.Calls, " "), "block") {
+		t.Fatalf("tracker calls %v, want the item blocked on the hand-back", f.tracker.Calls)
+	}
+	// Asked again for the same candidate — a process that stopped after the
+	// hand-back and before writing it down — it makes nothing twice.
+	calls := len(f.tracker.Calls)
+	if err := handback.HandBack(context.Background(), f.entry, *f.landing().Handback); err != nil {
+		t.Fatalf("HandBack() again = %v", err)
+	}
+	if f.run.saveCount() != 1 || len(f.tracker.Calls) != calls {
+		t.Fatal("handing the same candidate back again wrote to the run or the item again")
+	}
 }
