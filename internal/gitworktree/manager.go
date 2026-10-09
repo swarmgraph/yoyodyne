@@ -3664,13 +3664,39 @@ func (m *Manager) discardUncheckedOutBranch(ctx context.Context, branch, commit 
 	}
 }
 
+// unsucceededGit says why a Git command that did not succeed did not, and is
+// never empty. Git's own error stream is the answer where it wrote one; a
+// command stopped by its time limit or cancelled writes nothing, and a refusal
+// that ends at a colon is one nobody can act on, so the stop itself is named.
+func unsucceededGit(command string, result execution.ProcessResult) string {
+	if said := strings.TrimSpace(result.Stderr); said != "" {
+		return said
+	}
+	ran := result.FinishedAt.Sub(result.StartedAt).Round(time.Second)
+	var why string
+	switch result.Status {
+	case execution.ProcessTimedOut:
+		why = fmt.Sprintf("%s was stopped by its time limit after %s", command, ran)
+	case execution.ProcessCancelled:
+		why = fmt.Sprintf("%s was cancelled after %s", command, ran)
+	case execution.ProcessStalled:
+		why = fmt.Sprintf("%s stopped producing output and was ended after %s", command, ran)
+	default:
+		why = fmt.Sprintf("%s exited with %d after %s", command, result.ExitCode, ran)
+	}
+	if out := strings.TrimSpace(result.Stdout); out != "" {
+		return why + "; it printed: " + out
+	}
+	return why + " and printed no reason"
+}
+
 func (m *Manager) validateRepository(ctx context.Context) error {
 	result, err := m.run(ctx, "-C", m.repositoryRoot, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return err
 	}
 	if result.Status != execution.ProcessSucceeded {
-		return fmt.Errorf("repository validation failed: %s", strings.TrimSpace(result.Stderr))
+		return fmt.Errorf("repository validation failed: %s", unsucceededGit("git rev-parse --show-toplevel", result))
 	}
 	topLevel, err := filepath.EvalSymlinks(strings.TrimSpace(result.Stdout))
 	if err != nil {

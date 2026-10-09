@@ -549,3 +549,23 @@ func TestARequestMayRunUnboundedWithItsOwnBudget(t *testing.T) {
 		t.Fatalf("second result = %#v, want no stage bound and the list's spend recorded", results[1])
 	}
 }
+
+// A check the caller's own deadline stops is recorded as stopped by its caller,
+// not by its budget or the stage's bound: the process reads as timed out either
+// way, and the run's account of the stop depends on telling them apart.
+func TestACheckStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	results, _, err := (Runner{Process: execution.OSProcessRunner{}, Timeout: 30 * time.Minute, StageTimeout: 30 * time.Minute}).Run(ctx,
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"sleep 5"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(results) != 1 || results[0].Process.Status != execution.ProcessTimedOut {
+		t.Fatalf("results = %#v, want the check timed out", results)
+	}
+	if !results[0].StoppedByCaller || results[0].StoppedByStage || results[0].Timeout != 30*time.Minute {
+		t.Fatalf("result = %#v, want it stopped by its caller with its own budget untouched", results[0])
+	}
+}

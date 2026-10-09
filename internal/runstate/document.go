@@ -26,12 +26,95 @@ type DocumentPublication struct {
 	AuthorConfigRevision string                     `json:"author_config_revision,omitempty"`
 }
 
-func (d DocumentPublication) RunID() string {
-	sum := sha256.Sum256([]byte(d.ConversationID + "\x00" + d.WriteID))
+// RunID is the run that makes the first attempt to publish this document.
+func (d DocumentPublication) RunID() string { return d.RunIDFor(0) }
+
+// RunIDFor is the run that makes one attempt to publish this document, counted
+// from zero. Every attempt is its own run, so a run that stopped keeps its
+// record whole while the next one starts, and each is derived from the same
+// handoff, so the conversation keeps one stored text however many attempts it
+// takes. The first keeps the identifier a document run has always had.
+func (d DocumentPublication) RunIDFor(attempt int) string {
+	key := d.ConversationID + "\x00" + d.WriteID
+	if attempt > 0 {
+		key += fmt.Sprintf("\x00attempt-%d", attempt)
+	}
+	sum := sha256.Sum256([]byte(key))
 	return fmt.Sprintf("run-%x", sum[:16])
 }
 
+// MaxDocumentReturns is how many runs that judged a document may hand it back
+// to its owner, in one conversation, before automatic publication of it stops.
 const MaxDocumentReturns = 3
+
+// MaxDocumentAttempts is how many runs one confirmed document is given when
+// each stops for a cause that judged nothing about it. The harness starts the
+// next with the same stored text; once this many have stopped, the last is
+// handed to the development manager as a stopped run, with the text kept on
+// its record, rather than back to the owner to write again.
+const MaxDocumentAttempts = 3
+
+// DocumentRetry is what a document run that stopped without judging its
+// document records about the run after it.
+type DocumentRetry struct {
+	// DevelopersAtStop is how many runs held a developer slot, this one
+	// included, when this run's checks were stopped by a time limit. Zero where
+	// the stop was not a time limit or the count could not be taken. The next
+	// attempt waits until fewer are running, because the same suite under the
+	// same load would be stopped the same way.
+	DevelopersAtStop int `json:"developers_at_stop,omitempty"`
+	// WaitedFor says what the next attempt waited for before it started, in
+	// the words the owning conversation was told.
+	WaitedFor string `json:"waited_for,omitempty"`
+	// Next is the run the next attempt was started as.
+	Next string `json:"next,omitempty"`
+	// HandedOver says this was the last attempt, and the run was put to the
+	// development manager as a stopped run.
+	HandedOver bool `json:"handed_over,omitempty"`
+}
+
+// DocumentAttempt is which attempt at its document this run is, counted from
+// zero, and -1 for a run that is not a document run or is none of them.
+func (s State) DocumentAttempt() int {
+	if s.Document == nil {
+		return -1
+	}
+	for attempt := 0; attempt < MaxDocumentAttempts; attempt++ {
+		if s.Document.RunIDFor(attempt) == s.RunID {
+			return attempt
+		}
+	}
+	return -1
+}
+
+// DocumentJudged reports whether a document run that ended without landing
+// stopped on a judgement of the document: a check that ran and failed, the
+// independent reviewer refusing it, a path the change may not touch, or a
+// target document that changed after it was confirmed. Those are what its
+// owner has to answer by revising it. Every other stop — a check stopped by a
+// time limit, the forge or the network failing, the machine or the harness
+// stopping, a harness step failing — said nothing about the document, so the
+// same text is tried again and nothing is counted against it.
+func (s State) DocumentJudged() bool {
+	if s.ReplayConflict != nil || s.PathRefusal != nil {
+		return true
+	}
+	switch s.RecordedStopClass() {
+	case StopReview:
+		return true
+	case StopChecks:
+		return s.CheckFailure != nil
+	}
+	return false
+}
+
+// DocumentStoppedOnTime reports a document run whose checks were stopped by a
+// time limit: a check's own, the stage's, or the deadline of the work that
+// started it.
+func (s State) DocumentStoppedOnTime() bool {
+	class := s.RecordedStopClass()
+	return class == StopCheckTimeout || class == CauseCheckStageBound.StopClass()
+}
 
 // ErrDocumentNotPublishable marks a publication refused before any run was
 // opened for it, because the confirmation it carries no longer holds: the
@@ -46,6 +129,17 @@ type DocumentDelivery struct {
 	Settled bool   `json:"settled"`
 	Landed  bool   `json:"landed"`
 	Detail  string `json:"detail"`
+	// Judged says a settled run that did not land stopped on a judgement of the
+	// document, which is the only return its owner revises for and the only one
+	// counted toward MaxDocumentReturns. HandedOver says the attempts were spent
+	// on stops that judged nothing and the last run went to the development
+	// manager instead.
+	Judged     bool `json:"judged,omitempty"`
+	HandedOver bool `json:"handed_over,omitempty"`
+	// Retrying is what an unsettled delivery tells the owning role: that a run
+	// stopped without judging the document and the next attempt is waiting or
+	// will start at the next message. Empty for every other unsettled delivery.
+	Retrying string `json:"retrying,omitempty"`
 }
 
 func (d DocumentPublication) Validate() error {

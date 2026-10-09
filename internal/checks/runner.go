@@ -53,6 +53,12 @@ type Result struct {
 	// nothing for a check the stage stopped, and a check the stage never let
 	// start has no elapsed time to read a budget from.
 	StoppedByStage bool `json:"stopped_by_stage,omitempty"`
+	// StoppedByCaller reports a check stopped because the context the checks
+	// were run under ended — the deadline or cancellation of whatever started
+	// the run — rather than because the check or the stage reached a bound. The
+	// process reads as timed out either way, so without this a check stopped
+	// four minutes in would be reported as stopped at a thirty-minute budget.
+	StoppedByCaller bool `json:"stopped_by_caller,omitempty"`
 	// CouldNotRun is the reason a check that exited non-zero gave for not having
 	// run at all, by the convention CouldNotRunPrefix describes, and empty for
 	// every other check. Passed is false beside it, because nothing passed; a
@@ -323,8 +329,9 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			StageElapsed: clock.Now().Sub(stageStarted),
 			// A check killed on time under a budget the stage cut short was
 			// stopped by the stage, whatever its own budget would have allowed.
-			StoppedByStage: boundByStage && processResult.Status == execution.ProcessTimedOut,
-			CouldNotRun:    couldNotRun,
+			StoppedByStage:  boundByStage && processResult.Status == execution.ProcessTimedOut && ctx.Err() == nil,
+			StoppedByCaller: ctx.Err() != nil && (processResult.Status == execution.ProcessTimedOut || processResult.Status == execution.ProcessCancelled),
+			CouldNotRun:     couldNotRun,
 		}
 		if !passed && failure.observed {
 			result.FailureOutput = failure.render()
@@ -347,17 +354,18 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 // toward its own.
 func emitCompleted(runID string, sequence *execution.Sequence, clock execution.Clock, sink func(execution.Event) error, result Result) error {
 	return emit(runID, sequence, clock, sink, execution.EventCommandCompleted, map[string]any{
-		"command":          result.Command,
-		"kind":             "check",
-		"passed":           result.Passed,
-		"status":           result.Process.Status,
-		"exit_code":        result.Process.ExitCode,
-		"elapsed":          result.Elapsed().String(),
-		"timeout":          result.Timeout.String(),
-		"stage_elapsed":    result.StageElapsed.String(),
-		"stage_timeout":    result.StageTimeout.String(),
-		"stopped_by_stage": result.StoppedByStage,
-		"could_not_run":    result.CouldNotRun,
+		"command":           result.Command,
+		"kind":              "check",
+		"passed":            result.Passed,
+		"status":            result.Process.Status,
+		"exit_code":         result.Process.ExitCode,
+		"elapsed":           result.Elapsed().String(),
+		"timeout":           result.Timeout.String(),
+		"stage_elapsed":     result.StageElapsed.String(),
+		"stage_timeout":     result.StageTimeout.String(),
+		"stopped_by_stage":  result.StoppedByStage,
+		"stopped_by_caller": result.StoppedByCaller,
+		"could_not_run":     result.CouldNotRun,
 	})
 }
 

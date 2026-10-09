@@ -327,14 +327,31 @@ approval sent as a message has to name the document — a bare "yes" decides
 nothing, because a message is not an answer to a question you were just asked.
 What is left undecided when a conversation ends is named on the way out.
 
-**A document that does not land returns to its owner.** The owning conversation
-receives the review findings, failing check and its output, or conflicting
-paths. The owning role is named as the one to revise it; no developer or
-operator is asked to repair it. A revised submission opens a fresh run for
-that content. After three returned runs for the same document in that
-conversation, automatic publication stops. The owner receives that reason
+**A document that something judged returns to its owner.** When a check ran
+and failed, the independent reviewer refused the document, the change touched
+a path it may not, or the target document changed after confirmation, the
+owning conversation receives the review findings, failing check and its output,
+or conflicting paths. The owning role is named as the one to revise it; no
+developer or operator is asked to repair it. A revised submission opens a fresh
+run for that content. After three such returned runs for the same document in
+that conversation, automatic publication stops. The owner receives that reason
 and must revise its plan; further submissions are saved as conversation
 events but open no more runs for that document in that conversation.
+
+**A run that judged nothing is run again.** A run stopped by something that
+says nothing about the document — a check stopped by a time limit, a forge or
+network error, the machine or the harness stopping — is not a return. The
+harness starts another run of the same confirmed text at the next message, up
+to three runs in all, and the owner is told it does not need to write anything
+again. After a check time limit the next run waits until fewer developer runs
+are going than when the checks ran out of time, and the run's record says what
+it waited for. If all three runs stop that way, the last is handed to the
+development manager as a stopped run, with the confirmed text kept on its
+record, rather than back to the owner. A document whose publication had already
+stopped over such runs is published again from its kept text the next time its
+conversation is opened. Each run's start and end is also noted on the work item
+named at the start of the document's revision reason, where the tracker holds
+one.
 
 **A write confirmed by you still stops at your working tree.** This is the
 existing human confirmation path: the document is an uncommitted change in

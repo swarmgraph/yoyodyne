@@ -1439,7 +1439,9 @@ the exact document through a run with checks and independent review before
 integration. A failed check, review refusal, or target conflict returns to the
 architect's conversation for revision; after three returned runs for that
 document in the conversation, automatic publication stops and the architect
-must revise its plan. Other policies, and a project whose
+must revise its plan. A run stopped by something that judged nothing, such as a
+check time limit or a forge error, is run again with the same text instead, and
+counts toward nothing. Other policies, and a project whose
 `approvals.integration` is not automatic, retain your confirmation and the write
 into your checkout — see [writing a
 document from a conversation](artifacts.md#writing-a-document-from-a-conversation).
