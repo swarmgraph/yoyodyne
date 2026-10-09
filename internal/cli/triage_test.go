@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // The verb carries out a decision somebody else recorded, so what it needs is
@@ -546,5 +550,66 @@ func TestTriageRearmReportsTheRequestItRepeated(t *testing.T) {
 		if !strings.Contains(stdout.String(), want) {
 			t.Fatalf("stdout = %q, is missing %q", stdout.String(), want)
 		}
+	}
+}
+
+// The command an entry the docket had no room to show whole names is one that
+// prints it whole, found by the run that line names, and refuses a name no live
+// entry is on rather than printing nothing as though that were the entry.
+func TestTriageShowPrintsTheLiveEntryItsDocketLineNames(t *testing.T) {
+	// t.Setenv rules out t.Parallel, and the state root has to be this test's own.
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+
+	project := t.TempDir()
+	git(t, project, "init", "-b", "main")
+	git(t, project, "config", "user.name", "Yoyodyne Test")
+	git(t, project, "config", "user.email", "yoyodyne@example.invalid")
+	commit(t, project, "first")
+	directory := filepath.Join(project, config.DirectoryName)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	configPath := filepath.Join(directory, config.FileName)
+	if err := os.WriteFile(configPath, []byte(validConfig), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	parts, err := buildComponents(configPath)
+	if err != nil {
+		t.Fatalf("buildComponents() error = %v", err)
+	}
+	const run = "run-c2a6e04172ff84ae79268a7d2c507d43"
+	entry := triage.Entry{
+		SchemaVersion: triage.SchemaVersion,
+		Key:           triage.Key(triage.ClassStoppedRun, run),
+		Class:         triage.ClassStoppedRun,
+		ProductID:     parts.config.Product.ID,
+		RunID:         run,
+		WorkItemID:    "yoyodyne-ifd.434.12",
+		WorkItemTitle: "Machine home",
+		RecordedAt:    time.Date(2026, 10, 1, 17, 0, 0, 0, time.UTC),
+		Blocker:       "The checks need repair before this can land.",
+	}
+	if _, err := parts.docket.RecordOnce(entry); err != nil {
+		t.Fatalf("RecordOnce() error = %v", err)
+	}
+
+	for _, named := range []string{run, entry.Key, entry.WorkItemID} {
+		var stdout, stderr bytes.Buffer
+		if code := Run([]string{"triage", "show", "--config", configPath, named}, &stdout, &stderr, "test"); code != 0 {
+			t.Fatalf("triage show %s code = %d; stderr = %q", named, code, stderr.String())
+		}
+		for _, want := range []string{"[stopped run]", "yoyodyne-ifd.434.12 — Machine home (" + run + ")", "The checks need repair before this can land.", "Next mover: you"} {
+			if !strings.Contains(stdout.String(), want) {
+				t.Fatalf("triage show %s printed %q, missing %q", named, stdout.String(), want)
+			}
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"triage", "show", "--config", configPath, "run-0123456789abcdef0123456789abcdef"}, &stdout, &stderr, "test"); code != 1 {
+		t.Fatalf("triage show of a run with no entry code = %d, want 1; stdout = %q", code, stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "no live docket entry is on run-0123456789abcdef0123456789abcdef") {
+		t.Fatalf("stderr = %q", stderr.String())
 	}
 }

@@ -96,7 +96,10 @@ const maxProductWorkItems = 200
 // MaxTriageDocketBytes bounds what the section may cost whatever it lists. The
 // docket is evidence about what has stopped, not an export of everything that
 // ever did, and one entry carries a blocker, a reviewer's findings, and a
-// check's output — so the count alone would not bound the section.
+// check's output — so the count alone would not bound the section. The entries
+// past either bound are each named in one line instead, charged against the
+// same bytes; only a docket whose one-line names alone pass the byte bound runs
+// past it (renderTriageDocket).
 const (
 	maxDocketEntries     = 25
 	MaxTriageDocketBytes = 48 << 10
@@ -1738,9 +1741,11 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 // count bound is the one that fills the window whenever the docket holds more
 // than it can list.
 //
-// What it could not show is stated — how many live entries, and how long the
-// oldest of them has waited — because a docket read as complete when it is not
-// is worse than one that says what it could not show. The position it hands
+// Every live entry it has no room to show with its evidence is named in one
+// line (triage.Entry.Line) — the kind of stoppage, the item, the run, who moves
+// next, and the command that shows it whole — and so is counted, with how long
+// the oldest of them has waited, because a docket read as complete when it is
+// not is worse than one that says what it could not show. The position it hands
 // back is past the last entry the walk listed, so the next window starts with
 // what this one left out.
 func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition) {
@@ -1750,11 +1755,14 @@ func renderTriageDocket(request ProductRequest) (string, *triage.WindowPosition)
 
 // DocketWindow is one rendered slice and the entries it did and did not carry.
 // A scheduled pass keeps the listed identities only after the turn is answered.
+// Listed are the entries shown with their evidence, and Cut those of them whose
+// evidence was cut short; Unlisted are the rest, each named in one line.
 type DocketWindow struct {
 	Text     string
 	Position *triage.WindowPosition
 	Listed   []triage.Stoppage
 	Unlisted []triage.Stoppage
+	Cut      []triage.WindowPosition
 }
 
 // TriageDocketWindow uses the conversation's rendering and bounds for every
@@ -1850,21 +1858,40 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 		}
 		sections = append(sections, section)
 	}
+	// Every entry the window has no room to show with its evidence is still named,
+	// in one line, so the lines are charged first and the evidence shares what is
+	// left: a docket that only counts what it could not show can leave the same
+	// stoppage out of every window it builds. Where the lines alone would pass the
+	// bound they are listed anyway, past it, with one entry still shown in full:
+	// an entry left out is a decision nobody can make, which is worse than a
+	// longer docket.
+	lines := make([]string, len(ordered))
+	lineBytes := make([]int, len(ordered)+1)
+	for index := len(ordered) - 1; index >= 0; index-- {
+		lines[index] = ordered[index].Entry.Line()
+		lineBytes[index] = lineBytes[index+1] + len(lines[index])
+	}
 	// The byte bound is shared among the entries listed rather than spent on
 	// whichever come first. An entry carries its evidence whole, and a run
 	// docketed twice carries both accounts, so one entry can run past 10 KiB: spent
 	// first-come, four of them filled the window on 2026-09-26 and the rest of the
 	// docket was never listed at all. An entry past its share is cut, and says so.
-	budget := MaxTriageDocketBytes - maxDocketTrailerBytes - rendered.Len()
-	for len(sections) > 0 && budget/len(sections) < minDocketEntryBytes {
+	budget := MaxTriageDocketBytes - maxDocketTrailerBytes - rendered.Len() - lineBytes[len(sections)]
+	for len(sections) > 1 && budget/len(sections) < minDocketEntryBytes {
 		sections = sections[:len(sections)-1]
+		budget = MaxTriageDocketBytes - maxDocketTrailerBytes - rendered.Len() - lineBytes[len(sections)]
 	}
-	share := docketEntryShare(sections, budget)
+	share := docketEntryShare(sections, max(budget, minDocketEntryBytes*len(sections)))
 	shown := make(map[string]bool, len(sections))
 	var position *triage.WindowPosition
+	var cut []triage.WindowPosition
 	for index, section := range sections {
 		standing := ordered[index]
-		rendered.WriteString(cutDocketEntry(section, share))
+		held := cutDocketEntry(section, share, standing.Entry)
+		if held != section {
+			cut = append(cut, standing.At())
+		}
+		rendered.WriteString(held)
 		shown[standing.Entry.Key] = true
 		// The position advances only over what the walk itself listed. A critical
 		// jumped the walk to be here, and a decided or waited entry is outside it;
@@ -1891,7 +1918,7 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 				oldest = standing.Since
 			}
 		}
-		fmt.Fprintf(&rendered, "\n%d further live docket entry(s) are not listed here, the oldest of them stopped %s ago.",
+		fmt.Fprintf(&rendered, "\n%d further live docket entry(s) have no room here for their evidence, so each is named below in one line with who moves next and the command that shows it whole; the oldest of them stopped %s ago.",
 			remaining, docketAge(now.Sub(oldest.UTC())))
 		if decided > 0 || waiting > 0 {
 			counts := []string{fmt.Sprintf("%d of them nobody has decided", remaining-decided-waiting)}
@@ -1904,11 +1931,14 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 			last := len(counts) - 1
 			fmt.Fprintf(&rendered, " %s, and %s.", strings.Join(counts[:last], ", "), counts[last])
 		}
-		rendered.WriteString(" The next docket you are given resumes past the last one listed here, so what nobody has decided comes first then. Treat what you cannot see as unread rather than as absent.\n")
+		rendered.WriteString(" The next docket you are given resumes past the last one shown in full here, so what nobody has decided comes first then. Treat what you have only seen in one line as unread rather than as absent.\n\n")
+		for _, line := range lines[len(sections):] {
+			rendered.WriteString(line)
+		}
 	}
 	rendered.WriteString(renderDocketLeftOut(live, itemsUnknown))
 	return DocketWindow{Text: rendered.String(), Position: position,
-		Listed: ordered[:len(sections)], Unlisted: ordered[len(sections):]}
+		Listed: ordered[:len(sections)], Unlisted: ordered[len(sections):], Cut: cut}
 }
 
 // maxDocketTrailerBytes is what the docket holds back from its entries for the
@@ -1950,12 +1980,15 @@ func docketEntryShare(sections []string, budget int) int {
 
 // cutDocketEntry holds one entry to its share of the docket, cutting at a line
 // and saying where it cut and how much it left out. The heading line is always
-// kept, since it names the run and the item the rest is about.
-func cutDocketEntry(section string, share int) string {
+// kept, since it names the kind of stoppage, the run and the item the rest is
+// about, and the note names who moves next and the command that shows the entry
+// whole, since the line that says so may be among what was cut.
+func cutDocketEntry(section string, share int, entry triage.Entry) string {
 	if share <= 0 || len(section) <= share {
 		return section
 	}
-	note := fmt.Sprintf("      …[cut here so that every listed entry fits the docket: this entry runs to %d bytes, and a docket listing fewer entries shows more of it]\n", len(section))
+	note := fmt.Sprintf("      …[cut here so that every listed entry fits the docket: this entry runs to %d bytes. Next mover: %s. `%s` shows it whole]\n",
+		len(section), entry.NextMover(), entry.ShowCommand())
 	room := max(share-len(note), 0)
 	kept := 0
 	for kept < len(section) {
@@ -2049,7 +2082,9 @@ yours the harness was stopped carrying out, the ones stopped by a gate that will
 not clear on its own ahead of the ones waiting on a gate that will, and after
 those the stoppages you decided to wait on, each of which is back among the
 undecided, at the age it had, once its wait runs out. An entry too
-long for its share of the docket is cut, and says so. A run that ended on
+long for its share of the docket is cut, and says so. Every live entry is
+here: one there is no room to show with its evidence is named in one line, with
+who moves next and the command that shows it whole. A run that ended on
 a durable blocker is here, and so is an approved publication the forge has not
 merged.
 So is an item dispatch would not start, because the tree does not meet a

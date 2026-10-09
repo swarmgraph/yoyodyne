@@ -1887,10 +1887,16 @@ After them come the oldest stoppages. The decided entries come last, where
 there is room: first those stopped by a gate that will not clear on its own,
 then those waiting on a gate that will. The fixed size is shared among the
 entries listed, so the window lists 25 whenever the docket holds more than 25.
-An entry longer than its share is cut, and says where. The window says how many
-live entries it did not list, how many of those are already decided, how long
-the oldest of those has waited, and how many entries it left out because their
-work is closed. It
+An entry longer than its share is cut, and says where, who moves next, and the
+command that shows it whole. No live entry is left out of the window. Every one
+it has no room to show with its evidence is named in one line instead: the kind
+of stoppage, when it was docketed, the item and its title, the run, who moves
+next, and `yoyo triage show <run-id>` to read it whole — the entry's key in
+place of the run where nothing ran. Those lines are charged against the fixed
+size first, and only a docket whose lines alone would pass it runs past it. The
+window says how many live entries it named only in one line, how many of those
+are already decided, how long the oldest of those has waited, and how many
+entries it left out because their work is closed. It
 walks the docket the way
 [the report pile](reporting.md#who-reads-them-and-what-became-of-each-one) is
 walked. Where the last window stopped is recorded per product, beside the

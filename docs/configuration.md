@@ -5783,6 +5783,11 @@ of the target branch, spending nothing and asking nobody, because nothing about
 such a stop is a verdict —
 [the conversation guide](conversation.md#resuming-an-approved-change-the-environment-stopped)
 says what it records and what refuses it.
+`yoyo triage show <run-id>` carries out nothing and decides nothing: it prints
+live docket entries whole, as the development manager's docket shows an entry it
+has room for, and is the command every entry that docket names in one line
+points at. It also takes an entry's key, which is what an entry nothing ran for
+is named by, or a work item, which prints every live entry on it.
 
 `yoyo triage rerun <run-id>` starts a fresh run of the item whose stopped run the
 docket entry names. It takes the run and nothing else: the decision it carries

@@ -90,7 +90,9 @@ func assertDocketItems(t *testing.T, messages []string, expected []int) {
 	var got []int
 	for _, message := range messages {
 		for _, line := range strings.Split(message, "\n") {
-			if !strings.Contains(line, "[stopped run]") {
+			// An entry named in one line is not delivered: only one shown with
+			// its evidence is.
+			if !strings.Contains(line, "[stopped run]") || strings.HasSuffix(line, "` shows it whole") {
 				continue
 			}
 			var item int
@@ -151,6 +153,16 @@ func TestADocketLargerThanOneTurnIsDeliveredAcrossThePassInOrder(t *testing.T) {
 			if delivery := recorded[0].Docket; delivery == nil || delivery.Delivered != count || len(delivery.Undelivered) != 0 || delivery.Oldest != nil {
 				t.Fatalf("delivery = %+v, want every entry delivered", delivery)
 			}
+			// Every entry was shown whole on some turn, so none counts as cut, and
+			// the first turn named every entry it had no room to show whole.
+			if delivery := recorded[0].Docket; delivery.Whole != count || delivery.Cut != 0 {
+				t.Fatalf("delivery = %+v, want all %d shown whole and none cut", delivery, count)
+			}
+			for item := 26; item <= count; item++ {
+				if !strings.Contains(role.messages[0], fmt.Sprintf("yoyodyne-ifd.430.40.%d ", item)) {
+					t.Fatalf("the first turn did not name entry %d in one line:\n%s", item, role.messages[0])
+				}
+			}
 		})
 	}
 }
@@ -188,6 +200,14 @@ func TestADocketStopsAfterAnAnswerWithoutAnAccountAndTheNextPassResumesUnreadEnt
 			delivery := recorded[0].Docket
 			if !recorded[0].Failed || delivery == nil || delivery.Delivered != count || len(delivery.Undelivered) != 82-count || delivery.Oldest == nil || delivery.Oldest.WorkItemID != fmt.Sprintf("yoyodyne-ifd.430.40.%d", count+1) {
 				t.Fatalf("failed pass lost its unread docket: %+v", recorded[0])
+			}
+			// What the answered turns showed whole, and the rest they named in one
+			// line and never showed with their evidence.
+			if delivery.Whole != count || delivery.Cut != 82-count {
+				t.Fatalf("delivery = %+v, want %d shown whole and %d cut", delivery, count, 82-count)
+			}
+			if !strings.Contains(renderSweep(recorded[0]), fmt.Sprintf("showed %d docket entry(s) whole and %d cut", count, 82-count)) {
+				t.Fatalf("the pass's record does not say what it showed whole and cut:\n%s", renderSweep(recorded[0]))
 			}
 			if !strings.Contains(recorded[0].Problem, fmt.Sprintf("turn %d of the recurring task development-manager-sweep produced no account", test.answered)) {
 				t.Fatalf("missing account was lost: %s", recorded[0].Problem)

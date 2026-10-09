@@ -6373,8 +6373,12 @@ These outcomes look similar in a listing and are not the same thing:
   how many live entries were never delivered and names the oldest, including
   when a provider refusal ended the pass. Its continuation turns carry each
   next slice, without repeating entries already delivered on that pass. The
-  next pass starts with the unread entries. `--json` carries this evidence in
-  `docket`: the delivered count, the ordered `undelivered` entries, and `oldest`.
+  next pass starts with the unread entries. Every development manager's pass
+  also says how many docket entries it showed whole and how many it showed
+  only cut — cut short of their evidence, or named in one line and never shown
+  with it; an entry shown whole on any turn counts as whole. `--json` carries
+  this evidence in `docket`: the delivered count, `whole` and `cut`, the ordered
+  `undelivered` entries, and `oldest`.
 - **A firing that failed before its first turn** is recorded as a failed firing,
   not a partial pass, and its header says `FAILED FIRING` with the cause:
   the harness refused the message it composed for the pass, the role's
