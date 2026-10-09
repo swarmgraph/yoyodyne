@@ -938,7 +938,7 @@ func printTriageUsage(writer io.Writer) {
        yoyo triage rearm    [options] <run-id>
        yoyo triage resume   [options] <run-id>
        yoyo triage override [options] <beads-id>
-       yoyo triage show     [options] <run-id | entry-key | beads-id>
+       yoyo triage show     [options] <run-id | docket entry key | beads-id>
 
 "rerun", "repair", and "rearm" carry out a decision the development manager
 recorded about a docketed entry. "resume" carries out no decision, because the
