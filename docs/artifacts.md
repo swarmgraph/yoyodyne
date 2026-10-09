@@ -249,6 +249,17 @@ changes, say — never holds up the conversation. The confirmed document stays
 saved, the owning role is told what is holding it, and it is tried again at the
 next message without being written again.
 
+A run that cannot start because every developer slot is taken is not a failure.
+The document is kept as waiting for a slot, in the run store beside the runs it
+waits behind, and the owning role is told once. A watching session
+(`yoyo work --watch`, which `yoyo start` runs) starts it in the next slot that
+frees, ahead of any new development run and without waiting for a message in
+the conversation; a run already going is never stopped for it. The conversation
+still offers it at its next message, and whichever reserves the slot first runs
+it — the same document is never given two runs, across a restart too.
+`yoyo status` lists a waiting document under the not-startable line, beside the
+ready work waiting for a slot, naming the document and the role that owns it.
+
 This also applies to documents already waiting in a conversation's store:
 when that conversation resumes, the harness uses their saved identities and
 content before asking the role to write anything else. Confirmation and the

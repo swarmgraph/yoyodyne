@@ -153,8 +153,11 @@ candidate, and calls the ordinary delivery pipeline before any prompt. Its
 `PublishDocuments` also resumes saved handoffs and carries failures to the owner,
 with three returns allowed per document per conversation. It confirms nothing
 where the publisher cannot integrate automatically, puts a saved handoff the
-publisher refuses outright back to the operator, and keeps one whose run could
-not start for the next message; none of these stops the operator's message. Other policies retain
+publisher refuses outright back to the operator, keeps one whose run could
+not start for the next message, and tells the role once of one waiting for a
+developer slot, which the scheduler starts as a slot frees
+(`internal/orchestrator/scheduledocuments.go`); none of these stops the
+operator's message. Other policies retain
 the person's decision with `ApproveWrite`, `DeclineWrite`,
 `DecideWrites` or, in the console, `decideWrites`. `artifactFiling` says
 which homes the role may write.
