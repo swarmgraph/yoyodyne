@@ -5787,7 +5787,9 @@ says what it records and what refuses it.
 live docket entries whole, as the development manager's docket shows an entry it
 has room for, and is the command every entry that docket names in one line
 points at. It also takes an entry's key, which is what an entry nothing ran for
-is named by, or a work item, which prints every live entry on it.
+is named by, or a work item, which prints every live entry on it. Before printing
+it brings the docket up to date, as the development manager's own reading does,
+so a stoppage nothing had recorded yet is recorded then.
 
 `yoyo triage rerun <run-id>` starts a fresh run of the item whose stopped run the
 docket entry names. It takes the run and nothing else: the decision it carries

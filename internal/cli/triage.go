@@ -120,7 +120,9 @@ func runTriage(ctx context.Context, args []string, stdout, stderr io.Writer) int
 // docket shows an entry it has room for. It is the command an entry the docket
 // had no room to show whole names, so it matches what that line names: the run,
 // or the entry's key where nothing ran, and also the work item, which prints
-// every live entry on it. It decides nothing and carries nothing out.
+// every live entry on it. It decides nothing and carries nothing out, but it
+// does bring the docket up to date before printing, as the conversation's own
+// reading does: a stoppage no entry recorded yet is recorded then.
 func showStoppage(args []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("triage show", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -1084,6 +1086,9 @@ for. Every entry that docket has no room to show whole is named there in one
 line ending in this command. It takes the run the line names, or the entry's key
 where nothing ran, or a work item, which prints every live entry on it. An entry
 somebody decided, or whose work item is closed, is not live and is not shown.
+Before printing it brings the docket up to date, exactly as the development
+manager's own reading of it does, so a stoppage nothing had recorded yet is
+recorded then.
 
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)

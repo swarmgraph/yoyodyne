@@ -1885,8 +1885,10 @@ out. Among the undecided, critical entries come first: an item a role raised as
 unmeetable, and a Lead Product Manager's decision about a run still in flight.
 After them come the oldest stoppages. The decided entries come last, where
 there is room: first those stopped by a gate that will not clear on its own,
-then those waiting on a gate that will. The fixed size is shared among the
-entries listed, so the window lists 25 whenever the docket holds more than 25.
+then those waiting on a gate that will. The window shows up to 25 entries with
+their evidence, sharing the fixed size among them, and always at least one. It
+shows fewer than 25 when the one-line names of the entries it cannot show take
+the room, which the names are given first.
 An entry longer than its share is cut, and says where, who moves next, and the
 command that shows it whole. No live entry is left out of the window. Every one
 it has no room to show with its evidence is named in one line instead: the kind

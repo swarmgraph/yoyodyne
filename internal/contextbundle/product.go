@@ -1737,9 +1737,10 @@ func renderWorkItems(items []beads.WorkItem, unavailable string) string {
 // which on 2026-09-25 was eleven entries mostly on closed items while stoppages
 // up to thirty-six days old sat unlisted behind them.
 //
-// The byte bound is shared among the entries listed (docketEntryShare), so the
-// count bound is the one that fills the window whenever the docket holds more
-// than it can list.
+// The byte bound is shared among the entries listed (docketEntryShare), after
+// the one-line names of the entries it cannot show are paid for. So the window
+// shows up to maxDocketEntries entries with their evidence, fewer where those
+// names take the room, and always at least one.
 //
 // Every live entry it has no room to show with its evidence is named in one
 // line (triage.Entry.Line) — the kind of stoppage, the item, the run, who moves
