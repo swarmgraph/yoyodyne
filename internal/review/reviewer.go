@@ -146,9 +146,13 @@ type Request struct {
 	// harness's own copy of the output rather than from the developer's summary
 	// of it. It is empty at branch scope, which has no item and runs no checks.
 	CheckPatterns []string
-	RedactValues  []string
-	LastSequence  uint64
-	EventSink     func(execution.Event) error
+	// Reask is set on the second asking of a review whose first reply could not
+	// be settled — unreadable as a verdict, or an approval missing what it
+	// approves or which fixtures it covered. It is nil on every first asking.
+	Reask        *Reask
+	RedactValues []string
+	LastSequence uint64
+	EventSink    func(execution.Event) error
 	// Spend is what the caller knows about this review's one provider invocation
 	// and the reviewer does not: which run and which work item it is being made
 	// for, on whose account, and under which configuration. The reviewer supplies
@@ -172,6 +176,31 @@ type Request struct {
 	// does any work (execution.LaunchGate). Nil starts it the ordinary way,
 	// which is how a run's own review has always been made.
 	LaunchGate *execution.LaunchGate
+}
+
+// Reask is what the second asking of one review carries about the first. The
+// reviewer is asked again in its own session, told what was wrong with the reply
+// it gave, because a fresh invocation handed the same evidence and the same
+// contract is told nothing it was not told the first time, and tends to make the
+// same slip again. The session is the reviewer's own, never the developer's, so
+// asking in it costs the review none of its independence.
+type Reask struct {
+	// SessionID is the reviewer session that gave the first reply. Empty is a
+	// first reply whose provider named no session; the evidence is then given
+	// again in full, with the problem said beside it.
+	SessionID string
+	// Problem is what the harness could not accept about the first reply, in the
+	// words it refused it with.
+	Problem string
+}
+
+// reaskPrompt is what the reviewer is told on the second asking: what was wrong
+// with its reply, and that only the reply is being asked for again. Nothing about
+// the change is asked to be reconsidered, because nothing about it was decided.
+func reaskPrompt(problem string) string {
+	return `Your previous reply could not be accepted as a verdict: ` + strings.TrimSpace(problem) + `
+
+Nothing about the change has moved and nothing about it has been decided, so give the verdict again. Write it bare: a single JSON object in the schema the contract gives, beginning with { and ending with }, with no code fence, no Markdown, and no prose around it. The one report block the contract describes may follow it as before.`
 }
 
 // Result is one completed review: the resolved verdict plus the provider and
@@ -269,11 +298,21 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	}
 	systemPrompt := reviewSystemPrompt(request.scope(), r.Persona)
 	redactor := execution.NewRedactor(request.RedactValues...)
+	// A second asking resumes the reviewer's own session with only what was wrong
+	// with its reply. Where the provider named no session to resume, the evidence
+	// is given again whole with that said after it, and the bound counts it.
+	reask, session, appended := "", "", ""
+	if request.Reask != nil {
+		reask = redactor.Redact(reaskPrompt(request.Reask.Problem))
+		if session = request.Reask.SessionID; session == "" {
+			appended = "\n\n" + reask
+		}
+	}
 	withoutRepository := request
 	withoutRepository.Repository = RepositoryEvidence{}
-	remaining := MaxReviewInputBytes - len(systemPrompt) - len(redactor.Redact(reviewEvidencePrompt(withoutRepository))) + len(renderRepository(RepositoryEvidence{}))
+	remaining := MaxReviewInputBytes - len(systemPrompt) - len(appended) - len(redactor.Redact(reviewEvidencePrompt(withoutRepository))) + len(renderRepository(RepositoryEvidence{}))
 	request.Repository = request.Repository.bounded(remaining)
-	prompt := redactor.Redact(reviewEvidencePrompt(request))
+	prompt := redactor.Redact(reviewEvidencePrompt(request)) + appended
 	inputBytes := len(systemPrompt) + len(prompt)
 	if inputBytes > MaxReviewInputBytes {
 		return Result{}, runstate.StopError{Class: runstate.StopContextBound, Cause: fmt.Errorf("review input is %d bytes, limit is %d", inputBytes, MaxReviewInputBytes)}
@@ -284,6 +323,14 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	started["checks"] = len(request.Checks)
 	started["patch_bytes"] = len(request.Changes.Patch)
 	started["truncated"] = request.Changes.Truncated
+	// A second asking says so, and which session it continued, so a run's record
+	// tells the review that was asked again from the one that was asked first.
+	if request.Reask != nil {
+		started["reask"] = true
+		if session != "" {
+			started["resumed_session"] = session
+		}
+	}
 	started["repository_commit"] = request.Repository.Listing.Commit
 	started["repository_paths_omitted"] = request.Repository.Listing.Omitted
 	started["repository_contents_omitted"] = request.Repository.ContentsOmitted
@@ -364,8 +411,10 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	}
 
 	// The reviewer is independent of the developer that produced the change:
-	// a separate provider invocation with no session to resume, no write
-	// tools, and a read-only permission mode.
+	// a separate provider invocation that never resumes the developer's
+	// session, with no write tools and a read-only permission mode. The only
+	// session it ever resumes is its own, on the second asking of a reply that
+	// could not be settled (Reask).
 	//
 	// It goes through the meter, so a review costs one line in the cost log
 	// whichever way its verdict went and including the ones that produced no
@@ -380,11 +429,16 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		Attribution: attribution,
 		Clock:       r.Clock,
 	}
+	invocationPrompt := prompt
+	if session != "" {
+		invocationPrompt = reask
+	}
 	providerResult, err := provider.Run(ctx, backend.RunRequest{
 		RunID:            request.RunID,
 		Role:             domain.RoleReviewer,
 		WorkingDirectory: request.WorktreePath,
-		Prompt:           prompt,
+		Prompt:           invocationPrompt,
+		SessionID:        session,
 		SystemPrompt:     systemPrompt,
 		Model:            r.Model,
 		Effort:           r.invocationEffort(request.Spend.Backend),
@@ -738,7 +792,7 @@ Your verdict is a decision your role's authority covers, and it is never put to 
 
 Decide ` + decisionVocabulary(scope) + `. Approve only when the change is correct, ` + completeness + `, and free of blocker or major problems; a purely minor observation may accompany an approval. Choose repair when any blocker or major problem remains, and give the developer a specific, actionable finding for each one.
 
-Reply with a single JSON object and nothing else, except the one report block described below. No prose, no Markdown, no code fence:
+Reply with a single JSON object and nothing else, except the one report block described below. Write the verdict bare: begin the reply with { and end the verdict with }, with no prose, no Markdown, and no code fence around it. The report block is fenced; the verdict never is:
 
 ` + verdictSchema(scope) + `
 

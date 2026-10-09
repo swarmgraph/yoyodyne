@@ -104,7 +104,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `prepareScratch`, `verifyPreservation`, `recordChanges`,
     `recordHarnessCommit`, `reportCompletionRecordingFailure`,
     `reportOutstandingCleanup`.
-17. **Review.** `reviewChange` (waits and relaunches around one review),
+17. **Review.** `reviewChange` (waits and relaunches around one review, and
+    asks once more in the reviewer's own session after a reply
+    `unsettledReply` cannot settle a verdict from),
     `attemptReview` (builds `review.Request`, calls `Reviewer.Review`,
     records the verdict), `recordReviewVerdict`, `reviewedContext`,
     `developerSummaryForReview`, `clearReviewEvidence`, `carryReviewEvidence`,

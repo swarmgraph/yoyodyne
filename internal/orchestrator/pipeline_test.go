@@ -1746,6 +1746,85 @@ func TestPipelineAsksTheReviewerAgainWhenItsReplyCannotBeReadAsAVerdict(t *testi
 	}
 }
 
+// A verdict the reviewer wrote inside a code fence is read as the verdict it
+// encloses: it integrates on the one review, with nothing asked again. This is
+// the reply run-f940f785 stopped on.
+func TestPipelineIntegratesAVerdictWrittenInsideACodeFence(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, "```json\n"+approveVerdict+"\n```")
+	pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Integration == nil || !tracker.Closed || outcome.ReviewDecision != review.DecisionApprove {
+		t.Fatalf("a fenced approval did not integrate: %#v, closed = %t", outcome, tracker.Closed)
+	}
+	if reviews := len(provider.RequestsForRole(domain.RoleReviewer)); reviews != 1 {
+		t.Fatalf("reviews = %d, want the fenced verdict read on the first", reviews)
+	}
+}
+
+// A decode error is answered by asking once more, in the reviewer's own session
+// and naming what was wrong with the reply, rather than by stopping a run that
+// reached review clean. The first reply here is fenced with prose after it,
+// which the decoder still cannot read.
+func TestPipelineAsksAgainInTheReviewersSessionNamingTheDecodeError(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, "```json\n"+approveVerdict+"\n```\nHope that helps.", approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want the decode error answered by a re-ask", err)
+	}
+	if outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("the re-asked review did not integrate: %#v, closed = %t", outcome, tracker.Closed)
+	}
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if len(reviews) != 2 {
+		t.Fatalf("reviews = %d, want one re-ask", len(reviews))
+	}
+	if reviews[0].SessionID != "" {
+		t.Fatalf("first review resumed session %q", reviews[0].SessionID)
+	}
+	if reviews[1].SessionID != provider.ReviewerSession {
+		t.Fatalf("re-ask ran in session %q, want the reviewer's own %q", reviews[1].SessionID, provider.ReviewerSession)
+	}
+	for _, want := range []string{"decode review verdict", "Write it bare"} {
+		if !strings.Contains(reviews[1].Prompt, want) {
+			t.Fatalf("re-ask does not say %q:\n%s", want, reviews[1].Prompt)
+		}
+	}
+	if runs := len(provider.RequestsForRole(domain.RoleDeveloper)); runs != 1 || outcome.RepairAttempts != 0 {
+		t.Fatalf("developer invocations = %d, repair attempts = %d; the re-ask costs neither", runs, outcome.RepairAttempts)
+	}
+	events, err := store.LoadEvents(outcome.RunID)
+	if err != nil {
+		t.Fatalf("LoadEvents() error = %v", err)
+	}
+	reasked := false
+	for _, event := range events {
+		if event.Type == execution.EventReviewStarted && strings.Contains(string(event.Payload), `"reask":true`) {
+			reasked = true
+		}
+	}
+	if !reasked {
+		t.Fatal("the run's record does not say the review was asked again")
+	}
+}
+
 // Two unreadable replies in a row is a reviewer that cannot answer the contract,
 // and the run ends on it rather than asking forever.
 func TestPipelineFailsAfterASecondUnreadableVerdict(t *testing.T) {
@@ -1768,6 +1847,22 @@ func TestPipelineFailsAfterASecondUnreadableVerdict(t *testing.T) {
 	}
 	if reviews := len(provider.RequestsForRole(domain.RoleReviewer)); reviews != 2 {
 		t.Fatalf("reviews = %d, want exactly one re-ask", reviews)
+	}
+	// The stop says in plain words that the reviewer was asked twice, beside the
+	// decode error itself, on the run and on the item.
+	plain := "the reviewer was asked twice and neither reply could be accepted as a verdict"
+	if !strings.Contains(err.Error(), plain) {
+		t.Fatalf("Run() error = %v, want it to say %q", err, plain)
+	}
+	state, loadErr := store.Load(outcome.RunID)
+	if loadErr != nil {
+		t.Fatalf("Load() error = %v", loadErr)
+	}
+	if !strings.Contains(state.Failure, plain) || !strings.Contains(state.Failure, "decode review verdict") {
+		t.Fatalf("run failure = %q, want the plain account and the decode error", state.Failure)
+	}
+	if !strings.Contains(tracker.Notes, plain) || !strings.Contains(tracker.Notes, "decode review verdict") {
+		t.Fatalf("item notes = %q, want the plain account and the decode error", tracker.Notes)
 	}
 }
 

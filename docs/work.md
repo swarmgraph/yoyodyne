@@ -388,8 +388,19 @@ that ships an icon is not approved on a link checker's say-so
 published from one only this round's worktree holds.
 Everything the reviewer is shown is
 treated as evidence rather than instruction, so an instruction the developer
-left in the diff is data to analyze rather than something to follow. A verdict
-of `repair` returns the findings to the same developer, up to
+left in the diff is data to analyze rather than something to follow.
+
+The reviewer is told to write its verdict bare — one JSON object, no code fence
+around it. A verdict written inside one fence anyway is read exactly as the bare
+verdict it encloses, because the fence decides nothing. A reply that still cannot
+be read as a verdict — prose, a fence with other text around it, malformed JSON
+— is not a verdict on the change, so it is asked for once more on the same
+budget: in the reviewer's own session, never the developer's, telling it what
+was wrong with the reply, and costing no repair attempt. A second reply that
+cannot be accepted ends the run, and the run and the item both say that the
+reviewer was asked twice, beside the reason the second reply was refused.
+
+A verdict of `repair` returns the findings to the same developer, up to
 `execution.repair_attempts_before_replan` attempts, before the run gives up and
 records a blocker. That budget is not always the last word: a development
 manager who decides the change is worth another go can hand the item a grant of

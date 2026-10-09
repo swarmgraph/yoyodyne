@@ -7625,11 +7625,12 @@ func (p Pipeline) reportOutstandingCleanup(state runstate.State, outcome Outcome
 // asked for again rather than ending the run: the reviewer is a provider
 // invocation like the developer's, and a run stopped there loses just as much
 // work. A reply nothing could read as a verdict was not a review either, and it
-// is asked for once more for the same reason. Nothing an unanswered review
-// leaves behind is carried forward — the retry starts from the same cleared
-// evidence any review starts from.
+// is asked for once more for the same reason, in the reviewer's own session and
+// told what was wrong with the reply. Nothing else an unanswered review leaves
+// behind is carried forward — the retry starts from the same cleared evidence
+// any review starts from.
 func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
-	reasked := false
+	var reask *review.Reask
 	for {
 		// A review is a provider invocation like the developer's, so it passes the
 		// same two boundaries in the same order: a run the operator stopped stops
@@ -7643,7 +7644,7 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 			return "", err
 		}
 		responseStarted := a.pipeline.clock().Now()
-		decision, reported, err := a.attemptReview(ctx)
+		decision, reported, err := a.attemptReview(ctx, reask)
 		// A review the provider refused because nobody is logged into it or nobody
 		// can reach it was never made, and it is answered before anything is
 		// counted for the reason a developer attempt's is: the wait spends nothing.
@@ -7756,15 +7757,16 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// say which of those fixtures it accounted for, is asked again on the same
 		// budget for the same reason: the change is sound, and what is missing is
 		// the reviewer's statement of what the approval covered.
-		var undecodable review.UndecodableVerdictError
-		var incomplete review.IncompleteApprovalError
-		var unaccounted review.UnaccountedFixturesError
-		if !reasked && (errors.As(err, &undecodable) || errors.As(err, &incomplete) || errors.As(err, &unaccounted)) {
-			reasked = true
-			continue
-		}
-		if reasked && (errors.As(err, &undecodable) || errors.As(err, &incomplete) || errors.As(err, &unaccounted)) {
-			return "", stoppedBy(runstate.StopReviewAccount, err)
+		//
+		// The second asking is made in the reviewer's own session and tells it what
+		// was wrong with the reply, because a fresh invocation told nothing new
+		// tends to make the same slip again.
+		if problem, unsettled := unsettledReply(err); unsettled {
+			if reask == nil {
+				reask = &review.Reask{SessionID: a.state.ReviewSessionID, Problem: problem}
+				continue
+			}
+			return "", stoppedBy(runstate.StopReviewAccount, fmt.Errorf("the reviewer was asked twice and neither reply could be accepted as a verdict; the second: %w", err))
 		}
 		// A verdict that was actually reached is recorded against the work item
 		// before it is acted on, and what it costs depends on which way it went.
@@ -7921,10 +7923,29 @@ func reviewReachedProvider(reported providerEvidence, err error) bool {
 	if err == nil || reported.usageLimit != nil || reported.serverOverload != nil || reported.transientFailure != nil {
 		return true
 	}
+	_, unsettled := unsettledReply(err)
+	return unsettled
+}
+
+// unsettledReply reports a review the reviewer answered with a reply the harness
+// could not settle a verdict from — unreadable, an approval that never said what
+// it approves, or one that never said which kept-out fixtures it covered — and
+// says what was wrong with it in the words of the refusal, which is what the
+// reviewer is told when it is asked again.
+func unsettledReply(err error) (string, bool) {
 	var undecodable review.UndecodableVerdictError
+	if errors.As(err, &undecodable) {
+		return "it is not one JSON object in the verdict's schema (" + undecodable.Error() + ")", true
+	}
 	var incomplete review.IncompleteApprovalError
+	if errors.As(err, &incomplete) {
+		return incomplete.Error(), true
+	}
 	var unaccounted review.UnaccountedFixturesError
-	return errors.As(err, &undecodable) || errors.As(err, &incomplete) || errors.As(err, &unaccounted)
+	if errors.As(err, &unaccounted) {
+		return unaccounted.Error(), true
+	}
+	return "", false
 }
 
 // refusedReviewForUsageLimit reports a review the provider declined for want of
@@ -7977,7 +7998,7 @@ func refusedReviewForServerOverload(overload *backend.ServerOverload, err error)
 // exactly what it decided, including when it fails or answers with something the
 // verdict contract rejects. Every recorded outcome is written into the run state
 // before the caller acts on it, so a stopped run still explains why it stopped.
-func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, providerEvidence, error) {
+func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (review.Decision, providerEvidence, error) {
 	p := a.pipeline
 	a.state.Phase = runstate.PhaseReviewing
 	// Nothing an earlier attempt was told carries into this one. Clearing the
@@ -8044,9 +8065,12 @@ func (a *activeRun) attemptReview(ctx context.Context) (review.Decision, provide
 		// What the item's done-conditions quote, so every line of a check's
 		// output carrying one reaches the reviewer beside the check's result.
 		CheckPatterns: review.CriterionPatterns(a.item.Description, a.item.AcceptanceCriteria),
-		RedactValues:  p.RedactValues,
-		LastSequence:  a.state.LastSequence,
-		EventSink:     a.sink,
+		// On the second asking, the reviewer's own session and what was wrong
+		// with the reply it gave there.
+		Reask:        reask,
+		RedactValues: p.RedactValues,
+		LastSequence: a.state.LastSequence,
+		EventSink:    a.sink,
 		// What the reviewer's invocation spends is this run's spend, charged to
 		// the review rather than to the change: an item that was reviewed four
 		// times is where that distinction is the whole answer.
