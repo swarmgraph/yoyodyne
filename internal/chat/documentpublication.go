@@ -170,57 +170,78 @@ func (s *Session) confirmDocument(record *writeRecord, publishes bool) (bool, er
 // this conversation stopped over returns that judged nothing about it. Before
 // the harness told those apart, a check stopped by a time limit or a forge
 // error handed a document back to its owner like a failing check, and three of
-// them stopped its publication with nothing found wrong in it. Each count of
-// returns is set to the returns that judged the document; where that leaves a
-// stopped document under the limit and its latest handoff ended on a stop that
-// judged nothing, the handoff is kept again, from the run store's copy of its
-// text, so the next publication continues it rather than its owner writing it
-// out again. It runs once per process; a failure to read the run store is told
-// to the owning role and stops nothing.
+// them stopped its publication with nothing found wrong in it.
+//
+// Where the run store's latest handoff for a stopped document ended on a stop
+// that judged nothing, the handoff is kept again from the run store's copy of
+// its text, so the next publication continues it rather than its owner writing
+// it out again, and the document's count of returns is set to the returns that
+// judged it. A stopped document the conversation has no room to hold yet keeps
+// its count unchanged, so it still reads as stopped and is put back once a
+// waiting document is settled; its owner is told once that it is waiting.
+// Counts for documents that are not stopped are set to their judged returns.
+//
+// Until nothing is left waiting for room it looks again at each message; after
+// that, once per process. A failure to read the run store is told to the owning
+// role and stops nothing.
 func (s *Session) resumeStoppedDocuments(publisher DocumentPublisher) error {
 	resumer, ok := publisher.(documentResumer)
 	if !ok || s.documentsResumed {
 		return nil
 	}
-	s.documentsResumed = true
 	if len(s.state.DocumentReturns) == 0 {
+		s.documentsResumed = true
 		return nil
 	}
 	resumable, judged, err := resumer.ResumableDocuments(s.state.ConversationID)
 	if err != nil {
+		s.documentsResumed = true
 		return s.carryResults(fmt.Sprintf("The harness could not read this conversation's document runs to see whether any document stopped publishing over runs that judged nothing: %v. It looks again when this conversation is next opened.\n", err))
 	}
-	stopped := map[string]bool{}
-	changed := false
-	for id, returns := range s.state.DocumentReturns {
-		stopped[id] = returns >= runstate.MaxDocumentReturns
-		if judged[id] < returns {
-			changed = true
-			if judged[id] == 0 {
-				delete(s.state.DocumentReturns, id)
-			} else {
-				s.state.DocumentReturns[id] = judged[id]
-			}
-		}
-	}
+	changed, waiting := false, false
+	keep := map[string]bool{}
 	var told strings.Builder
 	for _, publication := range resumable {
 		id := publication.Candidate.Artifact.ID
-		if !stopped[id] || s.state.DocumentReturns[id] >= runstate.MaxDocumentReturns || s.holdsDocument(id) || s.waitingWrites() >= runstate.MaxPendingWrites {
+		recorded := s.state.DocumentReturns[id]
+		if recorded < runstate.MaxDocumentReturns || judged[id] >= runstate.MaxDocumentReturns || s.holdsDocument(id) {
+			continue
+		}
+		if s.waitingWrites() >= runstate.MaxPendingWrites {
+			keep[id], waiting = true, true
+			if !s.resumeWaitTold[id] {
+				if s.resumeWaitTold == nil {
+					s.resumeWaitTold = map[string]bool{}
+				}
+				s.resumeWaitTold[id] = true
+				fmt.Fprintf(&told, "Document %s (%s) stopped publishing after %d returned runs, but only %d of them judged anything about the document, so the harness will publish it again from the confirmed text it kept. This conversation already holds %d documents waiting, so it is put back once one of them is settled; the %s does not need to write it again.\n", publication.WriteID, publication.Candidate.Artifact.Title, recorded, judged[id], runstate.MaxPendingWrites, s.state.Role.Title())
+			}
 			continue
 		}
 		publication := publication
 		s.writes = append(s.writes, &writeRecord{pending: PendingWrite{ID: publication.WriteID, ConversationID: publication.ConversationID, Turn: publication.Turn, Write: writeOf(publication.Candidate), Publication: &publication}})
 		changed = true
-		fmt.Fprintf(&told, "Document %s (%s) is published again. Its automatic publication had stopped after %d returned runs, but only %d of them judged anything about the document; the rest were stopped by causes such as a check time limit or a forge error, which no longer count. The harness continues from the confirmed text it kept, and the %s does not need to write it again.\n", publication.WriteID, publication.Candidate.Artifact.Title, runstate.MaxDocumentReturns, judged[id], s.state.Role.Title())
+		fmt.Fprintf(&told, "Document %s (%s) is published again. Its automatic publication had stopped after %d returned runs, but only %d of them judged anything about the document; the rest were stopped by causes such as a check time limit or a forge error, which no longer count. The harness continues from the confirmed text it kept, and the %s does not need to write it again.\n", publication.WriteID, publication.Candidate.Artifact.Title, recorded, judged[id], s.state.Role.Title())
 	}
-	if !changed {
-		return nil
+	for id, returns := range s.state.DocumentReturns {
+		if keep[id] || judged[id] >= returns {
+			continue
+		}
+		changed = true
+		if judged[id] == 0 {
+			delete(s.state.DocumentReturns, id)
+		} else {
+			s.state.DocumentReturns[id] = judged[id]
+		}
 	}
+	s.documentsResumed = !waiting
 	if told.Len() > 0 {
 		if err := s.carryResults(told.String()); err != nil {
 			return err
 		}
+	}
+	if !changed {
+		return nil
 	}
 	return s.record()
 }

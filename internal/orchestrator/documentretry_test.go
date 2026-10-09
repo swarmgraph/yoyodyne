@@ -410,6 +410,71 @@ func TestADocumentStoppedOverReturnsThatJudgedNothingIsResumed(t *testing.T) {
 	}
 }
 
+// A stopped document the conversation has no room for at its first open keeps
+// its count, is said to be waiting, and is published again at a later open
+// once room has come free, rather than being lost with its count lowered.
+func TestAStoppedDocumentWaitingForRoomIsResumedAtALaterOpen(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	retryDesign(provider, "crowded-design")
+	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Second)
+	pipeline.Checks = checks.Runner{Process: execution.OSProcessRunner{}, Timeout: time.Second}
+	pipeline.Config.Checks = []string{slowOnce(t)}
+	options, store := publicationConversation(t, pipeline, provider)
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Write it."); err != nil {
+		t.Fatal(err)
+	}
+	// What the older build left, with the conversation already holding as many
+	// waiting documents as it may: two the architect may not write, which this
+	// open settles by refusing them.
+	saved := conversationRecord(t, store)
+	saved.PendingWrites = nil
+	for i := 1; i <= runstate.MaxPendingWrites; i++ {
+		saved.PendingWrites = append(saved.PendingWrites, runstate.PendingWrite{ID: fmt.Sprintf("document-%d.1", 90+i), Turn: 90 + i, Action: "create", Artifact: fmt.Sprintf("crowding-%d", i), Kind: "brief", Title: "Crowding", Directory: "docs/product", Body: "# Crowding", Reason: "written by the architect"})
+	}
+	saved.DocumentReturns = map[string]int{"crowded-design": runstate.MaxDocumentReturns}
+	if err := store.Save(saved); err != nil {
+		t.Fatal(err)
+	}
+	session, err = chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorded := documentRuns(t, runs); len(recorded) != 1 {
+		t.Fatalf("runs = %d, want no run while the conversation had no room", len(recorded))
+	}
+	saved = conversationRecord(t, store)
+	if saved.DocumentReturns["crowded-design"] != runstate.MaxDocumentReturns || !strings.Contains(saved.PendingTrackerResults, "put back once one of them is settled") {
+		t.Fatalf("returns = %v; told:\n%s", saved.DocumentReturns, saved.PendingTrackerResults)
+	}
+	if !strings.Contains(saved.PendingTrackerResults, "after 3 returned runs, but only 0 of them judged") {
+		t.Fatalf("the waiting message does not give the recorded count:\n%s", saved.PendingTrackerResults)
+	}
+	session, err = chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if recorded := documentRuns(t, runs); len(recorded) != 2 {
+		t.Fatalf("runs = %d, want the document published again once room came free", len(recorded))
+	}
+	if content := publicationGit(t, repository, "show", "main:docs/designs/crowded-design.md"); !strings.Contains(content, "# The owner's words") {
+		t.Fatalf("target = %s", content)
+	}
+	saved = conversationRecord(t, store)
+	if _, counted := saved.DocumentReturns["crowded-design"]; counted || !strings.Contains(saved.PendingTrackerResults, "is published again") {
+		t.Fatalf("returns = %v; told:\n%s", saved.DocumentReturns, saved.PendingTrackerResults)
+	}
+}
+
 // A check stopped by the deadline of whatever started its run is said to be
 // stopped by that, never by the thirty-minute budget it did not reach; and a
 // timed-out check that stopped short of its budget does not claim the budget.

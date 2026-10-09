@@ -644,6 +644,9 @@ type Session struct {
 	// automatic publication stopped over returns that judged nothing; see
 	// resumeStoppedDocuments.
 	documentsResumed bool
+	// resumeWaitTold is each stopped document whose owner has been told it is
+	// waiting for room in this conversation, so it is said once per process.
+	resumeWaitTold map[string]bool
 	// concerns is what the product manager has raised instead of proposing, and
 	// whether the operator has answered it. It is kept the same way and for the
 	// same reason: a question nobody answered is a loose end, not silence.

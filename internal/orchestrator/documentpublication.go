@@ -128,6 +128,10 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	p.Tracker = &documentTracker{item: documentItem(document, attempt)}
 	saved, ran, err := p.publishDocumentAttempt(ctx, document, attempt, approval.Policy, record)
+	var held documentHeld
+	if errors.As(err, &held) {
+		return runstate.DocumentDelivery{RunID: held.runID, Detail: held.summary, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. It is tried again at the next message and does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, held.summary)}, nil
+	}
 	if !ran || !saved.Status.Terminal() {
 		// A pause retains the confirmed handoff in the conversation. A store or
 		// infrastructure failure must never be claimed as delivered.
@@ -208,6 +212,14 @@ func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.Document
 	slices.SortFunc(resumable, func(a, b runstate.DocumentPublication) int { return strings.Compare(a.WriteID, b.WriteID) })
 	return resumable, judged, nil
 }
+
+// documentHeld is an attempt the intake hold kept from starting, carrying the
+// hold's own reason so the owning conversation is told why.
+type documentHeld struct {
+	runID, summary string
+}
+
+func (h documentHeld) Error() string { return h.summary }
 
 // documentItem is the bookkeeping item one attempt's run is recorded under.
 func documentItem(document runstate.DocumentPublication, attempt int) beads.WorkItem {
@@ -363,11 +375,11 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 		if err := p.Worktrees.ValidateReady(ctx); err != nil {
 			return runstate.State{}, false, err
 		}
-		if _, held, err := p.holdIntake(item.ID); err != nil || held {
+		if outcome, held, err := p.holdIntake(item.ID); err != nil || held {
 			if err != nil {
 				return runstate.State{}, false, err
 			}
-			return runstate.State{RunID: runID, Document: &document}, false, nil
+			return runstate.State{}, false, documentHeld{runID: runID, summary: nonEmpty(strings.TrimSpace(outcome.Summary), "intake is held, and the hold gave no reason")}
 		}
 		target, err := p.Worktrees.CurrentBranch(ctx)
 		if err != nil {
