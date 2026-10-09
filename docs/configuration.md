@@ -4868,8 +4868,12 @@ the old session retries from the durable record; its writes are recorded before
 the waiting message continues. A capacity wait retains the shortened request
 and its spent size retry; an intervening turn rebuilds from the latest record
 with the reduced history allowance. If that reconstruction fails, the error is
-returned and the recorded replacement's event position is kept. These bounds
-belong to the adapters and add no configuration key.
+returned and the recorded replacement's event position is kept. Once no old
+messages are left to drop, the briefing's documents give way, shipped
+documentation first and specifications last, and the role is told which and how
+to read them; the role's instructions, the standing goals, the current work and
+the turn's own evidence never do. These bounds belong to the adapters and add
+no configuration key.
 See [request size protection](conversation.md) for the
 compaction and refusal behavior.
 

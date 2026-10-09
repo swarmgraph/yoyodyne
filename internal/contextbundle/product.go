@@ -623,6 +623,7 @@ var productSectionHeadings = map[string]bool{
 	"## Triage docket":                true,
 	"## Specifications that do not follow the required structure": true,
 	"## Specifications omitted for size":                          true,
+	FittedHeading:                                                 true,
 }
 
 // SectionHeading reports whether one line of an assembled product context opens
@@ -1575,18 +1576,26 @@ func renderShippedDocumentationNote(shipped []string, read shippedDocumentation)
 	}
 	var rendered strings.Builder
 	if len(read.omitted) > 0 {
-		rendered.WriteString("\nThis documentation did not fit and is not included above:\n\n")
+		rendered.WriteString(omittedDocumentationLead)
 		for _, documentPath := range read.omitted {
 			rendered.WriteString("- " + documentPath + "\n")
 		}
 		rendered.WriteString("\nTreat anything you cannot see as unread rather than as absent.\n")
 	}
-	fmt.Fprintf(&rendered, "\nThe shipped documentation is %d bytes across %d document(s) on disk.\n", read.bytes, read.found)
+	fmt.Fprintf(&rendered, shippedDocumentationSizeLead+"%d bytes across %d document(s) on disk.\n", read.bytes, read.found)
 	if standing := ShippedDocumentationStanding(read.bytes); standing != "" {
 		rendered.WriteString("Note: " + standing + ".\n")
 	}
 	return rendered.String()
 }
+
+// omittedDocumentationLead and shippedDocumentationSizeLead open the note
+// written after the shipped documentation. They are named so FitProductContext
+// can tell the note from the last document above it.
+const (
+	omittedDocumentationLead     = "\nThis documentation did not fit and is not included above:\n\n"
+	shippedDocumentationSizeLead = "\nThe shipped documentation is "
+)
 
 const noShippedDocumentation = `
 This repository holds none of the operator-facing documentation looked for here,

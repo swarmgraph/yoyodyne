@@ -74,7 +74,8 @@ include hidden native session history, reasoning or tool results.
 
 Conversations use this adapter contract after choosing the endpoint. They leave
 five percent below the bound and shorten old replayed messages through the
-existing reconstruction, preserving the current turn and instructions. A size
+existing reconstruction, then let the briefing's documents give way, preserving
+the current turn, the instructions and the standing goals. A size
 refusal gets one shorter attempt; both attempts have their own spend records.
 The adapters also refuse oversized supplied input before launching the CLI for
 callers that cannot reconstruct a conversation. A provider declaration uses its
