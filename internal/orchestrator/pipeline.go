@@ -4314,6 +4314,12 @@ func (a *activeRun) recordAfterReplyWaiting(account execution.AfterReply) {
 func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backend.RunResult, err error) error {
 	p := a.pipeline
 	if err != nil {
+		// The error says what refused the attempt; whatever the session wrote to
+		// standard error before it did is said beside it, for the reason
+		// developerFailure says it.
+		if last := sessionLastLines(providerResult.Process.Stderr); last != "" {
+			err = fmt.Errorf("%w; the last lines the session wrote to standard error were:\n%s", err, last)
+		}
 		cause := stoppedBy(runstate.StopProvider, fmt.Errorf("developer backend failed: %w", err))
 		summaryCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		changeSummary, summaryErr := p.Worktrees.SummarizeChanges(summaryCtx, a.worktree)
@@ -4468,8 +4474,60 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	}
 	return stoppedBy(runstate.StopProvider, phaseError{
 		status: statusForProcess(providerResult.Process.Status),
-		cause:  fmt.Errorf("developer reported failure: %s", providerResult.DescribeFailure()),
+		cause:  errors.New("developer reported failure: " + developerFailure(providerResult)),
 	})
+}
+
+// developerFailure says what ended a developer attempt the provider failed, in
+// the words that go onto the run's record, the item's notes and the docket
+// entry. A session that dies before it writes a terminal of its own leaves the
+// adapter's stand-in reason, "process_exit_1", which names nothing anybody can
+// decide from, so the provider's own answer, the exit status, and the last lines
+// the session wrote to standard error are each said where there is one, and
+// their absence is said where there is none.
+func developerFailure(result backend.RunResult) string {
+	reason := strings.TrimSpace(result.StopReason)
+	if reason == fmt.Sprintf("process_exit_%d", result.Process.ExitCode) || reason == string(result.Process.Status) {
+		reason = ""
+	}
+	var parts []string
+	if reason != "" || strings.TrimSpace(result.FinalText) != "" {
+		parts = append(parts, "the provider answered: "+backend.DescribeFailure(reason, result.FinalText))
+	} else {
+		parts = append(parts, "the provider gave no answer of its own")
+	}
+	if result.Process.Status == execution.ProcessFailed {
+		parts = append(parts, fmt.Sprintf("the session exited with status %d", result.Process.ExitCode))
+	}
+	if last := sessionLastLines(result.Process.Stderr); last != "" {
+		parts = append(parts, "the last lines it wrote to standard error were:\n"+last)
+	} else {
+		parts = append(parts, "it wrote nothing to standard error")
+	}
+	return strings.Join(parts, "; ")
+}
+
+// sessionLastLines is the end of what a session wrote to one stream, bounded so
+// it fits beside everything else a failure record carries: the last ten
+// non-empty lines, each indented, and at most 2 KiB of them.
+func sessionLastLines(stream string) string {
+	const maxLines, maxBytes = 10, 2 << 10
+	var lines []string
+	size := 0
+	all := strings.Split(stream, "\n")
+	for index := len(all) - 1; index >= 0 && len(lines) < maxLines; index-- {
+		line := singleLine(all[index], maxBytes-2)
+		if line == "" {
+			continue
+		}
+		line = "  " + line
+		if size+len(line) > maxBytes {
+			break
+		}
+		size += len(line) + 1
+		lines = append([]string{line}, lines...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // refusedForUsageLimit reports an attempt the provider declined for want of
@@ -9699,6 +9757,13 @@ func renderFailureNotes(outcome Outcome) string {
 	}
 	if outcome.Changes.DiffStat != "" {
 		lines = append(lines, "Diff stat when the run ended:\n"+outcome.Changes.DiffStat)
+	}
+	// A run that ended while the developer was working, before any check ran, has
+	// nothing after the change summary to say what stopped it, and a note ending
+	// on the diff stat reads as a change that was simply left there. So it ends on
+	// the cause, in the words of the failure line above.
+	if outcome.Phase == runstate.PhaseDeveloping && len(outcome.Checks) == 0 && strings.TrimSpace(outcome.Failure) != "" {
+		lines = append(lines, "Ended before any check ran. What ended it: "+outcome.Failure)
 	}
 	// A failed run's checks are recorded for the reason a successful run's are,
 	// and with more at stake: a run the stage bound stopped is read from this

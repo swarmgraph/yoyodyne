@@ -138,7 +138,8 @@
         "A feature.txt",
         "Diff stat when the run ended:",
         "feature.txt | 1 +",
-        " 1 file changed, 1 insertion(+)"
+        " 1 file changed, 1 insertion(+)",
+        "Ended before any check ran. What ended it: the developer could not start make build in this worktree: could not start /bin/sh: operation not permitted"
       ]
     ]
   },
