@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -115,10 +116,11 @@ var waitGroupRank = map[backlog.HoldKind]int{
 	backlog.HeldForAGate:       2,
 	backlog.HeldByStall:        3,
 	backlog.HeldWaitingOn:      4,
-	backlog.HeldByConversation: 5,
-	backlog.HeldParked:         6,
-	backlog.HeldCovered:        7,
-	backlog.HeldUnread:         8,
+	backlog.HeldInherited:      5,
+	backlog.HeldByConversation: 6,
+	backlog.HeldParked:         7,
+	backlog.HeldCovered:        8,
+	backlog.HeldUnread:         9,
 }
 
 // waitGroups gathers not-startable items into their groups as the reading
@@ -139,6 +141,9 @@ func newWaitGroups(stall Stall, held switches) *waitGroups {
 func (w *waitGroups) add(entry backlog.Entry, kind backlog.HoldKind) {
 	group := w.shape(entry, kind)
 	key := string(group.Kind) + "\x00" + string(group.Awaiting) + "\x00" + string(group.Mover)
+	if group.Kind == backlog.HeldInherited {
+		key += "\x00" + group.WaitsOn
+	}
 	existing, ok := w.groups[key]
 	if !ok {
 		existing = &group
@@ -177,6 +182,18 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 		return WaitGroup{Kind: kind, Mover: MoverHarness,
 			WaitsOn: "wait on other items",
 			Next:    "the harness pulls each once the work it waits on lands"}
+	case backlog.HeldInherited:
+		// Grouped by the ancestor that waits, so the line names it and what it
+		// waits on rather than saying only that something above the items does.
+		waits := "an item above them that waits on other work"
+		if len(entry.InheritedBlocks) > 0 {
+			block := entry.InheritedBlocks[0]
+			waits = fmt.Sprintf("%s, which waits on %s and holds back the items under it",
+				block.Name(block.Waiting(), ""), inheritedWaits(block))
+		}
+		return WaitGroup{Kind: kind, Mover: MoverHarness,
+			WaitsOn: "are blocked through " + waits,
+			Next:    "the tracker offers each once that work lands; each item's own line names the parents between it and the waiting item"}
 	case backlog.HeldByConversation:
 		role := entry.Executor.Role()
 		carrier := "a role's conversation"
@@ -199,6 +216,15 @@ func (w *waitGroups) shape(entry backlog.Entry, kind backlog.HoldKind) WaitGroup
 			WaitsOn: "are not offered by the tracker, and nothing here can say why",
 			Next:    "the refusal beside each item says what could not be read"}
 	}
+}
+
+// inheritedWaits names what a waiting ancestor waits on.
+func inheritedWaits(block beads.InheritedBlock) string {
+	waits := make([]string, 0, len(block.WaitsOn))
+	for _, dependency := range block.WaitsOn {
+		waits = append(waits, block.Name(dependency.ID, ""))
+	}
+	return strings.Join(waits, ", ")
 }
 
 // list is the groups in the order a reader acts on them, empty rather than nil.

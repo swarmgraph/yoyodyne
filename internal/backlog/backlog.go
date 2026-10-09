@@ -355,6 +355,13 @@ type Entry struct {
 	// deciding a blocked entry from this beats deciding it from a status field
 	// nothing maintains.
 	WaitingOn []string `json:"waiting_on,omitempty"`
+	// InheritedBlocks is the waits an unready item is under through the items it
+	// was broken out of: an ancestor in this backlog waiting on unfinished work
+	// the item does not record itself. The tracker holds such an item back with
+	// its ancestor and its own links say nothing, so without this the queue could
+	// only say the tracker did not offer it. It explains and decides nothing:
+	// readiness stays the tracker's answer.
+	InheritedBlocks []beads.InheritedBlock `json:"inherited_blocks,omitempty"`
 }
 
 // Queue is the backlog in the product manager's order.
@@ -433,8 +440,21 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 	// dependency worth naming: an item this one depends on that is no longer
 	// queued has been done or pulled, and is not what anybody is waiting for.
 	unfinished := make(map[string]struct{}, len(admitted))
+	byID := make(map[string]beads.WorkItem, len(admitted))
 	for _, item := range admitted {
 		unfinished[item.ID] = struct{}{}
+		byID[item.ID] = item
+	}
+	// An ancestor is read from this backlog alone: one that has left it is not
+	// what anybody is waiting for, by the same rule waitingOn applies.
+	inherited := func(item beads.WorkItem) []beads.InheritedBlock {
+		blocks, _ := beads.InheritedBlocks(item,
+			func(id string) (beads.WorkItem, bool, error) {
+				ancestor, found := byID[id]
+				return ancestor, found, nil
+			},
+			func(w beads.WorkItem) []string { return waitingOn(w, unfinished) })
+		return blocks
 	}
 
 	queue := Queue{Entries: make([]Entry, 0, len(admitted))}
@@ -457,6 +477,12 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			since = &began
 		}
 		gates := humangate.Of(item).Pending(discharged[item.ID])
+		ready := startable(item, reportedReady, waiting, held) && awaiting == "" &&
+			item.Executor.DeveloperRun() && !item.Parking.Parked() && !gates.Holds()
+		var inheritedBlocks []beads.InheritedBlock
+		if !ready {
+			inheritedBlocks = inherited(item)
+		}
 		queue.Entries = append(queue.Entries, Entry{
 			Position:      position + 1,
 			ID:            item.ID,
@@ -490,10 +516,10 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			// person's recorded act and by nothing else, so an item carrying one is
 			// not pullable however ready the tracker calls it and however many of the
 			// items it depends on have been closed.
-			Ready: startable(item, reportedReady, waiting, held) && awaiting == "" &&
-				item.Executor.DeveloperRun() && !item.Parking.Parked() && !gates.Holds(),
-			HumanGates: gates,
-			WaitingOn:  waiting,
+			Ready:           ready,
+			HumanGates:      gates,
+			WaitingOn:       waiting,
+			InheritedBlocks: inheritedBlocks,
 		})
 	}
 	return queue
@@ -702,12 +728,13 @@ func (q Queue) Render() string {
 	return rendered.String()
 }
 
-// Hold says what is keeping an unready entry from being pulled. The seven
+// Hold says what is keeping an unready entry from being pulled. The eight
 // answers are different things to act on: an executor no run can be, a parking
 // somebody decided, a hold somebody has to release, a step only a person can
 // take, named work it waits for, a blocked item whose holds nothing could read,
-// and the tracker simply not offering it, which is what a dependency the listing
-// did not carry looks like from here.
+// work an item it was broken out of waits for, and the tracker simply not
+// offering it, which is what a dependency the listing did not carry looks like
+// from here.
 //
 // The first three answer before the rest because they are the ones that are not
 // waiting for anything. Named work is an item that will be pulled once
@@ -769,6 +796,12 @@ const (
 	// HeldWaitingOn is an item waiting on other unfinished work, which clears on
 	// its own as that work lands.
 	HeldWaitingOn HoldKind = "waiting"
+	// HeldInherited is an item the tracker does not offer because an item it was
+	// broken out of waits on unfinished work the item does not record itself. It
+	// clears on its own as that work lands, like HeldWaitingOn, and is a pile of
+	// its own because the work it waits on is named on an ancestor rather than on
+	// the item, which is exactly what a reader of the item cannot see.
+	HeldInherited HoldKind = "inherited"
 	// HeldByConversation is work no run carries out; a conversation does.
 	HeldByConversation HoldKind = "conversation"
 	// HeldUnread is an item the tracker does not offer and nothing here can
@@ -820,6 +853,11 @@ func (e Entry) hold() (HoldKind, string) {
 		// offer it would be true and useless: the tracker never offers blocked work,
 		// and what actually held it is the reading that did not happen.
 		return HeldUnread, unreadHold
+	case len(e.InheritedBlocks) > 0:
+		// The tracker not offering an open item with no links of its own is most
+		// often this: a parent it was broken out of is waiting, and the tracker
+		// holds the children back with it.
+		return HeldInherited, beads.DescribeInheritedBlocks(e.InheritedBlocks)
 	default:
 		return HeldUnread, "the tracker does not report it as ready to pull"
 	}
