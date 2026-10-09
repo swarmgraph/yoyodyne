@@ -278,6 +278,31 @@ func TestATargetThatMovesIsDriftThatNeedsFreshVerificationAndChargesNothing(t *t
 	}
 }
 
+func TestACandidateReachingAProtectedPathTheItemDoesNotGrantLandsNothing(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landLocally)
+	generation := f.verify()
+	base := f.local("main")
+	// The project keeps a protected home where the candidate's change lands.
+	f.worker.Pipeline.Config.Product.Designs = "feature.txt"
+	refused, err := f.promote()
+	if err != nil || !strings.Contains(refused.Refusal, "feature.txt") || refused.Landed {
+		t.Fatalf("Promote() = %#v, %v; want the protected path refused", refused, err)
+	}
+	attempt, _ := f.landing().Current()
+	if f.local("main") != base || len(attempt.Mutations) != 0 {
+		t.Fatalf("main %s, attempt %#v; want nothing moved or asked for", f.local("main"), attempt)
+	}
+	// The item granting the path is what lets the same candidate land.
+	f.tracker.Item.Description += "\nprotected-path grant: feature.txt"
+	landed, err := f.promote()
+	if err != nil || !landed.Landed {
+		t.Fatalf("Promote() with the path granted = %#v, %v", landed, err)
+	}
+	f.assertLandedOnce(generation)
+}
+
 func TestAProtectedTargetLandsThroughThePullRequestAndFollowsOnlyAfterConfirmation(t *testing.T) {
 	t.Parallel()
 
@@ -692,6 +717,23 @@ func TestTheForgesQueueIsHandedOnlyAnEntryItStillGatesOnTheCombinedCommit(t *tes
 	}
 	if held, err := f.lander.TargetHolds(context.Background(), "main", head); err != nil || !held {
 		t.Fatalf("main holds the forge's landing: %v, %v", held, err)
+	}
+	// What landed is the combined commit the forge's queue built and gated,
+	// never the head it was handed, and the record and the item say so.
+	forgeLanded := gitLine(t, f.remote, "rev-parse", "main")
+	forgeLanding, _, err := f.queue.Landing(queueKey, admitted.Entry.EntryID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := forgeLanding.Completion
+	if forgeLanded == head || completion == nil || completion.Landed != forgeLanded || completion.RemoteMerge != forgeLanded {
+		t.Fatalf("completion = %#v, want the forge's landed commit %s rather than the head %s", completion, forgeLanded, head)
+	}
+	if integration := f.run.latest().Integration; integration == nil || integration.TargetCommit != forgeLanded || integration.SourceCommit != head {
+		t.Fatalf("run integration = %#v, want the forge's commit landed from the approved head", integration)
+	}
+	if !strings.Contains(f.tracker.CloseReason, forgeLanded) || !strings.Contains(f.tracker.CloseReason, "forge's merge queue") {
+		t.Fatalf("close reason = %q, want it to name the forge's landed commit", f.tracker.CloseReason)
 	}
 	if f.run.saveCount() != 1 || !f.tracker.Closed {
 		t.Fatal("the forge's landing was not recorded on the run and the item")

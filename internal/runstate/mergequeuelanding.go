@@ -212,8 +212,11 @@ type MergeQueueSettlement struct {
 
 // MergeQueueLanded is a landing confirmed: the candidate on the target.
 type MergeQueueLanded struct {
-	// Commit is the commit that landed, which is always the attempt's
-	// candidate: a landing of anything else is not this attempt's.
+	// Commit is the commit that landed: the attempt's candidate, or, in the
+	// forge's queue, the combined commit the forge built, checked, had
+	// reviewed, and landed, which is then also RemoteMerge. The head handed
+	// to the forge's queue is the attempt's Candidate and is never recorded
+	// as what landed.
 	Commit string `json:"commit"`
 	// RemoteMerge is the commit the forge made of the merge, where it made one.
 	RemoteMerge string    `json:"remote_merge,omitempty"`
@@ -237,8 +240,9 @@ type MergeQueuePromotionAttempt struct {
 	Generation uint64                `json:"generation,omitempty"`
 	Binding    string                `json:"binding,omitempty"`
 	TargetBase string                `json:"target_base"`
-	// Candidate is what lands: the generation's candidate, or, in the forge's
-	// queue, the approved head the forge combines for itself.
+	// Candidate is what the attempt promotes: the generation's candidate, which
+	// is what lands, or, in the forge's queue, the approved head handed to the
+	// forge, which combines it into a commit of its own (see Landed).
 	Candidate string `json:"candidate"`
 	// CandidateBranch is the branch whose pull request carries Candidate, and
 	// is empty for a local landing.
@@ -536,8 +540,14 @@ func (a MergeQueuePromotionAttempt) validate(entryID string) error {
 		}
 	}
 	if landed := a.Landed; landed != nil {
-		if landed.Commit != a.Candidate || landed.ConfirmedAt.IsZero() || (landed.RemoteMerge != "" && !commitPattern.MatchString(landed.RemoteMerge)) {
-			problems = append(problems, errors.New("its landing is not of its own candidate"))
+		own := landed.Commit == a.Candidate
+		if a.Path == MergeQueueLandThroughForgeQueue {
+			// The forge's queue lands a combined commit of its own, which is
+			// what landed, and it is the merge the forge recorded.
+			own = commitPattern.MatchString(landed.Commit) && landed.Commit == landed.RemoteMerge
+		}
+		if !own || landed.ConfirmedAt.IsZero() || (landed.RemoteMerge != "" && !commitPattern.MatchString(landed.RemoteMerge)) {
+			problems = append(problems, errors.New("its landing is not of what it promoted"))
 		}
 		if a.SetAside != nil {
 			problems = append(problems, errors.New("an attempt that landed is never set aside"))

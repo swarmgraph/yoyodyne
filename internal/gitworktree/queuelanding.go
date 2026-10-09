@@ -139,3 +139,28 @@ func validateQueueCandidateBranch(branch string) error {
 	}
 	return nil
 }
+
+// CandidatePaths lists every path a candidate changes against the base it
+// lands on, measured from where the two meet, so a head that lands on a target
+// that has since moved is measured by its own change and not by the target's.
+// Renames are listed as the path removed and the path added, so a move out of
+// a protected path is caught as surely as a move into one.
+func (m *Manager) CandidatePaths(ctx context.Context, base, candidate string) ([]string, error) {
+	if !commitPattern.MatchString(base) || !commitPattern.MatchString(candidate) {
+		return nil, fmt.Errorf("a candidate's paths are listed between two full commit ids, not %q and %q", base, candidate)
+	}
+	result, err := m.run(ctx, "-C", m.repositoryRoot, "diff", "--name-only", "-z", "--no-renames", "--no-ext-diff", base+"..."+candidate, "--")
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return nil, fmt.Errorf("list the paths %s changes against %s failed with exit code %d: %s", candidate, base, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	var paths []string
+	for _, path := range strings.Split(result.Stdout, "\x00") {
+		if path != "" {
+			paths = append(paths, path)
+		}
+	}
+	return paths, nil
+}

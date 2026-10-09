@@ -219,3 +219,34 @@ func TestALandingSaveThatMayNotHaveLandedIsReadBack(t *testing.T) {
 		t.Fatalf("RecordLanding(not landed) = %v, want it reported not saved", err)
 	}
 }
+
+func TestTheForgesQueueRecordsTheCommitItLandedNotTheHeadItWasHanded(t *testing.T) {
+	t.Parallel()
+
+	store := newMergeQueueStore(t, t.TempDir())
+	entry := admittedEntry(t, store)
+	lease := workerLease(t, store, mainQueue)
+	attempt := MergeQueuePromotionAttempt{
+		Number: 1, Path: MergeQueueLandThroughForgeQueue, TargetBase: strings.Repeat("c", 40), Candidate: entry.ApprovedHead,
+		CandidateBranch: "yoyodyne/some-item/0123abcd", IntendedAt: time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC),
+	}
+	attempt.Key = MergeQueuePromotionKey(entry.EntryID, 1, attempt.Path, "", attempt.Candidate)
+	merged := requested(requested(attempt, MergeQueueOpenPullRequest, MergeQueueMutationDone), MergeQueueRequestMerge, MergeQueueMutationDone)
+	record := func(landed MergeQueueLanded) error {
+		landing := NewMergeQueueLanding(entry)
+		withLanding := merged
+		withLanding.Landed = &landed
+		landing.Attempts = []MergeQueuePromotionAttempt{withLanding}
+		return store.RecordLanding(lease, mainQueue, landing)
+	}
+	forgeCommit := strings.Repeat("e", 40)
+	if err := record(MergeQueueLanded{Commit: entry.ApprovedHead, RemoteMerge: forgeCommit, ConfirmedAt: time.Now().UTC()}); err == nil {
+		t.Fatal("RecordLanding(the head handed over, as what landed) = nil, want it refused")
+	}
+	if err := record(MergeQueueLanded{Commit: entry.ApprovedHead, ConfirmedAt: time.Now().UTC()}); err == nil {
+		t.Fatal("RecordLanding(a landing the forge named no commit for) = nil, want it refused")
+	}
+	if err := record(MergeQueueLanded{Commit: forgeCommit, RemoteMerge: forgeCommit, ConfirmedAt: time.Now().UTC()}); err != nil {
+		t.Fatalf("RecordLanding(the forge's combined commit) = %v", err)
+	}
+}

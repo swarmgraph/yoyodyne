@@ -47,8 +47,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/queuemode"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -67,6 +69,7 @@ type MergeQueueLander interface {
 	VerifyRemoteTarget(ctx context.Context, integration gitworktree.Integration) error
 	ConfirmRemoteTarget(ctx context.Context, integration gitworktree.Integration, mergeCommit string) (string, error)
 	CatchUpTarget(ctx context.Context, targetBranch string) (gitworktree.Catchup, error)
+	CandidatePaths(ctx context.Context, base, candidate string) ([]string, error)
 }
 
 // MergeQueueLandingRecords is the queue's durable half a promotion works
@@ -621,6 +624,20 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 		return refuse(fmt.Sprintf("the change was admitted under %s integration, and integration is now %s, so the queue lands nothing by itself",
 			q.entry.IntegrationPolicy, p.Config.Approvals.Integration))
 	}
+	// The protected-path gate is the third thing a landing needs evidence of,
+	// beside the checks and the review, and it is asked of exactly what lands:
+	// the candidate, whose merge onto the target is a revision no run's own gate
+	// ever saw. An attempt that already moved the local target asked it then.
+	if !(attempt.Path.MovesLocalTargetFirst() && mutation == runstate.MergeQueueRequestMerge) {
+		refused, err := q.refusedPaths(ctx, item, *attempt)
+		if err != nil {
+			return false, err
+		}
+		if len(refused) > 0 {
+			return refuse(fmt.Sprintf("the candidate changes protected paths %s does not grant (%s), so it lands nothing",
+				q.entry.WorkItemID, strings.Join(refused, ", ")))
+		}
+	}
 	if attempt.Path == runstate.MergeQueueLandThroughForgeQueue {
 		refusal, err := q.forgeQueueQualifies(ctx)
 		if err != nil || refusal == "" {
@@ -688,6 +705,24 @@ func (q *queuePromotion) fresh(ctx context.Context, mutation runstate.MergeQueue
 		}
 	}
 	return true, nil
+}
+
+// refusedPaths is every path the attempt's candidate changes that the
+// protected-path gate refuses for its work item, as a run's own gate decides
+// it (gateProtectedPaths): the configured homes and held exports, less what
+// the item grants. A list that cannot be read is an error, so nothing is
+// mutated on a gate nobody could ask.
+func (q *queuePromotion) refusedPaths(ctx context.Context, item beads.WorkItem, attempt runstate.MergeQueuePromotionAttempt) ([]string, error) {
+	p := q.p.Pipeline
+	changed, err := q.p.Lander.CandidatePaths(ctx, attempt.TargetBase, attempt.Candidate)
+	if err != nil {
+		return nil, fmt.Errorf("list the paths the candidate changes: %w", err)
+	}
+	var exports []string
+	if p.Worktrees != nil {
+		exports = p.Worktrees.CurrentExports()
+	}
+	return protectedpath.Protect(p.Config, exports...).Refused(changed, protectedpath.Grants(grantEvidence(item)...)), nil
 }
 
 // standing is the attempt's generation as it is recorded now, and a refusal
@@ -793,12 +828,26 @@ func (q *queuePromotion) confirmWith(ctx context.Context, mergeCommit string) er
 	if err != nil {
 		return fmt.Errorf("confirm the candidate reached the remote %s: %w", q.key.TargetBranch, err)
 	}
+	// The forge's own queue checks and has reviewed a combined commit of its
+	// own making, and that commit — not the head handed to it — is what
+	// landed. A landing the forge does not name is not recorded as one.
+	if attempt.Path == runstate.MergeQueueLandThroughForgeQueue && remoteMerge == "" {
+		q.outcome.Unresolved = fmt.Sprintf("the remote %s holds the change from pull request %d, and nothing names the combined commit the forge's merge queue landed it in; the landing is recorded once that commit is known",
+			q.key.TargetBranch, attempt.PullRequest)
+		return nil
+	}
 	return q.land(remoteMerge)
 }
 
+// land records the confirmed landing: the attempt's own candidate, or, in the
+// forge's queue, the combined commit the forge landed.
 func (q *queuePromotion) land(remoteMerge string) error {
 	attempt := q.attempt()
-	attempt.Landed = &runstate.MergeQueueLanded{Commit: attempt.Candidate, RemoteMerge: remoteMerge, ConfirmedAt: q.now()}
+	landed := attempt.Candidate
+	if attempt.Path == runstate.MergeQueueLandThroughForgeQueue {
+		landed = remoteMerge
+	}
+	attempt.Landed = &runstate.MergeQueueLanded{Commit: landed, RemoteMerge: remoteMerge, ConfirmedAt: q.now()}
 	return q.save()
 }
 
@@ -1016,7 +1065,8 @@ func (c MergeQueueRunCompletion) now() time.Time {
 }
 
 // RecordRun writes the landing onto the run as its integration. The change the
-// run made is its source; what landed is the candidate that carried it.
+// run made is its source; what landed is the commit that carried it — the
+// harness's candidate, or the forge queue's combined commit.
 func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
 	state, err := c.Store.Load(entry.RunID)
 	if err != nil {
@@ -1068,6 +1118,10 @@ func (c MergeQueueRunCompletion) RecordWorkItem(ctx context.Context, entry runst
 	}
 	reason := fmt.Sprintf("Reviewed by Yoyodyne run %s and landed on %s through the merge queue as %s, the candidate whose checks and independent review authorized it.",
 		entry.RunID, entry.TargetBranch, completion.Landed)
+	if completion.Path == runstate.MergeQueueLandThroughForgeQueue {
+		reason = fmt.Sprintf("Reviewed by Yoyodyne run %s at %s and landed on %s by the forge's merge queue as %s, the combined commit that queue required the project's checks and an independent approval of before landing it.",
+			entry.RunID, entry.ApprovedHead, entry.TargetBranch, completion.Landed)
+	}
 	_, err = c.Tracker.Complete(ctx, entry.WorkItemID, reason)
 	return err
 }
