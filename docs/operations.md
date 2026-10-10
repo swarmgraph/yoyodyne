@@ -1998,6 +1998,17 @@ one of the boundaries above.
   set is deliberately small, and anything outside it keeps the behavior it had.
   The full recoverable-versus-terminal taxonomy is the architect's, and this does
   not wait on it.
+- **A tracker write is never made twice.** A `bd` killed at its 30-second bound
+  may have written before it was killed, so a write that was killed is asked for
+  again only after the item has been read back and found not to carry it — the
+  note at the end of its notes, the claim, the close, the price. One that did
+  land is taken as the answer. The tracker client does this itself, twice, after
+  waits of two and eight seconds, for every write it makes; a `bd show` killed at
+  its bound is asked again after the same waits. A run's claim and the writes it
+  finishes with — the outcome note, the close, or the reopening of an item its
+  change did not discharge — then go on waiting in the two-hour window, reading
+  the item back before every attempt, so a stalled tracker holds the run rather
+  than ending it.
 
 **Every wait a run takes is recorded before it is taken**, on the run itself,
 with the boundary, which attempt it was, the interval, and the failure it waited

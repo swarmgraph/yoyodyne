@@ -357,6 +357,103 @@ func TestATrackerWriteThatProducedNoVerdictIsWaitedOutRatherThanFailingTheRun(t 
 	}
 }
 
+// trackerStalled is the tracker client giving up on a write bd never answered:
+// its own read-backs could not say whether the write landed, so the run's
+// retry has to ask before it makes it again.
+var trackerStalled = errors.New("bd update on yoyodyne-task did not answer within its 30s bound: 3 write(s) and 2 read-back(s) over 2m40s, and whether the last write landed is not known: bd update failed with status timed_out and exit code -1: ")
+
+// stalledTrackerRun runs one item to completion through a tracker that stalls
+// the claim and the outcome note once each, and the closure twice.
+func stalledTrackerRun(t *testing.T, landed bool) (*orchestratortest.Tracker, Outcome, runstate.State) {
+	t.Helper()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{
+		Item:                 beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"},
+		ClaimFailures:        1,
+		TransientClaimErr:    trackerStalled,
+		RecordFailures:       1,
+		TransientRecordErr:   trackerStalled,
+		CompleteFailures:     2,
+		TransientCompleteErr: trackerStalled,
+		LandsBeforeFailing:   landed,
+	}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	pipeline = waiting(pipeline, &pausingClock{now: baseTime}, 6*time.Hour, 6*time.Hour)
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want the stalled tracker waited out", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || !outcome.WorkItemClosed || !tracker.Closed {
+		t.Fatalf("status = %q, closed = %t (tracker %t), want the run to finish and close its item", outcome.Status, outcome.WorkItemClosed, tracker.Closed)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	return tracker, outcome, state
+}
+
+func calls(tracker *orchestratortest.Tracker, call string) int {
+	count := 0
+	for _, made := range tracker.Calls {
+		if made == call {
+			count++
+		}
+	}
+	return count
+}
+
+// A claim, an outcome note, and a closure that each stalled before the tracker
+// took them are read back, found missing, and made again: the run is not stopped
+// by any of them, and each wait is on the run's record.
+func TestATrackerWriteThatStallsBeforeLandingIsReadBackAndMadeAgain(t *testing.T) {
+	t.Parallel()
+	tracker, _, state := stalledTrackerRun(t, false)
+
+	if claims := calls(tracker, "claim"); claims != 1 {
+		t.Errorf("claims landed = %d, want one", claims)
+	}
+	if records := calls(tracker, "record"); records != 1 {
+		t.Errorf("outcome notes appended = %d, want the one made again after the read-back: %q", records, tracker.NoteRecords)
+	}
+	if closes := calls(tracker, "complete"); closes != 3 {
+		t.Errorf("closures asked for = %d, want the two that stalled and the one that landed: %v", closes, tracker.Calls)
+	}
+	// Four refusals: the claim, the note, and the closure twice.
+	if attempts := state.RetryAttempts(runstate.RetryTrackerWrite); attempts != 4 {
+		t.Fatalf("retries recorded at the tracker = %d, want the four stalled writes: %#v", attempts, state.Retries)
+	}
+	if !strings.Contains(state.Retries[0].Failure, "whether the last write landed is not known") {
+		t.Errorf("recorded failure = %q, want the tracker client's own words", state.Retries[0].Failure)
+	}
+}
+
+// The same writes stalled after the tracker took them are read back, found to
+// have landed, and never made a second time: one claim, one copy of the outcome
+// note, and the closure answered by the read-back rather than by a second close.
+func TestATrackerWriteThatStallsAfterLandingIsNeverMadeTwice(t *testing.T) {
+	t.Parallel()
+	tracker, _, state := stalledTrackerRun(t, true)
+
+	if claims := calls(tracker, "claim"); claims != 1 {
+		t.Errorf("claims made = %d, want the one that landed and no second: %v", claims, tracker.Calls)
+	}
+	if records := calls(tracker, "record"); records != 1 {
+		t.Errorf("outcome notes appended = %d, want one copy: %q", records, tracker.NoteRecords)
+	}
+	if closes := calls(tracker, "complete"); closes != 1 {
+		t.Errorf("closures asked for = %d, want the one that landed and no second: %v", closes, tracker.Calls)
+	}
+	// One wait each, before the read-back that found the write had landed.
+	if attempts := state.RetryAttempts(runstate.RetryTrackerWrite); attempts != 3 {
+		t.Fatalf("retries recorded at the tracker = %d, want one per stalled write: %#v", attempts, state.Retries)
+	}
+}
+
 // The conservative half at the same boundary: a tracker that answered is an
 // answer, and asking again earns the same one. A run that could not close its
 // item because the item is not there has to reach a person now.

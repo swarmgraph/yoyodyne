@@ -2371,7 +2371,8 @@ const (
 	RetryCatchUpTarget      = "catching the local target branch up"
 	RetryProviderInvocation = "invoking the provider"
 	// RetryTrackerWrite covers the writes a finishing run makes to the tracker —
-	// the outcome recorded on the item, the closure, and the price. They are one
+	// the outcome recorded on the item, the closure, and the price — and the
+	// claim a run starts with, which is the same store reached the same way. They are one
 	// boundary rather than three for the reason the remote target's three call
 	// sites are one: they are the same store reached the same way within one
 	// step, and a `bd` that could not be run for one of them could not be run for

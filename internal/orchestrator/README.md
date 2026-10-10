@@ -253,7 +253,7 @@ context bundle come from `internal/contextbundle`.
 | `selfcheck.go` | `gateSelfVerification`, `missingVerification`, `verificationRepairPrompt` |
 | `declarative.go`, `workflow.go` | the delivery definition stepped beside a run (`observe`, `beginDeliveryTrial`) |
 | `landing.go` | developer's closure claims, `arrangeUndischarged` |
-| `recovery.go` | `readWorkItem` and tracker read retries |
+| `recovery.go` | `readWorkItem` and tracker read retries; `recoveringTrackerWrite`, `recordOutcomeOnce`: tracker writes read back before they are made again |
 | `provideroutage.go`, `usagelimit.go` | `requireBackendReady`, provider-away handling |
 | `launchsettings.go` | `requireLaunchSettings` (asked after `requireBackendReady` in `Pipeline.Run` and `resumeRun`): the developer's provider is asked whether its sandbox, notes guard and isolation settings took effect; `LaunchSettingsError`, the one report, and `Scheduler.launchSettingsHeld`, which passes over developer slots on the held provider while the product's `runstate.LaunchSettingsHold` stands |
 | `supervision.go` | the management loop's own pass over role exchanges |
