@@ -441,10 +441,9 @@ func (c CarryOut) read() (carryOutReading, error) {
 		// offering it is what had a merged item's older run repaired, refused, and
 		// handed back to the development manager as a decision to make again.
 		if recorded, err := history(); err == nil {
-			_, decided := item.counters.DecisionOf(entry.RunID)
 			// The reading takes no context of its own, as the re-arm reading below
 			// does not; the tracker read it can make is the tracker's bounded one.
-			if account, settled := c.recoverySettled(context.Background(), task, entry.Closed, decided, recorded, itemOf); settled {
+			if account, settled := c.recoverySettled(context.Background(), task, entry.Closed, item.counters, recorded, itemOf); settled {
 				reading.settled = append(reading.settled, settledTask{task: task, account: account})
 				return
 			}
@@ -933,7 +932,10 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account Carried
 	// Asked again here rather than trusted from the sweep, because a later run's
 	// publication can settle between the pass choosing a task and carrying it out.
 	if harnessOwnTask(task.Decision) {
-		if account, settled := c.settledNow(ctx, task, false); settled {
+		// A record that cannot be read is no decision: the harness continuation is
+		// nobody's decision anyway, and the run records are what settle it.
+		counters, _ := c.Decisions.Counters(task.WorkItemID)
+		if account, settled := c.settledNow(ctx, task, counters); settled {
 			return c.recordNoLongerApplies(ctx, task, account), Outcome{}, nil
 		}
 	}
@@ -962,7 +964,7 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account Carried
 	// Before anything is asked of the action, which would claim, unblock, or
 	// re-enter the run: a recovery of work its closed item has since settled is
 	// recorded as not applying rather than attempted or handed back for a decision.
-	if account, settled := c.settledNow(ctx, task, decided); settled {
+	if account, settled := c.settledNow(ctx, task, counters); settled {
 		return c.recordNoLongerApplies(ctx, task, account), Outcome{}, nil
 	}
 	if !decided {

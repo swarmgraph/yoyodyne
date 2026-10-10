@@ -41,3 +41,18 @@ func (r RunRetirement) Validate(runID string) error {
 	}
 	return errors.Join(problems...)
 }
+
+// MergedAndComplete reports a run that succeeded and finished, whose own change
+// merged through its own pull request at a recorded merge commit, with nothing
+// about its publication, cleanup or landing left outstanding. It is the one
+// reading of "this run's work landed" that retiring an older run, finding an
+// older recovery no longer applies, and saying a run stopped all ask, so none of
+// them can call one run finished and stopped at once. It says nothing about the
+// item's acceptance criteria.
+func (s State) MergedAndComplete() bool {
+	p := s.PullRequest
+	return s.Status == StatusSucceeded && s.Phase == PhaseComplete &&
+		s.Integration != nil && p != nil && p.Merged && p.MergeCommit != "" && p.HeadCommit == s.Integration.SourceCommit &&
+		p.Superseded == "" && p.HandedBack == nil && !s.Outstanding() && s.PublishFailure == "" && s.CleanupFailure == "" &&
+		(s.LandingOutcome == "" || s.LandingOutcome == LandingDischarged) && s.LandingProblem == ""
+}

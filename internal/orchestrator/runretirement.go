@@ -141,11 +141,7 @@ func (r RunRetirer) readItem(ctx context.Context, id string) (beads.WorkItem, er
 }
 
 func confirmedCompletedPublication(state runstate.State) bool {
-	p := state.PullRequest
-	return state.Retirement == nil && state.Status == runstate.StatusSucceeded && state.Phase == runstate.PhaseComplete &&
-		state.Integration != nil && p != nil && p.Merged && p.MergeCommit != "" && p.HeadCommit == state.Integration.SourceCommit &&
-		p.Superseded == "" && p.HandedBack == nil && !state.Outstanding() && state.PublishFailure == "" && state.CleanupFailure == "" &&
-		(state.LandingOutcome == "" || state.LandingOutcome == runstate.LandingDischarged) && state.LandingProblem == ""
+	return state.Retirement == nil && state.MergedAndComplete()
 }
 
 func retirementReason(state runstate.State) string {

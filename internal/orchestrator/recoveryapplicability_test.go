@@ -299,14 +299,95 @@ func TestASettledDocketEntryWithNothingDecidedSettlesTheRecovery(t *testing.T) {
 	settledAt := docketedNow.Add(time.Hour)
 	settled := &triage.Closure{Decision: triage.ItemClosedDecision, Reason: "the tracker holds it as closed", ClosedAt: settledAt}
 	recorded := []runstate.State{stoppedState()}
-	if work, found := settledWorkOf(docketedRunID, docketedItem, recorded, settled, false, settledAt); !found || !strings.Contains(work.account, "already settled its docket entry") {
+	if work, found := settledWorkOf(docketedRunID, docketedItem, recorded, settled, runstate.TriageCounters{}, settledAt); !found || !strings.Contains(work.account, "already settled its docket entry") {
 		t.Fatalf("work = %#v, %v; want the settlement named", work, found)
 	}
-	if _, found := settledWorkOf(docketedRunID, docketedItem, recorded, settled, true, settledAt); found {
+	repaired := runstate.TriageCounters{Decisions: []runstate.TriageDecision{{Decision: runstate.TriageDecisionRepair, RunID: docketedRunID, DecidedAt: docketedNow}}}
+	if _, found := settledWorkOf(docketedRunID, docketedItem, recorded, settled, repaired, settledAt); found {
 		t.Fatal("a decision recorded about the run was overridden by the settlement")
 	}
 	decided := &triage.Closure{Decision: runstate.TriageDecisionRepair, ClosedAt: settledAt}
-	if _, found := settledWorkOf(docketedRunID, docketedItem, recorded, decided, false, settledAt); found {
+	if _, found := settledWorkOf(docketedRunID, docketedItem, recorded, decided, runstate.TriageCounters{}, settledAt); found {
 		t.Fatal("a closure somebody decided was read as the harness settling the work")
+	}
+}
+
+// otherRunID is a run of the item the development manager stopped in flight,
+// naming the items that do its work instead.
+const otherRunID = "run-44444444444444444444444444444444"
+
+// recordSupersession records the development manager stopping a run of the item
+// because other items do its work, at the moment given.
+func recordSupersession(t *testing.T, harness *rerunHarness, at time.Time) {
+	t.Helper()
+	stop := triageDecided(runstate.TriageDecisionStop, otherRunID)
+	stop.SupersededBy = "yoyodyne-ifd.121.5"
+	if _, err := harness.runs.Triage().RecordDecision(context.Background(), docketedItem, stop, at); err != nil {
+		t.Fatalf("RecordDecision() error = %v", err)
+	}
+}
+
+// The 121 shape with a decision recorded: the item closed because other items
+// replaced its approach, with no later run of its own. The record of that is the
+// development manager's stop naming the item doing the work instead; with it, the
+// older run's repair is not offered and is recorded as no longer applying. A
+// repair decided after the supersession is somebody deciding past it, and an
+// item closed with no such record is closed status alone.
+func TestARecoveryOfAnItemWhoseApproachWasReplacedIsNotOffered(t *testing.T) {
+	t.Parallel()
+	f := newSettledFixture(t, "closed")
+	recordSupersession(t, f.harness, docketedNow.Add(30*time.Minute))
+	carrying := f.carryOut(time.Hour)
+	if outstanding, err := carrying.Outstanding(); err != nil || len(outstanding) != 0 {
+		t.Fatalf("outstanding = %#v, %v; want the replaced item's repair not offered", outstanding, err)
+	}
+	if _, err := carrying.RecordUnattempted(context.Background(), time.Minute, nil); err != nil {
+		t.Fatal(err)
+	}
+	counters, err := f.harness.runs.Triage().Counters(docketedItem)
+	if err != nil {
+		t.Fatal(err)
+	}
+	finding, found := counters.NoLongerApplies(docketedRunID)
+	if !found || !strings.Contains(finding.Refusal, "yoyodyne-ifd.121.5 does this item's work instead") {
+		t.Fatalf("finding = %#v, %v; want the superseding item named", finding, found)
+	}
+	if len(f.repairer.asked) != 0 {
+		t.Fatalf("asked = %v", f.repairer.asked)
+	}
+
+	after := newSettledFixture(t, "closed")
+	recordSupersession(t, after.harness, docketedNow.Add(-time.Hour))
+	carrying = after.carryOut(time.Hour)
+	if _, _, err := carrying.Carry(context.Background(), theOneOutstanding(t, carrying)); err != nil {
+		t.Fatal(err)
+	}
+	if len(after.repairer.asked) != 1 {
+		t.Fatalf("asked = %v; want a repair decided after the supersession handed to its action", after.repairer.asked)
+	}
+}
+
+// A continuation the harness fires itself, with nobody having decided it, is
+// refused the same way once the item's work is settled, and the explanation is
+// noted on the item once, since there is no decision on the triage record to
+// write it against.
+func TestAHarnessContinuationOfSettledWorkIsRefusedAndNotedOnce(t *testing.T) {
+	t.Parallel()
+	f := newSettledFixture(t, "closed")
+	mergedLaterRun(t, f.harness, true)
+	task := CarryOutTask{WorkItemID: docketedItem, RunID: docketedRunID,
+		DocketKey: triage.Key(triage.ClassStoppedRun, docketedRunID), Decision: DecisionContinueStall}
+	for range 2 {
+		carried, outcome, err := f.carryOut(time.Hour).Carry(context.Background(), task)
+		if err != nil {
+			t.Fatalf("Carry() error = %v", err)
+		}
+		if carried.Carried || carried.Cause != triage.CarryOutNoLongerApplies || outcome.RunID != "" {
+			t.Fatalf("carried = %#v, outcome = %#v; want the continuation refused", carried, outcome)
+		}
+	}
+	if len(f.tracker.notes) != 1 || !strings.Contains(f.tracker.notes[0], "did not continue run "+docketedRunID) ||
+		!strings.Contains(f.tracker.notes[0], laterRunID) {
+		t.Fatalf("notes = %#v; want one note naming the run and the later merge", f.tracker.notes)
 	}
 }

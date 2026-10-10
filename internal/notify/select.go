@@ -246,7 +246,12 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 	// the stoppage line it says corrects the ending that preceded it.
 	endedNow := !endedWithoutLanding(before) && endedWithoutLanding(after)
 	stoppageNow := !handedToAPerson(before) && handedToAPerson(after)
-	if endedNow || stoppageNow {
+	// A run whose own change merged and whose publication finished is never said
+	// to have stopped, whatever blocker reaches its record afterwards: a blocker on
+	// such a record is about the item rather than about this run, and a stop notice
+	// naming the run that landed the work sends whoever reads it to recover
+	// finished work.
+	if (endedNow || stoppageNow) && !after.MergedAndComplete() {
 		found := lookedAt(after, look)
 		remains := Detail{Remains: after.Artifacts().Describe()}
 		if found != nil {

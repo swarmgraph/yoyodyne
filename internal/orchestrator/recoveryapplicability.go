@@ -20,6 +20,9 @@ package orchestrator
 //   - the run itself succeeded, and its merge is confirmed and complete;
 //   - a later run of the item has a confirmed, complete merge into the same
 //     target, and no newer publication of the item is still unsettled;
+//   - the development manager recorded that another item does this item's
+//     work instead (a stop decision naming the superseding item), no earlier
+//     than any decision about the run: the item's approach was replaced;
 //   - nobody has decided anything about the run, and the harness already
 //     settled its docket entry: closed with its item, or with its publication.
 //
@@ -62,10 +65,11 @@ type settledWork struct {
 // item: the caller asks that the item is closed as well, because none of these
 // records says the item was not reopened since.
 //
-// decided says a decision about the run stands on the item's triage record; a
-// settlement of the docket entry answers only an undecided run, since a
-// decision recorded after a closure is somebody deciding past it.
-func settledWorkOf(runID, workItemID string, recorded []runstate.State, closure *triage.Closure, decided bool, now time.Time) (settledWork, bool) {
+// counters is the item's triage record. A settlement of the docket entry answers
+// only a run nobody has decided about, since a decision recorded after a closure
+// is somebody deciding past it.
+func settledWorkOf(runID, workItemID string, recorded []runstate.State, closure *triage.Closure, counters runstate.TriageCounters, now time.Time) (settledWork, bool) {
+	_, decided := counters.DecisionOf(runID)
 	var run runstate.State
 	known := false
 	for _, state := range recorded {
@@ -88,6 +92,11 @@ func settledWorkOf(runID, workItemID string, recorded []runstate.State, closure 
 				"a later run of the item, %s, merged its change through pull request #%d at %s into %s and its publication settled at %s, so recovering the older run %s would redo finished work",
 				later.RunID, later.PullRequest.Number, later.PullRequest.MergeCommit, later.Integration.TargetBranch, later.CompletedAt.UTC().Format(time.RFC3339), run.RunID)}, true
 		}
+	}
+	if stop, found := recordedSupersession(counters, runID); found {
+		return settledWork{account: fmt.Sprintf(
+			"the development manager recorded that %s does this item's work instead, in the %q %s, so recovering run %s would redo work another item has taken over",
+			strings.TrimSpace(stop.SupersededBy), stop.Decision, stop.Cite(), runID)}, true
 	}
 	if !decided && closure != nil && closure.Holds(now) && harnessSettlement(closure.Decision) {
 		account := fmt.Sprintf("nobody has decided anything about run %s, and the harness already settled its docket entry at %s (%s)",
@@ -119,6 +128,30 @@ func laterSettledPublication(run runstate.State, recorded []runstate.State) (run
 	if latest.RunID == "" || !confirmedCompletedPublication(latest) || latest.CompletedAt == nil ||
 		(run.TargetBranch != "" && latest.Integration.TargetBranch != run.TargetBranch) {
 		return runstate.State{}, false
+	}
+	return latest, true
+}
+
+// recordedSupersession is the latest decision on the item's record naming the
+// item that does its work instead, where it was made no earlier than the
+// decision about runID. A recovery decided after it is somebody deciding past
+// the supersession, and the recovery stands.
+func recordedSupersession(counters runstate.TriageCounters, runID string) (runstate.TriageDecision, bool) {
+	var latest runstate.TriageDecision
+	found := false
+	for _, decision := range counters.Decisions {
+		if decision.Decision != runstate.TriageDecisionStop || strings.TrimSpace(decision.SupersededBy) == "" {
+			continue
+		}
+		if !found || !decision.DecidedAt.Before(latest.DecidedAt) {
+			latest, found = decision, true
+		}
+	}
+	if !found {
+		return runstate.TriageDecision{}, false
+	}
+	if current, decided := counters.DecisionOf(runID); decided && current.DecidedAt.After(latest.DecidedAt) {
+		return runstate.TriageDecision{}, false
 	}
 	return latest, true
 }
@@ -163,11 +196,11 @@ const noLongerAppliesClears = "Nobody needs to do anything about it. Only reopen
 // the item is closed and settledWorkOf finds its work settled. An item or a
 // record that cannot be read establishes nothing, and the recovery is left to
 // the action, whose own gates refuse what they always refused.
-func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closure *triage.Closure, decided bool, recorded []runstate.State, item func(context.Context, string) (beads.WorkItem, bool)) (string, bool) {
+func (c CarryOut) recoverySettled(ctx context.Context, task CarryOutTask, closure *triage.Closure, counters runstate.TriageCounters, recorded []runstate.State, item func(context.Context, string) (beads.WorkItem, bool)) (string, bool) {
 	if task.Harness {
 		return "", false
 	}
-	settled, found := settledWorkOf(task.RunID, task.WorkItemID, recorded, closure, decided, c.now())
+	settled, found := settledWorkOf(task.RunID, task.WorkItemID, recorded, closure, counters, c.now())
 	if !found {
 		return "", false
 	}
@@ -239,13 +272,26 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		Problem: fmt.Sprintf("the %q recorded about run %s was not carried out because it no longer applies: %s. %s",
 			task.Decision, task.RunID, strings.TrimSpace(account), noLongerAppliesClears),
 	}
-	if harnessOwnTask(task.Decision) {
-		// Nobody decided a harness continuation, so there is no decision to write a
-		// finding against; the pass says it and the next pass asks again.
-		return carried
-	}
 	write, stopWriting := recordContext(ctx)
 	defer stopWriting()
+	if harnessOwnTask(task.Decision) {
+		// Nobody decided a harness continuation, so there is no decision on the
+		// triage record to write a finding against. The explanation goes onto the
+		// item's notes instead, once: the same account read again is the same note.
+		if c.Notes == nil {
+			return carried
+		}
+		note := fmt.Sprintf("Yoyodyne did not continue run %s itself, because continuing it no longer applies: %s. %s",
+			task.RunID, strings.TrimSpace(account), noLongerAppliesClears)
+		item, err := c.Notes.Show(write, task.WorkItemID)
+		if err == nil && !strings.Contains(item.Notes, note) {
+			_, err = c.Notes.RecordOutcome(write, task.WorkItemID, note)
+		}
+		if err != nil {
+			carried.RecordProblem = fmt.Sprintf("and that could not be noted on %s, so the next pass finds it again: %v", task.WorkItemID, err)
+		}
+		return carried
+	}
 	if _, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{
 		Cause:     triage.CarryOutNoLongerApplies,
 		DecidedAt: task.DecidedAt,
@@ -268,7 +314,7 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 
 // settledNow asks recoverySettled of the records as they stand at execution,
 // for one task. A record that cannot be read establishes nothing.
-func (c CarryOut) settledNow(ctx context.Context, task CarryOutTask, decided bool) (string, bool) {
+func (c CarryOut) settledNow(ctx context.Context, task CarryOutTask, counters runstate.TriageCounters) (string, bool) {
 	recorded, err := c.Runs.Recorded()
 	if err != nil {
 		return "", false
@@ -277,5 +323,5 @@ func (c CarryOut) settledNow(ctx context.Context, task CarryOutTask, decided boo
 	if entries, err := c.Docket.List(); err == nil {
 		closure = docketClosure(entries, task.DocketKey)
 	}
-	return c.recoverySettled(ctx, task, closure, decided, recorded, c.itemReader())
+	return c.recoverySettled(ctx, task, closure, counters, recorded, c.itemReader())
 }
