@@ -77,7 +77,7 @@ the word readable until the architect decides otherwise, and it is retired
 when the architect does. `in force` and `posture` were two more of these until
 the operator objected to each by name: yoyodyne-ifd.418 retired `in force`, and
 yoyodyne-ifd.437.6 retired `posture` on 2026-09-25 because it was unclear to
-him. Both are now listed below as replaced. The architect has since amended
+them. Both are now listed below as replaced. The architect has since amended
 every governed document that carried either, so neither row names a document
 any more, and both are refused everywhere the check reads.
 
@@ -109,9 +109,9 @@ or `rearm` fails with the command. What keeps it out of a
 sentence that could have said *repeat the merge request* is the reviewer, not
 the check.
 
-One entry is the operator's word rather than the project's. He introduced
-`seat` on 2026-09-19 and wants to keep using it, so its row is what makes it
-read the way he means it wherever it is met. The distinction the row draws is
+One entry is the operator's word rather than the project's. They introduced
+`seat` on 2026-09-19 and want to keep using it, so its row is what makes it
+read the way they mean it wherever it is met. The distinction the row draws is
 instance against capacity: a seat is the running persona that does the work,
 and a developer slot is one unit of `max_concurrent_developers`, the capacity
 that seat fills. So the configuration guide, the status line, and the scheduler
@@ -119,7 +119,7 @@ say *slot* when they count, fill, free, or configure capacity, and *seat* when
 they mean the developer that sits in one — the reliability seat is the developer
 that works in the slot configured to prefer the `reliability` label.
 
-`program manager` is the operator's too. He decided the role on 2026-09-24,
+`program manager` is the operator's too. They decided the role on 2026-09-24,
 and its row is here before any document or surface names it, so the word is
 defined from its first use. It is always written in full for a person, never
 shortened to *PM*, which could as well mean the Lead Product Manager; `pgm` is the form
@@ -127,7 +127,7 @@ an identifier takes and nothing else. Its row names no document yet because
 none exists: each place of use is added to the row as it comes to exist,
 starting with the architect's design document.
 
-`Lead Product Manager` is the operator's as well. On 2026-09-26 he renamed the
+`Lead Product Manager` is the operator's as well. On 2026-09-26 they renamed the
 product manager so that it could not be confused with the program managers,
 who answer to it: *PM* had come to mean either role. Its row is the name a person
 reads; the identifier underneath it is unchanged, so configurations, agent

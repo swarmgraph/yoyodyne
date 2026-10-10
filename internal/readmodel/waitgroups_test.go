@@ -58,7 +58,7 @@ func TestTheNotStartableLineCountsItsWorkByWhatItWaitsOn(t *testing.T) {
 		"  - 1 is done in the architect's conversation, not by a run — next: the role does the work in its conversation, and the harness closes each item when the role's revision lands; whose: the architect's\n",
 		"  - 2 are parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's\n",
 		"  - 1 is covered by other work: their own unfinished children — next: the harness runs the children; nothing pulls the covering item itself; whose: the harness's\n",
-		"  - nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one\n",
+		"  - nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one\n",
 	}
 	at := -1
 	for _, line := range want {

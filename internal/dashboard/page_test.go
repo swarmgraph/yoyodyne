@@ -718,7 +718,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 		},
 		"held": {
-			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
+			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
 			// One thing waiting, and it is the operator's: the figure says so and
 			// there is no breakdown to give.
 			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",

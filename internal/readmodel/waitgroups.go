@@ -299,7 +299,7 @@ func ForOperator(groups []WaitGroup) string {
 		}
 	}
 	if len(his) == 0 {
-		return "nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one"
+		return "nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one"
 	}
 	return fmt.Sprintf("%s here %s the operator's — %s; everything else is somebody else's to move",
 		count(items, "item"), isAre(items), strings.Join(his, "; "))

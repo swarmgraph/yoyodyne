@@ -1281,7 +1281,7 @@ not what it cost: the tracker read this turns on was taken once an hour, so the
 number an operator could set was not the number that decided when they were told,
 and a harness that stopped could be quiet for ninety minutes before anybody
 heard. That is what happened on 2026-09-05, and what the operator said about it
-is that his bar is minutes rather than an hour. A watching session holds to that
+is that their bar is minutes rather than an hour. A watching session holds to that
 number exactly, because it takes the reading itself as it polls. Where the
 session is the thing that died, what decides the latency is the number and how
 often the sweep runs — a sweep every half hour makes a ten-minute threshold mean
@@ -1319,7 +1319,7 @@ to nobody's phone. The note opens with the cause and nothing else:
 
 That opening is the operator's own acceptance rather than a house style: when the
 system is paused on a provider usage window, the cause is the first words of any
-message that reaches him. It was bought the same way the rest of this was: on
+message that reaches them. It was bought the same way the rest of this was: on
 2026-09-05 ninety minutes of a window read as a machine that had quietly stopped,
 and somebody was paged for the provider behaving normally, with the cause left to
 archaeology. It quiets the alarm
@@ -1434,7 +1434,7 @@ decision, the role that would have decided was refused twenty times a day, all
 five agents were on the one model being refused, and no agent named an
 alternate. Each of the 134 refusals was said once in the channel as itself, at
 warning severity, and nothing said what they added up to. The operator heard
-five days later, from his assistant.
+five days later, from their assistant.
 
 So the sink reads the refusals against the configuration and says the sum. The
 refusals are in two records, and it reads both: the usage-limit log, which holds
