@@ -12,7 +12,9 @@ import (
 // tree writes a small repository and returns the Tree a pull would read it
 // through. It is a real checkout rather than a stub for the reads that matter
 // here: what this package is for is answering from files, and a fake that
-// answers from a map would be testing the fake.
+// answers from a map would be testing the fake. The standard library it is
+// read against is a small Go installation of the test's own, so what the
+// machine running the test has installed changes no answer here.
 func tree(t *testing.T, files map[string]string) *Repository {
 	t.Helper()
 	root := t.TempDir()
@@ -25,7 +27,7 @@ func tree(t *testing.T, files map[string]string) *Repository {
 			t.Fatalf("write %s: %v", path, err)
 		}
 	}
-	return &Repository{Root: root}
+	return &Repository{Root: root, GoRoot: goInstallation(t, standardAPI)}
 }
 
 func kindsOf(unmet []Unmet) []string {
