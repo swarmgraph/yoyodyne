@@ -2426,6 +2426,12 @@ func (e Entry) renderCarryOut() string {
 		fmt.Fprintf(&rendered, "      Your latest decision on %s is about run %s, which this docket holds no entry for, so it is said here:\n",
 			e.WorkItemID, stopped.RunID)
 	}
+	if stopped.NoLongerApplies() {
+		fmt.Fprintf(&rendered, "      The %q recorded about run %s no longer applies, as the harness found at %s: %s\n",
+			stopped.Decision, e.RunID, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		rendered.WriteString("      Nothing was attempted or spent and nothing is anybody's to decide about it; only reopening the item and recording a new decision makes a recovery of the run apply again.\n")
+		return rendered.String()
+	}
 	if stopped.Unattempted {
 		fmt.Fprintf(&rendered, "      No pass has attempted the %q you decided, as of %s; %s kept it back: %s\n",
 			stopped.Decision, stopped.RefusedAt.UTC().Format(time.RFC3339), stopped.Gate, strings.TrimSpace(stopped.Refusal))

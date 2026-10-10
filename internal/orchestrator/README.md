@@ -241,6 +241,7 @@ context bundle come from `internal/contextbundle`.
 | `programmanagerpass.go` | program manager pass wake-up and cursor (`readWake`, `advance`) |
 | `triage.go` | `Docketer`: `RecordStoppedRun`, `RecordUnstartedRun`, `RecordEscalation`, `SettleClosedItem`, `Build` |
 | `rerun.go`, `repaircontinue.go`, `carryout.go`, `carryrearm.go`, `rearm.go` | carrying out the development manager's decisions on docketed runs |
+| `recoveryapplicability.go` | whether a repair or re-run still applies: `settledWorkOf` (the run itself merged, a later run merged, or the harness settled its docket entry) and `CarryOut.recoverySettled`, asked by `CarryOut.read` before a recovery is offered and by `CarryOut.Carry` before one is carried out; `recordNoLongerApplies` writes the `no-longer-applies` finding and the item's note |
 | `stallcontinue.go`, `checkstagecontinue.go`, `integrationresume.go` | the harness's own continuations of a stopped run |
 | `recordedbackend.go` | `DeveloperBackends`, `developerBackendFor`, `RecordedBackendError`: a run's developer on the backend the run recorded; `erasedSession`: a session a failed attempt erased, read back from the event log |
 | `redeploydrain.go` | `RedeployDrain`, `drainedForRedeploy`, `pauseForRedeploy` |
