@@ -13,10 +13,10 @@ import (
 
 // These drive yoyodyne-ifd.429.35: a merge the harness withdraws or hands back
 // over a forge check carries the forge's own account of the check onto the
-// item — its name, how it ended, the commit, the forge's annotations, the
-// failing step's lines from the job's log, and a link to it — read under the
-// harness's forge access, because a developer run given the item may not reach
-// the forge at all. Where the forge refuses the harness's token, the item says
+// item — its name, how it ended, the commit, the forge's annotations, the job
+// and step that failed with the end of that step's output, and a link to the
+// job's log — read under the harness's forge access, because a developer run
+// given the item may not reach the forge at all. Where the forge refuses the harness's token, the item says
 // so and names granting it as the operator's.
 
 // redOnTheChange is a head failing a check on the file its change touches,
@@ -51,7 +51,7 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 	forge.Reading = redOnTheChange()
 	fixture.docket = &memoryDocket{}
 	reconciler := fixture.sweep(t, forge, true)
-	logs := &orchestratortest.JobLogs{Tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
+	logs := &orchestratortest.JobLogs{Job: "build", Step: "Lint", Tail: "##[group]Run make lint\nfeature.txt:3: line is longer than 100 characters\n##[error]Process completed with exit code 1."}
 	reconciler.JobLogs = logs
 
 	results, err := reconciler.Reconcile(context.Background())
@@ -74,13 +74,21 @@ func TestAMergeHandedBackOverARedCheckCarriesTheForgesAccountOntoTheItem(t *test
 		"Log: https://example.invalid/acme/thing/actions/runs/5/job/77",
 		"- feature.txt:3 (failure): line is longer than 100 characters",
 		"- .github (failure): Process completed with exit code 1.",
-		"The failing step's lines from the forge's log of the job, at most 60 (check run 77)",
+		"Failing job and step: build, step 5, \"Lint\".",
+		"The end of the failing step's output, up to and including the line it failed on (check run 77):",
 		"> feature.txt:3: line is longer than 100 characters",
 		"> ##[error]Process completed with exit code 1.",
 	} {
 		if !strings.Contains(notes, want) {
 			t.Errorf("the item's notes do not carry %q:\n%s", want, notes)
 		}
+	}
+	// The development manager is handed the stopped run with the same account.
+	if len(fixture.docket.entries) != 1 || fixture.docket.entries[0].Check == nil {
+		t.Fatalf("docket = %#v, want one entry carrying the failing check", fixture.docket.entries)
+	}
+	if output := fixture.docket.entries[0].Check.Output; !strings.Contains(output, "Failing job and step: build, step 5, \"Lint\".") || !strings.Contains(output, "> ##[error]Process completed with exit code 1.") {
+		t.Errorf("the development manager's entry does not carry the failing step and its output:\n%s", output)
 	}
 	blocker := fixture.tracker.Record().BlockReason
 	if strings.Contains(blocker, "says why") {
@@ -117,6 +125,7 @@ func TestAForgeThatRefusesTheHarnessesTokenIsNamedOnTheItemAsTheOperatorsToGrant
 	notes := fixture.tracker.Record().Notes
 	for _, want := range []string{
 		"How the forge ended adoption: cancelled.",
+		"Failing job: adoption. The forge reported no step of it failing.",
 		"The forge would not let the harness's token read this job's log",
 		"Granting that token read access to the repository's Actions is the operator's",
 		"nobody working this item is asked to fetch it",
@@ -130,5 +139,41 @@ func TestAForgeThatRefusesTheHarnessesTokenIsNamedOnTheItemAsTheOperatorsToGrant
 	}
 	if !errors.Is(forge.RefuseRerun, publish.ErrForgeAccessRefused) {
 		t.Fatal("the fixture's refusal is not the forge refusing the token")
+	}
+}
+
+// A failing step whose output is longer than the bound is carried as its end,
+// and the item says earlier lines were left out; a log the forge no longer
+// holds is said to be unreadable, with the step still named.
+func TestTheForgesAccountSaysWhereAFailingStepsOutputWasCutOrCouldNotBeRead(t *testing.T) {
+	t.Parallel()
+
+	for name, logs := range map[string]*orchestratortest.JobLogs{
+		"cut":     {Job: "build", Step: "Check", Cut: true, Tail: "ok  \tgithub.com/acme/thing/internal/zeta\t1.0s\n##[error]Process completed with exit code 2."},
+		"expired": {Job: "build", Step: "Check", Err: errors.New("read the forge's log of check 77: exit code 1: HTTP 410: logs expired")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			fixture, forge, _ := queuedOnProtectedTarget(t)
+			forge.Reading = redOnTheChange()
+			fixture.docket = &memoryDocket{}
+			reconciler := fixture.sweep(t, forge, true)
+			reconciler.JobLogs = logs
+			if _, err := reconciler.Reconcile(context.Background()); err != nil {
+				t.Fatalf("Reconcile() error = %v", err)
+			}
+			notes := fixture.tracker.Record().Notes
+			want := []string{"Failing job and step: build, step 5, \"Check\"."}
+			if name == "cut" {
+				want = append(want, fmt.Sprintf("(check run 77; earlier lines are left out to keep this to %d bytes):", failedStepOutputBytes), "> ##[error]Process completed with exit code 2.")
+			} else {
+				want = append(want, "Its log could not be read: read the forge's log of check 77: exit code 1: HTTP 410: logs expired.")
+			}
+			for _, line := range want {
+				if !strings.Contains(notes, line) {
+					t.Errorf("the item's notes do not carry %q:\n%s", line, notes)
+				}
+			}
+		})
 	}
 }

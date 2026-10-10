@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
@@ -1339,6 +1340,141 @@ func TestJobLogTailEndsAtTheFailingStep(t *testing.T) {
 	}
 	if tail := logTail("a\nb\nc\n", 2); tail != "b\nc" {
 		t.Errorf("logTail with no error marked = %q, want the last lines", tail)
+	}
+}
+
+// failingJob is a job whose "Check" step failed between its "Download
+// dependencies" step and the forge's clean-up after it.
+const failingJob = `{"name":"build","steps":[` +
+	`{"name":"Download dependencies","number":3,"conclusion":"success","started_at":"2026-10-07T05:40:00Z","completed_at":"2026-10-07T05:40:09Z"},` +
+	`{"name":"Check","number":5,"conclusion":"failure","started_at":"2026-10-07T05:40:10Z","completed_at":"2026-10-07T05:44:12Z"},` +
+	`{"name":"Build","number":6,"conclusion":"skipped","started_at":null,"completed_at":null}]}`
+
+// failingJobLog is that job's log as the forge stamps it: the download step's
+// lines, the check step's, with a test failing well above the line the step
+// failed on and a line per passing package below it, and the clean-up.
+func failingJobLog(passingPackages int) string {
+	lines := []string{
+		"2026-10-07T05:40:01.1000000Z ##[group]Run go mod download",
+		"2026-10-07T05:40:08.2000000Z go: downloading something",
+		"2026-10-07T05:40:10.0500000Z ##[group]Run make check",
+		"2026-10-07T05:40:10.0600000Z ##[endgroup]",
+		"2026-10-07T05:41:00.0000000Z --- FAIL: TestLauncher (0.20s)",
+		"2026-10-07T05:41:00.0000001Z     launcher_test.go:40: the provider's tool is not installed",
+		"2026-10-07T05:41:00.0000002Z FAIL\tgithub.com/acme/thing/internal/launcher\t0.4s",
+	}
+	for index := 0; index < passingPackages; index++ {
+		lines = append(lines, fmt.Sprintf("2026-10-07T05:43:%02d.0000000Z ok  \tgithub.com/acme/thing/internal/package%03d\t1.0s", index%60, index))
+	}
+	lines = append(lines,
+		"2026-10-07T05:44:11.9000000Z make: *** [Makefile:79: test] Error 1",
+		"2026-10-07T05:44:12.4000000Z ##[error]Process completed with exit code 2.",
+		"2026-10-07T05:44:13.0000000Z Post job cleanup.",
+		"2026-10-07T05:44:14.0000000Z Cleaning up orphan processes",
+		"",
+	)
+	return strings.Join(lines, "\n")
+}
+
+// The failing step is named from the forge's account of the job, and its own
+// lines are kept, stamps taken off, ending at the line it failed on: not the
+// steps before it and not the clean-up after.
+func TestGitHubFailedStepNamesTheStepAndKeepsItsOwnLines(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("actions/jobs/4215 --jq", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: failingJob})
+	runner.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: failingJobLog(3)})
+	failure, err := (GitHub{Runner: runner}).FailedStep(context.Background(), 4215, 6<<10)
+	if err != nil {
+		t.Fatalf("FailedStep() error = %v", err)
+	}
+	if failure.Job != "build" || failure.Step != "Check" || failure.StepNumber != 5 || failure.StepUnread != "" {
+		t.Errorf("failure = %#v, want job build, step 5 Check", failure)
+	}
+	if failure.Cut {
+		t.Error("a step shorter than the bound was reported cut")
+	}
+	if !strings.HasPrefix(failure.Output, "##[group]Run make check\n") || !strings.HasSuffix(failure.Output, "##[error]Process completed with exit code 2.") {
+		t.Errorf("output = %q, want the check step's lines from its start to the line it failed on", failure.Output)
+	}
+	for _, unwanted := range []string{"go mod download", "Post job cleanup", "2026-10-07T"} {
+		if strings.Contains(failure.Output, unwanted) {
+			t.Errorf("output carries %q, which is not the failing step's text:\n%s", unwanted, failure.Output)
+		}
+	}
+}
+
+// A step whose output is longer than the bound keeps its end, whole lines up to
+// and including the one it failed on, within the bound, and says it was cut.
+func TestGitHubFailedStepKeepsTheEndOfAStepLongerThanTheBound(t *testing.T) {
+	t.Parallel()
+
+	runner := &scriptedRunner{}
+	runner.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	runner.reply("actions/jobs/4215 --jq", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: failingJob})
+	runner.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: failingJobLog(500)})
+	const bound = 2 << 10
+	failure, err := (GitHub{Runner: runner}).FailedStep(context.Background(), 4215, bound)
+	if err != nil {
+		t.Fatalf("FailedStep() error = %v", err)
+	}
+	if !failure.Cut || len(failure.Output) > bound {
+		t.Fatalf("output is %d bytes, cut %v; want it cut to at most %d", len(failure.Output), failure.Cut, bound)
+	}
+	if !strings.HasSuffix(failure.Output, "make: *** [Makefile:79: test] Error 1\n##[error]Process completed with exit code 2.") {
+		t.Errorf("output does not end at the line the step failed on:\n%s", failure.Output)
+	}
+	if !strings.HasPrefix(failure.Output, "ok  \t") {
+		t.Errorf("output does not begin on a whole line:\n%s", failure.Output)
+	}
+	if tail, cut := failingTail([]string{strings.Repeat("é", 100)}, 51); !cut || len(tail) > 51 || !utf8.ValidString(tail) {
+		t.Errorf("one line longer than the bound = %q, cut %v; want its end, whole characters, within the bound", tail, cut)
+	}
+}
+
+// A log the forge will not give is an error that still carries the job and the
+// step it learnt of, and a job whose steps cannot be read still has its log
+// read whole, saying why no step is named.
+func TestGitHubFailedStepWhenTheLogOrTheStepsCannotBeRead(t *testing.T) {
+	t.Parallel()
+
+	unfetched := &scriptedRunner{}
+	unfetched.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	unfetched.reply("actions/jobs/4215 --jq", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: failingJob})
+	unfetched.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 410: logs expired\n"})
+	failure, err := (GitHub{Runner: unfetched}).FailedStep(context.Background(), 4215, 6<<10)
+	if err == nil || !strings.Contains(err.Error(), "HTTP 410") || errors.Is(err, ErrForgeAccessRefused) {
+		t.Errorf("FailedStep() error = %v, want the forge's own words and not a refused token", err)
+	}
+	if failure.Step != "Check" || failure.Output != "" {
+		t.Errorf("failure = %#v, want the step named and no output", failure)
+	}
+
+	cut := &scriptedRunner{}
+	cut.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	cut.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "the beginning\n", OutputTruncation: "[output truncated at 8388608 bytes; the rest was not retained]"})
+	if _, err := (GitHub{Runner: cut}).FailedStep(context.Background(), 4215, 6<<10); err == nil || !strings.Contains(err.Error(), "its end, where the step failed, was not read") {
+		t.Errorf("FailedStep() of a log longer than the harness keeps = %v, want it refused", err)
+	}
+
+	stepless := &scriptedRunner{}
+	stepless.reply("remote get-url", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: "https://example.invalid/acme/thing\n"})
+	stepless.reply("actions/jobs/4215 --jq", execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stderr: "HTTP 502: bad gateway\n"})
+	stepless.reply("actions/jobs/4215/logs", execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: failingJobLog(1)})
+	failure, err = (GitHub{Runner: stepless}).FailedStep(context.Background(), 4215, 6<<10)
+	if err != nil {
+		t.Fatalf("FailedStep() error = %v, want the log read without the steps", err)
+	}
+	if failure.Step != "" || !strings.Contains(failure.StepUnread, "HTTP 502") {
+		t.Errorf("failure = %#v, want no step and the reason none is named", failure)
+	}
+	if !strings.Contains(failure.Output, "go mod download") || !strings.HasSuffix(failure.Output, "##[error]Process completed with exit code 2.") {
+		t.Errorf("output = %q, want the whole log's lines ending at the line it failed on", failure.Output)
+	}
+	if _, err := (GitHub{Runner: stepless}).FailedStep(context.Background(), 0, 6<<10); err == nil {
+		t.Error("FailedStep() of no check run returned no error")
 	}
 }
 

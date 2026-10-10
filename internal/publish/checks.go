@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
@@ -382,6 +384,199 @@ func (g GitHub) JobLogTail(ctx context.Context, checkRun int64, lines int) (stri
 		return "", g.forgeFailure(fmt.Sprintf("read the forge's log of check %d", checkRun), result)
 	}
 	return logTail(result.Stdout, lines), nil
+}
+
+// JobFailure is the forge's account of where an Actions job failed: the job,
+// the step that failed in it, and the end of that step's output up to and
+// including the line it failed on.
+type JobFailure struct {
+	// Job is the job's name as the forge reports it.
+	Job string
+	// Step and StepNumber name the step the forge reports failing, and are
+	// empty where it reported none or could not be asked.
+	Step       string
+	StepNumber int
+	// StepUnread says why the step could not be named, and is empty where it
+	// was or the forge reported no failing step.
+	StepUnread string
+	// Output is the end of the failing step's output, the forge's timestamps
+	// taken off, ending at the line the step failed on, at most the bound the
+	// caller gave. It is the end of the whole job's log where the step could not
+	// be told apart from the rest.
+	Output string
+	// Cut reports earlier lines of the step left out to keep Output within the
+	// bound.
+	Cut bool
+}
+
+// failedStepConclusions are the forge's conclusions for a step that did not
+// pass.
+var failedStepConclusions = map[string]bool{
+	"failure":   true,
+	"timed_out": true,
+	"cancelled": true,
+}
+
+// FailedStep reads where the Actions job behind a check run failed: the job's
+// name and steps, from which the first step that did not pass is the failing
+// one, and the job's log, from which that step's own lines are kept — those
+// the forge stamped within the step's start and end — ending at the last error
+// the log marks in them, and cut from the front to at most maxBytes.
+//
+// A test runner can print its failure well above the line the step failed on,
+// with a line per passing package below it, so the bound is on bytes rather
+// than lines, and the forge's timestamps are taken off each line so they spend
+// none of it.
+//
+// A job whose steps cannot be read is still read for its log, as a whole, and
+// StepUnread says why. A log that cannot be read is an error, returned with
+// whatever was learnt of the job, so a caller can name the step while saying
+// the log was not there; a token the forge will not let read it is refused with
+// ErrForgeAccessRefused. A log longer than the harness keeps of a command's
+// output is an error too, because what was kept is its beginning and the
+// failure is at its end.
+func (g GitHub) FailedStep(ctx context.Context, checkRun int64, maxBytes int) (JobFailure, error) {
+	if checkRun <= 0 {
+		return JobFailure{}, fmt.Errorf("check run %d is not a check run", checkRun)
+	}
+	var failure JobFailure
+	job, jobErr := g.job(ctx, checkRun)
+	if jobErr != nil {
+		failure.StepUnread = g.redact(jobErr.Error())
+	}
+	failure.Job = job.Name
+	var failed *jobStep
+	for index := range job.Steps {
+		if failedStepConclusions[strings.ToLower(strings.TrimSpace(job.Steps[index].Conclusion))] {
+			failed = &job.Steps[index]
+			break
+		}
+	}
+	if failed != nil {
+		failure.Step, failure.StepNumber = strings.TrimSpace(failed.Name), failed.Number
+	}
+	result, err := g.api(ctx, fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d/logs", checkRun))
+	if err != nil {
+		return failure, fmt.Errorf("read the forge's log of check %d: %w", checkRun, err)
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return failure, g.forgeFailure(fmt.Sprintf("read the forge's log of check %d", checkRun), result)
+	}
+	if result.OutputTruncation != "" {
+		return failure, fmt.Errorf("the forge's log of check %d is longer than the harness keeps of a command's output, so its end, where the step failed, was not read: %s", checkRun, result.OutputTruncation)
+	}
+	lines := strings.Split(strings.TrimRight(result.Stdout, "\n\r\t "), "\n")
+	if failed != nil {
+		lines = stepLines(lines, failed.StartedAt, failed.CompletedAt)
+	} else {
+		lines = stepLines(lines, time.Time{}, time.Time{})
+	}
+	failure.Output, failure.Cut = failingTail(lines, maxBytes)
+	return failure, nil
+}
+
+// jobStep is one step of an Actions job as the forge reports it.
+type jobStep struct {
+	Name        string    `json:"name"`
+	Number      int       `json:"number"`
+	Conclusion  string    `json:"conclusion"`
+	StartedAt   time.Time `json:"started_at"`
+	CompletedAt time.Time `json:"completed_at"`
+}
+
+// actionsJob is an Actions job's name and steps.
+type actionsJob struct {
+	Name  string    `json:"name"`
+	Steps []jobStep `json:"steps"`
+}
+
+// job reads an Actions job's name and steps. The forge's answer carries much
+// besides, so gh selects these before the runner bounds its output.
+func (g GitHub) job(ctx context.Context, checkRun int64) (actionsJob, error) {
+	result, err := g.apiQuery(ctx, "GET", fmt.Sprintf("repos/{owner}/{repo}/actions/jobs/%d", checkRun),
+		"--jq", "{name: .name, steps: [(.steps // [])[] | {name, number, conclusion, started_at, completed_at}]}")
+	if err != nil {
+		return actionsJob{}, fmt.Errorf("ask the forge for the steps of check %d: %w", checkRun, err)
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return actionsJob{}, g.forgeFailure(fmt.Sprintf("ask the forge for the steps of check %d", checkRun), result)
+	}
+	var job actionsJob
+	if err := json.Unmarshal([]byte(strings.TrimSpace(result.Stdout)), &job); err != nil {
+		return actionsJob{}, fmt.Errorf("decode the steps of check %d: %w", checkRun, err)
+	}
+	job.Name = strings.TrimSpace(job.Name)
+	return job, nil
+}
+
+// stepLines is the lines of a job's log the forge stamped within a step's start
+// and end, with the stamps taken off. The forge reports a step's times to the
+// second and stamps lines finer, so the end is taken as the whole of its last
+// second. A line with no stamp of its own belongs with the line before it. A
+// step with no times, or one no line falls within, keeps the whole log, so the
+// caller still has the job's end.
+func stepLines(lines []string, started, completed time.Time) []string {
+	scoped := !started.IsZero() && !completed.IsZero()
+	until := completed.Truncate(time.Second).Add(time.Second)
+	var kept, whole []string
+	inside := false
+	for _, line := range lines {
+		stamp, text, stamped := logLineStamp(line)
+		if stamped {
+			inside = !stamp.Before(started) && stamp.Before(until)
+		}
+		whole = append(whole, text)
+		if scoped && inside {
+			kept = append(kept, text)
+		}
+	}
+	if !scoped || len(kept) == 0 {
+		return whole
+	}
+	return kept
+}
+
+// logLineStamp splits the timestamp the forge puts at the front of each line of
+// a job's log from the line's text.
+func logLineStamp(line string) (time.Time, string, bool) {
+	stamp, text, found := strings.Cut(line, " ")
+	if !found || len(stamp) < len("2006-01-02T15:04:05Z") || stamp[4] != '-' {
+		return time.Time{}, line, false
+	}
+	at, err := time.Parse(time.RFC3339Nano, stamp)
+	if err != nil {
+		return time.Time{}, line, false
+	}
+	return at, text, true
+}
+
+// failingTail is the end of a step's lines ending at the last error the log
+// marks in them, or at their last line where it marks none, trailing blank
+// lines dropped, and cut from the front to at most maxBytes. A last line longer
+// than the bound keeps its own end. cut reports anything left out before it.
+func failingTail(lines []string, maxBytes int) (tail string, cut bool) {
+	for index := len(lines) - 1; index >= 0; index-- {
+		if strings.Contains(lines[index], logErrorMarker) {
+			lines = lines[:index+1]
+			break
+		}
+	}
+	for len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	whole := strings.Join(lines, "\n")
+	if maxBytes <= 0 || len(whole) <= maxBytes {
+		return whole, false
+	}
+	start := len(whole) - maxBytes
+	if newline := strings.IndexByte(whole[start:], '\n'); newline >= 0 && start+newline+1 < len(whole) {
+		start += newline + 1
+	} else {
+		for start < len(whole) && !utf8.RuneStart(whole[start]) {
+			start++
+		}
+	}
+	return whole[start:], true
 }
 
 // logErrorMarker is how an Actions log marks the line a step failed on.
