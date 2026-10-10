@@ -1109,4 +1109,6 @@ var notAStep = map[string]string{
 	"mergeQueued":                  "reads whether the forge only queued the merge, which is what run.complete waits for before closing the item",
 	"publicationRecorded":          "reads the record back to confirm the pull request the run reports is on it, inside run.complete, and refuses the completion where it is not",
 	"applyUndischargedDisposition": "records on the run where its item was actually settled, inside run.complete",
+	"recordOutcomeOnce":            "records the run's outcome note on the item, read back before it is made again, inside run.complete",
+	"reopenUndischargedOnce":       "puts an item the change did not discharge back in the backlog, read back before it is made again, inside run.complete",
 }

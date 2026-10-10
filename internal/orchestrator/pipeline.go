@@ -6773,8 +6773,9 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 			// under the same window, before anything is reopened. What it settles on is
 			// still taken back onto the run, which is all that is left to keep true:
 			// the notes are already written, and they say what the claim asked for.
+			var settleErr error
 			if !decided {
-				if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
+				settleErr = a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
 					arranged, item, err := arrangeUndischarged(ctx, p.Tracker, a.state)
 					if err != nil {
 						return err
@@ -6782,11 +6783,12 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 					a.applyUndischargedDisposition(arranged)
 					undischargedItem = item
 					return nil
-				}); err != nil {
-					return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("reopen the work item this run did not discharge: %w", err)), runstate.StatusFailed)
-				}
+				})
 			}
-			if err := a.reopenUndischargedOnce(ctx, undischargedItem); err != nil {
+			if settleErr == nil {
+				settleErr = a.reopenUndischargedOnce(ctx, undischargedItem)
+			}
+			if err := settleErr; err != nil {
 				return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("reopen the work item this run did not discharge: %w", err)), runstate.StatusFailed)
 			}
 		} else {
