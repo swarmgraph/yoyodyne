@@ -81,6 +81,23 @@ func TestAGroupWithALiveMemberBesideAnExitedLeaderStaysUncertain(t *testing.T) {
 	f.assertUnspent(t)
 }
 
+// A process that cannot be found has exited: one reaped while the process list
+// is being read is gone, not a reason the group cannot be judged.
+func TestAProcessThatCannotBeFoundHasExited(t *testing.T) {
+	t.Parallel()
+	gone := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := gone.Run(); err != nil {
+		t.Fatal(err)
+	}
+	exited, err := processHasExited(gone.Process.Pid)
+	if err != nil || !exited {
+		t.Fatalf("processHasExited(a reaped process) = %v, %v; want true, nil", exited, err)
+	}
+	if !notFound(syscall.ESRCH) || !notFound(os.ErrNotExist) || notFound(os.ErrPermission) {
+		t.Fatal("notFound does not tell a vanished process from a refusal")
+	}
+}
+
 // A command name with spaces and parentheses does not move the fields read
 // after it.
 func TestATaskStatIsReadPastAnAwkwardCommandName(t *testing.T) {
