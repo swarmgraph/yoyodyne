@@ -6849,9 +6849,22 @@ func TestARedeployWaitGoesOnFiringTheCadence(t *testing.T) {
 	ended := time.Date(2026, 9, 13, 21, 0, 0, 0, time.UTC)
 	deployment := &deployedOver{}
 	release := make(chan struct{})
-	harness.run = func(h *scheduleHarness, id string) (Outcome, error) {
-		<-release
-		return h.complete(id), nil
+	// The run ends when it is released or when the drain bound stops it, as the
+	// pipeline does. One that ignored the stop would hold the session for the
+	// whole stopped-run grace in real time and be left blocked once it gave up.
+	returned := make(chan struct{})
+	harness.hostedRun = func(ctx context.Context, h *scheduleHarness, id string) (Outcome, error) {
+		defer close(returned)
+		select {
+		case <-release:
+			return h.complete(id), nil
+		case <-ctx.Done():
+		}
+		var drained RedeployDrain
+		if !errors.As(context.Cause(ctx), &drained) {
+			return Outcome{WorkItemID: id, Status: runstate.StatusCancelled}, nil
+		}
+		return Outcome{WorkItemID: id, Status: runstate.StatusRunning, Paused: true, RedeployStop: &runstate.RedeployStop{At: drained.At, Phase: runstate.PhaseDeveloping, BoundSeconds: int64(drained.Bound / time.Second), SessionID: drained.SessionID}}, nil
 	}
 	tasks := &cadencedTasks{clock: harness.clock, every: time.Hour, firedAt: due.Add(-time.Hour)}
 	harness.recurring = tasks
@@ -6866,12 +6879,28 @@ func TestARedeployWaitGoesOnFiringTheCadence(t *testing.T) {
 		return true
 	}
 
+	began := time.Now()
 	schedule, err := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Deployment: deployment}.Schedule(context.Background())
+	elapsed := time.Since(began)
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
 	if schedule.Stopped != ScheduleRedeployed {
 		t.Fatalf("stopped = %q, want the session restarted into the deploy", schedule.Stopped)
+	}
+	// The run reported back rather than being waited for and left: nothing is
+	// named unreported, the session returned inside the grace, and the stand-in
+	// has ended rather than sitting blocked behind the test.
+	if schedule.Drain == nil || len(schedule.Drain.Unreported) != 0 {
+		t.Errorf("drain = %#v, want the run to have reported back rather than been left", schedule.Drain)
+	}
+	if elapsed >= stoppedRunGrace {
+		t.Errorf("Schedule() took %s, want it back before the %s stopped-run grace ran out", elapsed, stoppedRunGrace)
+	}
+	select {
+	case <-returned:
+	default:
+		t.Errorf("the run is still going after the session returned, want it to have ended when it was stopped")
 	}
 
 	tasks.mu.Lock()
