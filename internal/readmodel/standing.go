@@ -614,6 +614,14 @@ type Standing struct {
 	// It is not refused work and is counted in Startable, never in NotStartable:
 	// the harness starts the next of it as a run finishes.
 	WaitingForSlot *SlotWait `json:"waiting_for_slot,omitempty"`
+	// DocumentsWaitingForSlot is the confirmed documents whose reviewed run found
+	// every developer slot taken, longest waiting first, each with the role that
+	// owns it. They are not admitted work and are counted nowhere above: the
+	// harness starts each in the next slot that frees, ahead of any new
+	// development run, and nothing is asked of anybody. DocumentsWaitingProblem
+	// says they could not be read.
+	DocumentsWaitingForSlot []DocumentSlotWait `json:"documents_waiting_for_slot,omitempty"`
+	DocumentsWaitingProblem string             `json:"documents_waiting_problem,omitempty"`
 	// Admitted is the whole backlog this reading saw, so a short not-startable
 	// list is legible: two refusals out of three admitted items and two out of
 	// forty are different states of the same machine.
@@ -794,6 +802,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.StartableItems = waits.startable
 	standing.AdmittedItems = waits.admitted
 	standing.WaitingForSlot = waits.slotWait
+	standing.DocumentsWaitingForSlot, standing.DocumentsWaitingProblem = readDocumentWaits(sources)
 	if waits.groups != nil {
 		standing.NotStartableGroups = waits.groups
 		standing.NotStartableForOperator = ForOperator(waits.groups)

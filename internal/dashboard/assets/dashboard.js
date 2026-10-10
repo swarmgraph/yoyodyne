@@ -588,6 +588,12 @@ var standingWarningAgeSeconds = 5 * 60;
         if (standing.waiting_for_slot) {
           detail += "; and " + standing.waiting_for_slot.says;
         }
+        // So is a confirmed document waiting for a slot, named with the role
+        // that owns it in the model's own words: the harness starts it in the
+        // next slot that frees.
+        (standing.documents_waiting_for_slot || []).forEach(function (wait) {
+          detail += "; " + wait.says;
+        });
       }
       if (line.list === "needs_human") {
         tiles.appendChild(needsHumanTile(line.label, standing.needs_human));

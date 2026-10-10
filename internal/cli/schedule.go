@@ -815,6 +815,11 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// recording the continuation; the run store says whether a stop was
 		// recorded on the run, which is honoured before any continuation.
 		Continuations: pausedRunContinuations{Client: tracker, stops: parts.store},
+		// A confirmed document whose reviewed run found every developer slot taken,
+		// started into the next slot that frees rather than at its conversation's
+		// next message. The run store holds the wait, and the pipeline built from
+		// this pull's configuration lands it exactly as the conversation would.
+		Documents: waitingDocuments{parts: parts},
 		// How long a session that has found a build deployed over it waits out the
 		// runs it hosts before it restarts anyway, with those runs stopped and
 		// preserved for the session that comes back.
@@ -840,6 +845,21 @@ type pausedRunContinuations struct {
 
 func (c pausedRunContinuations) StopRequested(runID string) (runstate.StopRequest, bool, error) {
 	return c.stops.StopRequested(runID)
+}
+
+// waitingDocuments is what a pull starts a confirmed document waiting for a
+// developer slot through: the run store for the waits, and a pipeline built
+// from the configuration the pull read for the run.
+type waitingDocuments struct {
+	parts components
+}
+
+func (d waitingDocuments) DocumentWaits() ([]runstate.DocumentWait, error) {
+	return d.parts.store.DocumentWaits()
+}
+
+func (d waitingDocuments) Publish(ctx context.Context, document runstate.DocumentPublication) (orchestrator.Outcome, error) {
+	return pipelineFrom(d.parts).PublishWaitingDocument(ctx, document)
 }
 
 // repositoryStaleness reads what changed upstream of the admitted work, from the

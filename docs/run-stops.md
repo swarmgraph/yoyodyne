@@ -343,6 +343,7 @@ describes the pass that applies those rules.
 | File | Declaration | Signal | Count | Meaning |
 | --- | --- | --- | --- | --- |
 | `internal/orchestrator/documentpublication.go` | `(Pipeline).publishDocumentAttempt` | `status-write` | 2 | Marks the document run and its temporary bookkeeping as running; changes no backlog item. |
+| `internal/orchestrator/documentpublication.go` | `(Pipeline).PublishWaitingDocument` | `status-write` | 1 | Copies the status the document run already recorded into the answer the scheduler reads after starting a document that waited for a developer slot; writes nothing. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Block` | `status-write` | 1 | Changes temporary document bookkeeping; ordinary durable run state records the failure. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Claim` | `status-write` | 1 | Changes temporary document bookkeeping; creates no backlog claim. |
 | `internal/orchestrator/documentpublication.go` | `(*documentTracker).Complete` | `status-write` | 1 | Changes temporary document bookkeeping; ordinary durable run state records completion. |
