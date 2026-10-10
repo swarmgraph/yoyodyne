@@ -347,6 +347,57 @@ func TestBothDeathsAreSettledAgainstTheRealRunStore(t *testing.T) {
 	}
 }
 
+// A run a session stopped for its redeploy, that no later session carried on,
+// is settled like any other dead claim. The stop is a promise that the run will
+// be continued, and the store refuses a terminal record that still carries one,
+// so an ending saved with the stop on it was refused at every audit: the record
+// went on saying the run was going, it kept its developer slot, and every item
+// sharing a file with it was held back behind it for a week.
+func TestARunStoppedForARedeployThatNobodyContinuedIsSettled(t *testing.T) {
+	t.Parallel()
+
+	store, err := runstate.NewStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewStore() error = %v", err)
+	}
+	stopped := recordedRun(t, "yoyodyne-ifd.428.37", runstate.StatusRunning, auditMoment.Add(-9*time.Hour))
+	stopped.Phase = runstate.PhaseDeveloping
+	stopped.RedeployStop = &runstate.RedeployStop{
+		At: stopped.UpdatedAt, Phase: runstate.PhaseDeveloping, BoundSeconds: 900, SessionID: "watch-before",
+	}
+	if err := store.Create(stopped); err != nil {
+		t.Fatalf("Create() error = %v", err)
+	}
+
+	auditor := ClaimAuditor{
+		Tracker:   newClaimHarness(),
+		Runs:      store,
+		Releases:  &claimLog{},
+		ProductID: "yoyodyne",
+		Clock:     fixedClock{at: auditMoment},
+	}
+	sweep, err := auditor.Audit(context.Background(), []beads.WorkItem{
+		claimedItem("yoyodyne-ifd.428.37", "Stopped for a redeploy and never continued"),
+	})
+	if err != nil {
+		t.Fatalf("Audit() error = %v", err)
+	}
+	if len(sweep.Problems) != 0 || len(sweep.Released) != 1 {
+		t.Fatalf("problems = %v, released = %+v, want the claim settled and given back", sweep.Problems, sweep.Released)
+	}
+	if incomplete, err := store.Incomplete(); err != nil || len(incomplete) != 0 {
+		t.Fatalf("Incomplete() = %+v, %v, want the run settled and its slot free", incomplete, err)
+	}
+	settled, err := store.Load(stopped.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if settled.Outcome() != runstate.OutcomeCancelled || settled.RedeployStop != nil {
+		t.Fatalf("the run reads as %q with redeploy stop %+v, want it cancelled with no promise to continue it",
+			settled.Outcome(), settled.RedeployStop)
+	}
+}
+
 // recordedRun is a run the store will accept, quiet since the moment given.
 func recordedRun(t *testing.T, workItemID string, status runstate.Status, last time.Time) runstate.State {
 	t.Helper()

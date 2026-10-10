@@ -2961,6 +2961,11 @@ pulling:
 		// took, that no slot then reaches, is what the pass reports as left for
 		// another slot. A walk that takes nothing leaves nothing for anyone — the
 		// slot falls back over the same entries, or the pass's bound stops it.
+		//
+		// Top-priority work is the one exception to walking past: a preferring slot
+		// asks a priority-0 entry everything a slot with no preference would, label
+		// or none, so a preference never starts lower-priority work ahead of it
+		// (outranksPreference).
 		var leftBehind []walkedPast
 		fill := func(slot developerslot.Slot, labelled bool) (walk, error) {
 			var past []walkedPast
@@ -2968,7 +2973,8 @@ pulling:
 				if startedNow[entry.ID] || racedNow[entry.ID] {
 					continue
 				}
-				if labelled && !slot.Prefers(read.items[entry.ID].Labels) {
+				preferred := slot.Prefers(read.items[entry.ID].Labels)
+				if labelled && !preferred && !outranksPreference(entry) {
 					past = append(past, walkedPast{entry: entry, slot: slot})
 					continue
 				}
@@ -3003,7 +3009,7 @@ pulling:
 					poll.pass(entry.ID, runstate.PassedOverSequencedBehindWork, "")
 					continue
 				}
-				if !start(entry, slot, pulledInto{slot: slot, labelled: labelled}) {
+				if !start(entry, slot, pulledInto{slot: slot, labelled: labelled && preferred, outranked: labelled && !preferred}) {
 					return walkStopped, nil
 				}
 				for index := range past {

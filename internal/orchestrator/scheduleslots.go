@@ -13,6 +13,10 @@ package orchestrator
 // the preferring slots first so that labelled work goes to the slot configured
 // for it before a slot with no preference reaches it.
 //
+// A preference reorders work below the top priority and never across it: ready
+// priority-0 work is taken by whichever slot reaches it first, preferring or not,
+// before any labelled work of a lower priority (outranksPreference).
+//
 // What a preference changes is which item a slot pulls first, and nothing else.
 // The item a preferring slot starts is claimed, developed, checked, reviewed, and
 // promoted exactly as it would be from any slot, under the same contract and the
@@ -191,6 +195,20 @@ type walkedPast struct {
 type pulledInto struct {
 	slot     developerslot.Slot
 	labelled bool
+	// outranked is a preferring slot that took top-priority work without its
+	// label while walking for its label's work.
+	outranked bool
+}
+
+// outranksPreference is whether an entry is taken by a preferring slot walking
+// for its label even though it does not carry that label. Priority 0 is the
+// top of the Lead Product Manager's order, where the work that holds everything
+// else up is put — main's failing build, a fault that stops runs — and a slot
+// that walked past it for labelled work at priority 1 or below would start the
+// less urgent work first whenever it was the only slot free. Below the top, a
+// preference still reorders freely, which is what it is configured for.
+func outranksPreference(entry backlog.Entry) bool {
+	return entry.Priority == 0
 }
 
 // reason is the sentence the run's recorded selection carries about its slot.
@@ -204,6 +222,8 @@ func (p pulledInto) reason(preferences []domain.DeveloperSlot) string {
 	switch {
 	case p.labelled:
 		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s this item carries.", p.slot.Number, p.slot.Preference())
+	case p.outranked:
+		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s; this item does not carry it, and is taken ahead of that work because it is at priority 0.", p.slot.Number, p.slot.Preference())
 	case p.slot.Preferring():
 		return fmt.Sprintf(" It was pulled into developer slot %d, which prefers %s and found none of that work ready, so it fell back to the rest of the backlog.", p.slot.Number, p.slot.Preference())
 	default:

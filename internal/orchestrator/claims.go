@@ -292,6 +292,14 @@ func (a ClaimAuditor) settle(ctx context.Context, dead readmodel.DeadClaim, reco
 		return false, ""
 	}
 	completedAt := now
+	// A stop for a redeploy promises that the next session continues the run, and
+	// a terminal record cannot carry that promise: the store refuses to save one
+	// that does. A run reaching here has gone quiet past the audit's threshold
+	// with nothing holding its lease, so no session kept that promise and the
+	// ending is recorded without it. Left on the record it would refuse this ending
+	// at every audit and keep the run counted as in flight — holding its developer
+	// slot and holding back every item that shares a file with it.
+	state.RedeployStop = nil
 	state.StopClass = runstate.StopDeadClaim
 	state.Status = runstate.StatusCancelled
 	state.SettledQuietSince = settledQuietSince(state, completedAt)

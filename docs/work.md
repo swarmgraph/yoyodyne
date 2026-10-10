@@ -1221,7 +1221,8 @@ twelve in the same order, and a test fails when the two lists differ:
    once the last of them leaves the backlog.
 3. **A race with work in flight** withholds an item that shares an epic
    decomposition or files with a run in flight, and releases it at the first
-   pull after that run ends.
+   pull after that run ends. Files alone never hold a priority-0 item behind a
+   run over less urgent work.
 4. **A conversation executor** withholds an item whose `executor` names a
    persona conversation from every developer run; nothing clears it, and what
    moves the item is somebody opening the conversation it names.
@@ -1241,7 +1242,7 @@ twelve in the same order, and a test fails when the two lists differ:
 9. **A label another slot prefers** withholds an item every free developer slot
    walked past for its preferred label, and the next slot with no preference to
    come free — or the preferring slot, once its label's work is exhausted —
-   releases it.
+   releases it. A priority-0 item is never walked past for a label.
 10. **The tracker not calling it ready** withholds an item with unfinished
     dependencies or a status that is not open, and the tracker's own readiness
     releases it.
