@@ -710,6 +710,15 @@ type Standing struct {
 	ProgramManagers        []ProgramManager `json:"program_managers,omitempty"`
 	ProgramManagersProblem string           `json:"program_managers_problem,omitempty"`
 
+	// ConversationPasses is each recurring task's last answered pass over the
+	// work waiting in its role's conversation: the item first in its order and
+	// whether the pass took it. It is not a fifth line, for the reason the
+	// program managers are not: it says whether a role's passes reach the top of
+	// its queue, and `yoyo status` prints it under the four. See
+	// conversationpasses.go.
+	ConversationPasses        []ConversationPass `json:"conversation_passes,omitempty"`
+	ConversationPassesProblem string             `json:"conversation_passes_problem,omitempty"`
+
 	// Titles is what the tracker calls every item it holds, which is what the
 	// rendered lines put beside each number they carry. It is nil where the
 	// tracker could not be listed, and the lines then carry the numbers as the
@@ -921,6 +930,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// recorded, and the record is carried whole beside the lines.
 	standing.Services, standing.ServicesProblem = readServices(sources)
 	standing.ProgramManagers, standing.ProgramManagersProblem = ReadProgramManagers(sources)
+	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now

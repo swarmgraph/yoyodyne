@@ -154,7 +154,25 @@ type RecurringAmendments interface {
 // RecurringConversationWork reads and renders the current work carried by the
 // woken role's conversation. It changes no tracker state.
 type RecurringConversationWork interface {
-	Read(ctx context.Context, role domain.AgentRole) (string, error)
+	Read(ctx context.Context, role domain.AgentRole) (ConversationWorkReading, error)
+}
+
+// ConversationWorkReading is the work waiting in a role's conversation as one
+// turn of a pass is handed it: the section the turn's message carries, and the
+// items that section names, in the order it names them, with each item's
+// priority. A reading that failed carries the section saying so and no items.
+type ConversationWorkReading struct {
+	Section string
+	Items   []runstate.DeliveredWork
+}
+
+// RecurringItemNotes appends a note to a work item, which is the one tracker
+// write a recurring pass makes of its own: the note on an item first in the
+// order a pass was handed that the pass did not take. It is satisfied by a
+// wrapper over beads.Client.Update with AppendNotes, which adds to the notes
+// and never replaces them.
+type RecurringItemNotes interface {
+	AppendNote(ctx context.Context, id, note string) error
 }
 
 // RecurringRole is a role's conversation as the harness reaches it: one message
@@ -244,6 +262,12 @@ type Turn struct {
 	Wording      []terms.Finding `json:"wording,omitempty"`
 	ReportsFiled int             `json:"reports_filed,omitempty"`
 	Admitted     []string        `json:"admitted,omitempty"`
+	// ActedOn is every work item the turn's tracker actions changed, by
+	// identifier: reading an item or surveying the queue changes nothing and
+	// is not counted. With the account it is what says whether the pass took
+	// an item of the work waiting in its conversation. It is carried whichever
+	// way the turn went, for the reason Saved is.
+	ActedOn []string `json:"acted_on,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -396,6 +420,11 @@ type Trigger struct {
 	// turn in backlog order rather than left to the conversation's old briefing.
 	// Optional: an unwired trigger wakes the role with its task alone.
 	ConversationWork RecurringConversationWork
+	// ItemNotes is where the note goes on an item first in the order a pass was
+	// handed that the pass did not take; see passedover.go. Optional: a trigger
+	// wired without it still records what each pass was handed and took, and
+	// only the note on the item is left unwritten.
+	ItemNotes RecurringItemNotes
 	// Instances are the program manager instances their triggers wake, keyed by
 	// the agent's name, as this pull read the configuration. Optional: a trigger
 	// wired without them fires the recurring tasks and nothing else, which is
@@ -1114,13 +1143,30 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		}
 		message = section + "\n" + message
 	}
+	// The work waiting in the conversation as the pass was first handed it, and
+	// every item its turns' tracker actions changed: the two halves of what says
+	// whether the pass took the item first in its order.
+	var delivered []runstate.DeliveredWork
+	deliveredRead := false
+	var actedOn []string
 	for turn := 0; turn < task.Turns(); turn++ {
 		if t.ConversationWork != nil && f.agent == "" {
 			work, err := t.ConversationWork.Read(ctx, task.Role)
 			if err != nil {
 				problems = append(problems, err.Error())
 			}
-			message = work + "\n" + message
+			message = work.Section + "\n" + message
+			// The order the pass is judged against is the first one it was handed
+			// that could be read. A later turn reads the queue afresh, and an item
+			// taken on the first turn is gone from it, so that reading says what is
+			// left rather than what the pass started from.
+			if err == nil && !deliveredRead {
+				deliveredRead = true
+				delivered = boundedDelivery(work.Items)
+				if len(delivered) > 0 {
+					message += "\n\n" + sweep.LeftContract()
+				}
+			}
 		}
 		if docket != nil {
 			message = strings.Join(docketLines(docket.Window()), "\n") + "\n" + message
@@ -1158,6 +1204,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		// And so are the reports it filed and the work it admitted, which are
 		// the other two traces a finding can leave.
 		recorded.Wording = terms.MergeFindings(recorded.Wording, answered.Wording)
+		actedOn = append(actedOn, answered.ActedOn...)
 		recorded.ReportsFiled += answered.ReportsFiled
 		for _, admitted := range answered.Admitted {
 			if admitted = strings.TrimSpace(admitted); admitted != "" && len(recorded.Admitted) < runstate.MaxSweepSavedWrites {
@@ -1342,6 +1389,10 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// so an account that argued on a proposal nobody was waiting on says so
 	// beside itself rather than reading as a batch the operator owes a decision.
 	problems = append(problems, batch.check(task.Role, merged))
+	// What the pass was handed and which of it it took, and the note on the item
+	// first in its order where it did not take that one.
+	recorded.Delivered = judgeDelivered(delivered, actedOn, merged)
+	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, recorded))
 	// Bounded, because the record's own bound on this prose refuses a record that
 	// carries too much of it — and every one of these sentences ends with a
 	// provider's error message, whose length nothing here controls. Losing a whole

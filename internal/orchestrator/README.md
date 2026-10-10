@@ -237,6 +237,7 @@ context bundle come from `internal/contextbundle`.
 |---|---|
 | `schedule.go` | `Scheduler.Schedule` (one watch poll), `Pull`, `Starter`, `Scheduler.host` (starts a run), `Scheduler.fire` (recurring passes), `Scheduler.brake`, passed-over reasons (`passedOverReason`), redeploy drain bookkeeping (`redeployDrain`) |
 | `recurring.go` | `Trigger` — recurring role passes: `Cadence`, `Fire`, `Summon`, `run` (turn loop of one pass, `MissConversationHeld`), `Missed`, `earlierPasses`, `PassFailures` |
+| `passedover.go` | what a pass was handed of the work waiting in its role's conversation and which of it it took (`judgeDelivered`), and the note on the first item when the pass did not take it (`notePassedOver`, `passedOverNote`) |
 | `programmanagerpass.go` | program manager pass wake-up and cursor (`readWake`, `advance`) |
 | `triage.go` | `Docketer`: `RecordStoppedRun`, `RecordUnstartedRun`, `RecordEscalation`, `SettleClosedItem`, `Build` |
 | `rerun.go`, `repaircontinue.go`, `carryout.go`, `carryrearm.go`, `rearm.go` | carrying out the development manager's decisions on docketed runs |

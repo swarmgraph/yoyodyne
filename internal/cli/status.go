@@ -86,6 +86,11 @@ type statusOutput struct {
 	// still returned. It is its own key so error keeps meaning what it always
 	// meant — the command failed, and the exit status agrees.
 	TriageError string `json:"triage_error,omitempty"`
+	// Considered is the last recurring pass that was handed the named item from
+	// the work waiting in a role's conversation, and whether it took it. It is
+	// present only when an item was named and some pass record names it.
+	Considered      *readmodel.ItemConsideration `json:"considered,omitempty"`
+	ConsideredError string                       `json:"considered_error,omitempty"`
 	// Watch is where the session that chooses work got to, when one has ever run
 	// for this product. It is the one fact here that is not about a run: a
 	// session choosing nothing has no run to say so with, and its silence and a
@@ -282,7 +287,13 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// reported beside them instead.
 	var counters *runstate.TriageCounters
 	var triageFailure string
+	var considered *readmodel.ItemConsideration
+	var consideredFailure string
 	if workItemID != "" {
+		// When a recurring pass last considered the item, from the same state
+		// root: an item marked for a role's conversation has no runs, and this is
+		// what says whether anything has been reaching it.
+		considered, consideredFailure = readmodel.ReadLastConsidered(store.Sweeps(), workItemID)
 		read, err := store.Triage().Counters(workItemID)
 		if err != nil {
 			triageFailure = fmt.Sprintf("the item's triage record could not be read: %v", err)
@@ -343,6 +354,8 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 			output.TriageCaps = &recorded
 		}
 		output.TriageError = triageFailure
+		output.Considered = considered
+		output.ConsideredError = consideredFailure
 		output.WatchError = watchFailure
 		output.StallError = stallFailure
 		return writeJSON(stdout, stderr, output)
@@ -353,6 +366,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	if standing != nil {
 		fmt.Fprint(stdout, standing.Render())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
+		fmt.Fprint(stdout, standing.RenderConversationPasses())
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
@@ -361,6 +375,12 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	printRunHistory(stdout, history, workItemID, *failedOnly)
 	if counters != nil {
 		printItemTriage(stdout, *counters, caps.Overridden(counters.Overrides))
+	}
+	if considered != nil {
+		fmt.Fprintf(stdout, "%s: %s\n", workItemID, considered.Says)
+	}
+	if consideredFailure != "" {
+		fmt.Fprintln(stderr, consideredFailure)
 	}
 	if triageFailure != "" {
 		fmt.Fprintln(stderr, triageFailure)

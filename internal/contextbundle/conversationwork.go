@@ -21,10 +21,7 @@ func ConversationWorkSection(items []beads.WorkItem, problem string) string {
 		rendered.WriteString("Nothing is waiting in your conversation.\n")
 		return rendered.String()
 	}
-	listed := items
-	if len(listed) > maxProductWorkItems {
-		listed = listed[:maxProductWorkItems]
-	}
+	listed := ConversationWorkListed(items)
 	for _, item := range listed {
 		fmt.Fprintf(&rendered, "- %s (%s) [P%d, %s]\n", singleLine(item.Title, maxWorkItemTitleBytes), item.ID, item.Priority, item.Status)
 	}
@@ -32,4 +29,14 @@ func ConversationWorkSection(items []beads.WorkItem, problem string) string {
 		fmt.Fprintf(&rendered, "\n%d further work item(s) are not listed here.\n", len(items)-len(listed))
 	}
 	return rendered.String()
+}
+
+// ConversationWorkListed is the part of the queue the section names, in the
+// order it names it. A recurring pass records these as what it was handed, so
+// the record and the section cannot disagree about where the listing stopped.
+func ConversationWorkListed(items []beads.WorkItem) []beads.WorkItem {
+	if len(items) > maxProductWorkItems {
+		return items[:maxProductWorkItems]
+	}
+	return items
 }

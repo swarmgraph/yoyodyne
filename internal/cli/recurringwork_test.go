@@ -97,7 +97,8 @@ func TestRecurringWorkExcludesParkedFinishedAndOtherRoles(t *testing.T) {
 		{ID: "item-other", Status: "open", Executor: domain.ConversationWith(domain.RoleProductManager)},
 		{ID: "item-developer", Status: "open"},
 	}}
-	message, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect)
+	reading, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect)
+	message := reading.Section
 	if err != nil || !strings.Contains(message, "Live design (item-live) [P2, open]") {
 		t.Fatalf("Read() = %q, %v", message, err)
 	}
@@ -112,14 +113,14 @@ func TestRecurringWorkDistinguishesEmptyFromUnreadable(t *testing.T) {
 	t.Parallel()
 	listing := &passWorkListing{}
 	work := sweepConversationWork{items: listing}
-	message, err := work.Read(context.Background(), domain.RoleArchitect)
-	if err != nil || !strings.Contains(message, "Nothing is waiting") {
-		t.Fatalf("empty queue = %q, %v", message, err)
+	reading, err := work.Read(context.Background(), domain.RoleArchitect)
+	if err != nil || !strings.Contains(reading.Section, "Nothing is waiting") || len(reading.Items) != 0 {
+		t.Fatalf("empty queue = %+v, %v", reading, err)
 	}
 	listing.err = errors.New("tracker listing failed")
-	message, err = work.Read(context.Background(), domain.RoleArchitect)
-	if err == nil || !strings.Contains(message, "tracker listing failed") || strings.Contains(message, "Nothing is waiting") {
-		t.Fatalf("unreadable queue = %q, %v", message, err)
+	reading, err = work.Read(context.Background(), domain.RoleArchitect)
+	if err == nil || !strings.Contains(reading.Section, "tracker listing failed") || strings.Contains(reading.Section, "Nothing is waiting") || len(reading.Items) != 0 {
+		t.Fatalf("unreadable queue = %+v, %v", reading, err)
 	}
 }
 
@@ -160,5 +161,61 @@ func TestRecurringWorkIsReadAgainForEachTurn(t *testing.T) {
 	}
 	if !strings.Contains(role.messages[0], "item-live") || strings.Contains(role.messages[1], "item-live") || !strings.Contains(role.messages[1], "Nothing is waiting") {
 		t.Fatalf("the second turn kept the old queue: %v", role.messages)
+	}
+}
+
+// The reading names the items it lists in the order it lists them, with each
+// item's priority, which is what the pass is judged against.
+func TestRecurringWorkNamesItsItemsInOrder(t *testing.T) {
+	t.Parallel()
+	architect := domain.ConversationWith(domain.RoleArchitect)
+	listing := &passWorkListing{items: []beads.WorkItem{
+		{ID: "item-p1", Status: "open", Priority: 1, Executor: architect},
+		{ID: "item-p0", Status: "open", Priority: 0, Executor: architect},
+	}}
+	reading, err := (sweepConversationWork{items: listing}).Read(context.Background(), domain.RoleArchitect)
+	if err != nil || len(reading.Items) != 2 || reading.Items[0] != (runstate.DeliveredWork{ID: "item-p0", Priority: 0}) || reading.Items[1].ID != "item-p1" || reading.Items[1].Priority != 1 {
+		t.Fatalf("Read() = %+v, %v, want the P0 item first", reading.Items, err)
+	}
+}
+
+type notedTracker struct {
+	id     string
+	change beads.WorkItemChange
+}
+
+func (n *notedTracker) Update(_ context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error) {
+	n.id, n.change = id, change
+	return beads.WorkItem{ID: id}, nil
+}
+
+// The note is appended, never written over the item's notes.
+func TestThePassedOverNoteIsAppended(t *testing.T) {
+	t.Parallel()
+	tracker := &notedTracker{}
+	if err := (trackerNotes{tracker: tracker}).AppendNote(context.Background(), "item-p0", "Passed over."); err != nil {
+		t.Fatal(err)
+	}
+	if tracker.id != "item-p0" || tracker.change.AppendNotes != "Passed over." || tracker.change.Title != "" {
+		t.Errorf("update = %s %+v, want the note appended and nothing else changed", tracker.id, tracker.change)
+	}
+}
+
+func TestSweepsSayWhatAPassWasHandedAndTook(t *testing.T) {
+	t.Parallel()
+	rendered := renderSweep(runstate.Sweep{
+		Task: "architect-pass", Role: domain.RoleArchitect, StartedAt: time.Date(2026, 10, 6, 15, 40, 0, 0, time.UTC), Turns: 1,
+		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "Took the addendum."},
+		Delivered: []runstate.DeliveredWork{
+			{ID: "yoyodyne-ifd.414.1", Priority: 0},
+			{ID: "yoyodyne-ab2", Priority: 0, Taken: true},
+		},
+	})
+	want := "handed 2 items of the work waiting in the architect's conversation, in order: yoyodyne-ifd.414.1 (P0) NOT TAKEN — no reason given; yoyodyne-ab2 (P0) taken"
+	if !strings.Contains(rendered, want) {
+		t.Errorf("rendered = %q, want %q", rendered, want)
+	}
+	if quiet := renderSweep(runstate.Sweep{Task: "architect-pass", Role: domain.RoleArchitect, Turns: 1, Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "x"}}); strings.Contains(quiet, "handed") {
+		t.Errorf("a pass handed nothing says %q", quiet)
 	}
 }

@@ -11,5 +11,15 @@
   "description": "Carried by the product manager's conversation rather than a developer run.",
   "design": "",
   "acceptance_criteria": "",
-  "notes": "Executor: conversation:product-manager."
+  "notes": "Executor: conversation:product-manager.",
+  "last_considered": {
+    "task": "product-sweep",
+    "role": "product-manager",
+    "at": "2026-09-19T13:30:00Z",
+    "position": 1,
+    "of": 3,
+    "taken": false,
+    "answered": true,
+    "says": "last considered by the Lead Product Manager's recurring pass product-sweep at 2026-09-19 06:30 PDT, 1st of the 3 items it was handed; it did NOT take this item — no reason given"
+  }
 }

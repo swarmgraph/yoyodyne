@@ -421,12 +421,47 @@ type Sweep struct {
 	// closed after it, so nothing closed is skipped for a listing being full. It
 	// is absent on every other pass and on records written before it existed.
 	ClosedThrough time.Time `json:"closed_through,omitzero"`
+	// Delivered is the work waiting in the role's conversation that the harness
+	// put in front of this pass, in the order it was put there — highest
+	// priority first, then oldest admitted — with each item's priority and
+	// whether the pass took it. It is what says, of a pass that left the first
+	// item in its order, that it was handed that item and did something else.
+	// It is absent on a pass handed none, on a program manager instance's pass,
+	// and on every record written before passes carried it.
+	Delivered []DeliveredWork `json:"delivered,omitempty"`
 	// Steps is what the harness's own maintenance pass did, one entry per step in
 	// the order it took them, each saying whether it ran, was skipped, or failed,
 	// and why. A step that was skipped says so rather than being left out,
 	// because a pass that quietly did less than it was meant to is the failure
 	// this record exists to make visible. It is empty on a role's pass.
 	Steps []SweepStep `json:"steps,omitempty"`
+}
+
+// MaxSweepDelivered bounds how many delivered items one pass records. It is the
+// most the conversation's own listing of its waiting work names, so a pass
+// records everything it was shown; it is exported so the writer holds the list
+// to it rather than lose the pass's report over its length.
+const MaxSweepDelivered = 200
+
+// DeliveredWork is one item of the work waiting in a role's conversation as a
+// pass was handed it: which item, at what priority, and whether the pass took
+// it. Taken is judged from the tracker actions the pass took on the item and
+// from its account; Reason is what the account said about leaving an item it
+// did not take, and empty where it said nothing or where the item was taken.
+type DeliveredWork struct {
+	ID       string `json:"id"`
+	Priority int    `json:"priority"`
+	Taken    bool   `json:"taken,omitempty"`
+	Reason   string `json:"reason,omitempty"`
+}
+
+// FirstDelivered is the item first in the order the pass was handed, and false
+// where it was handed none.
+func (s Sweep) FirstDelivered() (DeliveredWork, bool) {
+	if len(s.Delivered) == 0 {
+		return DeliveredWork{}, false
+	}
+	return s.Delivered[0], true
 }
 
 // Waited is how long the pass stood due before it was taken, and false where
@@ -821,6 +856,21 @@ func (s Sweep) Validate() error {
 	for i, id := range s.Criticals {
 		if strings.TrimSpace(id) == "" || len(id) > MaxSweepModelBytes {
 			problems = append(problems, fmt.Errorf("criticals[%d] must name a report", i))
+		}
+	}
+	if len(s.Delivered) > MaxSweepDelivered {
+		problems = append(problems, fmt.Errorf("%d delivered items in one pass, limit is %d", len(s.Delivered), MaxSweepDelivered))
+	}
+	for i, delivered := range s.Delivered {
+		switch {
+		case strings.TrimSpace(delivered.ID) == "" || len(delivered.ID) > MaxSweepModelBytes:
+			problems = append(problems, fmt.Errorf("delivered[%d] must name a work item", i))
+		case delivered.Priority < 0:
+			problems = append(problems, fmt.Errorf("delivered[%d] has priority %d, and a priority is never negative", i, delivered.Priority))
+		case delivered.Taken && delivered.Reason != "":
+			problems = append(problems, fmt.Errorf("delivered[%d] was taken, so it carries no reason for being left", i))
+		case len(delivered.Reason) > MaxSweepTextBytes:
+			problems = append(problems, fmt.Errorf("delivered[%d] reason is %d bytes, limit is %d", i, len(delivered.Reason), MaxSweepTextBytes))
 		}
 	}
 	if len(s.Model) > MaxSweepModelBytes {

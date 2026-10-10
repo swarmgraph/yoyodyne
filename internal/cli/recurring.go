@@ -66,6 +66,9 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		ConversationWork: sweepConversationWork{
 			items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
 		},
+		// Where the note goes on an item first in a pass's order that the pass
+		// did not take, so the item itself says it was passed over.
+		ItemNotes:  trackerNotes{tracker: chatTracker(parts.runner, parts.repository)},
 		Repository: parts.repository,
 		// The same pause every run, turn, and delivery reads. A firing is a
 		// provider invocation, so `yoyo pause` covers it exactly as it covers them.
@@ -176,13 +179,35 @@ type sweepConversationWork struct {
 	}
 }
 
-func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) (string, error) {
+// Read is the section a pass's turn carries and the items it names, in the
+// order it names them: the section lists at most contextbundle's bound, and
+// the pass is judged against what it was shown rather than what it was not.
+func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) (orchestrator.ConversationWorkReading, error) {
 	items, err := w.items.List(ctx, "")
 	if err != nil {
 		problem := fmt.Errorf("read the work waiting in the %s's conversation: %w", role.Title(), err)
-		return contextbundle.ConversationWorkSection(nil, problem.Error()), problem
+		return orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(nil, problem.Error())}, problem
 	}
-	return contextbundle.ConversationWorkSection(readmodel.ConversationWork(items, role), ""), nil
+	waiting := readmodel.ConversationWork(items, role)
+	reading := orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(waiting, "")}
+	for _, item := range contextbundle.ConversationWorkListed(waiting) {
+		reading.Items = append(reading.Items, runstate.DeliveredWork{ID: item.ID, Priority: item.Priority})
+	}
+	return reading, nil
+}
+
+// trackerNotes appends the harness's note to a work item, through the same
+// tracker the pass's conversation acts through. AppendNotes adds to the notes
+// and never replaces them.
+type trackerNotes struct {
+	tracker interface {
+		Update(ctx context.Context, id string, change beads.WorkItemChange) (beads.WorkItem, error)
+	}
+}
+
+func (n trackerNotes) AppendNote(ctx context.Context, id, note string) error {
+	_, err := n.tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note})
+	return err
 }
 
 // closedWork lists the work the tracker closed after a moment, for the Lead
@@ -518,6 +543,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		Wording:      reply.Wording,
 		ReportsFiled: len(reply.Reports),
 		Admitted:     reply.AdmittedWork(),
+		ActedOn:      reply.ActedOnWork(),
 	}
 	if err != nil {
 		return turn, notWoken(err)
@@ -537,6 +563,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.Wording = append(turn.Wording, recovered.Wording...)
 			turn.ReportsFiled += len(recovered.Reports)
 			turn.Admitted = append(turn.Admitted, recovered.AdmittedWork()...)
+			turn.ActedOn = append(turn.ActedOn, recovered.ActedOnWork()...)
 			turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
 			turn.Model = servingModel(session.Evidence())
 			if recoveryErr != nil {
@@ -925,6 +952,12 @@ func renderSweep(recorded runstate.Sweep) string {
 	if carried := describeCarried(recorded.Events); carried != "" {
 		fmt.Fprintf(&rendered, "  carried %s since its last pass\n", carried)
 	}
+	// What the pass was handed of the work waiting in its role's conversation,
+	// in the order it was handed, and which of it it took: the first item is
+	// what the role was asked to reach first.
+	if handed := describeDelivered(recorded); handed != "" {
+		fmt.Fprintf(&rendered, "  %s\n", handed)
+	}
 	if recorded.Result == nil {
 		fmt.Fprintf(&rendered, "  no account of this pass was recorded: %s\n", nonEmptySweepProblem(recorded.Problem))
 		return rendered.String()
@@ -1032,6 +1065,44 @@ func describeCarried(events map[string]int) string {
 	return strings.Join(parts, ", ")
 }
 
+// maxRenderedDelivered is how many handed items a pass's entry names before it
+// counts the rest; the first is the one the line is read for.
+const maxRenderedDelivered = 5
+
+// describeDelivered says what a pass was handed, in order, with whether it took
+// each, and nothing for a pass handed none. An item not taken is said in
+// capitals, so the distinction survives a terminal that renders no emphasis.
+func describeDelivered(recorded runstate.Sweep) string {
+	if len(recorded.Delivered) == 0 {
+		return ""
+	}
+	answered := recorded.Turns > 0 && recorded.Result != nil
+	var named []string
+	for index, item := range recorded.Delivered {
+		if index == maxRenderedDelivered {
+			named = append(named, fmt.Sprintf("and %d further", len(recorded.Delivered)-index))
+			break
+		}
+		state := "taken"
+		switch {
+		case item.Taken:
+		case !answered:
+			state = "not acted on, and no account says why"
+		case item.Reason != "":
+			state = "NOT TAKEN — " + item.Reason
+		default:
+			state = "NOT TAKEN — no reason given"
+		}
+		named = append(named, fmt.Sprintf("%s (P%d) %s", item.ID, item.Priority, state))
+	}
+	noun := "items"
+	if len(recorded.Delivered) == 1 {
+		noun = "item"
+	}
+	return fmt.Sprintf("handed %d %s of the work waiting in the %s's conversation, in order: %s",
+		len(recorded.Delivered), noun, recorded.Role.Title(), strings.Join(named, "; "))
+}
+
 func nonEmptySweepProblem(problem string) string {
 	if trimmed := strings.TrimSpace(problem); trimmed != "" {
 		return trimmed
@@ -1106,6 +1177,12 @@ person-only remedy names the operator with the exact step.
 A missed pass is marked MISSED PASS with the trigger that owed it: a schedule
 or an instance's events that no pull took for a whole interval, or a pass
 cancelled before it completed because the session carrying it stopped.
+
+A pass handed the work waiting in its role's conversation says what it was
+handed, in order, with each item's priority and whether the pass took it. The
+first item is the one the role was asked to reach first; where the pass did not
+take it, the harness also writes a note on that item, and "yoyo status" names it
+on the role's line under "Recurring passes over conversation work".
 
 A program manager instance's passes are listed under the instance's name, and
 a pass its events woke -- landings, admissions, stoppages since its last pass

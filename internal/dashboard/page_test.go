@@ -845,7 +845,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"<dt>Executor</dt>", "<dd>conversation:product-manager</dd>", "<dt>Role</dt>", "<dd>product-manager</dd>", "<dd>the Lead Product Manager's</dd>",
 		},
 		// The item's own card, opened from the entry's.
-		"attention-carried-item-card": {`<h2 id="card-heading" class="popup-title">The goals document gains a legibility clause</h2>`, "<dd>Executor: conversation:product-manager.</dd>"},
+		"attention-carried-item-card": {`<h2 id="card-heading" class="popup-title">The goals document gains a legibility clause</h2>`, "<dd>Executor: conversation:product-manager.</dd>",
+			"<dt>Last pass</dt>", "it did NOT take this item — no reason given</dd>"},
 		// A poll after the card was opened finds the entry settled, and the
 		// list empty; and one that finds the line unreadable says so on both.
 		"attention-settled":    {`<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`, "This entry is no longer waiting: it was settled since the page last read where the harness stands, at 14:15:09."},
