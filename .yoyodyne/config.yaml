@@ -349,19 +349,13 @@ path_checks:
 # default; an exact identifier such as claude-opus-5 pins a version. Persona
 # paths are relative to this .yoyodyne directory and must be Markdown inside it.
 # Delete an agent to remove it, edit one to change it.
-# Every role runs on Claude Opus (operator, 2026-10-06: Fable's weekly
-# allowance was going too fast). The four conversation roles fall back to
-# Codex Astra; cross-provider failover currently covers conversation turns only.
+# Every role runs on Claude Opus. Provider failover is disabled.
 agents:
   architect:
     role: architect
     backend: claude-code
     model: opus
     effort: medium
-    failover:
-      enabled: true
-      model: gpt-6-astra
-      provider: codex
     instances: 1
     persona:
       version: v2
@@ -386,10 +380,6 @@ agents:
     backend: claude-code
     model: opus
     effort: medium
-    failover:
-      enabled: true
-      model: gpt-6-astra
-      provider: codex
     instances: 1
     persona:
       version: v3
@@ -411,10 +401,6 @@ agents:
     backend: claude-code
     model: opus
     effort: medium
-    failover:
-      enabled: true
-      model: gpt-6-astra
-      provider: codex
     instances: 1
     persona:
       version: v2
@@ -424,10 +410,6 @@ agents:
     backend: claude-code
     model: opus
     effort: medium
-    failover:
-      enabled: true
-      model: gpt-6-astra
-      provider: codex
     instances: 1
     persona:
       version: v2
