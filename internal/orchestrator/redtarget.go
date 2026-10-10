@@ -65,10 +65,11 @@ import (
 // the target's, and the publication waits on the item filed for it.
 const ActionWaitingOnTarget ReconcileAction = "waiting-on-target"
 
-// ReconcileJobLogs reads the failing step's lines from the forge's log of the
-// job behind a check run. It is satisfied by publish.GitHub.
+// ReconcileJobLogs reads the forge's log of the job behind a check run: its
+// tail, and where the job failed. It is satisfied by publish.GitHub.
 type ReconcileJobLogs interface {
 	JobLogTail(ctx context.Context, checkRun int64, lines int) (string, error)
+	FailedStep(ctx context.Context, checkRun int64, maxBytes int) (publish.JobFailure, error)
 }
 
 // ReconcileTargetChecks reads how each check ended on the commit the target
@@ -77,8 +78,12 @@ type ReconcileTargetChecks interface {
 	BranchChecks(ctx context.Context, branch string) (publish.BranchCheckReading, error)
 }
 
-// redTargetLogLines is how much of a failing job's log an item carries.
-const redTargetLogLines = 60
+// failedStepOutputBytes is how much of a failing step's output an item carries.
+// It is bytes rather than lines because a test runner can print its failure
+// well above the line the step failed on, with a line per passing package
+// below it, and it leaves room within runstate.MaxCheckOutputBytes for the rest
+// of the account, which the repair input keeps the end of.
+const failedStepOutputBytes = 6 << 10
 
 // redTargetOwnerLogLines is how much of a failing job's log is read for the
 // change's files before its failure is filed as the target's. It is more than
@@ -397,8 +402,8 @@ func (r Reconciler) fileRedTargetCheck(ctx context.Context, state runstate.State
 
 // checkAccount is the forge's account of one failing check, read under the
 // harness's own forge access: its name, how the forge ended it, the commit it
-// ran on, the forge's own annotations, the failing step's lines from the job's
-// log, and a link to that log. A log the harness could not read says why, and
+// ran on, the forge's own annotations, the job and step that failed, the end of
+// that step's output up to the line it failed on, and a link to the job's log. A log the harness could not read says why, and
 // a token the forge would not let read it is named as the operator's to grant.
 // The log is quoted so no line of it is read as one of the harness's.
 //
@@ -431,17 +436,39 @@ func (r Reconciler) checkAccount(ctx context.Context, failing runstate.FailingCh
 	case failing.CheckRun <= 0:
 		return account + "\nThe forge named no job for it, so there is no log to read."
 	}
-	tail, err := r.JobLogs.JobLogTail(ctx, failing.CheckRun, redTargetLogLines)
+	failure, err := r.JobLogs.FailedStep(ctx, failing.CheckRun, failedStepOutputBytes)
+	account += "\n" + failedStepName(failing.Name, failure)
 	switch {
 	case errors.Is(err, publish.ErrForgeAccessRefused):
 		return account + fmt.Sprintf("\nThe forge would not let the harness's token read this job's log (%s). Granting that token read access to the repository's Actions is the operator's; until it is granted this record is all there is of the log, and nobody working this item is asked to fetch it.",
 			oneline.Bound(err.Error(), 400))
 	case err != nil:
 		return account + fmt.Sprintf("\nIts log could not be read: %s.", oneline.Bound(err.Error(), 400))
-	case strings.TrimSpace(tail) == "":
+	case strings.TrimSpace(failure.Output) == "":
 		return account + "\nIts log was empty."
 	}
-	return account + fmt.Sprintf("\n\nThe failing step's lines from the forge's log of the job, at most %d (check run %d):\n\n%s", redTargetLogLines, failing.CheckRun, quotedOutput(tail))
+	whose := "the failing step's output"
+	if failure.Step == "" {
+		whose = "the job's log"
+	}
+	cut := ""
+	if failure.Cut {
+		cut = fmt.Sprintf("; earlier lines are left out to keep this to %d bytes", failedStepOutputBytes)
+	}
+	return account + fmt.Sprintf("\n\nThe end of %s, up to and including the line it failed on (check run %d%s):\n\n%s", whose, failing.CheckRun, cut, quotedOutput(failure.Output))
+}
+
+// failedStepName is the sentence naming the job and step a check failed in, or
+// saying why no step is named.
+func failedStepName(check string, failure publish.JobFailure) string {
+	job := nonEmpty(failure.Job, check)
+	switch {
+	case failure.Step != "":
+		return fmt.Sprintf("Failing job and step: %s, step %d, %q.", job, failure.StepNumber, failure.Step)
+	case failure.StepUnread != "":
+		return fmt.Sprintf("Failing job: %s. Which of its steps failed could not be read: %s.", job, oneline.Bound(failure.StepUnread, 400))
+	}
+	return fmt.Sprintf("Failing job: %s. The forge reported no step of it failing.", job)
 }
 
 // checkAccounts is checkAccount for every failing check of a reading, in order.
