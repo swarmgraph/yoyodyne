@@ -71,6 +71,65 @@ func recoveringValue[T any](ctx context.Context, a *activeRun, boundary string, 
 	return value, err
 }
 
+// recoveringTrackerWrite is recoveringValue around a tracker write that is not
+// safe to make twice: a note appended, a claim, a close, a reopening. The tracker
+// client already reads a write its bound killed back before it makes it again
+// (internal/beads, writeItem), but a write it gave up on is one whose landing it
+// could not establish, and asking for it again here as it stands is the note
+// twice — the more so because a run's outcome notes are rendered afresh on every
+// attempt, with the wait just taken among them, so the second copy would not
+// even read the same.
+//
+// So every attempt after the first begins by asking whether the one before it
+// landed, and one that did is answered with what the tracker now holds rather
+// than made again. A read that cannot be made goes through the same window, so a
+// store that answers later is asked both questions then. It is the rule a
+// conversation's writes already follow (internal/chat, recoveringTrackerWrite),
+// over the run's own record of its waits.
+func recoveringTrackerWrite[T any](ctx context.Context, a *activeRun, landed func(context.Context) (T, bool, error), attempt func(context.Context) (T, error)) (T, error) {
+	attempted := false
+	return recoveringValue(ctx, a, runstate.RetryTrackerWrite, func(ctx context.Context) (T, error) {
+		if attempted {
+			value, found, err := landed(ctx)
+			if err != nil {
+				var zero T
+				return zero, fmt.Errorf("could not tell whether the tracker write that failed landed, so it was not made again: %w", err)
+			}
+			if found {
+				return value, nil
+			}
+		}
+		attempted = true
+		return attempt(ctx)
+	})
+}
+
+// itemLanded is the landed question for a write to one item: the item read
+// back, and whether it carries what the write made.
+func itemLanded(tracker WorkTracker, id string, carries func(beads.WorkItem) bool) func(context.Context) (beads.WorkItem, bool, error) {
+	return func(ctx context.Context) (beads.WorkItem, bool, error) {
+		item, err := tracker.Show(ctx, id)
+		if err != nil {
+			return beads.WorkItem{}, false, err
+		}
+		return item, carries(item), nil
+	}
+}
+
+// recordOutcomeOnce appends a note rendered by render under the rule above. The
+// note is rendered on each attempt, so it carries every wait the run has taken,
+// and the read-back looks for the one the failed attempt was appending.
+func (a *activeRun) recordOutcomeOnce(ctx context.Context, render func() string) error {
+	var note string
+	_, err := recoveringTrackerWrite(ctx, a,
+		itemLanded(a.pipeline.Tracker, a.state.WorkItemID, func(item beads.WorkItem) bool { return beads.NotesEndWith(item.Notes, note) }),
+		func(ctx context.Context) (beads.WorkItem, error) {
+			note = render()
+			return a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, note)
+		})
+	return err
+}
+
 // readWorkItem is the same rule at the one boundary that has no run to record
 // on: the tracker read a dispatch makes before it claims an item or adopts a run
 // in flight, which is where what the item waits on and what the operator has

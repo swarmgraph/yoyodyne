@@ -1491,8 +1491,27 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 // back. The three failures are wrapped separately and none of them is handled
 // here, because what a caller does about a run that could not be started is the
 // caller's — Run fails it, and the failure says which of the three it was.
+//
+// The claim is a tracker write like the ones a finishing run makes, and is
+// waited out on the same boundary and window when the tracker does not answer
+// it: a claim stopped by a stalled store judged nothing, and before this it ended
+// the run before anything had been made. A claim made again after one that
+// failed is made only once the item has been read back and found unclaimed
+// (recoveringTrackerWrite); one read back as in progress is this claim having
+// landed, since the item was selected unclaimed and the store refuses a second
+// claim. What a stale blocked status's clear came to is kept from the attempt
+// that met one.
 func (a *activeRun) claim(ctx context.Context) error {
-	item, cleared, err := a.pipeline.Tracker.Claim(ctx, a.state.WorkItemID)
+	var cleared *beads.StaleBlockClear
+	item, err := recoveringTrackerWrite(ctx, a,
+		itemLanded(a.pipeline.Tracker, a.state.WorkItemID, func(item beads.WorkItem) bool { return item.Status == "in_progress" }),
+		func(ctx context.Context) (beads.WorkItem, error) {
+			claimed, clear, err := a.pipeline.Tracker.Claim(ctx, a.state.WorkItemID)
+			if clear != nil {
+				cleared = clear
+			}
+			return claimed, err
+		})
 	// Recorded before the error is judged, because the ending it matters most
 	// on is the one that fails: a clear no read confirmed leaves the item for the
 	// next pull, and the record is what says that is what happened rather than
@@ -6726,11 +6745,10 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	// failed run is the same loss the forge boundaries carried, which is why the
 	// product manager joined these writes to this item's set. They share one
 	// boundary and one window: a `bd` that could not be run for the outcome could
-	// not be run for the closure either.
-	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
-		_, err := p.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderOutcomeNotes(a.outcome))
-		return err
-	}); err != nil {
+	// not be run for the closure either. Each of them appends or closes, so an
+	// attempt after one that failed reads the item back first and is not made
+	// again where the failed one landed (recoveringTrackerWrite).
+	if err := a.recordOutcomeOnce(ctx, func() string { return renderOutcomeNotes(a.outcome) }); err != nil {
 		return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("record successful run outcome: %w", err)), runstate.StatusFailed)
 	}
 	// An item closes as integrated once the promotion is where it is going to
@@ -6751,28 +6769,34 @@ func (a *activeRun) complete(ctx context.Context) (Outcome, error) {
 	// later run can still act on.
 	if a.outcome.Integration != nil && !a.mergeQueued() {
 		if undischarged {
-			if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
-				if decided {
-					return reopenUndischarged(ctx, p.Tracker, a.state, undischargedItem)
+			// The read that would have decided it above failed, so it is decided here,
+			// under the same window, before anything is reopened. What it settles on is
+			// still taken back onto the run, which is all that is left to keep true:
+			// the notes are already written, and they say what the claim asked for.
+			if !decided {
+				if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
+					arranged, item, err := arrangeUndischarged(ctx, p.Tracker, a.state)
+					if err != nil {
+						return err
+					}
+					a.applyUndischargedDisposition(arranged)
+					undischargedItem = item
+					return nil
+				}); err != nil {
+					return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("reopen the work item this run did not discharge: %w", err)), runstate.StatusFailed)
 				}
-				// The read that would have decided it above failed, so the whole
-				// settlement is made here. What it settles on is still taken back onto
-				// the run, which is all that is left to keep true: the notes are already
-				// written, and they say what the claim asked for.
-				settled, err := settleUndischarged(ctx, p.Tracker, a.state)
-				if err != nil {
-					return err
-				}
-				a.applyUndischargedDisposition(settled)
-				return nil
-			}); err != nil {
+			}
+			if err := a.reopenUndischargedOnce(ctx, undischargedItem); err != nil {
 				return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("reopen the work item this run did not discharge: %w", err)), runstate.StatusFailed)
 			}
 		} else {
-			if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
-				_, err := p.Tracker.Complete(ctx, a.state.WorkItemID, completionReason(a.outcome))
-				return err
-			}); err != nil {
+			// Every run that closes an item read it open when it claimed it, so an
+			// item read back as closed is this close having landed.
+			if _, err := recoveringTrackerWrite(ctx, a,
+				itemLanded(p.Tracker, a.state.WorkItemID, func(item beads.WorkItem) bool { return item.Status == "closed" }),
+				func(ctx context.Context) (beads.WorkItem, error) {
+					return p.Tracker.Complete(ctx, a.state.WorkItemID, completionReason(a.outcome))
+				}); err != nil {
 				return a.fail(stoppedBy(runstate.StopRecording, fmt.Errorf("close integrated work item: %w", err)), runstate.StatusFailed)
 			}
 			a.outcome.WorkItemClosed = true
@@ -7002,19 +7026,14 @@ func (a *activeRun) escalate(ctx context.Context) (Outcome, error) {
 	if err == nil {
 		a.applyUndischargedDisposition(arranged)
 	}
-	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
-		_, err := p.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderOutcomeNotes(a.outcome))
-		return err
-	}); err != nil {
+	if err := a.recordOutcomeOnce(ctx, func() string { return renderOutcomeNotes(a.outcome) }); err != nil {
 		return a.fail(fmt.Errorf("record the escalated run's outcome: %w", err), runstate.StatusFailed)
 	}
 	// The item goes back parked. It is never closed and never left bare: the
 	// decision is the development manager's and is not made yet, so an item back in
 	// the queue unheld is one the next pull selects for another run of the work a
 	// role has just said cannot be done.
-	if err := a.recovering(ctx, runstate.RetryTrackerWrite, func(ctx context.Context) error {
-		return reopenUndischarged(ctx, p.Tracker, a.state, item)
-	}); err != nil {
+	if err := a.reopenUndischargedOnce(ctx, item); err != nil {
 		return a.fail(fmt.Errorf("park the work item this run escalated: %w", err), runstate.StatusFailed)
 	}
 	a.recordPrice()

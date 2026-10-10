@@ -344,6 +344,13 @@ const (
 	statusBlocked = "blocked"
 )
 
+// The statuses a claim and a close leave an item in, which is what a write of
+// either that timed out is read back for (writeItem).
+const (
+	statusInProgress = "in_progress"
+	statusClosed     = "closed"
+)
+
 // WaitingOn names the unfinished work this item waits for, given the admitted
 // work that is still unfinished. It is what says whether the item can be started
 // at all, and it is here — beside the item — because two readings of it are two
@@ -489,9 +496,10 @@ type Client struct {
 	// about: the listing's answer is the caller's, and the record is a reading
 	// of it.
 	Listings ListingRecorder
-	// listingPause is how a listing waits before it asks again. The zero value
-	// sleeps; it is set only by this package's tests, which drive a listing that
-	// times out on every attempt without waiting the seconds between them.
+	// listingPause is how a listing, a read of one item, or a write waits before
+	// it asks again. The zero value sleeps; it is set only by this package's
+	// tests, which drive a call that times out on every attempt without waiting
+	// the seconds between them.
 	listingPause func(ctx context.Context, wait time.Duration) bool
 }
 
@@ -527,10 +535,36 @@ func ValidIssueID(id string) bool {
 	return issueIDPattern.MatchString(id)
 }
 
+// Show reads one work item. A read its bound killed is asked again after the
+// waits a listing takes, for the reason a listing is (listingWaits): bd takes
+// its store's lock for a read as for a write, so a read that arrived behind a
+// stalled call is contention rather than an answer. One that still fails is
+// refused naming its attempts, around the last failure, so it still reads as a
+// timeout to whatever retries it further.
 func (c Client) Show(ctx context.Context, id string) (WorkItem, error) {
 	if err := validateIssueID(id); err != nil {
 		return WorkItem{}, err
 	}
+	started := time.Now()
+	for attempts := 1; ; attempts++ {
+		item, err := c.showOnce(ctx, id)
+		if err == nil || !timedOut(err) || ctx.Err() != nil {
+			return item, err
+		}
+		if attempts > len(listingWaits) {
+			return WorkItem{}, fmt.Errorf("bd show %s did not answer within its %s bound on any of %d attempts over %s: %w",
+				id, c.timeout(), attempts, time.Since(started).Round(time.Second), err)
+		}
+		if !c.pauseListing(ctx, listingWaits[attempts-1]) {
+			return WorkItem{}, err
+		}
+	}
+}
+
+// showOnce is one `bd show`, with no retry: what Show asks each attempt, and
+// what a write that timed out reads back between its own attempts, which are
+// already spaced by the same waits.
+func (c Client) showOnce(ctx context.Context, id string) (WorkItem, error) {
 	data, err := c.run(ctx, "show", id, "--json")
 	if err != nil {
 		// bd refuses an id it holds nothing under with `Issue <id> not found` on
@@ -896,36 +930,49 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 		args = append(args, "--type="+string(change.Kind))
 	}
 	args = append(args, "--json")
-	data, err := c.write(ctx, id, args...)
+	// bd applies the whole update in one invocation, so an update read back after
+	// a timeout has landed where the item holds every field it set and its notes
+	// end with the note it appended. The parent is the one field left out, for the
+	// reason it is not verified below.
+	description := writtenText{field: "description", want: change.Description, stored: func(w WorkItem) string { return w.Description }}
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool {
+		return change.heldBy(item) == nil && endsWithNote(item, change.AppendNotes) && len(unconfirmed(item, []writtenText{description})) == 0
+	}, args...)
 	if err != nil {
 		return WorkItem{}, err
 	}
-	item, err := decodeSingleWorkItem(data)
-	if err != nil {
+	if err := change.heldBy(item); err != nil {
 		return WorkItem{}, err
 	}
-	// What bd echoes back is verified against what was asked for, so an edit that
-	// did not take effect is a failure rather than a reported success. The parent
-	// is the exception, and knowingly so: bd's update response does not carry it,
-	// so a reparenting rests on bd's own report of success and is not read back.
+	return c.confirmWritten(ctx, item, appendedNote(change.AppendNotes), description)
+}
+
+// heldBy reports the first field a change set that the item does not hold as it
+// was asked for.
+//
+// What bd echoes back is verified against what was asked for, so an edit that
+// did not take effect is a failure rather than a reported success. The parent
+// is the exception, and knowingly so: bd's update response does not carry it,
+// so a reparenting rests on bd's own report of success and is not read back.
+func (change WorkItemChange) heldBy(item WorkItem) error {
 	if change.RelevantGoals != nil && !slices.Equal(item.RelevantGoals, change.RelevantGoals) {
-		return WorkItem{}, fmt.Errorf("work item %s relevant goals are %v after being updated, want %v", item.ID, item.RelevantGoals, change.RelevantGoals)
+		return fmt.Errorf("work item %s relevant goals are %v after being updated, want %v", item.ID, item.RelevantGoals, change.RelevantGoals)
 	}
 	if title := strings.TrimSpace(change.Title); title != "" && item.Title != title {
-		return WorkItem{}, fmt.Errorf("work item %s title is %q after being updated, want %q", item.ID, item.Title, title)
+		return fmt.Errorf("work item %s title is %q after being updated, want %q", item.ID, item.Title, title)
 	}
 	if change.Priority != nil && item.Priority != *change.Priority {
-		return WorkItem{}, fmt.Errorf("work item %s priority is %d after being updated, want %d", item.ID, item.Priority, *change.Priority)
+		return fmt.Errorf("work item %s priority is %d after being updated, want %d", item.ID, item.Priority, *change.Priority)
 	}
 	if change.Kind != "" && item.IssueType != string(change.Kind) {
-		return WorkItem{}, fmt.Errorf("work item %s type is %q after being updated, want %q", item.ID, item.IssueType, change.Kind)
+		return fmt.Errorf("work item %s type is %q after being updated, want %q", item.ID, item.IssueType, change.Kind)
 	}
 	// The executor is read back for the reason a price is: what rests on it is
 	// that nothing chooses this item for a run afterwards, and a marker reported
 	// as set and not actually stored would leave the caller believing the item
 	// was covered by exactly the guard it is not covered by.
 	if executor := strings.TrimSpace(string(change.Executor)); executor != "" && string(item.Executor) != executor {
-		return WorkItem{}, fmt.Errorf("work item %s executor is %q after being updated, want %q", item.ID, item.Executor, executor)
+		return fmt.Errorf("work item %s executor is %q after being updated, want %q", item.ID, item.Executor, executor)
 	}
 	// The parking is read back in both directions, because both directions have
 	// something resting on them. A parking that did not take leaves work the
@@ -934,9 +981,9 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 	// so, which is the harder of the two to ever notice.
 	if change.Parking != nil && item.Parking.Reason() != change.Parking.Reason() {
 		if change.Parking.Parked() {
-			return WorkItem{}, fmt.Errorf("work item %s is parked %q after being updated, want %q", item.ID, item.Parking, change.Parking.Reason())
+			return fmt.Errorf("work item %s is parked %q after being updated, want %q", item.ID, item.Parking, change.Parking.Reason())
 		}
-		return WorkItem{}, fmt.Errorf("work item %s is still parked %q after being released", item.ID, item.Parking)
+		return fmt.Errorf("work item %s is still parked %q after being released", item.ID, item.Parking)
 	}
 	// The labels are read back in both directions. What rests on a label is
 	// whatever filters on it — the seat that watches for one, bd's own listing
@@ -944,13 +991,101 @@ func (c Client) Update(ctx context.Context, id string, change WorkItemChange) (W
 	// never sees, and one reported as removed and still there is an item it keeps
 	// seeing.
 	if missing := labelsMissing(item, change.AddLabels); len(missing) > 0 {
-		return WorkItem{}, fmt.Errorf("work item %s does not carry the label(s) %s after they were added", item.ID, strings.Join(missing, ", "))
+		return fmt.Errorf("work item %s does not carry the label(s) %s after they were added", item.ID, strings.Join(missing, ", "))
 	}
 	if kept := labelsCarried(item, change.RemoveLabels); len(kept) > 0 {
-		return WorkItem{}, fmt.Errorf("work item %s still carries the label(s) %s after they were removed", item.ID, strings.Join(kept, ", "))
+		return fmt.Errorf("work item %s still carries the label(s) %s after they were removed", item.ID, strings.Join(kept, ", "))
 	}
-	return c.confirmWritten(ctx, item, appendedNote(change.AppendNotes),
-		writtenText{field: "description", want: change.Description, stored: func(w WorkItem) string { return w.Description }})
+	return nil
+}
+
+// endsWithNote is how a write that appended a note is found to have landed when
+// it is read back: the notes end with it, as NotesEndWith reads them. A write
+// that appended nothing has no note to find, and is not held back by one.
+func endsWithNote(item WorkItem, note string) bool {
+	return strings.TrimSpace(note) == "" || NotesEndWith(item.Notes, note)
+}
+
+// noteLanded is landed for a write whose only change is the note it appends.
+func noteLanded(note string) func(WorkItem) bool {
+	return func(item WorkItem) bool { return endsWithNote(item, note) }
+}
+
+// statusAndNoteLanded is landed for a write that sets a status and appends the
+// reason for it in one invocation.
+func statusAndNoteLanded(status, note string) func(WorkItem) bool {
+	return func(item WorkItem) bool { return item.Status == status && endsWithNote(item, note) }
+}
+
+// writeWaits are the pauses a write bd was killed at its bound takes before it
+// reads the item back, and so how many times it is made: one more than there
+// are waits. They are the waits a listing takes (listingWaits), for its reason.
+var writeWaits = listingWaits
+
+// writeItem makes one write to the item id names and answers with the item as
+// the tracker holds it afterwards.
+//
+// A write bd was killed at its bound is asked for again, and only ever after the
+// item has been read back and found not to carry it. A killed write may still
+// have landed — the bound can fall after bd has committed the write and before
+// it has answered — and asking again for a note that landed is the note twice, and for a
+// claim that landed is a claim bd refuses as already taken. So the item is read
+// back after each wait: an item that carries the write is the answer, exactly as
+// though bd had given it; one that does not is written again; and a read-back
+// that was killed too is waited out and read again, never written over. bd's
+// process is gone by the time it is read, so what the read finds is what the
+// killed write left.
+//
+// landed says whether an item carries the write. It errs toward the single
+// copy: a write that appended a note it finds at the end of the notes is taken
+// to have landed, even if the same words were appended by somebody else in the
+// moment between, because the second copy is the loss nobody can undo.
+//
+// Every failure that is not a timeout — bd refusing, an answer that does not
+// decode, a read-back bd refused — is returned at once, as it always was. A
+// write still unanswered once the waits are spent is refused naming its attempts
+// around the last timeout, so whatever retries it further still reads it as
+// one, and says that whether the last attempt landed is not known: a caller that
+// asks again reads the item back first, as the run's and the conversation's own
+// retries do.
+func (c Client) writeItem(ctx context.Context, id string, landed func(WorkItem) bool, args ...string) (WorkItem, error) {
+	started := time.Now()
+	data, err := c.write(ctx, id, args...)
+	writes, reads := 1, 0
+	waits := writeWaits
+	for err != nil {
+		if !timedOut(err) || ctx.Err() != nil {
+			return WorkItem{}, err
+		}
+		var item WorkItem
+		read := false
+		for !read {
+			if len(waits) == 0 {
+				return WorkItem{}, fmt.Errorf("bd %s on %s did not answer within its %s bound: %d write(s) and %d read-back(s) over %s, and whether the last write landed is not known: %w",
+					args[0], id, c.timeout(), writes, reads, time.Since(started).Round(time.Second), err)
+			}
+			if !c.pauseListing(ctx, waits[0]) {
+				return WorkItem{}, err
+			}
+			waits = waits[1:]
+			var readErr error
+			item, readErr = c.showOnce(ctx, id)
+			reads++
+			switch {
+			case readErr == nil:
+				read = true
+			case !timedOut(readErr) || ctx.Err() != nil:
+				return WorkItem{}, fmt.Errorf("bd %s on %s was killed at its %s bound, and reading the item back to say whether it landed failed, so it was not made again: %w",
+					args[0], id, c.timeout(), errors.Join(err, readErr))
+			}
+		}
+		if landed(item) {
+			return item, nil
+		}
+		data, err = c.write(ctx, id, args...)
+		writes++
+	}
+	return decodeSingleWorkItem(data)
 }
 
 // writtenText is one piece of prose a write was told to put on an item: what it
@@ -1179,11 +1314,10 @@ func sleepWithin(ctx context.Context, interval time.Duration) error {
 }
 
 func (c Client) claim(ctx context.Context, id string) (WorkItem, error) {
-	data, err := c.write(ctx, id, "update", id, "--claim", "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	return decodeSingleWorkItem(data)
+	// A claim read back as in progress is taken to be this one: the item was
+	// selected unclaimed, and a claim somebody else made in the seconds since
+	// would have been refused to this one had it arrived first.
+	return c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusInProgress }, "update", id, "--claim", "--json")
 }
 
 // claimPastStaleBlock decides whether the status bd refused on is stale, and
@@ -1240,7 +1374,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 	corrected := fmt.Sprintf(
 		"%s. That refusal came before anything below. The harness is clearing this item's blocked status to claim it: nothing unfinished blocks it, and the status was left over from whatever did. The claim follows once the tracker reads the status back as open.",
 		singleLineNote(refusal.Error()))
-	if _, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
+	if _, err := c.writeItem(ctx, id, noteLanded(corrected), "update", id, "--status=open", "--append-notes="+corrected, "--json"); err != nil {
 		return WorkItem{}, nil, errors.Join(refusal, fmt.Errorf("clear the stale blocked status on %s: %w", id, err))
 	}
 	claimed, account, err := c.claimOnConfirmedClear(ctx, id)
@@ -1265,7 +1399,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 		// finds the account rather than a promise, and a status the tracker still
 		// holds as blocked with nothing saying why the claim never followed.
 		note := fmt.Sprintf("The harness could not confirm the clear above: %s. The item is left for the next pull rather than claimed.", returned)
-		if _, err := c.write(ctx, id, "update", id, "--append-notes="+note, "--json"); err != nil {
+		if _, err := c.writeItem(ctx, id, noteLanded(note), "update", id, "--append-notes="+note, "--json"); err != nil {
 			return WorkItem{}, account, errors.Join(unconfirmed, refusal, fmt.Errorf("record the unconfirmed clear on %s: %w", id, err))
 		}
 		return WorkItem{}, account, errors.Join(unconfirmed, refusal)
@@ -1282,7 +1416,7 @@ func (c Client) claimPastStaleBlock(ctx context.Context, id string, refusal erro
 	if account.ClaimsRefused > 0 {
 		claimedNote = fmt.Sprintf("The harness read the cleared status back as open, bd refused the claim on the status %d time(s) after that, and the item was claimed on read %d.", account.ClaimsRefused, account.Reads)
 	}
-	_, _ = c.write(ctx, id, "update", id, "--append-notes="+claimedNote, "--json")
+	_, _ = c.writeItem(ctx, id, noteLanded(claimedNote), "update", id, "--append-notes="+claimedNote, "--json")
 	return claimed, account, nil
 }
 
@@ -1395,11 +1529,7 @@ func (c Client) RecordOutcome(ctx context.Context, id, notes string) (WorkItem, 
 	if strings.TrimSpace(notes) == "" {
 		return WorkItem{}, errors.New("outcome notes are required")
 	}
-	data, err := c.write(ctx, id, "update", id, "--append-notes="+notes, "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, noteLanded(notes), "update", id, "--append-notes="+notes, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1417,11 +1547,7 @@ func (c Client) Block(ctx context.Context, id, reason string) (WorkItem, error) 
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("blocker reason is required")
 	}
-	data, err := c.write(ctx, id, "update", id, "--status=blocked", "--append-notes="+reason, "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, statusAndNoteLanded(statusBlocked, reason), "update", id, "--status=blocked", "--append-notes="+reason, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1448,11 +1574,7 @@ func (c Client) Unblock(ctx context.Context, id, note string) (WorkItem, error) 
 	if strings.TrimSpace(note) == "" {
 		return WorkItem{}, errors.New("a note saying what made the blocked status stale is required")
 	}
-	data, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+note, "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, statusAndNoteLanded(statusOpen, note), "update", id, "--status=open", "--append-notes="+note, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1478,11 +1600,7 @@ func (c Client) Release(ctx context.Context, id, reason string) (WorkItem, error
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("release reason is required")
 	}
-	data, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+reason, "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, statusAndNoteLanded(statusOpen, reason), "update", id, "--status=open", "--append-notes="+reason, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1546,11 +1664,10 @@ func (c Client) RecordGoalWitness(ctx context.Context, id, statement string) (Wo
 	if strings.TrimSpace(statement) == "" {
 		return WorkItem{}, errors.New("the goal to witness is required")
 	}
-	data, err := c.write(ctx, id, "update", id, "--set-metadata="+goalWitnessKey+"="+witnessValue(statement), "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	witness := witnessValue(statement)
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool {
+		return item.GoalWitness.Recorded && (witness == "1" || item.GoalWitness.Statement == witness)
+	}, "update", id, "--set-metadata="+goalWitnessKey+"="+witness, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1576,7 +1693,7 @@ func (c Client) RecordCost(ctx context.Context, id string, cost Cost) (WorkItem,
 	if err := cost.Validate(); err != nil {
 		return WorkItem{}, fmt.Errorf("invalid work item cost: %w", err)
 	}
-	data, err := c.write(ctx, id, "update", id,
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool { return costHeld(item, cost) }, "update", id,
 		"--set-metadata="+costTotalKey+"="+formatCost(cost.TotalUSD),
 		"--set-metadata="+costRunsKey+"="+strconv.Itoa(cost.Runs),
 		"--set-metadata="+costUnknownKey+"="+strconv.Itoa(cost.UnknownRuns),
@@ -1584,20 +1701,21 @@ func (c Client) RecordCost(ctx context.Context, id string, cost Cost) (WorkItem,
 	if err != nil {
 		return WorkItem{}, err
 	}
-	item, err := decodeSingleWorkItem(data)
-	if err != nil {
-		return WorkItem{}, err
-	}
 	if item.Cost == nil {
 		return WorkItem{}, fmt.Errorf("work item %s carries no cost after being priced", item.ID)
 	}
-	// The stored total is compared at the precision it was written with, because
-	// bd stores it as a number and returns whatever that number renders as.
-	if formatCost(item.Cost.TotalUSD) != formatCost(cost.TotalUSD) ||
-		item.Cost.Runs != cost.Runs || item.Cost.UnknownRuns != cost.UnknownRuns {
+	if !costHeld(item, cost) {
 		return WorkItem{}, fmt.Errorf("work item %s cost is %#v after being priced, want %#v", item.ID, *item.Cost, cost)
 	}
 	return item, nil
+}
+
+// costHeld reports an item carrying the price it was given. The stored total is
+// compared at the precision it was written with, because bd stores it as a
+// number and returns whatever that number renders as.
+func costHeld(item WorkItem, cost Cost) bool {
+	return item.Cost != nil && formatCost(item.Cost.TotalUSD) == formatCost(cost.TotalUSD) &&
+		item.Cost.Runs == cost.Runs && item.Cost.UnknownRuns == cost.UnknownRuns
 }
 
 // RecordLanding stores the revision the harness is closing a conversation-carried
@@ -1611,11 +1729,8 @@ func (c Client) RecordLanding(ctx context.Context, id, landing string) (WorkItem
 		return WorkItem{}, err
 	}
 	landing = strings.TrimSpace(landing)
-	data, err := c.write(ctx, id, "update", id, "--set-metadata="+LandingKey+"="+landing, "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool { return item.Landing == landing },
+		"update", id, "--set-metadata="+LandingKey+"="+landing, "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1656,11 +1771,7 @@ func (c Client) RecordOrigin(ctx context.Context, id string, origin domain.WorkI
 		args = append(args, "--set-metadata="+key+"="+entries[key])
 	}
 	args = append(args, "--json")
-	data, err := c.write(ctx, id, args...)
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool { return item.Origin == origin }, args...)
 	if err != nil {
 		return WorkItem{}, err
 	}
@@ -1681,11 +1792,7 @@ func (c Client) Complete(ctx context.Context, id, reason string) (WorkItem, erro
 	if strings.TrimSpace(reason) == "" {
 		return WorkItem{}, errors.New("completion reason is required")
 	}
-	data, err := c.write(ctx, id, "close", id, "--reason="+reason, "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	return decodeSingleWorkItem(data)
+	return c.writeItem(ctx, id, func(item WorkItem) bool { return item.Status == statusClosed }, "close", id, "--reason="+reason, "--json")
 }
 
 // Reopen returns a claimed item to the backlog, carrying into its notes the
@@ -1723,12 +1830,9 @@ func (c Client) Reopen(ctx context.Context, id, reason string, parking domain.Wo
 	if err := errors.Join(parkingProblem(parking)...); err != nil {
 		return WorkItem{}, err
 	}
-	data, err := c.write(ctx, id, "update", id, "--status=open", "--append-notes="+reason,
-		"--set-metadata="+parkedKey+"="+parking.Reason(), "--json")
-	if err != nil {
-		return WorkItem{}, err
-	}
-	item, err := decodeSingleWorkItem(data)
+	item, err := c.writeItem(ctx, id, func(item WorkItem) bool {
+		return statusAndNoteLanded(statusOpen, reason)(item) && item.Parking.Reason() == parking.Reason()
+	}, "update", id, "--status=open", "--append-notes="+reason, "--set-metadata="+parkedKey+"="+parking.Reason(), "--json")
 	if err != nil {
 		return WorkItem{}, err
 	}
