@@ -772,6 +772,10 @@ type Standing struct {
 	// record. A decision waiting on the operator's pause or hold, or one no pass
 	// has attempted yet, is not refused.
 	Refused bool `json:"refused,omitempty"`
+	// NoLongerApplies is the harness having found this decision about a run of a
+	// closed item whose work is settled, and recorded that it does not apply
+	// (CarryOutNoLongerApplies). There is nothing left to carry out.
+	NoLongerApplies bool `json:"no_longer_applies,omitempty"`
 }
 
 // AwaitingCarryOut reports a decision standing about one stoppage that the
@@ -813,7 +817,7 @@ type Standing struct {
 // every line read about either still said the harness was carrying them out, and
 // nobody was placed to record the re-run each needed (yoyodyne-8ff).
 func AwaitingCarryOut(standing Standing) bool {
-	if !standing.Decided || !standing.Spends || standing.Refused {
+	if !standing.Decided || !standing.Spends || standing.Refused || standing.NoLongerApplies {
 		return false
 	}
 	if standing.Repair {
@@ -1049,13 +1053,20 @@ const (
 	// backend this harness can no longer start, so no continuation of it can
 	// carry on the developer's session.
 	CarryOutBackendUnavailable CarryOutCause = "backend-unavailable"
+	// CarryOutNoLongerApplies is a recovery about a run of an item that is closed
+	// with its work settled: the run itself merged, a later run of the item
+	// merged, or the harness already settled the run's docket entry. It is not a
+	// refusal anybody answers. Nothing was attempted, nothing is anybody's to
+	// decide, and only reopening the item and recording a new decision makes a
+	// recovery of the run apply again.
+	CarryOutNoLongerApplies CarryOutCause = "no-longer-applies"
 )
 
 // CarryOutCauses is the closed list the record and the inventory share.
 func CarryOutCauses() []CarryOutCause {
 	return []CarryOutCause{CarryOutWorktreeGone, CarryOutBranchGone, CarryOutHeadMoved,
 		CarryOutDecisionSuperseded, CarryOutDecisionMissing, CarryOutStoppageMissing,
-		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable}
+		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable, CarryOutNoLongerApplies}
 }
 
 func (c CarryOutCause) Valid() bool {
@@ -1105,6 +1116,13 @@ type CarryOut struct {
 	// rather than what a gate said, Gate is what kept it from the attempt, and
 	// Attempts is zero.
 	Unattempted bool `json:"unattempted,omitempty"`
+}
+
+// NoLongerApplies reports a finding that the recovery about this stoppage does
+// not apply, because the item is closed with its work settled. It asks nobody
+// anything, so it neither puts a settled entry back on the docket nor leads it.
+func (c *CarryOut) NoLongerApplies() bool {
+	return c != nil && c.Cause == CarryOutNoLongerApplies
 }
 
 // Committed is the round figure the budget is measured against: what this item
@@ -2407,6 +2425,12 @@ func (e Entry) renderCarryOut() string {
 	if stopped.RunID != "" && stopped.RunID != e.RunID {
 		fmt.Fprintf(&rendered, "      Your latest decision on %s is about run %s, which this docket holds no entry for, so it is said here:\n",
 			e.WorkItemID, stopped.RunID)
+	}
+	if stopped.NoLongerApplies() {
+		fmt.Fprintf(&rendered, "      The %q recorded about run %s no longer applies, as the harness found at %s: %s\n",
+			stopped.Decision, e.RunID, stopped.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(stopped.Refusal))
+		rendered.WriteString("      Nothing was attempted or spent and nothing is anybody's to decide about it; only reopening the item and recording a new decision makes a recovery of the run apply again.\n")
+		return rendered.String()
 	}
 	if stopped.Unattempted {
 		fmt.Fprintf(&rendered, "      No pass has attempted the %q you decided, as of %s; %s kept it back: %s\n",

@@ -182,3 +182,52 @@ func TestACauseTheSettleDidNotClassifyLeavesTheStoppageTheWorks(t *testing.T) {
 		t.Fatalf("a stoppage whose recorded cause delivered a change anyway is said as %s, want a warning", said.Event.Severity)
 	}
 }
+
+// mergedAndFinished is a run whose own change merged through its own pull
+// request and whose publication finished.
+func mergedAndFinished() runstate.State {
+	head := strings.Repeat("c", 40)
+	state := endedRun(running(), runstate.StatusSucceeded)
+	state.Phase = runstate.PhaseComplete
+	state.Integration = &runstate.Integration{TargetBranch: "main", SourceCommit: head, TargetCommit: head}
+	state.PullRequest = &runstate.PullRequest{Number: 217, URL: "https://forge.invalid/pull/217", HeadCommit: head,
+		State: "MERGED", Merged: true, MergeCommit: strings.Repeat("e", 40)}
+	return state
+}
+
+// The notice for Acknowledging directives in their Slack thread
+// (yoyodyne-ifd.68.19) named a run that had merged through pull request 217 as
+// stopped. A blocker reaching such a record later is about the item, not this
+// run, so no stop is said of it. A run whose merge was not confirmed still is.
+func TestAStopIsNeverSaidOfARunWhoseOwnMergeFinished(t *testing.T) {
+	t.Parallel()
+	landed := mergedAndFinished()
+	blocked := landed
+	blocked.Blocker = runstate.RecordBlocker("a person has to decide what happens to this item")
+	for _, before := range []runstate.State{landed, {}} {
+		notifications, err := FromRun(before, blocked, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, notification := range notifications {
+			if notification.Event.Kind == KindBlockerRecorded || notification.Event.Kind == KindRunEnded {
+				t.Fatalf("a run whose merge finished was said as %s", notification.Event.Kind)
+			}
+		}
+	}
+	unconfirmed := blocked
+	published := *unconfirmed.PullRequest
+	published.Merged, published.MergeCommit, published.State = false, "", "OPEN"
+	unconfirmed.PullRequest = &published
+	notifications, err := FromRun(landed, unconfirmed, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, notification := range notifications {
+		found = found || notification.Event.Kind == KindBlockerRecorded
+	}
+	if !found {
+		t.Fatal("a blocker on a run whose merge is not confirmed was not said")
+	}
+}
