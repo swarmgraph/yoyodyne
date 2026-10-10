@@ -253,6 +253,11 @@ func (t TriageCarryOut) AboutDecision(decision string, decidedAt time.Time) bool
 // Describe says what one carry-out finding is, for whoever is reading the item's
 // record. It leads with the gate because that is what a reader acts on.
 func (t TriageCarryOut) Describe() string {
+	if t.Cause == triage.CarryOutNoLongerApplies {
+		return fmt.Sprintf("the %q recorded about run %s no longer applies, as found at %s: %s. %s",
+			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339),
+			strings.TrimSpace(t.Refusal), strings.TrimSpace(t.Clears))
+	}
 	if t.Unattempted {
 		return fmt.Sprintf("the %q decided about the stoppage of run %s has not been attempted by any pass, as of %s, held back by %s: %s. What clears it: %s",
 			t.Decision, t.RunID, t.RefusedAt.UTC().Format(time.RFC3339), t.Gate,
@@ -291,14 +296,37 @@ func (c TriageCounters) CarryOutOf(runID string) (TriageCarryOut, bool) {
 // written since it was made, by a gate that refused the attempt rather than one
 // it waits on or one no pass reached. It is the finding CarryOutFindings counts
 // as refused, asked of one run.
+//
+// A finding that the recovery no longer applies is not a refusal: it asks
+// nobody to do anything (NoLongerApplies).
 func (c TriageCounters) RefusedCarryOut(runID string) (TriageCarryOut, bool) {
 	decision, decided := c.DecisionOf(runID)
 	finding, found := c.CarryOutOf(runID)
+	if found && finding.Cause == triage.CarryOutNoLongerApplies {
+		return TriageCarryOut{}, false
+	}
 	if !decided && found && finding.Cause == triage.CarryOutDecisionMissing && !finding.Waiting && !finding.Unattempted {
 		return finding, true
 	}
 	if !decided || !found || !finding.AboutDecision(decision.Decision, decision.DecidedAt) ||
 		finding.Waiting || finding.Unattempted {
+		return TriageCarryOut{}, false
+	}
+	return finding, true
+}
+
+// NoLongerApplies is the finding that the recovery recorded about one run does
+// not apply, because its item is closed with the run's work settled, and
+// whether one stands. It stands for the decision it was found about, or for an
+// item budget with no decision at all; a decision recorded since, after an
+// explicit reopening of the item, is a new question and the finding does not
+// answer it.
+func (c TriageCounters) NoLongerApplies(runID string) (TriageCarryOut, bool) {
+	finding, found := c.CarryOutOf(runID)
+	if !found || finding.Cause != triage.CarryOutNoLongerApplies {
+		return TriageCarryOut{}, false
+	}
+	if decision, decided := c.DecisionOf(runID); decided && !finding.AboutDecision(decision.Decision, decision.DecidedAt) {
 		return TriageCarryOut{}, false
 	}
 	return finding, true
@@ -311,6 +339,9 @@ func (c TriageCounters) RefusedCarryOut(runID string) (TriageCarryOut, bool) {
 // decision and says so.
 func (c TriageCounters) CarryOutFindings() (refused, unattempted int) {
 	for _, finding := range c.CarryOuts {
+		if finding.Cause == triage.CarryOutNoLongerApplies {
+			continue
+		}
 		decision, found := c.DecisionOf(finding.RunID)
 		if !found && finding.Cause == triage.CarryOutDecisionMissing && !finding.Waiting && !finding.Unattempted {
 			refused++
@@ -376,7 +407,10 @@ func (s *TriageStore) RecordCarryOutRefusal(ctx context.Context, workItemID stri
 			return fmt.Errorf("invalid triage carry-out record: %w", err)
 		}
 		counters.CarryOuts = append(standing, prepared)
-		if prepared.Cause != "" {
+		if prepared.Cause == triage.CarryOutNoLongerApplies {
+			note := "Yoyodyne did not carry out a recovery that no longer applies: " + prepared.Describe()
+			counters.PendingCarryOutNotes = append(counters.PendingCarryOutNotes, note)
+		} else if prepared.Cause != "" {
 			note := "Yoyodyne stopped carrying out the development manager's decision: " + prepared.Describe()
 			counters.PendingCarryOutNotes = append(counters.PendingCarryOutNotes, note)
 		}

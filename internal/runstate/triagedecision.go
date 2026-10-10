@@ -294,12 +294,14 @@ func (c TriageCounters) LatestDecision() (TriageDecision, bool) {
 func (c TriageCounters) Standing(runID string) triage.Standing {
 	decision, decided := c.DecisionOf(runID)
 	_, refused := c.RefusedCarryOut(runID)
+	_, settled := c.NoLongerApplies(runID)
 	return triage.Standing{
 		Decided:          decided && !decision.InFlight(),
 		Spends:           decision.Spends(),
 		Repair:           decision.Decision == TriageDecisionRepair,
 		GrantOutstanding: c.GrantOutstanding(),
 		Refused:          refused,
+		NoLongerApplies:  settled,
 	}
 }
 

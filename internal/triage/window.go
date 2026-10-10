@@ -183,6 +183,9 @@ func (s Stoppage) Critical() bool {
 // Undecided reports an entry that is still a question at a moment: nobody has
 // decided about it, the decision has lapsed, or the harness tried to carry the
 // decision out and a gate stopped it.
+//
+// A finding that the recovery no longer applies does not reopen a settled
+// entry (CarryOutStopped), since it asks nobody to decide anything.
 func (e Entry) Undecided(at time.Time) bool {
 	return e.Closed == nil || !e.Closed.Holds(at) || e.CarryOutStopped()
 }
@@ -210,7 +213,7 @@ func (e Entry) WaitStands(at time.Time) bool {
 // this decision — made after it — because a finding about an earlier decision on
 // the same stoppage is one this decision has since superseded.
 func (e Entry) CarryOutStopped() bool {
-	return e.Closed != nil && e.CarryOut != nil && e.CarryOut.RefusedAt.After(e.Closed.ClosedAt)
+	return e.Closed != nil && e.CarryOut != nil && !e.CarryOut.NoLongerApplies() && e.CarryOut.RefusedAt.After(e.Closed.ClosedAt)
 }
 
 // Critical reports an entry that must not wait its turn in the walk: a role
@@ -228,7 +231,7 @@ func (e Entry) Critical() bool {
 	}
 	// A legacy grant with no decision record has no closure, but its permanent
 	// refusal still needs the manager's attention at once.
-	if e.CarryOut != nil && e.CarryOut.Cause != "" {
+	if e.CarryOut != nil && e.CarryOut.Cause != "" && !e.CarryOut.NoLongerApplies() {
 		return true
 	}
 	return e.CarryOutStopped() && !e.CarryOut.Waiting

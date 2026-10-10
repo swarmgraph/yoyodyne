@@ -346,6 +346,10 @@ func (c CarryOut) Outstanding() ([]CarryOutTask, error) {
 type carryOutReading struct {
 	tasks []CarryOutTask
 	held  []heldDecision
+	// settled are the recoveries the sweep found no longer apply, because their
+	// item is closed with the run's work settled (recoveryapplicability.go). They
+	// are not offered, and RecordUnattempted writes each one down.
+	settled []settledTask
 }
 
 // heldDecision is a standing decision the sweep did not offer, and why: the gate
@@ -387,6 +391,7 @@ func (c CarryOut) read() (carryOutReading, error) {
 	// ordinary pass has no repair to fire and pays nothing for the accuracy, and a
 	// pass that does reads the runs once rather than once per item.
 	history := onceRecorded(c.Runs)
+	itemOf := c.itemReader()
 	now := c.now()
 	read := make(map[string]outstandingItem, len(entries))
 	var items []string
@@ -431,6 +436,18 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		if !outstanding {
 			return
+		}
+		// A recovery of work its closed item has already settled is not offered:
+		// offering it is what had a merged item's older run repaired, refused, and
+		// handed back to the development manager as a decision to make again.
+		if recorded, err := history(); err == nil {
+			_, decided := item.counters.DecisionOf(entry.RunID)
+			// The reading takes no context of its own, as the re-arm reading below
+			// does not; the tracker read it can make is the tracker's bounded one.
+			if account, settled := c.recoverySettled(context.Background(), task, entry.Closed, decided, recorded, itemOf); settled {
+				reading.settled = append(reading.settled, settledTask{task: task, account: account})
+				return
+			}
 		}
 		if task.Recover {
 			held, err := c.Runs.Held(task.RunID)
@@ -568,6 +585,15 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 	var problems []error
 	if err != nil {
 		problems = append(problems, err)
+	}
+	// A recovery found not to apply is written down whatever the poll interval:
+	// it is not a decision waiting on a pass, and until it is recorded every pass
+	// reads the item again to find the same thing.
+	for _, settled := range reading.settled {
+		if account := c.recordNoLongerApplies(ctx, settled.task, settled.account); account.RecordProblem != "" {
+			problems = append(problems, fmt.Errorf("record that the %q about run %s of %s no longer applies: %s",
+				settled.task.Decision, settled.task.RunID, settled.task.WorkItemID, account.RecordProblem))
+		}
 	}
 	for _, held := range candidates {
 		task := held.task
@@ -904,6 +930,13 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account Carried
 		DocketKey:  task.DocketKey,
 		Decision:   task.Decision,
 	}
+	// Asked again here rather than trusted from the sweep, because a later run's
+	// publication can settle between the pass choosing a task and carrying it out.
+	if harnessOwnTask(task.Decision) {
+		if account, settled := c.settledNow(ctx, task, false); settled {
+			return c.recordNoLongerApplies(ctx, task, account), Outcome{}, nil
+		}
+	}
 	if task.Decision == DecisionContinueChecks {
 		return c.continueChecks(ctx, task, carried)
 	}
@@ -925,7 +958,14 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account Carried
 		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, err.Error(),
 			"the item's triage record becoming readable again"), Outcome{}, nil
 	}
-	if _, decided := counters.DecisionOf(task.RunID); !decided {
+	_, decided := counters.DecisionOf(task.RunID)
+	// Before anything is asked of the action, which would claim, unblock, or
+	// re-enter the run: a recovery of work its closed item has since settled is
+	// recorded as not applying rather than attempted or handed back for a decision.
+	if account, settled := c.settledNow(ctx, task, decided); settled {
+		return c.recordNoLongerApplies(ctx, task, account), Outcome{}, nil
+	}
+	if !decided {
 		carried.Cause = triage.CarryOutDecisionMissing
 		return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false,
 			fmt.Sprintf("the item's budget records a %s but the development manager has recorded no durable triage decision about run %s on %s, so there is nothing authorized to carry out; the decision must be recorded in her conversation, with an override where its budget requires it", task.Decision, task.RunID, task.WorkItemID),
