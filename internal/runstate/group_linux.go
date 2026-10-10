@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // exitingFlag is PF_EXITING in a task's flags: the task has begun exiting and
@@ -18,8 +19,10 @@ const exitingFlag = 0x4
 // exited answers a signal for as long as nobody has collected it — which, for
 // a provider whose launcher died, is until the process it was handed to gets
 // round to it. Such a process holds no files and runs nothing, so a group of
-// them alone is a group that has stopped. One live process, or any process
-// whose state cannot be read, answers false.
+// them alone is a group that has stopped. A process that cannot be found has
+// gone, which is how one that is reaped while the list is read looks. One live
+// process, or any process whose state cannot be read for another reason,
+// answers false.
 func groupHasOnlyExited(group int) (bool, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
@@ -32,7 +35,7 @@ func groupHasOnlyExited(group int) (bool, error) {
 			continue
 		}
 		task, err := readTaskStat(filepath.Join("/proc", entry.Name(), "stat"))
-		if errors.Is(err, os.ErrNotExist) {
+		if notFound(err) {
 			continue
 		}
 		if err != nil {
@@ -52,16 +55,20 @@ func groupHasOnlyExited(group int) (bool, error) {
 
 // processHasExited says whether every thread of a process has exited. A
 // process whose first thread has exited while another runs on is shown as
-// exited at its own entry, so each thread is read.
+// exited at its own entry, so each thread is read. A process that cannot be
+// found has exited.
 func processHasExited(pid int) (bool, error) {
 	tasks := filepath.Join("/proc", strconv.Itoa(pid), "task")
 	entries, err := os.ReadDir(tasks)
+	if notFound(err) {
+		return true, nil
+	}
 	if err != nil {
 		return false, err
 	}
 	for _, entry := range entries {
 		task, err := readTaskStat(filepath.Join(tasks, entry.Name(), "stat"))
-		if errors.Is(err, os.ErrNotExist) {
+		if notFound(err) {
 			continue
 		}
 		if err != nil {
@@ -72,6 +79,13 @@ func processHasExited(pid int) (bool, error) {
 		}
 	}
 	return true, nil
+}
+
+// notFound says whether reading a process's entry under /proc failed because
+// the process is no longer there: its entry has been removed, or it was being
+// removed as it was read.
+func notFound(err error) bool {
+	return errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ESRCH)
 }
 
 // taskStat is what this package reads of a task's stat file.

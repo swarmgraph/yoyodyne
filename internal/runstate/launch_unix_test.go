@@ -706,6 +706,59 @@ func TestUnreadableExecutionEvidenceWaitsWithItsReasonRecorded(t *testing.T) {
 	})
 }
 
+// A launcher killed straight after it starts leaves a shell that lets go of
+// its hold a moment before it leaves its process group. Recovery that looks in
+// that moment sees members, and looks again before answering: the group gone
+// at the second look is a stop, not an uncertain launch.
+func TestAGroupGoneBetweenTheTwoLooksIsStopped(t *testing.T) {
+	t.Parallel()
+	f := newLaunchFixture(t)
+	looks := 0
+	f.store.signalGroup = func(int) error {
+		looks++
+		if looks == 1 {
+			return nil
+		}
+		return syscall.ESRCH
+	}
+	f.recordExecution(t, "att-1", 999999)
+	found, err := f.store.ReconcileLaunch(context.Background(), f.runID, "op-1", LaunchRecovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Verdict != LaunchInterrupted {
+		t.Fatalf("reconciliation with the group gone at the second look = %+v", found)
+	}
+	if looks != 2 {
+		t.Fatalf("the group was looked at %d times, want 2", looks)
+	}
+	f.assertUnspent(t)
+}
+
+// A group that still has members at both looks is reported as uncertain, and
+// was looked at twice before it was.
+func TestAGroupWithMembersAtBothLooksStaysUncertain(t *testing.T) {
+	t.Parallel()
+	f := newLaunchFixture(t)
+	looks := 0
+	f.store.signalGroup = func(int) error { looks++; return nil }
+	f.recordExecution(t, "att-1", 999999)
+	found, err := f.store.ReconcileLaunch(context.Background(), f.runID, "op-1", LaunchRecovery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found.Verdict != LaunchUncertain || !strings.Contains(found.Reason, "still has members") {
+		t.Fatalf("reconciliation with members at both looks = %+v", found)
+	}
+	if looks != 2 {
+		t.Fatalf("the group was looked at %d times, want 2", looks)
+	}
+	if attempt := f.attempt(t, "att-1"); attempt.State != AttemptLaunched {
+		t.Fatalf("recovery changed the attempt: %+v", attempt)
+	}
+	f.assertUnspent(t)
+}
+
 // An attempt launched under one host name is still recovered on the same
 // machine after the host name changes, as it does on macOS when the machine
 // joins another network: the record names the machine by an identifier kept
