@@ -1,7 +1,7 @@
 ---
 id: portable-agent-configuration
 kind: design
-title: "Portable agent configuration: materialization, the baseline, and bundle boundaries"
+title: 'Portable agent configuration: materialization, the baseline, and bundle boundaries'
 supports:
     - v1-goals
 status: active
@@ -17,314 +17,237 @@ revisions:
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'approved amendment eb9b385e from yoyodyne-ifd.418 - the same retirement; ''already applies'' in place of ''in force'''
+      reason: approved amendment eb9b385e from yoyodyne-ifd.418 - the same retirement; 'already applies' in place of 'in force'
+    - action: amended
+      by: architect
+      at: 2026-10-06T23:59:49.44694Z
+      reason: 'Applying recommended configuration through a role (yoyodyne-ifd.434.8): consolidate field-specific ownership, trusted protected-path delivery, baseline preservation and unknown-history handling, non-retroactive activation, and drift reporting without a routine operator decision; retain materialization, inheritance, and third-party bundle boundaries.'
+approvals:
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-06T23:59:49.44694Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 343, for document-343.1 under the automatic approval policy
 ---
-
 # Portable agent configuration
 
-It serves the goal "Keep roles, policies, and provider selection configurable
-without making safety invariants optional."
+This design serves the V1 goal to keep roles, policies, and provider selection configurable without making safety invariants optional. It also serves the standing autonomy and plain-language goals: an authorized role decides routine operational settings, the harness delivers the reviewed change, and the operator can see who changed what and why.
 
-The work item asked four questions and told the developer not to start by
-writing code. This answers the four, states what stays undecided, records the
-architect's decisions at ratification, and names what stays open for the
-operator.
+Applying recommended configuration through a role (yoyodyne-ifd.434.8) extends the existing materialization and baseline design with a bounded configuration action. The action does not give agents direct write access to protected paths. Trusted code checks the role's authority, prepares the exact change, and carries it through independent review and normal integration.
 
-## What already exists, so nothing below re-derives it
+## Resolution and ownership
 
-The resolution machinery is built and tested. Up to three layers produce the
-effective configuration, later ones winning: harness defaults, a bundle named by
-`extends`, then the project file. `checks` is replaced as a whole list rather
-than concatenated, a `persona` override replaces rather than merges, an agent is
-removed with `disabled: true` rather than by omission, and `version` is never
-inheritable. The rules are stated in
-[Precedence](../configuration.md#precedence) and
-[Merge and removal semantics](../configuration.md#merge-and-removal-semantics);
-[What fails closed](../configuration.md#what-fails-closed) lists what a
-configuration is refused for.
+Up to three layers produce the effective configuration, later layers winning: harness defaults, a bundle named by `extends`, and the project file. Existing merge rules remain authoritative. In particular, `checks` is replaced as a whole list, a persona override replaces the whole persona, and an agent is removed with `disabled: true` rather than by omission. The project recurring-task map replaces the inherited map as a whole.
 
-`yoyo config show --origins` records, per key, the layer that supplied it. The
-effective configuration has a revision — `cfg-` and a digest derived from the
-values rather than declared — which a run record names when it says which
-configuration set it up.
+A project owns every value it states and inherits every value it omits. No `owns` list, per-key ownership marker, or second inheritance mechanism is added. This describes where a configuration value comes from; it does not establish which role may change it.
 
-Two things are missing rather than broken. There is no way to move a project
-from an explicit configuration to an inheriting one; only
-[the other direction](../configuration.md#converting-an-inheriting-configuration-to-an-explicit-one)
-is documented, and it is a manual re-application. And a project that has
-materialized its defaults has no mechanism at all by which a later bundle
-improvement reaches it — the standing advice is to re-run `init` into a scratch
-directory and diff, which is the gap this design is mostly about.
+`yoyo config show --origins` identifies each value's supplying layer. The effective configuration revision is derived from its values. Runs record the revision that configured them.
 
-## The decision underneath all four answers
+Some values have additional inheritance restrictions:
 
-**Ownership is materialization, and it is not a second vocabulary.**
+- Bundles cannot supply `version` or `product`. Schema version and product identity belong to the project.
+- The built-in bundle supplies no project checks. A project's toolchain is not something the bundle can infer.
+- Approval settings retain their existing opt-in rules. Conversion and adoption cannot turn inheritance into an approval or move an explicit opt-in silently.
 
-The tempting design adds a way for a project to declare what it owns — an `owns`
-list, a per-key marker, a partial `extends`. Every version of that is a second
-way to say something the file already says by having a value in it, and this
-repository has already paid for one of those: a proposal in the conversation and
-a proposal in `yoyo amendment` are two vocabularies for one idea, and
-consolidating them is recorded as not done. So a written value is an owned
-value, an absent value is an inherited one, and nothing new is added to the
-schema that resolution reads.
+The baseline records where materialized values came from. It is separate from the configuration and never participates in resolution.
 
-What is added is **a record of where a materialized value came from**, kept
-beside the configuration rather than inside it. That record is what turns the
-two-way diff the operator does today into the three-way comparison the problem
-actually needs.
+## Provenance and drift reporting
 
-## 1. What a project owns versus what it inherits
+Provenance is derived from configuration sources and recorded history, not from YAML comments. A comment can be stale or removed; it is not authority or evidence that a value was adopted.
 
-A project owns every value it states and inherits every value it does not. That
-is already true; what this design fixes is that today it is an all-or-nothing
-choice made once, because `yoyo init` writes a complete file with no `extends`
-and the only supported way back is to regenerate.
+One shared read-model derivation supplies drift to every surface. The CLI, dashboard, and conversation must not calculate different answers independently.
 
-Selective inheritance needs no new merge semantics. A project that writes
-`extends` and then states forty of the eighty values it could state already owns
-forty and inherits forty, per rules that are built and tested. The three things
-missing are a command that produces that file from an explicit one, a command
-that produces an explicit one from it, and a way to see which is which. Those
-are sections 3 and 2.
+`yoyo config validate` and `yoyo doctor` report drift against a known baseline without changing their existing exit-code rules. No drift produces no drift message. `yoyo config show` identifies the materialization source, the baseline's known or unknown status, and the effective configuration revision.
 
-**Some values a project cannot inherit however it is shaped, and the set does
-not grow quietly.** They divide into three reasons, which are worth keeping
-apart because they fail in different places.
+For a role-applied change, the read model also identifies the deciding role, its recorded reason, the configuration change record, and the published revision. A role decision is never displayed as operator approval. A prepared change is not displayed as active configuration; publication and activation are separate facts.
 
-- **Refused from a bundle.** `version`, because a version taken from a bundle
-  lets a file written against another schema load as whatever the bundle said;
-  and `product`, because a bundle that supplied product identity would name
-  every project after itself. `checkBundleDocument` refuses a bundle declaring
-  either, so this fails when the bundle loads rather than when a project uses
-  it.
-- **Never supplied by one.** `checks` describe the managed project's toolchain,
-  which a bundle has no view of, so `builtin:v1` deliberately states none. A
-  project's checks are its own by there being nothing to inherit.
-- **Reachable only by opting in.** `approvals.work_items` and
-  `approvals.publishing` are stated by the bundle at the same value the harness
-  default holds, so extending inherits neither and upgrading moves neither. That
-  is existing behaviour and this design keeps it: an opt-in that arrived by
-  inheritance would not be one, and it is exactly the class of value a
-  `materialize`/`extract` round trip must not quietly relocate.
+An explicit project value chosen by a role remains a project-owned value. It is not called inherited or unchanged merely because the choice came from a harness recommendation. Doctor reports invalid configuration and unknown provenance honestly; the fact that an authorized role chose a value is not itself a warning.
 
-## 2. Seeing which is which without asking
+Conversational reporting follows the existing communication rule. An available bundle improvement alone does not interrupt the operator on every pass. A role reports it when it affects work or a decision, and may decide an authorized operational change without a routine operator gate. Conflicting values go to the role that owns the setting. Matters outside that role's authority follow their existing authority path. This resolves the former open question about conversational drift reporting; implementation does not wait for an operator answer.
 
-The work item asks how an operator sees what is inherited without running a
-command, given that `config show --origins` answers only when asked.
+## Moving between explicit and inherited configuration
 
-**The honest answer is that the file cannot carry it.** Anything the harness
-writes into `.yoyodyne/config.yaml` to mark provenance is either schema — which
-means resolution reads it, which means a project can lie about its own
-provenance — or a comment, which the operator edits away or leaves to go stale.
-A configuration whose comments disagree with its values is worse than one that
-says nothing, because it is read as an answer.
+`yoyo config materialize` resolves an inheriting configuration and writes a standalone configuration without `extends`, copies the relevant personas into `.yoyodyne/personas/`, and records the baseline. It preserves all effective project values.
 
-So the design does not put provenance in the file. It makes provenance arrive
-**on commands the operator already runs**, which is the same shape this
-repository already uses for the ignore-rule warning and for artifact staleness:
-reported beside the thing you asked for, never a separate errand.
+`yoyo config extract` compares an explicit configuration with a named bundle, removes values identical to what that bundle supplies, writes `extends`, and retains deviations and values that cannot be inherited. A differing persona remains a complete file and override.
 
-- `yoyo config validate` and `yoyo doctor` report drift against the recorded
-  baseline (section 4) on every run, on standard error, without changing their
-  exit codes. A project with no drift says nothing.
-- `yoyo config show` gains a fourth line in its header — the bundle a project
-  materialized from and whether it is current — beside the layers and the
-  revision it already prints.
-- The conversation surfaces it where it changes what the operator would decide,
-  and nowhere else.
+For either conversion, effective configuration before and after must be identical, including its configuration revision. Conversion refuses a change it cannot make while preserving that property. Tests must cover both directions and the round trip.
 
-**Every one of those is a projection of one derivation, computed server-side
-once.** Drift is a domain derivation, so the CLI, the dashboard, and Slack read
-it from the shared read model rather than each computing it; a second surface
-computing "is this project current" differently is a disagreement only the
-operator can settle, and the invariant on operator surfaces rules it out.
+These conversion commands retain their existing explicit overwrite controls and use the shared confined-write mechanism. They validate and prepare their output before replacing destinations. An I/O error can still leave an uncertain publication outcome; the command must report that uncertainty and reconcile the destinations before retrying rather than promise that every failure occurred before a write.
 
-## 3. Moving between explicit and inherited, in both directions
+The existing direct CLI conversion path produces working-tree changes under its existing publication rules. It is distinct from the role-applied operational action below. The latter must reach committed configuration through reviewed delivery and cannot finish by asking the operator to paste or commit a recommended value. The operational action cannot invoke conversion as a way to obtain broader write authority.
 
-Two commands, each the inverse of the other, and one criterion that makes both
-checkable.
+## The baseline
 
-**`yoyo config materialize`** turns an inheriting configuration into an explicit
-one. It resolves the effective configuration, writes it as a complete standalone
-file with no `extends`, copies the personas into `.yoyodyne/personas/`, and
-records the baseline of section 4. It writes what already applies, so it
-cannot lose a project value. This replaces
-[the four manual steps](../configuration.md#converting-an-inheriting-configuration-to-an-explicit-one)
-documented today, whose step 3 is "re-apply what was yours" and whose failure
-mode is forgetting one.
+`materialize` and `init` write `.yoyodyne/config.lock`. Its contract remains: bundle name, bundle revision digest, per-value digests rather than values, and an explicit format version. It is generated and committed with the configuration. No configuration loader opens it; a conformance test holds that boundary.
 
-**`yoyo config extract`** turns an explicit configuration into an inheriting
-one. Against a named bundle, it removes every value byte-identical to what that
-bundle supplies, writes `extends`, and keeps the rest as deviations. It reports
-what it kept and why, in two classes the operator reads differently: values that
-differ from the bundle, and values that are not inheritable at all (section 1).
-A persona whose body differs from the bundle's is kept as a file and an
-override, because a persona is replaced whole rather than merged and half of one
-persona is guidance nobody wrote.
+The baseline is evidence for comparison, never an instruction to execute a value. Losing it cannot prevent an otherwise valid project from running.
 
-**The criterion for both: the effective configuration does not move.**
-`yoyo config show --effective` before and after must be byte-identical, and the
-configuration revision must be unchanged. That is a property a test asserts
-rather than a claim a reviewer reads, and it is what makes the round trip
-`materialize` → `extract` → `materialize` safe to offer. Where a conversion
-cannot hold it, it refuses and names the value, rather than writing a file that
-runs differently from the one it replaced.
+For values with known comparable baselines, drift distinguishes:
 
-Neither command is destructive without saying so: both refuse to overwrite
-without `--force`, both fail before writing anything, and both go through the
-shared safe-write primitive under the project root, so neither can be walked out
-of the repository by a symlink in `.yoyodyne`. Both commands' output is subject
-to the same working-tree rule as every other harness write to the primary
-checkout — the operator commits it, and runs refuse over the uncommitted
-change — so conversions land the way approved artifact writes already do rather
-than inventing a third publication shape.
-
-## 4. How a bundle improvement reaches a project that materialized
-
-This is the specific thing an explicit configuration trades away, and the
-mechanism that buys it back is **a baseline, recorded at materialization, that
-is never read at load time**.
-
-`materialize` and `init` write `.yoyodyne/config.lock`, and its shape is a
-ratified contract: the bundle's name, the bundle's revision digest, and the
-digest of each value as that bundle supplied it — digests, never the values
-themselves; a version field, because a committed file that outlives schemas
-needs one, by the same rule `config.yaml` follows; generated, never
-hand-authored; committed with the configuration; and **nothing in the load
-path reads it**, held by a conformance test asserting the loader never opens
-the file. Any implemented format meeting that contract is ratified as it
-stands; anything beyond it — values rather than digests, anything a loader
-consults — is a deviation to correct. What the file says is still exactly what
-runs, which is ifd.35's guarantee and is not weakened here.
-
-With a baseline, `yoyo config drift` is a three-way comparison rather than a
-diff, and it sorts every value into four answers:
-
-| Answer | What it means | What is offered |
+| Answer | Meaning | Consequence |
 | --- | --- | --- |
-| unchanged | Neither you nor the bundle moved it. | Nothing. |
-| yours | You changed it; the bundle did not. | Nothing. It is yours, and it is never touched. |
-| available | The bundle improved it; you never edited it. | Adopting it. |
-| conflicting | Both moved it, to different values. | Both values, named, for you to decide. |
+| unchanged | Neither project nor bundle changed the value. | No action. |
+| yours | The project changed it and the bundle did not. | Preserve the project choice. |
+| available | The bundle changed it and the project still matches the baseline. | Offer adoption to the setting's owner. |
+| conflicting | Project and bundle changed it to different values. | The setting's owner decides which explicit value to use. |
 
-The middle two are the entire point. Today's advice — regenerate into a scratch
-directory and diff — is a two-way diff with no base, so it cannot tell a value
-you deliberately changed from a value the bundle improved, and it reports both
-as differences. The baseline is what supplies the missing third side.
+When the project and current bundle already agree, no adoption is needed, even if both differ from the baseline. The derivation states that agreement rather than presenting a conflict requiring a decision.
 
-`yoyo config adopt <key>` takes one available improvement and rewrites that
-value and its baseline entry. Adoption is per value and never wholesale: a
-command that adopted everything available would be `init --force` with better
-manners, and would silently move values the operator had reasons for. A
-conflicting value is never adopted; it is reported until the operator settles
-it.
+A missing, unreadable, unsupported, or insufficient baseline yields unknown for the affected comparison. Unknown is not available. Equality with today's bundle does not prove that a historical project value was never edited.
 
-**A missing or stale lock is a report, not a refusal.** A project that predates
-this, or that deleted the file, gets told once that its baseline is unknown and
-that `yoyo config drift` cannot answer for it — the same treatment a document
-with a broken relationship gets, and for the same reason: refusing would break a
-project over a file that decides nothing about how it runs.
+`yoyo config adopt <key>` adopts one available improvement. It checks the expected configuration, baseline entry, and selected bundle revision, then changes only the chosen value and its corresponding baseline digest. It never adopts every available change implicitly. A conflicting value requires an explicit value decision through the applicable authority path rather than being relabeled available.
 
-## 5. Where bundles come from, and where this meets the plugin contract
+Partial adoption does not advance unrelated baseline entries or claim that the whole configuration came from the newest bundle. The baseline's materialization revision remains the original source reference; the durable adoption record identifies the selected value's later source revision and resulting digest. Surfaces must distinguish partial adoption from complete materialization.
 
-Today one bundle exists, `builtin:v1`, embedded in the executable and looked up
-through a fixed map so an unknown name can never resolve to a path. The question
-is whether a bundle may ever come from somewhere else — a plugin, a fleet
-repository, an organization's house defaults — which is where this meets
-yoyodyne-ifd.32.
+A role choosing an explicit operational value is different from adopting a bundle improvement. It may proceed with an unknown baseline if its request and reviewed change are otherwise valid. Missing baseline evidence remains missing; an unreadable or unsupported lock is preserved rather than overwritten. The change record states that drift remains unknown. The action neither guesses history nor records a new whole-project baseline to make the warning disappear.
 
-**The position this design takes: yes, but only as a materialization source,
-never as a load-time layer.**
+An explicit choice that is not bundle adoption leaves an existing baseline entry unchanged. This preserves the distinction between project choices and later bundle improvements.
 
-A bundle from outside the executable is read once, by `yoyo config materialize
---from <bundle>`, at the operator's explicit instruction, and its values land in
-the project's own file where the operator reads them, edits them, and commits
-them. It never becomes a layer that resolution consults on a run. The
-consequences are the reason for the rule:
+Baseline-format migration must preserve the comparisons the old format supported. It must not replace historical digests with digests of current project values. If a digest representation cannot be translated from available source evidence, retain the original evidence and mark the affected comparison unknown. A migration cannot turn unknown or conflicting values into available improvements.
 
-- No third party's content is in the load path of a run. Upgrading a plugin
-  cannot move a value the operator is running under, because the value is in
-  their file.
-- The operator sees what they adopted, as values, before anything runs on them.
-  A supply chain that reaches the harness through a diff the operator reads is a
-  different risk from one that reaches it at load.
-- The baseline of section 4 works unchanged: it records which bundle and which
-  revision supplied each value, whoever supplied it, so drift and adoption
-  behave the same for a plugin bundle as for the built-in one.
+## Authority for operational changes
 
-**What a bundle may never do, whoever supplies it.** Authority *semantics* stay
-in Go, and composition becomes protected operator-activated configuration only
-after parity, per [authority-by-capability](../decisions/authority-by-capability.md)
-and the invariant `configuration-never-grants-authority`. A persona specializes
-how a role works and cannot widen what it is allowed to do, and the role
-contract is sent ahead of it on every turn. A bundle is **ordinary**
-configuration, so materialization never writes role definitions:
-`materialize --from <bundle>` refuses bundle content addressed to
-`.yoyodyne/roles/`, because protected role definitions have their own
-operator-activation path and never arrive by materialization from anyone's
-bundle. `checkBundleDocument`
-already refuses a bundle that declares a `product` or extends another bundle,
-and its checks apply to any bundle rather than to the embedded one. A
-third-party bundle is content, and every write of it passes the shared safe-write
-primitive under a declared root — an unpacked bundle that resolves outside that
-root is refused, per
-[repository-writes-are-physically-confined](../decisions/invariants/repository-writes-are-physically-confined.md).
+The operational action is registered in trusted Go code and exposed through the existing action and tool registry. Its field permissions are enforced in code. Recognizing a field in the configuration schema establishes neither permission to change it nor validity of a proposed value. Newly introduced fields remain unavailable until their ownership and permitted changes are explicitly registered.
 
-That is the whole of what portability means here: **values travel; authority
-does not.**
+The action accepts an authenticated role invocation, a stable request identity, the product and target branch, the expected base revision and source digests, exact field changes, expected old values, proposed values, and a recorded reason. It also names authorized derived effects and any bundle source used for adoption. A caller-supplied role name cannot establish authority.
 
-## What this design deliberately does not decide
+A repeated request with identical contents returns the existing operation and outcome. Reusing its identity with different contents is refused. The durable record distinguishes decision, preparation, review, publication, activation, refusal, and uncertain outcome.
 
-- **A bundle registry, a resolver, or a fetch protocol.** Section 5 decides
-  where a third-party bundle may be used and what it may not do. How one is
-  named, discovered, verified, or pinned belongs to the plugin contract, and
-  deciding it here would be this document legislating for a design it is not.
-- **Whether `yoyo init` should change what it writes.** It should not, on this
-  design's evidence — ifd.35's trade holds, and the lock is additive. Reopening
-  it is the operator's call and is listed below.
-- **Fleet configuration across several projects.** One repository at a time.
-  Several projects sharing defaults is what a bundle is for; a fleet that also
-  wants shared *state* is team mode's problem, not this one.
-- **A migration for projects that predate the lock.** They report an unknown
-  baseline and keep working. Whether `materialize` should offer to reconstruct
-  a baseline by matching current values against a bundle is a real question with
-  a real wrong answer — reconstructing one is guessing that unedited values were
-  never edited — and it is left open.
+The action cannot change agent identity or definitions, role identity or definitions, personas, remits, prompts, capability policy, account selection, account pools, approval policy, workflow bindings, product identity, or machine-local policy. Model identifiers are permitted only in the specific fields below and do not authorize changing provider or account bindings.
 
-## Decided at ratification
+The protected-path gate accepts only the exact configuration and baseline changes authorized by the trusted operation. It does not grant a developer general access to `.yoyodyne`. Grants naming `.yoyodyne/roles/` remain forbidden. The existing configuration-never-grants-authority invariant needs no amendment: this action's authority comes from trusted code, not from the values being edited.
 
-The architect ratified this design with four decisions, recorded in
-conversation (chat-11558d325e9a214ebfd00bb4a0012750, turn 24):
+### Checks and verification
 
-1. **"Ownership is materialization" is the right refusal.** An `owns` list is a
-   second vocabulary for what the file already says by having a value in it,
-   and this repository has paid for exactly one such duplication already. A
-   written value is owned; an absent value is inherited; nothing new enters the
-   schema resolution reads. Ratified as the design's spine.
-2. **The committed lockfile is the right shape.** A baseline in the state
-   directory is per-machine, tells a collaborator nothing, and drifts per
-   checkout. The property that makes it safe is kept verbatim: **nothing in the
-   load path reads it.** What the file says is what runs; the lock only makes
-   the three-way comparison possible. Committed, generated, decides nothing.
-3. **"Materialization source, never a load-time layer" is the right boundary,
-   and the plugin contract inherits it rather than re-deciding it.**
-   Third-party content reaching the harness through a diff the operator reads
-   is a categorically different risk from content consulted at load, and no
-   plugin design gets to reopen that; yoyodyne-ifd.32's contract cites this
-   design instead of arguing with it.
-4. **Drift is a read-model derivation from the start.** "Is this project
-   current" is a domain derivation that at least three surfaces will show;
-   `surfaces-project-one-read-model` rules out a CLI-local computation.
+The development manager decides `checks`, `landing_checks`, and the execution-time settings listed below, within the approved verification design.
 
-The question routed to the operator below stays theirs and stays open; the
-drift report's conversational surfacing is not implemented until they answer.
+The publication run uses the verification requirements that authorized that run. Proposed configuration cannot remove or weaken its own verification gate. Testing the proposed check commands is additional evidence, not a replacement for existing required checks or independent review.
 
-## Open: for the operator
+A reduction in verification coverage must cite the architectural ruling and revision-bound evidence that justify it. Moving a check after landing does not establish equivalent verification before integration. This configuration design alone does not authorize narrowing race coverage or treating Linux execution and Darwin cross-compilation as equivalent to required macOS execution.
 
-Whether the four-answer drift report is the right amount of attention to spend.
-It is silent when nothing changed and speaks on commands already being run, but
-it is one more thing that can speak — and the standing direction on this
-harness's surfaces is that visibility is the control, not nagging. If the
-`available` class should be silent until asked, this design should say so before
-anything implements it.
+### Developer models
+
+The development manager may replace `execution.developer_models` as one ordered list. The first matching label wins, so order is part of the requested value. The action never sorts, merges, or deduplicates the list on the caller's behalf. It uses existing label and model validation, refuses duplicate labels, and preserves the configured fallback when no rule matches.
+
+This permission changes neither reviewer configuration nor provider, account, role, or tool authority. Explicit slot endpoint choices retain the precedence specified by the execution-routing design; changing this list does not override them.
+
+### Developer capacity and work preferences
+
+The Lead Product Manager decides `execution.developer_slots` preferences because they affect which ready work is pulled first. The development manager decides `execution.max_concurrent_developers` within the capacity supported by existing agent configuration. This action cannot edit an agent or its instance count.
+
+A request requiring both decisions carries each owner's recorded decision. Neither role decides on the other's behalf.
+
+Slot positions matter. Preserve empty entries and unedited positions, validate labels with the existing domain validator, and refuse a preference list longer than the resulting capacity. Preserve the standing requirement for a reliability-preferring seat. These permissions cover work preferences and capacity, not slot endpoint routing.
+
+Reducing capacity does not terminate, renumber, or reassign an existing run. A change that removes an occupied slot waits until the slot can be removed under the execution-routing design. New work uses only capacity permitted by the activated configuration.
+
+### Existing recurring tasks
+
+The owner of an existing recurring task may change only `every`, `model`, and `max_turns`. Ownership is checked against the existing task and authenticated invocation before applying the change. The action cannot create, delete, rename, enable, disable, or reassign a task, or change its prompt or workflow.
+
+Intervals are at least five minutes. Zero `max_turns` selects the default of three; positive values cannot exceed ten; negative values are refused. An empty model selects the role's configured model. The recorded explanation states these effective meanings rather than calling zero unlimited or treating an empty model as absent execution.
+
+Because the project task map replaces the inherited map, an update compares the complete expected task map and preserves all other tasks. Materializing an inherited map must not silently remove, add, or change another task. The prepared diff and effective comparison expose any such change, and the action refuses it.
+
+### Operational thresholds
+
+The development manager may change only the following threshold fields. Every request states the effective meaning of its proposed values. Existing field validation and relationships still apply.
+
+| Fields | Additional bounds for this action |
+| --- | --- |
+| `execution.check_timeout`, `execution.check_stage_timeout`, `execution.landing_check_timeout`, `execution.work_poll`, `execution.redeploy_drain_limit` | Positive finite durations. |
+| `execution.repair_attempts_before_replan`, `execution.integration_retries_before_reconciliation`, `execution.transient_relaunches_before_blocking` | Nonnegative integers. Zero allows none of the retries counted; it never means unlimited. |
+| `execution.usage_limit_max_pause`, `execution.usage_limit_in_process_pause`, `execution.usage_limit_unknown_reset_pause`, `execution.server_overload_pause` | Positive finite durations, preserving existing maximum-wait and polling relationships. |
+| `execution.factory_stall_after` | Positive finite duration; cannot disable stall detection. |
+| `execution.missing_reports_before_fresh_conversation` | Nonnegative integer; zero selects the default of three. |
+| `execution.blocked_runs_before_intake_hold`, `execution.brake_escalation_cycles` | Positive integers; cannot disable the intake brake or bounded escalation. |
+| `execution.brake_cooldown` | Nonnegative finite duration; zero removes only the additional cooldown wait. |
+| `triage.stuck_merge_age` | Positive finite duration. |
+| `triage.review_rounds_cap` | Nonnegative integer under its existing validation and meaning. |
+| `triage.repair_grant_attempts` | An explicitly configured value is a positive integer. The derived-value rule below also applies. |
+
+Changing a duration does not change what it bounds or authorize an otherwise forbidden interruption. These permissions do not alter failure classification or make a dropped connection or sleeping machine a failure of the work. Check interruption and provider recovery keep their governing recovery rules.
+
+A threshold edit does not release a hold, reset a counter, revive stopped work, grant another repair, or extend an existing operation's budget. Those acts use existing recovery actions and their separate authority checks.
+
+## Effective changes and concurrency
+
+Before publication, resolve and validate the complete proposed configuration, then compare every effective change with the authorized request. Permission to edit one source field does not automatically authorize every consequence of the edit. Changes through inheritance, aliases, YAML references, or defaults are included in the comparison.
+
+Changing `execution.repair_attempts_before_replan` may change an unstated `triage.repair_grant_attempts`. The development manager may authorize both effects explicitly. The action records both effective changes and leaves the grant unstated, preserving its derivation. An explicitly configured grant remains unchanged unless separately named in the request. Other effects outside the authorized request are refused.
+
+Ordered-list replacement compares the entire expected prior list, including order. A task edit compares the entire expected task map. The action also compares the configuration and baseline source digests with the recorded expected pair. A concurrent change requires renewed comparison and a fresh owner decision where the requested effects change; it is never resolved by an automatic merge that changes the decision's meaning.
+
+Configuration parsing, semantic validation, authority checking, and effective-change comparison are separate checks. A duration that parses, or a key that exists, has not thereby passed the others.
+
+## Reviewed publication and safe writes
+
+Prepare changes in an isolated harness-managed worktree. Record the expected configuration and baseline contents, intended replacement digests, deciding invocation, applicable authority, and publication operation before writing. Never prepare routine role changes by modifying the operator's primary working tree.
+
+Use the shared physically confined writer with held directory handles and destination checks. Write complete temporary files, synchronize their contents, and publish them through the supported safe replacement or creation operation. Creation must refuse an occupied name. Synchronize the containing directory where required for durable publication. A check followed by an unrestricted path-based replacement is not sufficient protection against concurrent or redirected writes.
+
+Safe replacement of one file is not an atomic transaction across two files. A preparation interruption may leave only part of the intended pair. Reconciliation reads both files and compares them with the recorded expected and intended contents before deciding whether to complete preparation, adopt a completed preparation, or stop for conflicting changes. It never overwrites unrelated changes merely to make the pair agree.
+
+The reviewed candidate contains the exact authorized configuration change and any corresponding baseline changes together. The protected-path authorization is bound to that candidate and operation. A developer cannot enlarge the grant or substitute another configuration value. Independent review checks field ownership, effective changes, baseline treatment, verification requirements, and confinement evidence.
+
+Normal integration checks the current target against the expected source state. A changed target requires reconciliation and renewed evidence under the existing delivery rules. The merge makes the reviewed pair part of one committed revision. No active service loads a partly prepared pair from the isolated worktree.
+
+An uncertain write or publication result is reconciled under the same operation identity before retrying. Read back the candidate, commit, and publication evidence; adopt an already completed outcome where established. Do not duplicate a commit or publication, and do not infer that an error means nothing happened.
+
+Record a refusal or interruption with preserved work and its specific cause. Failure to publish is not a reason to hand the operator a paste or request that they commit the recommendation manually.
+
+## Activation and existing work
+
+Publication records the committed configuration revision. Activation uses the existing explicit reload or restart boundary and records which service or invocation consumed it. A committed change is not claimed as active until that evidence exists.
+
+New invocations and newly created bounded operations use the activated configuration. Existing attempts, waits, grants, routing snapshots, and cumulative work-item budgets retain their recorded limits and expenditure. Configuration changes never migrate authority into an active invocation.
+
+Where an older operation lacks its original limit, recovery must reconcile that absence; the latest configuration is not evidence of the earlier limit. Invalid reloads retain the last valid configuration and explain the refusal. Reverting configuration is another reviewed change and cannot erase expenditure or history.
+
+## Third-party bundles
+
+A third-party bundle may be a materialization source, never a load-time layer. At the operator's explicit instruction, `materialize --from <bundle>` reads its content once and writes project-owned values for inspection. Upgrading a plugin cannot change a running project's configuration through an external resolution layer.
+
+Bundle discovery, fetching, verification, and pinning belong to the plugin design. This design supplies no registry or network-fetch mechanism.
+
+Bundles are ordinary configuration. They never write protected role definitions under `.yoyodyne/roles/`, activate authority, or widen a role through persona guidance. Existing bundle validation, including refusal of product identity and another `extends`, applies to third-party content too. Unpacked content and all resulting writes remain confined to their declared roots.
+
+The operational action cannot use a third-party bundle to evade its field permissions. Even a valid bundle is evidence for a proposed value, not authority to apply it.
+
+## Decisions and rejected alternatives
+
+Materialization continues to express project ownership. A second ownership schema was rejected because the configuration already distinguishes stated and inherited values.
+
+The baseline remains committed, digest-only evidence outside the load path. Machine-local baselines were rejected because collaborators need the same comparison history. Reconstructing history from current value equality was rejected because it cannot distinguish an unchanged value from a deliberate edit back to that value.
+
+Operational authority is field-specific and enforced in trusted code. Blanket permission over numeric settings or recognized schema keys was rejected because some values disable safeguards or change authority. Whole-section writes and automatic list merging were rejected because they can change decisions the caller does not own.
+
+Routine recommendations use reviewed delivery. Direct agent writes to protected paths and operator pastes were rejected because the former bypass confinement and authority, while the latter make the operator drive routine work.
+
+Publication retains its prior verification requirements. Allowing a configuration change to weaken the checks that authorize itself was rejected because it would make configuration its own evidence.
+
+These choices apply existing repository invariants. They do not create a new repository-wide invariant or redefine product intent. The companion authority and recurring-task provisions belong in Configurable workflows, alongside its protected-path rules and authority table.
+
+## Acceptance
+
+A reviewer must be able to establish all of the following:
+
+- Materialization and extraction preserve effective configuration and its revision, including personas, approval opt-ins, and whole-list or whole-map semantics.
+- The loader never opens the baseline. Missing or unsupported baseline evidence does not stop valid project execution and is never classified as an available improvement.
+- A permitted role can deliver a specific operational change through independent review and normal integration without an operator paste or routine approval decision.
+- A recognized but unauthorized field, an authority-bearing field, a role-directory grant, an unauthorized caller, and a mixed request containing an unauthorized effect are refused.
+- Model-list order, empty slot positions, existing task identities, and unrelated tasks survive permitted edits. Concurrent changes are detected.
+- Zero task turns means three; zero retry count allows none; zero missing-report threshold means three; zero brake cooldown preserves holds and probe limits. Attempts to disable the intake brake or stall detection through this action are refused.
+- A derived repair-grant change requires explicit authorization of its effect and preserves its unstated origin. An explicit grant is not changed accidentally.
+- Inheritance or YAML references cannot cause an unapproved effective change.
+- Partial adoption changes only its authorized value and baseline entry, retains unrelated history, and records the adopted source revision. An explicit non-adoption choice with an unknown baseline leaves that uncertainty visible.
+- Baseline migration neither fabricates old values nor converts unknown history into safe adoption.
+- Crashes before, between, and after preparation writes, occupied creation names, conflicting replacements, and uncertain publication are reconciled without lost unrelated changes or duplicate publication.
+- The configuration change cannot weaken its own checks. Reduced coverage needs its governing ruling and candidate-bound evidence; postlanding checks do not substitute for required preintegration verification.
+- Active runs retain their limits, spent counters, slot identities, and authority. A capacity reduction cannot remove an occupied slot by silently renumbering its run.
+- Status distinguishes decided, prepared, reviewed, published, and activated changes and names the deciding role without manufacturing operator approval.
+
+## Scope left elsewhere
+
+This design does not change what `init` chooses to materialize, define fleet-wide mutable state, design a bundle registry, grant configuration access to new roles, or choose optimal performance thresholds. The development manager owns decomposition, and the Lead Product Manager owns work ordering. Bounded race-check adoption retains its separate verification ruling and implementation prerequisites.
