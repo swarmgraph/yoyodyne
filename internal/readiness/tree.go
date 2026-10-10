@@ -45,10 +45,30 @@ type Repository struct {
 	// refused rather than followed, so a citation that walks out of the tree is
 	// absent rather than a way to read the machine.
 	Root string
+	// GoRoot is the Go installation whose standard library a symbol the tree
+	// does not declare is read against. Empty is the one the environment names,
+	// or the one this binary was built with.
+	GoRoot string
 
-	once   sync.Once
-	source []byte
-	loaded error
+	once    sync.Once
+	source  []byte
+	loaded  error
+	library sync.Once
+	std     *standardLibrary
+}
+
+// Library reports what Go's standard library says of a symbol. It is read only
+// for a symbol the tree does not declare, and at most once per pull, so a pull
+// whose citations are all repository symbols never opens it.
+func (r *Repository) Library(symbol string) (Library, error) {
+	r.library.Do(func() {
+		root := strings.TrimSpace(r.GoRoot)
+		if root == "" {
+			root = goRoot()
+		}
+		r.std = &standardLibrary{root: root}
+	})
+	return r.std.lookup(symbol)
 }
 
 // File is how many lines the file at this repository-relative path has. A path

@@ -5790,6 +5790,12 @@ func (t citingTree) Declares(symbol string) (bool, error) {
 	return t.declares[symbol], nil
 }
 
+// Library answers that the standard library has none of what the tree lacks,
+// so a symbol these tests leave undeclared stays a stale citation.
+func (t citingTree) Library(string) (readiness.Library, error) {
+	return readiness.Library{Source: "the test's stand-in"}, nil
+}
+
 // The four shapes that cost a run each in a fortnight, replayed against a
 // scheduler that reads the tree: a pinpoint naming code the tree no longer has,
 // an item that says it inherits machinery nothing has landed, one that states its

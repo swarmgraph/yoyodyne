@@ -211,7 +211,8 @@ func Kinds(unmet []Unmet) []string {
 	return kinds
 }
 
-// Tree is the repository as it stands, in the two reads this makes of it.
+// Tree is the repository as it stands, in the reads this makes of it, and the
+// standard library its source is written against.
 type Tree interface {
 	// File is how many lines the file at this repository-relative path has, and
 	// whether the tree has the file at all. A path that leaves the tree is
@@ -221,6 +222,10 @@ type Tree interface {
 	// Declares reports the tree's own source naming this symbol — as it is
 	// written, as its type and member, or as a method declared on that type.
 	Declares(symbol string) (bool, error)
+	// Library reports what the language's standard library says of a symbol
+	// the tree does not declare. A citation of a standard name is correct
+	// whether or not the tree happens to call it.
+	Library(symbol string) (Library, error)
 }
 
 // Check reports the prerequisites one item states that the tree does not meet,
@@ -290,11 +295,14 @@ var symbolPinpoint = regexp.MustCompile(`[a-z][a-z0-9]*(?:\.[A-Z][A-Za-z0-9_]*){
 // stalePinpoints reads every pinpoint the item makes against the tree. A path
 // the tree does not have is the item's subject being absent; a path it has whose
 // line is past the end, and a symbol nothing declares, are the citation having
-// gone stale under the item.
+// gone stale under the item. A symbol the tree does not declare is then read
+// against the standard library, because a standard name is a correct citation
+// whether or not the tree calls it.
 func stalePinpoints(statement string, tree Tree) ([]Unmet, []error) {
 	var (
-		unmet    []Unmet
-		problems []error
+		unmet         []Unmet
+		problems      []error
+		libraryUnread bool
 	)
 	for _, cited := range matches(statement, pathPinpoint) {
 		path, line, ok := splitPinpoint(cited)
@@ -332,14 +340,58 @@ func stalePinpoints(statement string, tree Tree) ([]Unmet, []error) {
 		if declared {
 			continue
 		}
-		unmet = append(unmet, Unmet{
-			Kind:     KindStalePinpoint,
-			Missing:  fmt.Sprintf("it cites %s, which nothing in the tree declares", symbol),
-			Evidence: "no source file names the symbol, its type and member, or a method of that name on that type",
-			Decides:  admitter,
-		})
+		library, err := tree.Library(symbol)
+		if err != nil {
+			// The tree was read and does not have the symbol, and that is still
+			// acted on, as it was before the library was consulted at all; the
+			// refusal says the library went unchecked, so nobody corrects a
+			// citation on its account without checking it. The failure is the
+			// same one for every symbol after it, so it is reported once.
+			if !libraryUnread {
+				problems = append(problems, fmt.Errorf("read the standard library for %s: %w", symbol, err))
+				libraryUnread = true
+			}
+			unmet = append(unmet, Unmet{
+				Kind:     KindStalePinpoint,
+				Missing:  fmt.Sprintf("it cites %s, which nothing in the tree declares; whether Go's standard library has it could not be checked", symbol),
+				Evidence: fmt.Sprintf("%s, and Go's standard library could not be read: %v", treeEvidence, err),
+				Decides:  admitter,
+			})
+			continue
+		}
+		if library.Declared {
+			continue
+		}
+		unmet = append(unmet, undeclared(symbol, library))
 	}
 	return unmet, problems
+}
+
+// treeEvidence is the read that says the tree does not declare a symbol.
+const treeEvidence = "no source file names the symbol, its type and member, or a method of that name on that type"
+
+// undeclared is the refusal for a symbol neither the tree nor the standard
+// library has, saying which kind of name it was looked for as. A citation
+// qualified by a standard package's name is a standard name somebody misremembered
+// or the library dropped; any other is a repository name the tree no longer has.
+// The two are corrected differently, which is why the refusal says which.
+func undeclared(symbol string, library Library) Unmet {
+	pkg, _, _ := strings.Cut(symbol, ".")
+	if len(library.Packages) > 0 {
+		packages := strings.Join(library.Packages, ", ")
+		return Unmet{
+			Kind:     KindStalePinpoint,
+			Missing:  fmt.Sprintf("it cites %s as a name in Go's standard package %s, which has no such name, and nothing in the tree declares it either", symbol, packages),
+			Evidence: fmt.Sprintf("Go's standard library, read from %s, has no such name in %s, and %s", library.Source, packages, treeEvidence),
+			Decides:  admitter,
+		}
+	}
+	return Unmet{
+		Kind:     KindStalePinpoint,
+		Missing:  fmt.Sprintf("it cites %s, a repository name that nothing in the tree declares and that is not in Go's standard library", symbol),
+		Evidence: fmt.Sprintf("%s, and Go's standard library, read from %s, has no package called %s", treeEvidence, library.Source, pkg),
+		Decides:  admitter,
+	}
 }
 
 // stated is one phrasing in which an item says of itself that something has to

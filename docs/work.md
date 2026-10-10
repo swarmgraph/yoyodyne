@@ -1493,7 +1493,12 @@ Two readings, both cheap, and neither of them a judgement about the work:
   item's title, description, design guidance, or acceptance criteria is read
   against the tree. A citation naming a file the tree does not have, a line past
   the end of one it does, or a symbol nothing declares is the cheapest possible
-  already-satisfied signal. A bare path is deliberately not read as a citation:
+  already-satisfied signal. A symbol the tree does not declare is then looked
+  up in Go's standard library, read from the release lists under the Go
+  installation's `api` directory, because a citation such as `os.Hostname` is
+  correct whether or not the tree calls it yet; the refusal for a symbol found
+  in neither says whether it was cited as a repository name or as a name in a
+  standard package. A bare path is deliberately not read as a citation:
   an item that names `docs/configuration/agents.md` is as likely to be asking for
   the file as citing it. Neither are the notes, which are where the harness
   appends each run's record and where an implementation plan names the files the
