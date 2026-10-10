@@ -145,18 +145,26 @@ func invocationsToCheck(t *testing.T) map[string][]string {
 }
 
 // assertTheCommandContractHolds is the check itself: every invocation places
-// each option on a level that lists it, and none is without its sandbox. The
-// second half is not implied by the first — dropping `--sandbox` would satisfy
-// any help there is — and a resumed session that could not be given its
-// sandbox would run under whatever it was started with.
+// each option on a level that lists it, and none is without its permission
+// profile. The second half is not implied by the first — dropping the profile
+// would satisfy any help there is — and a resumed session that could not be
+// given its profile would run under whatever it was started with. `--sandbox`
+// is refused outright, because the CLI lets it replace the selected profile.
 func assertTheCommandContractHolds(t *testing.T, source string, contract commandContract) {
 	t.Helper()
 	for name, args := range invocationsToCheck(t) {
 		if err := contract.misplacedOption(args); err != nil {
 			t.Errorf("%s, checked against %s: %v", name, source, err)
 		}
-		if optionLevel(contract, args, "--sandbox") == "" {
-			t.Errorf("%s is made without a sandbox: %q", name, args)
+		selected := false
+		for _, value := range configValues(args, "exec") {
+			selected = selected || strings.HasPrefix(value, "default_permissions=")
+		}
+		if !selected {
+			t.Errorf("%s is made without a permission profile ahead of resume: %q", name, args)
+		}
+		if level := optionLevel(contract, args, "--sandbox"); level != "" {
+			t.Errorf("%s passes --sandbox to %q, which replaces its permission profile: %q", name, level, args)
 		}
 	}
 }
@@ -190,11 +198,12 @@ func TestEveryInvocationKeepsTheRecordedCLIsCommandContract(t *testing.T) {
 
 // The check has to be able to fail. The sequence below is the one every resumed
 // session was made with until it was found refused: `--sandbox` after `resume`,
-// which `exec` takes and `exec resume` does not.
+// which `exec` takes and `exec resume` does not. The adapter no longer passes
+// `--sandbox` anywhere, but it is still the option whose placement was wrong.
 func TestTheCommandContractCheckRefusesAnOptionOnALevelThatDoesNotListIt(t *testing.T) {
 	t.Parallel()
 
-	refused := []string{"exec", "resume", "session-1", "--json", "--skip-git-repo-check", "--sandbox", sandboxWorkspaceWrite, "--model", "gpt-6.1-sol", "-"}
+	refused := []string{"exec", "resume", "session-1", "--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--model", "gpt-6.1-sol", "-"}
 	err := recordedContract(t).misplacedOption(refused)
 	if err == nil || !strings.Contains(err.Error(), `"--sandbox" is passed to "exec resume"`) {
 		t.Fatalf("misplacedOption() error = %v, want it to name --sandbox on exec resume", err)
@@ -248,9 +257,9 @@ func TestLocalConformance(t *testing.T) {
 		t.Skipf("Codex unavailable or unauthenticated: %#v", availability)
 	}
 
-	// The developer, because it is the only role the built-in Codex description
-	// can be held to a posture for: its sandbox scopes writes to a directory, and
-	// has no setting for the read-only posture the advisory roles require.
+	// The developer, because its permission profile is the one that writes:
+	// a turn that completes under it shows the profile's directories were
+	// accepted by a real CLI.
 	result, err := provider.Run(context.Background(), backendapi.RunRequest{Model: "gpt-6.1-sol",
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
