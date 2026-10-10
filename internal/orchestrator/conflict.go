@@ -17,7 +17,8 @@ package orchestrator
 // Two things let it see one coming: an item and the epic a run is already over,
 // which are one scope however the tracker files them, and two items that will
 // change the same files. Sharing a parent is deliberately not a third, though
-// it was until yoyodyne-ifd.261.
+// it was until yoyodyne-ifd.261. Priority-0 work is not held back by the second
+// behind a run over less urgent work (outranks).
 //
 // The intent this map carried was that two children of one epic race each other:
 // work broken out of one piece is work over one part of the repository. That is
@@ -77,6 +78,9 @@ const maxSequencedItemsNamed = 3
 type holder struct {
 	item string
 	run  string
+	// priority is the priority of the item the run is over, as the pull read it,
+	// which decides whether top-priority work waits for it (outranks).
+	priority int
 }
 
 // String is how the reason names the run.
@@ -153,7 +157,7 @@ func (f *inFlight) take(item beads.WorkItem, run string) {
 	if id == "" {
 		return
 	}
-	by := holder{item: id, run: strings.TrimSpace(run)}
+	by := holder{item: id, run: strings.TrimSpace(run), priority: item.Priority}
 	claim(f.running, id, by)
 	// Parentage is read whichever way the tracker states it, as the queue-side
 	// coverage check reads it. bd states it as a field beside the item and as a
@@ -206,7 +210,7 @@ func (f *inFlight) against(item beads.WorkItem) (conflict, bool) {
 		return conflict{}, false
 	}
 	for _, taken := range f.taken {
-		if taken.by.item == id {
+		if taken.by.item == id || outranks(item, taken.by) {
 			continue
 		}
 		if shared, races := surface.Shared(mine, taken.paths); races {
@@ -214,6 +218,20 @@ func (f *inFlight) against(item beads.WorkItem) (conflict, bool) {
 		}
 	}
 	return conflict{}, false
+}
+
+// outranks is whether a candidate is started over a surface it shares with a
+// run rather than sequenced behind it: the candidate is at priority 0 and the run
+// is over less urgent work. A wait behind a run lasts as long as the run does,
+// which for a run whose record says it is going when nothing is carrying it is
+// indefinitely, and in the meantime every slot goes to work below the top of the
+// order. Racing it costs a replay, and the less urgent run is the one that pays:
+// whichever change promotes second replays, and top-priority work started now is
+// usually first. Only the shared surface gives way. A child of an epic a run is
+// over still waits whatever either's priority, because that is the same change
+// made twice rather than two changes that touch one file.
+func outranks(candidate beads.WorkItem, run holder) bool {
+	return candidate.Priority == 0 && run.priority > 0
 }
 
 // reason is what the schedule says about an item held back for this conflict. It

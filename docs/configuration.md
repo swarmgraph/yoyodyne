@@ -3198,7 +3198,8 @@ twelve in the same order, and a test fails when the two lists differ:
    once the last of them leaves the backlog.
 3. **A race with work in flight** withholds an item that shares an epic
    decomposition or files with a run in flight, and releases it at the first
-   pull after that run ends.
+   pull after that run ends. Files alone never hold a priority-0 item behind a
+   run over less urgent work.
 4. **A conversation executor** withholds an item whose `executor` names a
    persona conversation from every developer run; nothing clears it, and what
    moves the item is somebody opening the conversation it names.
@@ -3218,7 +3219,7 @@ twelve in the same order, and a test fails when the two lists differ:
 9. **A label another slot prefers** withholds an item every free developer slot
    walked past for its preferred label, and the next slot with no preference to
    come free — or the preferring slot, once its label's work is exhausted —
-   releases it.
+   releases it. A priority-0 item is never walked past for a label.
 10. **The tracker not calling it ready** withholds an item with unfinished
     dependencies or a status that is not open, and the tracker's own readiness
     releases it.
@@ -3250,7 +3251,10 @@ declining a race. That one
 is a wait rather than a refusal: the conflicts are re-read at every pull from
 what is actually in flight, so the item is pulled at the first pull where the run
 it would have raced has ended, and the slot the hold freed is spent on the next
-item down the order that races nothing. An item says which files it will change
+item down the order that races nothing. A priority-0 item is not held behind a
+run over less urgent work for sharing files with it: it is started, and the
+less urgent change is the one likely to replay. It still waits behind a run
+over the epic it was broken out of. An item says which files it will change
 by naming them after `conflict-surface:` on a line of its own, in its title,
 description, design guidance, or acceptance criteria; an item that declares
 nothing has those same fields read for the files it plainly names, and that
@@ -3326,7 +3330,8 @@ one developer run takes. By default every slot pulls in the order you set. A
 slot can instead prefer a **label** — the tracker's own labels, which the
 Lead Product Manager and the development manager put on work items — and then it
 pulls the ready work carrying that label first, wherever that sits in the
-order, and the rest of the backlog only when none of its label's work is ready.
+order below priority 0, and the rest of the backlog only when none of its
+label's work is ready.
 On 2026-09-19 the operator directed that one of Yoyodyne's own developer
 [seats](terms.md#the-register) — one running developer, as against the slot,
 which is the capacity it fills — be dedicated to the `reliability` label, and
@@ -3380,7 +3385,12 @@ Three things follow from a preference, in the order a pull applies them:
   above and a reliability-labelled bug at priority 2 under an unlabelled item
   at priority 1, slot 1 pulls the bug ahead of the unlabelled one; the run's
   recorded reason says it was pulled into developer slot 1, which prefers the
-  reliability label the item carries.
+  reliability label the item carries. Priority 0 is the exception: a preferring
+  slot takes ready priority-0 work before any of its label's work at a lower
+  priority, label or none, so a preference never starts less urgent work ahead
+  of the top of the order. The run's recorded reason says the item does not
+  carry the slot's label and was taken ahead of that work because it is at
+  priority 0.
 - **A slot with no preference leaves labelled work to a preferring slot that is
   free to take it.** With slots 1 and 2 both free, the reliability item goes to
   slot 1 and slot 2 takes the next unlabelled item down the order. Where no
