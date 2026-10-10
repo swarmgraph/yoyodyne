@@ -502,8 +502,8 @@ Every term of art the harness uses where a person or a role reads it: where it
 appears, how often, what it means in one plain sentence, and the decision made
 on it — replace it with ordinary words, or register it in
 [the register](terms.md) as a term that names something real. The operator
-asked for it on 2026-09-27, after a program manager's report reached him saying
-"environmental stop" and "idle bound" and nothing told him what either meant.
+asked for it on 2026-09-27, after a program manager's report reached them saying
+"environmental stop" and "idle bound" and nothing told them what either meant.
 It is the inventory of the harness's coined vocabulary (yoyodyne-ifd.437.18).
 The Lead Product Manager made the decisions on every term in it on 2026-10-08.
 

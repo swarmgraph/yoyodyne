@@ -7286,7 +7286,7 @@ When a stall begins the harness files a critical report in its own voice,
 naming how long nothing has happened, when work was last pulled and a pass
 last succeeded, and what each recurring task's latest attempt failed on. The
 report goes into the pile every report goes into, so it is put in front of the
-operator wherever critical reports reach him and delivered to the Lead Product
+operator wherever critical reports reach them and delivered to the Lead Product
 Manager as a turn of its own. It is filed once per stall: the stall is recorded
 in `factory-stalls.jsonl` under the product's state directory, and readings
 that agree with a standing stall write nothing. The first pull or successful

@@ -1168,7 +1168,7 @@ you gave to an agent other than the Lead Product Manager gets written down:
 That last one is the shape of a real repair. Until questions were told from
 instructions, a question typed in a Slack thread was recorded as a standing
 directive — the operator's *What does 'in force from now' mean?* of 2026-08-30
-and his *Did you restart?* a week later both were — and a question in the record
+and their *Did you restart?* a week later both were — and a question in the record
 is a directive nobody gave. The listing reads its entries by the same rule the
 channel now reads replies with, and marks any operational directive that still
 applies and whose words are a question: *reads as a question rather than an

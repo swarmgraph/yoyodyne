@@ -1051,7 +1051,7 @@ until you answer it.
 The rule cannot stop work, and the two kinds that do are still yours to state.
 It used to be that the record took everything: on 2026-08-30 the operator asked
 in a thread what a phrase in a receipt meant, the reply was recorded as a
-standing instruction, and the acknowledgment repeated the phrase he was asking
+standing instruction, and the acknowledgment repeated the phrase they were asking
 about. A question in the directive record is a directive nobody gave, and
 enforceability presumes there are none — which is why `yoyo directive list` and
 `/directives` now mark any entry that still applies and reads as a question, so

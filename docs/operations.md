@@ -1841,7 +1841,7 @@ the availability check failed outright and counted toward the intake brake.
 From 2026-09-17 18:17 local the Claude Code login on the operator's machine had
 expired; three runs blocked in a row, the brake tripped, every recurring pass
 recorded 0 turns, and the maintenance job restarted the watch 158 times. Nothing
-told him. He learned by asking, three days later.
+told them. They learned by asking, three days later.
 
 **A provider that is not authenticated or cannot be reached is a named wait
 that spends nothing.** Two conditions earn it, and they are told apart only by
@@ -4163,7 +4163,7 @@ Not startable (4 of 7 admitted items; 1 awaits the development manager's decisio
   - 1 waits on the harness carrying out a decision already recorded — next: the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull; whose: the harness's
   - 1 waits on other items — next: the harness pulls each once the work it waits on lands; whose: the harness's
   - 1 is parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's
-  - nothing here is the operator's: under his rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one
+  - nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one
   yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
   yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
@@ -4279,7 +4279,7 @@ has the rule.
   `45 ready, waiting for a developer slot; 3 slots, all taken`, saying nothing
   is asked of anybody. On 2026-09-27 forty-five such items were counted among
   "140 admitted items nothing will pull", filed under the same kind as a
-  session choosing nothing, and the operator asked what he was meant to do
+  session choosing nothing, and the operator asked what they were meant to do
   about a line that said nothing will pull work that was next in line.
 
   **Under it, the refused work is counted by what it waits on**, one `-` line
@@ -4297,7 +4297,7 @@ has the rule.
   from her conversation, which ends it and lifts the pause); a step
   only a person can take (the operator's, by `yoyo gate record`); ready work
   a switch or a missing session stops (whoever the reason names — the operator
-  for his hold or a session that is not running, the development manager or the
+  for their hold or a session that is not running, the development manager or the
   harness for a hold the brake placed, nobody for a usage window); other items
   (the harness's, as they land); an item above them in the tracker's tree that
   waits on other work, one group per waiting item, naming it and what it waits
@@ -4305,7 +4305,7 @@ has the rule.
   role (that role's); parked by the Lead Product Manager (hers); covered by
   other work, its own unfinished children (the harness's); and not offered by
   the tracker for a reason nothing here can read. **The last `-` line says in one sentence whether
-  anything on the line is the operator's** — under his rule of 2026-09-26 only a
+  anything on the line is the operator's** — under their rule of 2026-09-26 only a
   change to the fundamental goals is — naming what is where something is, and
   saying `nothing here is the operator's` where nothing is. The items themselves
   follow, as before. The brief rendering the channel's hourly message carries
