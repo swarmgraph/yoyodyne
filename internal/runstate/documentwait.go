@@ -149,10 +149,10 @@ func (s *Store) DocumentWaits() ([]DocumentWait, error) {
 	}
 	var waits []DocumentWait
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), documentWaitSuffix) {
 			continue
 		}
-		runID := strings.TrimSuffix(entry.Name(), ".json")
+		runID := strings.TrimSuffix(entry.Name(), documentWaitSuffix)
 		if !runIDPattern.MatchString(runID) {
 			continue
 		}
@@ -224,5 +224,9 @@ func (s *Store) documentWaitDirectory() string {
 }
 
 func (s *Store) documentWaitPath(runID string) string {
-	return filepath.Join(s.documentWaitDirectory(), runID+".json")
+	return filepath.Join(s.documentWaitDirectory(), runID+documentWaitSuffix)
 }
+
+// documentWaitSuffix names a wait file apart from a run record, which is named
+// for the same run with ".json" alone.
+const documentWaitSuffix = ".wait.json"
