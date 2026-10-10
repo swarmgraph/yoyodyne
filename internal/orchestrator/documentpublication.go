@@ -108,6 +108,8 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		return runstate.DocumentDelivery{}, err
 	}
 	if attempt == runstate.MaxDocumentAttempts {
+		// Every attempt is spent, so no slot will start another.
+		p.clearDocumentWait(document)
 		return p.handOverDocument(ctx, docket, record, *previous)
 	}
 	if previous != nil {
@@ -131,6 +133,14 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	var held documentHeld
 	if errors.As(err, &held) {
 		return runstate.DocumentDelivery{RunID: held.runID, Detail: held.summary, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. It is tried again at the next message and does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, held.summary)}, nil
+	}
+	var waiting documentWaiting
+	if errors.As(err, &waiting) {
+		return p.waitForSlot(ctx, document, waiting)
+	}
+	var inFlight documentInFlight
+	if errors.As(err, &inFlight) {
+		return runstate.DocumentDelivery{RunID: inFlight.runID}, nil
 	}
 	if !ran || !saved.Status.Terminal() {
 		// A pause retains the confirmed handoff in the conversation. A store or
@@ -220,6 +230,27 @@ type documentHeld struct {
 }
 
 func (h documentHeld) Error() string { return h.summary }
+
+// documentWaiting is an attempt every developer slot being taken kept from
+// starting; PublishDocument records the document as waiting for one.
+type documentWaiting struct {
+	runID    string
+	attempt  int
+	capacity runstate.CapacityError
+}
+
+func (w documentWaiting) Error() string { return w.capacity.Error() }
+
+// documentInFlight is an attempt whose run another process holds: the
+// scheduler, or another message of the conversation, is running it now, and its
+// ending is read back at a later offer.
+type documentInFlight struct {
+	runID string
+}
+
+func (f documentInFlight) Error() string {
+	return "run " + f.runID + " is already publishing this document"
+}
 
 // documentItem is the bookkeeping item one attempt's run is recorded under.
 func documentItem(document runstate.DocumentPublication, attempt int) beads.WorkItem {
@@ -357,7 +388,15 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 	var lease *runstate.Lease
 	started := false
 	if err == nil {
+		// A run of this attempt is recorded, so it is not waiting for a slot
+		// whoever reserved it.
+		p.clearDocumentWait(document)
 		state, lease, err = p.Store.AdoptRun(ctx, runID)
+		if errors.Is(err, runstate.ErrRunHeld) {
+			// The scheduler, or another message of the conversation, is running it
+			// now. Its ending is read back at a later offer.
+			return runstate.State{}, false, documentInFlight{runID: runID}
+		}
 		if err != nil {
 			return runstate.State{}, false, err
 		}
@@ -387,10 +426,20 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 		}
 		state = runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: runID, ProductID: p.Config.Product.ID, RepositoryID: string(p.Config.Product.RepositoryID), WorkItemID: item.ID, WorkItemTitle: item.Title, Backend: p.reviewer().Backend, ConfigRevision: p.Config.Revision(), Build: p.Build, Status: runstate.StatusPending, Document: &document, TargetBranch: target}
 		state, lease, err = p.reserveRun(ctx, state)
-		if err != nil {
+		var capacity runstate.CapacityError
+		var existing runstate.ExistingWorkItemError
+		switch {
+		case errors.As(err, &capacity):
+			return runstate.State{}, false, documentWaiting{runID: runID, attempt: attempt, capacity: capacity}
+		case errors.As(err, &existing):
+			// Another process reserved it between the look above and this one.
+			p.clearDocumentWait(document)
+			return runstate.State{}, false, documentInFlight{runID: runID}
+		case err != nil:
 			return runstate.State{}, false, err
 		}
 		defer lease.Release()
+		p.clearDocumentWait(document)
 		started = true
 		record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to publish document %s (%s), written by the %s in conversation %s at turn %d; attempt %d of at most %d.", runID, document.WriteID, document.Candidate.Artifact.Title, document.Owner.Title(), document.ConversationID, document.Turn, attempt+1, runstate.MaxDocumentAttempts))
 	}
@@ -486,7 +535,75 @@ func (p Pipeline) refuseDocument(document runstate.DocumentPublication, refusal 
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return runstate.DocumentDelivery{}, errors.Join(refusal, err)
 	}
+	// Nothing will ever publish it as it stands, so it is not waiting for a slot
+	// either; its conversation meets the same refusal at its next message and
+	// takes the document down the path it would take now.
+	p.clearDocumentWait(document)
 	return runstate.DocumentDelivery{}, fmt.Errorf("%w: %v", runstate.ErrDocumentNotPublishable, refusal)
+}
+
+// DocumentWaits is where a confirmed document waits for a developer slot when
+// every slot is taken; see runstate.DocumentWait. It is an optional capability
+// of the pipeline's StateStore, satisfied by *runstate.Store. A store without it
+// keeps nothing waiting, and the document is offered again only at its
+// conversation's next message, as it was before the scheduler could start one.
+type DocumentWaits interface {
+	WaitForSlot(ctx context.Context, document runstate.DocumentPublication, attempt int, at time.Time) (runstate.DocumentWait, bool, error)
+	ClearDocumentWait(runID string) error
+}
+
+// waitForSlot records a document whose attempt every developer slot being
+// taken refused, so the scheduler starts it in the next slot that frees. Its
+// conversation keeps the handoff and is told once that it waits; nothing about
+// it is a failure.
+func (p Pipeline) waitForSlot(ctx context.Context, document runstate.DocumentPublication, refused documentWaiting) (runstate.DocumentDelivery, error) {
+	capacity := refused.capacity
+	delivery := runstate.DocumentDelivery{RunID: refused.runID, WaitingForSlot: &capacity}
+	waits, ok := p.Store.(DocumentWaits)
+	if !ok {
+		delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a developer slot (%s). It is tried again at the next message in this conversation; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
+		return delivery, nil
+	}
+	if _, waiting, err := waits.WaitForSlot(ctx, document, refused.attempt, p.clock().Now()); err != nil {
+		return runstate.DocumentDelivery{}, fmt.Errorf("record document %s as waiting for a developer slot: %w", document.WriteID, err)
+	} else if !waiting {
+		// Another process reserved its run under the same lock just now.
+		return runstate.DocumentDelivery{RunID: refused.runID}, nil
+	}
+	delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a developer slot (%s). The harness starts its reviewed run in the next slot that frees, ahead of any new development run, without waiting for a message here; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
+	return delivery, nil
+}
+
+// clearDocumentWait takes a document off the slot wait. It is called where a
+// run of the document is recorded, or where none ever can be, and a wait it
+// could not clear decides nothing: the next offer of it finds the run recorded
+// or the confirmation lapsed and clears it then.
+func (p Pipeline) clearDocumentWait(document runstate.DocumentPublication) {
+	if waits, ok := p.Store.(DocumentWaits); ok {
+		_ = waits.ClearDocumentWait(document.RunID())
+	}
+}
+
+// PublishWaitingDocument is the scheduler starting a document that waited for a
+// developer slot: the same publication its conversation would offer, through
+// PublishDocument, answered as the outcome of a run the scheduler hosted. A
+// document that lost the slot to another run is answered with the capacity
+// error, which the scheduler records as declined rather than failed.
+func (p Pipeline) PublishWaitingDocument(ctx context.Context, document runstate.DocumentPublication) (Outcome, error) {
+	delivery, err := p.PublishDocument(ctx, document)
+	// The run is named only where one is recorded: a document that went on
+	// waiting held no slot, and a schedule naming a run would say one freed.
+	// The run is the attempt this call made, which a document whose earlier run
+	// stopped without judging it gives a run of its own.
+	runID := nonEmpty(delivery.RunID, document.RunID())
+	outcome := Outcome{WorkItemID: runID, Summary: strings.TrimSpace(nonEmpty(delivery.Detail, delivery.Retrying))}
+	if state, loadErr := p.Store.Load(runID); loadErr == nil {
+		outcome.RunID, outcome.Status, outcome.Phase = state.RunID, state.Status, state.Phase
+	}
+	if err == nil && delivery.WaitingForSlot != nil {
+		return outcome, *delivery.WaitingForSlot
+	}
+	return outcome, err
 }
 
 // A process can disappear after the target moved but before its record was

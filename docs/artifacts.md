@@ -249,6 +249,17 @@ changes, say — never holds up the conversation. The confirmed document stays
 saved, the owning role is told what is holding it, and it is tried again at the
 next message without being written again.
 
+A run that cannot start because every developer slot is taken is not a failure.
+The document is kept as waiting for a slot, in the run store beside the runs it
+waits behind, and the owning role is told once. A watching session
+(`yoyo work --watch`, which `yoyo start` runs) starts it in the next slot that
+frees, ahead of any new development run and without waiting for a message in
+the conversation; a run already going is never stopped for it. The conversation
+still offers it at its next message, and whichever reserves the slot first runs
+it — the same document is never given two runs, across a restart too.
+`yoyo status` lists a waiting document under the not-startable line, beside the
+ready work waiting for a slot, naming the document and the role that owns it.
+
 This also applies to documents already waiting in a conversation's store:
 when that conversation resumes, the harness uses their saved identities and
 content before asking the role to write anything else. Confirmation and the
@@ -345,7 +356,9 @@ harness starts another run of the same confirmed text at the next message, up
 to three runs in all, and the owner is told it does not need to write anything
 again. After a check time limit the next run waits until fewer developer runs
 are going than when the checks ran out of time, and the run's record says what
-it waited for. If all three runs stop that way, the last is handed to the
+it waited for. A retry that finds every developer slot taken waits
+for a slot the way a first run does, and a watching session starts it as one
+frees. If all three runs stop that way, the last is handed to the
 development manager as a stopped run, with the confirmed text kept on its
 record, rather than back to the owner. A document whose publication had already
 stopped over such runs is published again from its kept text the next time its

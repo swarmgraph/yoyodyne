@@ -245,7 +245,8 @@ context bundle come from `internal/contextbundle`.
 | `recordedbackend.go` | `DeveloperBackends`, `developerBackendFor`, `RecordedBackendError`: a run's developer on the backend the run recorded; `erasedSession`: a session a failed attempt erased, read back from the event log |
 | `redeploydrain.go` | `RedeployDrain`, `drainedForRedeploy`, `pauseForRedeploy` |
 | `runretirement.go` | `RunRetirer.Retire` — retire a run whose item closed on a confirmed merge |
-| `documentpublication.go` | `PublishDocument`, exact-file gate, independent review without a developer, returns to the owning conversation, retries of a run that judged nothing and the hand-over to the development manager once they are spent |
+| `documentpublication.go` | `PublishDocument`, exact-file gate, independent review without a developer, returns to the owning conversation, retries of a run that judged nothing and the hand-over to the development manager once they are spent; `waitForSlot` records a document every developer slot refused (`runstate.DocumentWait`), and `PublishWaitingDocument` is the scheduler starting one |
+| `scheduledocuments.go` | `ScheduleDocuments`, `nextDocuments`: each pull starts the documents waiting for a developer slot into its free slots before carry-outs, continuations, and the queue |
 | `publish.go`, `publication.go` | pushing branches, pull requests, merge waits, re-asking the forge later |
 | `reconcile.go`, `reconcilewait.go`, `reconcilefinding.go` | settling what stopped runs left on disk and on the forge |
 | `selfcheck.go` | `gateSelfVerification`, `missingVerification`, `verificationRepairPrompt` |

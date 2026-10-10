@@ -3293,7 +3293,10 @@ A decided repair or re-run is fired by the same pass, oldest decision first, and
 one about a stopped run whose branch or worktree is still there takes the first
 free developer slot ahead of fresh pulls of any priority, naming in its reason
 the ready work it went ahead of. Every other decision waits behind ready work of
-a higher priority than its item.
+a higher priority than its item. A confirmed document waiting for a developer slot goes ahead of all of
+these: it takes the first free slot before any decided repair or re-run, any
+run paused on work its item waits on, and any pull from the queue, and nothing
+already running is stopped for it.
 [How work flows](work.md#letting-the-harness-choose-the-work) has the whole
 rule; it changes no gate and nothing a decision costs.
 

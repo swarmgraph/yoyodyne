@@ -44,6 +44,7 @@ var runRecordPathSites = map[string]string{
 	"(*Store).writeState":    "the one replacement of an existing record; only Save and UpdateRouting call it, under the run's write lock",
 	"(*Store).load":          "reads the record; Load and Read both go through it",
 	"(*Store).storedRouting": "reads the stored routing so Save can compare it before writing",
+	"(*Store).WaitForSlot":   "asks only whether the document's run is recorded, under the reservation lock, before writing a wait of its own beside it",
 }
 
 // runRecordReplacers is every function allowed to call writeState.

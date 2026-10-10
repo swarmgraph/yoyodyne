@@ -328,7 +328,7 @@ func (s Standing) renderWaitingTurns() string {
 // operator's, and then the items themselves.
 func (s Standing) renderNotStartable() string {
 	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 && s.WaitingForSlot == nil {
-		return unreadable("Not startable", s.NotStartableProblem)
+		return unreadable("Not startable", s.NotStartableProblem) + s.renderDocumentWaits()
 	}
 	var rendered strings.Builder
 	if len(s.NotStartable) == 0 {
@@ -340,6 +340,7 @@ func (s Standing) renderNotStartable() string {
 	if s.WaitingForSlot != nil {
 		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, s.WaitingForSlot.Says(), slotWaitNext)
 	}
+	rendered.WriteString(s.renderDocumentWaits())
 	for _, group := range s.NotStartableGroups {
 		fmt.Fprintf(&rendered, "%s%s\n", tally, group.Says())
 	}
@@ -355,6 +356,22 @@ func (s Standing) renderNotStartable() string {
 	}
 	if s.NotStartableProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.NotStartableProblem)
+	}
+	return rendered.String()
+}
+
+// renderDocumentWaits is the confirmed documents waiting for a developer slot,
+// each with its owning role, said beside the ready work waiting for one because
+// that is the same wait and the harness ends it the same way.
+func (s Standing) renderDocumentWaits() string {
+	var rendered strings.Builder
+	listed, further := bound(len(s.DocumentsWaitingForSlot))
+	for _, wait := range s.DocumentsWaitingForSlot[:listed] {
+		fmt.Fprintf(&rendered, "%s%s — %s\n", tally, wait.Says(), documentWaitNext)
+	}
+	rendered.WriteString(remainder(further, "waiting document"))
+	if s.DocumentsWaitingProblem != "" {
+		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.DocumentsWaitingProblem)
 	}
 	return rendered.String()
 }

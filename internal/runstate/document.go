@@ -140,6 +140,10 @@ type DocumentDelivery struct {
 	// stopped without judging the document and the next attempt is waiting or
 	// will start at the next message. Empty for every other unsettled delivery.
 	Retrying string `json:"retrying,omitempty"`
+	// WaitingForSlot is the developer capacity that refused the run, where every
+	// slot was taken and the document is waiting for one (see DocumentWait), and
+	// nil otherwise.
+	WaitingForSlot *CapacityError `json:"waiting_for_slot,omitempty"`
 }
 
 func (d DocumentPublication) Validate() error {
