@@ -25,3 +25,26 @@ func TestAdmittedWorkIsEveryItemTheReplyPutInTheQueueOnce(t *testing.T) {
 		t.Errorf("AdmittedWork() of a reply that admitted nothing = %v", got)
 	}
 }
+
+// The work a reply acted on is every existing item its applied tracker actions
+// changed, once each: reading, surveying, creating, and a refused action are
+// not acting on waiting work.
+func TestActedOnWorkIsEveryItemTheReplyChanged(t *testing.T) {
+	t.Parallel()
+
+	reply := Reply{
+		Actions: []TrackerOutcome{
+			{Action: TrackerAction{Action: actionRead, ID: "yoyodyne-ifd.414.1"}, Applied: true, WorkItemID: "yoyodyne-ifd.414.1"},
+			{Action: TrackerAction{Action: actionSurvey}, Applied: true},
+			{Action: TrackerAction{Action: actionCreate}, Applied: true, WorkItemID: "yoyodyne-ifd.501"},
+			{Action: TrackerAction{Action: actionUpdate, ID: "yoyodyne-ab2"}, Applied: true, WorkItemID: "yoyodyne-ab2"},
+			{Action: TrackerAction{Action: actionClose, ID: "yoyodyne-ab2"}, Applied: true, WorkItemID: "yoyodyne-ab2"},
+			{Action: TrackerAction{Action: actionClose, ID: "yoyodyne-gtx"}, Applied: false, WorkItemID: "yoyodyne-gtx"},
+			{Action: TrackerAction{Action: actionPark, ID: "yoyodyne-ifd.428.75.1"}, Applied: true, WorkItemID: "yoyodyne-ifd.428.75.1"},
+		},
+	}
+	got := reply.ActedOnWork()
+	if len(got) != 2 || got[0] != "yoyodyne-ab2" || got[1] != "yoyodyne-ifd.428.75.1" {
+		t.Fatalf("ActedOnWork() = %v, want the two items changed, once each", got)
+	}
+}

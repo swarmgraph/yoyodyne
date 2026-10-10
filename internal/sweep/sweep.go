@@ -390,6 +390,64 @@ func (a Audit) Validate() error {
 	return nil
 }
 
+// MaxLeft bounds how many items one turn may say it left of the work waiting in
+// its conversation. The harness reads the account for the reason given against
+// the item first in the order the pass was handed, so this is room for that one
+// and for the few beside it a role has something to say about, not a second
+// copy of the queue.
+const (
+	MaxLeft      = 10
+	MaxPassLeft  = MaxLeft * MaxMergedTurns
+	maxLeftText  = "10"
+	maxLeftBytes = 1 << 10
+)
+
+// Left is one item of the work waiting in the role's conversation that the
+// pass did not take, with the role's reason for leaving it. It is what the
+// harness writes on the item when the item was first in the order the pass was
+// handed: a passing-over the item itself says, in the role's own words.
+type Left struct {
+	// Item is the work item left, by identifier.
+	Item string `json:"item"`
+	// Reason is why the pass did not take it.
+	Reason string `json:"reason"`
+}
+
+// Validate reports every contract violation in the entry at once.
+func (l Left) Validate() error {
+	var problems []error
+	switch item := strings.TrimSpace(l.Item); {
+	case item == "":
+		problems = append(problems, errors.New("item is required"))
+	case len(item) > MaxTextBytes:
+		problems = append(problems, fmt.Errorf("item is %d bytes, limit is %d", len(item), MaxTextBytes))
+	}
+	switch reason := strings.TrimSpace(l.Reason); {
+	case reason == "":
+		problems = append(problems, errors.New("reason says why the item was left"))
+	case len(reason) > maxLeftBytes:
+		problems = append(problems, fmt.Errorf("reason is %d bytes, limit is %d", len(reason), maxLeftBytes))
+	}
+	if err := errors.Join(problems...); err != nil {
+		return fmt.Errorf("invalid left item: %w", err)
+	}
+	return nil
+}
+
+// LeftReason is the reason the account gives for leaving one item, and false
+// where it gives none. A later entry for the same item stands over an earlier
+// one, as a later turn's status stands over an earlier turn's.
+func (r Result) LeftReason(item string) (string, bool) {
+	item = strings.TrimSpace(item)
+	reason, found := "", false
+	for _, left := range r.Left {
+		if strings.TrimSpace(left.Item) == item {
+			reason, found = strings.TrimSpace(left.Reason), true
+		}
+	}
+	return reason, found
+}
+
 // Result is one turn's account of a recurring pass.
 type Result struct {
 	Status  Status `json:"status"`
@@ -411,6 +469,10 @@ type Result struct {
 	// Audits are the closed work items this pass checked against the standing
 	// goals, and are empty on every pass that was handed none to check.
 	Audits []Audit `json:"audits,omitempty"`
+	// Left are the items of the work waiting in the role's conversation that
+	// the pass did not take, each with why. Empty on a pass handed no such work,
+	// and on one that took what it was handed.
+	Left []Left `json:"left,omitempty"`
 }
 
 // Validate reports every contract violation in the result at once.
@@ -465,6 +527,14 @@ func (r Result) Validate() error {
 			problems = append(problems, fmt.Errorf("audits[%d]: %w", i, err))
 		}
 	}
+	if len(r.Left) > MaxPassLeft {
+		problems = append(problems, fmt.Errorf("%d left items in one pass, limit is %d", len(r.Left), MaxPassLeft))
+	}
+	for i, left := range r.Left {
+		if err := left.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("left[%d]: %w", i, err))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
 	}
@@ -501,6 +571,9 @@ func (r Result) validateTurn() error {
 	}
 	if len(r.Audits) > MaxAudits {
 		problems = append(problems, fmt.Errorf("%d audits in one turn, limit is %d", len(r.Audits), MaxAudits))
+	}
+	if len(r.Left) > MaxLeft {
+		problems = append(problems, fmt.Errorf("%d left items in one turn, limit is %d", len(r.Left), MaxLeft))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
@@ -559,10 +632,18 @@ func (r Result) Merge(next Result) Result {
 		dropped.audits = len(audits) - MaxPassAudits
 		audits = audits[:MaxPassAudits]
 	}
+	// The left items keep the later turns' over the earlier ones where the bound
+	// cuts, unlike the findings: what a pass ends up saying about an item it did
+	// not take is the last thing it said about it, and LeftReason reads the last.
+	left := append(append([]Left(nil), r.Left...), next.Left...)
+	if len(left) > MaxPassLeft {
+		left = left[len(left)-MaxPassLeft:]
+	}
 	merged.Findings = findings
 	merged.Questions = questions
 	merged.Recommendations = recommendations
 	merged.Audits = audits
+	merged.Left = left
 	merged.Summary = noteDropped(merged.Summary, dropped)
 	return merged
 }
@@ -721,9 +802,9 @@ func ReportRequest() string {
 	return strings.Join([]string{
 		"Your previous reply omitted its closing report block. This is the only request for it on this pass. Reply with the block alone, accounting for that reply's findings and actions already taken. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded.",
 		Fence,
-		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}]}`,
+		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}]}`,
 		"```",
-		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, and audits only for closed items it already audited.",
+		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, and left only for waiting work it did not take.",
 	}, "\n")
 }
 
@@ -760,5 +841,22 @@ func AuditContract() string {
 		`"audits":[{"item":"beads-id","goals":["each standing goal you checked it against"],"finding":"met|broken","detail":"where the landed work breaks the goal (broken only)","correction":"the beads-id admitted or widened to correct it","deferred":true}]`,
 		"",
 		`A "broken" finding says where in "detail", and carries exactly one of "correction" — the correction you admitted at priority 0 naming the closed item in "corrects", or the open correction you widened to it — or "deferred": true. One pass admits at most ` + maxCorrectionsText + ` corrections: take the violations shared by the most closed items first, widen an open correction rather than filing a second, and mark the rest deferred so the next pass takes them. A "met" finding carries neither.`,
+	}, "\n")
+}
+
+// LeftContract is what a pass handed the work waiting in its conversation is
+// told, beside the contract above. It is separate for the reason AuditContract
+// is: a pass handed no such work has nothing to put in the field.
+//
+// What the role says here is read for one thing. Where the item first in the
+// order it was handed is one it did not take, the harness writes a note on that
+// item naming the pass, and the reason given here is the reason that note says.
+func LeftContract() string {
+	return strings.Join([]string{
+		`Your block also carries "left": one entry for each item of the work waiting in your conversation that this pass did not take, starting with the first item in the order you were handed, at most ` + maxLeftText + ` in one turn:`,
+		"",
+		`"left":[{"item":"beads-id","reason":"why you did not take it on this pass, in a sentence"}]`,
+		"",
+		`The harness judges which items you took from the tracker actions you took on them and from this block. Where the first item in the order is not taken, the harness writes a note on that item naming this pass and the time, with your reason or, where you gave none, "no reason given". A person reads that note, so write the reason for them.`,
 	}, "\n")
 }

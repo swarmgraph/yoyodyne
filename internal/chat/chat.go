@@ -1069,6 +1069,29 @@ func (r Reply) AdmittedWork() []string {
 	return admitted
 }
 
+// ActedOnWork is every existing work item this reply's tracker actions
+// changed, by identifier, once each, in the order first acted on. Reading an
+// item and surveying the queue change nothing, an action the tracker did not
+// carry out changed nothing, and a creation is admitting new work rather than
+// acting on waiting work, so none of those is counted.
+func (r Reply) ActedOnWork() []string {
+	seen := map[string]bool{}
+	var acted []string
+	for _, outcome := range r.Actions {
+		switch outcome.Action.Action {
+		case actionRead, actionSurvey, actionCreate:
+			continue
+		}
+		id := strings.TrimSpace(outcome.WorkItemID)
+		if !outcome.Applied || id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		acted = append(acted, id)
+	}
+	return acted
+}
+
 // Open loads or starts a role's conversation. A recorded conversation is
 // continued even when its provider holds no session: later turns rebuild from
 // the durable record. Only Fresh or an absent record starts a new conversation.

@@ -4655,6 +4655,41 @@ instance alone. The dashboard's
 [program managers section](#what-the-page-presents) lists the same instances
 from the same field, and opens each one's report.
 
+**Under the program managers, one line per recurring task whose passes are
+handed the work waiting in a role's conversation**, where any pass has recorded
+what it was handed:
+
+```text
+Recurring passes over conversation work (1):
+  architect-pass (architect) — its last answered pass, at 2026-10-06 09:25 PDT, was handed 4 items; first in its order: yoyodyne-ifd.414.1 (P0), NOT TAKEN — no reason given; it took 1 of the 4; its latest firing, at 2026-10-06 10:10 PDT, was missed
+```
+
+A pass is handed that work in the Lead Product Manager's order, highest
+priority first and then oldest admitted, so the first item is the one the role
+was asked to reach first. The line names it, says whether the last pass that
+answered with its account took it, and gives the role's reason where it did
+not, or `no reason given`. Where a later firing of the task gave no account —
+missed, failed before its first turn, or failed after it — the line says so, so
+a role whose passes stopped running reads differently from one whose passes ran
+and took something else. A pass took an item where one of its tracker actions
+changed the item, or where its account names the item in a finding it did
+something about; reading an item takes nothing. `--json` carries the lines
+under `standing.conversation_passes`, each with its `task`, `role`, `at`,
+`handed`, the `first` item with its `id`, `priority`, `taken` and `reason`,
+`took`, and `since`; a pass log that could not be read to the end is said
+under the line and in `conversation_passes_problem`.
+
+**The item first in a pass's order that the pass did not take says so on
+itself.** The harness appends a note to the item naming the pass, its time, the
+item's place in what the pass was handed, and the role's reason or `no reason
+given`. Only a pass that answered with its account writes one: a pass handed
+nothing, one that took no turn, and one that failed before giving its account
+leave no note on any item, and their own records in
+[`yoyo sweeps`](#reading-what-the-recurring-tasks-found) say what happened.
+`yoyo status <item>` ends with the last pass that was handed the item — which
+task, when, its place in the order, and whether that pass took it — and the
+dashboard's item card says the same under **Last pass**.
+
 Naming an item leaves the four lines out. They are about the product, and a
 question about one piece of work is a different question. `--json` carries the
 same derivation under `standing`, so a second surface reads the answer rather
@@ -6199,6 +6234,16 @@ takes at once is in flight; firings of different roles are taken side by side,
 so a wait of more than a poll or two on a busy cadence is the thing to look at.
 A task's first pass, a summoned pass, and one recorded before passes carried it
 say nothing about waiting.
+
+A pass handed the work waiting in its role's conversation says under its header
+what it was handed, in the order it was handed it, with each item's priority and
+whether it was taken — `handed 4 items of the work waiting in the architect's
+conversation, in order: yoyodyne-ifd.414.1 (P0) NOT TAKEN — no reason given;
+yoyodyne-ab2 (P0) taken; …` — and `--json` carries it as `delivered`. The role's
+account says which items it left and why in its `left` entries; an item it
+neither acted on in the tracker nor named in a finding it acted on is not taken.
+A pass recorded before passes carried this, and a program manager instance's
+pass, which is handed no such list, say nothing about it.
 
 Each entry leads with **the questions the pass could not settle itself**, because
 that is the one part of a report that asks for anything: a report with no

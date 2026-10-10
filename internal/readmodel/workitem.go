@@ -69,6 +69,10 @@ type WorkItemSources struct {
 	// card says what is there rather than what the run's removal flags say. Nil
 	// answers from the record, and the card says nothing looked.
 	Remains Remains
+	// Passes is the recurring passes' records, read for the last pass that was
+	// handed this item from the work waiting in a role's conversation. Nil
+	// leaves the card saying nothing about passes.
+	Passes Sweeps
 	// TrackerTimeout bounds the tracker command, so an unresponsive tracker
 	// costs this answer rather than hanging the surface that asked.
 	TrackerTimeout time.Duration
@@ -106,6 +110,12 @@ type WorkItem struct {
 	// showed no run over records nobody could open would be reporting an item
 	// nothing has ever touched.
 	RunProblem string `json:"run_problem,omitempty"`
+	// LastConsidered is the last recurring pass that was handed this item from
+	// the work waiting in a role's conversation, and whether it took it; nil
+	// where no pass record names it. ConsideredProblem is the pass records not
+	// having been read to the end.
+	LastConsidered    *ItemConsideration `json:"last_considered,omitempty"`
+	ConsideredProblem string             `json:"considered_problem,omitempty"`
 }
 
 // ItemRun is the item's latest run, in the words `yoyo status` lists a run in.
@@ -189,6 +199,7 @@ func ReadWorkItem(ctx context.Context, sources WorkItemSources, id string) (Work
 		Notes:              found.Notes,
 	}
 	item.Run, item.RunProblem = readLatestRun(ctx, sources, found.ID, now)
+	item.LastConsidered, item.ConsideredProblem = ReadLastConsidered(sources.Passes, found.ID)
 	return item, nil
 }
 

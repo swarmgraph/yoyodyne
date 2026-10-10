@@ -1654,6 +1654,8 @@ var standingWarningAgeSeconds = 5 * 60;
     fields.appendChild(field("Acceptance criteria", item.acceptance_criteria, "card-field-prose"));
     fields.appendChild(field("Notes", item.notes, "card-field-prose"));
     fields.appendChild(runField(item));
+    // The last recurring pass handed this item, in the read model's own words.
+    fields.appendChild(field("Last pass", item.considered_problem ? "could not be read: " + item.considered_problem : (item.last_considered ? item.last_considered.says : "no recurring pass has been handed this item")));
     section("card", "ready");
   }
 

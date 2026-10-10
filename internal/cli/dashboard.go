@@ -275,6 +275,9 @@ func workItemSources(configPath string) (readmodel.WorkItemSources, error) {
 		// The repository, so the card says what a finished run left from a look
 		// rather than from the run's removal flags.
 		sources.Remains = standingRemains(resolved)
+		// The recurring passes, so the card says when a pass last considered
+		// an item waiting in a role's conversation.
+		sources.Passes = store.Sweeps()
 	}
 	return sources, nil
 }
