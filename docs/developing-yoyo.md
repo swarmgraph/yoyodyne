@@ -33,7 +33,15 @@ that line safe to run outside the harness — the probe and the evidence a
 developer records in its worktree, or your own hand — where the variable is
 not set and the whole module is what should run. An explicitly empty
 `RACE_PACKAGES` is the harness saying the change touches no Go package, and
-the target says so and passes. The check
+the target says so and passes. Left at its default, `make race` also skips by
+itself, saying so and why, when every file changed since the merge base with
+`main` — committed, uncommitted, or not yet tracked — is Markdown or one of the
+tracker's exports (`.beads/issues.jsonl`, `.beads/interactions.jsonl`) outside
+every directory holding Go source. Anything else, a package's testdata and
+`go.mod` included, runs it, and so does a checkout with no `main` to compare
+with or nothing changed. [`scripts/race-skip.sh`](../scripts/race-skip.sh)
+makes that decision, and naming `RACE_PACKAGES`, even as `./...`, bypasses it.
+The check
 stage as a whole is bounded by `execution.check_stage_timeout`, scaled for
 the machine's load;
 [what a whole check stage may cost](configuration.md#what-a-whole-check-stage-may-cost)
