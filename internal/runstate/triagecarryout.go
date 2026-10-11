@@ -48,7 +48,7 @@ const (
 	// TriageGateIntakeHold is the operator's switch over the work the harness
 	// chooses for itself, which a carry-out is: the development manager naming an
 	// item is not the operator naming it.
-	TriageGateIntakeHold = "the operator's hold on what the harness chooses"
+	TriageGateIntakeHold = "the intake hold on what the harness chooses"
 	// TriageGateDirective is an unresolved directive standing over the item.
 	TriageGateDirective = "an unresolved directive"
 	// TriageGateCapacity is every developer slot being occupied. It is the one gate
@@ -68,6 +68,22 @@ const (
 	// words are what a reader acts on here.
 	TriageGateHarness = "the harness's own records"
 )
+
+// triageGateIntakeHoldAsRecorded is how the intake hold's gate was written
+// before the register told it apart from the operator's pause. A carry-out
+// record may already carry it and is validated on every read, so loading one
+// reads it as TriageGateIntakeHold; nothing writes it any more, and
+// internal/terms excuses this one literal in this one file
+// (terms.RecordedValues).
+const triageGateIntakeHoldAsRecorded = "the operator's hold on what the harness chooses"
+
+// currentTriageGate is a recorded gate as the vocabulary words it now.
+func currentTriageGate(gate string) string {
+	if gate == triageGateIntakeHoldAsRecorded {
+		return TriageGateIntakeHold
+	}
+	return gate
+}
 
 // TriageGateVocabulary lists the gates in the order a carry-out asks them, so a
 // record that names one names something this file declares.

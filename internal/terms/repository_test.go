@@ -167,3 +167,61 @@ func TestThisRepositoryCoinsNoCompoundNothingDefines(t *testing.T) {
 		t.Errorf("%s", problem)
 	}
 }
+
+// The docket is written by internal/triage and read by the development manager
+// and the operator more than anything else the harness says. So a retired term
+// put into one of its sentences, in the file as it stands and under this
+// repository's own register, is refused there.
+func TestThisRepositoryRefusesARetiredTermInADocketSentence(t *testing.T) {
+	t.Parallel()
+
+	const (
+		docket   = "internal/triage/triage.go"
+		sentence = "Nothing was spent and the decision still stands, so the pass that finds it open carries out the same one."
+		retired  = "Nothing was spent and the decision still stands, so the pass that finds the usage window open carries out the same one."
+	)
+	original, err := os.ReadFile(filepath.Join(repositoryRoot, filepath.FromSlash(docket)))
+	if err != nil {
+		t.Fatalf("read %s: %v", docket, err)
+	}
+	if strings.Count(string(original), sentence) != 1 {
+		t.Fatalf("%s no longer carries the docket sentence this test edits; choose another", docket)
+	}
+	registerBody, err := os.ReadFile(filepath.Join(repositoryRoot, filepath.FromSlash(RegisterPath)))
+	if err != nil {
+		t.Fatalf("read %s: %v", RegisterPath, err)
+	}
+	// Only what is said about the docket's own file counts: the fixture carries
+	// none of the governed documents the register's replaced rows still excuse,
+	// and those rows are reported against it for that.
+	about := func(problems []Problem) []Problem {
+		var kept []Problem
+		for _, problem := range problems {
+			if problem.Path == docket {
+				kept = append(kept, problem)
+			}
+		}
+		return kept
+	}
+	clean := root(t, string(registerBody), map[string]string{docket: string(original)})
+	problems, err := Check(clean)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if problems = about(problems); len(problems) != 0 {
+		t.Fatalf("Check() reported %v on %s as it stands, want nothing", problems, docket)
+	}
+	edited := strings.Replace(string(original), sentence, retired, 1)
+	line := strings.Count(edited[:strings.Index(edited, retired)], "\n") + 1
+	directory := root(t, string(registerBody), map[string]string{docket: edited})
+	problems, err = Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if problems = about(problems); len(problems) != 1 || problems[0].Line != line || problems[0].Term != "usage window" {
+		t.Fatalf("Check() reported %v, want usage window refused at %s:%d", problems, docket, line)
+	}
+	if !strings.Contains(problems[0].Reason, "usage limit") {
+		t.Errorf("Check() reason = %q, want the plain wording in it", problems[0].Reason)
+	}
+}

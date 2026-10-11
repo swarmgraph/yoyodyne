@@ -7,12 +7,12 @@ package terms
 // Go sources holding the role contracts and the pass prompts are held to
 // carrying none of the terms the register lists as replaced.
 //
-// It is separate from Check because Check reads the packages a command prints
-// from, for every term the vocabulary knows, and the packages that build role
-// contracts print a great deal besides those contracts; widening Check to them
-// is the terms check's own coverage work. What is read here is narrower in
-// terms and wider in places: only the replaced terms, everywhere a role reads
-// its instructions from.
+// It is separate from Check because Check reads the packages a person is shown
+// strings from, for every term the vocabulary knows, and holds them to the
+// register as a whole; some of the packages here are read by both. What is
+// read here is narrower in terms and wider in places: only the replaced terms,
+// everywhere a role reads its instructions from, with no row excusing any of
+// it.
 
 import (
 	"fmt"

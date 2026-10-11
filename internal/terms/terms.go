@@ -40,7 +40,8 @@
 // the help text has not been swept out. So the check reads those strings too
 // (Sources), held to the same register: a term with no row is refused there
 // exactly as it is in a document, and a term the register lists as replaced is
-// refused whatever any document still says.
+// refused whatever any document still says. The personas are read the same way
+// (PersonaHomes), because what a role is told is what it writes to a person.
 package terms
 
 import (
@@ -109,13 +110,19 @@ var NotGuides = []string{"docs/diagnoses", "docs/experiments", "docs/releases"}
 // Sources are the Go packages whose string literals this check reads: the
 // command line, the conversation, the notifier and the Slack sink, the read
 // model every surface projects, the dashboard, the two packages whose
-// refusals `yoyo directive` and `yoyo goals` print word for word, and the
+// refusals `yoyo directive` and `yoyo goals` print word for word, the
 // provider and configuration packages whose refusals configuration loading
-// and `yoyo doctor` print. These are the
+// and `yoyo doctor` print, and the run pipeline, the run store, and triage,
+// whose sentences reach a person in the docket, a sweep's record, and a work
+// item's notes. These are the
 // strings an operator reads, so a term retired from the documents and still in
 // one of them has not been retired. Only string literals are read, and only
 // outside test files: a comment is written for whoever reads the code, and a
-// test names the wording it refuses as often as the wording it wants.
+// test names the wording it refuses as often as the wording it wants. A
+// literal with no space in it is not read either, for the reason the compound
+// half gives: it is a key, a file name, a cause a record is filed under, or an
+// identifier — `usage-window`, `operator-hold.json` — and those keep their
+// names when the words around them change.
 var Sources = []string{
 	"internal/backend",
 	"internal/chat",
@@ -125,8 +132,23 @@ var Sources = []string{
 	"internal/directive",
 	"internal/goal",
 	"internal/notify",
+	"internal/orchestrator",
 	"internal/readmodel",
+	"internal/runstate",
 	"internal/slack",
+	"internal/triage",
+}
+
+// RecordedValues are string literals the check does not read, each in the one
+// file named for it: a wording a durable record already carries, which a newer
+// build still has to recognize when it reads that record back, so that it can
+// be read as the wording that replaced it. Nothing writes one any more. A
+// value listed here that its file no longer carries is reported, so the excuse
+// ends when the code that needed it does.
+var RecordedValues = map[string][]string{
+	"internal/runstate/triagecarryout.go": {"the operator's hold on what the harness chooses"},
+	// The class no pull records any more; see PassedOverHeldForAPerson.
+	"internal/runstate/watch.go": {"held for a person", "waiting on the provider's usage window"},
 }
 
 // Assets are the files the dashboard ships to a browser, read whole rather
@@ -193,6 +215,10 @@ var Vocabulary = []Coinage{
 	// often as `environmental stop` did, and a match on the phrase alone left
 	// them all standing.
 	{Term: "environmental stop", Match: "environmental", Guides: true, PlainWords: "that the run was ended by something outside the work, naming what it was"},
+	// Retired from what the harness writes before this check read the run store,
+	// and looked for once it did, so the passed-over class still recorded under
+	// it is the one place it stands (RecordedValues).
+	{Term: "held for a person", Match: "held for a person", PlainWords: "the mover named: waiting on the development manager's decision, or on the harness carrying it out"},
 	{Term: "handback", Match: "handback", PlainWords: "handing the work back to the developer that made it"},
 	{Term: "heartbeat", Match: "heartbeat", PlainWords: "how often to repeat"},
 	{Term: "idle bound", Match: "idle bound", Whole: true, Guides: true, PlainWords: "that the AI session produced no output for too long, so the harness ended the run"},
@@ -444,8 +470,10 @@ func GuideFiles(root string) ([]string, error) {
 	return guides, nil
 }
 
-// SourceFiles is every Go file under the sources that is not a test, and every
-// file under the assets, repository-relative and in sorted order. Exported for
+// SourceFiles is every Go file under the sources that is not a test, every
+// file under the assets, and every persona, the shipped templates and the
+// copies a project binds where it has them, repository-relative and in sorted
+// order. Exported for
 // the reason Documents is: a walk that found nothing and a set of files with
 // nothing wrong in them are the same result otherwise.
 func SourceFiles(root string) ([]string, error) {
@@ -483,6 +511,11 @@ func SourceFiles(root string) ([]string, error) {
 			return nil, err
 		}
 	}
+	personas, err := PersonaFiles(root)
+	if err != nil {
+		return nil, err
+	}
+	files = append(files, personas...)
 	sort.Strings(files)
 	return files, nil
 }
@@ -539,13 +572,52 @@ func Check(root string) ([]Problem, error) {
 	if err != nil {
 		return nil, err
 	}
+	// Which recorded values were seen where they are excused, so one whose file
+	// no longer carries it is reported rather than kept.
+	recorded := make(map[string]map[string]bool)
 	for _, file := range files {
 		found := scan{path: file, patterns: patterns, registered: registered}
+		if boundPersona(file) {
+			found.excused, found.carried = excused[file], carried
+		}
 		stretches, err := stringsIn(root, file)
 		if err != nil {
 			return nil, err
 		}
-		problems = append(problems, found.problems(stretches)...)
+		var read []passage
+		for _, stretch := range stretches {
+			if strings.HasSuffix(file, ".go") && !spoken(stretch) {
+				continue
+			}
+			if excusedValue(file, stretch.text) {
+				if recorded[file] == nil {
+					recorded[file] = make(map[string]bool)
+				}
+				recorded[file][stretch.text] = true
+				continue
+			}
+			// The quoted example of what not to write is quoted on purpose, in
+			// the personas and the writing rule alike; see QuotedExample.
+			stretch.text = WithoutQuotedExample(stretch.text)
+			read = append(read, stretch)
+		}
+		problems = append(problems, found.problems(read)...)
+	}
+	walked := make(map[string]bool, len(files))
+	for _, file := range files {
+		walked[file] = true
+	}
+	for _, file := range sortedKeys(RecordedValues) {
+		// A tree without the file has nothing to excuse and nothing stale either.
+		if !walked[file] {
+			continue
+		}
+		for _, value := range RecordedValues[file] {
+			if !recorded[file][value] {
+				problems = append(problems, Problem{Path: file, Term: value,
+					Reason: fmt.Sprintf("%q is excused as a recorded value in %s, and the file no longer carries it; take it off terms.RecordedValues", value, file)})
+			}
+		}
 	}
 	for _, replacement := range replacements {
 		for _, document := range replacement.StillIn {
@@ -557,6 +629,42 @@ func Check(root string) ([]Problem, error) {
 		}
 	}
 	return problems, nil
+}
+
+// boundPersona reports a persona copy a project binds for its roles, which is
+// the project's to reword rather than this repository's code: a replaced
+// term's row may excuse one while the person who changes it brings it in line
+// with the template, exactly as it excuses a governed document.
+func boundPersona(file string) bool {
+	return strings.HasPrefix(file, BoundPersonaHome+"/")
+}
+
+// spoken reports a stretch of a Go string literal that holds a space or a line
+// break, which is what tells words somebody reads from a key or an identifier.
+// The compound half reads by the same rule.
+func spoken(stretch passage) bool {
+	return strings.ContainsAny(stretch.text, " \n")
+}
+
+// excusedValue reports a literal RecordedValues excuses in this file.
+func excusedValue(file, text string) bool {
+	for _, value := range RecordedValues[file] {
+		if text == value {
+			return true
+		}
+	}
+	return false
+}
+
+// sortedKeys is a map's keys in order, so what is reported about it comes out
+// the same way every run.
+func sortedKeys(values map[string][]string) []string {
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // excusedDocuments is, for each document, the replaced terms whose rows excuse
@@ -575,7 +683,7 @@ func excusedDocuments(replacements []Replacement) map[string]map[string]bool {
 }
 
 // stringsIn is the string literals of one source file as passages, each at the
-// physical line it starts on, or the whole of an asset file read as one
+// physical line it starts on, or the whole of an asset or persona file read as one
 // document would be.
 //
 // A raw literal is read line by line, because the help text and the personas
@@ -593,6 +701,9 @@ func stringsIn(root, file string) ([]passage, error) {
 		content, err := read(full)
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", file, err)
+		}
+		if strings.EqualFold(filepath.Ext(file), ".md") {
+			return passages(strings.Split(content, "\n")), nil
 		}
 		return passagesFrom(strings.Split(content, "\n"), 1), nil
 	}

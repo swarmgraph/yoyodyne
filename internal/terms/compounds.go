@@ -42,7 +42,11 @@ var CompoundSources = []string{"cmd", "internal"}
 
 // PersonaHomes are where the personas are read from: the templates the
 // executable ships, and the copies this project's roles actually read.
-var PersonaHomes = []string{"internal/config/builtin", ".yoyodyne/personas"}
+var PersonaHomes = []string{"internal/config/builtin", BoundPersonaHome}
+
+// BoundPersonaHome is where a project keeps the persona copies its
+// configuration binds for its roles, which are what a running role reads.
+const BoundPersonaHome = ".yoyodyne/personas"
 
 // ordinaryPrefixes are the first parts that make an ordinary English word of
 // whatever follows them: `re-run`, `non-zero`, `self-hosting`, `mid-turn`. A
@@ -377,13 +381,13 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 		if err != nil {
 			return nil, err
 		}
-		var spoken []passage
+		var read []passage
 		for _, stretch := range stretches {
-			if strings.ContainsAny(stretch.text, " \n") {
-				spoken = append(spoken, stretch)
+			if spoken(stretch) {
+				read = append(read, stretch)
 			}
 		}
-		report(file, spoken, false)
+		report(file, read, false)
 	}
 
 	personas, err := PersonaFiles(root)

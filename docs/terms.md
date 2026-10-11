@@ -157,7 +157,11 @@ the commands, the conversation, and the notifier print, without an entry.
 
 The third column is the one exception, and it is a narrow one. A governed
 document is its owner's alone to reword, so a term retired from everywhere else
-can still be written in one while its owner gets to the amendment. The row names
+can still be written in one while its owner gets to the amendment. A persona
+copy a project binds under `.yoyodyne/personas` is the same: it is the
+project's to change rather than a developer run's, so a row may name one while
+it catches up with the template, and never a template under
+`internal/config/builtin`, which a change here can fix. The row names
 each such document, in backticks and repository-relative, and the check excuses
 the term there and nowhere else: not in another document, and never in a
 command's or the notifier's strings. The excuse ends with the amendment. Once a
@@ -185,7 +189,7 @@ longer says.
 | `tranche`           | stage, or part 1 of 4                                  |                                                                                                                                                |
 | `usage window` | the provider's usage limit, until it resets at a named time: *paused on the provider's usage limit until 15:00 PDT* | `docs/designs/management-and-supervision.md` `docs/designs/ownership-and-the-operator.md` |
 | `wedged`            | stuck, or the condition said outright                  |                                                                                                                                                |
-| `whose-move`        | waiting on you — or, of a thing, who it is waiting on  | `docs/designs/observability-and-dashboard.md`                                                                                                  |
+| `whose-move`        | waiting on you — or, of a thing, who it is waiting on  | `docs/designs/observability-and-dashboard.md` `.yoyodyne/personas/development-manager.md`                                                      |
 
 `integration target`, `operator hold`, and `usage window` were retired under the
 same decisions of 2026-10-08, the first of the inventory's replacements carried
@@ -273,19 +277,30 @@ It reads the strings an operator is shown as well as the documents, since
 yoyodyne-ifd.418: every string literal in the Go source of `internal/cli`,
 `internal/chat`, `internal/notify`, `internal/slack`, `internal/readmodel`,
 `internal/dashboard`, `internal/directive`, `internal/goal`, `internal/backend`,
-and `internal/config` — the commands and their help, the conversation, the
+`internal/config`, `internal/orchestrator`, `internal/runstate`, and
+`internal/triage` — the commands and their help, the conversation, the
 notifier's lines, the read model every surface projects, the refusals
-`yoyo directive` and `yoyo goals` print, and the provider and configuration
-refusals that loading a configuration and `yoyo doctor` print — and the
+`yoyo directive` and `yoyo goals` print, the provider and configuration
+refusals that loading a configuration and `yoyo doctor` print, and the
+sentences of the docket, a sweep's record, and a work item's notes — and the
 dashboard's own script, style, and page under
-`internal/dashboard/assets`, read whole. A string there is held to the same
+`internal/dashboard/assets`, read whole. The personas are read whole too, since
+the item adding these sources to the terms check (yoyodyne-ifd.437.23): the
+templates under `internal/config/builtin`, and the copies a project binds under
+`.yoyodyne/personas` where it has them, less the quoted example of what not to
+write described below. A string there is held to the same
 register as a sentence in a document, with the one difference that nothing
 excuses it: a term retired from the documents and still in the help text has
 not been retired, which is what this is for. Only string literals are read, and
 only outside test files — a comment is written for whoever reads the code, and a
 test names the wording it refuses as often as the wording it wants. A struct
 tag is not read either: it is the key a field is written under in a file or a
-record, and a key keeps its name when the words around it change. The
+record, and a key keeps its name when the words around it change. Nor is a
+literal with no space in it, for the same reason: `usage-window` is a cause a
+run record is filed under and `operator-hold.json` a file name. A wording a
+durable record already carries is excused as that exact literal in the one file
+`internal/terms` lists it for, because a newer build still has to read the
+record back; the excuse is refused once the file no longer carries the wording. The
 dashboard's script is read comments and all, because nothing cheap tells a
 comment from a string in a language the check does not parse.
 

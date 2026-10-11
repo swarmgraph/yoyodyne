@@ -61,6 +61,19 @@ const (
 	launchRefusedExit = 2
 )
 
+// launchHelperBackstop is how long a descendant a test starts may outlive
+// the test that should have let it go. It is not a bound any test waits on:
+// every test lets its descendants go itself. It is there so a descendant that
+// left the test's process group still ends on its own if the test dies first,
+// and it is long because a short one is reached under load by a descendant
+// whose test was still about to read it — the replacement test below once
+// found its source's escaped child already gone for that reason.
+const launchHelperBackstop = 2 * time.Minute
+
+// backstopPolls is the backstop as a count of the shell scripts' 0.05 second
+// polls.
+var backstopPolls = int(launchHelperBackstop / (50 * time.Millisecond))
+
 func TestLaunchHelperProcess(t *testing.T) {
 	mode := os.Getenv(launchHelperMode)
 	if mode == "" {
@@ -74,9 +87,9 @@ func TestLaunchHelperProcess(t *testing.T) {
 		if ready := os.Getenv(launchHelperReady); ready != "" {
 			_ = os.WriteFile(ready, nil, 0o600)
 		}
-		// It stays until the test lets it go, and never past five seconds.
+		// It stays until the test lets it go, and never past the backstop.
 		release := os.Getenv(launchHelperRelease)
-		for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		for deadline := time.Now().Add(launchHelperBackstop); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(release); err == nil {
 				break
 			}
@@ -204,18 +217,18 @@ func (f launchFixture) provider(body string) string {
 }
 
 // escaping starts a descendant that leaves the provider's process group and
-// stays until release exists, and waits, for a bounded while, until it has
-// left.
+// stays until release exists, and waits until it has left, never past the
+// backstop.
 func (f launchFixture) escaping(t *testing.T, release string) string {
 	ready := filepath.Join(t.TempDir(), "escaped")
-	return fmt.Sprintf(`%s=%q %s=%q %s=escape "$TEST_BINARY" -test.run='^TestLaunchHelperProcess$' >/dev/null 2>&1 & i=0; while [ ! -e %q ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`,
-		launchHelperReady, ready, launchHelperRelease, release, launchHelperMode, ready)
+	return fmt.Sprintf(`%s=%q %s=%q %s=escape "$TEST_BINARY" -test.run='^TestLaunchHelperProcess$' >/dev/null 2>&1 & i=0; while [ ! -e %q ] && [ $i -lt %d ]; do sleep 0.05; i=$((i+1)); done`,
+		launchHelperReady, ready, launchHelperRelease, release, launchHelperMode, ready, backstopPolls)
 }
 
 // staying starts a descendant that stays in the provider's process group
-// until release exists, and never past five seconds.
+// until release exists, and never past the backstop.
 func staying(release string) string {
-	return fmt.Sprintf(`(i=0; while [ ! -e %q ] && [ $i -lt 100 ]; do sleep 0.05; i=$((i+1)); done) &`, release)
+	return fmt.Sprintf(`(i=0; while [ ! -e %q ] && [ $i -lt %d ]; do sleep 0.05; i=$((i+1)); done) &`, release, backstopPolls)
 }
 
 // letGo releases the descendants a test started.
@@ -502,13 +515,11 @@ func TestASurvivingChildKeepsTheAttemptRunningAfterTheProviderProcessExits(t *te
 		t.Fatalf("launcher exit = %d, want killed", status)
 	}
 	identity := f.attempt(t, "att-1").Execution
-	deadline := time.Now().Add(5 * time.Second)
+	// Waited on without a deadline: a provider that never exits is reported by
+	// go test's own -timeout, with every goroutine's stack.
 	for {
 		if running, _ := processIsRunning(identity.PID); !running {
 			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the provider process did not exit")
 		}
 		time.Sleep(20 * time.Millisecond)
 	}

@@ -1,8 +1,11 @@
 package runstate
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -233,5 +236,40 @@ func TestAPermanentRefusalBlocksOnlyTheDecisionThatWasAttempted(t *testing.T) {
 	if !refusal.BlocksDecision(TriageDecisionRepair, decided, decided.Add(2*time.Minute)) ||
 		refusal.BlocksDecision(TriageDecisionRepair, decided, later) {
 		t.Fatal("a temporary gate lost its paced retry")
+	}
+}
+
+// A carry-out record written before the intake hold's gate was reworded still
+// loads, and reads under the wording the vocabulary has now, so the docket
+// never prints the earlier one.
+func TestACarryOutRecordedUnderTheEarlierIntakeHoldWordingStillReads(t *testing.T) {
+	t.Parallel()
+
+	store := newTriageStore(t)
+	refusal := carryOutRefused(decidedRunID, TriageGateIntakeHold)
+	refusal.Waiting = true
+	if _, err := store.RecordCarryOutRefusal(context.Background(), "yoyodyne-ifd.346", refusal, time.Now()); err != nil {
+		t.Fatalf("RecordCarryOutRefusal() error = %v", err)
+	}
+	path := store.path("yoyodyne-ifd.346")
+	written, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	current, _ := json.Marshal(TriageGateIntakeHold)
+	earlier, _ := json.Marshal(triageGateIntakeHoldAsRecorded)
+	if !bytes.Contains(written, current) {
+		t.Fatalf("record %s does not carry the gate %s", written, current)
+	}
+	if err := os.WriteFile(path, bytes.Replace(written, current, earlier, 1), 0o600); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
+	counters, err := store.Counters("yoyodyne-ifd.346")
+	if err != nil {
+		t.Fatalf("Counters() error = %v, want the earlier wording read rather than refused", err)
+	}
+	recorded, found := counters.CarryOutOf(decidedRunID)
+	if !found || recorded.Gate != TriageGateIntakeHold {
+		t.Fatalf("finding = %#v, want the gate read as %q", recorded, TriageGateIntakeHold)
 	}
 }

@@ -252,7 +252,7 @@ func (c SweepClaim) Validate() error {
 		problems = append(problems, errors.New("updated at is required"))
 	}
 	if c.Every < 0 || (c.Every > 0 && c.CadenceAt.IsZero()) || (c.Every == 0 && !c.CadenceAt.IsZero()) {
-		problems = append(problems, errors.New("a recorded cadence requires a positive interval and its adoption time together"))
+		problems = append(problems, errors.New("a recorded schedule requires a positive interval and its adoption time together"))
 	}
 	if len(c.Problem) > MaxSweepTextBytes {
 		problems = append(problems, fmt.Errorf("problem is %d bytes, limit is %d", len(c.Problem), MaxSweepTextBytes))
@@ -1032,7 +1032,7 @@ func (s *SweepStore) Adopt(ctx context.Context, task string, every time.Duration
 		return SweepClaim{}, false, err
 	}
 	if every <= 0 || at.IsZero() {
-		return SweepClaim{}, false, errors.New("adopting a cadence requires its interval and observation time")
+		return SweepClaim{}, false, errors.New("adopting a schedule requires its interval and observation time")
 	}
 	release, err := s.lock(ctx, task)
 	if err != nil {

@@ -1381,6 +1381,9 @@ func (s *TriageStore) load(workItemID string) (TriageCounters, error) {
 	if err := ensureJSONEOF(decoder); err != nil {
 		return TriageCounters{}, fmt.Errorf("decode triage counters for %s: %w", workItemID, err)
 	}
+	for index := range counters.CarryOuts {
+		counters.CarryOuts[index].Gate = currentTriageGate(counters.CarryOuts[index].Gate)
+	}
 	if err := counters.Validate(); err != nil {
 		return TriageCounters{}, err
 	}
