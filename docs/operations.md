@@ -3202,10 +3202,18 @@ bring its head up to date, to wait on the target's red check, or to a person —
 the note it writes on the work item carries, for each failing check, what the
 forge says of it, read under the harness's own forge access: the check's name
 and how the forge ended it, the commit it ran on, the forge's own annotations
-(file, line, level, and message), the failing step's lines from the forge's log
-of the job — up to sixty, ending at the last error the log marks rather than at
-the clean-up steps after it — and a link to that log. The item filed for a
-check red on the target carries the same account. A developer run does not
+(file, line, level, and message), the name of the job and of the step in it
+that failed, the end of that step's output — the lines the forge stamped
+between the step's start and end, with the stamps taken off, ending at the last
+error the log marks rather than at the clean-up steps after it, and at most six
+kilobytes, saying so where earlier lines were left out — and a link to the
+job's log. The bound is on bytes rather than lines because a test runner can
+print its failure well above the line the step failed on, with a line per
+passing package below it. Where the forge cannot say which step failed, the
+item says why and carries the end of the whole job's log instead. The item filed for a
+check red on the target carries the same account, and a change the forge's
+checks fail is handed to the development manager with it, as the failing
+check's output on the stopped run. A developer run does not
 reach the forge at all — its sandbox refuses `github.com` and `api.github.com` —
 so this record is what a run given the item works from, and nothing on the item
 asks it to fetch anything; until yoyodyne-ifd.429.35 the hand-back said the
