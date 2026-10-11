@@ -160,7 +160,12 @@ publisher refuses outright back to the operator, keeps one whose run could
 not start for the next message, and tells the role once of one waiting for a
 developer slot, which the scheduler starts as a slot frees
 (`internal/orchestrator/scheduledocuments.go`); none of these stops the
-operator's message. Other policies retain
+operator's message. A document carrying a hold
+on sending (`sendinghold.go`) is kept ready to send, not put to the operator,
+and checked at each `PublishDocuments` until the work item the hold names
+closes (`liftedHold`); a document's `answers` are noted with its text as it is
+written (`noteAnsweredItems`), and `HeldDocuments` is what a recurring pass's
+record reads to say an item is held for sending. Other policies retain
 the person's decision with `ApproveWrite`, `DeclineWrite`,
 `DecideWrites` or, in the console, `decideWrites`. `artifactFiling` says
 which homes the role may write.
@@ -199,6 +204,7 @@ removes them from the record once a turn has delivered them.
 | `tracker.go` | `TrackerAction`, `extractTrackerActions`, `performTrackerActions`, `applyTrackerAction`, `carryOutTrackerAction`, `TrackerOutcome`, `renderTrackerResults`, refused-block hand-back (`recordRefusedTrackerBlock`) |
 | `role.go` | role authority, `SystemPrompt`, `WithRemit` |
 | `document.go`, `documentpublication.go` | document writes, policy confirmation, durable publication and returns to the owner |
+| `sendinghold.go` | a hold on sending one document, lifted when its named work item closes; the notes a document leaves on the items it answers |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
 | `usagelimit.go`, `providerwait.go`, `provideroutage.go`, `hold.go` | provider refusals, waits that put the conversation down, the operator hold |
 | `rebuild.go` | continuing on a provider that never held the session |

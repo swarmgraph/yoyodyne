@@ -4743,10 +4743,16 @@ missed, failed before its first turn, or failed after it — the line says so, s
 a role whose passes stopped running reads differently from one whose passes ran
 and took something else. A pass took an item where one of its tracker actions
 changed the item, or where its account names the item in a finding it did
-something about; reading an item takes nothing. `--json` carries the lines
+something about; reading an item takes nothing. An item whose design or ruling
+the role finished, in a document its conversation keeps held for sending
+([a hold on sending](artifacts.md#writing-a-document-from-a-conversation)), was
+taken too, and is said apart from items ruled: `taken, finished and HELD FOR
+SENDING as document-7.1, not yet ruled`, and `it took 2 of the 4, 1 of them
+HELD FOR SENDING rather than ruled`. An item the account lists as held with no
+such document behind it was not taken, and its reason says so. `--json` carries the lines
 under `standing.conversation_passes`, each with its `task`, `role`, `at`,
-`handed`, the `first` item with its `id`, `priority`, `taken` and `reason`,
-`took`, and `since`; a pass log that could not be read to the end is said
+`handed`, the `first` item with its `id`, `priority`, `taken`, `reason` and
+`held_for_sending`, `took`, `held`, and `since`; a pass log that could not be read to the end is said
 under the line and in `conversation_passes_problem`.
 
 **The item first in a pass's order that the pass did not take says so on

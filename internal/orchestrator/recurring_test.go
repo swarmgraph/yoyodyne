@@ -57,6 +57,8 @@ type scriptedTurn struct {
 	wording  []terms.Finding
 	// actedOn is the work items the turn's tracker actions changed.
 	actedOn []string
+	// held is the items documents held for sending answer, with each document.
+	held map[string]string
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, _ RecurringTurnOptions) (Turn, error) {
@@ -76,7 +78,7 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
 		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported,
 		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
-		ActedOn: answer.actedOn,
+		ActedOn: answer.actedOn, HeldForSending: answer.held,
 	}, answer.err
 }
 

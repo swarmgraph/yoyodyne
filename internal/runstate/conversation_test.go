@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
@@ -1472,5 +1473,33 @@ func TestHeldByNamesTheConversationsOneProcessHolds(t *testing.T) {
 	}
 	if agents, err := store.HeldBy(os.Getpid()); err != nil || len(agents) != 0 {
 		t.Fatalf("HeldBy(this process) after release = %v, %v, want nothing", agents, err)
+	}
+}
+
+// Documents held for sending are bounded apart from the ones waiting for a
+// decision or publication, so two held documents leave room for two more of
+// the others, and the held ones have their own bound.
+func TestConversationBoundsHeldDocumentsApart(t *testing.T) {
+	t.Parallel()
+
+	write := func(id string, held bool) PendingWrite {
+		pending := PendingWrite{ID: id, Turn: 1, Action: "create", Artifact: id, Body: "# A\n\nB.", Reason: "why"}
+		if held {
+			pending.Hold = &artifact.SendingHold{UntilClosed: "yoyodyne-fix", Reason: "waits for the fix"}
+		}
+		return pending
+	}
+	conversation := testConversation(t)
+	conversation.PendingWrites = []PendingWrite{write("a", true), write("b", true), write("c", false), write("d", false)}
+	if err := conversation.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want two held and two waiting accepted", err)
+	}
+	conversation.PendingWrites = append(conversation.PendingWrites, write("e", false))
+	if err := conversation.Validate(); err == nil || !strings.Contains(err.Error(), "3 undecided documents") {
+		t.Fatalf("Validate() error = %v, want the third waiting document refused", err)
+	}
+	conversation.PendingWrites = []PendingWrite{write("a", true), write("b", true), write("c", true), write("d", true), write("e", true)}
+	if err := conversation.Validate(); err == nil || !strings.Contains(err.Error(), "5 documents held for sending") {
+		t.Fatalf("Validate() error = %v, want the fifth held document refused", err)
 	}
 }

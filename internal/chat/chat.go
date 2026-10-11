@@ -1543,7 +1543,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// other actions and return the reason to the role once in this message;
 		// another refusal waits durably for its next turn instead of looping.
 		var documentResult string
-		if err := s.refuseWrites(parsed.Writes); err != nil {
+		if err := s.refuseWrites(ctx, parsed.Writes); err != nil {
 			documentResult = s.renderDocumentRefusal(err)
 			parsed.Writes = nil
 			reply.DocumentRefusals = append(reply.DocumentRefusals, documentResult)
@@ -1604,7 +1604,10 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// The document is recorded once it has passed the gate above, so an
 		// approval arriving in a later process names something that was written
 		// down rather than something a process remembered.
-		_, err = s.recordWrites(parsed.Writes)
+		written, err := s.recordWrites(parsed.Writes)
+		if err == nil {
+			err = s.noteAnsweredItems(ctx, written)
+		}
 		if err == nil {
 			err = s.PublishDocuments(ctx)
 		}

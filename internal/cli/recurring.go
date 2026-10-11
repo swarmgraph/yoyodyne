@@ -544,6 +544,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		ReportsFiled: len(reply.Reports),
 		Admitted:     reply.AdmittedWork(),
 		ActedOn:      reply.ActedOnWork(),
+		// And the items whose finished documents the conversation keeps held
+		// for sending, which the pass's record says apart from items ruled.
+		HeldForSending: heldForSending(session),
 	}
 	if err != nil {
 		return turn, notWoken(err)
@@ -564,6 +567,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.ReportsFiled += len(recovered.Reports)
 			turn.Admitted = append(turn.Admitted, recovered.AdmittedWork()...)
 			turn.ActedOn = append(turn.ActedOn, recovered.ActedOnWork()...)
+			turn.HeldForSending = heldForSending(session)
 			turn.CriticalReports = append(turn.CriticalReports, session.CriticalReportsShown()...)
 			turn.Model = servingModel(session.Evidence())
 			if recoveryErr != nil {
@@ -592,6 +596,23 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		}
 	}
 	return turn, nil
+}
+
+// heldForSending maps each work item a document held for sending answers to
+// that document, as the conversation keeps them now. Nil where none is held.
+func heldForSending(session *chat.Session) map[string]string {
+	var held map[string]string
+	for _, document := range session.HeldDocuments() {
+		for _, item := range document.Answers {
+			if held == nil {
+				held = map[string]string{}
+			}
+			if _, named := held[item]; !named {
+				held[item] = document.WriteID
+			}
+		}
+	}
+	return held
 }
 
 // servingModel is the model a turn ran on: the alternate that served it where

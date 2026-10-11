@@ -20,6 +20,13 @@ package orchestrator
 // that names the item is its reason. A role that names an item in "left" and
 // also acts on it in the tracker took it: the tracker is what happened.
 //
+// An item a document kept held for sending answers was taken too, and is
+// recorded as held for sending with that document, because its design or
+// ruling is finished and only the sending waits. An item the account lists
+// under "held" with no such document was not taken, whatever its findings say:
+// a hold delays only the sending, so an item with nothing written for it is not
+// ruled and not held, and the reason recorded says so.
+//
 // # When the note is written
 //
 // Only on a pass that answered with its account. A pass that delivered nothing,
@@ -60,7 +67,7 @@ func boundedDelivery(items []runstate.DeliveredWork) []runstate.DeliveredWork {
 // judgeDelivered marks each delivered item taken or left, as the package
 // comment says, with the role's reason against an item it left where its
 // account gave one.
-func judgeDelivered(delivered []runstate.DeliveredWork, actedOn []string, account *sweep.Result) []runstate.DeliveredWork {
+func judgeDelivered(delivered []runstate.DeliveredWork, actedOn []string, heldForSending map[string]string, account *sweep.Result) []runstate.DeliveredWork {
 	if len(delivered) == 0 {
 		return nil
 	}
@@ -70,11 +77,16 @@ func judgeDelivered(delivered []runstate.DeliveredWork, actedOn []string, accoun
 	}
 	judged := make([]runstate.DeliveredWork, len(delivered))
 	for i, item := range delivered {
-		item.Taken, item.Reason = false, ""
+		item.Taken, item.Reason, item.HeldForSending = false, "", ""
+		document := strings.TrimSpace(heldForSending[item.ID])
 		switch {
 		case changed[item.ID]:
-			item.Taken = true
+			item.Taken, item.HeldForSending = true, document
+		case document != "":
+			item.Taken, item.HeldForSending = true, document
 		case account == nil:
+		case account.HeldItem(item.ID):
+			item.Reason = boundedLeftReason("the account lists this item as held for sending, but the conversation keeps no document held for sending that answers it, so its design or ruling is not finished")
 		default:
 			reason, left := account.LeftReason(item.ID)
 			if !left {

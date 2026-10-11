@@ -370,3 +370,35 @@ func TestTheWriteContractStatesTheBoundsItIsHeldTo(t *testing.T) {
 		t.Fatalf("the stated bound (%s) and the enforced one (%d) disagree", maxWritesPerReplyText, MaxWritesPerReply)
 	}
 }
+
+// What a document answers and the hold on sending it are checked with the rest
+// of the write: a hold names one work item and says why.
+func TestAWriteChecksWhatItAnswersAndItsHold(t *testing.T) {
+	t.Parallel()
+
+	held := aWrite()
+	held.Answers = []string{"yoyodyne-ab2"}
+	held.Hold = &SendingHold{UntilClosed: "yoyodyne-ifd.433.21.2", Reason: "a stopped publication is not retried until that fix merges"}
+	if err := held.Validate(); err != nil {
+		t.Fatalf("Validate() error = %v, want a held write accepted", err)
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*Write)
+		want   string
+	}{
+		{name: "hold without reason", mutate: func(w *Write) { w.Hold.Reason = " " }, want: "hold.reason is required"},
+		{name: "hold without item", mutate: func(w *Write) { w.Hold.UntilClosed = "" }, want: "hold.until_closed names no work item"},
+		{name: "hold naming two words", mutate: func(w *Write) { w.Hold.UntilClosed = "the fix" }, want: "is not one work item identifier"},
+		{name: "blank answer", mutate: func(w *Write) { w.Answers = []string{""} }, want: "answers[0] names no work item"},
+		{name: "too many answers", mutate: func(w *Write) { w.Answers = make([]string, MaxWriteAnswers+1) }, want: "answers names 11 work items"},
+	} {
+		write := held
+		hold := *held.Hold
+		write.Hold = &hold
+		test.mutate(&write)
+		if err := write.Validate(); err == nil || !strings.Contains(err.Error(), test.want) {
+			t.Errorf("%s: Validate() error = %v, want %q", test.name, err, test.want)
+		}
+	}
+}

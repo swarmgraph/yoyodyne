@@ -473,6 +473,25 @@ type Result struct {
 	// the pass did not take, each with why. Empty on a pass handed no such work,
 	// and on one that took what it was handed.
 	Left []Left `json:"left,omitempty"`
+	// Held are the items of that work whose design or ruling the role finished
+	// and whose document is kept held for sending, by identifier. They are said
+	// apart from the findings because a held item is neither ruled nor left: its
+	// work is done and its document is not yet sent. The harness checks each
+	// against the documents the conversation actually keeps held, so an item
+	// named here with no such document reads as not taken.
+	Held []string `json:"held,omitempty"`
+}
+
+// HeldItem reports whether the account says the item's finished document is
+// held for sending.
+func (r Result) HeldItem(item string) bool {
+	item = strings.TrimSpace(item)
+	for _, held := range r.Held {
+		if strings.TrimSpace(held) == item {
+			return true
+		}
+	}
+	return false
 }
 
 // Validate reports every contract violation in the result at once.
@@ -535,6 +554,17 @@ func (r Result) Validate() error {
 			problems = append(problems, fmt.Errorf("left[%d]: %w", i, err))
 		}
 	}
+	if len(r.Held) > MaxPassLeft {
+		problems = append(problems, fmt.Errorf("%d held items in one pass, limit is %d", len(r.Held), MaxPassLeft))
+	}
+	for i, held := range r.Held {
+		switch item := strings.TrimSpace(held); {
+		case item == "":
+			problems = append(problems, fmt.Errorf("held[%d] is blank", i))
+		case len(item) > MaxTextBytes:
+			problems = append(problems, fmt.Errorf("held[%d] is %d bytes, limit is %d", i, len(item), MaxTextBytes))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
 	}
@@ -574,6 +604,9 @@ func (r Result) validateTurn() error {
 	}
 	if len(r.Left) > MaxLeft {
 		problems = append(problems, fmt.Errorf("%d left items in one turn, limit is %d", len(r.Left), MaxLeft))
+	}
+	if len(r.Held) > MaxLeft {
+		problems = append(problems, fmt.Errorf("%d held items in one turn, limit is %d", len(r.Held), MaxLeft))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
@@ -639,11 +672,16 @@ func (r Result) Merge(next Result) Result {
 	if len(left) > MaxPassLeft {
 		left = left[len(left)-MaxPassLeft:]
 	}
+	held := append(append([]string(nil), r.Held...), next.Held...)
+	if len(held) > MaxPassLeft {
+		held = held[len(held)-MaxPassLeft:]
+	}
 	merged.Findings = findings
 	merged.Questions = questions
 	merged.Recommendations = recommendations
 	merged.Audits = audits
 	merged.Left = left
+	merged.Held = held
 	merged.Summary = noteDropped(merged.Summary, dropped)
 	return merged
 }
@@ -802,7 +840,7 @@ func ReportRequest() string {
 	return strings.Join([]string{
 		"Your previous reply omitted its closing report block. This is the only request for it on this pass. Reply with the block alone, accounting for that reply's findings and actions already taken. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded.",
 		Fence,
-		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}]}`,
+		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"]}`,
 		"```",
 		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, and left only for waiting work it did not take.",
 	}, "\n")
@@ -858,5 +896,7 @@ func LeftContract() string {
 		`"left":[{"item":"beads-id","reason":"why you did not take it on this pass, in a sentence"}]`,
 		"",
 		`The harness judges which items you took from the tracker actions you took on them and from this block. Where the first item in the order is not taken, the harness writes a note on that item naming this pass and the time, with your reason or, where you gave none, "no reason given". A person reads that note, so write the reason for them.`,
+		"",
+		`Where you finished an item's design or ruling and its document is held for sending, list the item under "held" rather than calling it ruled: "held":["beads-id"]. A hold delays only the sending, so an item whose design is unfinished is never held and never ruled; take it and finish the design. The harness checks each held item against the documents your conversation keeps held, naming the item in their "answers", and an item listed here with no such document is recorded as not taken.`,
 	}, "\n")
 }

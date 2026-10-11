@@ -55,6 +55,15 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		if record.decided {
 			continue
 		}
+		if record.heldForSending() {
+			lifted, err := s.liftedHold(ctx, record)
+			if err != nil {
+				return err
+			}
+			if !lifted {
+				continue
+			}
+		}
 		if record.pending.Publication == nil {
 			confirmed, err := s.confirmDocument(record, publisher.PublishesDocuments())
 			if err != nil {
@@ -273,13 +282,10 @@ func (s *Session) holdsDocument(id string) bool {
 	return false
 }
 
+// waitingWrites counts the undecided documents that are not held for sending,
+// which are the ones runstate.MaxPendingWrites bounds.
 func (s *Session) waitingWrites() int {
-	waiting := 0
-	for _, record := range s.writes {
-		if !record.decided {
-			waiting++
-		}
-	}
+	waiting, _ := s.waitingAndHeld()
 	return waiting
 }
 

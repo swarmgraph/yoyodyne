@@ -33,8 +33,10 @@ type ConversationPass struct {
 	// its order; First is empty where it was handed none.
 	Handed int                     `json:"handed"`
 	First  *runstate.DeliveredWork `json:"first,omitempty"`
-	// Took is how many of the items it was handed the pass took.
+	// Took is how many of the items it was handed the pass took, and Held how
+	// many of those it took are finished and held for sending rather than ruled.
 	Took int `json:"took"`
+	Held int `json:"held,omitempty"`
 	// Since is the task's most recent firing where it came after this pass and
 	// gave no account: missed, failed before its first turn, or failed after
 	// it. It is what tells a role whose passes stopped answering from one that
@@ -90,6 +92,9 @@ func ConversationPasses(recorded []runstate.Sweep) []ConversationPass {
 			if item.Taken {
 				entry.Took++
 			}
+			if item.Taken && item.HeldForSending != "" {
+				entry.Held++
+			}
 		}
 		if latest := passes[len(passes)-1]; latest.StartedAt.After(last.StartedAt) {
 			entry.Since = fmt.Sprintf("its latest firing, at %s, %s", localMoment(latest.StartedAt), unanswered(latest))
@@ -135,6 +140,9 @@ func (p ConversationPass) Says() string {
 		fmt.Fprintf(&said, "was handed %s; first in its order: %s (P%d), %s", count(p.Handed, "item"), p.First.ID, p.First.Priority, takenSays(*p.First))
 		if p.Handed > 1 {
 			fmt.Fprintf(&said, "; it took %d of the %d", p.Took, p.Handed)
+			if p.Held > 0 {
+				fmt.Fprintf(&said, ", %d of them HELD FOR SENDING rather than ruled", p.Held)
+			}
 		}
 	}
 	if p.Since != "" {
@@ -146,6 +154,9 @@ func (p ConversationPass) Says() string {
 // takenSays is whether a pass took an item, in capitals where it did not, so
 // the distinction survives a terminal that renders no emphasis.
 func takenSays(item runstate.DeliveredWork) string {
+	if item.Taken && item.HeldForSending != "" {
+		return "taken, finished and HELD FOR SENDING as " + item.HeldForSending + ", not yet ruled"
+	}
 	if item.Taken {
 		return "taken"
 	}
@@ -187,6 +198,9 @@ type ItemConsideration struct {
 	// took the item is not known beyond the tracker actions it took.
 	Answered bool   `json:"answered"`
 	Reason   string `json:"reason,omitempty"`
+	// HeldForSending is the document that holds the item's finished design or
+	// ruling under a hold on sending it, where the pass took it that way.
+	HeldForSending string `json:"held_for_sending,omitempty"`
 	// Says is the line every surface prints, so the card and the terminal say
 	// one thing about one pass.
 	Says string `json:"says"`
@@ -209,6 +223,7 @@ func LastConsidered(recorded []runstate.Sweep, id string) (ItemConsideration, bo
 				Task: pass.Task, Role: pass.Role, At: pass.StartedAt,
 				Position: index + 1, Of: len(pass.Delivered),
 				Taken: item.Taken, Answered: pass.Turns > 0 && pass.Result != nil, Reason: item.Reason,
+				HeldForSending: item.HeldForSending,
 			}
 			ok = true
 			break
@@ -245,6 +260,8 @@ func (c ItemConsideration) Sentence() string {
 	}
 	said := fmt.Sprintf("last considered by the %s's recurring pass %s at %s, %s", c.Role.Title(), c.Task, localMoment(c.At), where)
 	switch {
+	case c.Taken && c.HeldForSending != "":
+		return said + "; it took this item, and its finished design or ruling is HELD FOR SENDING as " + c.HeldForSending + ", not yet ruled"
 	case c.Taken:
 		return said + "; it took this item"
 	case !c.Answered:

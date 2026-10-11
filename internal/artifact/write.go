@@ -35,6 +35,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
@@ -120,7 +121,32 @@ type Write struct {
 	// required for the reason every revision's is: a change nobody explained is
 	// one nobody can evaluate later.
 	Reason string `json:"reason"`
+	// Answers names the work items this document is the design or ruling for.
+	// The harness writes the document into each one's notes when the document is
+	// written, so a developer can start from it before it is published.
+	Answers []string `json:"answers,omitempty"`
+	// Hold delays sending the document for publication, and nothing else: the
+	// document is written, kept, and noted on the items it answers as any other
+	// is, and it is sent once the work item the hold names closes.
+	Hold *SendingHold `json:"hold,omitempty"`
 }
+
+// SendingHold is what an owning role puts on sending one finished document:
+// the work item whose closing lifts it, and why it should wait for that. It
+// names a condition the harness can see met, so the document is sent at the
+// first message after that item closes without anybody acting by hand.
+type SendingHold struct {
+	UntilClosed string `json:"until_closed"`
+	Reason      string `json:"reason"`
+}
+
+// MaxWriteAnswers bounds the work items one document says it answers.
+const MaxWriteAnswers = 10
+
+// maxWorkItemReferenceBytes bounds one work item identifier a write names. The
+// tracker's own rule for an identifier is the conversation's to apply, because
+// this package is below the tracker's.
+const maxWorkItemReferenceBytes = 128
 
 // Validate reports every contract violation in the write at once, so a block
 // that is wrong in three ways is corrected once rather than three times.
@@ -160,8 +186,42 @@ func (w Write) Validate() error {
 			problems = append(problems, err)
 		}
 	}
+	if len(w.Answers) > MaxWriteAnswers {
+		problems = append(problems, fmt.Errorf("answers names %d work items, limit is %d", len(w.Answers), MaxWriteAnswers))
+	}
+	for index, item := range w.Answers {
+		if err := workItemReference(fmt.Sprintf("answers[%d]", index), item); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if w.Hold != nil {
+		if err := workItemReference("hold.until_closed", w.Hold.UntilClosed); err != nil {
+			problems = append(problems, err)
+		}
+		switch reason := strings.TrimSpace(w.Hold.Reason); {
+		case reason == "":
+			problems = append(problems, errors.New("hold.reason is required, saying why sending waits for that work item to close"))
+		case len(reason) > MaxReasonBytes:
+			problems = append(problems, fmt.Errorf("hold.reason is %d bytes, limit is %d", len(reason), MaxReasonBytes))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid artifact write: %w", err)
+	}
+	return nil
+}
+
+// workItemReference refuses a work item identifier that is blank, spans more
+// than one word, or runs too long to be one.
+func workItemReference(field, value string) error {
+	trimmed := strings.TrimSpace(value)
+	switch {
+	case trimmed == "":
+		return fmt.Errorf("%s names no work item", field)
+	case len(trimmed) > maxWorkItemReferenceBytes:
+		return fmt.Errorf("%s is %d bytes, limit is %d", field, len(trimmed), maxWorkItemReferenceBytes)
+	case strings.ContainsFunc(trimmed, unicode.IsSpace):
+		return fmt.Errorf("%s %q is not one work item identifier", field, trimmed)
 	}
 	return nil
 }
@@ -505,6 +565,8 @@ A revision replaces what an existing document says: ` + "`" + `{"action":"revise
 The kinds you may write, and where this project files each of them, are ` + strings.Join(kinds, ", ") + `. Any other kind is refused and nothing is written, and so is a document filed anywhere but the directory its own kind belongs in — being inside one of this project's ` + strings.Join(directories, " or ") + ` is not enough. The id is the file name without its extension, so it also has to be one: an id that already answers to a document is a revision rather than a creation.
 
 Automatic publication leaves no uncommitted document in the primary checkout. If checks fail, review refuses it, or target changes conflict, the findings return to this conversation for you to revise; no developer rewrites it and no operator decision is requested. A revision opens a fresh run. After three returned runs for one document in this conversation, automatic publication stops and you must revise your plan. Documents that need operator confirmation retain the existing write into the operator's working tree. Never claim that a document landed until the harness reports it.
+
+Where a document is the design or ruling for work items, name them: ` + "`" + `"answers":["work-item-id"]` + "`" + `, at most ` + fmt.Sprintf("%d", MaxWriteAnswers) + `. The harness writes the document into each item's notes as soon as it is written, so a developer can start from it before it is published. Where sending a document has to wait — for a fix to publication itself, say — finish the document anyway and put the wait on it: ` + "`" + `"hold":{"until_closed":"work-item-id","reason":"why sending waits for it"}` + "`" + `. A hold delays only the sending. The harness keeps the document ready to send, tells you it is held and why, and sends it at the first message after that work item closes; you do not write it again. Never hold back the design or ruling itself because sending is held, and never report an item as ruled while its document is unfinished: an item whose finished document is held is held for sending, not ruled.
 
 The body is a JSON string, so the document's own newlines and quotes are escaped in it — a Markdown document with code fences in it is carried perfectly well, and a block that is not valid JSON writes nothing at all. One reply carries ` + maxWritesPerReplyText + ` document, at most ` + fmt.Sprintf("%d", MaxWriteBodyBytes) + ` bytes of it, and leaves the block out entirely when you are not writing one, which is most replies. Never describe a document as written before the harness has told you it was.`
 }

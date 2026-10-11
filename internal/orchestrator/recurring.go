@@ -268,6 +268,11 @@ type Turn struct {
 	// an item of the work waiting in its conversation. It is carried whichever
 	// way the turn went, for the reason Saved is.
 	ActedOn []string `json:"acted_on,omitempty"`
+	// HeldForSending is every work item a document kept held for sending in the
+	// conversation answers, with that document, as the turn left it. With the
+	// account it is what says an item's design or ruling is finished and held
+	// rather than ruled, and what refuses that claim where no document backs it.
+	HeldForSending map[string]string `json:"held_for_sending,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -1149,6 +1154,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	var delivered []runstate.DeliveredWork
 	deliveredRead := false
 	var actedOn []string
+	var heldForSending map[string]string
 	for turn := 0; turn < task.Turns(); turn++ {
 		if t.ConversationWork != nil && f.agent == "" {
 			work, err := t.ConversationWork.Read(ctx, task.Role)
@@ -1205,6 +1211,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		// the other two traces a finding can leave.
 		recorded.Wording = terms.MergeFindings(recorded.Wording, answered.Wording)
 		actedOn = append(actedOn, answered.ActedOn...)
+		// What the conversation keeps held is a state, so the last turn's
+		// reading stands over the earlier ones.
+		if answered.HeldForSending != nil || err == nil {
+			heldForSending = answered.HeldForSending
+		}
 		recorded.ReportsFiled += answered.ReportsFiled
 		for _, admitted := range answered.Admitted {
 			if admitted = strings.TrimSpace(admitted); admitted != "" && len(recorded.Admitted) < runstate.MaxSweepSavedWrites {
@@ -1391,7 +1402,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	problems = append(problems, batch.check(task.Role, merged))
 	// What the pass was handed and which of it it took, and the note on the item
 	// first in its order where it did not take that one.
-	recorded.Delivered = judgeDelivered(delivered, actedOn, merged)
+	recorded.Delivered = judgeDelivered(delivered, actedOn, heldForSending, merged)
 	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, recorded))
 	// Bounded, because the record's own bound on this prose refuses a record that
 	// carries too much of it — and every one of these sentences ends with a

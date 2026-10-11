@@ -448,11 +448,15 @@ const MaxSweepDelivered = 200
 // it. Taken is judged from the tracker actions the pass took on the item and
 // from its account; Reason is what the account said about leaving an item it
 // did not take, and empty where it said nothing or where the item was taken.
+// HeldForSending names the document, kept in the role's conversation, that
+// holds the item's finished design or ruling under a hold on sending it: such
+// an item was taken and is not yet ruled, and the record says so apart.
 type DeliveredWork struct {
-	ID       string `json:"id"`
-	Priority int    `json:"priority"`
-	Taken    bool   `json:"taken,omitempty"`
-	Reason   string `json:"reason,omitempty"`
+	ID             string `json:"id"`
+	Priority       int    `json:"priority"`
+	Taken          bool   `json:"taken,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	HeldForSending string `json:"held_for_sending,omitempty"`
 }
 
 // FirstDelivered is the item first in the order the pass was handed, and false
