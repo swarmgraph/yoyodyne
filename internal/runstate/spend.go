@@ -631,6 +631,53 @@ func (s *SpendStore) ReportedSessionTotal(sessionID string) (float64, bool, erro
 	return total, found, nil
 }
 
+// LastDeveloperModel is the model a run's most recent developer invocation on
+// the named backend asked for, and empty where this log records none. It is
+// the record of last resort for a run whose own record lost the model it was
+// developed with: an attempt refused before this was fixed wrote an empty
+// model over it, and the line each earlier attempt left here is the only place
+// that model is still named. Lines that could not be read fail rather than
+// being skipped, for the reason ReportedSessionTotal fails on one.
+func (s *SpendStore) LastDeveloperModel(runID string, named domain.Backend) (string, error) {
+	run := strings.TrimSpace(runID)
+	if s == nil || run == "" || named == "" {
+		return "", nil
+	}
+	file, err := os.Open(s.Path())
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("open spend log: %w", err)
+	}
+	defer file.Close()
+
+	model := ""
+	needle := []byte(run)
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 8*1024), maxEncodedSpendBytes)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, needle) {
+			continue
+		}
+		var decoded Spend
+		if err := json.Unmarshal(line, &decoded); err != nil {
+			return "", fmt.Errorf("decode spend log: %w", err)
+		}
+		if decoded.RunID != run || decoded.Role != domain.RoleDeveloper || decoded.Backend != named {
+			continue
+		}
+		if requested := strings.TrimSpace(decoded.Model); requested != "" {
+			model = requested
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", fmt.Errorf("read spend log: %w", err)
+	}
+	return model, nil
+}
+
 func encodeSpend(line Spend) ([]byte, error) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)

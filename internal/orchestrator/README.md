@@ -159,7 +159,11 @@ Chosen once, in `reserveRun` (`state.ProviderEffort` comes from
 the record by `developerBackendFor` (`recordedbackend.go`), `developerModel`,
 `developerEffort` and `account`. A run recorded on a backend other than the
 configured developer's runs on `Pipeline.RecordedBackends`, or is refused with
-`RecordedBackendError` before any provider call. The backend
+`RecordedBackendError` before any provider call; it asks for the model its
+record names (`recordedModel`), put back from the spend log by `restoreModel`
+where a failed launch erased it, or is refused with `RecordedModelError`. A
+launch that fails before opening a session leaves the record's model as it
+was (`attemptDevelopment`). The backend
 side of effort is `backend.Descriptor.InvocationEffort`
 (`internal/backend/effort.go`).
 
@@ -243,7 +247,7 @@ context bundle come from `internal/contextbundle`.
 | `rerun.go`, `repaircontinue.go`, `carryout.go`, `carryrearm.go`, `rearm.go` | carrying out the development manager's decisions on docketed runs |
 | `recoveryapplicability.go` | whether a repair or re-run still applies: `settledWorkOf` (the run itself merged, a later run merged, or the harness settled its docket entry) and `CarryOut.recoverySettled`, asked by `CarryOut.read` before a recovery is offered and by `CarryOut.Carry` before one is carried out; `recordNoLongerApplies` writes the `no-longer-applies` finding and the item's note |
 | `stallcontinue.go`, `checkstagecontinue.go`, `integrationresume.go` | the harness's own continuations of a stopped run |
-| `recordedbackend.go` | `DeveloperBackends`, `developerBackendFor`, `RecordedBackendError`: a run's developer on the backend the run recorded; `erasedSession`: a session a failed attempt erased, read back from the event log |
+| `recordedbackend.go` | `DeveloperBackends`, `developerBackendFor`, `RecordedBackendError`: a run's developer on the backend the run recorded; `recordedModel`, `restoreModel`, `RecordedModelError`: the model it asks for there; `erasedSession`: a session a failed attempt erased, read back from the event log |
 | `redeploydrain.go` | `RedeployDrain`, `drainedForRedeploy`, `pauseForRedeploy` |
 | `runretirement.go` | `RunRetirer.Retire` — retire a run whose item closed on a confirmed merge |
 | `documentpublication.go` | `PublishDocument`, exact-file gate, independent review without a developer, returns to the owning conversation, retries of a run that judged nothing and the hand-over to the development manager once they are spent; `waitForSlot` records a document every developer slot refused (`runstate.DocumentWait`), and `PublishWaitingDocument` is the scheduler starting one |

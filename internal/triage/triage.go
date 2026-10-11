@@ -1050,8 +1050,9 @@ const (
 	CarryOutStoppageMissing       CarryOutCause = "stoppage-missing"
 	CarryOutPublicationUnmakeable CarryOutCause = "publication-unmakeable"
 	// CarryOutBackendUnavailable is a stopped run whose developer worked on a
-	// backend this harness can no longer start, so no continuation of it can
-	// carry on the developer's session.
+	// backend this harness can no longer start, or on one other than the
+	// configured developer's with no record of the model it worked on there, so
+	// no continuation of it can carry on the developer's session.
 	CarryOutBackendUnavailable CarryOutCause = "backend-unavailable"
 	// CarryOutNoLongerApplies is a recovery about a run of an item that is closed
 	// with its work settled: the run itself merged, a later run of the item

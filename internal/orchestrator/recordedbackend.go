@@ -18,6 +18,17 @@ package orchestrator
 // refused before any provider call and before a decided repair spends its grant
 // (RecordedBackendError), with the session id left on the record, so the
 // development manager can choose a re-run instead.
+//
+// The model goes with the backend. A run on a backend other than the
+// configured developer's asks for the model it was developed with on that
+// backend (activeRun.developerModel), because the configured developer's model
+// belongs to the other backend. Codex reports no model of its own, so that is
+// the model the run's record says it asked for, and where an attempt that
+// failed before this was fixed erased it, the one the run's own lines in the
+// spend log name (restoreModel). A run neither names is refused the way an
+// unlaunchable backend is (RecordedModelError): Codex refuses an empty model,
+// so asking would spend the grant on a launch that cannot succeed
+// (docs/diagnoses/yoyodyne-hea-continued-codex-runs-lose-their-model.md).
 
 import (
 	"encoding/json"
@@ -55,6 +66,30 @@ func (e RecordedBackendError) Error() string {
 
 func (e RecordedBackendError) Unwrap() error { return ErrRecordedBackendUnavailable }
 
+// RecordedModelError refuses to invoke a run's developer on the backend the run
+// recorded because nothing names the model it was developed with there: not
+// the run's record, and not the run's own lines in the spend log. No provider
+// was called, and the run's session id is still on its record.
+type RecordedModelError struct {
+	RunID      string
+	Recorded   domain.Backend
+	Configured domain.Backend
+}
+
+func (e RecordedModelError) Error() string {
+	return fmt.Sprintf(
+		"run %s's developer worked on %s, and the developer is now configured for %s; neither the run's record nor the spend log names the %s model the run was developed with, and the configured model belongs to %s, so the developer was not invoked and no provider was called. The run's session is still on its record. A re-run starts the item again on %s",
+		e.RunID, e.Recorded, e.Configured, e.Recorded, e.Configured, e.Configured)
+}
+
+func (e RecordedModelError) Unwrap() error { return ErrRecordedBackendUnavailable }
+
+// RecordedModels reads the model a run's developer last asked for on a
+// backend out of the spend log. It is satisfied by runstate.SpendStore.
+type RecordedModels interface {
+	LastDeveloperModel(runID string, named domain.Backend) (string, error)
+}
+
 // DeveloperBackends is what a continuation needs to know to tell whether a
 // stopped run's developer can be invoked again: the backend the developer slot
 // is configured for now, and the adapters this harness can build for any other
@@ -72,22 +107,65 @@ type DeveloperBackends struct {
 	// source its events carry. Nil reads every backend as its own adapter, which
 	// is what every built-in is.
 	Adapter func(named domain.Backend) domain.Backend
+	// Models is where restoreModel looks for the model of a run whose record
+	// lost it. Nil looks nowhere, and such a run is refused.
+	Models RecordedModels
+}
+
+// onAnotherBackend reports a run recorded on a backend other than the
+// configured developer's.
+func (b DeveloperBackends) onAnotherBackend(state runstate.State) bool {
+	return b.Configured != "" && state.Backend != "" && state.Backend != b.Configured
 }
 
 // refuse reports why the developer of a run with this record cannot be invoked
 // here, and nil where it can.
 func (b DeveloperBackends) refuse(state runstate.State) error {
-	recorded := state.Backend
-	if b.Configured == "" || recorded == "" || recorded == b.Configured {
+	if !b.onAnotherBackend(state) {
 		return nil
 	}
-	if b.Other != nil {
-		if _, ok := b.Other(recorded); ok {
-			return nil
+	if b.Other == nil {
+		return permanentCarryOut(triage.CarryOutBackendUnavailable,
+			RecordedBackendError{RunID: state.RunID, Recorded: state.Backend, Configured: b.Configured})
+	}
+	if _, ok := b.Other(state.Backend); !ok {
+		return permanentCarryOut(triage.CarryOutBackendUnavailable,
+			RecordedBackendError{RunID: state.RunID, Recorded: state.Backend, Configured: b.Configured})
+	}
+	if recordedModel(state) == "" {
+		return permanentCarryOut(triage.CarryOutBackendUnavailable,
+			RecordedModelError{RunID: state.RunID, Recorded: state.Backend, Configured: b.Configured})
+	}
+	return nil
+}
+
+// recordedModel is the model a run's record says its developer works on: the
+// one a project mapping or slot pair chose for it, else the one its attempts
+// asked for, else the one its provider reported serving.
+func recordedModel(state runstate.State) string {
+	for _, model := range []string{state.DeveloperModel, state.ProviderModel, state.ProviderResolvedModel} {
+		if model = strings.TrimSpace(model); model != "" {
+			return model
 		}
 	}
-	return permanentCarryOut(triage.CarryOutBackendUnavailable,
-		RecordedBackendError{RunID: state.RunID, Recorded: recorded, Configured: b.Configured})
+	return ""
+}
+
+// restoreModel puts back on the record of a run on another backend the model
+// an earlier failed attempt erased from it, read from the run's own lines in
+// the spend log, and reports the model restored. A record that still names a
+// model, a run on the configured backend, and a log that cannot be read
+// restore nothing.
+func (b DeveloperBackends) restoreModel(state *runstate.State) string {
+	if b.Models == nil || !b.onAnotherBackend(*state) || recordedModel(*state) != "" {
+		return ""
+	}
+	model, err := b.Models.LastDeveloperModel(state.RunID, state.Backend)
+	if err != nil {
+		return ""
+	}
+	state.ProviderModel = model
+	return model
 }
 
 // restoreSession puts back on a run's record the developer session a failed
@@ -114,7 +192,17 @@ func (b DeveloperBackends) restoreSession(events RunEvents, state *runstate.Stat
 
 // developerBackends is this pipeline's answer to the same question.
 func (p Pipeline) developerBackends() DeveloperBackends {
-	return DeveloperBackends{Configured: p.developer().Backend, Other: p.RecordedBackends}
+	backends := DeveloperBackends{Configured: p.developer().Backend, Other: p.RecordedBackends}
+	if models, ok := p.Spend.(RecordedModels); ok {
+		backends.Models = models
+	}
+	return backends
+}
+
+// restoredModelSays is what a continuation's reason says about a model it put
+// back on the run's record.
+func restoredModelSays(model string) string {
+	return fmt.Sprintf("The run's record had lost the model %s its developer was developed with to an earlier attempt that failed at launch; the model was restored from the run's own lines in the spend log.", model)
 }
 
 // restoredSessionSays is what a continuation's reason says about a session it

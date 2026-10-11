@@ -196,6 +196,7 @@ func developerBackendsFrom(parts components) orchestrator.DeveloperBackends {
 			}
 			return named
 		},
+		Models: parts.spend,
 	}
 }
 

@@ -2684,8 +2684,13 @@ type State struct {
 	// ProviderModel is the selector the developer invocation requested and
 	// ProviderResolvedModel is what the provider reported serving it. A
 	// floating alias makes the resolved identifier the only real audit record.
+	// ProviderModelReported is false where the last served attempt's provider
+	// named no model, which the Codex CLI never does; ProviderModel is then the
+	// only record of what the run asked for, and what a continuation on the
+	// run's own backend asks for again (orchestrator's developerModel).
 	ProviderModel         string `json:"provider_model,omitempty"`
 	ProviderResolvedModel string `json:"provider_resolved_model,omitempty"`
+	ProviderModelReported bool   `json:"provider_model_reported,omitempty"`
 	// ProviderEffort is the effort level the developer invocations ask for,
 	// settled from the developer agent's configuration when the run is reserved
 	// and read back by every invocation after, as the account is. Empty is a

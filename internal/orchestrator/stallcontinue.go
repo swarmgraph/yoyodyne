@@ -159,6 +159,7 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	// Restored before the record is asked whether it holds a session, and
 	// written with the continuation, as a repair's is (RepairContinuer.Continue).
 	restored := c.Backends.restoreSession(c.Events, &prior)
+	restoredModel := c.Backends.restoreModel(&prior)
 	if !prior.HarnessContinuesStall() {
 		return result, fmt.Errorf("%w: %s", ErrNotHarnessContinuedStall, nonEmpty(prior.StallStopSays(), fmt.Sprintf("run %s did not end on a silent-stream stall the sweep settled", prior.RunID)))
 	}
@@ -214,6 +215,9 @@ func (c StallContinuer) Continue(ctx context.Context, request StallContinueReque
 	result.Reason = stallContinueReason(prior, result.ResumesAt)
 	if restored != "" {
 		result.Reason = restoredSessionSays(restored) + " " + result.Reason
+	}
+	if restoredModel != "" {
+		result.Reason = restoredModelSays(restoredModel) + " " + result.Reason
 	}
 	if _, err := c.Items.RecordOutcome(ctx, entry.WorkItemID, itemRecord(result.Reason, item, prior)); err != nil {
 		return result, fmt.Errorf("record the continuation on %s: %w", entry.WorkItemID, err)
