@@ -1041,6 +1041,9 @@ var notAStep = map[string]string{
 	// every other run from the target branch alone, and nothing has been
 	// delivered yet either way.
 	"liftPreserved": "starts the worktree from the preserved change the run's selection names",
+	// Cutting the worktree is the same, and waiting out the export it is given is
+	// part of cutting it: nothing has been delivered until it returns.
+	"createWorktree": "cuts the run's worktree, waiting out a tracker export that did not answer while it was prepared",
 
 	// After the delivery. The landing checks run once the run is terminal, its
 	// item settled and its artifacts gone, over the target branch rather than
@@ -1109,4 +1112,6 @@ var notAStep = map[string]string{
 	"mergeQueued":                  "reads whether the forge only queued the merge, which is what run.complete waits for before closing the item",
 	"publicationRecorded":          "reads the record back to confirm the pull request the run reports is on it, inside run.complete, and refuses the completion where it is not",
 	"applyUndischargedDisposition": "records on the run where its item was actually settled, inside run.complete",
+	"recordOutcomeOnce":            "records the run's outcome note on the item, read back before it is made again, inside run.complete",
+	"reopenUndischargedOnce":       "puts an item the change did not discharge back in the backlog, read back before it is made again, inside run.complete",
 }

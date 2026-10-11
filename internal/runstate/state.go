@@ -2371,7 +2371,8 @@ const (
 	RetryCatchUpTarget      = "catching the local target branch up"
 	RetryProviderInvocation = "invoking the provider"
 	// RetryTrackerWrite covers the writes a finishing run makes to the tracker —
-	// the outcome recorded on the item, the closure, and the price. They are one
+	// the outcome recorded on the item, the closure, and the price — and the
+	// claim a run starts with, which is the same store reached the same way. They are one
 	// boundary rather than three for the reason the remote target's three call
 	// sites are one: they are the same store reached the same way within one
 	// step, and a `bd` that could not be run for one of them could not be run for
@@ -2407,6 +2408,15 @@ const (
 	// one `bd show` that timed out under load and would have answered on the next
 	// attempt.
 	RetryDependencyRead = "reading what this item waits on"
+	// RetryTrackerExport is the tracker's export a run's worktree is given before
+	// its developer starts. It is a boundary of its own rather than one of the
+	// tracker's above because it is a different command met at a different step —
+	// the whole store read out, while the worktree is being prepared — and a run
+	// that spent its window here has a window left for the writes it finishes
+	// with. Asking again is safe where asking a write again is not: the export
+	// writes nothing to the store, and its copy is published only whole
+	// (gitworktree.ErrExportsUnprepared).
+	RetryTrackerExport = "exporting the tracker for the run's worktree"
 )
 
 // MaxRetries bounds how many recoverable failures one run records. The window

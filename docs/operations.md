@@ -1998,6 +1998,30 @@ one of the boundaries above.
   set is deliberately small, and anything outside it keeps the behavior it had.
   The full recoverable-versus-terminal taxonomy is the architect's, and this does
   not wait on it.
+- **A tracker write is never made twice.** A `bd` killed at its 30-second bound
+  may have written before it was killed, so a write that was killed is asked for
+  again only after the item has been read back and found not to carry it — the
+  note at the end of its notes, the claim, the close, the price. One that did
+  land is taken as the answer. The tracker client does this itself, twice, after
+  waits of two and eight seconds, for every write it makes; a `bd show` killed at
+  its bound is asked again after the same waits. A run's claim and the writes it
+  finishes with — the outcome note, the close, or the reopening of an item its
+  change did not discharge — then go on waiting in the two-hour window, reading
+  the item back before every attempt, so a stalled tracker holds the run rather
+  than ending it. A claim still unanswered once the window is spent stops the
+  run before anything of the work, and nothing is charged for that round.
+- **A tracker export that stalls while a worktree is prepared is asked again.**
+  A new run's worktree is given a fresh copy of the tracker's export before its
+  developer starts. An export killed at its bound, or one queued behind another
+  export past that bound, is waited out in its own two-hour window, recorded on
+  the run as "exporting the tracker for the run's worktree" before each wait, and
+  asked again over the worktree already made. Asking again is safe because
+  `bd export` changes nothing in the tracker and its copy is published only once
+  it answered whole. No developer starts until an export has answered, and
+  repeating it spends no repair or re-run. An export still unanswered once the
+  window is spent stops the run, saying it stopped while preparing its worktree,
+  that the worktree holds nothing of the work and any preserved change was not
+  lifted, and what gives the item back; nothing is charged for that round.
 
 **Every wait a run takes is recorded before it is taken**, on the run itself,
 with the boundary, which attempt it was, the interval, and the failure it waited

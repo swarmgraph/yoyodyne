@@ -491,6 +491,14 @@ var (
 	// a class that held only one of them would charge the item a round and its
 	// re-run whenever the load happened to arrive a command earlier.
 	ErrCheckoutKilled = errors.New("a Git command the worktree checkout needed was ended by the budget the harness gave it")
+	// ErrExportsUnprepared reports a worktree whose current exports could not be
+	// prepared, because the export that refreshes the primary checkout's copy
+	// failed. The worktree is left as Git made it, holding nothing of any work,
+	// and the copy it would have been given is not given: a run never starts on
+	// an export nobody confirmed. A caller tells it from every other creation
+	// failure because asking again is safe — see refreshExports — and a creation
+	// asked again with ResumeCreation adopts the worktree already made.
+	ErrExportsUnprepared = errors.New("the tracker's export could not be prepared for the worktree")
 )
 
 type ChangeSummary struct {

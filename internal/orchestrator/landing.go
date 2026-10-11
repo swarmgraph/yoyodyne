@@ -522,6 +522,14 @@ func arrangeUndischarged(ctx context.Context, tracker WorkTracker, state runstat
 // arrangement read rather than reading it again, so the parking it must not lift
 // and the dependency it must not duplicate are decided from one reading.
 func reopenUndischarged(ctx context.Context, tracker WorkTracker, settled runstate.State, item beads.WorkItem) error {
+	reason, parking := undischargedReopening(settled, item)
+	_, err := tracker.Reopen(ctx, settled.WorkItemID, reason, parking)
+	return err
+}
+
+// undischargedReopening is what reopenUndischarged writes: the reason appended
+// to the notes and the parking the item is left under.
+func undischargedReopening(settled runstate.State, item beads.WorkItem) (string, domain.WorkItemParking) {
 	reason := undischargedLandingReason(settled)
 	parking := undischargedParking(settled)
 	switch superseded := item.Parking.Reason(); {
@@ -532,7 +540,22 @@ func reopenUndischarged(ctx context.Context, tracker WorkTracker, settled runsta
 	case superseded != "" && superseded != parking.Reason():
 		reason += " It replaces the parking reason this item already carried, which was: " + superseded
 	}
-	_, err := tracker.Reopen(ctx, settled.WorkItemID, reason, parking)
+	return reason, parking
+}
+
+// reopenUndischargedOnce is reopenUndischarged as a run makes it, under the
+// run's window and read back before it is made again (recoveringTrackerWrite):
+// a reopening appends its reason, so one made twice is the reason twice.
+func (a *activeRun) reopenUndischargedOnce(ctx context.Context, item beads.WorkItem) error {
+	reason, parking := undischargedReopening(a.state, item)
+	tracker := a.pipeline.Tracker
+	_, err := recoveringTrackerWrite(ctx, a,
+		itemLanded(tracker, a.state.WorkItemID, func(reopened beads.WorkItem) bool {
+			return reopened.Status == "open" && reopened.Parking.Reason() == parking.Reason() && beads.NotesEndWith(reopened.Notes, reason)
+		}),
+		func(ctx context.Context) (beads.WorkItem, error) {
+			return tracker.Reopen(ctx, a.state.WorkItemID, reason, parking)
+		})
 	return err
 }
 

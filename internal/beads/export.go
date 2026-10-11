@@ -18,6 +18,12 @@ const ExportPath = ".beads/issues.jsonl"
 
 const exportRefreshInterval = time.Minute
 
+// ErrExportBusy reports an export that never started because another export
+// held the lock past one call's bound. It answers nothing about the store, as a
+// `bd` killed at its bound does not, so a caller that waits out a timed-out
+// export waits this out the same way.
+var ErrExportBusy = errors.New("another tracker export held the export lock past the bound of one tracker call")
+
 // Raw export bytes must survive the process runner's line splitting and secret
 // redaction unchanged, but retaining them is still bounded.
 type boundedExportOutput struct{ buffer bytes.Buffer }
@@ -86,6 +92,9 @@ func (c Client) refreshExport(ctx context.Context, interval time.Duration) error
 	waiting, cancel := context.WithTimeout(ctx, c.timeout())
 	defer cancel()
 	if err := lockWriteFile(waiting, file); err != nil {
+		if ctx.Err() == nil && waiting.Err() != nil {
+			return fmt.Errorf("%w: %w", ErrExportBusy, err)
+		}
 		return fmt.Errorf("lock the tracker export: %w", err)
 	}
 	defer unlockWriteFile(file)
