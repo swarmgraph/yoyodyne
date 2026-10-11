@@ -11,6 +11,10 @@ package cli
 // in a registry nothing consults.
 
 import (
+	"os"
+	"runtime"
+	"strings"
+
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backend/adapters"
 	"github.com/mason-bryant/yoyodyne/internal/backend/claudecode"
@@ -19,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // providerDescriptor is what this project says about one backend: the built-in
@@ -97,6 +102,7 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 				return adapter
 			case claudecode.Backend:
 				adapter.Context = cfg.ClaudeCode.Anchored(cfg.Product.Repository)
+				adapter.UsageWindows = usageWindowRecorder(cfg)
 				return adapter
 			}
 			return provider
@@ -107,7 +113,62 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 	// second place that decides whether work may start; what refuses it is the
 	// run pipeline and the conversation, which say so in their own terms and
 	// before anything is claimed.
-	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository)}
+	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository), UsageWindows: usageWindowRecorder(cfg)}
+}
+
+// usageWindowRecorder is where every Claude Code invocation this process makes
+// records the usage windows the provider reports, as they arrive: the product's
+// usage-window record under the state root every command resolves. The root is
+// read from the environment alone, as productStateRoot reads it, and a process
+// that cannot resolve one records nothing beyond its event log rather than
+// refusing to run. A reading heard by an invocation that named no account is
+// recorded under the account this configuration runs under.
+func usageWindowRecorder(cfg config.Config) backend.UsageWindowRecorder {
+	root, err := runstate.ResolveRoot(os.Getenv, os.UserHomeDir, runtime.GOOS)
+	if err != nil {
+		return nil
+	}
+	store, err := runstate.NewUsageWindowStore(root.Path, cfg.Product.ID)
+	if err != nil {
+		return nil
+	}
+	account := cfg.AccountAlias()
+	if account == "" {
+		account = config.DefaultAccountAlias
+	}
+	return accountedUsageWindows{store: store, account: account}
+}
+
+type accountedUsageWindows struct {
+	store   backend.UsageWindowRecorder
+	account string
+}
+
+func (r accountedUsageWindows) RecordUsageWindows(readings []backend.UsageWindowReading) error {
+	for index := range readings {
+		if strings.TrimSpace(readings[index].Account) == "" {
+			readings[index].Account = r.account
+		}
+	}
+	return r.store.RecordUsageWindows(readings)
+}
+
+// usageWindowAccounts is every configured account a provider that reports its
+// usage windows can run under, each of which the surfaces say "no reading yet"
+// for until one arrives: every account but one stated to be another provider's.
+// A project that names no account runs under the default one.
+func usageWindowAccounts(cfg config.Config) []string {
+	aliases := cfg.AccountAliases()
+	if len(aliases) == 0 {
+		return []string{config.DefaultAccountAlias}
+	}
+	accounts := make([]string, 0, len(aliases))
+	for _, alias := range aliases {
+		if provider := cfg.AccountProvider(alias); provider == "" || provider == domain.BackendClaudeCode {
+			accounts = append(accounts, alias)
+		}
+	}
+	return accounts
 }
 
 // providerRuns reports a backend this build can actually launch: one it ships an

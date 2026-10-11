@@ -10,6 +10,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -162,6 +163,8 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		}),
 			"the check make codex-resume could not run on 3 changes in a row, since " + localMoment(moment.Add(-3*time.Hour)) +
 				", so each of them went on without it; latest reason: codex is not installed on this machine"},
+		AttentionCapacityDegraded: {degradedCapacityAttention(degradedFixture(moment)),
+			"the seven-day window on account default is 93% used, past the 90% threshold, resets " + localMoment(moment.Add(48*time.Hour)) + "; read 1 hour ago"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -243,6 +246,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionFactoryStall:      "2026-08-30T06:00:00Z",
 		AttentionTrackerUnanswered: "2026-08-30T11:00:00Z",
 		AttentionUnrunCheck:        "make codex-resume",
+		AttentionCapacityDegraded:  "default:seven_day",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)
@@ -679,4 +683,13 @@ func TestConfigurationFindingsIdentifyEachRunningInstance(t *testing.T) {
 	if configMismatchAttention(first).ID == configMismatchAttention(second).ID {
 		t.Fatal("two live dashboards open the same attention record")
 	}
+}
+
+func degradedFixture(moment time.Time) DegradedCapacity {
+	used, resets := 0.93, moment.Add(48*time.Hour)
+	return DegradedCapacity{Account: "default", Threshold: 90, Window: UsageWindowShown{
+		UsageWindowReading: backend.UsageWindowReading{Account: "default", Window: backend.UsageWindowSevenDay, Utilization: &used, ResetsAt: &resets, At: moment.Add(-time.Hour)},
+		Age:                time.Hour,
+		Degraded:           true,
+	}}
 }

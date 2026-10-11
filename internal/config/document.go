@@ -118,6 +118,7 @@ type executionDocument struct {
 	RedeployDrainLimit                     *Duration `yaml:"redeploy_drain_limit"`
 	FactoryStallAfter                      *Duration `yaml:"factory_stall_after"`
 	CouldNotRunBeforeStatus                *int      `yaml:"could_not_run_before_status"`
+	UsageWindowDegradedPercent             *int      `yaml:"usage_window_degraded_percent"`
 	MissingReportsBeforeFreshConversation  *int      `yaml:"missing_reports_before_fresh_conversation"`
 	BlockedRunsBeforeIntakeHold            *int      `yaml:"blocked_runs_before_intake_hold"`
 	BrakeCooldown                          *Duration `yaml:"brake_cooldown"`

@@ -4611,7 +4611,33 @@ it is the same fact with less inference — and the hold is still on the
 attention line. Nothing else is ever put above the four lines: every other
 reason the harness is choosing nothing is inside them.
 
-**Under the four lines, one line per [program manager](designs/program-manager.md)
+**Under the four lines, each account's provider usage**, as Claude Code last
+reported it:
+
+```text
+Provider usage (as the provider last reported it):
+  default: 41% of the week used (fable 62%), resets 2026-10-16 20:00 PDT; five hours 7%, resets 2026-10-11 04:00 PDT; read 4 minutes ago
+  second: no reading yet
+```
+
+Claude Code reports its usage windows on nearly every invocation, and each
+reading is recorded as it arrives under `usage-windows.json` in the product's
+state directory: the five-hour and seven-day share used, when each resets, the
+window's status and overage, and the model, session, and moment that heard it,
+one entry per account and window, a newer reading replacing an older one. Each
+account says the share of the week used first, with the share of any model's
+own week beside it — Fable's, where the readings carry one — then the five
+hours, each reset in this machine's local time with the zone named, and how
+long ago the reading arrived. An account no invocation has reported a window
+for says `no reading yet` rather than a zero, and a window whose reset has
+passed since it was read says so rather than standing as the share used now.
+It is information and waits on nobody; a window past
+`execution.usage_window_degraded_percent` (90 by default) is said among the
+dashboard's factory problems instead. `yoyo status --json` carries it under
+`standing.usage_windows`. Codex reports no usage window in the stream the
+harness reads, so a Codex account has none.
+
+**Under those, one line per [program manager](designs/program-manager.md)
 instance**, where any is configured or any has a restart request open:
 
 ```text
@@ -5537,7 +5563,12 @@ its ordinary clock. While it is backed off the page says so where it says when
 it asks again: `asks again in 20s, less often while the dashboard answers
 slowly or not at all`.
 
-1. **Where the harness stands** — a tile for each of the four lines: running
+1. **Where the harness stands** — opening with each account's provider usage
+   as plain information, never as a warning: the share of the week used with
+   Fable's own week beside it, each window's reset in local time with the zone
+   named, and how old the reading is, in the same sentence
+   [`yoyo status` prints](#where-the-harness-stands-the-four-lines) for it, and
+   shown whatever else the band says. Then a tile for each of the four lines: running
    developer runs, conversations with a turn in flight, admitted items not
    startable now (out of how many are admitted, how many await a decision or
    the carrying out of one, and the ready work waiting for a developer slot),
@@ -5636,7 +5667,13 @@ slowly or not at all`.
    the supervisor starts with
    [more than one copy running](#starting-the-product-and-stopping-it), each
    copy with its process, build, and start, until only the supervisor's own
-   copy runs.
+   copy runs. So is a provider usage window past
+   `execution.usage_window_degraded_percent`, as degraded capacity: the
+   account, the window, its share used, its reset, and how old the reading
+   is. It is nobody's move — the window lifts on the provider's clock, and a
+   refusal when it comes is waited out by the harness — so it is not on the
+   attention line, and it clears when a reading below the threshold arrives
+   or the reset passes.
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),

@@ -37,9 +37,12 @@ type streamParser struct {
 	// reply is where the agent's prose goes for whoever is watching it arrive.
 	// It is nil when nobody is, which is every invocation the harness makes on
 	// its own behalf.
-	reply     func(string)
-	result    backend.RunResult
-	sawResult bool
+	reply func(string)
+	// usageWindows is where the windows each rate_limit_event reports are
+	// recorded, and the invocation they were heard on. See usagewindows.go.
+	usageWindows usageWindowSource
+	result       backend.RunResult
+	sawResult    bool
 	// stderr is what the process wrote to its error stream, and stdout is what
 	// it wrote to its output stream before any envelope without its being one,
 	// each kept bounded so it can be handed to the dialect once the stream has
@@ -397,7 +400,7 @@ func (p *streamParser) parseRateLimit(envelope streamEnvelope) error {
 		return err
 	}
 	p.observe(backend.ProviderEvent{Type: envelope.Type, Payload: envelope.RateLimitInfo})
-	return nil
+	return p.recordUsageWindows(envelope.RateLimitInfo)
 }
 
 // observe hands one provider event to this provider's dialect and records

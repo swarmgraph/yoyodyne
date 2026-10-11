@@ -539,8 +539,28 @@ var standingWarningAgeSeconds = 5 * 60;
     return item;
   }
 
+  // renderUsageWindows is each account's provider usage at the top of the
+  // band, in the sentence the model derives for it, which is the one `yoyo
+  // status` prints. It is information rather than attention, so nothing here
+  // is styled as a warning; a window past the threshold is said among the
+  // factory problems instead. It is drawn whatever state the band is in, so an
+  // idle harness still shows how much of the week is spent.
+  function renderUsageWindows() {
+    var list = document.getElementById("usage-windows");
+    clear(list);
+    var usage = model.standing && model.standing.usage_windows;
+    ((usage && usage.accounts) || []).forEach(function (account) {
+      list.appendChild(el("li", null, account.says));
+    });
+    if (usage && usage.problem) {
+      list.appendChild(el("li", null, "not fully read: " + usage.problem));
+    }
+    setHidden(list, list.childNodes.length === 0);
+  }
+
   function renderBand() {
     var standing = model.standing;
+    renderUsageWindows();
     if (!standing) {
       section("band", model.standingError ? "error" : "loading", model.standingError, whatToDoAboutTheStanding());
       return;
@@ -1253,7 +1273,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     var entries = standing.factory_problems || [];
     if (entries.length === 0) {
-      section("factory", "empty", "No product pass has failed three times in a row, and no watch session is stuck draining past its bound.");
+      section("factory", "empty", "No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage window is past its threshold.");
       return;
     }
     var list = document.getElementById("factory-list");

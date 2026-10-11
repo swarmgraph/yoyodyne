@@ -336,6 +336,11 @@ execution:
   # repair attempt. Once the same check has been unable to run on this many
   # changes in a row, "yoyo status" names it until it runs again.
   could_not_run_before_status: %d
+  # The dashboard and "yoyo status" show each account's provider usage windows
+  # as the provider last reported them. A window past this percentage used is
+  # also shown as degraded capacity among the dashboard's factory problems. It
+  # changes what is shown, never what the harness does.
+  usage_window_degraded_percent: %d
   # Replace a recurring role conversation after this many missing closing reports.
   missing_reports_before_fresh_conversation: %d
   # The failure-storm brake for a session left running unattended: this many runs
@@ -465,6 +470,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.RedeployDrainLimit),
 		renderScaffoldDuration(effective.Execution.FactoryStallAfter),
 		effective.Execution.CouldNotRunBeforeStatus,
+		effective.Execution.UsageWindowDegradedPercent,
 		effective.Execution.MissingReportLimit(),
 		effective.Execution.BlockedRunsBeforeIntakeHold,
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),

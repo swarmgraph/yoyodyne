@@ -286,6 +286,15 @@ type Sources struct {
 	// refusal then stands until its quoted reset, as it did before the record
 	// existed.
 	CapacityServed CapacityServedRecord
+	// UsageWindows is the provider's latest reading of each account's usage
+	// windows, UsageAccounts the accounts to say it for — each of them said with
+	// "no reading yet" where none has arrived — and UsageWindowDegradedPercent
+	// execution.usage_window_degraded_percent as the caller read it, zero taking
+	// DefaultUsageWindowDegradedPercent. The record is optional, and a reading
+	// without it says nothing about any window.
+	UsageWindows               UsageWindowRecord
+	UsageAccounts              []string
+	UsageWindowDegradedPercent int
 	// ProviderOutages is the product's record of the provider answering nobody.
 	// It is optional, and a reading without one says nothing about an outage
 	// rather than reporting none — three days of a login nobody was told had
@@ -529,6 +538,13 @@ type Standing struct {
 	FactoryProblems        []Attention `json:"factory_problems"`
 	FactoryProblemsProblem string      `json:"factory_problems_problem,omitempty"`
 	ObservedAt             time.Time   `json:"observed_at"`
+
+	// UsageWindows is each account's usage windows as the provider last
+	// reported them: the share of the week used, each model's own week beside
+	// it, and when each resets. It is information rather than attention, and
+	// the dashboard prints it at the top of its status band; a window past the
+	// configured threshold is said among the factory problems instead.
+	UsageWindows UsageWindows `json:"usage_windows"`
 
 	// Paused is the harness waiting out the provider's usage window, said above
 	// the four lines rather than inside them.
@@ -966,6 +982,12 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	copies := standing.Services.CopiesAttention()
 	standing.FactoryProblems = append(standing.FactoryProblems, copies...)
 	needs = append(needs, copies...)
+	// A usage window past the configured share is degraded capacity. It is a
+	// factory problem and nobody's move, so it is not on the attention line:
+	// the window lifts on the provider's clock, and a refusal when it comes is
+	// waited out by the harness and said where refusals are.
+	standing.UsageWindows = ReadUsageWindows(sources.UsageWindows, sources.UsageAccounts, sources.UsageWindowDegradedPercent, now)
+	standing.FactoryProblems = append(standing.FactoryProblems, standing.UsageWindows.Degraded()...)
 	// A watch session draining past its bound without restarting is a factory
 	// problem whatever the queue holds: it pulls nothing until it restarts, and
 	// from every other record it reads as a session at work. It is on the

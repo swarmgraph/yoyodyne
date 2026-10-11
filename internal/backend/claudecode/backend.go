@@ -421,6 +421,10 @@ type Backend struct {
 	// Context is the skills and instruction files the project's configuration
 	// names. Nothing else the CLI could find is given to a role: see context.go.
 	Context backend.NamedContext
+	// UsageWindows is where the usage windows each invocation hears reported are
+	// recorded as they arrive, under the request's account. Nil records nothing
+	// beyond the event log.
+	UsageWindows backend.UsageWindowRecorder
 }
 
 // ProviderHomeVariable is how Claude Code is told which provider home to
@@ -688,6 +692,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	redactor := execution.NewRedactor(request.RedactValues...)
 	parser := newStreamParser(request.RunID, request.Role, request.LastSequence, clock, redactor, request.EventSink, request.ReplySink, b.dialect())
 	parser.loaded = loaded
+	parser.usageWindows = usageWindowSource{recorder: b.UsageWindows, provider: b.provider(), account: request.AccountAlias, model: request.Model}
 	var parseErrors []error
 	// The account this invocation is made under is the request's, falling back to
 	// the one this backend value was built for. A request that names neither runs

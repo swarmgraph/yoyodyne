@@ -869,6 +869,7 @@ Up to three layers produce the effective configuration, later ones winning:
    `execution.redeploy_drain_limit` (`15m`),
    `execution.factory_stall_after` (`2h`),
    `execution.could_not_run_before_status` (3),
+   `execution.usage_window_degraded_percent` (90),
    `triage.stuck_merge_age` (`2h`),
    `triage.review_rounds_cap` (4),
    `approvals.publishing` (`human`), `approvals.work_items` (`human`), an
@@ -3156,6 +3157,19 @@ execution:
 
 A run whose checks stopped before reaching the check neither counts toward the
 number nor clears it.
+
+Claude Code reports how much of each account's usage windows is used on nearly
+every invocation, and the harness records the latest reading of each window;
+the dashboard's status band and `yoyo status` show it as information. A window
+past this share used is also shown as degraded capacity among the dashboard's
+factory problems, until a reading below it arrives or the window resets. It
+changes what is shown and nothing the harness does — the provider's own refusal
+is still what stops work:
+
+```yaml
+execution:
+  usage_window_degraded_percent: 90   # the default
+```
 
 ## Scheduling ready work
 
@@ -6672,6 +6686,8 @@ These are all errors, reported before any work is claimed:
   limit anybody could mean; zero reads the two-hour default;
 - an `execution.could_not_run_before_status` that is negative, which describes
   no number of changes; zero reads the default of three;
+- an `execution.usage_window_degraded_percent` that is negative or over 100,
+  which describes no share of a window; zero reads the default of 90;
 - a `triage.stuck_merge_age` that is not a duration, or that is zero or
   negative — unlike the usage-limit pauses, "no time at all" is not a choice
   anybody can mean here;

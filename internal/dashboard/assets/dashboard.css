@@ -427,6 +427,16 @@ input:focus-visible {
 
 /* ---- section 1: the band ---------------------------------------------------- */
 
+/* Each account's provider usage, as the provider last reported it: plain
+   information above the tiles, never styled as a warning. */
+.usage-windows {
+  list-style: none;
+  margin: 0 0 0.9rem;
+  padding: 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+}
+
 .tiles {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));

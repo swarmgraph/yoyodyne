@@ -101,6 +101,10 @@ func (a Attention) Since() time.Time {
 		if a.UnrunCheck != nil {
 			return a.UnrunCheck.Since
 		}
+	case AttentionCapacityDegraded:
+		if a.DegradedCapacity != nil {
+			return a.DegradedCapacity.Window.At
+		}
 	}
 	return time.Time{}
 }
