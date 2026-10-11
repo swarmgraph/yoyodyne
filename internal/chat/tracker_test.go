@@ -371,9 +371,10 @@ func TestReadingAnItemKeepsTheNotesJustWrittenRatherThanTheOldest(t *testing.T) 
 	if !strings.Contains(rendered, "are cut; treat them as unread rather than absent") {
 		t.Fatalf("the rendering dropped the front of the notes without saying so:\n%s", rendered)
 	}
-	// The item is still bounded: keeping the recent notes is not licence to carry a
-	// sixty-kilobyte item into a turn.
-	if len(rendered) > maxTrackerItemBytes+maxTrackerFailureBytes {
+	// The item is still bounded: keeping recent notes and declaring ambiguous old
+	// boundaries is not licence to carry a sixty-kilobyte item into a turn. The
+	// identical old stops must be deduplicated in the conservative excerpts.
+	if len(rendered) > maxTrackerItemBytes+1024 {
 		t.Fatalf("the rendered item is %d bytes, want it bounded", len(rendered))
 	}
 	// What an item says about itself is still shown, and the guarantee is which one
