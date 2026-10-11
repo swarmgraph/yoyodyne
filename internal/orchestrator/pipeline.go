@@ -4239,15 +4239,17 @@ func (a *activeRun) account() config.AccountEndpoint {
 // mapping existed — asks for the developer's configured model.
 //
 // A run recorded on a backend other than the configured developer's asks for
-// what that backend reported it ran, or for the backend's own default where it
-// reported nothing: the configured developer's model belongs to the other
-// backend (see recordedbackend.go).
+// the model its record says it was developed with there (recordedModel): the
+// configured developer's model belongs to the other backend, and what that
+// backend reported serving is no substitute, because Codex reports nothing.
+// Empty is a record that names none, which attemptDevelopment refuses rather
+// than asks for (see recordedbackend.go).
 func (a *activeRun) developerModel() string {
+	if a.onAnotherBackend() {
+		return recordedModel(a.state)
+	}
 	if model := strings.TrimSpace(a.state.DeveloperModel); model != "" {
 		return model
-	}
-	if a.onAnotherBackend() {
-		return strings.TrimSpace(a.state.ProviderResolvedModel)
 	}
 	return a.pipeline.developer().Model
 }
@@ -4302,8 +4304,22 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	if err != nil {
 		return backend.RunResult{}, err
 	}
+	// So is the model, for a run on another backend: one whose record lost it
+	// gets it back from the spend log, and one nothing names is refused rather
+	// than launched with none, which Codex refuses anyway.
+	if a.onAnotherBackend() {
+		p.developerBackends().restoreModel(&a.state)
+		if recordedModel(a.state) == "" {
+			return backend.RunResult{}, stoppedBy(runstate.StopHarness, RecordedModelError{RunID: a.state.RunID, Recorded: a.state.Backend, Configured: p.developer().Backend})
+		}
+	}
 	account := a.account()
 	model := a.developerModel()
+	// The model the run was launched with stays on its record until an attempt
+	// on another one actually opens a session: a launch the provider refused
+	// would otherwise leave the record naming a model nothing ever ran on, or
+	// none, which is what a later continuation reads (developerModel).
+	launchedWith := a.state.ProviderModel
 	a.state.ProviderModel = model
 	a.outcome.ProviderModel = model
 	effort := a.developerEffort()
@@ -4342,6 +4358,10 @@ func (a *activeRun) attemptDevelopment(ctx context.Context, prompt, sessionID st
 	// attempt whose session exited with its reply carries none, and clears the
 	// previous attempt's rather than leaving it to be read as this one's.
 	a.state.AfterReply = result.Process.AfterReply
+	if (err != nil || result.IsError) && strings.TrimSpace(result.SessionID) == "" && strings.TrimSpace(launchedWith) != "" {
+		a.state.ProviderModel = launchedWith
+		a.outcome.ProviderModel = launchedWith
+	}
 	return result, err
 }
 
@@ -4387,6 +4407,7 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 	// continuation of this run resumes from (carrySession).
 	a.carrySession(providerResult.SessionID, a.state.ProviderSessionID)
 	a.state.ProviderResolvedModel = providerResult.ResolvedModel
+	a.state.ProviderModelReported = strings.TrimSpace(providerResult.ResolvedModel) != ""
 	a.state.ProviderResolvedEffort = providerResult.ResolvedEffort
 	a.state.ProviderEffortReported = providerResult.EffortReported
 	a.state.ProviderLoaded = providerResult.Loaded.Recorded()

@@ -300,6 +300,10 @@ type RepairContinueResult struct {
 	// run's record from its event log, where an earlier failed attempt had erased
 	// it from the record. Empty where nothing was restored.
 	RestoredSession string `json:"restored_session,omitempty"`
+	// RestoredModel is the model this continuation put back on the run's record
+	// from the run's own lines in the spend log, where an earlier failed attempt
+	// had erased it from the record. Empty where nothing was restored.
+	RestoredModel string `json:"restored_model,omitempty"`
 	// ResumesAt is the step the continued run was put back at. A stage bound
 	// continues its checks, and a stall at the checks or
 	// the review is continued at that step, on the change the attempt left, with
@@ -472,6 +476,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// developer worked in rather than starting a fresh one. It is written with
 	// the continuation below, and not at all where this carry-out is refused.
 	result.RestoredSession = c.Backends.restoreSession(c.Events, &prior)
+	result.RestoredModel = c.Backends.restoreModel(&prior)
 	if err := continuableRepair(prior, found); err != nil {
 		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
 			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch", err, prior.RunID)
@@ -595,6 +600,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 	if result.RestoredSession != "" {
 		reason = restoredSessionSays(result.RestoredSession) + " " + reason
+	}
+	if result.RestoredModel != "" {
+		reason = restoredModelSays(result.RestoredModel) + " " + reason
 	}
 	if result.WorktreeRestored {
 		reason += fmt.Sprintf("\nThe missing checkout was restored at %s from the harness's recorded commit %s, in the same run and developer session; previous check approval was cleared before restoration.", prior.WorktreePath, prior.HarnessCommit)
@@ -1431,6 +1439,9 @@ func (result RepairContinueResult) Render() string {
 	}
 	if result.RestoredSession != "" {
 		fmt.Fprintf(&rendered, "restored developer session %s to the run's record from its event log, where an earlier failed attempt had erased it from the record\n", result.RestoredSession)
+	}
+	if result.RestoredModel != "" {
+		fmt.Fprintf(&rendered, "restored developer model %s to the run's record from the spend log, where an earlier failed attempt had erased it from the record\n", result.RestoredModel)
 	}
 	if !result.Continued {
 		fmt.Fprintln(&rendered, "no repair continuation was confirmed; no developer was dispatched")

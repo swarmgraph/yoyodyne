@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
@@ -423,5 +424,47 @@ func TestOwnCostIsTheIncrementOverATotalThatRose(t *testing.T) {
 		if got := OwnCostUSD(tc.reported, tc.previous, tc.seen); got != tc.want {
 			t.Fatalf("%s: OwnCostUSD(%v, %v, %v) = %v, want %v", tc.name, tc.reported, tc.previous, tc.seen, got, tc.want)
 		}
+	}
+}
+
+// A run whose record lost its developer's model gets it back from the run's own
+// developer lines on the backend it ran on, and a line that named no model —
+// the refused launch that erased it — does not stand in for one.
+func TestLastDeveloperModelIsTheModelTheRunsLatestDeveloperLineOnTheBackendAskedFor(t *testing.T) {
+	t.Parallel()
+
+	store := newTestSpendStore(t, t.TempDir())
+	if model, err := store.LastDeveloperModel("run-0123456789abcdef0123456789abcdef", "codex"); err != nil || model != "" {
+		t.Fatalf("LastDeveloperModel() before anything was spent = %q, %v; want nothing", model, err)
+	}
+	line := func(role, backend, model, runID string) Spend {
+		spent := testSpend(SpendPhaseRepair, 0.5)
+		spent.Role, spent.Agent = domain.AgentRole(role), role
+		spent.Backend, spent.Model, spent.ResolvedModel = domain.Backend(backend), model, ""
+		if runID != "" {
+			spent.RunID = runID
+		}
+		return spent
+	}
+	for _, spent := range []Spend{
+		line("developer", "codex", "gpt-6.1-sol", ""),
+		line("reviewer", "codex", "gpt-6.1-reviewer", ""),
+		line("developer", "claude-code", "opus", ""),
+		line("developer", "codex", "gpt-other-run", "run-fedcba9876543210fedcba9876543210"),
+		line("developer", "codex", "", ""),
+	} {
+		if err := store.Append(spent); err != nil {
+			t.Fatalf("Append() error = %v", err)
+		}
+	}
+	if model, err := store.LastDeveloperModel("run-0123456789abcdef0123456789abcdef", "codex"); err != nil || model != "gpt-6.1-sol" {
+		t.Fatalf("LastDeveloperModel() = %q, %v; want gpt-6.1-sol", model, err)
+	}
+	if model, err := store.LastDeveloperModel("run-0123456789abcdef0123456789abcdef", "claude-code"); err != nil || model != "opus" {
+		t.Fatalf("LastDeveloperModel() on Claude Code = %q, %v; want opus", model, err)
+	}
+	var missing *SpendStore
+	if model, err := missing.LastDeveloperModel("run-0123456789abcdef0123456789abcdef", "codex"); err != nil || model != "" {
+		t.Fatalf("LastDeveloperModel() on no log = %q, %v; want nothing", model, err)
 	}
 }
