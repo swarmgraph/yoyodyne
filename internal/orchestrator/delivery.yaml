@@ -107,8 +107,13 @@ states:
       # replayed change, and a fresh independent verdict on it.
       superseded: check
       contended: blocked
-      # A replay that conflicts is never resolved by the harness. Both sides are
-      # left intact and the item is blocked.
+      # A replay that conflicts is never resolved by the harness. It goes back to
+      # the developer that wrote the change, in its own session, with the change
+      # moved onto where the target went and the disagreement left as Git's
+      # markers; what the developer settles re-earns the whole gate from there.
+      reconciling: develop
+      # The same conflict with the repair or integration budget spent: both sides
+      # are left intact and the item is blocked.
       conflicted: blocked
   complete:
     action: run.complete

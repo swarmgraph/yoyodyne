@@ -568,7 +568,13 @@ would now be promoted. A replay that conflicts is never
 resolved automatically, and it goes back to the developer that wrote the change
 first: the change is moved onto where the target went with the conflict left in
 the worktree as Git's markers, the same developer session settles it as a repair
-attempt, and the result is checked and reviewed again before it is promoted. A
+attempt, and the result is checked and reviewed again before it is promoted. The
+[delivery definition](configuration.md#running-a-work-item-against-the-workflow-definition)
+names that hand-back as the `integrate` state's `reconciling` outcome and routes
+it back to `develop`, so a run observed through the built-in definition records
+no divergence for it; a project's own copy made before the transition existed is
+offered it by `yoyo config drift`, and until it adopts it such a run records a
+divergence there. A
 conflict is a replay that stopped on the change, so it is charged to the
 integration budget as well as spending a repair attempt. Only a run with either
 budget spent stops, both sides untouched, with a blocker on the item naming the

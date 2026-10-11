@@ -717,3 +717,81 @@ func TestConfigDriftShowsWhatTheNoticeStaysQuietAboutWithoutAFlag(t *testing.T) 
 		t.Errorf("stdout = %q, want --all to add the values neither side moved", stdout.String())
 	}
 }
+
+// projectWithAnOlderDeliveryCopy is a project keeping its own copy of the
+// delivery definition, made before this build routed a replay conflict back to
+// its developer: the shipped file with that one transition taken out.
+func projectWithAnOlderDeliveryCopy(t *testing.T) string {
+	t.Helper()
+	shipped, err := os.ReadFile(filepath.Join("..", "orchestrator", "delivery.yaml"))
+	if err != nil {
+		t.Fatalf("read the shipped delivery definition: %v", err)
+	}
+	const line = "      reconciling: develop\n"
+	if !bytes.Contains(shipped, []byte(line)) {
+		t.Fatalf("the shipped delivery definition does not route integrate -> reconciling to develop")
+	}
+	path := writeProjectConfig(t, portableConfig)
+	copied := filepath.Join(filepath.Dir(path), "workflows", "delivery.yaml")
+	if err := os.MkdirAll(filepath.Dir(copied), 0o700); err != nil {
+		t.Fatalf("MkdirAll() error = %v", err)
+	}
+	if err := os.WriteFile(copied, bytes.Replace(shipped, []byte(line), nil, 1), 0o600); err != nil {
+		t.Fatalf("write the project's copy: %v", err)
+	}
+	return path
+}
+
+// A transition the build added to a delivery definition reaches a project that
+// keeps its own copy only by being reported: `config drift` names it as
+// available with both sides, and the commands already being run say it in one
+// line, naming the transition rather than that two definitions differ.
+func TestConfigDriftReportsATransitionTheBuildRoutesAndTheProjectsCopyDoesNot(t *testing.T) {
+	t.Parallel()
+
+	path := projectWithAnOlderDeliveryCopy(t)
+
+	var stdout, stderr bytes.Buffer
+	if code := Run([]string{"config", "drift", "--config", path}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("config drift code = %d, stderr = %q", code, stderr.String())
+	}
+	report := stdout.String()
+	for _, want := range []string{"workflow delivery", "available", "integrate -> reconciling", "yours: (nothing)", "build: develop"} {
+		if !strings.Contains(report, want) {
+			t.Errorf("config drift stdout = %q, want it to carry %q", report, want)
+		}
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"config", "drift", "--config", path, "--json"}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("config drift --json code = %d, stderr = %q", code, stderr.String())
+	}
+	var decoded struct {
+		Workflows []struct {
+			Workflow string `json:"workflow"`
+			Changes  []struct {
+				Key   string `json:"key"`
+				Class string `json:"class"`
+				Build string `json:"build"`
+			} `json:"changes"`
+		} `json:"workflows"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &decoded); err != nil {
+		t.Fatalf("decode config drift --json: %v\n%s", err, stdout.String())
+	}
+	if len(decoded.Workflows) != 1 || len(decoded.Workflows[0].Changes) != 1 ||
+		decoded.Workflows[0].Changes[0].Key != "states.integrate.on.reconciling" ||
+		decoded.Workflows[0].Changes[0].Class != string(config.ClassAvailable) {
+		t.Errorf("config drift --json workflows = %+v, want the one available transition", decoded.Workflows)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	if code := Run([]string{"config", "validate", "--config", path}, &stdout, &stderr, "test"); code != 0 {
+		t.Fatalf("config validate code = %d, stderr = %q", code, stderr.String())
+	}
+	if notice := stderr.String(); !strings.Contains(notice, "integrate -> reconciling") || !strings.Contains(notice, "yoyo config drift") {
+		t.Errorf("config validate stderr = %q, want the notice naming the transition", notice)
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -258,6 +259,9 @@ func runConfigValidate(ctx context.Context, args []string, stdout, stderr io.Wri
 	if notice := drift.Notice(); notice != "" {
 		fmt.Fprintln(stderr, notice)
 	}
+	for _, notice := range deliveryDefinitionNotices(resolved.Path) {
+		fmt.Fprintln(stderr, notice)
+	}
 	if notice := describeProviderKeysInEnvironment(providerKeys); notice != "" {
 		fmt.Fprintln(stderr, notice)
 	}
@@ -326,21 +330,90 @@ func runConfigDrift(args []string, stdout, stderr io.Writer) int {
 	}
 
 	drift, unknown := config.ReadDrift(resolved)
+	definitions, definitionsErr := orchestrator.DeliveryDefinitionDrift(resolved.Path)
 	if *jsonOutput {
+		definitionsProblem := ""
+		if definitionsErr != nil {
+			definitionsProblem = definitionsErr.Error()
+		}
 		return writeJSON(stdout, stderr, map[string]any{
 			"config":  resolved.Path,
 			"drift":   drift,
 			"unknown": unknown,
+			// The project's own copies of the delivery definitions, compared with the
+			// ones this build ships. A project that keeps none has none here.
+			"workflows":         definitions,
+			"workflows_problem": definitionsProblem,
 		})
 	}
 	if !drift.Known {
 		renderUnknownBaseline(stdout, unknown)
-		renderCommentDrift(stdout, drift, *all)
-		return 0
+	} else {
+		renderDrift(stdout, drift, *all)
 	}
-	renderDrift(stdout, drift, *all)
 	renderCommentDrift(stdout, drift, *all)
+	renderDefinitionDrift(stdout, definitions, definitionsErr)
 	return 0
+}
+
+// renderDefinitionDrift names, for each delivery definition the project keeps
+// its own copy of, where the copy and the build's definition read differently.
+// A copy level with the build says nothing, as a value nobody moved does.
+func renderDefinitionDrift(stdout io.Writer, definitions []orchestrator.DefinitionDrift, problem error) {
+	if problem != nil {
+		fmt.Fprintf(stdout, "\nworkflow definition not compared: %v\n", problem)
+		return
+	}
+	for _, definition := range definitions {
+		if len(definition.Changes) == 0 {
+			continue
+		}
+		fmt.Fprintf(stdout, "\nworkflow %s -- this project's own copy at %s\n", definition.Workflow, definition.Source)
+		for _, group := range []struct {
+			class  config.Class
+			header string
+		}{
+			{config.ClassAvailable, "available -- routed by this build's definition and not by the copy; a run of the copy that takes one records a divergence"},
+			{config.ClassYours, "yours -- reads differently here; never touched"},
+		} {
+			matched := definition.OfClass(group.class)
+			if len(matched) == 0 {
+				continue
+			}
+			fmt.Fprintf(stdout, "  %s\n", group.header)
+			for _, change := range matched {
+				fmt.Fprintf(stdout, "    %s\n", change.Said())
+				fmt.Fprintf(stdout, "      yours: %s\n", definitionSide(change.Yours))
+				fmt.Fprintf(stdout, "      build: %s\n", definitionSide(change.Build))
+			}
+		}
+	}
+}
+
+func definitionSide(value string) string {
+	if value == "" {
+		return "(nothing)"
+	}
+	return value
+}
+
+// deliveryDefinitionNotices is the line each project copy of a delivery
+// definition says beside the configuration's own notice, and nothing where the
+// copies lack nothing the build routes. A copy that cannot be compared is
+// silent here, because a run refuses it in its own words and `yoyo config
+// drift` says why.
+func deliveryDefinitionNotices(configPath string) []string {
+	definitions, err := orchestrator.DeliveryDefinitionDrift(configPath)
+	if err != nil {
+		return nil
+	}
+	var notices []string
+	for _, definition := range definitions {
+		if notice := definition.Notice(); notice != "" {
+			notices = append(notices, notice)
+		}
+	}
+	return notices
 }
 
 // renderCommentDrift names every comment the template tracks that the project's

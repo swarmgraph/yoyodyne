@@ -4043,11 +4043,22 @@ did before this existed and still takes no configuration at all.
 sequence from then on — the states, the transitions, the terminals — which is the
 only arrangement where reading the file tells you what its runs execute. The
 other side of that is the cost: a later Yoyodyne that improves the built-in does
-not reach a project that ejected a copy, so the copy is worth a header saying
-where it came from. Yoyodyne's own repository keeps one — `.yoyodyne/workflows/delivery.yaml`
-here is the built-in verbatim, adopted so that this project runs the arrangement
-it ships, and a test holds the two to the same content digest so that editing one
-and not the other fails rather than passing quietly.
+not change a project that ejected a copy, so the copy is worth a header saying
+where it came from. What it does do is say so. `yoyo config drift` compares each
+copy with the built-in this build ships and lists, under `workflow`, every
+transition the built-in routes that the copy does not route at all, as
+*available*, with both sides; `yoyo config validate` and `yoyo doctor` say the
+same in one line on standard error, naming each transition. A run of the copy
+that produces such an outcome records a divergence, so offering it takes away
+nothing the project chose. Every other difference — a transition the copy sends
+somewhere else, a summary it words differently — is listed as *yours* and never
+offered, because without a record of what the copy was made from nothing can
+tell a project's edit from a later improvement. Nothing is adopted for you:
+adopting one is an edit to the copy. Yoyodyne's own repository keeps one —
+`.yoyodyne/workflows/delivery.yaml` here was copied from the built-in verbatim,
+adopted so that this project runs the arrangement it ships, and a test holds the
+two to one sequence: any difference fails it except a transition the built-in
+has added and the copy has not yet adopted, which the test names.
 
 **What a copy can change is the sequence and nothing else.** It selects among the
 actions this build registered — `work-item.claim`, `candidate.develop`,
@@ -4157,12 +4168,15 @@ settled on the forge's answer instead, as
 says.) Both are
 left as divergences deliberately — the definition is missing a path the pipeline
 takes, and an observation that quietly agreed with itself would be worth nothing.
-The third is a replay conflict handed back to its developer: `integrate` answers
-`reconciling`, and neither the built-in definition nor this repository's own copy
-routes that outcome back to `develop` yet, so such a run records the refusal as
-its divergence. Adding the transition means changing both copies together,
-because a test holds them to one digest; that follow-up is admitted as
-yoyodyne-ifd.209.31.
+The third is a replay conflict handed back to its developer, and only where a
+project's own copy predates the transition for it: `integrate` answers
+`reconciling`, which the built-in routes back to `develop`, so a run observed
+through the built-in walks from the conflict to the developer and on without
+diverging. A copy made before that transition existed does not route the
+outcome, so a run executing it records the refusal as its divergence until the
+copy adopts the line `reconciling: develop` under `integrate`; `yoyo config
+drift` offers it, as the paragraph on copies above says. This repository's own
+copy is one of those until a change carrying it lands.
 
 **The default and the rollback both reach new runs only.** Whether a run is
 observed is settled once, when the run is reserved, and read back off the run's

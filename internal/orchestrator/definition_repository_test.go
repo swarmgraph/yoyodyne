@@ -14,6 +14,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mason-bryant/yoyodyne/internal/config"
 )
 
 // repositoryConfigPath is this repository's own configuration, from the package
@@ -43,14 +45,23 @@ func TestThisRepositorysOwnDeliveryDefinitionIsWhatItsRunsExecute(t *testing.T) 
 }
 
 // TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn holds the copy and the
-// built-in to one sequence.
+// built-in to one sequence, less what the built-in has added that the copy has
+// not yet adopted.
 //
 // The parity harness walks the built-in against the recorded baseline, and this
 // repository's runs execute the copy, so a change to one and not the other would
-// leave the two measuring different things with nothing saying so. They are held
-// by content digest rather than by bytes, because the digest is what an instance
-// pins and it deliberately ignores comments — the copy carries a header of its
-// own explaining what it is.
+// leave the two measuring different things with nothing saying so. They are
+// compared as decoded definitions, which is what the digest an instance pins is
+// taken over and which deliberately ignores comments — the copy carries a header
+// of its own explaining what it is.
+//
+// One difference is allowed: a transition the built-in routes and the copy does
+// not route at all, which `yoyo config drift` offers this repository as
+// available. The copy is protected, so a transition added to the built-in reaches
+// it only by a change that carries the copy; until then a run of the copy that
+// takes the outcome records a divergence, and this test names each such
+// transition rather than reporting a bare digest mismatch. Any other difference
+// fails it, naming where the two read differently.
 //
 // This repository diverging from the built-in on purpose is allowed and is what
 // project-owned definitions are for. It means changing this test, which is the
@@ -66,8 +77,30 @@ func TestThisRepositorysDeliveryDefinitionMatchesTheBuiltIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("observedDeliveryGraph(%s, built in) error = %v", DeliveryWorkflowID, err)
 	}
-	if project.Digest() != builtin.Digest() {
-		t.Errorf("this repository's copy digests to %s and the built-in to %s; the parity harness measures the built-in and the runs here execute the copy",
+	drifts, err := DeliveryDefinitionDrift(repositoryConfigPath)
+	if err != nil {
+		t.Fatalf("DeliveryDefinitionDrift(%s) error = %v", repositoryConfigPath, err)
+	}
+	var drift DefinitionDrift
+	for _, compared := range drifts {
+		if compared.Workflow == DeliveryWorkflowID {
+			drift = compared
+		}
+	}
+	if drift.Workflow == "" {
+		t.Fatalf("no comparison was made for %s; this repository keeps its own copy", DeliveryWorkflowID)
+	}
+	for _, change := range drift.OfClass(config.ClassYours) {
+		t.Errorf("this repository's copy and the built-in differ at %s: the copy says %q and the built-in %q; the parity harness measures the built-in and the runs here execute the copy",
+			change.Key, change.Yours, change.Build)
+	}
+	available := drift.Available()
+	for _, change := range available {
+		t.Logf("the built-in routes %s to %q and this repository's copy does not yet; a run here that takes it records a divergence until the copy adopts it",
+			change.Said(), change.Build)
+	}
+	if len(drift.Changes) == 0 && project.Digest() != builtin.Digest() {
+		t.Errorf("this repository's copy digests to %s and the built-in to %s, and no difference between them was found to name",
 			project.Digest(), builtin.Digest())
 	}
 }
