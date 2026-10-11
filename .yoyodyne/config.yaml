@@ -153,13 +153,14 @@ execution:
   # again. It spends the same maximum above, so an overload that never lifts
   # reaches that bound rather than reissuing forever.
   server_overload_pause: 90s
-  # The total budget each check below gets. This project runs two developers at
-  # once, so two suites contend for the same cores and the wall clock of each is
-  # what has to fit here -- the ten-minute flat bound this replaced killed a run
-  # whose tests were passing package by package under exactly that contention.
-  # Two concurrent runs of the heaviest check here ("make race") finish in about
-  # eighty seconds on a sixteen-core machine, so this is generous on purpose.
-  check_timeout: 30m
+  # The total budget each check below gets. Every developer slot runs its
+  # checks on the same cores, so the wall clock of each check under contention
+  # is what has to fit here: "make race" takes about twelve minutes alone on a
+  # sixteen-core machine and runs past thirty when three run at once. 45m is a
+  # stopgap until the heavyweight-check capacity design (yoyodyne-ifd.429.43,
+  # built by yoyodyne-ifd.429.47) bounds how many heavy checks run together;
+  # the Lead Product Manager decides whether to lower it once that lands.
+  check_timeout: 45m
   # Stopgap pending the heavyweight-check capacity design (yoyodyne-ifd.429.43):
   # changes touching many packages need more than 30 minutes for tests and race
   # tests to finish together. Keep every check and gate in place.
