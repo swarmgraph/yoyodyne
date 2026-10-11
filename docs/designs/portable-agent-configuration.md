@@ -1,7 +1,7 @@
 ---
 id: portable-agent-configuration
 kind: design
-title: "Portable agent configuration: materialization, the baseline, and bundle boundaries"
+title: 'Portable agent configuration: materialization, the baseline, and bundle boundaries'
 supports:
     - v1-goals
 status: active
@@ -17,9 +17,18 @@ revisions:
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'approved amendment eb9b385e from yoyodyne-ifd.418 - the same retirement; ''already applies'' in place of ''in force'''
+      reason: approved amendment eb9b385e from yoyodyne-ifd.418 - the same retirement; 'already applies' in place of 'in force'
+    - action: amended
+      by: architect
+      at: 2026-10-07T15:09:27.091741Z
+      reason: 'yoyodyne-ifd.434.8: section 6 added. Values the harness recommends (checks, landing checks, developer models and slots, recurring task schedules and models, numeric limits) are decided by the development manager and applied by a typed write refused for anything naming an agent, role, persona, remit, role definition, account, or approval policy; the value reaches the committed file through the reviewed path documents use, bound to the value the role saw, written safely with its baseline in one change, and an uncertain outcome is settled before any retry; drift and doctor say who applied it; race check narrowing is ruled under the operator''s October 3 conditions; the closing question to the operator is decided rather than left open. Resubmitted unchanged after the previous runs judged nothing: one check stopped by its time limit, one push refused by the forge''s own server error.'
+approvals:
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-07T15:09:27.091741Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 567, for document-567.1 under the automatic approval policy
 ---
-
 # Portable agent configuration
 
 It serves the goal "Keep roles, policies, and provider selection configurable
@@ -27,8 +36,8 @@ without making safety invariants optional."
 
 The work item asked four questions and told the developer not to start by
 writing code. This answers the four, states what stays undecided, records the
-architect's decisions at ratification, and names what stays open for the
-operator.
+architect's decisions at ratification, and, in section 6, says how a value the
+harness recommends is applied by a role rather than pasted by the operator.
 
 ## What already exists, so nothing below re-derives it
 
@@ -217,8 +226,9 @@ as differences. The baseline is what supplies the missing third side.
 value and its baseline entry. Adoption is per value and never wholesale: a
 command that adopted everything available would be `init --force` with better
 manners, and would silently move values the operator had reasons for. A
-conflicting value is never adopted; it is reported until the operator settles
-it.
+conflicting value is never adopted; it is reported until it is settled. The
+command is designed but not yet built; a role adopts an available value through
+the path in section 6, which needs no command a person runs.
 
 **A missing or stale lock is a report, not a refusal.** A project that predates
 this, or that deleted the file, gets told once that its baseline is unknown and
@@ -274,6 +284,111 @@ root is refused, per
 That is the whole of what portability means here: **values travel; authority
 does not.**
 
+## 6. Values the harness recommends, applied by a role
+
+The harness often knows a better value than the one a project runs under: a
+landing check list, the models developers use, the slots that prefer one label,
+how often a recurring task runs, a numeric limit. Until now each of those waited
+for the operator to paste it into `.yoyodyne/config.yaml`, because that
+directory is protected and a run may not write it. A value the harness itself
+recommends that only a person can apply is a defect in the harness, so this
+section gives each such value a role that decides it and a reviewed path by
+which the decision reaches the committed file.
+
+### Which values a role may apply
+
+A value may be applied by a role when it changes how work is done and never who
+may do it. These are those values, and the role that decides each:
+
+| Values | Who decides |
+| --- | --- |
+| `checks` and `landing_checks`, including how a check's scope is narrowed | the development manager |
+| `developer_models` and `developer_slots` | the development manager |
+| the schedule and model of a recurring task | the development manager |
+| numeric limits, such as retries before reconciliation and check time limits | the development manager |
+
+A program manager may propose a value for its own lane, in its lane report or as
+a proposal to the development manager, and never applies one. The Lead Product
+Manager and the operator may each direct a value, and the development manager
+applies it by the same path.
+
+Every other key is refused before anything is prepared. The write is refused
+for any value that names an agent, a role, a persona, a remit, a role
+definition, an account, or an approval policy, and for `product` and `version`,
+because each of those decides who may act or what the project is. The refusal
+names the key and says the value stays the operator's. The list of applicable
+keys is held in Go beside the role contracts, so configuration can never widen
+it.
+
+### The write a role makes
+
+A role applies a value with one typed action that names the key, the new value,
+the reason, and a digest of the value the role saw when it decided. Nothing is
+written if the key is refused, if the value does not validate as configuration,
+or if the effective configuration it would produce fails to load. The action is
+recorded, with who made it and why, whether it lands or not.
+
+### How the value reaches the committed file
+
+The value reaches the file the way a document of an automatically approved kind
+does, as the [artifact contract](artifact-contract.md) describes, and through no
+other path:
+
+- **Prepared apart from the primary checkout.** The harness prepares the change
+  in a separate copy of the repository, never in the operator's working tree.
+- **Bound to what the role saw.** The change records the expected current value
+  and the intended new one. When it is prepared, and again when it lands, the
+  harness compares the file's current value with the expected one; if they
+  differ, the change is refused and returned to the deciding role with both
+  values, never merged over a newer edit.
+- **Written safely.** The file and its lock are written through the shared
+  safe-write primitive: each is written in full to a new file that refuses an
+  occupied name, flushed, and renamed into place, with the directory flushed
+  after, so no reader ever sees half of either.
+- **The value and its baseline move together.** The value and its entry in
+  `.yoyodyne/config.lock` are one change, published together or not at all, so
+  drift never sees one without the other.
+- **Reviewed like any change.** The harness opens a run that carries exactly that
+  change and may change only those two files, with no developer rewriting it.
+  The run is checked and independently reviewed and lands through the normal
+  integration path. A run that does not land goes back to the deciding role with
+  the findings, the failing check, or the conflicting paths.
+- **An uncertain outcome is settled before any retry.** If the harness cannot
+  tell whether a write or a landing happened, it reads the file as it now stands
+  and compares it with the intended value before doing anything else. It
+  retries only when the value is absent, and records success when the value is
+  already there.
+
+### What drift and doctor say about a value a role applied
+
+A value applied by a role is the project's own, so drift reports it as yours,
+and adds who applied it, when, and the change that carried it. `yoyo doctor`
+lists the values roles applied in the last week with the same three facts. An
+available improvement from the bundle is put to the development manager to
+decide; it is not put to the operator.
+
+### Narrowing the race check
+
+A check's scope, such as the packages the race check covers through
+`RACE_PACKAGES`, is a value the development manager may narrow by this path,
+under these conditions and no others:
+
+- Ordinary tests, formatting, vet, and the race check required on CI keep their
+  full scope.
+- A full check of the actual merge candidate runs before any narrowed check
+  counts, and the coverage this repository needs on macOS is kept; tests on
+  Linux and builds for macOS made on Linux do not stand in for running on macOS.
+- A scope that is unset, unreadable, or ambiguous runs the full check.
+- A scope set explicitly to nothing runs no race check, never tests the module
+  root by accident, and is never reported as full coverage.
+- The run record keeps the scope that was intended and the scope that ran apart,
+  each bound to the configuration revision, so a narrowed check is never read as
+  a full one.
+
+The implementation needs a grant limited to the one scope key and its lock
+entry, and the reviewed path above; it does not wait for the rest of this
+section to be built.
+
 ## What this design deliberately does not decide
 
 - **A bundle registry, a resolver, or a fetch protocol.** Section 5 decides
@@ -281,8 +396,7 @@ does not.**
   named, discovered, verified, or pinned belongs to the plugin contract, and
   deciding it here would be this document legislating for a design it is not.
 - **Whether `yoyo init` should change what it writes.** It should not, on this
-  design's evidence — ifd.35's trade holds, and the lock is additive. Reopening
-  it is the operator's call and is listed below.
+  design's evidence — ifd.35's trade holds, and the lock is additive.
 - **Fleet configuration across several projects.** One repository at a time.
   Several projects sharing defaults is what a bundle is for; a fleet that also
   wants shared *state* is team mode's problem, not this one.
@@ -317,14 +431,14 @@ conversation (chat-11558d325e9a214ebfd00bb4a0012750, turn 24):
    current" is a domain derivation that at least three surfaces will show;
    `surfaces-project-one-read-model` rules out a CLI-local computation.
 
-The question routed to the operator below stays theirs and stays open; the
-drift report's conversational surfacing is not implemented until they answer.
+## How much the drift report says
 
-## Open: for the operator
-
-Whether the four-answer drift report is the right amount of attention to spend.
-It is silent when nothing changed and speaks on commands already being run, but
-it is one more thing that can speak — and the standing direction on this
-harness's surfaces is that visibility is the control, not nagging. If the
-`available` class should be silent until asked, this design should say so before
-anything implements it.
+This section replaces a question earlier revisions left with the operator, which
+held back the conversational surfacing of drift. It is decided here, because
+how loudly a report speaks is a design choice and not a change to what the goals
+admit. The drift report says nothing when nothing changed, and speaks only on
+commands already being run and in the development manager's conversation. An
+available improvement goes to the development manager to decide under section 6;
+it is never put to the operator as a question. A conflicting value is reported
+to the development manager until settled. Nothing about drift waits on an
+operator's answer.
