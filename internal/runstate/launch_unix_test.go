@@ -205,10 +205,13 @@ func (f launchFixture) provider(body string) string {
 
 // escaping starts a descendant that leaves the provider's process group and
 // stays until release exists, and waits, for a bounded while, until it has
-// left.
+// left. The bound is a minute because the descendant is a fresh copy of the
+// test binary, which can take more than ten seconds to start while every
+// package's tests run at once; the wait ends as soon as it is ready, so the
+// bound costs nothing on a machine that is not loaded.
 func (f launchFixture) escaping(t *testing.T, release string) string {
 	ready := filepath.Join(t.TempDir(), "escaped")
-	return fmt.Sprintf(`%s=%q %s=%q %s=escape "$TEST_BINARY" -test.run='^TestLaunchHelperProcess$' >/dev/null 2>&1 & i=0; while [ ! -e %q ] && [ $i -lt 200 ]; do sleep 0.05; i=$((i+1)); done`,
+	return fmt.Sprintf(`%s=%q %s=%q %s=escape "$TEST_BINARY" -test.run='^TestLaunchHelperProcess$' >/dev/null 2>&1 & i=0; while [ ! -e %q ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done`,
 		launchHelperReady, ready, launchHelperRelease, release, launchHelperMode, ready)
 }
 
