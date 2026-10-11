@@ -54,10 +54,18 @@ func (m *Manager) CurrentExports() []string {
 // refreshExports gives a worktree the primary checkout's copy of each declared
 // export. Which of them can be refreshed at all is decided per path below, so a
 // caller only has to say when.
+//
+// A preparation that failed is ErrExportsUnprepared, and is safe to ask for
+// again. The tracker's preparation is `bd export` to standard output, which bd
+// declares a read-only command and opens its store read-only for; what it
+// printed is published only once it has exited successfully and every line
+// decoded as a work item (internal/beads, RefreshExport). So a preparation that
+// failed changed neither the store nor the primary copy, and nothing here was
+// copied from it.
 func (m *Manager) refreshExports(ctx context.Context, path string) error {
 	if len(m.currentExports) > 0 && m.prepareExports != nil {
 		if err := m.prepareExports(ctx); err != nil {
-			return fmt.Errorf("prepare the primary exports: %w", err)
+			return fmt.Errorf("%w: prepare the primary exports: %w", ErrExportsUnprepared, err)
 		}
 	}
 	for _, export := range m.currentExports {

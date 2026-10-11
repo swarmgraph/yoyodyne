@@ -284,9 +284,17 @@ func AwaitingContinuation(run runstate.State) bool {
 		run.ProviderStop != "" ||
 		run.DirectivePause != nil ||
 		run.DependencyPause != nil ||
-		run.TrackerPause != nil ||
+		parkedOnTrackerRead(run) ||
 		run.OperatorHeldSince != nil ||
 		run.UpdatingQueuedHead()
+}
+
+// parkedOnTrackerRead reports a run parked on a tracker read a later process
+// continues. A park on a tracker write is waited out by the process holding the
+// run instead, so one with no process behind it is an interrupted run like any
+// other, and the audit settles it.
+func parkedOnTrackerRead(run runstate.State) bool {
+	return run.TrackerPause != nil && run.TrackerPause.Boundary != runstate.RetryTrackerWrite
 }
 
 // laterRun reports the more recent of two runs on one item, in the order

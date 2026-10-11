@@ -10,6 +10,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -69,6 +70,201 @@ func recoveringValue[T any](ctx context.Context, a *activeRun, boundary string, 
 		return attemptErr
 	})
 	return value, err
+}
+
+// recoveringTrackerWrite is recoveringValue around a tracker write that is not
+// safe to make twice: a note appended, a claim, a close, a reopening. The tracker
+// client already reads a write its bound killed back before it makes it again
+// (internal/beads, writeItem), but a write it gave up on is one whose landing it
+// could not establish, and asking for it again here as it stands is the note
+// twice — the more so because a run's outcome notes are rendered afresh on every
+// attempt, with the wait just taken among them, so the second copy would not
+// even read the same.
+//
+// So every attempt after the first begins by asking whether the one before it
+// landed, and one that did is answered with what the tracker now holds rather
+// than made again. A read that cannot be made goes through the same window, so a
+// store that answers later is asked both questions then. It is the rule a
+// conversation's writes already follow (internal/chat, recoveringTrackerWrite),
+// over the run's own record of its waits.
+//
+// A write still unanswered once the window is spent does not end the run: it is
+// waited on for as long as the tracker takes (waitOnTracker).
+func recoveringTrackerWrite[T any](ctx context.Context, a *activeRun, landed func(context.Context) (T, bool, error), attempt func(context.Context) (T, error)) (T, error) {
+	attempted := false
+	ask := func(ctx context.Context) (T, error) {
+		if attempted {
+			value, found, err := landed(ctx)
+			if err != nil {
+				var zero T
+				return zero, fmt.Errorf("could not tell whether the tracker write that failed landed, so it was not made again: %w", err)
+			}
+			if found {
+				return value, nil
+			}
+		}
+		attempted = true
+		return attempt(ctx)
+	}
+	value, err := recoveringValue(ctx, a, runstate.RetryTrackerWrite, ask)
+	var spent runstate.StopError
+	if err == nil || !errors.As(err, &spent) || spent.Class != runstate.StopRecoveryWindow || ctx.Err() != nil {
+		return value, err
+	}
+	return waitOnTracker(ctx, a, err, ask)
+}
+
+// waitOnTracker is a run whose tracker write went unanswered through its whole
+// window, waiting on the tracker rather than ending.
+//
+// The wait is recorded on the run before it is taken — the boundary, what it
+// cost, and the tracker's last words — so every surface shows the run parked on
+// the tracker rather than hung, and then the write is asked again, read back
+// first as every attempt after the first is, once every longest interval of the
+// backoff until the tracker answers. An answer lifts the park and the run goes
+// on from the step that was waiting. Only the run ending, a person asking it to
+// stop, or a tracker that answers with a refusal ends the wait.
+//
+// It waits here, in the process holding the run, rather than parking and
+// exiting as a gate's unanswered read does. The writes this covers are a run's
+// claim, made before it has a worktree to resume in, and the writes it finishes
+// with, which read the outcome this process holds of the review and the
+// promotion — neither is a point a later process could take the run up from
+// its record alone. So a park on this boundary is never offered to a later
+// process to resume (pausedForTracker), and a process that dies in it leaves an
+// interrupted run for reconciliation to settle, as a run that died at either
+// step always has.
+func waitOnTracker[T any](ctx context.Context, a *activeRun, spent error, ask func(context.Context) (T, error)) (T, error) {
+	var zero T
+	paused, err := a.noteTrackerPause(runstate.RetryTrackerWrite, spent)
+	if err != nil {
+		return zero, errors.Join(spent, err)
+	}
+	for {
+		if err := a.pipeline.sleep(ctx, recovery.MaxInterval); err != nil {
+			return zero, spent
+		}
+		if err := a.stopRequested(); err != nil {
+			return zero, err
+		}
+		value, err := ask(ctx)
+		if err == nil {
+			// The write is made, so what is left is the record saying so. A store that
+			// cannot take that has the park cleared on this process all the same, and
+			// the next save of the run carries it.
+			_ = a.clearTrackerPause()
+			return value, nil
+		}
+		if !recovery.Recoverable(err) || ctx.Err() != nil {
+			return value, err
+		}
+		spent = err
+		paused.Attempts++
+		paused.WaitedSeconds += int64(recovery.MaxInterval / time.Second)
+		paused.Failure = boundedFailureDetail(err.Error())
+		a.state.TrackerPause = &paused
+		a.state.UpdatedAt = a.pipeline.clock().Now()
+		if saveErr := a.pipeline.Store.Save(a.state); saveErr != nil {
+			return zero, errors.Join(err, fmt.Errorf("record the wait on the tracker: %w", saveErr))
+		}
+	}
+}
+
+// itemLanded is the landed question for a write to one item: the item read
+// back, and whether it carries what the write made.
+func itemLanded(tracker WorkTracker, id string, carries func(beads.WorkItem) bool) func(context.Context) (beads.WorkItem, bool, error) {
+	return func(ctx context.Context) (beads.WorkItem, bool, error) {
+		item, err := tracker.Show(ctx, id)
+		if err != nil {
+			return beads.WorkItem{}, false, err
+		}
+		return item, carries(item), nil
+	}
+}
+
+// recordOutcomeOnce appends a note rendered by render under the rule above. The
+// note is rendered on each attempt, so it carries every wait the run has taken,
+// and the read-back looks for the one the failed attempt was appending.
+func (a *activeRun) recordOutcomeOnce(ctx context.Context, render func() string) error {
+	var note string
+	_, err := recoveringTrackerWrite(ctx, a,
+		itemLanded(a.pipeline.Tracker, a.state.WorkItemID, func(item beads.WorkItem) bool { return beads.NotesEndWith(item.Notes, note) }),
+		func(ctx context.Context) (beads.WorkItem, error) {
+			note = render()
+			return a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, note)
+		})
+	return err
+}
+
+// createWorktree cuts the run's worktree, and waits out a tracker export that
+// did not answer while the worktree was being prepared.
+//
+// The export is the one step of preparing a worktree that reaches the tracker,
+// and under load it stalls as a tracker write does. A creation that failed there
+// has made the worktree and given it nothing: no developer has been started, and
+// a change an earlier run preserved for this item has not been lifted into it.
+// So it is asked again on the run's own window, each wait recorded before it is
+// taken, as a resumed creation. That adopts the worktree already made only while
+// it is still unchanged at its base, prepares the export again, and gives the
+// worktree its copy only once the export answered whole, so no developer is
+// started on an export nobody confirmed. Asking again is safe because the export
+// changes nothing (gitworktree.ErrExportsUnprepared), and it is not a new attempt
+// at the work: the claim stays the one this run took, and no repair or re-run is
+// spent repeating the step.
+//
+// A run that spends the window is stopped with what it was doing, what it
+// leaves, and what picks it up again said in its failure. Every other creation
+// failure is returned exactly as before.
+func (a *activeRun) createWorktree(ctx context.Context, request gitworktree.CreateRequest) (gitworktree.Worktree, error) {
+	var made gitworktree.Worktree
+	for {
+		worktree, err := a.pipeline.Worktrees.Create(ctx, request)
+		if err == nil {
+			return worktree, nil
+		}
+		if worktree.Path != "" {
+			made = worktree
+		}
+		if !errors.Is(err, gitworktree.ErrExportsUnprepared) || !exportUnanswered(err) {
+			return made, err
+		}
+		// On the record before the wait, so a process that dies in it leaves a run
+		// whose worktree reconciliation can find.
+		if made.Path != "" {
+			a.recordWorktree(made)
+		}
+		retried, recordErr := a.recoverFrom(ctx, runstate.RetryTrackerExport, err)
+		if recordErr != nil {
+			return made, errors.Join(err, recordErr)
+		}
+		if !retried {
+			return made, a.exportStopped(made, err)
+		}
+		request.ResumeCreation = true
+	}
+}
+
+// exportUnanswered reports an export failure that answered nothing about the
+// store: a `bd export` killed at its bound or never completed, or one that
+// never started because another export held the lock past the same bound.
+func exportUnanswered(err error) bool {
+	return recovery.Recoverable(err) || errors.Is(err, beads.ErrExportBusy)
+}
+
+// exportStopped is the failure a run stops with once the export has not
+// answered through the whole window, or the run ended while it waited.
+func (a *activeRun) exportStopped(made gitworktree.Worktree, cause error) error {
+	attempts := a.state.RetryAttempts(runstate.RetryTrackerExport)
+	waited := a.state.RetryWaited(runstate.RetryTrackerExport)
+	left := "No worktree was left"
+	if made.Path != "" {
+		left = fmt.Sprintf("The worktree at %s on branch %s was made at its base and holds nothing of the work", made.Path, made.Branch)
+	}
+	if lift := a.state.Selection; lift != nil && lift.Lift != nil {
+		left += fmt.Sprintf(", and the change run %s preserved on %s was not lifted and stays on that branch", lift.Lift.RunID, lift.Lift.Branch)
+	}
+	return fmt.Errorf("the run stopped while preparing its worktree, before any developer started: the tracker's export did not answer on %d wait(s) over %s. %s. Nothing about the work was judged, so nothing is charged to the item for this round. The claim is given back — by the re-run that started this run, which keeps its re-run, or otherwise by the harness's audit of claims — and the next run of the item prepares a worktree of its own: %w",
+		attempts, waited.Round(time.Second), left, cause)
 }
 
 // readWorkItem is the same rule at the one boundary that has no run to record
@@ -232,10 +428,12 @@ func (a *activeRun) exhausted(boundary string, cause error) error {
 // single reset there was recorded as an outstanding publication at once — twice
 // on yoyodyne-ifd.295, on the one step that was left.
 //
-// It is used at that step and no other. A sweep settles its runs one at a time
-// under each one's lease, so a window waited out here holds up every run behind
-// it; that is worth paying where the alternative is a leftover only a person can
-// remove, and is not worth paying for a reading the next sweep takes again.
+// It is used at that step and at the settlement of an item whose change has
+// landed, and no other. A sweep settles its runs one at a time under each one's
+// lease, so a window waited out here holds up every run behind it; that is worth
+// paying where the alternative is a leftover only a person can remove, or a
+// landed change whose item stays open and is pulled again as ready work, and is
+// not worth paying for a reading the next sweep takes again.
 //
 // It waits on the boundary's own window, which is durable on the run, so a sweep
 // that takes up where a previous one left off spends what is left rather than a

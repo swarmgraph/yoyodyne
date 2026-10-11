@@ -49,7 +49,17 @@ type Tracker struct {
 	// same way, and this is a store that was busy.
 	CompleteFailures     int
 	TransientCompleteErr error
-	BlockErr             error
+	// ClaimFailures and TransientClaimErr, and RecordFailures and
+	// TransientRecordErr, are the same for the claim and for an outcome note: a
+	// write the store was too slow to answer. LandsBeforeFailing makes every one
+	// of those refused writes, the closure's included, land before it is refused,
+	// which is a `bd` killed at its bound after the store had taken the write.
+	ClaimFailures      int
+	TransientClaimErr  error
+	RecordFailures     int
+	TransientRecordErr error
+	LandsBeforeFailing bool
+	BlockErr           error
 	// Released and ReleaseReason are the claim given back to the queue by a run
 	// that ended on something nobody has to decide about.
 	Released      bool
@@ -110,17 +120,42 @@ func (f *Tracker) Claim(context.Context, string) (beads.WorkItem, *beads.StaleBl
 			return beads.WorkItem{}, f.StaleBlockClear, err
 		}
 	}
-	f.Claimed = true
-	f.Calls = append(f.Calls, "claim")
-	f.Item.Status = "in_progress"
+	if f.ClaimFailures > 0 {
+		f.ClaimFailures--
+		if f.LandsBeforeFailing {
+			f.claim()
+		}
+		return beads.WorkItem{}, nil, f.TransientClaimErr
+	}
+	f.claim()
 	return f.Item, f.StaleBlockClear, nil
 }
 
+func (f *Tracker) claim() {
+	f.Claimed = true
+	f.Calls = append(f.Calls, "claim")
+	f.Item.Status = "in_progress"
+}
+
 func (f *Tracker) RecordOutcome(_ context.Context, _ string, notes string) (beads.WorkItem, error) {
+	if f.RecordFailures > 0 {
+		f.RecordFailures--
+		if f.LandsBeforeFailing {
+			f.record(notes)
+		}
+		return beads.WorkItem{}, f.TransientRecordErr
+	}
+	f.record(notes)
+	return f.Item, nil
+}
+
+// record appends a note to the item as well as to the record of notes, so a
+// read-back of the item finds what was written the way it finds it in bd.
+func (f *Tracker) record(notes string) {
 	f.Notes += notes
 	f.NoteRecords = append(f.NoteRecords, notes)
 	f.Calls = append(f.Calls, "record")
-	return f.Item, nil
+	f.Item.Notes += notes
 }
 
 func (f *Tracker) Block(_ context.Context, _ string, reason string) (beads.WorkItem, error) {
@@ -149,6 +184,11 @@ func (f *Tracker) Complete(_ context.Context, _ string, reason string) (beads.Wo
 	// through, which is what a `bd` the store was too busy to run looks like.
 	if f.CompleteFailures > 0 {
 		f.CompleteFailures--
+		if f.LandsBeforeFailing {
+			f.Closed = true
+			f.CloseReason = reason
+			f.Item.Status = "closed"
+		}
 		return beads.WorkItem{}, f.TransientCompleteErr
 	}
 	if f.CompleteErr != nil {

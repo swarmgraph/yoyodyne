@@ -29,7 +29,7 @@ func TestWorktreeExportPreparationRunsBeforeTheCopyAndRefusesStaleData(t *testin
 		t.Fatal("the worktree did not get the snapshot prepared at creation")
 	}
 	manager.prepareExports = func(context.Context) error { return errors.New("export failed") }
-	if err := manager.refreshExports(context.Background(), worktree.Path); err == nil || !strings.Contains(err.Error(), "export failed") {
+	if err := manager.refreshExports(context.Background(), worktree.Path); !errors.Is(err, ErrExportsUnprepared) || !strings.Contains(err.Error(), "export failed") {
 		t.Fatalf("failed preparation error = %v", err)
 	}
 	if readFile(t, worktree.Path, exportPath) != currentExport {

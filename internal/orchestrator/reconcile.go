@@ -900,7 +900,16 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 	// a reviewed promotion the forge has now merged, not a run somebody
 	// interrupted. completeIntegrated then finds the item closed and adds nothing,
 	// which keeps the item's account of this merge to the one note above.
-	settled, err := r.closeSettledMerge(ctx, state)
+	// The settlement is a tracker write and stalls as one does, and one left
+	// unmade leaves a landed change's item open. Every attempt reads the item
+	// first, so asking again after a write that timed out and landed makes
+	// nothing twice; the wait is the run's own window, recorded on it.
+	var settled runstate.State
+	err = r.recovering(ctx, &state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
+		var settleErr error
+		settled, settleErr = r.closeSettledMerge(ctx, state)
+		return settleErr
+	})
 	if err != nil {
 		return reconciliationOf(state, ActionUnsettled), err
 	}
@@ -1443,20 +1452,48 @@ func (r Reconciler) completeIntegrated(ctx context.Context, state runstate.State
 	// reviewer approved evidence and it does not, and a sweep that read only the
 	// promotion would close an item its own run said to leave open.
 	if !itemSettled(state, itemStatus) {
-		if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, renderReconciledIntegrationNotes(state, recovered)); err != nil {
-			return reconciliationOf(state, ActionCompleted), fmt.Errorf("record reconciled outcome for run %s: %w", state.RunID, err)
-		}
-		if !state.Discharges() {
-			// The settled state is taken back, because the settlement can decide the
-			// item goes somewhere other than where the run claimed and this is the
-			// record saved below — the one every surface reads the disposition off.
-			settled, settleErr := settleUndischarged(ctx, r.Tracker, state)
-			if settleErr != nil {
-				return reconciliationOf(state, ActionCompleted), fmt.Errorf("reopen the work item run %s did not discharge: %w", state.RunID, settleErr)
+		// The outcome note and the settlement are tracker writes, waited out on the
+		// run's own window. Each attempt reads the item back first, so a note or a
+		// settlement that timed out and landed is not made a second time: the note
+		// is rendered once, before the first attempt, and looked for at the end of
+		// the item's notes.
+		notes := renderReconciledIntegrationNotes(state, recovered)
+		var settled *runstate.State
+		err := r.recovering(ctx, &state, runstate.RetryTrackerWrite, func(ctx context.Context) error {
+			item, err := r.Tracker.Show(ctx, state.WorkItemID)
+			if err != nil {
+				return err
 			}
-			state = settled
-		} else if _, err := r.Tracker.Complete(ctx, state.WorkItemID, reconciledCompletionReason(state)); err != nil {
-			return reconciliationOf(state, ActionCompleted), fmt.Errorf("close integrated work item for run %s: %w", state.RunID, err)
+			if itemSettled(state, item.Status) {
+				return nil
+			}
+			if !beads.NotesEndWith(item.Notes, notes) {
+				if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, notes); err != nil {
+					return fmt.Errorf("record reconciled outcome for run %s: %w", state.RunID, err)
+				}
+			}
+			if !state.Discharges() {
+				// The settled state is taken back, because the settlement can decide the
+				// item goes somewhere other than where the run claimed and this is the
+				// record saved below — the one every surface reads the disposition off.
+				arranged, settleErr := settleUndischarged(ctx, r.Tracker, state)
+				if settleErr != nil {
+					return fmt.Errorf("reopen the work item run %s did not discharge: %w", state.RunID, settleErr)
+				}
+				settled = &arranged
+				return nil
+			}
+			if _, err := r.Tracker.Complete(ctx, state.WorkItemID, reconciledCompletionReason(state)); err != nil {
+				return fmt.Errorf("close integrated work item for run %s: %w", state.RunID, err)
+			}
+			return nil
+		})
+		if err != nil {
+			return reconciliationOf(state, ActionCompleted), err
+		}
+		if settled != nil {
+			settled.Retries = state.Retries
+			state = *settled
 		}
 	}
 	if !state.Status.Terminal() {
@@ -1917,6 +1954,9 @@ func (r Reconciler) saveTerminalFailure(state runstate.State, reason string) (ru
 	reconciled := runstate.RecordFailure("reconciled after an interrupted run: " + reason)
 	if !state.Status.Terminal() {
 		completedAt := r.clock().Now()
+		// A tracker write the dead process was still waiting on is a park nothing
+		// will carry out (waitOnTracker), and a terminal record refuses it.
+		state.TrackerPause = nil
 		state.StopClass = runstate.CauseProcessVanished.StopClass()
 		if state.Environmental != nil && state.Environmental.Cause == runstate.CauseProcessVanished {
 			if state.Environmental.ProviderStop != "" {
