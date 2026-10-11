@@ -514,14 +514,15 @@ func (g GitHub) job(ctx context.Context, checkRun int64) (actionsJob, error) {
 // second and stamps lines finer, so the end is taken as the whole of its last
 // second. A line with no stamp of its own belongs with the line before it. A
 // step with no times, or one no line falls within, keeps the whole log, so the
-// caller still has the job's end.
+// caller still has the job's end. A carriage return ending a line is dropped,
+// so a log written with Windows line endings quotes no stray characters.
 func stepLines(lines []string, started, completed time.Time) []string {
 	scoped := !started.IsZero() && !completed.IsZero()
 	until := completed.Truncate(time.Second).Add(time.Second)
 	var kept, whole []string
 	inside := false
 	for _, line := range lines {
-		stamp, text, stamped := logLineStamp(line)
+		stamp, text, stamped := logLineStamp(strings.TrimSuffix(line, "\r"))
 		if stamped {
 			inside = !stamp.Before(started) && stamp.Before(until)
 		}

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -1395,6 +1396,9 @@ func TestGitHubFailedStepNamesTheStepAndKeepsItsOwnLines(t *testing.T) {
 	}
 	if failure.Cut {
 		t.Error("a step shorter than the bound was reported cut")
+	}
+	if crlf := stepLines(strings.Split("2026-10-07T05:40:10.0500000Z make check\r\n2026-10-07T05:40:11.0000000Z ##[error]exit 2\r", "\n"), time.Time{}, time.Time{}); strings.Join(crlf, "\n") != "make check\n##[error]exit 2" {
+		t.Errorf("lines of a log with Windows line endings = %q, want them without carriage returns", crlf)
 	}
 	if !strings.HasPrefix(failure.Output, "##[group]Run make check\n") || !strings.HasSuffix(failure.Output, "##[error]Process completed with exit code 2.") {
 		t.Errorf("output = %q, want the check step's lines from its start to the line it failed on", failure.Output)
