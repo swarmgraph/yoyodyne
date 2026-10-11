@@ -26,11 +26,12 @@
           <div class="panel-head">
             <h2 id="band-heading">Where the harness stands</h2>
             <p class="panel-note">
-              the four lines
+              each account's provider usage as last reported, the four lines
               <code>yoyo status</code>
               prints, and what landed
             </p>
           </div>
+          <ul id="usage-limits" class="usage-limits" hidden></ul>
           <div class="section-empty">
             <p id="band-empty" class="empty">The harness is idle: nothing is running, no conversation has a turn in flight, nothing is admitted, and nothing waits on anybody.</p>
           </div>
@@ -87,10 +88,10 @@
         <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
           <div class="panel-head">
             <h2 id="factory-heading">Factory problems</h2>
-            <p class="panel-note">product passes that keep failing, and a watch session that has stopped restarting into a deployed build, with who watches and who resolves the cause</p>
+            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
           </div>
           <div class="section-empty">
-            <p id="factory-empty" class="empty">No product pass has failed three times in a row, and no watch session is stuck draining past its bound.</p>
+            <p id="factory-empty" class="empty">No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.</p>
           </div>
         </section>
         <section id="managers" class="panel managers" data-state="empty" aria-labelledby="managers-heading">

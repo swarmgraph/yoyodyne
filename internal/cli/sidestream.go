@@ -132,7 +132,7 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 	}
 	answeringProvider := v.provider
 	if v.runner != nil {
-		answeringProvider = providerBackendIn(v.config, choice.Endpoint.Provider, v.runner, account.Directory)
+		answeringProvider = providerBackendIn(v.config, v.stateRoot, choice.Endpoint.Provider, v.runner, account.Directory)
 	}
 	// The turn goes through the meter, so what it spends is one line in the cost
 	// log beside every other provider invocation the harness makes, charged to the

@@ -546,7 +546,7 @@ var standingWarningAgeSeconds = 5 * 60;
   // factory problems instead. It is drawn whatever state the band is in, so an
   // idle harness still shows how much of the week is spent.
   function renderUsageWindows() {
-    var list = document.getElementById("usage-windows");
+    var list = document.getElementById("usage-limits");
     clear(list);
     var usage = model.standing && model.standing.usage_windows;
     ((usage && usage.accounts) || []).forEach(function (account) {
@@ -1273,7 +1273,7 @@ var standingWarningAgeSeconds = 5 * 60;
     }
     var entries = standing.factory_problems || [];
     if (entries.length === 0) {
-      section("factory", "empty", "No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage window is past its threshold.");
+      section("factory", "empty", "No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.");
       return;
     }
     var list = document.getElementById("factory-list");

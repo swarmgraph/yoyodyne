@@ -336,8 +336,8 @@ execution:
   # repair attempt. Once the same check has been unable to run on this many
   # changes in a row, "yoyo status" names it until it runs again.
   could_not_run_before_status: %d
-  # The dashboard and "yoyo status" show each account's provider usage windows
-  # as the provider last reported them. A window past this percentage used is
+  # The dashboard and "yoyo status" show each account's provider usage limits
+  # as the provider last reported them. A limit past this percentage used is
   # also shown as degraded capacity among the dashboard's factory problems. It
   # changes what is shown, never what the harness does.
   usage_window_degraded_percent: %d

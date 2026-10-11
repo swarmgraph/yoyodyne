@@ -3158,11 +3158,11 @@ execution:
 A run whose checks stopped before reaching the check neither counts toward the
 number nor clears it.
 
-Claude Code reports how much of each account's usage windows is used on nearly
-every invocation, and the harness records the latest reading of each window;
-the dashboard's status band and `yoyo status` show it as information. A window
+Claude Code reports how much of each account's usage limits is used on nearly
+every invocation, and the harness records the latest reading of each limit;
+the dashboard's status band and `yoyo status` show it as information. A limit
 past this share used is also shown as degraded capacity among the dashboard's
-factory problems, until a reading below it arrives or the window resets. It
+factory problems, until a reading below it arrives or the limit resets. It
 changes what is shown and nothing the harness does — the provider's own refusal
 is still what stops work:
 

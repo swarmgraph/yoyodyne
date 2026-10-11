@@ -146,7 +146,7 @@ func executableFixtureSession(t *testing.T, cfg config.Config, role domain.Agent
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := providerBackendIn(cfg, agent.Backend, runner, account.Directory)
+	provider := providerBackendIn(cfg, "", agent.Backend, runner, account.Directory)
 	available, err := provider.CheckAvailability(context.Background())
 	if err != nil || !available.Authenticated {
 		t.Fatalf("cannot open primary: %+v, %v", available, err)
@@ -165,7 +165,7 @@ func openFixtureSession(t *testing.T, cfg config.Config, role domain.AgentRole, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	provider := providerBackendIn(cfg, agent.Backend, runner, account.Directory)
+	provider := providerBackendIn(cfg, "", agent.Backend, runner, account.Directory)
 	alternate := conversationFailover(cfg, root, name, runner, io.Discard)
 	store, err := runstate.NewConversationStore(root, cfg.Product.ID)
 	if err != nil {

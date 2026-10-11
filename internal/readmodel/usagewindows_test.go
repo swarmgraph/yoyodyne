@@ -107,7 +107,7 @@ func TestAWindowPastTheThresholdIsAFactoryProblemOnly(t *testing.T) {
 	if len(degraded) != 1 || degraded[0].ID != "default:seven_day" || degraded[0].Mover != MoverNobody {
 		t.Fatalf("degraded = %+v, want the week alone, nobody's move", degraded)
 	}
-	if what := degraded[0].What(); !strings.Contains(what, "seven-day window on account default is 92% used, past the 90% threshold") {
+	if what := degraded[0].What(); !strings.Contains(what, "seven-day usage limit on account default is 92% used, past the 90% threshold") {
 		t.Fatalf("what = %q", what)
 	}
 	for _, entry := range standing.NeedsHuman {

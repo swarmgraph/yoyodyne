@@ -712,7 +712,7 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 	// executable, and its dialect — and then pointed at the account's own
 	// provider home. The two are separate decisions: which provider runs the
 	// agent is the project's, and which login it runs under is this machine's.
-	provider := providerBackendIn(cfg, agent.Backend, processRunner, account.Directory)
+	provider := providerBackendIn(cfg, parts.stateRoot, agent.Backend, processRunner, account.Directory)
 	// A provider that was there and did not answer -- its version check timed out,
 	// exited nonzero, or was cancelled with the pass that asked -- is this error,
 	// in the adapter's words, and never the "not installed" below. The
@@ -1205,7 +1205,7 @@ func conversationFailover(cfg config.Config, stateRoot, agentName string, runner
 	return conversationAlternate{
 		model:     choice.Endpoint.Model,
 		endpoint:  choice.Endpoint,
-		backend:   providerBackendIn(cfg, choice.Endpoint.Provider, runner, choice.Account.Directory),
+		backend:   providerBackendIn(cfg, stateRoot, choice.Endpoint.Provider, runner, choice.Account.Directory),
 		configDir: choice.Account.Directory,
 	}
 }

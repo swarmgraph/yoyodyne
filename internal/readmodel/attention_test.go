@@ -164,7 +164,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			"the check make codex-resume could not run on 3 changes in a row, since " + localMoment(moment.Add(-3*time.Hour)) +
 				", so each of them went on without it; latest reason: codex is not installed on this machine"},
 		AttentionCapacityDegraded: {degradedCapacityAttention(degradedFixture(moment)),
-			"the seven-day window on account default is 93% used, past the 90% threshold, resets " + localMoment(moment.Add(48*time.Hour)) + "; read 1 hour ago"},
+			"the seven-day usage limit on account default is 93% used, past the 90% threshold, resets " + localMoment(moment.Add(48*time.Hour)) + "; read 1 hour ago"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,

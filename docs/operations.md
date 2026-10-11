@@ -4620,22 +4620,22 @@ Provider usage (as the provider last reported it):
   second: no reading yet
 ```
 
-Claude Code reports its usage windows on nearly every invocation, and each
+Claude Code reports its usage limits on nearly every invocation, and each
 reading is recorded as it arrives under `usage-windows.json` in the product's
 state directory: the five-hour and seven-day share used, when each resets, the
-window's status and overage, and the model, session, and moment that heard it,
-one entry per account and window, a newer reading replacing an older one. Each
+limit's status and overage, and the model, session, and moment that heard it,
+one entry per account and limit, a newer reading replacing an older one. Each
 account says the share of the week used first, with the share of any model's
 own week beside it — Fable's, where the readings carry one — then the five
 hours, each reset in this machine's local time with the zone named, and how
-long ago the reading arrived. An account no invocation has reported a window
-for says `no reading yet` rather than a zero, and a window whose reset has
+long ago the reading arrived. An account no invocation has reported a limit
+for says `no reading yet` rather than a zero, and a limit whose reset has
 passed since it was read says so rather than standing as the share used now.
-It is information and waits on nobody; a window past
+It is information and waits on nobody; a limit past
 `execution.usage_window_degraded_percent` (90 by default) is said among the
 dashboard's factory problems instead. `yoyo status --json` carries it under
-`standing.usage_windows`. Codex reports no usage window in the stream the
-harness reads, so a Codex account has none.
+`standing.usage_windows`. Codex reports no usage limit reading in the stream
+the harness reads, so a Codex account has none.
 
 **Under those, one line per [program manager](designs/program-manager.md)
 instance**, where any is configured or any has a restart request open:
@@ -5667,10 +5667,10 @@ slowly or not at all`.
    the supervisor starts with
    [more than one copy running](#starting-the-product-and-stopping-it), each
    copy with its process, build, and start, until only the supervisor's own
-   copy runs. So is a provider usage window past
+   copy runs. So is a provider usage limit past
    `execution.usage_window_degraded_percent`, as degraded capacity: the
-   account, the window, its share used, its reset, and how old the reading
-   is. It is nobody's move — the window lifts on the provider's clock, and a
+   account, the limit, its share used, its reset, and how old the reading
+   is. It is nobody's move — the limit lifts on the provider's clock, and a
    refusal when it comes is waited out by the harness — so it is not on the
    attention line, and it clears when a reading below the threshold arrives
    or the reset passes.

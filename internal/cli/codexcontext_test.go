@@ -21,7 +21,7 @@ func TestTheCodexAdapterIsGivenWhatTheProjectNames(t *testing.T) {
 	// checkout, which is where a relative path is read from for every role.
 	cfg.Product.Repository = "/checkout"
 	for _, configDir := range []string{"", "/accounts/second"} {
-		provider, isCodex := providerBackendIn(cfg, domain.BackendCodex, execution.OSProcessRunner{}, configDir).(codex.Backend)
+		provider, isCodex := providerBackendIn(cfg, "", domain.BackendCodex, execution.OSProcessRunner{}, configDir).(codex.Backend)
 		if !isCodex {
 			t.Fatalf("the codex backend did not build the Codex adapter")
 		}
@@ -41,7 +41,7 @@ func TestTheClaudeCodeAdapterIsGivenWhatTheProjectNames(t *testing.T) {
 	}
 	cfg.Product.Repository = "/checkout"
 	for _, configDir := range []string{"", "/accounts/second"} {
-		provider, isClaudeCode := providerBackendIn(cfg, domain.BackendClaudeCode, execution.OSProcessRunner{}, configDir).(claudecode.Backend)
+		provider, isClaudeCode := providerBackendIn(cfg, "", domain.BackendClaudeCode, execution.OSProcessRunner{}, configDir).(claudecode.Backend)
 		if !isClaudeCode {
 			t.Fatalf("the claude-code backend did not build the Claude Code adapter")
 		}

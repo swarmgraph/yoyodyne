@@ -843,7 +843,7 @@ func (a Attention) Whose() string {
 	case AttentionUnrunCheck:
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
 	case AttentionCapacityDegraded:
-		return a.Mover.Possessive() + " — the window lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
+		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }

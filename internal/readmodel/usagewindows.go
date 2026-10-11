@@ -289,7 +289,7 @@ func (d DegradedCapacity) Says() string {
 	if name == "" {
 		name = d.Window.Window
 	}
-	return fmt.Sprintf("the %s window on account %s is %s used, past the %d%% threshold%s; read %s",
+	return fmt.Sprintf("the %s usage limit on account %s is %s used, past the %d%% threshold%s; read %s",
 		name, d.Account, percentSaid(d.Window), d.Threshold, resetSaid(d.Window), agoSaid(d.Window.Age))
 }
 

@@ -578,8 +578,8 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 	// provider of its own gets that provider's dialect and executable, so its
 	// rules read the stream its invocation actually produces. A built-in
 	// declares neither and runs exactly as it always has.
-	developerProvider := providerBackend(cfg, agentForRole(cfg, domain.RoleDeveloper).Backend, processRunner)
-	reviewerProvider := providerBackend(cfg, agentForRole(cfg, domain.RoleReviewer).Backend, processRunner)
+	developerProvider := providerBackend(cfg, parts.stateRoot, agentForRole(cfg, domain.RoleDeveloper).Backend, processRunner)
+	reviewerProvider := providerBackend(cfg, parts.stateRoot, agentForRole(cfg, domain.RoleReviewer).Backend, processRunner)
 
 	return orchestrator.Pipeline{
 		Availability: machineAvailability(parts),
@@ -594,7 +594,7 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 		Backend:   developerProvider,
 		// A run reserved on another backend before the developer was moved off
 		// it carries on there, in the session it opened.
-		RecordedBackends: recordedBackends(cfg, processRunner),
+		RecordedBackends: recordedBackends(cfg, parts.stateRoot, processRunner),
 		Checks: checks.Runner{
 			Process: processRunner,
 			// The budget every check gets is configured rather than fixed,
