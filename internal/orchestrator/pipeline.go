@@ -1437,14 +1437,20 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 
 	if err := run.claim(ctx); err != nil {
 		run.observe(ctx, deliveryClaim, "unavailable")
-		// A claim the tracker never answered through the whole window reached
-		// nothing of the work, so the round is the environment's and is charged
-		// nothing. Whether it landed is unknown; a claim left with no live run
-		// behind it is given back by the harness's audit of claims.
+		// A claim the tracker never answered is waited on for as long as it takes
+		// (waitOnTracker), so one that reaches here unanswered is a run that ended
+		// or was stopped while it waited. It reached nothing of the work, so the
+		// round is the environment's and is charged nothing. Whether the claim
+		// landed is unknown; a claim with no live run behind it is given back by
+		// the harness's audit of claims.
+		var stopped operatorStop
+		if errors.As(err, &stopped) {
+			return run.stop(ctx, err)
+		}
 		if recovery.Recoverable(err) {
 			run.recordEnvironmentalRefusal(runstate.CauseTransportFailure, err.Error(), nothingRan)
 		}
-		return run.fail(err, runstate.StatusFailed)
+		return run.fail(err, failureStatus(ctx, err))
 	}
 	run.observe(ctx, deliveryClaim, "claimed")
 	worktree, err := run.createWorktree(ctx, gitworktree.CreateRequest{
@@ -5345,6 +5351,16 @@ func (a *activeRun) holdForDependency(ctx context.Context) error {
 // moves a developer's phase on; this is taken having decided nothing at all, and
 // a resumed run has to re-ask the question this one could not get an answer to.
 func (a *activeRun) recordTrackerPause(boundary string, cause error) error {
+	paused, err := a.noteTrackerPause(boundary, cause)
+	if err != nil {
+		return err
+	}
+	return trackerPause{paused: paused}
+}
+
+// noteTrackerPause writes the park onto the run's record: the boundary that
+// went unanswered, what its window cost, and the tracker's last words.
+func (a *activeRun) noteTrackerPause(boundary string, cause error) (runstate.TrackerPause, error) {
 	paused := runstate.TrackerPause{
 		Boundary:      boundary,
 		Attempts:      a.state.RetryAttempts(boundary),
@@ -5354,9 +5370,9 @@ func (a *activeRun) recordTrackerPause(boundary string, cause error) error {
 	a.state.TrackerPause = &paused
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
-		return fmt.Errorf("record the unanswered tracker read that parked this run: %w", err)
+		return paused, fmt.Errorf("record the unanswered tracker call that parked this run: %w", err)
 	}
-	return trackerPause{paused: paused}
+	return paused, nil
 }
 
 // clearTrackerPause records that the run is no longer waiting on the store,
@@ -5402,8 +5418,12 @@ func (e trackerPause) Error() string {
 // recorded park is what makes it a pause rather than an interruption, and the
 // worktree is what makes it resumable: the change every attempt shares is what
 // the run comes back to.
+//
+// A park on a tracker write is not one: the run waits on it in its own process
+// (waitOnTracker), and a process that died there left a run interrupted at its
+// claim or at its finishing writes rather than one a later process can resume.
 func pausedForTracker(state runstate.State) bool {
-	if state.Status != runstate.StatusRunning || state.TrackerPause == nil {
+	if state.Status != runstate.StatusRunning || state.TrackerPause == nil || state.TrackerPause.Boundary == runstate.RetryTrackerWrite {
 		return false
 	}
 	return state.WorktreePath != "" && state.Branch != "" && state.BaseCommit != ""

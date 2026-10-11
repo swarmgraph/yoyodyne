@@ -2008,8 +2008,16 @@ one of the boundaries above.
   finishes with — the outcome note, the close, or the reopening of an item its
   change did not discharge — then go on waiting in the two-hour window, reading
   the item back before every attempt, so a stalled tracker holds the run rather
-  than ending it. A claim still unanswered once the window is spent stops the
-  run before anything of the work, and nothing is charged for that round.
+  than ending it. A write still unanswered once the window is spent parks the
+  run on the tracker — the park, the write it waits on, and the tracker's last
+  words are on the run's record, and a survey of the runs in flight shows it
+  parked waiting on the tracker — and the run goes on asking every thirty minutes, from the same
+  process, until the tracker answers and the run carries on from that step, or
+  a person stops it. A process that dies while parked leaves an interrupted run
+  that reconciliation settles, as a run that died at its claim or its finishing
+  writes always has. The sweep that settles an item once the forge has merged
+  its change waits out a stalled closure or reopening the same way, reading the
+  item first on every attempt.
 - **A tracker export that stalls while a worktree is prepared is asked again.**
   A new run's worktree is given a fresh copy of the tracker's export before its
   developer starts. An export killed at its bound, or one queued behind another
@@ -2021,7 +2029,11 @@ one of the boundaries above.
   repeating it spends no repair or re-run. An export still unanswered once the
   window is spent stops the run, saying it stopped while preparing its worktree,
   that the worktree holds nothing of the work and any preserved change was not
-  lifted, and what gives the item back; nothing is charged for that round.
+  lifted, and what gives the item back; nothing is charged for that round. This
+  covers the worktree a run is given and nothing else: the checkout a document
+  is published from and the checkout the landing checks run in still fail at
+  once on an export that does not answer, and are asked again the way they
+  always were.
 
 **Every wait a run takes is recorded before it is taken**, on the run itself,
 with the boundary, which attempt it was, the interval, and the failure it waited

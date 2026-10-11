@@ -742,10 +742,92 @@ func requestsServed(provider recordingBackend, role domain.AgentRole) []backend.
 	return matching
 }
 
-// A claim the tracker never answers through the whole window stops the run
-// before anything of the work, and the round is the environment's: nothing is
-// charged for it, and no developer is started on an item the run never held.
-func TestAClaimTheTrackerNeverAnswersStopsTheRunUncharged(t *testing.T) {
+// parkedTrackerRun runs one item through a tracker that stalls the claim and
+// the closure far past the two-hour window before answering each, and records
+// what the run's record said at every wait it took.
+func parkedTrackerRun(t *testing.T) (*orchestratortest.Tracker, Outcome, runstate.State, []runstate.State, int) {
+	t.Helper()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{
+		Item:                 beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"},
+		ClaimFailures:        stallsPastTheWindow,
+		TransientClaimErr:    trackerStalled,
+		CompleteFailures:     stallsPastTheWindow,
+		TransientCompleteErr: trackerStalled,
+	}
+	developers := 0
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		developers++
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	clock := &pausingClock{now: baseTime}
+	pipeline = waiting(pipeline, clock, 6*time.Hour, 6*time.Hour)
+	saved := &lastSaved{StateStore: pipeline.Store}
+	pipeline.Store = saved
+	var atWaits []runstate.State
+	clock.onSleep = func() { atWaits = append(atWaits, saved.last) }
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want the run to wait on the tracker and carry on", err)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	return tracker, outcome, state, atWaits, developers
+}
+
+// stallsPastTheWindow is more refusals than the two-hour window has waits for,
+// so the last few are met by the run parked on the tracker.
+const stallsPastTheWindow = 20
+
+// A claim and a closure the tracker leaves unanswered past the whole window do
+// not end the run. Each parks it on the tracker, with the boundary and the
+// tracker's last words on its record, and the run goes on from the step that
+// was waiting once the tracker answers: one claim, one developer, one closure,
+// and nothing left parked.
+func TestATrackerWriteUnansweredPastItsWindowParksTheRunUntilTheTrackerAnswers(t *testing.T) {
+	t.Parallel()
+	tracker, outcome, state, atWaits, developers := parkedTrackerRun(t)
+
+	if outcome.Status != runstate.StatusSucceeded || !tracker.Closed {
+		t.Fatalf("status = %q, closed = %t, want the run finished once the tracker answered", outcome.Status, tracker.Closed)
+	}
+	if developers != 1 || calls(tracker, "claim") != 1 {
+		t.Fatalf("developers = %d, claims = %d, want one of each: %v", developers, calls(tracker, "claim"), tracker.Calls)
+	}
+	if state.TrackerPause != nil {
+		t.Fatalf("tracker pause = %#v, want it lifted once the tracker answered", state.TrackerPause)
+	}
+	parkedAtClaim, parkedAtClose := false, false
+	for _, recorded := range atWaits {
+		pause := recorded.TrackerPause
+		if pause == nil {
+			continue
+		}
+		if pause.Boundary != runstate.RetryTrackerWrite || !strings.Contains(pause.Failure, "did not answer") {
+			t.Fatalf("park = %#v, want the tracker write and its last failure", pause)
+		}
+		if pausedForTracker(recorded) {
+			t.Fatalf("a park on a tracker write was offered to a later process to resume: %#v", pause)
+		}
+		switch {
+		case recorded.WorktreePath == "":
+			parkedAtClaim = true
+		case recorded.Phase == runstate.PhaseCompleting:
+			parkedAtClose = true
+		}
+	}
+	if !parkedAtClaim || !parkedAtClose {
+		t.Fatalf("parked at the claim %t, at the closure %t, want both recorded before their waits", parkedAtClaim, parkedAtClose)
+	}
+}
+
+// A person asking a run to stop while it waits on the tracker ends the wait:
+// the stop is honoured at the next time the run asks, and nothing else is made.
+func TestARunWaitingOnTheTrackerHonoursAStopRequest(t *testing.T) {
 	t.Parallel()
 	repository := pipelineRepository(t)
 	tracker := &orchestratortest.Tracker{
@@ -759,20 +841,40 @@ func TestAClaimTheTrackerNeverAnswersStopsTheRunUncharged(t *testing.T) {
 		return nil
 	}, approveVerdict)
 	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
-	pipeline = waiting(pipeline, &pausingClock{now: baseTime}, 6*time.Hour, 6*time.Hour)
+	clock := &pausingClock{now: baseTime}
+	pipeline = waiting(pipeline, clock, 6*time.Hour, 6*time.Hour)
+	saved := &lastSaved{StateStore: pipeline.Store}
+	pipeline.Store = saved
+	asked := false
+	clock.onSleep = func() {
+		if asked || saved.last.TrackerPause == nil {
+			return
+		}
+		asked = true
+		if err := store.RecordStop(runstate.StopRequest{
+			SchemaVersion: runstate.StopSchemaVersion,
+			ProductID:     "yoyodyne",
+			RunID:         saved.last.RunID,
+			WorkItemID:    tracker.Item.ID,
+			RequestedAt:   baseTime,
+			Reason:        "stop waiting on the tracker",
+		}); err != nil {
+			t.Errorf("RecordStop() error = %v", err)
+		}
+	}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	if err == nil || developers != 0 || tracker.Claimed {
-		t.Fatalf("Run() error = %v, developers = %d, claimed = %t, want the run stopped before anything", err, developers, tracker.Claimed)
+	if err == nil && outcome.Status != runstate.StatusCancelled {
+		t.Fatalf("Run() = %q, %v, want the run stopped", outcome.Status, err)
+	}
+	if !asked || developers != 0 || tracker.Claimed {
+		t.Fatalf("stop asked %t, developers = %d, claimed = %t, want the wait ended with nothing made", asked, developers, tracker.Claimed)
 	}
 	state, err := store.Load(outcome.RunID)
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if refusal := state.Environmental; refusal == nil || refusal.Cause != runstate.CauseTransportFailure || !refusal.NothingRan || !refusal.Refused {
-		t.Fatalf("environmental = %#v, want a transport failure refused before anything ran", refusal)
-	}
-	if state.RetryAttempts(runstate.RetryTrackerWrite) == 0 {
-		t.Errorf("no waits recorded at the claim, want the window spent first: %#v", state.Retries)
+	if !state.Status.Terminal() || state.TrackerPause != nil {
+		t.Fatalf("status = %q, park = %#v, want the run ended with no park left on it", state.Status, state.TrackerPause)
 	}
 }

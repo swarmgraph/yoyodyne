@@ -87,9 +87,12 @@ func recoveringValue[T any](ctx context.Context, a *activeRun, boundary string, 
 // store that answers later is asked both questions then. It is the rule a
 // conversation's writes already follow (internal/chat, recoveringTrackerWrite),
 // over the run's own record of its waits.
+//
+// A write still unanswered once the window is spent does not end the run: it is
+// waited on for as long as the tracker takes (waitOnTracker).
 func recoveringTrackerWrite[T any](ctx context.Context, a *activeRun, landed func(context.Context) (T, bool, error), attempt func(context.Context) (T, error)) (T, error) {
 	attempted := false
-	return recoveringValue(ctx, a, runstate.RetryTrackerWrite, func(ctx context.Context) (T, error) {
+	ask := func(ctx context.Context) (T, error) {
 		if attempted {
 			value, found, err := landed(ctx)
 			if err != nil {
@@ -102,7 +105,69 @@ func recoveringTrackerWrite[T any](ctx context.Context, a *activeRun, landed fun
 		}
 		attempted = true
 		return attempt(ctx)
-	})
+	}
+	value, err := recoveringValue(ctx, a, runstate.RetryTrackerWrite, ask)
+	var spent runstate.StopError
+	if err == nil || !errors.As(err, &spent) || spent.Class != runstate.StopRecoveryWindow || ctx.Err() != nil {
+		return value, err
+	}
+	return waitOnTracker(ctx, a, err, ask)
+}
+
+// waitOnTracker is a run whose tracker write went unanswered through its whole
+// window, waiting on the tracker rather than ending.
+//
+// The wait is recorded on the run before it is taken — the boundary, what it
+// cost, and the tracker's last words — so every surface shows the run parked on
+// the tracker rather than hung, and then the write is asked again, read back
+// first as every attempt after the first is, once every longest interval of the
+// backoff until the tracker answers. An answer lifts the park and the run goes
+// on from the step that was waiting. Only the run ending, a person asking it to
+// stop, or a tracker that answers with a refusal ends the wait.
+//
+// It waits here, in the process holding the run, rather than parking and
+// exiting as a gate's unanswered read does. The writes this covers are a run's
+// claim, made before it has a worktree to resume in, and the writes it finishes
+// with, which read the outcome this process holds of the review and the
+// promotion — neither is a point a later process could take the run up from
+// its record alone. So a park on this boundary is never offered to a later
+// process to resume (pausedForTracker), and a process that dies in it leaves an
+// interrupted run for reconciliation to settle, as a run that died at either
+// step always has.
+func waitOnTracker[T any](ctx context.Context, a *activeRun, spent error, ask func(context.Context) (T, error)) (T, error) {
+	var zero T
+	paused, err := a.noteTrackerPause(runstate.RetryTrackerWrite, spent)
+	if err != nil {
+		return zero, errors.Join(spent, err)
+	}
+	for {
+		if err := a.pipeline.sleep(ctx, recovery.MaxInterval); err != nil {
+			return zero, spent
+		}
+		if err := a.stopRequested(); err != nil {
+			return zero, err
+		}
+		value, err := ask(ctx)
+		if err == nil {
+			// The write is made, so what is left is the record saying so. A store that
+			// cannot take that has the park cleared on this process all the same, and
+			// the next save of the run carries it.
+			_ = a.clearTrackerPause()
+			return value, nil
+		}
+		if !recovery.Recoverable(err) || ctx.Err() != nil {
+			return value, err
+		}
+		spent = err
+		paused.Attempts++
+		paused.WaitedSeconds += int64(recovery.MaxInterval / time.Second)
+		paused.Failure = boundedFailureDetail(err.Error())
+		a.state.TrackerPause = &paused
+		a.state.UpdatedAt = a.pipeline.clock().Now()
+		if saveErr := a.pipeline.Store.Save(a.state); saveErr != nil {
+			return zero, errors.Join(err, fmt.Errorf("record the wait on the tracker: %w", saveErr))
+		}
+	}
 }
 
 // itemLanded is the landed question for a write to one item: the item read
@@ -363,10 +428,12 @@ func (a *activeRun) exhausted(boundary string, cause error) error {
 // single reset there was recorded as an outstanding publication at once — twice
 // on yoyodyne-ifd.295, on the one step that was left.
 //
-// It is used at that step and no other. A sweep settles its runs one at a time
-// under each one's lease, so a window waited out here holds up every run behind
-// it; that is worth paying where the alternative is a leftover only a person can
-// remove, and is not worth paying for a reading the next sweep takes again.
+// It is used at that step and at the settlement of an item whose change has
+// landed, and no other. A sweep settles its runs one at a time under each one's
+// lease, so a window waited out here holds up every run behind it; that is worth
+// paying where the alternative is a leftover only a person can remove, or a
+// landed change whose item stays open and is pulled again as ready work, and is
+// not worth paying for a reading the next sweep takes again.
 //
 // It waits on the boundary's own window, which is durable on the run, so a sweep
 // that takes up where a previous one left off spends what is left rather than a

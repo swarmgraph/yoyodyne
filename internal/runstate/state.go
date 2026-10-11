@@ -2128,8 +2128,9 @@ func (d DependencyPause) Validate() error {
 // days, two of them holding work a reviewer had already approved or a developer
 // had already written.
 type TrackerPause struct {
-	// Boundary is the RetryDependencyRead-style name of the read that went
-	// unanswered, so the record says which of a run's tracker reads this was.
+	// Boundary names the tracker call that went unanswered — a gate's read, by
+	// its RetryDependencyRead-style name, or RetryTrackerWrite for a write the
+	// run waits on in its own process — so the record says which this was.
 	Boundary string `json:"boundary"`
 	// Attempts and WaitedSeconds are what the window was spent on, carried here
 	// rather than derived from the retries so a reader of the park sees what it

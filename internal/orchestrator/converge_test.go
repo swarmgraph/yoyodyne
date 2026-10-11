@@ -939,3 +939,44 @@ func TestASettleThatCannotFinishThePublicationLeavesTheLocalBranchAlone(t *testi
 		t.Errorf("local main = %q, want it still at the promoted commit %q", local, outcome.Integration.TargetCommit)
 	}
 }
+
+// The settlement a sweep makes once the forge has merged a queued change is a
+// tracker write, and a stalled one used to leave the landed change's item open
+// until some later sweep. It is waited out on the run's window, and each attempt
+// reads the item first: a closure that timed out after the tracker took it is
+// not asked for again, and one that timed out before is.
+func TestTheSettlementAfterAForgeMergeIsWaitedOutAndNeverMadeTwice(t *testing.T) {
+	t.Parallel()
+	for _, landed := range []bool{false, true} {
+		fixture := newQueuedFixture(t)
+		fixture.sleep = func(context.Context, time.Duration) error { return nil }
+		outcome := fixture.run(t)
+		fixture.forge.PerformQueuedMerge(t)
+		tracker := fixture.tracker.(*orchestratortest.Tracker)
+		tracker.CompleteFailures = 2
+		tracker.TransientCompleteErr = trackerStalled
+		tracker.LandsBeforeFailing = landed
+
+		results := fixture.reconcile(t)
+		if len(results) != 1 || results[0].Action != ActionCompleted || results[0].Failure != "" {
+			t.Fatalf("landed %t: reconciliation = %#v, want the queued merge settled through the stall", landed, results)
+		}
+		if !tracker.Closed {
+			t.Fatalf("landed %t: the item was left open", landed)
+		}
+		want := 3
+		if landed {
+			want = 1
+		}
+		if closes := calls(tracker, "complete"); closes != want {
+			t.Errorf("landed %t: closures asked for = %d, want %d: %v", landed, closes, want, tracker.Calls)
+		}
+		state, err := fixture.store.Load(outcome.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if waits := state.RetryAttempts(runstate.RetryTrackerWrite); waits == 0 {
+			t.Errorf("landed %t: no wait recorded on the run, want each stall's wait there: %#v", landed, state.Retries)
+		}
+	}
+}
