@@ -79,16 +79,35 @@ func (f *NoticingForge) Notice(_ context.Context, reported map[int]bool) ([]runs
 	return fresh, f.Err
 }
 
-// JobLogs is the forge's log of a job, as the harness reads its tail.
+// JobLogs is the forge's log of a job, as the harness reads its tail and the
+// step that failed in it. Job and Step name where it failed, and Cut says the
+// step's output was longer than the bound asked for; Tail is the output either
+// way.
 type JobLogs struct {
 	Err   error
 	Tail  string
+	Job   string
+	Step  string
+	Cut   bool
 	Asked []int64
 }
 
 func (l *JobLogs) JobLogTail(_ context.Context, checkRun int64, _ int) (string, error) {
 	l.Asked = append(l.Asked, checkRun)
 	return l.Tail, l.Err
+}
+
+func (l *JobLogs) FailedStep(_ context.Context, checkRun int64, _ int) (publish.JobFailure, error) {
+	l.Asked = append(l.Asked, checkRun)
+	failure := publish.JobFailure{Job: l.Job, Step: l.Step, Cut: l.Cut}
+	if l.Step != "" {
+		failure.StepNumber = 5
+	}
+	if l.Err != nil {
+		return failure, l.Err
+	}
+	failure.Output = l.Tail
+	return failure, nil
 }
 
 // TargetChecks scripts and records readings of the target branch's checks.
