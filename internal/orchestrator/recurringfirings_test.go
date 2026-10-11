@@ -324,41 +324,94 @@ func TestAMissSaysWhichFiringKeptTheTaskBehindIt(t *testing.T) {
 // still taking turns in her conversation. The summons is not made into it —
 // it would claim her task's firing and then be refused the conversation — and
 // is made at the first pull after her pass ends, while the brake's hold stands.
-// A hold lifted in the meantime drops it.
+// It is then taken beside the pull, as her pass was: the pull that made it
+// returns while she is still answering, her conversation is held against every
+// firing until the summons is collected, and the cooldown running out probes
+// nothing meanwhile. A hold lifted while a summons waits drops it.
 func TestABrakeSummonsWaitsForTheDevelopmentManagersOwnPass(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness()
+	entered := make(chan struct{}, 1)
+	answer := make(chan struct{})
 	harness.summon = func(*scheduleHarness, BrakeSummons, int) (Fired, error) {
-		return Fired{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Turns: 1}, nil
+		entered <- struct{}{}
+		<-answer
+		return Fired{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Turns: 1, CostUSD: 0.25, Summoned: "the intake brake"}, nil
 	}
-	held, err := harness.Brake(runstate.IntakeBrake{Blocked: []runstate.BrakeBlockedRun{{WorkItemID: "yoyodyne-ifd.1", Reason: "the checks failed"}}, CooldownEndsAt: harness.clock().Add(30 * time.Minute)}, "3 run(s) blocked in a row", harness.clock())
+	held, err := harness.Brake(runstate.IntakeBrake{Blocked: []runstate.BrakeBlockedRun{{WorkItemID: "yoyodyne-ifd.1", Reason: "the checks failed"}}, CooldownEndsAt: harness.clock()}, "3 run(s) blocked in a row", harness.clock())
 	if err != nil {
 		t.Fatalf("Brake() error = %v", err)
 	}
 	firings := newRecurringFirings(context.Background())
 	defer firings.cancel()
 	dm := roleConversationKey(domain.RoleDevelopmentManager)
-	firings.inFlight[dm] = StartedFiring{Task: "development-manager-sweep", Conversation: dm}
+	pass := make(chan struct{})
+	firings.launch(StartedFiring{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Conversation: dm, take: func(context.Context) Fired {
+		<-pass
+		return Fired{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Turns: 2}
+	}}, harness.clock)
 	scheduler := Scheduler{Now: harness.clock}
 	var schedule Schedule
+	pull := Pull{Intake: harness, Brake: harness}
 
 	scheduler.summon(context.Background(), &schedule, firings, harness, harness, held)
-	if len(harness.summonses) != 0 || firings.summoning == nil {
-		t.Fatalf("summonses = %d, waiting = %v; want no summons made while her pass holds her conversation, and one waiting", len(harness.summonses), firings.summoning != nil)
+	if firings.summoning == nil || firings.taking(summonsTask) {
+		t.Fatalf("waiting = %v, taking = %v; want no summons made while her pass holds her conversation, and one waiting", firings.summoning != nil, firings.taking(summonsTask))
 	}
 	if schedule.BrakeProblem != "" {
 		t.Fatalf("brake problem = %q, want a waiting summons to be no failure", schedule.BrakeProblem)
 	}
-
-	delete(firings.inFlight, dm)
-	pull := Pull{Intake: harness}
-	scheduler.summonWaiting(context.Background(), &schedule, firings, pull)
-	if len(harness.summonses) != 1 || firings.summoning != nil {
-		t.Fatalf("summonses = %d, waiting = %v; want the summons made once her pass ended", len(harness.summonses), firings.summoning != nil)
+	// The cooldown has run out, and the line is not probed while she has not
+	// been asked.
+	if action := scheduler.workBrake(&schedule, pull, *harness.held, nil, firings.summonsPending()); action != brakeWaiting {
+		t.Fatalf("brake action = %v with her summons waiting, want the hold waited on", action)
 	}
-	if harness.held.Brake.SummonedAt == nil {
-		t.Fatalf("the hold does not record the summons: %+v", harness.held.Brake)
+
+	close(pass)
+	scheduler.collectFirings(&schedule, firings, &recurringWatch{}, true)
+	scheduler.summonWaiting(context.Background(), &schedule, firings, pull)
+	// summonWaiting has returned, and her summoned turn is still being taken:
+	// the pull is not held by it.
+	select {
+	case <-entered:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the summons was not made once her pass ended")
+	}
+	if firings.summoning != nil || !firings.taking(summonsTask) || !firings.busy()[dm] {
+		t.Fatalf("waiting = %v, busy = %v; want the summons taken beside the pull, holding her conversation", firings.summoning != nil, firings.busy())
+	}
+	if action := scheduler.workBrake(&schedule, pull, *harness.held, nil, firings.summonsPending()); action != brakeWaiting {
+		t.Fatalf("brake action = %v while her summoned turn is taken, want the hold waited on", action)
+	}
+	// A firing of hers claimed now would be refused the conversation, so the
+	// schedule is told it is busy and her task waits.
+	claims := sweepStore(t)
+	trigger := Trigger{
+		Tasks:  map[string]config.RecurringTask{"development-manager-sweep": hourly(domain.RoleDevelopmentManager, 2)},
+		Claims: claims, Reports: claims, Roles: newSideBySideRoles(domain.RoleDevelopmentManager), Clock: harnessClock(harness.clock),
+	}
+	start, err := trigger.Start(context.Background(), firings.busy(), MaxConcurrentFirings-len(firings.inFlight))
+	if err != nil {
+		t.Fatalf("Start() error = %v", err)
+	}
+	if len(start.Started) != 0 || len(start.Waiting) != 1 {
+		t.Fatalf("started %+v, waiting %+v; want her own task waiting on the summons", start.Started, start.Waiting)
+	}
+	if why := waitingReason(start.Waiting[0], firings); !strings.Contains(why, summonsTask) {
+		t.Fatalf("waiting reason = %q, want the summons named as what holds her conversation", why)
+	}
+
+	close(answer)
+	scheduler.collectFirings(&schedule, firings, &recurringWatch{}, true)
+	if harness.held.Brake.SummonedAt == nil || schedule.BrakeProblem != "" {
+		t.Fatalf("hold = %+v, problem = %q; want the summons recorded on the hold once collected", harness.held.Brake, schedule.BrakeProblem)
+	}
+	if len(schedule.Fired) != 2 || schedule.Fired[1].Summoned == "" || schedule.SpentUSD != 0.25 {
+		t.Fatalf("fired = %+v, spent $%.2f; want her pass and then the summons on the schedule, and the summons counted", schedule.Fired, schedule.SpentUSD)
+	}
+	if !firings.idle() || firings.summonsPending() {
+		t.Fatal("the summons is still in flight after it was collected")
 	}
 
 	// A summons still waiting when the hold is lifted is dropped.
@@ -367,7 +420,119 @@ func TestABrakeSummonsWaitsForTheDevelopmentManagersOwnPass(t *testing.T) {
 	delete(firings.inFlight, dm)
 	harness.held = nil
 	scheduler.summonWaiting(context.Background(), &schedule, firings, pull)
-	if len(harness.summonses) != 1 || firings.summoning != nil {
+	if len(harness.summonses) != 1 || firings.summoning != nil || !firings.idle() {
 		t.Fatalf("summonses = %d, waiting = %v; want a summons over a lifted hold dropped", len(harness.summonses), firings.summoning != nil)
+	}
+}
+
+// gatedCorrections is roles' conversations as a correction reaches them from a
+// goroutine of its own: each wake says it began on entered and waits on gate.
+type gatedCorrections struct {
+	mu      sync.Mutex
+	woken   []runstate.ConversationIdentity
+	entered chan struct{}
+	gate    chan struct{}
+}
+
+func (r *gatedCorrections) Wake(ctx context.Context, identity runstate.ConversationIdentity, _ string) (CorrectionTurn, error) {
+	r.mu.Lock()
+	r.woken = append(r.woken, identity)
+	r.mu.Unlock()
+	r.entered <- struct{}{}
+	select {
+	case <-r.gate:
+	case <-ctx.Done():
+		return CorrectionTurn{}, ctx.Err()
+	}
+	return CorrectionTurn{CostUSD: 0.1, Actions: 2}, nil
+}
+
+func (r *gatedCorrections) wokenOf() []runstate.ConversationIdentity {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]runstate.ConversationIdentity(nil), r.woken...)
+}
+
+// The wake correcting a refused tracker block, arriving while the development
+// manager's recurring pass holds her conversation. Her refusal is not claimed —
+// a wake made into her conversation would be refused it — and waits for the
+// pass to end, while another role's refusal is woken for beside it. Each wake is
+// taken beside the pull: the pull that made it returns while the role is still
+// answering, one is in flight at a time, and what it came to is on the schedule
+// once it is collected.
+func TestACorrectionWaitsForAPassHoldingItsConversationAndIsTakenBesideThePull(t *testing.T) {
+	t.Parallel()
+
+	store := conversationStore(t, t.TempDir())
+	refusedConversationOf(t, store, domain.RoleDevelopmentManager, "development-manager", 3, correctionNow.Add(-time.Hour), "her older refusal")
+	refusedConversation(t, store, "product-manager", 5, correctionNow.Add(-time.Minute), "his newer refusal")
+	roles := &gatedCorrections{entered: make(chan struct{}, 2), gate: make(chan struct{})}
+	pull := Pull{Corrections: Corrector{Conversations: store, Claims: store, Roles: roles, Clock: correctionClock{}}}
+	firings := newRecurringFirings(context.Background())
+	defer firings.cancel()
+	dm := roleConversationKey(domain.RoleDevelopmentManager)
+	firings.inFlight[dm] = StartedFiring{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Conversation: dm}
+	scheduler := Scheduler{Now: func() time.Time { return correctionNow }}
+	var schedule Schedule
+	entered := func(who string) {
+		t.Helper()
+		select {
+		case <-roles.entered:
+		case <-time.After(30 * time.Second):
+			t.Fatalf("the %s was not woken", who)
+		}
+	}
+
+	// Her refusal is the older, and her pass holds her conversation, so his is
+	// woken for — and the pull has returned while his turn is being taken.
+	scheduler.correct(context.Background(), &schedule, pull, firings, true)
+	entered("product manager")
+	if woken := roles.wokenOf(); len(woken) != 1 || woken[0].Role != domain.RoleProductManager {
+		t.Fatalf("woken = %+v, want only the product manager while her pass holds her conversation", woken)
+	}
+	if !firings.taking(correctionTask) || !firings.busy()[roleConversationKey(domain.RoleProductManager)] {
+		t.Fatalf("busy = %v, want his wake taken beside the pull and holding his conversation", firings.busy())
+	}
+	// One wake is in flight at a time.
+	scheduler.correct(context.Background(), &schedule, pull, firings, true)
+	if woken := roles.wokenOf(); len(woken) != 1 {
+		t.Fatalf("woken = %+v, want no second wake while one is in flight", woken)
+	}
+
+	// His turn ends and is collected; her pass goes on.
+	close(roles.gate)
+	delete(firings.inFlight, dm)
+	scheduler.collectFirings(&schedule, firings, &recurringWatch{}, true)
+	firings.inFlight[dm] = StartedFiring{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Conversation: dm}
+	if len(schedule.Corrected) != 1 || schedule.Corrected[0].Role != domain.RoleProductManager || schedule.SpentUSD != 0.1 {
+		t.Fatalf("corrected = %+v, spent $%.2f; want his wake on the schedule and counted", schedule.Corrected, schedule.SpentUSD)
+	}
+
+	// Her pass still holds her conversation: her refusal is left unclaimed.
+	scheduler.correct(context.Background(), &schedule, pull, firings, true)
+	if woken := roles.wokenOf(); len(woken) != 1 || firings.taking(correctionTask) {
+		t.Fatalf("woken = %+v, want her refusal left while her pass holds her conversation", woken)
+	}
+	recorded, err := store.Load(runstate.ConversationIdentity{Agent: "development-manager", Role: domain.RoleDevelopmentManager})
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if recorded.RefusedBlock == nil || recorded.RefusedBlock.Attempts != 0 {
+		t.Fatalf("refusal = %+v, want her wakeup unclaimed and unspent while her pass ran", recorded.RefusedBlock)
+	}
+
+	// Her pass ends, and the next pull wakes her beside it.
+	delete(firings.inFlight, dm)
+	scheduler.correct(context.Background(), &schedule, pull, firings, true)
+	entered("development manager")
+	if !firings.busy()[dm] {
+		t.Fatalf("busy = %v, want her wake holding her conversation", firings.busy())
+	}
+	scheduler.collectFirings(&schedule, firings, &recurringWatch{}, true)
+	if len(schedule.Corrected) != 2 || schedule.Corrected[1].Role != domain.RoleDevelopmentManager || schedule.Corrected[1].Actions != 2 {
+		t.Fatalf("corrected = %+v, want her wake on the schedule once her pass ended", schedule.Corrected)
+	}
+	if schedule.CorrectionProblem != "" {
+		t.Fatalf("correction problem = %q, want none", schedule.CorrectionProblem)
 	}
 }
