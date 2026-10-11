@@ -121,10 +121,10 @@ var deliveryAnswers = map[string][]string{
 	"candidate.review":  {"approved", "changes-requested", "stopped", "unresolved"},
 	// "reconciling" is a replay conflict handed back to the developer that wrote
 	// the change, which re-earns the whole gate from the developer's own state.
-	// No definition this build ships routes it yet — the built-in and the
-	// repository's own copy are held to one digest, and the copy is a protected
-	// path — so a run that takes it records a divergence rather than an
-	// observation, which is the honest account of a path the definition lacks.
+	// The built-in routes it to `develop`. A project's own copy made before that
+	// transition existed does not, so a run executing such a copy records a
+	// divergence when it takes it, and `yoyo config drift` reports the transition
+	// as available to that project (see DeliveryDefinitionDrift).
 	"candidate.integrate": {"conflicted", "contended", "integrated", "reconciling", "superseded"},
 	// One outcome, because the run distinguishes nothing here: a promotion whose
 	// merge the forge only queued leaves the item open for a later sweep to close,

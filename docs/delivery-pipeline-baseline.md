@@ -795,7 +795,8 @@ them.
   summaries in `delivery.yaml` say both outcomes — closed where the run's landing
   discharges the item, back in the backlog where it lands evidence instead — and
   the copy under `.yoyodyne/workflows/` says the same words, because a summary is
-  digest-bearing and the two are held to one digest. The human-approval
+  digest-bearing and the two are held to one sequence, which a summary worded
+  differently in the copy fails. The human-approval
   definition's `complete` state closes nothing, so its summary says nothing about
   closure and did not have to move.
 

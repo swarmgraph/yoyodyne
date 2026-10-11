@@ -113,6 +113,9 @@ func printDriftNotice(stderr io.Writer, configPath string) {
 	if notice := drift.Notice(); notice != "" {
 		fmt.Fprintln(stderr, notice)
 	}
+	for _, notice := range deliveryDefinitionNotices(resolved.Path) {
+		fmt.Fprintln(stderr, notice)
+	}
 }
 
 // renderDiagnosis prints the findings in the order they were made, with each

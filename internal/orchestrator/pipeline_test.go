@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -7129,6 +7130,24 @@ func TestAReplayConflictIsReconciledByItsOwnDeveloperAndLands(t *testing.T) {
 	}
 	if counters.ReviewRounds != 0 {
 		t.Fatalf("review rounds charged = %d, want none for a conflict nobody judged", counters.ReviewRounds)
+	}
+	// The delivery definition routes the hand-back, so the run observing it walks
+	// from the conflict back to the developer and on to delivery without
+	// diverging.
+	if state.WorkflowDivergence != "" {
+		t.Fatalf("the run recorded the divergence %q; the delivery definition routes a replay conflict back to its developer", state.WorkflowDivergence)
+	}
+	instance, err := store.LoadWorkflowInstance(state.WorkflowInstanceID)
+	if err != nil {
+		t.Fatalf("LoadWorkflowInstance(%q) error = %v", state.WorkflowInstanceID, err)
+	}
+	transcript := deliveryTranscript(instance)
+	handedBack := slices.Index(transcript, deliveryIntegrate+" reconciling")
+	if handedBack < 0 || handedBack+1 >= len(transcript) || transcript[handedBack+1] != deliveryDevelop+" produced" {
+		t.Fatalf("the instance recorded %v; want integrate reconciling followed by the developer's state producing the reconciled change", transcript)
+	}
+	if !instance.Terminal || instance.State != "delivered" {
+		t.Fatalf("the instance ended in %q (terminal=%t), want delivered", instance.State, instance.Terminal)
 	}
 }
 
