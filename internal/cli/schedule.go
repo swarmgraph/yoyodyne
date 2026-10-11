@@ -780,6 +780,9 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// so a hold on one provider passes over only the slots on it.
 		DeveloperProvider: agentForRole(parts.config, domain.RoleDeveloper).Backend,
 		Developers:        developerEndpoints(parts.config),
+		// What each item's labels map its developer to, so a window that closes
+		// one developer model holds only the items whose runs would ask for it.
+		DeveloperModels: parts.config.Execution.DeveloperModels,
 		// Read against what the provider has served since and which conversations
 		// are still their roles', so intake is never held on a window a served
 		// turn has disproved or on a conversation nothing will speak in again.
