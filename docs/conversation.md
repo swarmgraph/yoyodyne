@@ -104,7 +104,10 @@ named, and the narrowing this partially undoes is described with what it bought
 and what it cost, in the
 [configuration guide](configuration.md#what-the-lead-product-manager-sees-besides-them-and-what-it-does-not).
 
-It has no tools: no filesystem, no commands, no network. What it has instead are
+It changes nothing itself. On Claude Code it has no tools: no filesystem, no
+commands, no network. On Codex it can read the repository under Codex's
+read-only sandbox, with network access and outside integrations turned off, and
+can write nothing. What it has instead are
 capabilities the harness performs on its behalf — the tracker below, [a read of
 one repository path at a recorded commit](#reading-the-repository-at-a-recorded-commit),
 and [research](#bringing-it-an-idea-rather-than-a-work-item) where you have
@@ -1432,7 +1435,8 @@ the target branch is untouched, and so is the dependency structure the
 development manager records itself.
 
 The architect owns the designs, the decision records, and the invariants. It
-still has no tools, and a design or a decision record it writes reaches the
+still cannot write — no tools on Claude Code, reads only on Codex — and a design
+or a decision record it writes reaches the
 repository anyway: it emits the document as a typed action. With an automatic
 design approval policy, the harness confirms it without asking you and sends
 the exact document through a run with checks and independent review before

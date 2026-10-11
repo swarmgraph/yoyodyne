@@ -149,8 +149,8 @@ func TestTheSameModelOnAnotherProviderIsAnAlternate(t *testing.T) {
 func TestACrossingIsRefusedWhereTheAlternateCouldNotServeTheRole(t *testing.T) {
 	t.Parallel()
 
-	// The reviewer reasons over bounded evidence with no tools at all, and this
-	// provider scopes writes to a worktree and can express nothing narrower.
+	// The reviewer reads and never writes, and this provider scopes writes to a
+	// worktree and can express nothing narrower.
 	writesOnly := strings.Replace(crossingProviders, `    postures:
       - read-only
       - worktree-write`, `    postures:

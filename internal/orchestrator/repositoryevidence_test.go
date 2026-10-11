@@ -120,3 +120,63 @@ func TestAbsenceClaimSurvivesDurableFindingConversion(t *testing.T) {
 		t.Fatalf("absence claim lost across durable storage: %#v", restored)
 	}
 }
+
+// A file the work item names without its folder is read from the item's own
+// package, or from a folder the change touches, rather than looked for at the
+// repository root and reported missing; one found in neither is named to the
+// reviewer as not found, with where it was looked for. This is the run-record
+// writers review, which was handed internal/runstate's audit test and told
+// store.go and state.go were unavailable.
+func TestABareFileNameIsReadFromTheItemsOwnPackage(t *testing.T) {
+	t.Parallel()
+	repository := pipelineRepository(t)
+	for path, content := range map[string]string{
+		"internal/runstate/store.go":                       "package runstate // the store\n",
+		"internal/runstate/state.go":                       "package runstate // the state\n",
+		"internal/runstate/runrecordwriters_audit_test.go": "package runstate // the audit\n",
+		"internal/orchestrator/claims.go":                  "package orchestrator // the claims\n",
+		"internal/somewhereelse/unrelated/notmentioned.go": "package unrelated\n",
+	} {
+		if err := os.MkdirAll(filepath.Join(repository, filepath.Dir(path)), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(repository, path), []byte(content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	runPipelineGit(t, repository, "add", ".")
+	runPipelineGit(t, repository, "commit", "-m", "a package named by its files")
+	pipeline, _ := newAutomaticPipeline(t, repository, newOutcomeTracker(), orchestratortest.RoleBackend(writeFeature, approveVerdict), []string{"exit 0"})
+	item := beads.WorkItem{
+		Description:        "Every writer in store.go and state.go goes through the lock; internal/runstate/runrecordwriters_audit_test.go holds them to it.",
+		AcceptanceCriteria: "claims.go takes the lock too, and gone.go is removed.",
+	}
+	changes := gitworktree.ChangeDiff{Files: []gitworktree.ChangedFile{{Path: "internal/orchestrator/claims.go", Status: "M"}}}
+	evidence := reviewedRepository(context.Background(), pipeline.Worktrees, gitLine(t, repository, "rev-parse", "HEAD"), item, changes)
+
+	contents := map[string]review.RepositoryFile{}
+	for _, file := range evidence.Contents {
+		contents[file.Path] = file
+	}
+	for path, want := range map[string]string{
+		"internal/runstate/store.go":      "the store",
+		"internal/runstate/state.go":      "the state",
+		"internal/orchestrator/claims.go": "the claims",
+	} {
+		if file, ok := contents[path]; !ok || !strings.Contains(file.Content, want) {
+			t.Fatalf("%s was not read from the folder it is in: %#v", path, evidence.Contents)
+		}
+	}
+	for _, bare := range []string{"store.go", "state.go", "claims.go"} {
+		if _, ok := contents[bare]; ok {
+			t.Fatalf("%s was still looked for at the repository root: %#v", bare, evidence.Contents)
+		}
+	}
+	gone, ok := contents["gone.go"]
+	if !ok || gone.Content != "" || !strings.Contains(gone.Unavailable, "not found") || !strings.Contains(gone.Unavailable, "internal/runstate") || !strings.Contains(gone.Unavailable, "internal/orchestrator") {
+		t.Fatalf("gone.go was not named as not found with where it was looked for: %#v", gone)
+	}
+	if _, ok := contents["internal/somewhereelse/unrelated/notmentioned.go"]; ok {
+		t.Fatal("a file in a folder neither the item nor the change names was read")
+	}
+}

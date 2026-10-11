@@ -76,6 +76,11 @@ const (
 	// recorded here instead: it costs the run nothing, and it is what a prompt
 	// regression is diagnosed from afterwards.
 	EventReviewDrift EventType = "review.drift"
+	// A reviewer that tried to read the repository and got nothing back judged
+	// from what it was handed alone, so its verdict is not recorded as a judged
+	// review. This event says so, with what it tried and what came back, in
+	// place of the review.completed a judged review would have.
+	EventReviewUnread EventType = "review.unread"
 	// A proposal and the operator's decision on it are separate events, because
 	// what was proposed is evidence whether or not it was ever created.
 	EventProposalRecorded EventType = "proposal.recorded"

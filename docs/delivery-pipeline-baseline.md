@@ -184,7 +184,7 @@ harness.
 | --- | --- | --- |
 | `developing` | One developer invocation in the run's worktree, resuming the run's session on every attempt after the first, and a harness commit of whatever it left there; retains the latest completed account until a final reply replaces it, bound to the attempt and change content | `provider_session_id`, `provider_model`, `provider_resolved_model`, `harness_commit`, `changes`, `last_sequence`, `verification`, `developer_summary` |
 | `checking` | The protected-path gate first, then the execution-evidence gate, then every configured check in order | `path_refusal`, the `verification` record's `owed`, or `check_failure` while one is outstanding, and clears the others when a gate passes; `checks_passed` when every check passes, bound to the content of the change as the worktree holds it, the attempt, and the harness commit |
-| `reviewing` | One independent review invocation, its own session, no tools, shown the branch's whole diff against the run's recorded base and the developer's latest bounded final account, with its recorded attempt and whether the content and base still match stated; unavailable accounts are stated as missing with a reason and any cut is visible | `review_session_id`, `review_model`, `review_resolved_model`, `review_base_commit`, `review_head_commit`, `review_decision`, `review_approves`, `review_summary`, `review_findings`, `review_finding_details`, `review_rounds` |
+| `reviewing` | One independent review invocation, its own session, able to read the worktree and to change nothing, shown the branch's whole diff against the run's recorded base and the developer's latest bounded final account, with its recorded attempt and whether the content and base still match stated; unavailable accounts are stated as missing with a reason and any cut is visible | `review_session_id`, `review_model`, `review_resolved_model`, `review_base_commit`, `review_head_commit`, `review_decision`, `review_approves`, `review_summary`, `review_findings`, `review_finding_details`, `review_rounds` |
 | `integrating` | Reads the gate off the record first — `checks_passed` for exactly this attempt and commit, and for the content the worktree holds now, no `check_failure` or `path_refusal` standing, an approving verdict — and refuses without it, before the lease is taken; then, under the target branch's promotion lease: fast-forward the local target onto the branch tip the developer's attempts were committed at, and merge where the project publishes | `integration`, `pull_request`; `harness_commit` only when the promotion is replayed or a refused promotion committed something itself |
 | `completing` | Record the outcome on the item, settle it — closed when the change discharges the item, back in the backlog parked or waiting on a named impediment when it does not — price it | the tracker's record and settlement |
 | `cleaning_up` | Remove the worktree and the branch, each recorded separately | `worktree_removed`, `branch_removed` |
@@ -357,7 +357,9 @@ The run's log carries what the harness itself observed. From a run driven with a
 fake provider that is `command.started` and `command.completed` per check, and
 `review.started` and `review.completed` per review invocation, plus
 `review.drift` where a reviewer answered with a field the verdict schema does not
-define. A real provider adapter adds its own stream — `agent.message`,
+define, and `review.unread` in place of `review.completed` where every read the
+reviewer made of the repository came back empty, so its verdict is not counted
+as a judged review and it is asked once more. A real provider adapter adds its own stream — `agent.message`,
 `process.output`, `file.changed`, and the `run.*` terminals that carry what an
 invocation cost — so the recorded traces are the harness's half of the log
 rather than the whole of it.

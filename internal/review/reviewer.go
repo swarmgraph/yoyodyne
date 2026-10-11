@@ -398,7 +398,9 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		return Result{LastSequence: request.LastSequence}, err
 	}
 	lastSequence := sequence.Last()
+	var reads readTally
 	backendEventSink := func(event execution.Event) error {
+		reads.observe(event)
 		if request.EventSink != nil {
 			if err := request.EventSink(event); err != nil {
 				return err
@@ -515,6 +517,28 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 		// that run's durable failure and is described the same way a developer's
 		// is: the provider's category is not a diagnosis on its own.
 		return evidence(), fmt.Errorf("reviewer reported failure: %s", providerResult.DescribeFailure())
+	}
+	// A reviewer whose every read came back empty judged from what it was handed
+	// alone, whatever it decided. That is not the independent judgement this
+	// review exists to record, so its verdict is kept as evidence and refused as a
+	// verdict, and the record says why in place of a review.completed.
+	if reads.unread() {
+		unread := evidence()
+		unread.Verdict, _, _ = Decode([]byte(strings.TrimSpace(answer)))
+		account := UnreadRepositoryError{Attempted: reads.attempted, WrittenAsText: reads.writtenAsText}
+		recorded := request.subject()
+		recorded["attempted_reads"] = reads.attempted
+		recorded["reads_written_as_text"] = reads.writtenAsText
+		recorded["answered_reads"] = 0
+		recorded["reason"] = account.Error()
+		if unread.Verdict.Decision != "" {
+			recorded["unjudged_decision"] = unread.Verdict.Decision
+		}
+		if err := r.emit(request, sequence, execution.EventReviewUnread, recorded); err != nil {
+			return unread, err
+		}
+		unread.LastSequence = sequence.Last()
+		return unread, account
 	}
 	verdict, unknown, err := Decode([]byte(strings.TrimSpace(answer)))
 	// A field the schema does not name is recorded rather than refused. The
@@ -772,7 +796,7 @@ func reviewContract(scope Scope) string {
 	}
 	return reviewIntroduction(scope) + `
 
-Review the supplied architectural invariants, ` + contextNoun + `, patch, and check results. Use only the inspection tools explicitly supplied by the backend; if none are supplied, reason solely from the delivered evidence. Permitted inspection is limited to relevant repository context: callers, interfaces, tests, and documentation. For a branch review, the working directory may be checked out on another branch: inspect the named head and base commits with read-only Git commands and do not assume the current checkout is the candidate. For a work-item review, inspect the supplied worktree and its uncommitted changes. Do not change files, execute checks that write, reach external services, inspect unrelated local data, or request broader permissions. State what you cannot verify.
+Review the supplied architectural invariants, ` + contextNoun + `, patch, and check results. Use only the inspection tools explicitly supplied by the backend; if none are supplied, reason solely from the delivered evidence. Never write a tool call into your reply as text: it runs nothing and returns nothing. A review whose every read returns nothing is not recorded as a judged review, so if your reads come back empty, say so rather than judging as though you had read. Permitted inspection is limited to relevant repository context: callers, interfaces, tests, and documentation. For a branch review, the working directory may be checked out on another branch: inspect the named head and base commits with read-only Git commands and do not assume the current checkout is the candidate. For a work-item review, inspect the supplied worktree and its uncommitted changes. Do not change files, execute checks that write, reach external services, inspect unrelated local data, or request broader permissions. State what you cannot verify.
 
 Decide file existence from the repository listing at the reviewed commit together with the change listing and the separately delivered new-file, omission, removal, and whole-content evidence, never from a file's absence in the patch. Every finding claiming that a repository path is missing must name it in "absent"; the harness refuses a claim contradicted by presence evidence or made without complete repository and change listings. A complete HEAD listing does not settle uncommitted additions when the change listing is bounded. "absent" is optional for other findings. Whole-file content supplied at the reviewed commit is the candidate's content; references labelled with the base commit remain the sources the change was written against. For literal counts or content comparisons, use the labelled whole file, not patch lines or an excerpt. If the evidence does not supply the needed content and no inspection tool can read it, say what you cannot verify instead of asserting a defect.
 

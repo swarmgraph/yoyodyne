@@ -143,9 +143,11 @@ func bundles() []Bundle {
 			Owns: "no document and no queue; it judges one change inside a run",
 			Holds: []capability.Capability{
 				capability.WorkItemRead,
-				// The reviewer reaches for nothing: it has no tools, and the change, the
-				// item, and the evidence are supplied to it. The read is the harness's, on
-				// the reviewer's behalf, which is what this capability has always meant.
+				// The reviewer is granted no tool by anything the harness carries out: the
+				// change, the item, and the evidence are supplied to it, and what it reads
+				// beyond them is its backend's read-only access to the worktree under
+				// review. This read is the harness's, on the reviewer's behalf, which is
+				// what this capability has always meant.
 				capability.RepositoryRead,
 				capability.ProviderInvoke,
 				capability.RunStateMutate,

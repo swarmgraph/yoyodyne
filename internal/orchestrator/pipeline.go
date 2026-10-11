@@ -7867,6 +7867,11 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 		// say which of those fixtures it accounted for, is asked again on the same
 		// budget for the same reason: the change is sound, and what is missing is
 		// the reviewer's statement of what the approval covered.
+		// A verdict reached with every read of the repository coming back empty is
+		// asked again on the same budget too: the reviewer judged only from what it
+		// was handed, so it is not the independent judgement this gate records, and
+		// a second one like it ends the run with that cause for the development
+		// manager rather than being counted as a review.
 		//
 		// The second asking is made in the reviewer's own session and tells it what
 		// was wrong with the reply, because a fresh invocation told nothing new
@@ -8039,7 +8044,8 @@ func reviewReachedProvider(reported providerEvidence, err error) bool {
 
 // unsettledReply reports a review the reviewer answered with a reply the harness
 // could not settle a verdict from — unreadable, an approval that never said what
-// it approves, or one that never said which kept-out fixtures it covered — and
+// it approves, one that never said which kept-out fixtures it covered, or a
+// verdict reached with every read of the repository coming back empty — and
 // says what was wrong with it in the words of the refusal, which is what the
 // reviewer is told when it is asked again.
 func unsettledReply(err error) (string, bool) {
@@ -8054,6 +8060,10 @@ func unsettledReply(err error) (string, bool) {
 	var unaccounted review.UnaccountedFixturesError
 	if errors.As(err, &unaccounted) {
 		return unaccounted.Error(), true
+	}
+	var unread review.UnreadRepositoryError
+	if errors.As(err, &unread) {
+		return unread.Error(), true
 	}
 	return "", false
 }
