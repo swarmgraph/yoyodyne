@@ -1005,7 +1005,7 @@ func TestRunKeepsReviewersReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", settings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", "Read,Glob,Grep,Bash"}
+	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", settings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", "Read,Glob,Grep,Bash", "--append-system-prompt", reviewerToolsNote}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
 	}

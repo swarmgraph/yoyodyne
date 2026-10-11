@@ -425,14 +425,17 @@ reviewer was asked twice, beside the reason the second reply was refused.
 
 A verdict reached with every read of the repository coming back empty is
 treated the same way. The reviewer is asked to check callers, tests, and
-documentation, so one whose every read returned nothing — or which wrote its
-tool calls into its reply as text, which runs nothing — judged only from what it
-was handed. Its verdict is kept on the run's record but not counted as a judged
+documentation, so one whose every read was refused or failed — or which wrote
+its tool calls into its reply as text, which runs nothing — judged only from
+what it was handed. A read that ran and printed nothing, such as `git status`
+on a clean worktree, counts as answered. Its verdict is kept on the run's record but not counted as a judged
 review: the record carries `review.unread`, saying what was tried and what came
 back, in place of `review.completed`, and the review is asked for once more on
 the same budget. A second like it ends the run with that cause, and the stopped
 run goes to the development manager like any other. A reviewer that reads
-nothing by choice is judged as before.
+nothing by choice is judged as before. On Claude Code the reviewer is told, beside
+its contract, which tools it has and which Git commands its shell runs, so it
+does not spend a review on commands that are refused.
 
 A verdict of `repair` returns the findings to the same developer, up to
 `execution.repair_attempts_before_replan` attempts, before the run gives up and

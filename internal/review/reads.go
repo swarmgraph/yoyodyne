@@ -36,11 +36,14 @@ func (t *readTally) observe(event execution.Event) {
 	case execution.EventCommandStarted:
 		t.attempted++
 	case execution.EventCommandCompleted:
+		// A call that ran is an answer even when what it printed was nothing:
+		// `git status --short` on a clean worktree, or a search with no match,
+		// has told the reviewer something true about the repository. A call that
+		// was refused or failed told it nothing.
 		var result struct {
-			IsError      bool `json:"is_error"`
-			ContentBytes int  `json:"content_bytes"`
+			IsError bool `json:"is_error"`
 		}
-		if json.Unmarshal(event.Payload, &result) == nil && !result.IsError && result.ContentBytes > 0 {
+		if json.Unmarshal(event.Payload, &result) == nil && !result.IsError {
 			t.answered++
 		}
 	case execution.EventAgentMessage:
@@ -78,8 +81,9 @@ func writtenToolCalls(text string) int {
 	return count
 }
 
-// unread reports a reviewer that tried to read and was given nothing back by
-// any read. A reviewer that tried nothing judged from its evidence by choice,
+// unread reports a reviewer that tried to read and had no read answered: every
+// call it made was refused or failed, or it made none and wrote its calls out
+// as text. A reviewer that tried nothing judged from its evidence by choice,
 // which the contract permits; one whose reads all came back empty judged from
 // it because it had no other choice, and said nothing about the callers, tests,
 // and documentation it was asked to check.
@@ -94,8 +98,8 @@ func (t readTally) unread() bool {
 // own session, and a second review like it ends the run, which hands the change
 // to the development manager with this as its cause.
 type UnreadRepositoryError struct {
-	// Attempted is how many tool calls the reviewer made, none of which returned
-	// anything.
+	// Attempted is how many tool calls the reviewer made, every one of which was
+	// refused or failed.
 	Attempted int
 	// WrittenAsText is how many tool calls the reviewer wrote into its reply as
 	// text, which runs nothing.
@@ -105,11 +109,12 @@ type UnreadRepositoryError struct {
 func (e UnreadRepositoryError) Error() string {
 	var tried []string
 	if e.Attempted > 0 {
-		tried = append(tried, fmt.Sprintf("%d read(s) that returned nothing", e.Attempted))
+		tried = append(tried, fmt.Sprintf("%d read(s) that were refused or failed", e.Attempted))
 	}
 	if e.WrittenAsText > 0 {
 		tried = append(tried, fmt.Sprintf("%d tool call(s) written into its reply as text, which run nothing", e.WrittenAsText))
 	}
 	return "every read the reviewer made of the repository came back empty (" + strings.Join(tried, " and ") +
-		"), so it judged only from what it was handed and its verdict is not an independently judged review"
+		"), so it judged only from what it was handed and its verdict is not an independently judged review. " +
+		"Read again with the tools your session lists and only the commands it says it allows, then give the verdict"
 }

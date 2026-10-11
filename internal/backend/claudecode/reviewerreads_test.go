@@ -75,6 +75,12 @@ func TestAReviewerIsGivenReadsAndNothingThatWrites(t *testing.T) {
 		"git diff '/etc/passwd' x",
 		"git diff ~/.ssh/id_rsa x",
 		"git diff ../../secret x",
+		"git cat-file --batch-check </etc/passwd",
+		"git cat-file --batch-check <~/.ssh/id_rsa",
+		"git cat-file --batch-check < /etc/passwd",
+		"git log >x",
+		"git log --oneline >> notes.txt",
+		"git diff\t/etc/passwd x",
 		"git diff --no-index a b",
 		"git diff --no-ind a b",
 		"git log --output=x",
@@ -221,5 +227,32 @@ func TestAReviewerSessionReadsAFileItWasNotHanded(t *testing.T) {
 	}
 	if !answered {
 		t.Fatalf("no read the reviewer made returned anything: %#v", events)
+	}
+}
+
+// What the reviewer is told about its tools is generated from the lists that
+// grant them, so it names every command its shell allows and nothing else, and
+// it reaches the reviewer beside the contract.
+func TestTheReviewerIsToldWhatItsShellRuns(t *testing.T) {
+	t.Parallel()
+
+	for _, command := range reviewerGitCommands {
+		if !strings.Contains(reviewerToolsNote, "git "+command) {
+			t.Fatalf("the note does not name git %s: %s", command, reviewerToolsNote)
+		}
+	}
+	_, offered, _ := strings.Cut(reviewerToolsNote, "Git commands only: ")
+	offered, _, _ = strings.Cut(offered, ". ")
+	for _, refused := range []string{"git grep", "git blame"} {
+		if strings.Contains(offered, refused) {
+			t.Fatalf("the note offers %q, which the shell refuses: %s", refused, offered)
+		}
+	}
+	got := systemPromptFor(backendapi.RunRequest{Role: domain.RoleReviewer, SystemPrompt: "the contract"}, "")
+	if !strings.HasPrefix(got, "the contract\n\n") || !strings.Contains(got, reviewerToolsNote) {
+		t.Fatalf("reviewer system prompt = %q, want the contract then the note", got)
+	}
+	if got := systemPromptFor(backendapi.RunRequest{Role: domain.RoleArchitect, SystemPrompt: "the contract"}, ""); got != "the contract" {
+		t.Fatalf("architect system prompt = %q, want the contract alone", got)
 	}
 }

@@ -107,7 +107,7 @@ func TestAReviewWhoseReadsCameBackEmptyIsNotJudged(t *testing.T) {
 		provider *readingBackend
 		want     string
 	}{
-		{name: "calls that returned nothing", provider: &readingBackend{files: []string{"missing.go", "also-missing.go"}}, want: "2 read(s) that returned nothing"},
+		{name: "calls that returned nothing", provider: &readingBackend{files: []string{"missing.go", "also-missing.go"}}, want: "2 read(s) that were refused or failed"},
 		{name: "calls written as text", provider: &readingBackend{text: []string{"Let me look.\n<invoke name=\"Read\"><parameter name=\"file_path\">caller.go</parameter></invoke>\n<invoke name=\"Bash\">"}}, want: "2 tool call(s) written into its reply as text"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -187,5 +187,20 @@ func TestOnlyALineOpeningWithAToolCallCountsAsOneWrittenAsText(t *testing.T) {
 		if got := writtenToolCalls(text); got != want {
 			t.Errorf("writtenToolCalls(%q) = %d, want %d", text, got, want)
 		}
+	}
+}
+
+// A read that ran and printed nothing is an answer, not an empty read: a
+// reviewer whose only read was `git status --short` on a clean worktree is
+// judged.
+func TestAReadThatRanAndPrintedNothingIsAnAnswer(t *testing.T) {
+	t.Parallel()
+
+	worktree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(worktree, "empty.go"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if result, _, err := reviewWith(t, &readingBackend{files: []string{"empty.go"}}, worktree); err != nil || result.Decision != DecisionApprove {
+		t.Fatalf("Review() = %#v, %v, want a judged approval", result, err)
 	}
 }

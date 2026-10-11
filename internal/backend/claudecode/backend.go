@@ -38,7 +38,7 @@ func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
 		named = ""
 	}
 	prompt, _ := json.Marshal(request.Prompt)
-	system, _ := json.Marshal(appendNamed(request.SystemPrompt, named))
+	system, _ := json.Marshal(systemPromptFor(request, named))
 	return len(prompt) + len(system), 32 << 20
 }
 
@@ -171,9 +171,13 @@ var reviewerGitCommands = []string{
 // file. A deny rule outranks the allow rules above, wherever the part appears
 // in the command.
 //
-//   - A path outside the worktree: one beginning with /, ~ or ../, bare or
-//     quoted, or after an `=`. `git diff` given a path outside the repository
-//     compares the two files without asking for --no-index.
+//   - A path outside the worktree: one beginning with /, ~ or ../, after a
+//     space, a tab, a quote, or an `=`. `git diff` given a path outside the
+//     repository compares the two files without asking for --no-index.
+//   - Any redirection, < or >. `git cat-file --batch-check </etc/passwd`
+//     prints each line of the file it is fed back as a missing object, so a
+//     command that reads only the repository can be handed any file this way;
+//     no read the reviewer needs redirects anything.
 //   - --no-index, which compares any two files on the machine.
 //   - -O and --orderfile, which read a file to order the output by.
 //   - --output, which writes a file.
@@ -192,6 +196,8 @@ var reviewerRefusedPatterns = []string{
 	"*../*", "* ..", "* .. *",
 	"* --no-i*", "* -O*", "* --ord*", "* --out*",
 	"* --ext*", "* --textc*", "* --filt*",
+	"*\t/*", "*\t~*",
+	"*<*", "*>*",
 	"*$*", "*`*",
 }
 
@@ -233,6 +239,33 @@ func reviewerSettings(directory string) (string, error) {
 		return "", fmt.Errorf("encode the settings a reviewer is given: %w", err)
 	}
 	return string(encoded), nil
+}
+
+// reviewerToolsNote tells the reviewer what its tools are, so that it reads
+// with the ones it has rather than spending a review on commands its settings
+// refuse: a review whose every read was refused is asked again, and a second
+// one ends the run (internal/review). It is generated from the lists above, so
+// it cannot promise a command they do not allow.
+var reviewerToolsNote = func() string {
+	commands := make([]string, 0, len(reviewerGitCommands))
+	for _, command := range reviewerGitCommands {
+		commands = append(commands, "git "+command)
+	}
+	return "Your tools in this session: Read, Glob, and Grep for files inside the worktree under review, and Bash for these Git commands only: " +
+		strings.Join(commands, ", ") + ". Bash refuses any other command, a path outside the worktree, a redirection with < or >, $ or backquotes, " +
+		"and the options --no-index, -O, --orderfile, --output, --ext-diff, --textconv, and --filters. Search file contents with Grep rather than git grep, " +
+		"and read a file at a commit with git show <commit>:<path>."
+}()
+
+// systemPromptFor is what an invocation appends to the provider's own system
+// prompt: the harness's contract, for a reviewer what its tools are, and what
+// the project named for the role.
+func systemPromptFor(request backend.RunRequest, named string) string {
+	systemPrompt := request.SystemPrompt
+	if request.Role == domain.RoleReviewer {
+		systemPrompt = appendNamed(systemPrompt, reviewerToolsNote)
+	}
+	return appendNamed(systemPrompt, named)
 }
 
 // reviewerEnvironment is what a reviewer's shell is told beside the
@@ -619,7 +652,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	default:
 		args = append(args, "--tools", "")
 	}
-	if systemPrompt := appendNamed(request.SystemPrompt, named); systemPrompt != "" {
+	if systemPrompt := systemPromptFor(request, named); systemPrompt != "" {
 		args = append(args, "--append-system-prompt", systemPrompt)
 	}
 	if request.SessionID != "" {
