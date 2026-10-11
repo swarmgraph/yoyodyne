@@ -1,7 +1,7 @@
 ---
 id: configurable-workflows
 kind: design
-title: "Configurable workflows: a declarative runtime over trusted actions"
+title: 'Configurable workflows: a declarative runtime over trusted actions'
 supports:
     - v1-goals
 status: active
@@ -54,8 +54,17 @@ revisions:
       by: architect
       at: 2026-09-26T16:00:00Z
       reason: yoyodyne-ifd.432.7 companion - the operators mapping's fourth namespace and the decide-amendments grant recorded beside the bundles they never reach
+    - action: amended
+      by: architect
+      at: 2026-10-11T11:35:14.183745Z
+      reason: yoyodyne-ifd.434.8 - configuration the harness recommends is applied by the role that owns the decision behind each value, through the development manager's recorded step and whole-file validation; provenance kept in the operation record, config.lock unchanged, grants limited to the recorded change
+approvals:
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-10-11T11:35:14.183745Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 706, for document-706.1 under the automatic approval policy
 ---
-
 # Configurable workflows: a declarative runtime over trusted actions
 
 ## What this is for
@@ -97,6 +106,28 @@ The management bundles — product manager, development manager, architect — h
 The operators mapping gains a fourth identifier namespace, `dashboard_token`, and a grant, `decide-amendments`, for a person acting from the dashboard as [observability-and-dashboard](observability-and-dashboard.md) specifies; both are properties of the person, and no token or configuration key grants either to a role.
 
 A sixth shipped bundle, the program manager, holds the management reads plus a lane-scoped admission and ordering set, its own memory and lane report, reports, amendment proposals, the ask channel, and one bounded request to the supervisor; it is specified in [program-manager](program-manager.md) and recorded as a shipped Go bundle rather than an operator-defined one in [program-manager-is-a-shipped-bundle](../decisions/program-manager-is-a-shipped-bundle.md). Its lane is a scope on existing tracker-action capabilities, enforced at the authority table, and it is the first specialist to ship; the Sentinel below is the second.
+
+### Operational configuration applied by a role
+
+Applying configuration the harness recommends through a role preserves the ownership of the decision behind each value. The development manager arranges every application from a recorded decision; she decides only the values below that are hers. Applying a decision never permits changing a task's role, guidance, authority, or spending limits.
+
+Who decides each value:
+
+- **A recurring task's schedule and switch** (`recurring_tasks.<name>.every`, `enabled`): the role the task wakes, for its own task only, within the existing minimum of five minutes. The task's `role`, `prompt`, and `max_turns` are not operational values: the prompt is the task and the turn bound is a spending limit, so changing either is a design or Lead Product Manager decision rather than an application.
+- **A recurring task's model** (`recurring_tasks.<name>.model`) and **developer models by label** (`execution.developer_models`): the development manager, because how much model a kind of work gets is her choice of execution profile under [management-loop-protocol](management-loop-protocol.md). A selector must pass the validation an agent's own model passes and name a model the agent's existing provider serves; neither value changes the provider, the account, or anything about the reviewer.
+- **A developer slot's label preference**: the Lead Product Manager, because it changes which work starts first; the development manager applies it.
+- **A developer slot's endpoint pair** (`execution.developer_slots[].routing`): applied only where a design records the exact pair, as the four-slot mapping in [claude-execution-and-account-routing](claude-execution-and-account-routing.md) does. A pair no design records is a design question for the architect, because it chooses a provider and an account.
+- **Configured checks and landing checks**: the development manager may add one. Removing, narrowing, or replacing one requires an equivalence ruling recorded by the architect, because a narrower gate is a weaker one. No application may leave automatic integration without checks or an independent reviewer; the loader already refuses that combination.
+
+No value outside this list is applied by a role. A recommendation for any other key is reported to the role that owns the decision behind it.
+
+An application takes effect only when the whole file, its inherited defaults, personas, and role definitions pass the same validation a reload performs; a file that fails changes nothing, and the previous configuration stays active.
+
+The operation's durable record holds the deciding role, the reason, the source decision, the previous and proposed configuration digests, the changed keys, the reviewed commit, and where the application stands. The harness records these facts; a configuration value or comment cannot assert them.
+
+An application leaves `config.lock` unchanged: that file goes on describing the bundle baseline under [portable-agent-configuration](portable-agent-configuration.md). Drift reporting may say a value was applied by a role only when the operation's recorded commit and value digest match the configuration it is reading; missing evidence is reported as unknown, and a later differing value as changed since that operation. Neither changes what the loader reads.
+
+A protected-path grant for an application admits only the named configuration file and only the edit already decided. Before checks and review, the harness compares the parsed changes with the recorded request and refuses any change beyond it. Role definitions stay beyond every grant.
 
 ## Profiles, context, triggers, and the Sentinel
 
