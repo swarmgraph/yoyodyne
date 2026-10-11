@@ -694,7 +694,7 @@ func TestADecisionAGateStoppedIsNotARunThatFailed(t *testing.T) {
 		return CarriedOut{
 			WorkItemID: task.WorkItemID, RunID: task.RunID, Decision: task.Decision,
 			Gate: runstate.TriageGateIntakeHold, Waiting: true,
-			Problem: "the re-run is waiting on the operator's hold on what the harness chooses",
+			Problem: "the re-run is waiting on the intake hold on what the harness chooses",
 		}, Outcome{}, nil
 	}
 	schedule, err := (Scheduler{Open: harness.open}).Schedule(context.Background())

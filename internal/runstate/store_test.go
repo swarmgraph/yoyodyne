@@ -829,7 +829,7 @@ func TestStateRequiresCoherentReviewAndIntegrationEvidence(t *testing.T) {
 				state.TargetBranch = "release"
 				state.Integration = &integration
 			},
-			problem: `integration target_branch "main" does not match the recorded target_branch "release"`,
+			problem: `integration.target_branch "main" does not match the recorded target_branch "release"`,
 		},
 		{
 			name: "integration without an approval",
@@ -854,7 +854,7 @@ func TestStateRequiresCoherentReviewAndIntegrationEvidence(t *testing.T) {
 				qualified.TargetBranch = "refs/heads/main"
 				state.Integration = &qualified
 			},
-			problem: "integration target_branch must be a local branch name",
+			problem: "integration.target_branch must be a local branch name",
 		},
 		{
 			name: "integration onto HEAD",
@@ -863,7 +863,7 @@ func TestStateRequiresCoherentReviewAndIntegrationEvidence(t *testing.T) {
 				detached.TargetBranch = "HEAD"
 				state.Integration = &detached
 			},
-			problem: "integration target_branch must be a local branch name",
+			problem: "integration.target_branch must be a local branch name",
 		},
 		{
 			name: "integration that did not move the target",
@@ -881,7 +881,7 @@ func TestStateRequiresCoherentReviewAndIntegrationEvidence(t *testing.T) {
 				malformed.TargetCommit = "HEAD"
 				state.Integration = &malformed
 			},
-			problem: "integration target_commit is invalid",
+			problem: "integration.target_commit is invalid",
 		},
 		{
 			// Integration is fast-forward only, so any other pair of commits

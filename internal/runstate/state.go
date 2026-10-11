@@ -3933,7 +3933,7 @@ func (s State) Validate() error {
 		// different branch describes a promotion this run was never set up to
 		// make.
 		if s.TargetBranch != "" && s.Integration.TargetBranch != s.TargetBranch {
-			problems = append(problems, fmt.Errorf("integration target_branch %q does not match the recorded target_branch %q", s.Integration.TargetBranch, s.TargetBranch))
+			problems = append(problems, fmt.Errorf("integration.target_branch %q does not match the recorded target_branch %q", s.Integration.TargetBranch, s.TargetBranch))
 		}
 		// Integration is only produced by the integrating step, so evidence of it
 		// alongside an earlier phase describes a run history that cannot have
@@ -4606,9 +4606,9 @@ func (s State) validateIndependentInvocations() []error {
 func (i Integration) Validate() error {
 	var problems []error
 	if strings.TrimSpace(i.TargetBranch) == "" {
-		problems = append(problems, errors.New("integration target_branch is required"))
+		problems = append(problems, errors.New("integration.target_branch is required"))
 	} else if !validLocalBranch(i.TargetBranch) {
-		problems = append(problems, errors.New("integration target_branch must be a local branch name"))
+		problems = append(problems, errors.New("integration.target_branch must be a local branch name"))
 	}
 	for _, commit := range []struct {
 		field string
@@ -4619,7 +4619,7 @@ func (i Integration) Validate() error {
 		{field: "previous_target_commit", value: i.PreviousTargetCommit},
 	} {
 		if !commitPattern.MatchString(commit.value) {
-			problems = append(problems, fmt.Errorf("integration %s is invalid", commit.field))
+			problems = append(problems, fmt.Errorf("integration.%s is invalid", commit.field))
 		}
 	}
 	if i.SourceCommit != "" && i.SourceCommit == i.PreviousTargetCommit {
@@ -4629,7 +4629,7 @@ func (i Integration) Validate() error {
 	// the harness created. Any other pair describes a merge or a reset that this
 	// harness never performs, so it is rejected rather than recorded.
 	if i.SourceCommit != "" && i.TargetCommit != "" && i.SourceCommit != i.TargetCommit {
-		problems = append(problems, errors.New("integration target_commit must equal the fast-forwarded source_commit"))
+		problems = append(problems, errors.New("integration.target_commit must equal the fast-forwarded source_commit"))
 	}
 	return errors.Join(problems...)
 }

@@ -148,12 +148,12 @@ func (s *UsageWindowStore) read(strict bool) ([]backend.UsageWindowReading, erro
 		return nil, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("open usage window record: %w", err)
+		return nil, fmt.Errorf("open usage limit record: %w", err)
 	}
 	defer file.Close()
 	encoded, err := io.ReadAll(io.LimitReader(file, maxEncodedStateBytes))
 	if err != nil {
-		return nil, fmt.Errorf("read usage window record: %w", err)
+		return nil, fmt.Errorf("read usage limit record: %w", err)
 	}
 	var record UsageWindowRecord
 	if strict {
@@ -162,17 +162,17 @@ func (s *UsageWindowStore) read(strict bool) ([]backend.UsageWindowReading, erro
 		_, err = decodeTolerating(encoded, &record)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("decode usage window record: %w", err)
+		return nil, fmt.Errorf("decode usage limit record: %w", err)
 	}
 	if record.SchemaVersion != UsageWindowSchemaVersion {
-		return nil, fmt.Errorf("usage window schema version %d is not supported", record.SchemaVersion)
+		return nil, fmt.Errorf("usage limit schema version %d is not supported", record.SchemaVersion)
 	}
 	if record.ProductID != s.productID {
-		return nil, fmt.Errorf("usage window record belongs to product %q, not %q", record.ProductID, s.productID)
+		return nil, fmt.Errorf("usage limit record belongs to product %q, not %q", record.ProductID, s.productID)
 	}
 	for _, reading := range record.Readings {
 		if err := validateUsageWindowReading(reading); err != nil {
-			return nil, fmt.Errorf("usage window record: %w", err)
+			return nil, fmt.Errorf("usage limit record: %w", err)
 		}
 	}
 	return record.Readings, nil
@@ -184,23 +184,23 @@ func (s *UsageWindowStore) write(record UsageWindowRecord) error {
 	}
 	temporary, err := os.CreateTemp(s.root, ".usage-windows-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temporary usage window record: %w", err)
+		return fmt.Errorf("create temporary usage limit record: %w", err)
 	}
 	temporaryPath := temporary.Name()
 	defer os.Remove(temporaryPath)
 	if err := temporary.Chmod(0o600); err != nil {
 		temporary.Close()
-		return fmt.Errorf("secure temporary usage window record: %w", err)
+		return fmt.Errorf("secure temporary usage limit record: %w", err)
 	}
-	if err := writeJSONFile(temporary, "usage window record", record); err != nil {
+	if err := writeJSONFile(temporary, "usage limit record", record); err != nil {
 		temporary.Close()
 		return err
 	}
 	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary usage window record: %w", err)
+		return fmt.Errorf("close temporary usage limit record: %w", err)
 	}
 	if err := os.Rename(temporaryPath, s.Path()); err != nil {
-		return fmt.Errorf("replace usage window record: %w", err)
+		return fmt.Errorf("replace usage limit record: %w", err)
 	}
 	return syncDirectory(s.root)
 }
@@ -213,13 +213,13 @@ func (s *UsageWindowStore) lock() (func(), error) {
 	}
 	file, err := os.OpenFile(s.Path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
-		return nil, fmt.Errorf("open usage window lock: %w", err)
+		return nil, fmt.Errorf("open usage limit lock: %w", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), intakeLockWait)
 	defer cancel()
 	if err := lockStateFile(ctx, file); err != nil {
 		file.Close()
-		return nil, fmt.Errorf("lock the usage window record: %w", err)
+		return nil, fmt.Errorf("lock the usage limit record: %w", err)
 	}
 	return func() { _ = releaseStateFile(file) }, nil
 }

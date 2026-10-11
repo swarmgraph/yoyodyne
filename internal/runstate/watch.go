@@ -180,7 +180,13 @@ const (
 	// session pulls it again by itself the moment the window resets. It is held
 	// until then only because a run started into a window still closed is refused
 	// the same way again.
-	PassedOverWaitingOnUsageWindow PassedOverClass = "waiting on the provider's usage window"
+	PassedOverWaitingOnUsageWindow PassedOverClass = "waiting on the provider's usage limit"
+	// passedOverWaitingOnUsageWindowAsRecorded is how that class was written
+	// before the register retired "usage window". A watch log already carries it
+	// and is validated on every read, so it is read as the class above rather
+	// than refused; nothing writes it any more, and internal/terms excuses this
+	// one literal in this one file (terms.RecordedValues).
+	passedOverWaitingOnUsageWindowAsRecorded PassedOverClass = "waiting on the provider's usage window"
 )
 
 // PassedOverClasses is the whole taxonomy, in the order a pull meets them. A
@@ -204,6 +210,20 @@ func PassedOverClasses() []PassedOverClass {
 		PassedOverLeftForAnotherSlot,
 		PassedOverWaitingOnUsageWindow,
 	}
+}
+
+// UnmarshalJSON reads a class a log recorded under an earlier wording as the
+// class it is now, so a surface printing it says what the class says today.
+func (c *PassedOverClass) UnmarshalJSON(data []byte) error {
+	var recorded string
+	if err := json.Unmarshal(data, &recorded); err != nil {
+		return err
+	}
+	*c = PassedOverClass(recorded)
+	if *c == passedOverWaitingOnUsageWindowAsRecorded {
+		*c = PassedOverWaitingOnUsageWindow
+	}
+	return nil
 }
 
 func (c PassedOverClass) Valid() bool {

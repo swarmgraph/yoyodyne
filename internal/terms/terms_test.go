@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -602,9 +603,9 @@ func TestCheckReadsOnlyTheStringsOfTheSurfaces(t *testing.T) {
 	t.Parallel()
 
 	directory := root(t, register(), map[string]string{
-		"internal/cli/one.go":        "package cli\n\n// A wedged check is one that never finishes.\nconst usage = \"plain\"\n",
-		"internal/cli/one_test.go":   "package cli\n\nconst refused = \"a wedged check\"\n",
-		"internal/orchestrator/a.go": "package orchestrator\n\nconst said = \"a wedged check\"\n",
+		"internal/cli/one.go":       "package cli\n\n// A wedged check is one that never finishes.\nconst usage = \"plain\"\n",
+		"internal/cli/one_test.go":  "package cli\n\nconst refused = \"a wedged check\"\n",
+		"internal/gitworktree/a.go": "package gitworktree\n\nconst said = \"a wedged check\"\n",
 	})
 	problems, err := Check(directory)
 	if err != nil {
@@ -777,5 +778,137 @@ func TestGuidanceRefusesReplacedTermsOutsideTheQuotedExample(t *testing.T) {
 		if got[place] != term {
 			t.Errorf("Guidance() at %s = %q, want %q; all: %v", place, got[place], term, problems)
 		}
+	}
+}
+
+// The run pipeline, the run store, and triage are read like the other
+// surfaces, since their sentences reach a person in the docket, a sweep's
+// record, and a work item's notes.
+func TestCheckReadsThePipelineTheRunStoreAndTriage(t *testing.T) {
+	t.Parallel()
+
+	directory := root(t, register(), map[string]string{
+		"internal/orchestrator/a.go": "package orchestrator\n\nconst said = \"the check is wedged\"\n",
+		"internal/runstate/a.go":     "package runstate\n\nconst said = \"the check is wedged\"\n",
+		"internal/triage/a.go":       "package triage\n\nconst said = \"the check is wedged\"\n",
+	})
+	problems, err := Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	reported := make(map[string]bool)
+	for _, problem := range problems {
+		if problem.Term == "wedged" {
+			reported[problem.Path] = true
+		}
+	}
+	for _, path := range []string{"internal/orchestrator/a.go", "internal/runstate/a.go", "internal/triage/a.go"} {
+		if !reported[path] {
+			t.Errorf("Check() did not report wedged in %s; reported %v", path, problems)
+		}
+	}
+}
+
+// A literal with no space in it is a key, a file name, or a cause a record is
+// filed under, and keeps its name when the words around it change.
+func TestCheckDoesNotReadALiteralWithNoSpace(t *testing.T) {
+	t.Parallel()
+
+	directory := root(t, register(), map[string]string{
+		"internal/runstate/a.go": "package runstate\n\nconst (\n\tcause = \"usage-window\"\n\tfile = \"operator-hold.json\"\n)\n",
+	})
+	problems, err := Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("Check() reported %v, want nothing: neither literal is words anybody reads", problems)
+	}
+}
+
+// A wording a durable record already carries is excused as that exact literal
+// in the one file listed for it, and nowhere else; once the file no longer
+// carries it, the excuse itself is reported.
+func TestARecordedValueIsExcusedOnlyWhereItIsListed(t *testing.T) {
+	t.Parallel()
+
+	const listed = "internal/runstate/watch.go"
+	var value string
+	for _, candidate := range RecordedValues[listed] {
+		if strings.Contains(candidate, "usage window") {
+			value = candidate
+		}
+	}
+	if value == "" {
+		t.Fatalf("RecordedValues[%s] = %v, want the earlier usage window class", listed, RecordedValues[listed])
+	}
+	others := make([]string, 0)
+	for _, candidate := range RecordedValues[listed] {
+		if candidate != value {
+			others = append(others, fmt.Sprintf("\tother%d = %q\n", len(others), candidate))
+		}
+	}
+	directory := root(t, register(), map[string]string{
+		listed:                   "package runstate\n\nconst (\n\trecorded = " + strconv.Quote(value) + "\n" + strings.Join(others, "") + "\tsaid = \"paused on the usage window\"\n)\n",
+		"internal/runstate/a.go": "package runstate\n\nconst recorded = " + strconv.Quote(value) + "\n",
+	})
+	problems, err := Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if len(problems) != 2 || problems[0].Path != "internal/runstate/a.go" || problems[1].Path != listed || problems[1].Line != 5+len(others) {
+		t.Fatalf("Check() reported %v, want the value refused in a.go and the sentence refused in %s, and nothing else", problems, listed)
+	}
+
+	stale := root(t, register(), map[string]string{
+		listed: "package runstate\n\nconst said = \"nothing here\"\n",
+	})
+	problems, err = Check(stale)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	if len(problems) != len(RecordedValues[listed]) {
+		t.Fatalf("Check() reported %v, want each value listed for %s reported as no longer carried", problems, listed)
+	}
+	for _, problem := range problems {
+		if problem.Path != listed || !strings.Contains(problem.Reason, "RecordedValues") {
+			t.Errorf("Check() reported %v, want an excuse that outlived its value", problem)
+		}
+	}
+}
+
+// The personas are read whole, the shipped templates and a project's bound
+// copies alike, with the quoted example of what not to write left out. A
+// replaced row may excuse a bound copy, which is the project's to reword, and
+// never a template, which this repository's own change can fix.
+func TestCheckReadsThePersonas(t *testing.T) {
+	t.Parallel()
+
+	const (
+		template = "internal/config/builtin/v1/personas/developer.md"
+		bound    = BoundPersonaHome + "/developer.md"
+		excused  = BoundPersonaHome + "/reviewer.md"
+	)
+	body := "# Developer persona\n\nA wedged run is reported.\n\nNot \"" + QuotedExample + "\".\n"
+	directory := root(t, registerReplacing([]string{
+		"| `wedged` | stuck | `" + template + "` `" + excused + "` |",
+	}), map[string]string{
+		template: body,
+		bound:    body,
+		excused:  body,
+	})
+	problems, err := Check(directory)
+	if err != nil {
+		t.Fatalf("Check() error = %v", err)
+	}
+	reported := make(map[string]int)
+	for _, problem := range problems {
+		reported[problem.Path+" "+problem.Term]++
+		if problem.Line != 3 && problem.Path != RegisterPath {
+			t.Errorf("Check() reported %v, want only line 3: the quoted example is not read", problem)
+		}
+	}
+	if reported[template+" wedged"] != 1 || reported[bound+" wedged"] != 1 || reported[excused+" wedged"] != 0 {
+		t.Fatalf("Check() reported %v, want wedged in the template and the unexcused bound copy only", problems)
 	}
 }

@@ -1348,7 +1348,7 @@ recorded as ended by something outside the work (cause `usage-window`) and
 naming the reset; it gives its
 claim back, and keeps its branch and worktree. It spends nothing — no brake
 count, no review round, repair grant, or re-run — and a watching session holds
-the item under "waiting on the provider's usage window" until the reset passes,
+the item under "waiting on the provider's usage limit" until the reset passes,
 then pulls it again by itself. An exhausted limit is not the only thing a run waits out:
 [an overloaded provider](#waiting-out-an-overloaded-provider) below takes the
 same machinery on a much shorter clock.

@@ -1,6 +1,7 @@
 package runstate
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -767,5 +768,25 @@ func TestOnlyAnIdlePollThatCouldNotReadTheStoreIsARetriedRead(t *testing.T) {
 		if (WatchTransition{State: state}).RetryingRead() {
 			t.Errorf("a readable %s transition reads as a retried read", state)
 		}
+	}
+}
+
+// A watch log written before the usage-limit class was reworded still reads,
+// and reads as the class it is now, so a surface printing it says what the
+// class says today.
+func TestAPassedOverClassRecordedUnderItsEarlierWordingReadsAsTheCurrentOne(t *testing.T) {
+	t.Parallel()
+
+	earlier, _ := json.Marshal(passedOverWaitingOnUsageWindowAsRecorded)
+	var group PassedOverGroup
+	if err := json.Unmarshal([]byte(`{"class":`+string(earlier)+`,"count":1}`), &group); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if group.Class != PassedOverWaitingOnUsageWindow || !group.Class.Valid() {
+		t.Fatalf("class = %q, want %q", group.Class, PassedOverWaitingOnUsageWindow)
+	}
+	var other PassedOverClass
+	if err := json.Unmarshal([]byte(`"parked"`), &other); err != nil || other != PassedOverParked {
+		t.Fatalf("Unmarshal(parked) = %q, %v, want parked read as written", other, err)
 	}
 }
