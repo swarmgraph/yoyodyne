@@ -125,11 +125,20 @@ test: cachecheck
 # root, which holds no Go files and would fail on that alone. `check` below
 # keeps the whole module: it is what a person runs before handing work over, and
 # it does not know what the change touches.
+#
+# Left at its default, the target first asks scripts/race-skip.sh whether the
+# change can affect Go code at all, and skips -- saying so and why -- only when
+# every file changed since the merge base with main is Markdown or a tracker
+# export outside every directory holding Go source. That script says what it
+# compares and why each other kind of file runs the check. Naming RACE_PACKAGES,
+# even as ./..., is asking for those packages, so nothing is skipped.
 RACE_PACKAGES ?= ./...
 
 race: cachecheck
 	@if [ -z "$(RACE_PACKAGES)" ]; then \
 		echo "race: the change touches no Go package, so there is nothing to run the race detector over"; \
+	elif [ "$(origin RACE_PACKAGES)" = file ] && sh scripts/race-skip.sh; then \
+		:; \
 	else \
 		echo "$(GO) test -race -timeout $(TEST_TIMEOUT) $(RACE_PACKAGES)"; \
 		$(GO) test -race -timeout $(TEST_TIMEOUT) $(RACE_PACKAGES); \
