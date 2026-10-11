@@ -220,3 +220,103 @@ func TestAPassRecordsHeldItemsApartFromRuledOnes(t *testing.T) {
 		t.Error("the pass is not told how to list held items")
 	}
 }
+
+// slowPublisher keeps every document it is handed waiting for its run until it
+// is told to settle them, so documents pile up among those waiting.
+type slowPublisher struct {
+	settle bool
+	handed []string
+}
+
+func (p *slowPublisher) PublishesDocuments() bool { return true }
+
+func (p *slowPublisher) PublishDocument(_ context.Context, publication runstate.DocumentPublication) (runstate.DocumentDelivery, error) {
+	p.handed = append(p.handed, publication.WriteID)
+	if p.settle {
+		return runstate.DocumentDelivery{RunID: "run-" + publication.WriteID, Settled: true, Landed: true, Detail: "landed\n"}, nil
+	}
+	return runstate.DocumentDelivery{RunID: "run-" + publication.WriteID}, nil
+}
+
+// Four documents held until one fix closes all lift at the same message. Only
+// as many as there is room for among the documents waiting for publication are
+// let go; the rest stay held and are sent once the first are settled, and no
+// document is ever cut from the saved record.
+func TestHeldDocumentsLiftingTogetherAreNeverCutFromTheRecord(t *testing.T) {
+	_, _, provider, pipeline, _ := automaticFixture(t)
+	publisher := &slowPublisher{}
+	tracker := &holdTracker{status: map[string]string{"yoyodyne-ifd.433.21.2": "closed"}}
+	options, store := publicationConversation(t, pipeline, provider)
+	options.Tracker = tracker
+	options.DocumentPublisher = publisher
+	identity := runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"}
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior, err := store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for index := 1; index <= runstate.MaxHeldWrites; index++ {
+		prior.PendingWrites = append(prior.PendingWrites, runstate.PendingWrite{
+			ID: fmt.Sprintf("document-%d.1", index), Turn: index, Action: "create", Artifact: fmt.Sprintf("held-design-%d", index),
+			Kind: "design", Title: fmt.Sprintf("Held design %d", index), Directory: "docs/designs", Body: "# Held\n\nFinished.", Reason: "the architect's finished design",
+			Hold: &artifact.SendingHold{UntilClosed: "yoyodyne-ifd.433.21.2", Reason: "waits for the retry fix"},
+		})
+	}
+	if err := store.Save(prior); err != nil {
+		t.Fatal(err)
+	}
+	session, err = chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(publisher.handed) != runstate.MaxPendingWrites {
+		t.Fatalf("handed = %v, want only %d let go while the rest wait for room", publisher.handed, runstate.MaxPendingWrites)
+	}
+	saved, err := store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.PendingWrites) != runstate.MaxHeldWrites {
+		t.Fatalf("saved = %+v, want all %d documents still in the record", saved.PendingWrites, runstate.MaxHeldWrites)
+	}
+	held := 0
+	for _, write := range saved.PendingWrites {
+		if write.Held() {
+			held++
+		}
+	}
+	if held != runstate.MaxHeldWrites-runstate.MaxPendingWrites {
+		t.Fatalf("saved = %+v, want the documents without room still held", saved.PendingWrites)
+	}
+	if told := strings.Join(saved.PendingNotices, "\n") + saved.PendingTrackerResults; !strings.Contains(told, "stays held until one of them is settled") {
+		t.Fatalf("the role was not told why the rest stay held: %q", told)
+	}
+
+	// The first runs settle; the next message lets the rest go.
+	publisher.settle = true
+	session, err = chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	sent := map[string]bool{}
+	for _, id := range publisher.handed {
+		sent[id] = true
+	}
+	for index := 1; index <= runstate.MaxHeldWrites; index++ {
+		if id := fmt.Sprintf("document-%d.1", index); !sent[id] {
+			t.Fatalf("handed = %v, want %s sent", publisher.handed, id)
+		}
+	}
+	if saved, err := store.Load(identity); err != nil || len(saved.PendingWrites) != 0 {
+		t.Fatalf("saved = %+v, %v, want every document settled", saved.PendingWrites, err)
+	}
+}

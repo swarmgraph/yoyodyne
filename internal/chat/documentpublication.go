@@ -55,6 +55,16 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		if record.decided {
 			continue
 		}
+		// A held document leaves the held allowance only when it is confirmed,
+		// so it is let go only while there is room among the documents waiting
+		// for publication; confirming it beyond that would cut an earlier one
+		// from the saved record (undecidedWrites).
+		if record.pending.Write.Hold != nil && record.pending.Publication == nil && s.waitingWrites() >= runstate.MaxPendingWrites {
+			if err := s.tellHeldForRoom(record); err != nil {
+				return err
+			}
+			continue
+		}
 		if record.heldForSending() {
 			lifted, err := s.liftedHold(ctx, record)
 			if err != nil {

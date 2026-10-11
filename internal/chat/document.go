@@ -679,23 +679,36 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 // a state file may hold.
 func (s *Session) undecidedWrites() []runstate.PendingWrite {
 	// Held documents are bounded apart from the rest, as refuseWriteCount
-	// bounds them, and each count keeps its latest.
-	var waiting, held []runstate.PendingWrite
+	// bounds them, and each count keeps its latest. The documents keep the
+	// order they were written in, which is the order PublishDocuments goes
+	// through them, so a waiting document settles before a held one behind it
+	// asks for its room.
+	var all []runstate.PendingWrite
+	waiting, held := 0, 0
 	for _, record := range s.writes {
 		if record.decided {
 			continue
 		}
-		if recorded := record.pending.recorded(); recorded.Held() {
-			held = append(held, recorded)
+		recorded := record.pending.recorded()
+		if recorded.Held() {
+			held++
 		} else {
-			waiting = append(waiting, recorded)
+			waiting++
 		}
+		all = append(all, recorded)
 	}
-	if len(waiting) > runstate.MaxPendingWrites {
-		waiting = waiting[len(waiting)-runstate.MaxPendingWrites:]
+	pending := make([]runstate.PendingWrite, 0, len(all))
+	for _, recorded := range all {
+		if recorded.Held() {
+			if held > runstate.MaxHeldWrites {
+				held--
+				continue
+			}
+		} else if waiting > runstate.MaxPendingWrites {
+			waiting--
+			continue
+		}
+		pending = append(pending, recorded)
 	}
-	if len(held) > runstate.MaxHeldWrites {
-		held = held[len(held)-runstate.MaxHeldWrites:]
-	}
-	return append(held, waiting...)
+	return pending
 }

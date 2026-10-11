@@ -276,7 +276,9 @@ recurring pass's message counts — the harness sends it from the kept text, and
 the role does not write it again. A hold naming an item the tracker does not
 hold is refused, because nothing could lift it. A conversation keeps up to four
 held documents beside the two that may wait for a decision or a run, so a role
-waiting on such a fix goes on finishing designs. A recurring pass's record says
+waiting on such a fix goes on finishing designs. A held document is let go only
+while fewer than two are waiting: when several holds lift at once, the rest
+stay held, the role is told why, and they are sent as the waiting ones settle. A recurring pass's record says
 an item whose finished document is held is *held for sending*, not ruled; see
 [the status line for recurring passes](operations.md#where-the-harness-stands-the-four-lines).
 

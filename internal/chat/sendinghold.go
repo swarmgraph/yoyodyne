@@ -183,6 +183,22 @@ func (s *Session) liftedHold(ctx context.Context, record *writeRecord) (bool, er
 	return false, s.carryResults(waiting)
 }
 
+// tellHeldForRoom tells the owning role once that a held document stays held
+// while the conversation already has runstate.MaxPendingWrites documents
+// waiting for publication, and is let go once one of them is settled.
+func (s *Session) tellHeldForRoom(record *writeRecord) error {
+	title := strings.TrimSpace(record.pending.Write.Title)
+	if title == "" {
+		title = strings.TrimSpace(record.pending.Write.ID)
+	}
+	waiting := fmt.Sprintf("Document %s (%s) is finished and kept, ready to send, and held until %s closes. This conversation already has %d documents waiting for publication, so it stays held until one of them is settled, and is sent at the first message after that once its hold has lifted; it does not need writing again.\n", record.pending.ID, title, strings.TrimSpace(record.pending.Write.Hold.UntilClosed), runstate.MaxPendingWrites)
+	if waiting == record.failure {
+		return nil
+	}
+	record.failure = waiting
+	return s.carryResults(waiting)
+}
+
 // waitingAndHeld counts this conversation's undecided documents apart from the
 // ones held for sending, which runstate.MaxHeldWrites bounds separately. It
 // counts as the record does (runstate.PendingWrite.Held), so a hold seen lifted
