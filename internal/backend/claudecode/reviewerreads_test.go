@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -58,14 +59,51 @@ func TestAReviewerIsGivenReadsAndNothingThatWrites(t *testing.T) {
 			t.Fatalf("allow rule %q is not one of the read-only Git commands", rule)
 		}
 	}
-	for _, want := range []string{"Bash(git log)", "Bash(git show *)", "Bash(git grep *)"} {
-		if !slices.Contains(settings.Permissions.Allow, want) {
-			t.Fatalf("allow = %q, want %q among them", settings.Permissions.Allow, want)
+	// Each command line is walked through the encoded rules the way the CLI
+	// reads them: a deny rule that matches refuses it, and otherwise it runs only
+	// if an allow rule matches. The refused lines are each a way an allowed
+	// command would read or run something outside the repository.
+	for _, command := range []string{
+		"git grep -Ocat Save",
+		"git grep -nOcat Save",
+		"git blame --contents /etc/passwd README.md",
+		"git blame --cont /etc/passwd README.md",
+		"git diff -O/etc/passwd",
+		"git log -O /etc/passwd -p",
+		"git diff --orderfile=/etc/passwd",
+		"git diff /etc/passwd /dev/null",
+		"git diff '/etc/passwd' x",
+		"git diff ~/.ssh/id_rsa x",
+		"git diff ../../secret x",
+		"git diff --no-index a b",
+		"git diff --no-ind a b",
+		"git log --output=x",
+		"git log --out=x",
+		"git show --textconv HEAD:x",
+		"git cat-file --filters HEAD:x",
+		"git diff --ext-diff",
+		"git show $(cat /etc/passwd)",
+		"git show `cat /etc/passwd`",
+		"git -C /etc log",
+		"cat /etc/passwd",
+		"git checkout main",
+	} {
+		if bashRuns(settings.Permissions.Allow, settings.Permissions.Deny, command) {
+			t.Errorf("the reviewer's shell would run %q", command)
 		}
 	}
-	for _, want := range []string{"Bash(* --no-index*)", "Bash(* --output*)"} {
-		if !slices.Contains(settings.Permissions.Deny, want) {
-			t.Fatalf("deny = %q, want %q among them", settings.Permissions.Deny, want)
+	for _, command := range []string{
+		"git log",
+		"git log --oneline -5",
+		"git show HEAD~1:internal/review/reads.go",
+		"git diff main..HEAD -- internal/review",
+		"git log -p -L 10,20:internal/review/reads.go",
+		"git status --short",
+		"git ls-files internal/review",
+		"git merge-base main HEAD",
+	} {
+		if !bashRuns(settings.Permissions.Allow, settings.Permissions.Deny, command) {
+			t.Errorf("the reviewer's shell would refuse %q, which only reads the repository", command)
 		}
 	}
 	for _, write := range []string{"Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"} {
@@ -73,6 +111,28 @@ func TestAReviewerIsGivenReadsAndNothingThatWrites(t *testing.T) {
 			t.Fatalf("reviewerTools = %q carries %s", reviewerTools, write)
 		}
 	}
+}
+
+// bashRuns reports whether a command line runs under the permission rules
+// given, read as the CLI reads them: `*` matches anything, `Bash(git log *)`
+// matches the command and anything after a space, a matching deny rule refuses,
+// and a line no allow rule matches is asked about and so refused.
+func bashRuns(allow, deny []string, command string) bool {
+	matches := func(rules []string) bool {
+		for _, rule := range rules {
+			pattern, ok := strings.CutPrefix(rule, "Bash(")
+			if !ok {
+				continue
+			}
+			pattern = strings.TrimSuffix(pattern, ")")
+			expression := "^" + strings.ReplaceAll(regexp.QuoteMeta(pattern), `\*`, ".*") + "$"
+			if regexp.MustCompile(expression).MatchString(command) {
+				return true
+			}
+		}
+		return false
+	}
+	return !matches(deny) && matches(allow)
 }
 
 // readingCLI stands in for Claude Code at the one point this adapter decides:

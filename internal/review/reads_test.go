@@ -170,3 +170,22 @@ func TestTheContractSaysAToolCallWrittenAsTextRunsNothing(t *testing.T) {
 		}
 	}
 }
+
+// Only a line that opens with a written-out tool call, outside a code block,
+// counts as one: a reviewer quoting code or prose that mentions the markers has
+// not tried to read anything.
+func TestOnlyALineOpeningWithAToolCallCountsAsOneWrittenAsText(t *testing.T) {
+	t.Parallel()
+
+	for text, want := range map[string]int{
+		"<invoke name=\"Bash\">\n<parameter name=\"command\">git log</parameter>\n</invoke>": 1,
+		"  &lt;invoke name=\"Read\"&gt;\n<function_calls>":                                   2,
+		"reads.go counts `<invoke name=` written in a reply":                                 0,
+		"```go\n<invoke name=\"Bash\">\n```":                                                 0,
+		"{\"summary\":\"the marker <invoke name= is matched at a line start\"}":              0,
+	} {
+		if got := writtenToolCalls(text); got != want {
+			t.Errorf("writtenToolCalls(%q) = %d, want %d", text, got, want)
+		}
+	}
+}

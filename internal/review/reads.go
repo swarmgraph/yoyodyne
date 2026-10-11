@@ -26,7 +26,9 @@ type readTally struct {
 
 // writtenToolCallMarkers are how a tool call reads when a model writes it as
 // text rather than making it: the opening of an invocation block, as written
-// and as escaped by anything that rendered it.
+// and as escaped by anything that rendered it. Only a line that opens with one,
+// outside a fenced code block, is counted (writtenToolCalls), so a reviewer
+// quoting code that mentions the markers is not taken to have tried a read.
 var writtenToolCallMarkers = []string{"<invoke name=", "&lt;invoke name=", "<function_calls>", "&lt;function_calls&gt;"}
 
 func (t *readTally) observe(event execution.Event) {
@@ -48,10 +50,32 @@ func (t *readTally) observe(event execution.Event) {
 		if json.Unmarshal(event.Payload, &message) != nil {
 			return
 		}
+		t.writtenAsText += writtenToolCalls(message.Text)
+	}
+}
+
+// writtenToolCalls counts the lines of text that open with a tool call written
+// out as text, leaving out every line inside a fenced code block.
+func writtenToolCalls(text string) int {
+	count := 0
+	fenced := false
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
+			fenced = !fenced
+			continue
+		}
+		if fenced {
+			continue
+		}
 		for _, marker := range writtenToolCallMarkers {
-			t.writtenAsText += strings.Count(message.Text, marker)
+			if strings.HasPrefix(line, marker) {
+				count++
+				break
+			}
 		}
 	}
+	return count
 }
 
 // unread reports a reviewer that tried to read and was given nothing back by

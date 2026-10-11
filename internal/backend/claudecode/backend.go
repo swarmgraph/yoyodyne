@@ -138,9 +138,12 @@ var readOnlyTools = []string{}
 //   - Read, Glob, and Grep need no approval inside the working directory, which
 //     is the worktree, and outside it they ask, which a non-interactive session
 //     refuses. So the files a reviewer can open are the worktree's.
-//   - Bash runs only the read-only Git commands reviewerSettings allows, inside
-//     the OS sandbox with the worktree refused for writing and no network; a
-//     command not on that list asks, and is refused the same way.
+//   - Bash runs only the read-only Git commands reviewerSettings allows, and
+//     none of them with a path outside the worktree, an option that reads or
+//     runs something outside the repository, or shell expansion
+//     (reviewerRefusedPatterns). It runs inside the OS sandbox with the
+//     worktree refused for writing and no network; a command not on that list
+//     asks, and is refused the same way.
 //   - Git is told to take no optional lock, so `git status` does not rewrite the
 //     index it reads (reviewerEnvironment).
 //
@@ -150,17 +153,47 @@ var reviewerTools = []string{"Read", "Glob", "Grep", "Bash"}
 
 // reviewerGitCommands are the Git subcommands a reviewer's shell may run, each
 // of which reads history or the tree and writes nothing.
+//
+// `git grep` and `git blame` are left out on purpose, though both only read.
+// Each has an option that reaches outside the repository -- grep's -O runs any
+// program on the files it matched, blame's --contents prints any file -- and
+// Git accepts a short option bundled with others (-nOcat) and a long one cut
+// to any unambiguous prefix (--cont), so no pattern over the command line
+// refuses every spelling. The Grep tool searches the worktree, and `git show
+// <commit>:<path>` and `git log -L` read what the two would have.
 var reviewerGitCommands = []string{
-	"log", "show", "diff", "grep", "blame", "status", "ls-files", "ls-tree",
+	"log", "show", "diff", "status", "ls-files", "ls-tree",
 	"cat-file", "rev-parse", "rev-list", "merge-base",
 }
 
-// reviewerRefusedOptions are Git options that would carry a read command
-// outside the worktree's history or let it write: --no-index compares any two
-// files on the machine, --output writes a file, and --open-files-in-pager and
-// --ext-diff run another program. A deny rule outranks the allow rules above,
-// wherever the option appears in the command.
-var reviewerRefusedOptions = []string{"--no-index", "--output", "--open-files-in-pager", "--ext-diff"}
+// reviewerRefusedPatterns are the parts of a command line that would carry an
+// allowed Git command outside the repository, run another program, or write a
+// file. A deny rule outranks the allow rules above, wherever the part appears
+// in the command.
+//
+//   - A path outside the worktree: one beginning with /, ~ or ../, bare or
+//     quoted, or after an `=`. `git diff` given a path outside the repository
+//     compares the two files without asking for --no-index.
+//   - --no-index, which compares any two files on the machine.
+//   - -O and --orderfile, which read a file to order the output by.
+//   - --output, which writes a file.
+//   - --ext-diff, --textconv, and --filters, which run a program the
+//     configuration names.
+//   - Shell expansion, $ and backquotes, which can put any of the above into a
+//     command after this list has read it.
+//
+// Long options are matched by their shortest unambiguous prefix, because Git
+// accepts any. -O can still hide inside a bundle of short options, as in
+// `git diff -pO<file>`; what that reaches is the order of the output, never
+// the file's content.
+var reviewerRefusedPatterns = []string{
+	"* /*", "* '/*", "* \"/*", "*=/*",
+	"* ~*", "* '~*", "* \"~*", "*=~*",
+	"*../*", "* ..", "* .. *",
+	"* --no-i*", "* -O*", "* --ord*", "* --out*",
+	"* --ext*", "* --textc*", "* --filt*",
+	"*$*", "*`*",
+}
 
 // reviewerSettings is the settings a reviewer is launched with in directory:
 // the sandbox its shell runs in and the commands it may run there.
@@ -182,9 +215,9 @@ func reviewerSettings(directory string) (string, error) {
 	for _, command := range reviewerGitCommands {
 		allow = append(allow, "Bash(git "+command+")", "Bash(git "+command+" *)")
 	}
-	deny := make([]string, 0, len(reviewerRefusedOptions))
-	for _, option := range reviewerRefusedOptions {
-		deny = append(deny, "Bash(* "+option+"*)")
+	deny := make([]string, 0, len(reviewerRefusedPatterns))
+	for _, pattern := range reviewerRefusedPatterns {
+		deny = append(deny, "Bash("+pattern+")")
 	}
 	encoded, err := json.Marshal(map[string]any{
 		"sandbox": map[string]any{
