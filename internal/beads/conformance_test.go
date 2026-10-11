@@ -491,6 +491,15 @@ func TestAppendedNoteDurabilityConformance(t *testing.T) {
 				shown.Notes[max(0, len(shown.Notes)-2000):])
 		}
 	}
+	var appends []string
+	for _, record := range NoteRecords(shown.Notes) {
+		if record.Framed {
+			appends = append(appends, record.Text)
+		}
+	}
+	if !slices.Equal(appends, []string{first, second}) {
+		t.Fatalf("the tracker did not preserve the actual append boundaries: %#v", appends)
+	}
 	// What the item said before is still there. An append that replaced the history
 	// would be the attribution loss this project already has a guard for, arriving
 	// through the path that guard does not cover.
