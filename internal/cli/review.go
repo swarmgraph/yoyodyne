@@ -137,7 +137,7 @@ func branchReviewerFrom(parts components, model string) orchestrator.BranchRevie
 	return orchestrator.BranchReviewer{
 		Worktrees: parts.worktrees,
 		Reviewer: review.Reviewer{
-			Backend: providerBackend(cfg, reviewer.Backend, parts.runner),
+			Backend: providerBackend(cfg, parts.stateRoot, reviewer.Backend, parts.runner),
 			Model:   reviewerModel,
 			Effort:  cfg.InvocationEffort(reviewer, reviewerModel),
 			Persona: reviewer.Persona.Text,

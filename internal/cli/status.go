@@ -365,6 +365,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 	// true now, and everything below is what became of attempts that are over.
 	if standing != nil {
 		fmt.Fprint(stdout, standing.Render())
+		fmt.Fprint(stdout, standing.RenderUsageWindows())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
 		fmt.Fprint(stdout, standing.RenderConversationPasses())
 		fmt.Fprint(stdout, standing.RenderServices())
@@ -671,6 +672,13 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewProviderOutageStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.ProviderOutages = store
 	}
+	// The provider's latest reading of each account's usage windows, said for
+	// every account a provider that reports them can run under.
+	if store, err := runstate.NewUsageWindowStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.UsageWindows = store
+	}
+	sources.UsageAccounts = usageWindowAccounts(cfg)
+	sources.UsageWindowDegradedPercent = cfg.Execution.UsageWindowDegradedPercent
 	if store, err := runstate.NewDivergedTargetStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.DivergedTargets = store
 	}

@@ -1,5 +1,12 @@
 {
   "observed_at": "2026-09-19T14:05:09Z",
+  "usage_windows": {
+    "accounts": [
+      {"account": "default", "says": "default: 41% of the week used (fable 62%), resets 2026-09-24 20:00 PDT; five hours 7%, resets 2026-09-19 10:00 PDT; read 4 minutes ago"},
+      {"account": "pool-b", "says": "pool-b: no reading yet"}
+    ],
+    "degraded_percent": 90
+  },
   "capacity_blocked": {
     "runs": [
       {

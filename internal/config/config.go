@@ -391,6 +391,11 @@ type Execution struct {
 	// the check, which each run says only on itself, so a gap is otherwise seen
 	// only by reading every run.
 	CouldNotRunBeforeStatus int `yaml:"could_not_run_before_status" json:"could_not_run_before_status"`
+	// UsageWindowDegradedPercent is the share of a provider usage window, in
+	// percent, past which the dashboard's factory problems say the window is
+	// degraded capacity. It changes what is shown and nothing the harness does:
+	// the provider's own refusal is still what stops work.
+	UsageWindowDegradedPercent int `yaml:"usage_window_degraded_percent" json:"usage_window_degraded_percent"`
 	// MissingReportsBeforeFreshConversation bounds consecutive recurring passes
 	// that omit their closing report even after one request for it. Zero uses
 	// the default of three; the next pass starts a new role conversation.
@@ -559,6 +564,10 @@ const (
 	// the case the outcome exists for, and three in a row is a check that is
 	// not going to run until somebody does something about it.
 	defaultCouldNotRunBeforeStatus = 3
+	// defaultUsageWindowDegradedPercent is ninety: a week nine-tenths spent is
+	// one a day or two of work can exhaust, which is worth seeing before the
+	// provider refuses anything.
+	defaultUsageWindowDegradedPercent = 90
 	// defaultBlockedRunsBeforeIntakeHold is three, which is the same shape of
 	// bound as the repair and relaunch budgets: enough that one bad item and the
 	// unlucky item after it do not stop the line, and short of a session that
@@ -1050,6 +1059,11 @@ func (c Config) Validate() error {
 	// default; a negative count describes no number of changes.
 	if c.Execution.CouldNotRunBeforeStatus < 0 {
 		problems = append(problems, "execution.could_not_run_before_status cannot be negative")
+	}
+	// Zero is a configuration assembled without the key, which reads the
+	// default; a share outside nothing to all of it describes no window.
+	if c.Execution.UsageWindowDegradedPercent < 0 || c.Execution.UsageWindowDegradedPercent > 100 {
+		problems = append(problems, "execution.usage_window_degraded_percent must be between 1 and 100")
 	}
 	if c.Execution.MissingReportsBeforeFreshConversation < 0 {
 		problems = append(problems, "execution.missing_reports_before_fresh_conversation cannot be negative")

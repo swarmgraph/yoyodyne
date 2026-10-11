@@ -667,6 +667,10 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"pass-failures":            {"Factory problems", "maintenance has failed 5 times", "factory-flow program manager factory-flow-pm", "development manager resolves the cause"},
 		"pass-failures-unreadable": {"product pass failures could not be read whole: permission denied"},
 		"busy": {
+			// Each account's provider usage at the top of the band, in the
+			// model's own sentence, and an account with none said in words.
+			"default: 41% of the week used (fable 62%), resets 2026-09-24 20:00 PDT",
+			"pool-b: no reading yet",
 			"Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states",
 			"cost unknown (its event log is gone)",
 			"approved, resuming integration",

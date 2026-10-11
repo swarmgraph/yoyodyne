@@ -11,6 +11,8 @@ package cli
 // in a registry nothing consults.
 
 import (
+	"strings"
+
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backend/adapters"
 	"github.com/mason-bryant/yoyodyne/internal/backend/claudecode"
@@ -19,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // providerDescriptor is what this project says about one backend: the built-in
@@ -73,8 +76,12 @@ func providerExecutables(cfg config.Config) []string {
 // which say so in their own terms and before anything is claimed. Building one
 // here that says nothing is what keeps this from becoming a second place that
 // decides whether work may start.
-func providerBackend(cfg config.Config, named domain.Backend, runner execution.ProcessRunner) backend.Backend {
-	return providerBackendIn(cfg, named, runner, "")
+//
+// stateRoot is the product's state root as productStateRoot agreed it, where a
+// Claude Code adapter records the usage windows its invocations hear; empty
+// records none.
+func providerBackend(cfg config.Config, stateRoot string, named domain.Backend, runner execution.ProcessRunner) backend.Backend {
+	return providerBackendIn(cfg, stateRoot, named, runner, "")
 }
 
 // providerBackendIn is the same adapter pointed at one account's provider home.
@@ -83,7 +90,7 @@ func providerBackend(cfg config.Config, named domain.Backend, runner execution.P
 // resolved value: an invocation that named no account runs where the machine is
 // already signed in, which is what a single-account installation has always
 // done.
-func providerBackendIn(cfg config.Config, named domain.Backend, runner execution.ProcessRunner, configDir string) backend.Backend {
+func providerBackendIn(cfg config.Config, stateRoot string, named domain.Backend, runner execution.ProcessRunner, configDir string) backend.Backend {
 	if descriptor, known := providerDescriptor(cfg, named); known {
 		if provider, built := adapters.For(descriptor, named, runner, configDir); built {
 			// What a role is given beside its prompt is what this project names
@@ -97,6 +104,7 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 				return adapter
 			case claudecode.Backend:
 				adapter.Context = cfg.ClaudeCode.Anchored(cfg.Product.Repository)
+				adapter.UsageWindows = usageWindowRecorder(cfg, stateRoot)
 				return adapter
 			}
 			return provider
@@ -107,7 +115,60 @@ func providerBackendIn(cfg config.Config, named domain.Backend, runner execution
 	// second place that decides whether work may start; what refuses it is the
 	// run pipeline and the conversation, which say so in their own terms and
 	// before anything is claimed.
-	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository)}
+	return claudecode.Backend{Runner: runner, Provider: named, ConfigDir: configDir, Context: cfg.ClaudeCode.Anchored(cfg.Product.Repository), UsageWindows: usageWindowRecorder(cfg, stateRoot)}
+}
+
+// usageWindowRecorder is where every Claude Code invocation this process makes
+// records the usage windows the provider reports, as they arrive: the product's
+// usage-window record under the state root the caller opened through
+// productStateRoot. A caller with no state root records nothing beyond the
+// event log rather than refusing to run. A reading heard by an invocation that
+// named no account is recorded under the account this configuration runs under.
+func usageWindowRecorder(cfg config.Config, stateRoot string) backend.UsageWindowRecorder {
+	if strings.TrimSpace(stateRoot) == "" {
+		return nil
+	}
+	store, err := runstate.NewUsageWindowStore(stateRoot, cfg.Product.ID)
+	if err != nil {
+		return nil
+	}
+	account := cfg.AccountAlias()
+	if account == "" {
+		account = config.DefaultAccountAlias
+	}
+	return accountedUsageWindows{store: store, account: account}
+}
+
+type accountedUsageWindows struct {
+	store   backend.UsageWindowRecorder
+	account string
+}
+
+func (r accountedUsageWindows) RecordUsageWindows(readings []backend.UsageWindowReading) error {
+	for index := range readings {
+		if strings.TrimSpace(readings[index].Account) == "" {
+			readings[index].Account = r.account
+		}
+	}
+	return r.store.RecordUsageWindows(readings)
+}
+
+// usageWindowAccounts is every configured account a provider that reports its
+// usage windows can run under, each of which the surfaces say "no reading yet"
+// for until one arrives: every account but one stated to be another provider's.
+// A project that names no account runs under the default one.
+func usageWindowAccounts(cfg config.Config) []string {
+	aliases := cfg.AccountAliases()
+	if len(aliases) == 0 {
+		return []string{config.DefaultAccountAlias}
+	}
+	accounts := make([]string, 0, len(aliases))
+	for _, alias := range aliases {
+		if provider := cfg.AccountProvider(alias); provider == "" || provider == domain.BackendClaudeCode {
+			accounts = append(accounts, alias)
+		}
+	}
+	return accounts
 }
 
 // providerRuns reports a backend this build can actually launch: one it ships an
@@ -128,7 +189,7 @@ func developerBackendsFrom(parts components) orchestrator.DeveloperBackends {
 	cfg := parts.config
 	return orchestrator.DeveloperBackends{
 		Configured: agentForRole(cfg, domain.RoleDeveloper).Backend,
-		Other:      recordedBackends(cfg, parts.runner),
+		Other:      recordedBackends(cfg, parts.stateRoot, parts.runner),
 		Adapter: func(named domain.Backend) domain.Backend {
 			if descriptor, known := providerDescriptor(cfg, named); known && descriptor.Adapter != "" {
 				return descriptor.Adapter
@@ -141,11 +202,11 @@ func developerBackendsFrom(parts components) orchestrator.DeveloperBackends {
 // recordedBackends builds the adapter for a backend a run recorded, and
 // reports false for one this project no longer describes or this build cannot
 // launch.
-func recordedBackends(cfg config.Config, runner execution.ProcessRunner) func(domain.Backend) (backend.Backend, bool) {
+func recordedBackends(cfg config.Config, stateRoot string, runner execution.ProcessRunner) func(domain.Backend) (backend.Backend, bool) {
 	return func(named domain.Backend) (backend.Backend, bool) {
 		if !providerRuns(cfg, named) {
 			return nil, false
 		}
-		return providerBackend(cfg, named, runner), true
+		return providerBackend(cfg, stateRoot, named, runner), true
 	}
 }

@@ -120,6 +120,11 @@ const (
 	// AttentionUnrunCheck is a configured check that said it could not run on
 	// several changes in a row. The check's command is the ID.
 	AttentionUnrunCheck AttentionKind = "check-could-not-run"
+	// AttentionCapacityDegraded is one of an account's usage windows past the
+	// configured share used, as the provider last reported it. The account and
+	// window are the ID, and the wait is nobody's: the window lifts on the
+	// provider's clock.
+	AttentionCapacityDegraded AttentionKind = "capacity-degraded"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -148,6 +153,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionFactoryStall,
 		AttentionTrackerUnanswered,
 		AttentionUnrunCheck,
+		AttentionCapacityDegraded,
 	}
 }
 
@@ -200,6 +206,7 @@ func (a Attention) Label() string {
 		AttentionFactoryStall:      "nothing completing",
 		AttentionTrackerUnanswered: "tracker not answering",
 		AttentionUnrunCheck:        "check not running",
+		AttentionCapacityDegraded:  "provider capacity degraded",
 	}[a.Kind]
 }
 
@@ -371,6 +378,9 @@ type Attention struct {
 	// since when, and its latest reason, on an AttentionUnrunCheck entry; the
 	// check's command is the ID.
 	UnrunCheck *UnrunCheck `json:"unrun_check,omitempty"`
+	// DegradedCapacity is the account, the window as the provider last reported
+	// it, and the threshold it is past, on an AttentionCapacityDegraded entry.
+	DegradedCapacity *DegradedCapacity `json:"degraded_capacity,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -682,6 +692,10 @@ func (a Attention) What() string {
 		if a.UnrunCheck != nil {
 			return a.UnrunCheck.Says()
 		}
+	case AttentionCapacityDegraded:
+		if a.DegradedCapacity != nil {
+			return a.DegradedCapacity.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -828,6 +842,8 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — each listing its thirty-second bound killed is asked again, twice, before it is given up on, a pass carries on with what it could read and names what it could not, and the first listing that answers clears this"
 	case AttentionUnrunCheck:
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
+	case AttentionCapacityDegraded:
+		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
 	}
 	return a.Mover.Possessive() + " — the entry's record was not carried, so what settles it cannot be said"
 }

@@ -390,6 +390,10 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 	if err != nil {
 		return nil, "", err
 	}
+	usageWindows, err := runstate.NewUsageWindowStore(stateRoot, productID)
+	if err != nil {
+		return nil, "", err
+	}
 	store, err := slack.NewStore(stateRoot, productID)
 	if err != nil {
 		return nil, "", err
@@ -474,17 +478,23 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		// And whether the provider is answering anybody at all, which the lines
 		// carry as their banner and the feed says once when it begins and once
 		// when it ends.
-		ProviderOutages:         outages,
-		DivergedTargets:         divergences,
-		Supervision:             supervision,
-		Agents:                  agentEndpoints(resolved.Config),
-		UnknownResetPause:       resolved.Config.Execution.UsageLimitUnknownResetPause.Duration(),
-		FactoryStallAfter:       resolved.Config.Execution.FactoryStallAfter.Duration(),
-		CouldNotRunBeforeStatus: resolved.Config.Execution.CouldNotRunBeforeStatus,
-		GateChecks:              resolved.Config.GateCheckCommands(),
-		Capacity:                resolved.Config.Execution.MaxConcurrentDevelopers,
-		Slots:                   resolved.Config.Execution.DeveloperSlots,
-		TrackerTimeout:          chatTrackerTimeout,
+		ProviderOutages: outages,
+		DivergedTargets: divergences,
+		// And the provider's latest reading of each account's usage windows, so
+		// a window past the threshold is the same factory problem here as on the
+		// dashboard.
+		UsageWindows:               usageWindows,
+		UsageAccounts:              usageWindowAccounts(resolved.Config),
+		UsageWindowDegradedPercent: resolved.Config.Execution.UsageWindowDegradedPercent,
+		Supervision:                supervision,
+		Agents:                     agentEndpoints(resolved.Config),
+		UnknownResetPause:          resolved.Config.Execution.UsageLimitUnknownResetPause.Duration(),
+		FactoryStallAfter:          resolved.Config.Execution.FactoryStallAfter.Duration(),
+		CouldNotRunBeforeStatus:    resolved.Config.Execution.CouldNotRunBeforeStatus,
+		GateChecks:                 resolved.Config.GateCheckCommands(),
+		Capacity:                   resolved.Config.Execution.MaxConcurrentDevelopers,
+		Slots:                      resolved.Config.Execution.DeveloperSlots,
+		TrackerTimeout:             chatTrackerTimeout,
 	}
 	// The program manager instances, so the hourly line counts the stale ones
 	// from the derivation `yoyo status` prints them from.

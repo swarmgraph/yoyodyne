@@ -229,7 +229,7 @@ func (v exchangeVoice) Answer(ctx context.Context, question exchange.Question) (
 	}
 	answeringProvider := v.provider
 	if v.runner != nil {
-		answeringProvider = providerBackendIn(v.config, choice.Endpoint.Provider, v.runner, account.Directory)
+		answeringProvider = providerBackendIn(v.config, v.stateRoot, choice.Endpoint.Provider, v.runner, account.Directory)
 	}
 	// The round goes through the meter, so what it spends is one line in the cost
 	// log beside every other provider invocation the harness makes, charged to
@@ -419,7 +419,7 @@ func (v exchangeVoice) failoverPolicy(question exchange.Question, name string, e
 		policy.AlternateEndpoint = crossing.Endpoint
 		policy.AlternateAccountConfigDir = crossing.Account.Directory
 		policy.AlternateProvider = spend.Metered{
-			Provider: providerBackendIn(v.config, crossing.Endpoint.Provider, v.runner, crossing.Account.Directory),
+			Provider: providerBackendIn(v.config, v.stateRoot, crossing.Endpoint.Provider, v.runner, crossing.Account.Directory),
 			Log:      v.spend,
 			Attribution: spend.Attribution{
 				ProductID:      v.productID,
