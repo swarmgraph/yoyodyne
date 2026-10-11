@@ -422,7 +422,7 @@ one naming somebody the project recognizes, which is what the mapping was for.
 **What it does not close, deliberately.** Git authorship is an assertion and this
 design does not make it a proof. It does not need to, for two reasons that hold
 in a team as well as alone. Agents cannot reach the goals at all: a conversation
-runs with no tools, and a run's change is compared against the protected homes
+cannot write a file (no tools on Claude Code, reads only on Codex), and a run's change is compared against the protected homes
 before any check runs and before any reviewer sees it, so an approval a developer
 wrote never reaches the repository the goals are read from. And forging an
 approval therefore requires a human with repository access — a trusted peer by

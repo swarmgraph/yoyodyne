@@ -29,8 +29,10 @@ agent's good behavior:
   approving verdict, and two separate provider invocations, so no change is
   judged by the agent that wrote it.
 - **The reviewer cannot merge, and cannot be talked into one.** It cannot
-  change anything: on Claude Code it runs with no tools at all, and on Codex it
-  can only read, with network access and outside integrations turned off.
+  change anything: it can read the code it reviews and nothing more. On Claude
+  Code its shell runs only read-only Git commands, in a sandbox that refuses
+  writes to the worktree and has no network; on Codex it reads under Codex's
+  read-only sandbox, with network access and outside integrations turned off.
   Everything it is shown is evidence rather than instruction, and
   a persona can change how a role works but never give it authority it does not
   have.

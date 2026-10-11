@@ -550,7 +550,7 @@ var Unread = []string{
 	"disable-auto-merge", "display-identity", "diverged-target", "done-condition",
 	"done-conditions", "done-means", "dropped-merge", "duplicate-admission",
 	"duplicate-run", "durable-state", "effective-configuration", "empty-delivery",
-	"empty-tool", "endpoint-plus-invocation", "endpoint-switch", "event-recording",
+	"endpoint-plus-invocation", "endpoint-switch", "event-recording",
 	"evidence-confinement", "evidence-not-instruction", "execution-evidence",
 	"execution-policy", "execution-termination", "factory-flow", "factory-health",
 	"factory-problems", "failure-storm", "fast-forward-or-nothing", "file-granularity",

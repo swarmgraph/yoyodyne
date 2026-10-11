@@ -319,7 +319,11 @@ the table itself.
 `backend` is `claude-code` or `codex` unless your project declares one of its
 own. Both built-ins serve all six roles. Codex uses worktree-write access for
 developers and native read-only inspection for reviewers and management roles,
-with tool network access, escalation, and external integrations disabled.
+with tool network access, escalation, and external integrations disabled. Claude
+Code gives a reviewer reads of the worktree under review — its file read, file
+search, and text search tools, and a shell that runs only read-only Git commands
+inside Claude Code's sandbox, with the worktree refused for writing and no
+network — and gives the management roles no tools at all.
 [Provider plugins](provider-plugins.md#capability-validation) describes the boundary
 and its limits. A project running a fork, a proxy, or
 a variant of a provider yoyo already speaks can describe it under a top-level `providers:` key and name it here: which

@@ -153,9 +153,11 @@ With both on, a run works like this:
 
 `gh` is invoked by the harness and never by a developer or reviewer: no role is
 given a credential, a tool, or a request to push or merge. For the reviewer that
-is a hard boundary — it runs with no tools at all, so the role whose verdict
-authorizes a merge has no way to perform one, and cannot be talked into merging
-something the checks would have refused.
+is a hard boundary — it can only read: on Claude Code its shell runs nothing but
+read-only Git commands, in a sandbox with the worktree refused for writing and
+no network, and on Codex it runs under Codex's read-only sandbox. So the role
+whose verdict authorizes a merge has no way to perform one, and cannot be talked
+into merging something the checks would have refused.
 
 For the developer it is not. A developer has a shell in its worktree and runs
 under your account, so it could in principle reach a `gh` you have

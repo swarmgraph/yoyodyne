@@ -3,9 +3,12 @@
 Yoyo runs agents through a provider — a coding CLI or a harness that speaks to a
 model API. Two are in the vocabulary and this build ships an adapter for both:
 Claude Code and Codex, which can serve every role. Developers use a worktree-write
-sandbox. Reviewers and management roles use read-only access: Claude Code refuses
-all tools, while Codex permits inspection under its native read-only sandbox with
-network access, escalation, and external integrations disabled
+sandbox. Reviewers and management roles use read-only access. Claude Code gives
+the management roles no tools and the reviewer reads of the worktree under
+review: file read and search, and a shell that runs only read-only Git commands
+in its sandbox, with the worktree refused for writing and no network. Codex
+permits inspection under its native read-only sandbox with network access,
+escalation, and external integrations disabled
 ([capability validation](#capability-validation)).
 
 The recorded codex-cli 0.159.2 streams cover session startup, reconnect notices,
@@ -281,7 +284,9 @@ The two kinds of tool access are:
 
 - `read-only` — the agent may reason over supplied evidence and inspect the local
   repository without changing it. Every role but the developer needs this.
-  Claude Code enforces the stricter empty-tool variant; Codex permits native
+  Claude Code gives the management roles no tools, and the reviewer only file
+  read and search inside its worktree and read-only Git commands in a sandbox
+  that refuses writes to the worktree and has no network; Codex permits native
   read-only inspection and disables tool network access and external integrations.
 - `worktree-write` — the agent's work is editing a worktree, and the provider
   must be able to scope writes to it. The developer needs this.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 	"unicode"
@@ -95,25 +96,120 @@ var developerTools = []string{"Bash", "Read", "Edit(/**)", "Write(/**)", "Glob",
 //
 // readOnlySessionMode is the mode that grants nothing: every tool use asks for
 // approval, and a non-interactive invocation has nobody to give it. It stands
-// behind the empty tool list rather than instead of it -- a role with no tools
-// has nothing to ask about -- so what it adds is that the mode itself grants no
-// standing permission if a tool ever reached one of these roles.
+// behind the tool lists below rather than instead of them -- a role with no
+// tools has nothing to ask about, and a reviewer's reads inside its worktree
+// need no approval -- so what it adds is that anything else, a read outside the
+// worktree or a command the reviewer's settings do not name, is refused rather
+// than run.
 const (
 	worktreeWriteSessionMode = "acceptEdits"
 	readOnlySessionMode      = "manual"
 )
 
-// readOnlyTools is intentionally empty. A reviewer receives a bounded context,
-// patch, and check results, and the product manager, the architect, and the
-// development manager receive bounded repository and tracker evidence;
-// disabling tools prevents injected evidence from reading outside that evidence
-// and exfiltrating unrelated local files, and is what makes "this role runs
+// readOnlyTools is intentionally empty, and no caller can add to it. The
+// product manager, the architect, the development manager, and a program
+// manager receive bounded repository and tracker evidence; disabling tools
+// prevents injected evidence from reading outside that evidence and
+// exfiltrating unrelated local files, and is what makes "this role runs
 // nothing" enforced rather than asked for. A product manager does change the
 // work tracker and an architect does decide what a design says, and none of
 // that happens here: the harness carries out validated actions on their behalf,
 // so the authority never takes the form of a tool this process could be talked
 // into using.
+//
+// The reviewer is the exception, and the adapter makes it rather than any
+// caller: see reviewerTools.
 var readOnlyTools = []string{}
+
+// reviewerTools are the tools a reviewer is given: reads of the worktree under
+// review, and nothing that changes it. A reviewer started with none still tried
+// to read -- the contract asks it to check callers, tests, and documentation --
+// and wrote its tool calls out as text, which runs nothing; it then reported
+// that every read returned nothing and judged from what it was handed, and a
+// long enough block of such calls kept the session silent past the idle bound
+// (docs/diagnoses/yoyodyne-ifd-428-89-reviewer-silences.md). Codex's reviewer
+// has had read-only inspection all along; this is the same posture on Claude
+// Code, held tighter.
+//
+// What holds it read-only:
+//
+//   - Only these four tools exist in the session (--tools); there is no Edit,
+//     Write, web, or agent tool to be talked into using.
+//   - Read, Glob, and Grep need no approval inside the working directory, which
+//     is the worktree, and outside it they ask, which a non-interactive session
+//     refuses. So the files a reviewer can open are the worktree's.
+//   - Bash runs only the read-only Git commands reviewerSettings allows, inside
+//     the OS sandbox with the worktree refused for writing and no network; a
+//     command not on that list asks, and is refused the same way.
+//   - Git is told to take no optional lock, so `git status` does not rewrite the
+//     index it reads (reviewerEnvironment).
+//
+// Git reads the object store, which for a linked worktree is outside it, and
+// that is the one read this allows beyond the worktree's own files.
+var reviewerTools = []string{"Read", "Glob", "Grep", "Bash"}
+
+// reviewerGitCommands are the Git subcommands a reviewer's shell may run, each
+// of which reads history or the tree and writes nothing.
+var reviewerGitCommands = []string{
+	"log", "show", "diff", "grep", "blame", "status", "ls-files", "ls-tree",
+	"cat-file", "rev-parse", "rev-list", "merge-base",
+}
+
+// reviewerRefusedOptions are Git options that would carry a read command
+// outside the worktree's history or let it write: --no-index compares any two
+// files on the machine, --output writes a file, and --open-files-in-pager and
+// --ext-diff run another program. A deny rule outranks the allow rules above,
+// wherever the option appears in the command.
+var reviewerRefusedOptions = []string{"--no-index", "--output", "--open-files-in-pager", "--ext-diff"}
+
+// reviewerSettings is the settings a reviewer is launched with in directory:
+// the sandbox its shell runs in and the commands it may run there.
+//
+// The sandbox refuses writes to the worktree, which it would otherwise allow
+// as the working directory, and allows no network. It is required to be running
+// (failIfUnavailable), never falls back to running a command unsandboxed, and
+// does not approve a command just because it is sandboxed, so the allow list
+// below is the whole of what runs. The worktree is named in both spellings an
+// absolute path takes -- the leading `//` the CLI's own path rules use and the
+// plain one its sandbox runtime reads -- so the refusal does not rest on which
+// of them this version applies; the other names a path that does not exist.
+func reviewerSettings(directory string) (string, error) {
+	worktree, err := filepath.Abs(directory)
+	if err != nil {
+		return "", fmt.Errorf("resolve the worktree a reviewer reads: %w", err)
+	}
+	allow := make([]string, 0, 2*len(reviewerGitCommands))
+	for _, command := range reviewerGitCommands {
+		allow = append(allow, "Bash(git "+command+")", "Bash(git "+command+" *)")
+	}
+	deny := make([]string, 0, len(reviewerRefusedOptions))
+	for _, option := range reviewerRefusedOptions {
+		deny = append(deny, "Bash(* "+option+"*)")
+	}
+	encoded, err := json.Marshal(map[string]any{
+		"sandbox": map[string]any{
+			"enabled":                  true,
+			"failIfUnavailable":        true,
+			"allowUnsandboxedCommands": false,
+			"autoAllowBashIfSandboxed": false,
+			"filesystem":               map[string]any{"denyWrite": []string{"/" + worktree, worktree}},
+		},
+		"permissions": map[string]any{"allow": allow, "deny": deny},
+	})
+	if err != nil {
+		return "", fmt.Errorf("encode the settings a reviewer is given: %w", err)
+	}
+	return string(encoded), nil
+}
+
+// reviewerEnvironment is what a reviewer's shell is told beside the
+// invocation's own environment: take no optional lock, so a read such as `git
+// status` leaves the worktree's index as it found it, and page nothing.
+var reviewerEnvironment = [][2]string{
+	{"GIT_OPTIONAL_LOCKS", "0"},
+	{"GIT_PAGER", "cat"},
+	{"PAGER", "cat"},
+}
 
 // stableSystemPromptFlag keeps the per-machine facts out of the part of the
 // prompt a provider caches, so the harness's one-shot invocations share a prefix
@@ -421,9 +517,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 			return backend.RunResult{}, fmt.Errorf("allowed tool rule %q cannot contain list delimiters", tool)
 		}
 	}
-	// Advisory roles consume only the bounded supplied evidence. Refuse every
-	// tool, including nominally read-only tools that could inspect outside that
-	// evidence and send unrelated local data to the provider.
+	// No caller grants a read-only role a tool. The management roles consume only
+	// the bounded supplied evidence, and every tool is refused them, including
+	// nominally read-only tools that could inspect outside that evidence and send
+	// unrelated local data to the provider. The reviewer's reads are this
+	// adapter's to give, and are given below, never asked for here.
 	if readOnlyRole(request.Role) && len(allowedTools) > 0 {
 		return backend.RunResult{}, fmt.Errorf("%s runs cannot be granted tools; the role reasons over bounded supplied evidence", request.Role)
 	}
@@ -444,6 +542,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	}
 	var settingsSources, plugins []backend.LoadedItem
 	baseSettings := ""
+	if request.Role == domain.RoleReviewer {
+		if baseSettings, err = reviewerSettings(request.WorkingDirectory); err != nil {
+			return backend.RunResult{}, err
+		}
+	}
 	if request.Role == domain.RoleDeveloper {
 		baseSettings = developerSettings
 		var repositoryInstructions []backend.LoadedItem
@@ -472,10 +575,15 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 		args = append(args, "--safe-mode")
 		args = append(args, stableSystemPromptFlag)
 	}
-	if len(allowedTools) > 0 {
+	switch {
+	case len(allowedTools) > 0:
 		args = append(args, "--allowedTools")
 		args = append(args, allowedTools...)
-	} else {
+	case request.Role == domain.RoleReviewer:
+		// What the reviewer may run is in its settings, beside the sandbox it runs
+		// in, rather than here: see reviewerTools.
+		args = append(args, "--tools", strings.Join(reviewerTools, ","))
+	default:
 		args = append(args, "--tools", "")
 	}
 	if systemPrompt := appendNamed(request.SystemPrompt, named); systemPrompt != "" {
@@ -530,6 +638,11 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (backend.R
 	environment := execution.WithAgentRole(withContextEnvironment(environmentFor(configDir)), request.Role)
 	if singleTurnRole(request.Role) {
 		environment = withPromptCacheLifetime(environment, singleTurnCacheLifetime)
+	}
+	if request.Role == domain.RoleReviewer {
+		for _, variable := range reviewerEnvironment {
+			environment = withEnvironmentValue(environment, variable[0], variable[1])
+		}
 	}
 	processResult, err := b.Runner.Run(ctx, execution.Command{
 		Name: b.binary(),

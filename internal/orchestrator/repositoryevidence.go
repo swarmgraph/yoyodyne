@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -57,7 +59,7 @@ func reviewedRepository(ctx context.Context, reader repositoryReader, commit str
 	evidence := review.RepositoryEvidence{Listing: listing}
 	// Cited sources go first. They may be unchanged (and therefore invisible in
 	// the patch), or newly created (and therefore absent from base references).
-	paths := contextbundle.ExtractFileReferences(item, listing.Files)
+	paths, notFound := resolveBareReferences(contextbundle.ExtractFileReferences(item, listing.Files), listing.Files, changes)
 	seen := make(map[string]bool)
 	for _, path := range paths {
 		seen[path] = true
@@ -75,6 +77,11 @@ func reviewedRepository(ctx context.Context, reader repositoryReader, commit str
 	remaining := int64(maxRepositoryContentBytes)
 	for _, path := range paths {
 		file := review.RepositoryFile{Path: path}
+		if looked, missing := notFound[path]; missing {
+			file.Unavailable = looked
+			evidence.Contents = append(evidence.Contents, file)
+			continue
+		}
 		read, err := reader.FileAtCommit(ctx, commit, path, remaining)
 		file.Size = read.Size
 		switch {
@@ -91,6 +98,82 @@ func reviewedRepository(ctx context.Context, reader repositoryReader, commit str
 		evidence.Contents = append(evidence.Contents, file)
 	}
 	return evidence
+}
+
+// resolveBareReferences finds the files a work item names without their
+// folder. An item that says "store.go" means a store.go near the work, not one
+// at the repository root, where reading it finds nothing and the reviewer is
+// told a file that exists is unavailable.
+//
+// A bare name the repository root does not hold is looked for in the folders
+// of the paths the item names with their folder, which is the item's own
+// package, and then in the folders its change touches, and is replaced by
+// every match there. A name found in none of them is kept, and notFound says
+// where it was looked for, so the reviewer is told it is not there rather than
+// left to guess why it is missing.
+func resolveBareReferences(references, repositoryFiles []string, changes gitworktree.ChangeDiff) (resolved []string, notFound map[string]string) {
+	present := make(map[string]bool, len(repositoryFiles)+len(changes.Files))
+	for _, file := range repositoryFiles {
+		present[file] = true
+	}
+	for _, file := range changes.Files {
+		if file.Status != "D" {
+			present[file.Path] = true
+		}
+	}
+	var itemFolders, changeFolders []string
+	addFolder := func(folders []string, path string) []string {
+		folder := filepath.ToSlash(filepath.Dir(path))
+		if folder == "." || slices.Contains(folders, folder) {
+			return folders
+		}
+		return append(folders, folder)
+	}
+	for _, reference := range references {
+		if strings.Contains(reference, "/") {
+			itemFolders = addFolder(itemFolders, reference)
+		}
+	}
+	for _, file := range changes.Files {
+		if !slices.Contains(itemFolders, filepath.ToSlash(filepath.Dir(file.Path))) {
+			changeFolders = addFolder(changeFolders, file.Path)
+		}
+	}
+	seen := make(map[string]bool, len(references))
+	add := func(path string) {
+		if !seen[path] {
+			seen[path] = true
+			resolved = append(resolved, path)
+		}
+	}
+	for _, reference := range references {
+		if strings.Contains(reference, "/") || present[reference] {
+			add(reference)
+			continue
+		}
+		var matches []string
+		for _, folder := range append(append([]string(nil), itemFolders...), changeFolders...) {
+			if candidate := folder + "/" + reference; present[candidate] {
+				matches = append(matches, candidate)
+			}
+		}
+		if len(matches) > 0 {
+			for _, match := range matches {
+				add(match)
+			}
+			continue
+		}
+		add(reference)
+		if notFound == nil {
+			notFound = make(map[string]string)
+		}
+		looked := "the repository root"
+		if folders := append(append([]string(nil), itemFolders...), changeFolders...); len(folders) > 0 {
+			looked += ", " + strings.Join(folders, ", ")
+		}
+		notFound[reference] = evidenceLine("not found: the work item names it without a folder, and it is in none of " + looked)
+	}
+	return resolved, notFound
 }
 
 func evidenceLine(value string) string {

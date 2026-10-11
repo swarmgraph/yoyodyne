@@ -997,9 +997,25 @@ func TestRunKeepsReviewersReadOnly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", readOnlyTestSettings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", ""}
+	settings, err := reviewerSettings("/worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	settings, err = settingsFor(settings, domain.RoleReviewer, "/worktree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantArgs := []string{"-p", "--output-format", "stream-json", "--verbose", "--permission-mode", "manual", "--name", "yoyodyne-01234567", "--settings", settings, "--setting-sources", "", "--strict-mcp-config", "--disable-slash-commands", "--safe-mode", "--exclude-dynamic-system-prompt-sections", "--tools", "Read,Glob,Grep,Bash"}
 	if !reflect.DeepEqual(runner.commands[0].Args, wantArgs) {
 		t.Fatalf("args = %#v, want %#v", runner.commands[0].Args, wantArgs)
+	}
+	if runner.commands[0].Dir != "/worktree" {
+		t.Fatalf("the reviewer ran in %q, want the worktree it reads", runner.commands[0].Dir)
+	}
+	for _, want := range []string{"GIT_OPTIONAL_LOCKS=0", "GIT_PAGER=cat"} {
+		if !slices.Contains(runner.commands[0].Env, want) {
+			t.Fatalf("the reviewer's environment carries no %s, so a read could rewrite what it reads: %#v", want, runner.commands[0].Env)
+		}
 	}
 
 	for _, test := range []struct {
@@ -1253,8 +1269,9 @@ func TestRunKeepsTheManagementRolesToolless(t *testing.T) {
 // TestReadOnlyPostureIsTheContractsPostureFor pins where this backend's
 // read-only posture comes from. The authority inventory's backend.read-only-role
 // and backend.no-tools-for-read-only rows (docs/authority-inventory.md) say the
-// roles held toolless here are the ones backend.PostureFor derives as read-only,
-// the program manager among them; a table restated beside PostureFor could agree
+// roles no caller can grant a tool here -- toolless, or the reviewer with only
+// the adapter's own reads -- are the ones backend.PostureFor derives as
+// read-only, the program manager among them; a table restated beside PostureFor could agree
 // with it today and drift tomorrow with nothing failing, so every role is asked
 // of both and driven through Run. The roles come from the vocabulary rather than
 // a list here, so a seventh role reaches this test without anybody adding it,
@@ -1302,8 +1319,12 @@ func TestReadOnlyPostureIsTheContractsPostureFor(t *testing.T) {
 				t.Fatalf("Run() error = %v", err)
 			}
 			args := runner.commands[0].Args
-			if index := slices.Index(args, "--tools"); index < 0 || index+1 >= len(args) || args[index+1] != "" || slices.Contains(args, "--allowedTools") {
-				t.Fatalf("args = %#v, want no tools for a read-only role", args)
+			wantTools := ""
+			if role == domain.RoleReviewer {
+				wantTools = strings.Join(reviewerTools, ",")
+			}
+			if index := slices.Index(args, "--tools"); index < 0 || index+1 >= len(args) || args[index+1] != wantTools || slices.Contains(args, "--allowedTools") {
+				t.Fatalf("args = %#v, want the tools %q for a read-only role", args, wantTools)
 			}
 
 			blocked := &fakeRunner{}

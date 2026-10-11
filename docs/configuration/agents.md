@@ -117,8 +117,9 @@ second holder when the configuration loads, and what a person auditing the
 mapping reads — rather than as a gate an act passes through.
 
 **What keeps an agent out of the goals is two enforcements that do not depend on
-the signature.** A conversation runs with no tools at all, so the roles that
-could argue for a goal cannot run a command; and a run's change is compared
+the signature.** A conversation cannot write: on Claude Code it runs with no
+tools at all, and on Codex it can only read, so the roles that could argue for a
+goal cannot change a file; and a run's change is compared
 against the [protected paths](artifacts.md#protected-paths-in-a-developers-change) before any
 check runs and before any reviewer sees it, so an approval a developer wrote is
 refused with the rest of the diff and never reaches the repository the goals are

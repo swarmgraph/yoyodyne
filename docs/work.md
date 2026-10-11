@@ -187,7 +187,8 @@ type; an admission that states neither is refused, and an item carrying the
 `update` gives one. See [the conversation guide](conversation.md) for the field.
 
 An independent reviewer —
-its own provider invocation, with no tools at all — judges the change against
+its own provider invocation, able to read the worktree under review and to
+change nothing — judges the change against
 the work item, its design guidance and acceptance criteria, the goal it serves,
 the relevant goals recorded on the item, the standing goals stated in the
 delivered product intent, the invariants
@@ -288,7 +289,11 @@ base commit, for literal counts and content claims that a patch cannot settle.
 Files cited by the acceptance criteria come first, followed by other item
 references, then other changed files. Citations are matched against the committed
 listing, so unchanged extensionless sources such as `Makefile`, `Dockerfile`,
-`LICENSE`, and `scripts/check` are included too. Up to 32 files share a 64 KiB content
+`LICENSE`, and `scripts/check` are included too. A file the item names without
+its folder, such as `store.go`, is looked for in the folders the item's other
+paths name and then in the folders the change touches, and read from there; one
+found in none of them is named to the reviewer as not found, with where it was
+looked for. Up to 32 files share a 64 KiB content
 budget. Each supplied file is whole and labelled with its commit; unreadable,
 binary, oversized, and excluded content is stated as unavailable. The total
 review input bound can shorten this evidence further, with those losses stated
@@ -352,9 +357,10 @@ told it is missing code, and a source or test file among the omissions means
 the change outgrew the bound before its test data was reached. Each omission
 is also delivered whole outside the patch, and the evidence says where: the
 run's worktree, and for a committed file the tip commit as `git show
-<tip>:<path>`. The reviewer has no tools and cannot open one, so it judges an
-omitted file as unreviewed; what the location is for is the person following the
-review, who can open the fixture the reviewer did not see. The run's
+<tip>:<path>`. The reviewer can read the worktree, on Claude Code and on Codex
+alike, so it can open an omitted file there; the location is also for the
+person following the review, who can open the fixture the reviewer was not
+shown. The run's
 `review.started` event names the omitted files too, so what a verdict could not
 have covered is read back from the record rather than reconstructed from the
 prompt.
@@ -416,6 +422,17 @@ budget: in the reviewer's own session, never the developer's, telling it what
 was wrong with the reply, and costing no repair attempt. A second reply that
 cannot be accepted ends the run, and the run and the item both say that the
 reviewer was asked twice, beside the reason the second reply was refused.
+
+A verdict reached with every read of the repository coming back empty is
+treated the same way. The reviewer is asked to check callers, tests, and
+documentation, so one whose every read returned nothing — or which wrote its
+tool calls into its reply as text, which runs nothing — judged only from what it
+was handed. Its verdict is kept on the run's record but not counted as a judged
+review: the record carries `review.unread`, saying what was tried and what came
+back, in place of `review.completed`, and the review is asked for once more on
+the same budget. A second like it ends the run with that cause, and the stopped
+run goes to the development manager like any other. A reviewer that reads
+nothing by choice is judged as before.
 
 A verdict of `repair` returns the findings to the same developer, up to
 `execution.repair_attempts_before_replan` attempts, before the run gives up and
@@ -2323,8 +2340,7 @@ independence evidence, and fast-forward rule that gate integration, plus a fresh
 check that the remote target has not moved. The harness makes every push and
 every merge request itself and routes neither through an agent: no role is given
 a credential, a tool, or a request for either, and the reviewer — the role whose
-verdict authorizes the merge — runs with no tools at all, so it cannot perform
-one. A developer does have a shell in its worktree and runs under your account,
+verdict authorizes the merge — can only read, so it cannot perform one. A developer does have a shell in its worktree and runs under your account,
 so "no agent pushes" describes what the harness does rather than a boundary it
 enforces; the [design document](designs/v1-harness-design.md#what-is-enforced-and-what-is-not)
 says which half is which. The local target branch stays authoritative: the

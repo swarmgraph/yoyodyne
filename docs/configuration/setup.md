@@ -286,9 +286,12 @@ the table itself.
 
 `backend` is `claude-code` or `codex` unless your project declares one of its
 own. Both built-ins serve every role. A developer can write only in its own
-worktree. Every other role is read-only: Claude Code gives it no tools at all,
-and Codex lets it read under Codex's own read-only sandbox, with network access,
-escalation, and outside integrations turned off
+worktree. Every other role is read-only. Codex lets each of them read under
+Codex's own read-only sandbox, with network access, escalation, and outside
+integrations turned off. Claude Code gives the reviewer reads of the worktree it
+reviews — files, search, and read-only Git commands, in Claude Code's sandbox
+with the worktree refused for writing and no network — and gives the
+management roles no tools at all
 ([capability validation](../provider-plugins.md#capability-validation)).
 For a CLI outside PATH, including a desktop-bundled Codex, set
 `providers.codex.binary` or `providers.claude-code.binary` to its absolute path;

@@ -260,8 +260,9 @@ func TestBranchReviewJudgesEveryCommitTogetherAndRecordsTheVerdict(t *testing.T)
 		t.Errorf("reviewed range = %#v", outcome)
 	}
 
-	// One provider invocation, made as the reviewer, with no tools and nothing
-	// to write with — the independence a per-item review is held to.
+	// One provider invocation, made as the reviewer, granted no tool by its
+	// caller and nothing to write with — the independence a per-item review is
+	// held to.
 	requests := provider.RequestsForRole(domain.RoleReviewer)
 	if len(requests) != 1 {
 		t.Fatalf("reviewer invocations = %d", len(requests))
