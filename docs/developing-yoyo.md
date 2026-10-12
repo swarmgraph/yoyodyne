@@ -332,17 +332,21 @@ That `-timeout` is the one wall-clock bound the rule cannot remove, because it
 is what replaces every bound it does remove — so it is sized for the loaded
 machine rather than left at Go's ten minutes, which is a figure this repository
 reaches without hanging. `TEST_TIMEOUT` in the `Makefile` is the whole of it, at
-twenty-eight minutes, set from what `internal/orchestrator` measured with a
-second check stage running beside it: 1,439 seconds under `make race`, which
-passed the twenty minutes the figure used to be, and up to 1,170 seconds under
-`make test` ([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)).
-It stays under the thirty minutes of
+forty-three minutes. `internal/orchestrator` is what needs it: with a second
+check stage running beside it, the package took 1,439 seconds under `make race`
+and up to 1,170 seconds under `make test`
+([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)), and
+on a busier machine `make race` has needed about 26.5 minutes. The figure
+stays under
 [`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
 is not scaled for load, so a hang is still reported by `go test` with its dump
-of every goroutine before the harness ends the check. That makes twenty-eight
-minutes the ceiling rather than a step: the figure is interim until the
-package split (yoyodyne-ifd.429.14) lands, and a package that grows until it
-needs more than this is a package to split, not a figure to raise again.
+of every goroutine before the harness ends the check. This project's
+configuration raises that limit from its thirty-minute default to forty-five
+minutes as a stopgap, and forty-three is a minute of compiling and a margin
+under it. The figure goes back to twenty-eight minutes when the package split
+(yoyodyne-ifd.429.14) lands or the check limit returns to thirty minutes, and a
+package that grows until it needs more than the check limit allows is a
+package to split, not a figure to raise again.
 
 The shape that replaces a bound is one of three. Where the code under test
 already says when it has got somewhere, wait on that: a claim returns its hold, a
