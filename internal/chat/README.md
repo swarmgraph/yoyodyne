@@ -151,7 +151,8 @@ rendered by `renderDocumentRefusal` and handed back to the role with
 `carryResults` in `Send`. Accepted writes become `PendingWrite` through
 `recordWrites`. `documentpublication.go` confirms automatic-policy writes,
 saves the complete
-candidate, and calls the ordinary delivery pipeline before any prompt. Its
+candidate, and calls the ordinary delivery pipeline before any prompt, under
+the message's cancellation but not its deadline (`withoutDeadline`). Its
 `PublishDocuments` also resumes saved handoffs and carries failures to the owner,
 with three returns allowed per document per conversation; only a run that
 judged the document counts as one, a run that judged nothing is retried by the
