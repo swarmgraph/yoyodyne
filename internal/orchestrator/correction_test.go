@@ -50,6 +50,13 @@ func (r *correctedRole) Wake(_ context.Context, identity runstate.ConversationId
 func refusedConversation(t *testing.T, store *runstate.ConversationStore, agent string, turn int, refusedAt time.Time, problem string) runstate.Conversation {
 	t.Helper()
 
+	return refusedConversationOf(t, store, domain.RoleProductManager, agent, turn, refusedAt, problem)
+}
+
+// refusedConversationOf is refusedConversation for a conversation of role.
+func refusedConversationOf(t *testing.T, store *runstate.ConversationStore, role domain.AgentRole, agent string, turn int, refusedAt time.Time, problem string) runstate.Conversation {
+	t.Helper()
+
 	id, err := runstate.NewConversationID()
 	if err != nil {
 		t.Fatalf("NewConversationID() error = %v", err)
@@ -60,7 +67,7 @@ func refusedConversation(t *testing.T, store *runstate.ConversationStore, agent 
 		ProductID:      "yoyodyne",
 		RepositoryID:   "yoyodyne",
 		Agent:          agent,
-		Role:           domain.RoleProductManager,
+		Role:           role,
 		Backend:        domain.BackendClaudeCode,
 		ProviderModel:  "opus",
 		Turns:          turn,

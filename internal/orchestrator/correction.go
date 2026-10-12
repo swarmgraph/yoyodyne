@@ -51,7 +51,11 @@ package orchestrator
 // invokes a role, so a wakeup living in a cron entry or a launchd job would be a
 // second invoker of one. The pull is where the harness is already deciding what to
 // do next, so a refusal recorded at any hour is woken for at the next interval
-// rather than at the next time somebody looks. And it runs on the non-model side,
+// rather than at the next time somebody looks. Its turn is taken beside the
+// pull, on the path the recurring firings take theirs, so a watch goes on pulling
+// while the role answers, and a refusal in a conversation one of that session's
+// passes is using waits for the pass rather than being woken into it; see
+// Scheduler.correct. And it runs on the non-model side,
 // so a provider window or outage that stops turns does not stop the wakeup being
 // scheduled or silently spend it: a turn the provider never took is given back
 // and made again once the delay has passed, a fixed number of times.
@@ -205,55 +209,116 @@ type Corrector struct {
 }
 
 // Correct wakes the role whose refusal has waited longest, and reports what came
-// of it.
-//
-// The order is the order the guarantees need. The pause is read before anything
-// is claimed, so a paused harness costs no refusal its wakeup; the wakeup is
-// claimed before the turn is taken, so a process that dies between the two has
-// recorded a wakeup that produced nothing rather than made one nothing paces.
+// of it. It is Start with no conversation held, and the turn taken before it
+// returns: what a caller that has nothing else to do while the turn is taken
+// asks for. A watching session asks Start instead, and takes the turn beside
+// its poll.
 //
 // One per pass, for the reason the delivery and the firing beside it are bounded
 // the same way: a wakeup is a conversation turn, and a pass that woke four
 // conversations would hold the queue closed for as long as all four took. The next
 // pass takes the next refusal, and on a poll loop that is an interval later.
 func (c Corrector) Correct(ctx context.Context) (CorrectionSweep, error) {
+	start, err := c.Start(ctx, nil)
+	sweep := CorrectionSweep{Paused: start.Paused}
+	if start.Started != nil {
+		sweep.Corrected = []Corrected{start.Started.Take(ctx)}
+	}
+	return sweep, err
+}
+
+// CorrectionStart is what one pass claimed: the wakeup whose turn is still to be
+// taken, where there was one, or the operator's pause, when that is what stopped
+// it.
+type CorrectionStart struct {
+	Started *StartedCorrection
+	Paused  *runstate.OperatorHold
+}
+
+// StartedCorrection is one wakeup claimed and waiting for its turn to be taken.
+type StartedCorrection struct {
+	Identity runstate.ConversationIdentity
+	// Conversation is what the wakeup holds while its turn is taken, keyed as the
+	// recurring firings key theirs; see correctionConversationKey.
+	Conversation string
+	take         func(context.Context) Corrected
+}
+
+// Take takes the wakeup's turn and reports what came of it. Like a firing's, it
+// never returns an error: a turn that failed is said in what it reports.
+func (c StartedCorrection) Take(ctx context.Context) Corrected {
+	if c.take == nil {
+		return Corrected{Role: c.Identity.Role, Agent: c.Identity.Agent}
+	}
+	return c.take(ctx)
+}
+
+// correctionConversationKey is the conversation a wakeup holds, keyed as the
+// recurring firings key the conversations they hold: a program manager
+// instance's own where the refusal is on one, and its role's otherwise. Two
+// agents configured for one role other than the program manager share the
+// role's key, which keeps a wakeup out of the role while a pass of the role's is
+// taking turns, at the price of waiting on one that is in the other agent's
+// conversation.
+func correctionConversationKey(identity runstate.ConversationIdentity) string {
+	if identity.Role == domain.RoleProgramManager && identity.Agent != "" && identity.Agent != string(identity.Role) {
+		return instanceConversationKey(identity.Agent)
+	}
+	return roleConversationKey(identity.Role)
+}
+
+// Start claims the wakeup owed to the refusal that has waited longest, among the
+// conversations busy does not hold, and hands back its turn to be taken. A
+// refusal whose conversation is busy waits for a later pass rather than being
+// woken into a conversation a turn is already being taken in.
+//
+// The order is the order the guarantees need. The pause is read before anything
+// is claimed, so a paused harness costs no refusal its wakeup; the wakeup is
+// claimed before the turn is taken, so a process that dies between the two has
+// recorded a wakeup that produced nothing rather than made one nothing paces.
+func (c Corrector) Start(ctx context.Context, busy map[string]bool) (CorrectionStart, error) {
 	if err := c.validate(); err != nil {
-		return CorrectionSweep{}, err
+		return CorrectionStart{}, err
 	}
 	hold, held, err := c.paused()
 	if err != nil {
-		return CorrectionSweep{}, err
+		return CorrectionStart{}, err
 	}
 	if held {
-		return CorrectionSweep{Paused: &hold}, nil
+		return CorrectionStart{Paused: &hold}, nil
 	}
 	conversations, err := c.Conversations.Recorded()
 	if err != nil {
-		return CorrectionSweep{}, fmt.Errorf("read the recorded conversations: %w", err)
+		return CorrectionStart{}, fmt.Errorf("read the recorded conversations: %w", err)
 	}
-	owed := awaitingCorrection(conversations, c.now())
-	if len(owed) == 0 {
-		return CorrectionSweep{}, nil
-	}
-	var problems []error
-	for _, conversation := range owed {
-		corrected, woken, err := c.wake(ctx, conversation)
+	for _, conversation := range awaitingCorrection(conversations, c.now()) {
+		identity := conversation.Identity()
+		key := correctionConversationKey(identity)
+		if busy[key] {
+			continue
+		}
+		corrected, claimed, woken, err := c.claim(conversation)
 		if err != nil {
-			problems = append(problems, err)
 			// A claim this pass could not make is this pass's one wakeup spent on
 			// finding that out: trying the next conversation would be a pass that woke
 			// two roles because the first attempt failed, which is the bound this is
 			// under going away exactly when something is already wrong.
-			break
+			return CorrectionStart{}, err
 		}
 		if !woken {
 			// Another process claimed this refusal between the reading and the claim,
 			// which is the record doing its job. The next one is this pass's to look at.
 			continue
 		}
-		return CorrectionSweep{Corrected: []Corrected{corrected}}, errors.Join(problems...)
+		return CorrectionStart{Started: &StartedCorrection{
+			Identity:     identity,
+			Conversation: key,
+			take: func(ctx context.Context) Corrected {
+				return c.wake(ctx, identity, claimed, corrected)
+			},
+		}}, nil
 	}
-	return CorrectionSweep{}, errors.Join(problems...)
+	return CorrectionStart{}, nil
 }
 
 // awaitingCorrection is every conversation owed a wakeup, oldest refusal first.
@@ -276,9 +341,33 @@ func awaitingCorrection(conversations []runstate.Conversation, now time.Time) []
 	return owed
 }
 
-// wake claims one refusal's turn and takes it, reporting whether a claim was made
-// at all so a refusal another process took leaves this pass looking at the next
-// one rather than reporting a wakeup nobody made.
+// claim claims one refusal's wakeup, reporting whether a claim was made at all so
+// a refusal another process took leaves this pass looking at the next one rather
+// than reporting a wakeup nobody made.
+func (c Corrector) claim(conversation runstate.Conversation) (Corrected, runstate.TrackerRefusal, bool, error) {
+	identity := conversation.Identity()
+	corrected := Corrected{
+		ConversationID: conversation.ConversationID,
+		Role:           conversation.Role,
+		Agent:          identity.Agent,
+		Turn:           conversation.RefusedBlock.Turn,
+	}
+	claimed, err := c.Claims.ClaimRefusalWakeup(identity, c.now())
+	if err != nil {
+		// A refusal another process woke for between the reading above and this
+		// claim, and a conversation somebody is mid-turn with, mean the same thing
+		// here: this is not the pass that wakes it. Neither is a failure to report.
+		if errors.Is(err, runstate.ErrNoRefusalAwaitingWakeup) || errors.Is(err, runstate.ErrConversationHeld) {
+			return Corrected{}, runstate.TrackerRefusal{}, false, nil
+		}
+		return Corrected{}, runstate.TrackerRefusal{}, false, fmt.Errorf("claim the wakeup owed to %s for the tracker block refused on turn %d: %w",
+			identity, conversation.RefusedBlock.Turn, err)
+	}
+	corrected.Attempt = claimed.Attempts
+	return corrected, claimed, true, nil
+}
+
+// wake takes the turn a claimed wakeup is for.
 //
 // The claim is kept for every ending but one, which is deliberately narrower than
 // the stopped-work delivery's give-back. A conversation nothing can open — no
@@ -296,26 +385,7 @@ func awaitingCorrection(conversations []runstate.Conversation, now time.Time) []
 // refusal keeps it, bounded by MaxRefusalWakeups and paced by
 // RefusalWakeupRetryDelay. The give-back that spends the last attempt hands the
 // refusal to the operator instead, and the pass says so.
-func (c Corrector) wake(ctx context.Context, conversation runstate.Conversation) (Corrected, bool, error) {
-	identity := conversation.Identity()
-	corrected := Corrected{
-		ConversationID: conversation.ConversationID,
-		Role:           conversation.Role,
-		Agent:          identity.Agent,
-		Turn:           conversation.RefusedBlock.Turn,
-	}
-	claimed, err := c.Claims.ClaimRefusalWakeup(identity, c.now())
-	if err != nil {
-		// A refusal another process woke for between the reading above and this
-		// claim, and a conversation somebody is mid-turn with, mean the same thing
-		// here: this is not the pass that wakes it. Neither is a failure to report.
-		if errors.Is(err, runstate.ErrNoRefusalAwaitingWakeup) || errors.Is(err, runstate.ErrConversationHeld) {
-			return Corrected{}, false, nil
-		}
-		return Corrected{}, false, fmt.Errorf("claim the wakeup owed to %s for the tracker block refused on turn %d: %w",
-			identity, conversation.RefusedBlock.Turn, err)
-	}
-	corrected.Attempt = claimed.Attempts
+func (c Corrector) wake(ctx context.Context, identity runstate.ConversationIdentity, claimed runstate.TrackerRefusal, corrected Corrected) Corrected {
 	turn, wakeErr := c.Roles.Wake(ctx, identity, correctionMessage(claimed))
 	// What the turn cost is carried whichever way it went, because the provider
 	// charges for a turn that failed exactly as for one that answered.
@@ -328,7 +398,7 @@ func (c Corrector) wake(ctx context.Context, conversation runstate.Conversation)
 		if neverTaken(wakeErr) {
 			c.giveBack(ctx, identity, claimed, wakeErr, &corrected)
 		}
-		return corrected, true, nil
+		return corrected
 	}
 	corrected.Woken = true
 	corrected.Actions = turn.Actions
@@ -349,7 +419,7 @@ func (c Corrector) wake(ctx context.Context, conversation runstate.Conversation)
 			"the %s was woken to re-issue the tracker block refused on turn %d and answered without asking for any tracker action, so nothing it lost has been put back",
 			identity, claimed.Turn)
 	}
-	return corrected, true, nil
+	return corrected
 }
 
 // giveBack returns a wakeup that reached the role with nothing, so the refusal

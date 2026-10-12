@@ -1074,9 +1074,10 @@ func (c Config) Validate() error {
 	if c.Execution.BlockedRunsBeforeIntakeHold < 0 {
 		problems = append(problems, "blocked_runs_before_intake_hold cannot be negative")
 	}
-	// Zero is a choice here too: the summons is taken before the cooldown is
-	// read, so a cooldown of no time at all waits for her summoned turn and no
-	// longer, and probes at the poll after it. Only a negative one, which
+	// Zero is a choice here too: the cooldown probes nothing while her summons
+	// is being taken or waits for her conversation, so a cooldown of no time at
+	// all waits for her summoned turn and no longer, and probes at the poll
+	// after it. Only a negative one, which
 	// describes no wait anybody could take, is refused.
 	if c.Execution.BrakeCooldown < 0 {
 		problems = append(problems, "execution.brake_cooldown cannot be negative")

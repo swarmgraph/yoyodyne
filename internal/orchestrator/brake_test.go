@@ -55,7 +55,7 @@ func TestTheBrakeSummonsTheDevelopmentManagerAtOnceAndReleasesOnHerDecision(t *t
 	sessions := &recordedSessions{}
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 3 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -137,7 +137,7 @@ func TestTheBrakeProbesTheLineWhenNobodyDecidesAndReleasesOnALanding(t *testing.
 	// braked and then probes.
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 14 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -211,7 +211,7 @@ func TestABlockedProbeKeepsTheHoldAndSummonsHerAgain(t *testing.T) {
 	sessions := &recordedSessions{}
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 8 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -276,7 +276,7 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 	// polls, and the rest of the thirty are the hold standing escalated.
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 30 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -354,7 +354,7 @@ func TestOnlyABlockedProbeCountsAsACycleAndNoBoundNeverEscalates(t *testing.T) {
 	sessions := &recordedSessions{}
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 30 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	if _, err := scheduler.Schedule(context.Background()); err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
@@ -400,7 +400,7 @@ func TestHerReleaseStillLiftsAHoldTheHarnessEscalated(t *testing.T) {
 		return sleeps < 12
 	}
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -433,7 +433,7 @@ func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
 	sessions := &recordedSessions{}
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 6 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -483,7 +483,7 @@ func TestEnvironmentalStopsDoNotCountTowardTheBrake(t *testing.T) {
 	}
 	harness.onSleep = func(*scheduleHarness, int) bool { return false }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -548,7 +548,7 @@ func TestDivergedTargetRefusalsDoNotCountTowardTheBrake(t *testing.T) {
 	}
 	harness.onSleep = func(*scheduleHarness, int) bool { return false }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -607,7 +607,7 @@ func TestASummonsThatFailsLeavesTheHoldToTheCooldown(t *testing.T) {
 	}
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 6 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
@@ -648,7 +648,7 @@ func TestTheBrakeSummonsNobodyOverTheOperatorsHold(t *testing.T) {
 	sessions := &recordedSessions{}
 	harness.onSleep = func(_ *scheduleHarness, sleeps int) bool { return sleeps < 3 }
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	if _, err := scheduler.Schedule(context.Background()); err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
@@ -720,7 +720,7 @@ func TestAUsageWindowStopCountsTowardNothingInAWatchingSession(t *testing.T) {
 	}
 	sessions := &recordedSessions{}
 
-	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, Sessions: sessions, Now: harness.clock}
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Sessions: sessions, Now: harness.clock}
 	schedule, err := scheduler.Schedule(context.Background())
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
