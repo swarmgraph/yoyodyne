@@ -174,7 +174,7 @@ func decisionsHome(directory string) Home {
 		Owner:     domain.RoleArchitect,
 		Purpose: "The decision records: how something was decided, what was decided against, and " +
 			"what that cost. A record is an account of a decision rather than a statement of " +
-			"intent, which is why nothing asks you to approve one.",
+			"intent, so approvals.designs governs it as it governs a design.",
 		Ownership: ownershipParagraph(domain.RoleArchitect),
 		HandEdit:  handEditParagraph(domain.RoleArchitect),
 	}

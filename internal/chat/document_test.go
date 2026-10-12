@@ -628,3 +628,101 @@ func TestARepeatedDocumentRefusalSurvivesALaterTrackerRound(t *testing.T) {
 		t.Fatalf("delivered refusal was not cleared: %#v, %v", state, err)
 	}
 }
+
+func TestASecondCopyOfAWaitingDocumentIsRefusedAndTakesNoPlace(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5", FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing.")},
+		{SessionID: "session-1", FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing.")},
+		{SessionID: "session-1", FinalText: "Understood; the first copy stands."},
+	}}
+	options, _ := documentOptions(t, provider)
+	session := openTestSession(t, options)
+
+	first, err := session.Send(context.Background(), "Write the goals up.")
+	if err != nil || len(first.Writes) != 1 {
+		t.Fatalf("Send() = %#v, %v", first, err)
+	}
+	waiting := first.Writes[0].ID
+	again, err := session.Send(context.Background(), "Write them up again.")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(again.DocumentRefusals) != 1 || !strings.Contains(again.DocumentRefusals[0], "already waiting in this conversation as "+waiting) || !strings.Contains(again.DocumentRefusals[0], "takes no place") {
+		t.Fatalf("refusals = %#v, want the second copy refused naming %s", again.DocumentRefusals, waiting)
+	}
+	if held := session.Writes(); len(held) != 1 || held[0].ID != waiting {
+		t.Fatalf("waiting = %#v, want only %s", held, waiting)
+	}
+
+}
+
+func TestACopyAlreadyWaitingGivesItsPlaceBackAtTheNextTurn(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	provider := &fakeBackend{results: []backendapi.RunResult{{
+		SessionID: "session-1", ResolvedModel: "claude-opus-5",
+		FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip the thing."),
+	}}}
+	options, _ := documentOptions(t, provider)
+	options.Store = newTestStore(t, root)
+	session := openTestSession(t, options)
+	reply, err := session.Send(context.Background(), "Write the goals up.")
+	if err != nil || len(reply.Writes) != 1 {
+		t.Fatalf("Send() = %#v, %v", reply, err)
+	}
+	kept := reply.Writes[0].ID
+
+	// A conversation that waited from before copies were refused holds two.
+	identity := runstate.ConversationIdentity{Agent: string(domain.RoleProductManager), Role: domain.RoleProductManager}
+	recorded, err := options.Store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	duplicate := recorded.PendingWrites[0]
+	duplicate.ID, duplicate.Turn = "document-9.1", 9
+	recorded.PendingWrites = append(recorded.PendingWrites, duplicate)
+	if err := options.Store.Save(recorded); err != nil {
+		t.Fatal(err)
+	}
+
+	resumed := openTestSession(t, options)
+	if held := resumed.Writes(); len(held) != 2 {
+		t.Fatalf("seeded waiting = %#v, want two", held)
+	}
+	if err := resumed.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if held := resumed.Writes(); len(held) != 1 || held[0].ID != kept {
+		t.Fatalf("waiting = %#v, want only %s", held, kept)
+	}
+	saved, err := newTestStore(t, root).Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.PendingWrites) != 1 || saved.PendingWrites[0].ID != kept {
+		t.Fatalf("recorded waiting = %#v, want only %s", saved.PendingWrites, kept)
+	}
+	if !strings.Contains(saved.PendingTrackerResults, "document-9.1 (v2-goals) was a second copy of "+kept) {
+		t.Fatalf("the role was not told: %q", saved.PendingTrackerResults)
+	}
+}
+
+// A reply carries one document today, so a block writing one document twice is
+// put to the gate directly: both copies are refused, and neither takes a place.
+func TestOneDocumentWrittenTwiceInOneBlockIsRefused(t *testing.T) {
+	t.Parallel()
+
+	options, _ := documentOptions(t, &fakeBackend{})
+	session := openTestSession(t, options)
+	write := artifact.Write{Action: artifact.WriteCreate, ID: "v2-goals", Kind: artifact.KindGoals, Title: "What v2 is for", Directory: "docs/product", Body: "# Goals", Reason: "drafted with the operator"}
+	err := session.refuseWrites(context.Background(), []artifact.Write{write, write})
+	if err == nil || !strings.Contains(err.Error(), "written twice in one block") {
+		t.Fatalf("refuseWrites() = %v, want the block refused", err)
+	}
+	if held := session.Writes(); len(held) != 0 {
+		t.Fatalf("waiting = %#v, want none", held)
+	}
+}

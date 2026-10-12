@@ -1410,7 +1410,7 @@ unapproved intent as a goal is, and it covers every other document filed in the
 specifications directory too, whatever its kind, because everything there is
 authoritative product intent. A decision record is the architect's account of
 how something was decided rather than a statement of what the product should do,
-and no setting asks you to approve one.
+so `approvals.designs` governs it as it governs a design.
 
 **Recording an approval gates one thing: what reaches the work queue.** An
 unapproved document still loads, still governs what is downstream of it, and

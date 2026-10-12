@@ -240,6 +240,9 @@ func (s *Session) refuseWrites(ctx context.Context, writes []artifact.Write) err
 	if s.options.Documents == nil {
 		return errors.New("no artifact store is configured, so no document can be written from this conversation")
 	}
+	if err := s.refuseCopies(writes); err != nil {
+		return err
+	}
 	// What is counted is what is still waiting. A document the operator has
 	// already decided costs the record nothing, so a conversation that has
 	// written and filed two documents is not thereby a conversation that may
@@ -253,6 +256,69 @@ func (s *Session) refuseWrites(ctx context.Context, writes []artifact.Write) err
 		}
 	}
 	return s.refuseWorkItemReferences(ctx, writes)
+}
+
+// refuseCopies refuses a write of a document this conversation is already
+// waiting on, and a block that writes one document twice. Either would record
+// the same next revision of that document twice, so only one copy can ever be
+// confirmed, and the other would hold a place for waiting documents that
+// nothing settles. It is checked before the limit on waiting documents so the
+// role is told the reason that applies to it.
+func (s *Session) refuseCopies(writes []artifact.Write) error {
+	waiting := map[string]string{}
+	for _, record := range s.writes {
+		if id := strings.TrimSpace(record.pending.Write.ID); !record.decided && id != "" {
+			if _, held := waiting[id]; !held {
+				waiting[id] = record.pending.ID
+			}
+		}
+	}
+	inBlock := map[string]bool{}
+	for _, write := range writes {
+		id := strings.TrimSpace(write.ID)
+		if held, ok := waiting[id]; ok {
+			return fmt.Errorf("document %s is already waiting in this conversation as %s, and a second copy would record the same revision of it; the copy is refused and takes no place. %s is confirmed, published, or put to the operator as it stands, and a change to it is written once it is settled", id, held, held)
+		}
+		if inBlock[id] {
+			return fmt.Errorf("document %s is written twice in one block, and both copies would record the same revision of it; neither is recorded, and it is written once", id)
+		}
+		inBlock[id] = true
+	}
+	return nil
+}
+
+// releaseCopies settles every waiting document that is a second copy of a
+// document already waiting in this conversation — what refuseCopies refuses
+// now, kept by a conversation that waited from before it did. The copy kept
+// is the one whose publication has started, and otherwise the earliest; a copy
+// whose publication has started is never released, because a run is carrying
+// it. A released copy's text stays in the conversation's account, where it was
+// saved when it was written, and the owning role is told which copy was kept.
+func (s *Session) releaseCopies() error {
+	kept := map[string]*writeRecord{}
+	for _, published := range []bool{true, false} {
+		for _, record := range s.writes {
+			id := strings.TrimSpace(record.pending.Write.ID)
+			if record.decided || id == "" || kept[id] != nil || (record.pending.Publication != nil) != published {
+				continue
+			}
+			kept[id] = record
+		}
+	}
+	var told strings.Builder
+	for _, record := range s.writes {
+		id := strings.TrimSpace(record.pending.Write.ID)
+		if record.decided || id == "" || kept[id] == record || record.pending.Publication != nil {
+			continue
+		}
+		record.decided = true
+		fmt.Fprintf(&told, "Document %s (%s) was a second copy of %s, which is already waiting for the same revision of %s, so its place for waiting documents is given back. %s goes on as it stands; the %s writes a change to it once it is settled.\n",
+			record.pending.ID, id, kept[id].pending.ID, id, kept[id].pending.ID, s.state.Role.Title())
+	}
+	if told.Len() == 0 {
+		return nil
+	}
+	return s.carryResults(told.String())
 }
 
 // renderDocumentRefusal names what was refused and what is still waiting.

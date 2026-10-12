@@ -109,7 +109,7 @@ What is
 asked of you is your configuration's to say: `approvals.brief` and
 `approvals.goals` are `human`, `approvals.designs` is `automatic`, and a decision
 record is an account of how something was decided rather than a statement of
-intent, so nothing asks you to approve one. A document filed in the
+intent, so it is governed by `approvals.designs` as a design is. A document filed in the
 specifications directory that is neither the brief nor the goals is asked for as
 the goals are, under `approvals.goals`, whatever its kind.
 
@@ -287,6 +287,14 @@ when that conversation resumes, the harness uses their saved identities and
 content before asking the role to write anything else. Confirmation and the
 complete candidate are saved before the run starts, so a restart continues
 the same run rather than losing the document or landing it twice.
+
+A conversation waits on one copy of a document at a time. A role that writes a
+document its conversation is already waiting on is refused, with the waiting
+copy named, and the second copy takes no place among the documents waiting; it
+writes its change once the first is settled. Where a conversation already holds
+two copies of one document, the next message keeps the copy whose run has
+started, or else the earliest, gives the other's place back, and tells the
+owning role which was kept.
 
 A policy that is not automatic retains operator confirmation. A document of
 the product's intent — anything governed by `approvals.brief` or
