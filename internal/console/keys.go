@@ -134,10 +134,9 @@ func escapeKey(parameters string, final byte) key {
 	case 'A':
 		return key{code: keyUp}
 	case 'B':
-		// Up and down move through a list of answers where there is one. A line
-		// being composed has no history to move through yet, and moving the
-		// cursor off it would take the operator's text out from under them, so
-		// the line editor ignores both.
+		// Up and down move through a list of answers where there is one. In a
+		// message being composed they move between its lines, and from its first
+		// or last line through the messages sent before it (recall.go).
 		return key{code: keyDown}
 	case 'C':
 		return key{code: keyRight}

@@ -79,6 +79,16 @@ type terminal struct {
 	line   []rune
 	cursor int
 
+	// recall is the messages sent earlier in the conversation, oldest first,
+	// which up and down step through (recall.go). recalled is which of them is
+	// in the line now, and len(recall) is none of them: the message being
+	// written. draft and draftCursor are that message as it stood when up first
+	// took it off the line, kept so coming back down puts it back intact.
+	recall      []string
+	recalled    int
+	draft       []rune
+	draftCursor int
+
 	// choosing says the region is carrying a list of answers to pick from,
 	// choices is what is on offer, and chosen is the one under the marker.
 	// entering says they picked their own words and are typing them, which is a
@@ -679,6 +689,7 @@ func (t *terminal) endPrompt(cause error) error {
 	t.entering = false
 	t.line = nil
 	t.cursor = 0
+	t.forget()
 	t.render([]string{composed})
 	return cause
 }
@@ -758,6 +769,7 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 		t.keys = nil
 		t.line = nil
 		t.cursor = 0
+		t.forget()
 		t.redraw()
 		return "", false, raised, fmt.Errorf("the operator sent more than %d bytes without ending the message", MaxLineBytes)
 	}
@@ -788,6 +800,10 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 		}
 		t.line = nil
 		t.cursor = 0
+		// A recalled message that is sent is sent as it now reads, and the next
+		// prompt starts from a message of its own rather than from where up had
+		// got to in the earlier ones.
+		t.forget()
 		t.prompting = false
 		// Whatever the message was answering is answered. A choice the operator
 		// left to say it in their own words has been said.
@@ -837,6 +853,10 @@ func (t *terminal) apply(pressed key) {
 		if t.cursor < len(t.line) {
 			t.cursor++
 		}
+	case keyUp:
+		t.up()
+	case keyDown:
+		t.down()
 	case keyHome:
 		t.cursor = 0
 	case keyEnd:
