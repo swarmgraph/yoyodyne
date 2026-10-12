@@ -598,8 +598,9 @@ func TestServesOneWorkItemToTheTokenAlone(t *testing.T) {
 	}
 }
 
-// The dashboard is read-only at the protocol: every method but GET and HEAD
-// is refused, on every path, with or without the token.
+// The dashboard reads at the protocol: every method but GET and HEAD is
+// refused, on every path but the two the operator's acts are taken at, with or
+// without the token. acts_test.go drives those two.
 func TestRefusesEveryWrite(t *testing.T) {
 	t.Parallel()
 	w := serve(t, stubReader{standing: standingWith("title")})

@@ -203,6 +203,28 @@
         <div class="section-ready"><dl id="report-fields" class="card-fields"></dl></div>
       </div>
     </div>
+
+    <div id="decide" class="popup" role="dialog" aria-modal="true" aria-labelledby="decide-heading" data-state="loading" hidden>
+      <div id="decide-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="decide-heading" class="popup-title"></h2>
+            <p id="decide-note" class="popup-note"></p>
+          </div>
+          <button type="button" id="decide-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading what waits on your decision…</p></div>
+        <div class="section-error" role="alert"><p id="decide-problem" class="problem"></p><p id="decide-remedy" class="remedy"></p></div>
+        <div class="section-empty"><p id="decide-empty" class="empty"></p></div>
+        <div class="section-ready">
+          <p id="decide-session" class="decide-session"></p>
+          <dl id="decide-fields" class="card-fields"></dl>
+          <div id="decide-actions" class="decide-actions"></div>
+          <p id="decide-outcome" class="decide-outcome" role="status" hidden></p>
+        </div>
+      </div>
+    </div>
   </div>
 </main>
 <script src="/assets/dashboard.js"></script>

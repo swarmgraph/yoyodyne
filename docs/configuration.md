@@ -7056,6 +7056,12 @@ nobody, since no act can arrive carrying an identifier that reaches them.
 - `slack_member_id` — their member id in the reporting workspace, from their
   profile → "Copy member ID". It is identity rather than a secret, which is why
   it is checked in here with the rest.
+- `dashboard_token` — where their own dashboard token is kept, `keychain` (the
+  item `yoyo-dashboard.<product id>.<name>` under the account `yoyo`) or `file`
+  (`<state root>/projects/<product id>/state/dashboard.<name>.token`). It names
+  a store and never holds the token. A dashboard tab signed in with that token
+  is this person, which is what lets [the page take their own approve and
+  decline](operations.md#deciding-from-the-page); the dashboard's shared token resolves to nobody.
 
 Addresses and forge accounts are matched without regard to case, because they
 are case-insensitive where they live; a member id is matched exactly, because it
@@ -7073,16 +7079,21 @@ person.
 | --- | --- |
 | `own-intent` | stating and approving what the product is for: the brief, the goals, and the non-goals. **At most one human may hold it** — several people amending goals concurrently is conflict machinery nobody has designed. |
 | `direct-work` | steering work already in flight: the directives that reach a run, the thread replies the Slack sink acts on, and the decisions it asks for directly when the line has stopped. |
+| `decide-amendments` | deciding a change proposed to a document from the dashboard. A change to a document the Lead Product Manager owns needs `own-intent` beside it. `yoyo amendment` at a terminal carries no identifier to check it against. |
 
-**One grant is checked today, and it is worth being exact about which.** The
-Slack sink's allow-list is derived from the `direct-work` holders who bound a
+**Grants are checked in two places, and it is worth being exact about which.**
+The Slack sink's allow-list is derived from the `direct-work` holders who bound a
 member id, so a thread reply is acted on or refused by asking this mapping who
-sent it. That is a grant checked where the act arrives, and it is the only one —
-a thread reply is also the only act that carries an identifier the harness can
-resolve, because the workspace issued that identifier and put it on the message.
+sent it. And the dashboard resolves a tab to the person whose own
+`dashboard_token` it presents, and approves or declines from the page only for
+a person holding `own-intent` — for a document or proposed work — or
+`decide-amendments`, with `own-intent` beside it for a change to a document the
+Lead Product Manager owns. Those are the two acts that carry something the
+harness can resolve to a person: a member id the workspace put on the message,
+and a token the person stored.
 
-**`own-intent` is checked by nothing, and `by: operator` proves only that a
-command was run.** A terminal carries no identifier at all, so `yoyo artifact
+**At a terminal `own-intent` is checked by nothing, and `by: operator` proves
+only that a command was run.** A terminal carries no identifier at all, so `yoyo artifact
 approve` records `by: operator` on the strength of whoever ran it, and so do
 `yoyo amendment approve`, `yoyo directive record`, and the `--by` on `yoyo triage
 override`, which is a string somebody types. Nothing in any of those records
@@ -7106,8 +7117,10 @@ rather than on who an approval says gave it, which is what
 `internal/chat/admission.go` says in its own words. If either is ever loosened,
 this is what was resting on them.
 
-Making an approval name the resolved human, and refusing one from anybody who
-does not hold `own-intent`, is designed and not built.
+At a terminal, making an approval name the resolved human, and refusing one
+from anybody who does not hold `own-intent`, is designed and not built. The
+dashboard refuses a person without the grant, and records what it decides as
+the operator's, exactly as the terminal's verb does.
 [Operator identity, designed once](team-mode-coordination.md#operator-identity-designed-once)
 is where it is specified, and what it would and would not close.
 

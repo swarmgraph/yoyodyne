@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">yoyo</span>
+        <h1>yoyodyne</h1>
+      </div>
+      <p class="observed">
+        observed
+        <time id="observed-at" datetime="2026-09-19T14:05:09Z">14:05:09</time>
+        <span id="freshness" class="freshness">asks again every 10 s</span>
+      </p>
+    </header>
+    <main id="page" data-state="ready">
+      <div class="state state-ready">
+        <p id="stale" class="stale" role="status" hidden></p>
+        <p id="banner" class="banner" role="status" hidden></p>
+        <section id="band" class="panel band" data-state="ready" aria-labelledby="band-heading">
+          <div class="panel-head">
+            <h2 id="band-heading">Where the harness stands</h2>
+            <p class="panel-note">
+              each account's provider usage as last reported, the four lines
+              <code>yoyo status</code>
+              prints, and what landed
+            </p>
+          </div>
+          <ul id="usage-limits" class="usage-limits">
+            <li>default: 41% of the week used (fable 62%), resets 2026-09-24 20:00 PDT; five hours 7%, resets 2026-09-19 10:00 PDT; read 4 minutes ago</li>
+            <li>pool-b: no reading yet</li>
+          </ul>
+          <div class="section-ready">
+            <dl id="tiles" class="tiles">
+              <div class="tile">
+                <dt>Running</dt>
+                <dd>
+                  <span class="figure">4</span>
+                  <span class="unit">developer runs</span>
+                </dd>
+              </div>
+              <div class="tile">
+                <dt>Working</dt>
+                <dd>
+                  <span class="figure">1</span>
+                  <span class="unit">conversation with a turn in flight</span>
+                </dd>
+              </div>
+              <div class="tile">
+                <dt>Not startable</dt>
+                <dd>
+                  <span class="figure">6</span>
+                  <span class="unit">admitted items not startable now</span>
+                  <span class="detail">of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1; and 3 ready, waiting for a developer slot; 3 slots, all taken</span>
+                </dd>
+              </div>
+              <div class="tile tile-attention">
+                <dt>
+                  <button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>
+                </dt>
+                <dd>
+                  <span class="figure">1</span>
+                  <span class="unit">thing waiting on the operator</span>
+                  <span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2</span>
+                </dd>
+              </div>
+              <div class="tile">
+                <dt>Landed</dt>
+                <dd>
+                  <span class="figure">3</span>
+                  <span class="unit">today</span>
+                  <span class="detail">22 runs in the last 7 days</span>
+                </dd>
+              </div>
+              <div class="tile">
+                <dt>
+                  <button class="grouping-open tile-label" type="button" data-grouping="spend:days">Cost</button>
+                </dt>
+                <dd>
+                  <span class="figure">≥ $191.53</span>
+                  <span class="unit">in the last 24 hours</span>
+                  <span class="detail">at least $1,232.58 in the last 7 days</span>
+                </dd>
+              </div>
+              <div class="tile tile-attention">
+                <dt>
+                  <button class="grouping-open tile-label" type="button" data-decide="list">Your decisions</button>
+                </dt>
+                <dd>
+                  <span class="figure">3</span>
+                  <span class="unit">things waiting on your approve or decline</span>
+                </dd>
+              </div>
+            </dl>
+            <ul id="band-problems" class="degraded" hidden></ul>
+          </div>
+        </section>
+        <section id="spend" class="panel spend" data-state="ready" aria-labelledby="spend-heading">
+          <div class="panel-head">
+            <h2 id="spend-heading">What the harness is spending</h2>
+            <p class="panel-note">the last 24 hours, rolling from this reading, and the last 7 local days, each split by kind</p>
+          </div>
+          <div class="section-ready">
+            <p id="spend-stale" class="stale" role="status" hidden></p>
+            <div id="spend-windows" class="windows">
+              <div class="window">
+                <h3 class="window-label">last 24 hours</h3>
+                <p class="window-span">rolling, from 2026-09-18 14:05:09</p>
+                <dl class="figures">
+                  <div class="figure-row figure-cost">
+                    <dt>Cost</dt>
+                    <dd>at least $191.53 from 84 invocations</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Of which</dt>
+                    <dd>$118.75 on 52 runs, $57.46 on 25 conversations, $9.58 on 4 branch reviews, $5.74 on 3 exchanges</dd>
+                  </div>
+                  <div class="figure-row figure-unreadable">
+                    <dt>Not priced</dt>
+                    <dd>1 exchange record could not be read, so the cost is a floor</dd>
+                  </div>
+                </dl>
+              </div>
+              <div class="window">
+                <h3 class="window-label">last 7 days</h3>
+                <p class="window-span">from 2026-09-13, local days</p>
+                <dl class="figures">
+                  <div class="figure-row figure-cost">
+                    <dt>Cost</dt>
+                    <dd>at least $1,232.58 from 452 invocations</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Of which</dt>
+                    <dd>$764.20 on 280 runs, $369.77 on 136 conversations, $61.63 on 23 branch reviews, $36.98 on 13 exchanges</dd>
+                  </div>
+                  <div class="figure-row figure-unreadable">
+                    <dt>Not priced</dt>
+                    <dd>1 exchange record could not be read, so the cost is a floor</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+            <p id="spend-open" class="spend-open">
+              <button class="grouping-open spend-label" type="button" data-grouping="spend:days">Every day for the past 30 days</button>
+            </p>
+          </div>
+        </section>
+        <section id="live" class="panel live" data-state="ready" aria-labelledby="live-heading">
+          <div class="panel-head">
+            <h2 id="live-heading">Running now</h2>
+            <p class="panel-note">each developer run and each conversation with a turn in flight</p>
+          </div>
+          <div class="section-ready">
+            <ul id="live-problems" class="degraded" hidden></ul>
+            <ul id="cards" class="cards">
+              <li class="card card-run">
+                <div class="card-head">
+                  <span class="card-kind">developer run</span>
+                  <span class="phase">developing</span>
+                </div>
+                <h3 class="card-title">
+                  <button class="item-open" type="button" data-item="yoyodyne-ifd.141.3">Dashboard 3 of 3: the page, five sections, with its empty, loading, and error states</button>
+                </h3>
+                <p class="card-meta">
+                  <button class="item-open item-id" type="button" data-item="yoyodyne-ifd.141.3">yoyodyne-ifd.141.3</button>
+                  <span class="sep"> · </span>
+                  <span class="elapsed">12m elapsed</span>
+                  <span class="sep"> · </span>
+                  <span class="spend">$3.41 so far</span>
+                </p>
+                <p class="card-provenance">claude-code · claude-opus-5 · account default</p>
+                <p class="card-id">started 2026-09-19 13:53:00 · run-c07d6849e1f55fd7b982600b8f97a303</p>
+              </li>
+              <li class="card card-run">
+                <div class="card-head">
+                  <span class="card-kind">developer run</span>
+                  <span class="phase">reviewing</span>
+                </div>
+                <h3 class="card-title">
+                  <button class="item-open" type="button" data-item="yoyodyne-ifd.201">The heartbeat names the forge when a merge is queued</button>
+                </h3>
+                <p class="card-meta">
+                  <button class="item-open item-id" type="button" data-item="yoyodyne-ifd.201">yoyodyne-ifd.201</button>
+                  <span class="sep"> · </span>
+                  <span class="elapsed">3m elapsed</span>
+                  <span class="sep"> · </span>
+                  <span class="spend spend-unknown">cost unknown (its event log is gone)</span>
+                </p>
+                <p class="card-provenance">claude-code · claude-opus-5 · account default</p>
+                <p class="card-id">started 2026-09-19 14:02:00 · run-49839de311bd6b4d06fbfb41f22abdf1</p>
+              </li>
+              <li class="card card-run">
+                <div class="card-head">
+                  <span class="card-kind">developer run</span>
+                  <span class="phase">approved, resuming integration</span>
+                </div>
+                <h3 class="card-title">
+                  <button class="item-open" type="button" data-item="yoyodyne-ifd.212">Recurring tasks say when a firing was skipped</button>
+                </h3>
+                <p class="card-meta">
+                  <button class="item-open item-id" type="button" data-item="yoyodyne-ifd.212">yoyodyne-ifd.212</button>
+                  <span class="sep"> · </span>
+                  <span class="elapsed">2h45m elapsed</span>
+                  <span class="sep"> · </span>
+                  <span class="spend">$12.80 so far</span>
+                </p>
+                <p class="card-provenance">claude-code · claude-opus-5 · medium effort · account pool-b</p>
+                <p class="card-id">started 2026-09-19 11:20:00 · run-5035c832b1e04d7fa9c3e2b8d1f06a11</p>
+              </li>
+              <li class="card card-run">
+                <div class="card-head">
+                  <span class="card-kind">developer run</span>
+                  <span class="phase">developing</span>
+                </div>
+                <h3 class="card-title">
+                  <button class="item-open" type="button" data-item="yoyodyne-ifd.230">The sweep names the ref it preserved work on</button>
+                </h3>
+                <p class="card-meta">
+                  <button class="item-open item-id" type="button" data-item="yoyodyne-ifd.230">yoyodyne-ifd.230</button>
+                  <span class="sep"> · </span>
+                  <span class="elapsed">55m elapsed</span>
+                  <span class="sep"> · </span>
+                  <span class="spend">$5.10 so far</span>
+                </p>
+                <p class="card-provenance">claude-code · claude-opus-5 · account default</p>
+                <p class="card-id">started 2026-09-19 13:10:00 · run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90</p>
+              </li>
+              <li class="card card-turn">
+                <div class="card-head">
+                  <span class="card-kind">conversation</span>
+                  <span class="phase">a turn in flight</span>
+                </div>
+                <h3 class="card-title">product-manager</h3>
+                <p class="card-meta">
+                  <span class="item-id">product-manager</span>
+                  <span class="sep"> · </span>
+                  <span class="elapsed">for 40s after 270 recorded turns</span>
+                </p>
+                <p class="card-provenance">claude-code · claude-fable-5-1</p>
+              </li>
+            </ul>
+            <p id="live-note" class="footnote" hidden></p>
+          </div>
+        </section>
+        <section id="pipeline" class="panel pipeline" data-state="ready" aria-labelledby="pipeline-heading">
+          <div class="panel-head">
+            <h2 id="pipeline-heading">Where the work stands</h2>
+            <p class="panel-note">admitted work, what holds it, what is running, and what landed</p>
+          </div>
+          <div class="section-ready">
+            <ol id="stages" class="stages">
+              <li class="stage stage-admitted">
+                <button class="grouping-open stage-label" type="button" data-grouping="admitted">Admitted</button>
+                <span class="stage-figure">9</span>
+                <span class="stage-unit">items</span>
+              </li>
+              <li class="stage stage-held">
+                <button class="grouping-open stage-label" type="button" data-grouping="held">Held back</button>
+                <span class="stage-figure">6</span>
+                <span class="stage-unit">items not startable now</span>
+                <ul class="piles">
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:held-decision">waits on the development manager's decision about a stopped run (most)</button>
+                    <span class="pile-whose">next: she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation; whose: the development manager's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:held-carry-out">waits on the harness carrying out a decision already recorded (most)</button>
+                    <span class="pile-whose">next: the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull; whose: the harness's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:directive">waits on an unresolved directive (most)</button>
+                    <span class="pile-whose">next: `yoyo directive resolve` settles it, and the work it pauses is pulled; whose: the operator's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:waiting">waits on other items (most)</button>
+                    <span class="pile-whose">next: the harness pulls each once the work it waits on lands; whose: the harness's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:conversation-product-manager">is done in the Lead Product Manager's conversation, not by a run (most)</button>
+                    <span class="pile-whose">next: the role does the work in its conversation, and the harness closes each item when the role's revision lands; whose: the Lead Product Manager's</span>
+                  </li>
+                  <li class="pile pile-largest">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="pile:parked">is parked by the Lead Product Manager (most)</button>
+                    <span class="pile-whose">next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's</span>
+                  </li>
+                </ul>
+              </li>
+              <li class="stage stage-flowing">
+                <button class="grouping-open stage-label" type="button" data-grouping="startable">Startable</button>
+                <span class="stage-figure">3</span>
+                <span class="stage-unit">3 ready, waiting for a developer slot; 3 slots, all taken</span>
+              </li>
+              <li class="stage stage-flowing">
+                <button class="grouping-open stage-label" type="button" data-grouping="running">Running</button>
+                <span class="stage-figure">4</span>
+                <span class="stage-unit">developer runs</span>
+                <ul class="piles">
+                  <li class="pile">
+                    <span class="pile-figure">2</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="stage:developing">developing</button>
+                  </li>
+                  <li class="pile">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="stage:reviewing">reviewing</button>
+                  </li>
+                  <li class="pile">
+                    <span class="pile-figure">1</span>
+                    <button class="grouping-open pile-label" type="button" data-grouping="stage:integrating">integrating</button>
+                  </li>
+                </ul>
+              </li>
+              <li class="stage stage-landed">
+                <button class="grouping-open stage-label" type="button" data-grouping="landed:today">Landed</button>
+                <span class="stage-figure">3</span>
+                <span class="stage-unit">today</span>
+                <button class="grouping-open stage-detail" type="button" data-grouping="landed:week">22 runs in the last 7 days</button>
+              </li>
+            </ol>
+            <ul id="pipeline-problems" class="degraded" hidden></ul>
+            <p id="pipeline-note" class="footnote">1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move. Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2.</p>
+          </div>
+        </section>
+        <section id="throughput" class="panel throughput" data-state="ready" aria-labelledby="throughput-heading">
+          <div class="panel-head">
+            <h2 id="throughput-heading">Throughput</h2>
+            <p class="panel-note">
+              local calendar days, today counting as the first; the endings
+              <code>yoyo status</code>
+              prints, and what each cost is in the spend box above
+            </p>
+          </div>
+          <div class="section-ready">
+            <p id="throughput-stale" class="stale" role="status" hidden></p>
+            <ul id="throughput-problems" class="degraded" hidden></ul>
+            <div id="windows" class="windows">
+              <div class="window">
+                <h3 class="window-label">today</h3>
+                <p class="window-span">since midnight, local time</p>
+                <dl class="figures">
+                  <div class="figure-row figure-landed">
+                    <dt>Landed</dt>
+                    <dd>3 runs reached the target branch</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Other endings</dt>
+                    <dd>1 stopped on a blocker</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Stops by cause</dt>
+                    <dd>repair-budget: 1</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Started</dt>
+                    <dd>6 runs</dd>
+                  </div>
+                </dl>
+              </div>
+              <div class="window">
+                <h3 class="window-label">last 7 days</h3>
+                <p class="window-span">from 2026-09-13, local days</p>
+                <dl class="figures">
+                  <div class="figure-row figure-landed">
+                    <dt>Landed</dt>
+                    <dd>22 runs reached the target branch</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Other endings</dt>
+                    <dd>2 succeeded without promoting, 9 stopped on a blocker, 3 cancelled, 1 timed out, 2 failed</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Stops by cause</dt>
+                    <dd>operator-stop: 3, provider-idle: 1, repair-budget: 9, unknown: 4</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Started</dt>
+                    <dd>41 runs</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+          </div>
+        </section>
+        <section id="capacity" class="panel capacity" data-state="ready" aria-labelledby="capacity-heading">
+          <div class="panel-head">
+            <h2 id="capacity-heading">Provider capacity</h2>
+            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
+          </div>
+          <div class="section-ready">
+            <p id="capacity-hold" class="hold" hidden></p>
+            <ul id="capacity-problems" class="degraded" hidden></ul>
+            <ul id="capacity-runs" class="held-list">
+              <li class="held held-waiting">
+                <div class="held-head">
+                  <span class="held-kind">run</span>
+                  <span class="held-state">waiting</span>
+                </div>
+                <h3 class="held-title">yoyodyne-ifd.230</h3>
+                <dl class="held-facts">
+                  <div class="figure-row">
+                    <dt>Refused by</dt>
+                    <dd>an exhausted usage limit (seven_day)</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Phase</dt>
+                    <dd>developing</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Since</dt>
+                    <dd>2026-09-19 13:40:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Resets</dt>
+                    <dd>2026-09-19 18:50:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Waited</dt>
+                    <dd>25m of the pause budget</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Change</dt>
+                    <dd>preserved</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Run</dt>
+                    <dd>run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90</dd>
+                  </div>
+                </dl>
+                <p class="held-remedy">What to do: nothing needs doing: the run asks the provider again by itself at its next probe and carries on once it is served; `yoyo resume` with the work item named asks now instead of at the probe</p>
+              </li>
+              <li class="held held-capacity-blocked">
+                <div class="held-head">
+                  <span class="held-kind">run</span>
+                  <span class="held-state">capacity-blocked</span>
+                </div>
+                <h3 class="held-title">yoyodyne-ifd.150</h3>
+                <dl class="held-facts">
+                  <div class="figure-row">
+                    <dt>Refused by</dt>
+                    <dd>an exhausted usage limit (five_hour)</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Phase</dt>
+                    <dd>reviewing</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Since</dt>
+                    <dd>2026-09-18 22:12:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Resets</dt>
+                    <dd>no reset named, and nothing probes: the run stopped</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Waited</dt>
+                    <dd>4h00m of the pause budget</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Change</dt>
+                    <dd>preserved</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Run</dt>
+                    <dd>run-a17c9b40e6f24c1d8b3a5f0e9d2c7b44</dd>
+                  </div>
+                </dl>
+                <p class="held-remedy">What to do: the run stopped and its item is back with the development manager; what lets it run again is more provider capacity, a longer execution.usage_limit_max_pause, or a replan</p>
+              </li>
+            </ul>
+            <ul id="capacity-conversations" class="held-list">
+              <li class="held held-capacity-blocked">
+                <div class="held-head">
+                  <span class="held-kind">conversation</span>
+                  <span class="held-state">capacity-blocked</span>
+                </div>
+                <h3 class="held-title">the Lead Product Manager's conversation, chat-91253e0e, is waiting on the provider</h3>
+                <dl class="held-facts">
+                  <div class="figure-row">
+                    <dt>Refused by</dt>
+                    <dd>an exhausted usage limit (seven_day)</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Model</dt>
+                    <dd>claude-opus-5</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Since</dt>
+                    <dd>2026-09-19 12:02:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Resets</dt>
+                    <dd>2026-09-19 18:50:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Refusals</dt>
+                    <dd>3 turns stopped and still refused</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Conversation</dt>
+                    <dd>chat-91253e0e070c17b0663651cc48602122</dd>
+                  </div>
+                </dl>
+                <p class="held-remedy">What to do: nothing waits on it: the turn failed where it was asked for, and asking again once the window lifts is what serves it; enabling failover on the agent is what would move the next turn onto another model before then</p>
+              </li>
+            </ul>
+          </div>
+        </section>
+        <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
+          <div class="panel-head">
+            <h2 id="factory-heading">Factory problems</h2>
+            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
+          </div>
+          <div class="section-empty">
+            <p id="factory-empty" class="empty">No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.</p>
+          </div>
+        </section>
+        <section id="managers" class="panel managers" data-state="ready" aria-labelledby="managers-heading">
+          <div class="panel-head">
+            <h2 id="managers-heading">Program managers</h2>
+            <p class="panel-note">
+              each instance with its lane and its status, as
+              <code>yoyo status</code>
+              lists them under the four lines; each opens its current lane report
+            </p>
+          </div>
+          <div class="section-ready">
+            <ul id="managers-problems" class="degraded" hidden></ul>
+            <ul id="managers-list" class="held-list">
+              <li class="held manager manager-working">
+                <div class="held-head">
+                  <span class="held-kind">program manager</span>
+                  <span class="manager-status">working</span>
+                </div>
+                <h3 class="held-title">docs-pgm</h3>
+                <dl class="held-facts">
+                  <div class="figure-row">
+                    <dt>Lane</dt>
+                    <dd>docs</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Why</dt>
+                    <dd>its scheduled pass was cancelled before it completed at 2026-09-19 13:45 UTC — the harness's — the scheduled pass of the program manager instance docs-pgm, taken at 2026-09-19T13:45:00Z, was cancelled before it completed: nothing recorded how it ended, and no turn is in flight on its conversation, so the process carrying it stopped mid-pass — a watch session stopped or killed under it is the usual cause; nothing it would have looked at was looked at, and its events wait past its cursor for the next pass</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Last pass</dt>
+                    <dd>completed 2026-09-19 13:30:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Report</dt>
+                    <dd>none written yet</dd>
+                  </div>
+                </dl>
+                <p class="manager-open">
+                  <button class="item-open manager-report" type="button" data-report="docs-pgm">Open docs-pgm's current report</button>
+                </p>
+              </li>
+              <li class="held manager manager-stale">
+                <div class="held-head">
+                  <span class="held-kind">program manager</span>
+                  <span class="manager-status">stale</span>
+                </div>
+                <h3 class="held-title">factory-pgm</h3>
+                <dl class="held-facts">
+                  <div class="figure-row">
+                    <dt>Lane</dt>
+                    <dd>reliability</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Why</dt>
+                    <dd>no pass has completed since 2026-09-19T08:00:00Z, and its schedule is every 1h0m0s; blocked on 1 open ask (restart-0123456789abcdef)</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Last pass</dt>
+                    <dd>completed 2026-09-19 08:00:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Report</dt>
+                    <dd>written 2026-09-19 07:58:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Restarts</dt>
+                    <dd>1 restart request open, answered by the supervisor's next maintenance pass</dd>
+                  </div>
+                </dl>
+                <p class="manager-open">
+                  <button class="item-open manager-report" type="button" data-report="factory-pgm">Open factory-pgm's current report</button>
+                </p>
+              </li>
+              <li class="held manager manager-blocked">
+                <div class="held-head">
+                  <span class="held-kind">program manager</span>
+                  <span class="manager-status">blocked</span>
+                </div>
+                <h3 class="held-title">writing-pgm</h3>
+                <dl class="held-facts">
+                  <div class="figure-row">
+                    <dt>Lane</dt>
+                    <dd>writing</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Why</dt>
+                    <dd>blocked on 1 open ask (exchange-0123456789abcdef); 1 blocker its report names that the record does not bear out</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Last pass</dt>
+                    <dd>completed 2026-09-19 13:40:00</dd>
+                  </div>
+                  <div class="figure-row">
+                    <dt>Report</dt>
+                    <dd>written 2026-09-19 13:40:00</dd>
+                  </div>
+                </dl>
+                <p class="manager-open">
+                  <button class="item-open manager-report" type="button" data-report="writing-pgm">Open writing-pgm's current report</button>
+                </p>
+              </li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"></script>
+  </body>
+</html>

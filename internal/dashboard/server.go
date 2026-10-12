@@ -43,17 +43,20 @@
 // card is the read model's projection of the item, served here like the rest.
 //
 // It is a projection, never an engine: it owns no workflow, conversation,
-// provider, or configuration state, and offers no write of any kind. What it
-// holds is the token and the latest snapshot of each polled reading, in
-// memory, for exactly as long as the process runs. Restarting it changes
-// nothing about the harness and loses no history, because the history is in
-// the durable records it reads.
+// provider, or configuration state. The one thing it takes besides reads is
+// the operator's own approve, decline, and ask on what waits on his decision,
+// at /api/acts/decide and /api/acts/ask, from a session holding a person's own
+// token rather than the shared one; acts.go says how, and every act is carried
+// out by the same code the command-line verb runs. What it holds is the tokens
+// and the latest snapshot of each polled reading, in memory, for exactly as
+// long as the process runs. Restarting it changes nothing about the harness
+// and loses no history, because the history is in the durable records it
+// reads.
 package dashboard
 
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -149,6 +152,10 @@ type Server struct {
 	// Origin header that does. Both are fixed at Listen and read on every request.
 	hosts   map[string]bool
 	origins map[string]bool
+	// people is every person's own token and who it resolves to, and actor
+	// what carries out their acts; see acts.go. Both are fixed before Serve.
+	people []personToken
+	actor  Actor
 }
 
 // New makes a server holding a fresh token for the read model it is handed. The
@@ -302,9 +309,23 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		refuse(writer, request, http.StatusForbidden, "this dashboard refuses requests from any other origin")
 		return
 	}
-	// Read-only means read-only at the protocol: there is nothing to post.
+	// Reads are GET and HEAD, and the operator's acts are POST to the two act
+	// paths; there is nothing else to send.
+	if request.Method == http.MethodPost {
+		if request.URL.Path != decidePath && request.URL.Path != askPath {
+			refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard takes nothing but approve and decline at "+decidePath+" and ask at "+askPath)
+			return
+		}
+		person, accepted := s.presenter(request)
+		if !accepted {
+			refuse(writer, request, http.StatusUnauthorized, "this dashboard requires the token it printed when it started, as a bearer token")
+			return
+		}
+		s.serveAct(writer, request, person)
+		return
+	}
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
-		refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard is read-only")
+		refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard reads, and takes nothing but the operator's approve, decline, and ask")
 		return
 	}
 
@@ -313,13 +334,17 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		s.servePage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
-	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
-		// The routes that read state, and so the ones the token guards.
-		if !s.presented(request) {
+	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == sessionPath, strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
+		// The routes that read state, and so the ones the token guards. A
+		// person's own token reads everything the shared one does.
+		person, accepted := s.presenter(request)
+		if !accepted {
 			refuse(writer, request, http.StatusUnauthorized, "this dashboard requires the token it printed when it started, as a bearer token")
 			return
 		}
 		switch {
+		case request.URL.Path == sessionPath:
+			s.serveSession(writer, request, person)
 		case request.URL.Path == "/api/throughput":
 			s.serveSnapshot(writer, request, s.throughput)
 		case request.URL.Path == "/api/spend":
@@ -336,17 +361,10 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 	}
 }
 
-// presented says whether the request carries the token in the Authorization
-// header, which is the one place it is accepted from: not a query string, and
-// not a cookie. The comparison is constant-time, because a comparison that stops
-// at the first wrong byte says how many bytes were right.
-func (s *Server) presented(request *http.Request) bool {
-	candidate, found := strings.CutPrefix(request.Header.Get("Authorization"), "Bearer ")
-	if !found {
-		return false
-	}
-	return subtle.ConstantTimeCompare([]byte(strings.TrimSpace(candidate)), []byte(s.token)) == 1
-}
+// The token is accepted from the Authorization header alone: not a query
+// string, and not a cookie. presenter in acts.go compares it, in constant time,
+// because a comparison that stops at the first wrong byte says how many bytes
+// were right.
 
 // servePage is the shell: the page with its states — asking for the token,
 // loading, error, ready — and its eight sections, each with an empty, a loading,

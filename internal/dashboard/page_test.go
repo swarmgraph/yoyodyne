@@ -46,11 +46,12 @@ var updateRenders = flag.Bool("update-renders", false, "rewrite the rendered pag
 // factory problems and program managers under Provider capacity.
 var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
 
-// popups are the three dialogs the page opens over the sections: a grouping —
+// popups are the four dialogs the page opens over the sections: a grouping —
 // of the pipeline listed by title, or of the attention line listed by what
-// waits — one thing's card, a work item's or an attention entry's, and one
-// program manager instance's current lane report.
-var popups = []string{"grouping", "card", "report"}
+// waits — one thing's card, a work item's or an attention entry's, one
+// program manager instance's current lane report, and what waits on the
+// operator's own approve or decline, one at a time.
+var popups = []string{"grouping", "card", "report", "decide"}
 
 // sectionStates are the states every section has, each a child the panel
 // shows when its data-state names it. A pop-up has the same four, and is

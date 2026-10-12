@@ -5,10 +5,12 @@ package cli
 // `yoyo dashboard` is the standalone command the observability-and-dashboard
 // design names as the V1 shape: a process of its own that reads the same
 // durable records `yoyo status` reads and projects them at a loopback port, for
-// as long as it is left running. It is a projection and nothing else — it owns
-// no state, offers no write, and restarting it changes nothing about the
-// harness — so it is started and stopped freely, and a later supervisor can
-// own its lifecycle without a redesign. It writes two records as it starts,
+// as long as it is left running. It is a projection — it owns no state, and
+// restarting it changes nothing about the harness — so it is started and
+// stopped freely, and a later supervisor can own its lifecycle without a
+// redesign. The one thing it takes besides reads is the operator's own approve,
+// decline, and ask on what waits on his decision, from a person who bound a
+// token of their own, carried out by the verbs' own code (dashboardacts.go). It writes two records as it starts,
 // never on a request: when each program manager instance was first seen in
 // the configuration, which a never-woken instance's stale reading is measured
 // from, and its own build and the configuration keys that build reads.
@@ -89,11 +91,18 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// The token is read before anything is bound, so a store that does not hold
 	// it refuses at the terminal with the command that stores it rather than
 	// serving under a token nobody has.
-	server, announcement, err := dashboardServer(ctx, resolved.Config.Services.Dashboard.Token, resolved.Config.Product.ID, dashboardTokenStores(stateRoot), reader)
+	stores := dashboardTokenStores(stateRoot)
+	server, announcement, err := dashboardServer(ctx, resolved.Config.Services.Dashboard.Token, resolved.Config.Product.ID, stores, reader)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	// The operator's own decisions, taken from the page by a person who bound a
+	// token of their own and carried out by the verbs' own code. A person whose
+	// token cannot be read is said here and left unbound, so the page goes on
+	// reading and refuses that person's acts with the reason.
+	server.SetActor(newDashboardActor(ctx, *configPath, stderr))
+	announcement = append(announcement, bindDashboardPeople(ctx, server, resolved.Config, stores)...)
 	url, err := server.Listen(*port)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
@@ -124,9 +133,33 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 	return stores
 }
 
+// bindDashboardPeople binds every person who named a dashboard token of their
+// own, and says what came of each: bound, with where the token was read from
+// and never the token, or left unbound with the reason and the command that
+// stores it.
+func bindDashboardPeople(ctx context.Context, server *dashboard.Server, cfg config.Config, stores dashboard.TokenStores) []string {
+	bindings := cfg.DashboardBindings()
+	if len(bindings) == 0 {
+		return []string{"nobody has bound a dashboard token of their own under operators.<name>.dashboard_token, so the page reads only and refuses every approve, decline, and ask with the reason"}
+	}
+	var lines []string
+	for _, binding := range bindings {
+		supplied, err := stores.ReadPerson(ctx, binding.Source, cfg.Product.ID, binding.Operator)
+		if err == nil {
+			err = server.BindPerson(supplied.Value, dashboard.Person{Name: binding.Operator, Grants: binding.Grants})
+		}
+		if err != nil {
+			lines = append(lines, fmt.Sprintf("%s cannot approve, decline, or ask from the page: %v", binding.Operator, err))
+			continue
+		}
+		lines = append(lines, fmt.Sprintf("%s approves, declines, and asks from the page with their own token, read from %s and not printed", binding.Operator, supplied.Origin))
+	}
+	return lines
+}
+
 // dashboardHeaderLine is said whichever way the token came, because it is
 // about how the token is presented rather than where it came from.
-const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>"
+const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask"
 
 // dashboardServer makes the server under the token the entry names, and says
 // what the command prints about it. Under `generated` the server makes its own
@@ -390,8 +423,22 @@ it has a token. Everything else is refused: a request for the read model with no
 token or the wrong one, a Host or Origin that is not the address it bound, and
 durable state it cannot read each get a refusal and never part of an answer.
 
-It is a projection. It owns no state, offers no write, and restarting it changes
-nothing about the harness.
+Everything waiting on the operator's own approve or decline -- a change proposed
+to a document, a document an owning role wrote in its conversation, and work
+proposed in one -- is put to him on the page one at a time, with Approve,
+Decline, and a way to ask the role that raised it first. A decision is recorded
+exactly as `+"`yoyo amendment approve`"+` or `+"`yoyo agent chat <agent> --message \"approve document-4.1\"`"+`
+records it, and asking decides nothing. Only a person acts: the token printed or
+read above reads only, and a person binds a token of their own under
+operators.<name>.dashboard_token -- `+"`keychain`"+`, the item
+yoyo-dashboard.<product id>.<name> under the account yoyo, or `+"`file`"+`,
+<state root>/projects/<product id>/state/dashboard.<name>.token -- and acts only
+where they hold the grant: own-intent for a document or proposed work, and
+decide-amendments for a proposed change, with own-intent beside it for a change
+to a document the Lead Product Manager owns. Every other act is refused.
+
+It is a projection. It owns no state, and restarting it changes nothing about
+the harness.
 
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
