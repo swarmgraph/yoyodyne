@@ -20,26 +20,30 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # the package that sets the figure, because it is the slowest by far and its
 # tests wait on the parallel limit rather than fail when the machine is busy.
 #
-# The figure is that package's measured worst case with a margin. With a second
-# check stage running beside it, the package took 1,439 seconds (24 minutes)
-# under `make race` and 870 seconds under `make test`; the harness's own `make
-# test` has reached 1,170 seconds. 28 minutes is four minutes over the worst of
-# those. docs/diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md has the
+# With a second check stage running beside it, the package took 1,439 seconds
+# (24 minutes) under `make race` and 870 seconds under `make test`; the
+# harness's own `make test` has reached 1,170 seconds, and on a busier machine
+# `make race` has needed about 26.5 minutes.
+# docs/diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md has the first
 # figures and the load they were taken at.
 #
-# It cannot go higher, because what the bound buys is a dump of every goroutine
-# instead of a hang, and that is bought only while go test's timeout ends first.
-# A check is given `execution.check_timeout`, 30 minutes and not scaled for
-# load (docs/configuration.md), and `make race` spends about a minute compiling
-# before the package starts. So a test that genuinely hangs is still reported by
-# the binary naming what it waited on, at 28 minutes, rather than killed by the
-# harness at 30 with nothing to read. The check stage's own limit is wider still.
+# The figure is set by the check's limit rather than by those measurements,
+# because what the bound buys is a dump of every goroutine instead of a hang,
+# and that is bought only while go test's timeout ends first. A check is given
+# `execution.check_timeout`, which is not scaled for load (docs/configuration.md)
+# and which this project's configuration raises from its 30-minute default to
+# 45 minutes as a stopgap. `make race` spends about a minute compiling before
+# the package starts, so 43 minutes leaves that minute and a margin under 45: a
+# test that genuinely hangs is still reported by the binary naming what it
+# waited on, rather than killed by the harness with nothing to read. The check
+# stage's own limit is wider still.
 #
-# The figure is interim: it holds until the package split (yoyodyne-ifd.429.14)
-# moves the tests that touch no internals out of internal/orchestrator, and
-# should come back down then. A package that outgrows it again is a package to
-# split, not a figure to raise past the check's limit.
-TEST_TIMEOUT ?= 28m
+# The figure is interim. It returns to 28m when the package split
+# (yoyodyne-ifd.429.14) moves the tests that touch no internals out of
+# internal/orchestrator, or when the check limit returns to 30 minutes,
+# whichever comes first. It never goes past the check's limit: a package that
+# outgrows it is a package to split.
+TEST_TIMEOUT ?= 43m
 
 .PHONY: build test race vet fmt fmtcheck cachecheck check adoption codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
