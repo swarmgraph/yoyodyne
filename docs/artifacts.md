@@ -83,7 +83,8 @@ The body is the document below its frontmatter as it should now read, and it is
 refused unless the only difference is those identifiers — one changed word, one
 added line, and it is an amendment, which this will not record. It acts with the
 authority of the role that owns the document, as `yoyo invariant` acts with the
-architect's, and like an approval the write lands in your checkout uncommitted.
+architect's. Unlike an approval, which lands through a reviewed run, its write
+lands in your checkout uncommitted, and committing it is yours.
 A document edited by hand can record `identified` itself, as it can record any
 revision; what the command adds is that its path to the action is one that
 checks.
