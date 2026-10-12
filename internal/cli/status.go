@@ -1255,7 +1255,7 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// A stage still running is only said of a run still in flight: a run that
 	// ended with its stage open is one whose process died inside it, and the
 	// sweep closes that stage as interrupted when it settles the run.
-	if stage := run.CheckStage; stage != nil && ((stage.Running() && run.Status.InFlight()) || stage.StoppedAtBound || stage.Interrupted) {
+	if stage := run.CheckStage; stage != nil && ((stage.Running() && run.Status.InFlight()) || stage.StoppedAtBound || stage.CheckStoppedAtLimit || stage.Interrupted) {
 		fmt.Fprintf(writer, "  %s\n", singleLine(stage.Describe(time.Now())))
 		printed = true
 	}

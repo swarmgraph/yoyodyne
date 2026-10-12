@@ -201,7 +201,7 @@ func stillHeld(run runstate.State, found triage.Found) bool {
 	return run.IntegrationStop != nil ||
 		strings.TrimSpace(run.Blocker) != "" ||
 		run.DiedInItsOwnProcess() ||
-		run.StoppedAtStageBound()
+		run.StoppedUnfinishedAtChecks()
 }
 
 // readClaim reads one item's runs: the most recent of them, the last moment that

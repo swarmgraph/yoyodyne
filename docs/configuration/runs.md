@@ -407,7 +407,7 @@ per-language examples above, which is what it always did.
 
 ### How long a check may take
 
-Each check gets a budget, and a check that exceeds it is killed and ends the run:
+Each check gets a time limit, and a check that reaches it is stopped:
 
 ```yaml
 execution:
@@ -444,6 +444,29 @@ settings that move them.
 A budget of `0` is refused rather than read as "unbounded": nothing else bounds a
 check, so one that never returns would hold a worktree, a claim, and a run open
 indefinitely.
+
+**The limit scales with the machine's load by the rule the stage's bound
+uses** ([the stage's bound](../configuration.md#what-a-whole-check-stage-may-cost)): `check_timeout` is the
+figure for an idle machine, multiplied by how far the one-minute load average
+is above the number of cores, up to ten times, and never above the stage's own
+scaled bound. A check's limit is worked out as the check begins, and the run's
+record and notes carry the configured figure, the limit in force, and the load
+that scaled it.
+
+**A check stopped at its own limit is unfinished, not failed.** It neither
+passed nor failed, so it earns the change nothing at the gate and hands the
+developer nothing to repair; the run stops for a cause outside the work,
+`check-time-limit`, keeping its branch, worktree, and developer session. The
+harness then runs the checks again from the start on the same change, but load
+cannot prove the change did not make the check hang, so the reruns are bounded:
+on one candidate (one attempt at one commit), at most two reruns, within three
+times the check's limit as it stood when it first stopped. Both bounds are
+shared with the stage's own continuations and with a repair the development
+manager decides, are written on the run before each rerun, and survive a
+restart. A longer limit under load adds no reruns. Once either bound is spent
+the run stays stopped with everything kept, the record says the check did not
+finish and why is unresolved, and the stoppage is the development manager's. A
+check that exits with a failure is never run again by any of this.
 
 ### A check that could not run
 
