@@ -558,7 +558,7 @@ var Unread = []string{
 	"footprint-and-dependency", "force-pushing", "force-resolves", "forge-hygiene",
 	"forge-url", "full-budget", "full-suite", "further-reading", "give-back",
 	"goal-level-approval", "goal-quality", "goals-directory", "grant-refusal", "hand-back", "has-a-disposition",
-	"hand-closer", "handed-over", "harness-error", "harness-made", "harness-run",
+	"hand-closer", "handed-over", "harness-error", "harness-run",
 	"head-behind-target", "held-back", "held-work", "human-approval", "ignore-rule",
 	"independent-reviewer", "individually-acceptable", "initialized-here",
 	"integrated-work", "integration-resume", "integration-stop", "interrupted-review",

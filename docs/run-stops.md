@@ -230,6 +230,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:fail` | 1 | Returns an independent review refusal to the document owner without invoking a developer. |
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `classified-stop` | 1 | Classifies the document review refusal as a review failure. |
 | `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:stop` | 3 | Settles a directive, check, or review operation that stopped; failed publication returns to the document owner. |
+| `internal/orchestrator/documentpublication.go` | `(*activeRun).reviewDocument` | `call:finish` | 1 | Where integration is not automatic, a document the operator approved that passed its checks and independent review ends succeeded on its branch for the operator to merge, as every change there does. |
 | `internal/orchestrator/actions.go` | `deliverySteps` | `call:complete` | 1 | Registered completion action uses the ordinary terminal settlement. |
 | `internal/orchestrator/claims.go` | `(ClaimAuditor).settle` | `status-write` | 1 | Cancels a dead claim verified under its lease; returns the item and touches no artifacts. |
 | `internal/orchestrator/recordedbackend.go` | `(Pipeline).developerBackendFor` | `classified-stop` | 1 | Classifies a run whose recorded developer backend this harness cannot start as a harness stop, before any provider call and with the run's session left on its record; the run ends through the shared dispatcher. |

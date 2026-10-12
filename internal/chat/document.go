@@ -489,15 +489,16 @@ type approvedDocumentLander interface {
 // approvedDocumentRoute reports whether a document the operator approves is
 // published through a reviewed run, and the store that renders it if so.
 //
-// That is the route wherever a run can land it: the operator's approval decides
+// That is the route wherever a run can carry it: the operator's approval decides
 // the document, and the run is how it reaches the target branch with its own
 // checks, an independent review, and the protected merge, exactly as a document
-// the harness confirms does. Writing it into the checkout instead left a change
-// nobody committed, which every run over that checkout refuses to start over.
-// The write into the working tree is kept only where no run can land a document:
-// a project that does not integrate automatically, where every change is the
-// operator's to merge, and one that keeps its intent in a companion intent
-// repository, which no run starts from.
+// the harness confirms does — or, where the project does not integrate
+// automatically, how it reaches a branch the operator merges, as every change
+// there is. Writing it into the checkout instead left a change nobody committed,
+// which every run over that checkout refuses to start over. The write into the
+// working tree is kept only where no run can carry a document: a project with no
+// independent reviewer configured, and one that keeps its intent in a companion
+// intent repository, which no run starts from.
 func (s *Session) approvedDocumentRoute() (approvalPreparer, bool) {
 	preparer, ok := s.options.Documents.(approvalPreparer)
 	if !ok {
@@ -535,7 +536,7 @@ func (s *Session) approveForPublication(record *writeRecord, preparer approvalPr
 		record.pending.ID, candidate.Artifact.ID, runID)
 	outcome.Path = candidate.Artifact.Path
 	outcome.Approval = true
-	outcome.Publishing = fmt.Sprintf("it is not written to your checkout and nothing is yours to commit: run %s lands it with its own checks, an independent review and a pull request, the way a document confirmed under an automatic policy lands. Until it merges, yoyo status shows the run, and the %s is told how it goes.",
+	outcome.Publishing = fmt.Sprintf("it is not written to your checkout and nothing is yours to commit: run %s takes it through its own checks and an independent review to the target branch, by the protected merge through its pull request, or where this project's integration is not automatic by your merge, as for every change. Until it merges, yoyo status shows the run, and the %s is told how it goes.",
 		runID, RoleTitle(s.state.Role))
 	return outcome, nil
 }

@@ -98,7 +98,7 @@ func (s Scheduler) nextDocuments(pull Pull, landing map[string]runstate.State, m
 // documentNamed is a waiting document in the words a schedule line uses.
 func documentNamed(wait runstate.DocumentWait) string {
 	document := wait.Document
-	return fmt.Sprintf("document %s (%s), written by the %s in conversation %s", document.WriteID, document.Candidate.Artifact.Title, document.Owner.Title(), document.ConversationID)
+	return fmt.Sprintf("document %s (%s), %s", document.WriteID, document.Candidate.Artifact.Title, document.Origin())
 }
 
 // documentReason is why a waiting document was started, as its schedule entry

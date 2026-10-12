@@ -131,18 +131,18 @@ what is allowed. The
 [configuration guide](configuration.md#approving-a-document) has the schema
 and what is refused.
 
-**An approval given on the command line is written into your checkout and stops there**, and the command
-says so as it writes: the document is now an uncommitted change, a run against
-that checkout refuses to start while it is, and committing it is yours under your
-own identity. The checkout is named in so many words, because which one the write
-landed in follows the configuration the command read rather than where you are
-standing. That is the settled shape rather than an unfinished one. The only
-ways into the target branch are a reviewed promotion and your own hand, so a
-harness-made commit would be a promotion by another name carrying tree state
-nothing reviewed — and leaving the write in your tree keeps what a document is
-down to two readings: committed, or an edit of yours that is visibly holding
-the runs up. It is said at the moment of the write because the alternative is
-meeting it as a refusal from whatever you run next.
+**An approval given on the command line lands through a reviewed run**, the
+way a document approved in a conversation does: the run changes only that
+document, adding your approval to its frontmatter, runs its own checks and an
+independent review, and lands it through the protected merge, or leaves it on
+its branch for you to merge where `approvals.integration` is not `automatic`.
+Nothing is written into your checkout and nothing is yours to commit; the
+command names the run and says what it came to. The approval counts from when
+it reaches the target branch, as anything on it does. Only where no run can carry it
+— a project with no reviewer configured, or one that keeps its intent in a
+companion intent repository — is the approval written into the checkout the
+configuration points to, as an uncommitted change the command names along with
+that checkout.
 
 A document in one of those directories with no usable identity is named on
 stderr rather than governed under a guessed id, so a home you have not given
@@ -419,14 +419,18 @@ conversation is opened. Each run's start and end is also noted on the work item
 named at the start of the document's revision reason, where the tracker holds
 one.
 
+**Where `approvals.integration` is not `automatic`, a document you approve
+still goes through its reviewed run**, and the run leaves it on its branch, and
+on its pull request where the project publishes, for you to merge, as every
+change there is. Nothing is written into your checkout either way.
+
 **A document you approve is written into your working tree only where no run
-can land it.** That is a project whose `approvals.integration` is not
-`automatic`, where every change is yours to merge, and a project that keeps its
-intent in a companion intent repository, whose reviewed run is not built yet.
-There the document is an uncommitted change in the checkout the configuration
-points to, and committing it is yours under your own identity. The printed
-result names that checkout and file, and `--json` carries it as
-`pending_commit`; a document landing through a run carries `publishing`
+can carry it.** That is a project with no independent reviewer configured, and
+a project that keeps its intent in a companion intent repository, whose reviewed
+run is not built yet. There the document is an uncommitted change in the
+checkout the configuration points to, and committing it is yours under your own
+identity. The printed result names that checkout and file, and `--json` carries
+it as `pending_commit`; a document going through a run carries `publishing`
 instead, naming the run.
 
 ## Goals, and what work serves them

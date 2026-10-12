@@ -56,7 +56,7 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 	case "role":
 		return runRole(args[1:], stdout, stderr)
 	case "artifact":
-		return runArtifact(args[1:], stdout, stderr)
+		return runArtifact(ctx, args[1:], stdout, stderr)
 	case "amendment":
 		return runAmendment(args[1:], stdout, stderr)
 	case "evaluation":
