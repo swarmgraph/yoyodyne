@@ -35,10 +35,14 @@ func TestWhatEachKeyboardCallsShiftReturn(t *testing.T) {
 		{name: "backspace reported rather than sent", bytes: "\x1b[127u", want: keyBackspace},
 		{name: "a letter is still a letter", bytes: "\x1b[97u", want: keyRune},
 		// A terminal that reports modifiers stops raising the signals itself, so
-		// the key has to be recognised as the signal it was.
-		{name: "Ctrl-C reported rather than raised", bytes: "\x1b[99;5u", want: keySignal},
-		{name: "Ctrl-C over modifyOtherKeys", bytes: "\x1b[27;5;99~", want: keySignal},
-		{name: "the escape key is not a keystroke this understands", bytes: "\x1b[27u", want: keyIgnored},
+		// the key has to be recognised as the signal it was. Ctrl-C is the
+		// console's own key however it arrives.
+		{name: "Ctrl-C reported rather than raised", bytes: "\x1b[99;5u", want: keyInterrupt},
+		{name: "Ctrl-C over modifyOtherKeys", bytes: "\x1b[27;5;99~", want: keyInterrupt},
+		{name: "Ctrl-C where nothing was negotiated", bytes: "\x03", want: keyInterrupt},
+		{name: "Ctrl-Z reported rather than raised", bytes: "\x1b[122;5u", want: keySignal},
+		{name: "the escape key as the kitty protocol reports it", bytes: "\x1b[27u", want: keyEscape},
+		{name: "the escape key held with something is not one this reads", bytes: "\x1b[27;3u", want: keyIgnored},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -57,12 +61,12 @@ func TestWhatEachKeyboardCallsShiftReturn(t *testing.T) {
 	}
 }
 
-func TestCtrlCReportedAsAKeyIsStillTheInterrupt(t *testing.T) {
+func TestCtrlZReportedAsAKeyIsStillTheSuspend(t *testing.T) {
 	t.Parallel()
 
-	pressed, _, _ := decodeKey([]byte("\x1b[99;5u"))
-	if pressed.code != keySignal || pressed.signal != signalInterrupt {
-		t.Fatalf("decodeKey() = %v/%v, want the interrupt", pressed.code, pressed.signal)
+	pressed, _, _ := decodeKey([]byte("\x1b[122;5u"))
+	if pressed.code != keySignal || pressed.signal != signalSuspend {
+		t.Fatalf("decodeKey() = %v/%v, want the suspend", pressed.code, pressed.signal)
 	}
 }
 

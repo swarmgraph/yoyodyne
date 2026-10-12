@@ -3,6 +3,7 @@ package console
 import (
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -42,6 +43,15 @@ const (
 	// rather than a rune, and a newline in it is a newline in the message rather
 	// than the return that would have sent it.
 	keyPaste
+	// keyEscape is the escape key pressed on its own. It shares its byte with the
+	// start of every sequence the other keys send, so it is only known to be the
+	// key once escapeWait has passed with nothing after it, or where a negotiated
+	// keyboard reports it as a key of its own.
+	keyEscape
+	// keyInterrupt is Ctrl-C read as a key rather than raised as a signal. At the
+	// prompt it clears what is being typed, and twice on an empty prompt ends the
+	// conversation; while a turn is being answered it stops the turn.
+	keyInterrupt
 )
 
 type key struct {
@@ -56,14 +66,24 @@ type key struct {
 // every keystroke after it.
 const maxEscapeBytes = 16
 
+// escapeWait is how long an escape byte with nothing after it waits before it
+// is taken for the escape key itself. A terminal sends every sequence a key
+// makes in one write, so what follows the escape of a sequence arrives within
+// a read or two; a person cannot press another key that quickly, so anything
+// slower than this is the escape key. Over a slow connection a sequence split
+// for longer than this reads as escape followed by what came after it.
+const escapeWait = 100 * time.Millisecond
+
 // decodeKey reads the first keystroke out of the buffer. It reports how many
 // bytes it consumed, and whether the buffer held a whole keystroke at all: a
 // rune or an escape sequence split across two reads is not one, and waits for
-// the rest rather than being applied in halves.
+// the rest rather than being applied in halves. An escape byte on its own is
+// one of those too, until escapeWait says otherwise (lateEscape).
 //
 // The terminal is left in cbreak rather than raw mode, so the signal keys are
-// still the terminal's: Ctrl-C interrupts the process as it always did, and
-// nothing here has to reimplement that badly.
+// still the terminal's, with one exception: while the operator is being read
+// from, Ctrl-C is turned into a byte rather than an interrupt (tty_unix.go),
+// and arrives here as keyInterrupt.
 func decodeKey(buffer []byte) (key, int, bool) {
 	if len(buffer) == 0 {
 		return key{}, 0, false
@@ -71,6 +91,8 @@ func decodeKey(buffer []byte) (key, int, bool) {
 	switch buffer[0] {
 	case '\r', '\n':
 		return key{code: keyEnter}, 1, true
+	case 0x03:
+		return key{code: keyInterrupt}, 1, true
 	case 0x7f, 0x08:
 		return key{code: keyBackspace}, 1, true
 	case 0x01:
@@ -111,6 +133,8 @@ func decodeKey(buffer []byte) (key, int, bool) {
 // is what keeps a function key from being typed into the message.
 func decodeEscape(buffer []byte) (key, int, bool) {
 	if len(buffer) == 1 {
+		// The escape key itself, or the first byte of a sequence the rest of which
+		// has not arrived. Which of the two is decided by time (lateEscape).
 		return key{}, 0, false
 	}
 	if buffer[1] == '\r' || buffer[1] == '\n' {
@@ -164,6 +188,20 @@ func decodeEscape(buffer []byte) (key, int, bool) {
 		return key{code: keyIgnored}, 1, true
 	}
 	return key{}, 0, false
+}
+
+// lateEscape reports whether the buffer starts with an escape byte that, once
+// escapeWait has passed with nothing else arriving, can only be the escape key:
+// the escape alone, or the escape followed by another. It is read as one byte, so
+// whatever follows it is read on its own.
+func lateEscape(buffer []byte) bool {
+	if len(buffer) == 0 || buffer[0] != 0x1b {
+		return false
+	}
+	if _, _, complete := decodeKey(buffer); complete {
+		return false
+	}
+	return len(buffer) == 1 || buffer[1] == 0x1b
 }
 
 func escapeKey(parameters string, final byte) key {
@@ -232,6 +270,13 @@ func reportedKey(code, modifiers int) key {
 		held = 0
 	}
 	switch code {
+	case 0x1b:
+		// The kitty protocol reports the escape key as a key of its own, which is
+		// the one way of telling it from the start of a sequence without waiting.
+		if held == 0 {
+			return key{code: keyEscape}
+		}
+		return key{code: keyIgnored}
 	case '\r':
 		// Return with anything held is the newline this exists for. Return alone
 		// still sends, which is what keeps the common case the one it always was.
@@ -254,6 +299,11 @@ func reportedKey(code, modifiers int) key {
 		}
 	}
 	if held&modifierCtrl != 0 {
+		// Ctrl-C is a key of this console's own while it is reading, as it is
+		// where nothing was negotiated (decodeKey).
+		if code == 'c' {
+			return key{code: keyInterrupt}
+		}
 		if signal, raised := signalFor(rune(code)); raised {
 			return key{code: keySignal, signal: signal}
 		}

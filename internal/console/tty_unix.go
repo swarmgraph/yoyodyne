@@ -54,8 +54,9 @@ func isTerminal(fd uintptr) bool {
 // into and output can be put above it.
 //
 // It is deliberately not full raw mode. The signal characters are left alone,
-// so Ctrl-C still interrupts the conversation exactly as it did before this
-// existed rather than being reimplemented here; output processing is left alone
+// so Ctrl-Z and Ctrl-\ still do what the terminal does with them rather than
+// being reimplemented here, and Ctrl-C is taken over only while the operator is
+// being read (setInterruptCharacter); output processing is left alone
 // too, so a newline is still a newline and the harness can go on writing lines.
 func enterCBreak(fd uintptr) (func() error, error) {
 	var original syscall.Termios
@@ -79,6 +80,35 @@ func enterCBreak(fd uintptr) (func() error, error) {
 		restored = true
 		return ioctl(fd, writeTermios, unsafe.Pointer(&original))
 	}, nil
+}
+
+// interruptCharacter is the character the terminal turns into an interrupt,
+// Ctrl-C unless the operator chose another, read so it can be put back.
+func interruptCharacter(fd uintptr) (uint8, error) {
+	var settings syscall.Termios
+	if err := ioctl(fd, readTermios, unsafe.Pointer(&settings)); err != nil {
+		return 0, fmt.Errorf("read terminal settings: %w", err)
+	}
+	return settings.Cc[syscall.VINTR], nil
+}
+
+// setInterruptCharacter sets the character the terminal turns into an
+// interrupt. The console sets it to noCharacter while it is reading the
+// operator, so Ctrl-C arrives as a byte it gives a meaning of its own — clearing
+// the prompt, or stopping a turn — and puts it back the rest of the time, so
+// Ctrl-C still interrupts whatever the conversation is doing when nothing is
+// reading the keyboard. Only the interrupt is changed: Ctrl-Z and Ctrl-\ are
+// the terminal's throughout.
+func setInterruptCharacter(fd uintptr, character uint8) error {
+	var settings syscall.Termios
+	if err := ioctl(fd, readTermios, unsafe.Pointer(&settings)); err != nil {
+		return fmt.Errorf("read terminal settings: %w", err)
+	}
+	settings.Cc[syscall.VINTR] = character
+	if err := ioctl(fd, writeTermios, unsafe.Pointer(&settings)); err != nil {
+		return fmt.Errorf("set terminal settings: %w", err)
+	}
+	return nil
 }
 
 // terminalWidth asks the terminal how wide it is, every time it is drawn, so a
@@ -111,16 +141,14 @@ func terminalHeight(fd uintptr) int {
 }
 
 // raiseSignal delivers the signal the terminal driver would have raised itself.
-// A negotiated keyboard reports Ctrl-C as a key rather than raising anything, so
-// the console raises it — to the whole process group, which is what the driver
-// does, so a conversation and whatever it started are interrupted exactly as
-// they were before any of this was negotiated. A key the driver is still
-// handling never reaches here, so nothing is raised twice.
+// A negotiated keyboard reports Ctrl-Z and Ctrl-\ as keys rather than raising
+// anything, so the console raises them — to the whole process group, which is
+// what the driver does, so a conversation and whatever it started are stopped
+// exactly as they were before any of this was negotiated. A key the driver is
+// still handling never reaches here, so nothing is raised twice.
 func raiseSignal(pressed signalKey) {
 	var signal syscall.Signal
 	switch pressed {
-	case signalInterrupt:
-		signal = syscall.SIGINT
 	case signalSuspend:
 		signal = syscall.SIGTSTP
 	case signalQuit:

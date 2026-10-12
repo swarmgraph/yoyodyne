@@ -243,6 +243,11 @@ const (
 	EventSessionMemorySaveRequested EventType = "session.memory_save_requested"
 	EventSessionMemorySaved         EventType = "session.memory_saved"
 	EventSessionMemorySaveFailed    EventType = "session.memory_save_failed"
+	// A turn the operator stopped from the console before the role finished
+	// answering it, with Esc or Ctrl-C. The turn's own failure is recorded where
+	// any failed turn's is; this says who ended it, because a turn the operator
+	// withdrew and a turn that broke read alike in the log otherwise.
+	EventTurnStopped EventType = "turn.stopped"
 )
 
 // MaxEventTextBytes bounds the text one recorded event carries — a command's

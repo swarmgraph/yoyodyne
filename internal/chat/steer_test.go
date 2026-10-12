@@ -598,6 +598,9 @@ type scriptedConsole struct {
 	// waiting records, for each prompt in order, whether it was offered with a
 	// run still to wait for.
 	waiting []bool
+	// stop stands in for the operator's Esc while a turn is being answered:
+	// closing it is pressing the key. A nil one is a turn nobody stops.
+	stop chan struct{}
 }
 
 // scriptedStep is one prompt: either a line the operator types, or something
@@ -646,6 +649,10 @@ func (c *scriptedConsole) Working(phase string) console.Activity {
 // Status is what a stream does with one: nothing. A transcript a test reads
 // carries no line whose whole purpose is to be replaced.
 func (c *scriptedConsole) Status(string) {}
+
+// WatchForStop hands over the console's stop, which the test closes to stop a
+// turn as Esc would.
+func (c *scriptedConsole) WatchForStop() (<-chan struct{}, func()) { return c.stop, func() {} }
 
 func (c *scriptedConsole) Theme() console.Theme { return c.theme }
 

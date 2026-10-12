@@ -201,10 +201,10 @@ func TestADifferentQuestionStartsAtTheTop(t *testing.T) {
 }
 
 // TestASignalKeyDuringAChoiceIsRaised covers the terminal that has agreed to
-// report Ctrl-C rather than raise it. A list on screen is answered with the
+// report Ctrl-\ rather than raise it. A list on screen is answered with the
 // same keys a line is read with, so the key it reports has to reach the
 // process exactly as it does while a line is being composed: an operator who
-// cannot interrupt from a question is one the question has trapped.
+// cannot quit from a question is one the question has trapped.
 func TestASignalKeyDuringAChoiceIsRaised(t *testing.T) {
 	t.Parallel()
 
@@ -216,11 +216,11 @@ func TestASignalKeyDuringAChoiceIsRaised(t *testing.T) {
 		return strings.Contains(s.text(), chosenMarker+"1. Write the goal it serves")
 	})
 
-	// Ctrl-C, as a negotiated keyboard reports it rather than as a signal the
+	// Ctrl-\, as a negotiated keyboard reports it rather than as a signal the
 	// terminal raised.
-	keys.Write([]byte("\x1b[99;5u"))
-	if pressed := <-raised; pressed != signalInterrupt {
-		t.Fatalf("raised %v, want the interrupt", pressed)
+	keys.Write([]byte("\x1b[92;5u"))
+	if pressed := <-raised; pressed != signalQuit {
+		t.Fatalf("raised %v, want the quit", pressed)
 	}
 	// The key was a signal and not a keystroke: the list is still there, still
 	// answerable, and the marker has not moved.

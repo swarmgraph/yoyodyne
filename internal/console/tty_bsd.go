@@ -10,3 +10,6 @@ const (
 	readTermios  = syscall.TIOCGETA
 	writeTermios = syscall.TIOCSETA
 )
+
+// noCharacter is the value that turns a terminal's control character off.
+const noCharacter = 0xff

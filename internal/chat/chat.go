@@ -16,6 +16,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
@@ -3378,6 +3379,14 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// either, and it is the one of these that nothing went wrong in: the
 		// conversation stays open, they lift the pause when they mean to, and
 		// saying the same thing again takes the turn that was refused.
+		// A turn the operator stopped is the one ending here they asked for, so it
+		// is said as plainly as it happened and the conversation waits for their
+		// next message. Anything carried out before the stop is reported above;
+		// a record that could not be written still ends the conversation below.
+		if err == ErrTurnStopped {
+			fmt.Fprintf(out, "You stopped the turn, so the %s's answer is not finished and nothing more of it will be carried out. The conversation is kept; say what you want next.\n\n", RoleTitle(s.state.Role))
+			continue
+		}
 		var held *OperatorHoldError
 		if errors.As(err, &held) {
 			fmt.Fprintf(out, "%v\n\n", held)
@@ -3494,7 +3503,56 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 // whole exchange, including the rounds of tracker actions inside it, because
 // what the operator is waiting for is the answer rather than any one turn of
 // it.
+//
+// The keyboard is watched while it lasts, so Esc or Ctrl-C stops the turn
+// without ending the conversation: the turn is cancelled as a shutdown would
+// cancel it, which leaves the record as any failed turn leaves it, and the
+// stop is recorded as the operator's (ErrTurnStopped).
 func (s *Session) speak(ctx context.Context, screen console.Console, message string) (Reply, error) {
+	turn, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stop, unwatch := screen.WatchForStop()
+	defer unwatch()
+	var stopped atomic.Bool
+	go func() {
+		select {
+		case <-stop:
+			stopped.Store(true)
+			cancel()
+		case <-turn.Done():
+		}
+	}()
+	reply, err := s.speakUntil(turn, screen, message)
+	// A turn that finished as the key was pressed was not stopped: its answer
+	// arrived and is shown. Only a turn the stop ended reports one.
+	if err == nil || !stopped.Load() || ctx.Err() != nil {
+		return reply, err
+	}
+	// A turn stopped while it waited out a provider was stopped with the
+	// conversation put down (waitForProvider), so it is taken back, and the
+	// record re-read, before anything is written to it.
+	if held, ok := s.options.Hold.(interface{ Held() bool }); ok && !held.Held() {
+		if retakeErr := s.takeConversationBack(ctx, s.theme.Harness(screen)); retakeErr != nil {
+			return reply, errors.Join(ErrTurnStopped, retakeErr)
+		}
+		if reloadErr := s.reload(); reloadErr != nil {
+			return reply, errors.Join(ErrTurnStopped, reloadErr)
+		}
+	}
+	if recordErr := s.emit(execution.EventTurnStopped, map[string]any{"by": "operator"}); recordErr != nil {
+		return reply, errors.Join(ErrTurnStopped, recordErr)
+	}
+	return reply, ErrTurnStopped
+}
+
+// ErrTurnStopped is a turn the operator stopped from the console before the role
+// finished answering it. The conversation carries on: the turn is recorded as
+// any failed turn is, the provider session it was taken in is resumed by the
+// next one, and nothing the role asked for after the stop is carried out.
+var ErrTurnStopped = errors.New("you stopped the turn before the answer was finished")
+
+// speakUntil is speak's turn itself, under the context the stop keys cancel.
+func (s *Session) speakUntil(ctx context.Context, screen console.Console, message string) (Reply, error) {
 	display := screen.Working(phaseSending)
 	s.activity = &turnActivity{display: display, phase: phaseSending}
 	// Where the console may be dressed, the answer is read as it is written and

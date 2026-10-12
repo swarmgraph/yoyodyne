@@ -70,6 +70,31 @@ type terminal struct {
 	// terminal does answer can wait for the answer, which ends the negotiation,
 	// rather than bet that it lands inside a quarter of a second.
 	keyboardWait time.Duration
+	// escapeAfter starts the wait for an escape byte to be known as the escape
+	// key, which is escapeWait; endAfter is endWindow; now is the clock the window
+	// is measured on. They are fields for the same reason keyboardWait is: a test
+	// decides when they pass rather than sleeping through them.
+	escapeAfter func() <-chan time.Time
+	endAfter    time.Duration
+	now         func() time.Time
+
+	// interruptKey takes Ctrl-C over from the terminal as a key, or gives it back
+	// (setInterruptCharacter). It is nil where there is no terminal to set — a
+	// console over pipes in a test, where Ctrl-C was only ever a byte. reading
+	// counts what is reading the keyboard now — a prompt, a list, a turn being
+	// watched — and Ctrl-C is the console's while anything is.
+	interruptKey func(owned bool)
+	reading      int
+
+	// ending is when Ctrl-C was pressed on an empty prompt, and is zero when it
+	// was not: a second press inside endAfter ends the conversation, and any other
+	// key, or the window passing, forgets the first.
+	ending time.Time
+
+	// watching says a turn is being answered and the keyboard is being read for
+	// the keys that stop it (WatchForStop), which the account of work in progress
+	// names while it lasts.
+	watching bool
 
 	prompting  bool
 	promptText string
@@ -145,6 +170,18 @@ func openTerminal(in, out *os.File, env func(string) string) (*terminal, error) 
 	height := func() int { return terminalHeight(out.Fd()) }
 	terminal := newTerminal(in, out, width, height, restore)
 	terminal.modes = func() (func() error, error) { return enterCBreak(in.Fd()) }
+	// A terminal whose interrupt character cannot be read keeps Ctrl-C as the
+	// interrupt it always was: the conversation still ends on it, which is worse
+	// than clearing the prompt and better than a key that does nothing.
+	if character, err := interruptCharacter(in.Fd()); err == nil {
+		terminal.interruptKey = func(owned bool) {
+			if owned {
+				setInterruptCharacter(in.Fd(), noCharacter)
+				return
+			}
+			setInterruptCharacter(in.Fd(), character)
+		}
+	}
 	terminal.theme = NewTheme(env, width)
 	// What the terminal will say about a keystroke is settled before the first
 	// prompt is drawn, because it decides both what shift-return does and what
@@ -167,6 +204,9 @@ func newTerminal(in io.Reader, out io.Writer, width, height func() int, restore 
 		width:        width,
 		height:       height,
 		keyboardWait: keyboardReplyTimeout,
+		escapeAfter:  func() <-chan time.Time { return time.After(escapeWait) },
+		endAfter:     endWindow,
+		now:          time.Now,
 	}
 }
 
@@ -635,23 +675,47 @@ func (t *terminal) Status(text string) {
 	t.redraw()
 }
 
-// statusLine is what the region's top row says now.
+// The lines the status row carries for the keys this console gives a meaning of
+// their own: what stops the turn being answered, and what a first Ctrl-C on an
+// empty prompt is waiting for.
+const (
+	stopHint     = " · esc to stop"
+	endingNotice = "press ctrl-c again to end the conversation"
+)
+
+// statusLine is what the region's top row says now. A first Ctrl-C on an empty
+// prompt says what a second would do, over anything else on the row, because it
+// is the one line here that is about to matter; work in progress that the
+// keyboard is being watched for says which key stops it.
 func (t *terminal) statusLine() string {
+	if !t.ending.IsZero() {
+		return endingNotice
+	}
 	if t.status != "" {
+		if t.watching {
+			return t.status + stopHint
+		}
 		return t.status
 	}
 	return t.resting
 }
 
 func (t *terminal) Prompt(ctx context.Context, prompt string, interrupt <-chan struct{}) (string, error) {
+	t.claimInterrupt()
+	defer t.releaseInterrupt()
 	line, submitted, err := t.beginPrompt(prompt)
 	for {
 		switch {
+		case errors.Is(err, errEnded):
+			// Ctrl-C twice on an empty prompt is the operator ending the
+			// conversation, which is what the input ending has always meant.
+			return "", t.endPrompt(io.EOF)
 		case err != nil:
 			return "", err
 		case submitted:
 			return line, nil
 		}
+		escape, expiry := t.timers()
 		select {
 		case piece, open := <-t.input:
 			if !open {
@@ -660,7 +724,11 @@ func (t *terminal) Prompt(ctx context.Context, prompt string, interrupt <-chan s
 			if piece.err != nil {
 				return "", t.endPrompt(fmt.Errorf("read what the operator typed: %w", piece.err))
 			}
-			line, submitted, err = t.feed(piece.data)
+			line, submitted, err = t.feed(piece.data, false)
+		case <-escape:
+			line, submitted, err = t.feedLate(t.feed)
+		case <-expiry:
+			t.forgetEnding()
 		case <-interrupt:
 			// Something else needs the screen. What has been typed stays exactly
 			// as it is, and the next prompt picks it up mid-word.
@@ -671,6 +739,100 @@ func (t *terminal) Prompt(ctx context.Context, prompt string, interrupt <-chan s
 	}
 }
 
+// errEnded is Ctrl-C pressed the second time on an empty prompt, which ends the
+// conversation. Prompt and Choose report it as io.EOF.
+var errEnded = errors.New("the operator ended the conversation")
+
+// endWindow is how soon a second Ctrl-C has to follow the first on an empty
+// prompt to end the conversation. A first one on its own only says what a
+// second would do, so a Ctrl-C pressed out of habit costs nothing.
+const endWindow = 2 * time.Second
+
+// claimInterrupt and releaseInterrupt bracket anything that reads the keyboard:
+// while one is, Ctrl-C is a key this console reads rather than an interrupt the
+// terminal raises.
+func (t *terminal) claimInterrupt() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.reading++
+	if t.reading == 1 && t.interruptKey != nil && !t.closed {
+		t.interruptKey(true)
+	}
+}
+
+func (t *terminal) releaseInterrupt() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.reading--
+	if t.reading == 0 && t.interruptKey != nil && !t.closed {
+		t.interruptKey(false)
+	}
+}
+
+// timers are the two waits a reader of the keyboard has besides the keyboard: an
+// escape byte waiting to be known as the escape key, and a first Ctrl-C waiting
+// for a second. Either is nil when nothing is waiting for it.
+func (t *terminal) timers() (<-chan time.Time, <-chan time.Time) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	var escape, expiry <-chan time.Time
+	if lateEscape(t.keys) {
+		escape = t.escapeAfter()
+	}
+	if !t.ending.IsZero() {
+		expiry = time.After(t.endAfter - t.now().Sub(t.ending))
+	}
+	return escape, expiry
+}
+
+// feedLate is what a reader does when an escape byte has waited its time. Input
+// that arrived as the wait ran out is read first, because it may be the rest of
+// the sequence the escape began; only an escape still waiting after that is the
+// escape key.
+func (t *terminal) feedLate(feed func([]byte, bool) (string, bool, error)) (string, bool, error) {
+	select {
+	case piece, open := <-t.input:
+		if open && piece.err == nil {
+			return feed(piece.data, false)
+		}
+		// The input ended or failed just as the escape ran out. What it said is
+		// lost to this read, and the next one finds the input closed and ends there.
+	default:
+	}
+	return feed(nil, true)
+}
+
+// forgetEnding takes back a first Ctrl-C whose window has passed.
+func (t *terminal) forgetEnding() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.ending.IsZero() || t.now().Sub(t.ending) < t.endAfter {
+		return
+	}
+	t.ending = time.Time{}
+	t.redraw()
+}
+
+// interrupted is Ctrl-C at a prompt or a list. Text being composed is cleared,
+// and kept for Ctrl-Y to put back, so a message cleared by mistake is not lost;
+// on an empty prompt the first press says what a second does and the second,
+// inside endAfter, ends the conversation.
+func (t *terminal) interrupted() error {
+	if len(t.line) > 0 {
+		t.kill(0, len(t.line), false)
+		t.killing = false
+		t.forget()
+		t.ending = time.Time{}
+		return nil
+	}
+	if !t.ending.IsZero() && t.now().Sub(t.ending) < t.endAfter {
+		t.ending = time.Time{}
+		return errEnded
+	}
+	t.ending = t.now()
+	return nil
+}
+
 // beginPrompt shows the prompt and applies anything the operator typed ahead
 // while the last turn was being answered, so type-ahead is honoured in the
 // order it was typed rather than discarded.
@@ -679,7 +841,7 @@ func (t *terminal) beginPrompt(prompt string) (string, bool, error) {
 	t.prompting = true
 	t.promptText = prompt
 	t.mu.Unlock()
-	return t.feed(nil)
+	return t.feed(nil, false)
 }
 
 // endPrompt takes the composing region down because there will be no line: the
@@ -695,6 +857,7 @@ func (t *terminal) endPrompt(cause error) error {
 	t.entering = false
 	t.line = nil
 	t.cursor = 0
+	t.ending = time.Time{}
 	t.forget()
 	t.render([]string{composed})
 	return cause
@@ -703,8 +866,11 @@ func (t *terminal) endPrompt(cause error) error {
 // feed applies input to the message being composed and returns it once the
 // operator sends one. Anything typed after that stays buffered: two messages
 // that arrive in one read are two messages, in order.
-func (t *terminal) feed(data []byte) (string, bool, error) {
-	line, submitted, raised, err := t.consume(data)
+//
+// late says an escape byte at the front of what is waiting has waited its time
+// and is the escape key (lateEscape).
+func (t *terminal) feed(data []byte, late bool) (string, bool, error) {
+	line, submitted, raised, err := t.consume(data, late)
 	t.raiseAll(raised)
 	return line, submitted, err
 }
@@ -757,6 +923,11 @@ func (t *terminal) suspend() {
 		// than it was and better than a conversation that ends because the operator
 		// stopped it, so it carries on and the region is drawn on what there is.
 	}
+	// The operator's own settings went back on the terminal for the stop, Ctrl-C
+	// among them, and whatever is reading the keyboard still wants it as a key.
+	if t.reading > 0 && t.interruptKey != nil {
+		t.interruptKey(true)
+	}
 	t.negotiateKeyboard(t.keyboardWait)
 	// Bracketing is asked for again for the reason the keyboard is: the shell
 	// that had the terminal in between may have turned it off.
@@ -766,7 +937,7 @@ func (t *terminal) suspend() {
 
 // consume is feed under the lock: everything that changes what is on screen,
 // and the signal keys it met on the way, which are raised once it is let go of.
-func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
+func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var raised []signalKey
@@ -780,7 +951,7 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 		return "", false, raised, fmt.Errorf("the operator sent more than %d bytes without ending the message", MaxLineBytes)
 	}
 	for len(t.keys) > 0 {
-		pressed, size, complete := decodeKey(t.keys)
+		pressed, size, complete := t.nextKey(late)
 		if !complete {
 			break
 		}
@@ -789,6 +960,13 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 			raised = append(raised, pressed.signal)
 			continue
 		}
+		if pressed.code == keyInterrupt {
+			if err := t.interrupted(); err != nil {
+				return "", false, raised, err
+			}
+			continue
+		}
+		t.ending = time.Time{}
 		if pressed.code != keyEnter {
 			t.apply(pressed)
 			continue
@@ -827,6 +1005,16 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 		return "", false, raised, err
 	}
 	return "", false, raised, nil
+}
+
+// nextKey decodes the keystroke at the front of what is waiting, taking an escape
+// byte that has waited its time for the escape key itself.
+func (t *terminal) nextKey(late bool) (key, int, bool) {
+	pressed, size, complete := decodeKey(t.keys)
+	if !complete && late && lateEscape(t.keys) {
+		return key{code: keyEscape}, 1, true
+	}
+	return pressed, size, complete
 }
 
 // apply is one keystroke's effect on the message being composed.
@@ -974,9 +1162,13 @@ func (t *terminal) Choose(ctx context.Context, prompt string, options []string, 
 	if t.entered() {
 		return t.Prompt(ctx, prompt, interrupt)
 	}
+	t.claimInterrupt()
+	defer t.releaseInterrupt()
 	index, chosen, err := t.beginChoice(prompt, offered(options))
 	for {
 		switch {
+		case errors.Is(err, errEnded):
+			return "", t.endChoice(io.EOF)
 		case err != nil:
 			return "", err
 		case chosen:
@@ -987,6 +1179,7 @@ func (t *terminal) Choose(ctx context.Context, prompt string, options []string, 
 			// other and is read as one.
 			return t.Prompt(ctx, prompt, interrupt)
 		}
+		escape, expiry := t.timers()
 		select {
 		case piece, open := <-t.input:
 			if !open {
@@ -995,7 +1188,15 @@ func (t *terminal) Choose(ctx context.Context, prompt string, options []string, 
 			if piece.err != nil {
 				return "", t.endChoice(fmt.Errorf("read what the operator chose: %w", piece.err))
 			}
-			index, chosen, err = t.feedChoice(piece.data)
+			index, chosen, err = t.feedChoice(piece.data, false)
+		case <-escape:
+			_, _, err = t.feedLate(func(data []byte, late bool) (string, bool, error) {
+				var fed error
+				index, chosen, fed = t.feedChoice(data, late)
+				return "", chosen, fed
+			})
+		case <-expiry:
+			t.forgetEnding()
 		case <-interrupt:
 			// Something else needs the screen. The marker stays where they left
 			// it, and the next Choose puts the same list back under it.
@@ -1029,7 +1230,7 @@ func (t *terminal) beginChoice(prompt string, choices []string) (int, bool, erro
 	t.choosing = true
 	t.promptText = prompt
 	t.mu.Unlock()
-	return t.feedChoice(nil)
+	return t.feedChoice(nil, false)
 }
 
 // endChoice takes the list down because there will be no answer: the input
@@ -1043,6 +1244,7 @@ func (t *terminal) endChoice(cause error) error {
 	t.choosing = false
 	t.choices = nil
 	t.chosen = 0
+	t.ending = time.Time{}
 	t.render([]string{asked})
 	return cause
 }
@@ -1053,21 +1255,21 @@ func (t *terminal) endChoice(cause error) error {
 // signal keys it met on the way are raised once the console is let go of, as
 // feed raises them for a line: a list on screen is no reason Ctrl-C should stop
 // interrupting.
-func (t *terminal) feedChoice(data []byte) (int, bool, error) {
-	index, chosen, raised, err := t.consumeChoice(data)
+func (t *terminal) feedChoice(data []byte, late bool) (int, bool, error) {
+	index, chosen, raised, err := t.consumeChoice(data, late)
 	t.raiseAll(raised)
 	return index, chosen, err
 }
 
 // consumeChoice is feedChoice under the lock: everything that changes what is
 // on screen, and the signal keys it met on the way.
-func (t *terminal) consumeChoice(data []byte) (int, bool, []signalKey, error) {
+func (t *terminal) consumeChoice(data []byte, late bool) (int, bool, []signalKey, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	var raised []signalKey
 	t.keys = append(t.keys, data...)
 	for len(t.keys) > 0 {
-		pressed, size, complete := decodeKey(t.keys)
+		pressed, size, complete := t.nextKey(late)
 		if !complete {
 			break
 		}
@@ -1076,6 +1278,15 @@ func (t *terminal) consumeChoice(data []byte) (int, bool, []signalKey, error) {
 			raised = append(raised, pressed.signal)
 			continue
 		}
+		// A list has no text of its own to clear, so Ctrl-C there is what it is on
+		// an empty prompt.
+		if pressed.code == keyInterrupt {
+			if err := t.interrupted(); err != nil {
+				return 0, false, raised, err
+			}
+			continue
+		}
+		t.ending = time.Time{}
 		if pressed.code != keyEnter {
 			t.move(pressed)
 			continue

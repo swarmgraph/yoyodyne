@@ -143,6 +143,10 @@ func (p *plain) Working(phase string) Activity {
 	return activity
 }
 
+// WatchForStop has nothing to watch: a stream hands over whole lines, and a
+// key pressed while a turn is being answered is not one of them.
+func (p *plain) WatchForStop() (<-chan struct{}, func()) { return nil, func() {} }
+
 // Status has nothing to rest on. A stream is written once and never revisited,
 // so a line whose whole purpose is to be replaced would be a line repeated for
 // every turn of the conversation, and a redirected transcript would carry a

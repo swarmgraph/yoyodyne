@@ -21,3 +21,13 @@ func terminalHeight(uintptr) int { return 24 }
 // raiseSignal has nothing to raise: no keyboard is negotiated where no terminal
 // can be addressed, so the driver is still handling these keys itself.
 func raiseSignal(signalKey) {}
+
+const noCharacter = 0
+
+func interruptCharacter(uintptr) (uint8, error) {
+	return 0, errors.New("this platform has no terminal control")
+}
+
+func setInterruptCharacter(uintptr, uint8) error {
+	return errors.New("this platform has no terminal control")
+}
