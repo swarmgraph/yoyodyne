@@ -33,6 +33,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/console"
+	"github.com/mason-bryant/yoyodyne/internal/documentcheck"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
@@ -50,6 +51,9 @@ type Documents interface {
 	// role's authority over the document it names, and whether the directory is
 	// the one its kind is filed in.
 	CheckWrite(role domain.AgentRole, write artifact.Write) error
+	// WritePath is the repository-relative file a write lands in, which is what
+	// the document is checked as before it is recorded.
+	WritePath(write artifact.Write) (string, error)
 	// Filing is where each kind this role owns is filed, which is what the role
 	// has to be told before it can name a directory — and it is per role rather
 	// than a list of every home, because an example naming the wrong one steers
@@ -252,7 +256,37 @@ func (s *Session) refuseWrites(ctx context.Context, writes []artifact.Write) err
 			return err
 		}
 	}
+	for _, write := range writes {
+		if err := s.checkDocument(write); err != nil {
+			return err
+		}
+	}
 	return s.refuseWorkItemReferences(ctx, writes)
+}
+
+// checkDocument holds a written document to the coined-words and link rules
+// the run landing it would hold it to, so a role learns of a word or a link
+// those checks refuse in the turn it wrote it rather than a run later; see
+// internal/documentcheck. Only a finding refuses the document. A check that
+// could not be run lets it through with a notice, because the run landing it
+// still runs every check and refusing for want of one would stop a role
+// writing anything at all.
+func (s *Session) checkDocument(write artifact.Write) error {
+	documentPath, err := s.options.Documents.WritePath(write)
+	if err == nil {
+		// The body is checked as the store files it, trimmed, so a line named in a
+		// refusal is the line it lands on below the frontmatter.
+		err = documentcheck.Check(s.options.Documents.Checkout(), documentPath, strings.TrimSpace(write.Body))
+	}
+	var refused *documentcheck.Refusal
+	if errors.As(err, &refused) {
+		return err
+	}
+	if err != nil {
+		s.notice("the document %s could not be checked for coined words and links before it was recorded, and the run landing it will check it instead: %v",
+			strings.TrimSpace(write.ID), err)
+	}
+	return nil
 }
 
 // renderDocumentRefusal names what was refused and what is still waiting.

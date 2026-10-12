@@ -13,6 +13,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 // documentReply is a turn that writes one document, in the shape the contract
@@ -626,5 +627,84 @@ func TestARepeatedDocumentRefusalSurvivesALaterTrackerRound(t *testing.T) {
 	state, err = options.Store.Load(identity)
 	if err != nil || strings.Contains(state.PendingTrackerResults, "Document submission refused") {
 		t.Fatalf("delivered refusal was not cleared: %#v, %v", state, err)
+	}
+}
+
+// withRegister gives the repository a register of coined words naming none, so
+// every word the terms check knows is refused in a document written there.
+func withRegister(t *testing.T, repository string) {
+	t.Helper()
+	register := "# Terms\n\n" + terms.RegisterHeading + "\n\n| Term | In plain words | Where it is used |\n| --- | --- | --- |\n"
+	if err := os.MkdirAll(filepath.Join(repository, "docs"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repository, filepath.FromSlash(terms.RegisterPath)), []byte(register), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The checks the run landing a document would fail it on are run when the role
+// writes it, and what they find goes straight back to the role in the same
+// message, naming the rule and the line, with nothing recorded.
+func TestADocumentTheDocumentChecksWouldFailIsRefusedBackToTheRoleInTheSameTurn(t *testing.T) {
+	t.Parallel()
+
+	for name, test := range map[string]struct {
+		body string
+		want []string
+	}{
+		"coined word": {body: "# Goals\\n\\nShip it.\\n\\nNothing is wedged.", want: []string{`line 5, coined words: "wedged"`}},
+		"broken link": {body: "# Goals\\n\\nSee [the brief](brief.md#nowhere).", want: []string{"line 3, links: ", "brief.md"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			provider := &fakeBackend{results: []backendapi.RunResult{{
+				SessionID: "session-1", ResolvedModel: "claude-opus-5",
+				FinalText: documentReply("create", "v2-goals", "goals", "docs/product", test.body),
+			}, {SessionID: "session-1", FinalText: "I will reword it."}}}
+			options, repository := documentOptions(t, provider)
+			withRegister(t, repository)
+			session := openTestSession(t, options)
+
+			reply, err := session.Send(context.Background(), "Write the goals up.")
+			if err != nil || len(reply.DocumentRefusals) != 1 {
+				t.Fatalf("Send() = %#v, %v, want one refusal", reply, err)
+			}
+			for _, want := range append(test.want, "docs/product/v2-goals.md") {
+				if !strings.Contains(reply.DocumentRefusals[0], want) {
+					t.Errorf("refusal = %q, want it to say %q", reply.DocumentRefusals[0], want)
+				}
+			}
+			if len(reply.Writes) != 0 || len(session.Writes()) != 0 {
+				t.Fatalf("a refused document was recorded: %#v", session.Writes())
+			}
+			// Handed back in this message, not left for the run landing it.
+			if len(provider.requests) != 2 || !strings.Contains(provider.requests[1].Prompt, test.want[0]) {
+				t.Fatalf("the role was not handed the refusal in the same turn; requests = %d", len(provider.requests))
+			}
+			if _, err := os.Stat(filepath.Join(repository, "docs", "product")); !os.IsNotExist(err) {
+				t.Fatalf("a refused document reached the repository: %v", err)
+			}
+		})
+	}
+}
+
+func TestADocumentThatPassesTheDocumentChecksIsRecordedAsBefore(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{results: []backendapi.RunResult{{
+		SessionID: "session-1", ResolvedModel: "claude-opus-5",
+		FinalText: documentReply("create", "v2-goals", "goals", "docs/product", "# Goals\\n\\nShip it; see [the goals](#goals)."),
+	}}}
+	options, repository := documentOptions(t, provider)
+	withRegister(t, repository)
+	session := openTestSession(t, options)
+
+	reply, err := session.Send(context.Background(), "Write the goals up.")
+	if err != nil || len(reply.DocumentRefusals) != 0 || len(reply.Writes) != 1 {
+		t.Fatalf("Send() = %#v, %v, want the document recorded", reply, err)
+	}
+	if len(provider.requests) != 1 {
+		t.Fatalf("a clean document cost the role another turn; requests = %d", len(provider.requests))
 	}
 }
