@@ -3924,7 +3924,12 @@ type scheduleHarness struct {
 	// execution.brake_cooldown as a pull reads it, and cycleBound is
 	// execution.brake_escalation_cycles — left at zero, which is no bound, by
 	// every test that is not about it.
-	summon     func(*scheduleHarness, BrakeSummons, int) (Fired, error)
+	summon func(*scheduleHarness, BrakeSummons, int) (Fired, error)
+	// beside counts the turns a session wired with it takes beside the pull — the
+	// summons first among them — until each is handed back, and every poll this
+	// harness sleeps waits them out first, so a summons is collected at the pull
+	// after the one that made it however the goroutines were scheduled.
+	beside     *sync.WaitGroup
 	summonses  []runstate.IntakeHold
 	releases   []runstate.IntakeHold
 	revisions  int
@@ -4064,6 +4069,7 @@ func newScheduleHarness(items ...beads.WorkItem) *scheduleHarness {
 		drainLimit: 15 * time.Minute,
 		gate:       make(chan struct{}),
 		started:    make(chan struct{}, 1),
+		beside:     &sync.WaitGroup{},
 		// The morning the session that provoked the retry died, so a test reading
 		// its own timings reads the ones in the report.
 		now: time.Date(2026, 9, 1, 5, 40, 0, 0, time.UTC),
@@ -4247,6 +4253,7 @@ func (h *scheduleHarness) Audit(_ context.Context, claimed []beads.WorkItem) (Cl
 // operator stopping it. The clock moves by what the wait asked for, so a session
 // backing off through an outage reaches the window it gives up at.
 func (h *scheduleHarness) sleep(_ context.Context, interval time.Duration) bool {
+	h.beside.Wait()
 	h.mu.Lock()
 	h.sleeps++
 	h.now = h.now.Add(interval)

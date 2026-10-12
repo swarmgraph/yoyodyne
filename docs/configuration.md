@@ -7793,15 +7793,21 @@ later over the same ground — and `yoyo sweeps` shows it as summoned, naming
 what tripped the brake. A project that schedules no such task gets no summons;
 its brake is decided by the cooldown's probe rather than by her, and the hold
 says so. The provider answering nobody refuses a summons exactly as it refuses
-a scheduled firing, and the pause covers both. A trip that finds a pass of hers
-still taking turns in her conversation does not summon her into it — the
+a scheduled firing, and the pause covers both. The summons is taken the way a
+recurring pass is: beside the session's poll, which goes on pulling while she
+answers, and holding her conversation so that no pass of hers is started into
+it until the summons ends. While it is being taken the cooldown running out
+starts no probe. A trip that finds a pass of hers, or any other turn this
+session is taking, still in her conversation does not summon her into it — the
 summons claims her task's firing before it asks her anything, so it would spend
-that claim on a turn her own pass holds the conversation against — and summons
-her at the first pull after that pass ends, provided the brake's hold still
-stands and has not been escalated; a stopped run's delivery to her waits for
-her pass the same way. A wake for a tracker block the harness refused is
-already refused by a conversation mid-turn before it claims anything, and is
-made at a later pass.
+that claim on a turn the conversation is held against — and summons her at the
+first pull after that turn ends, provided the brake's hold still stands and has
+not been escalated; a stopped run's delivery to her waits for her pass the same
+way. A wake for a tracker block the harness refused is taken beside the poll
+too, one at a time: a refusal in a conversation a pass or other turn of this
+session is using waits for it to end and is woken for at the next pull after,
+and one in a conversation another process is mid-turn with is refused before
+anything is claimed and made at a later pass.
 
 **A development manager's pass also reads the forge.** On every firing of a
 task whose role is `development-manager`, and only that role's, the harness

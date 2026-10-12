@@ -159,6 +159,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
@@ -605,6 +606,15 @@ type ScheduleCorrections interface {
 	Correct(ctx context.Context) (CorrectionSweep, error)
 }
 
+// ScheduleCorrectionsConcurrent is corrections a watching session claims a
+// wakeup from and takes its turn beside the pull, rather than inside, among the
+// conversations no turn of the session's is holding. It is satisfied by
+// Corrector, and asked for by assertion, so corrections that can only wake in
+// place are woken in place as they always were.
+type ScheduleCorrectionsConcurrent interface {
+	Start(ctx context.Context, busy map[string]bool) (CorrectionStart, error)
+}
+
 // ScheduleLandings closes the items a conversation carries whose landing is
 // already in the repository — a revision of a document the conversation's role
 // owns, opening with the item's identifier. It is satisfied by
@@ -712,7 +722,8 @@ type Pull struct {
 	// BrakeCooldown is execution.brake_cooldown as this pull read it: how long a
 	// tripped brake waits for the development manager's decision before it
 	// probes the line by itself. Zero waits for her summoned turn and no longer,
-	// because the summons is taken before the cooldown is read.
+	// because the cooldown probes nothing while a summons is being taken or
+	// waits for her conversation; see workBrake.
 	BrakeCooldown time.Duration
 	// BrakeEscalationCycles is execution.brake_escalation_cycles as this pull
 	// read it: how many summons-and-probe cycles the brake goes round before it
@@ -961,6 +972,11 @@ type Scheduler struct {
 	Interval func(interval time.Duration) <-chan time.Time
 	// Now stamps the recorded transitions. It defaults to the wall clock.
 	Now func() time.Time
+	// besideTurns, where set, counts each turn taken beside the pull that is not
+	// a recurring firing until it has been handed back to be collected, so a test
+	// whose injected Sleep does not wait in real time can wait one out; see
+	// launchTurn.
+	besideTurns *sync.WaitGroup
 }
 
 // Started is one item this pass chose, and what became of the run for it.
@@ -1423,6 +1439,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// nothing else; see recurringfirings.go. They are collected at the top of
 	// every pull and waited out when the session ends, like its runs.
 	firings := newRecurringFirings(session.passingBeside(ctx))
+	firings.taken = s.besideTurns
 	defer firings.cancel()
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
@@ -2249,8 +2266,10 @@ pulling:
 		// be late with: the refusal is already in that conversation's next turn
 		// whenever one happens, so what a later pass costs it is an interval, where
 		// a stoppage nobody delivers and a cadence nobody fires cost their whole
-		// pass. Like both of them it takes at most one turn; see Corrector.
-		s.correct(ctx, &schedule, pull)
+		// pass. Like the firings it takes its turn beside the pull, at most one at
+		// a time and never in a conversation a turn of this session's holds; see
+		// correct.
+		s.correct(ctx, &schedule, pull, firings, !drain.active || running > 0)
 		// The claims the tracker holds are audited here, for the reason the three
 		// above it run here: it chooses nothing and starts nothing, so none of what
 		// follows is allowed to stop it happening. It is last of the four because it
@@ -2736,7 +2755,7 @@ pulling:
 			// its record says to release it, probed where its record says a probe
 			// is due, and waited on otherwise — which is the development manager
 			// deciding, a probe in flight, or her having escalated it.
-			switch s.workBrake(&schedule, pull, hold, mine) {
+			switch s.workBrake(&schedule, pull, hold, mine, firings.summonsPending()) {
 			case brakeReleased:
 				schedule.IntakeHeld = nil
 				session.resume("the brake's hold was released on the development manager's decision")
@@ -3736,28 +3755,52 @@ func (s Scheduler) brake(ctx context.Context, schedule *Schedule, firings *recur
 // is released or kept on evidence either way, and what is lost is her judgment
 // rather than the release.
 //
-// A summons is a turn in the development manager's conversation, so one that
-// finds a recurring pass of hers still taking turns there is not made into it:
-// the summons claims her task's firing before it asks her anything, and a turn
-// her own pass holds the conversation for would be refused after that claim,
-// spending it on a failed firing and leaving the hold to the cooldown's probe
-// for nothing. It waits instead, and is made at the first pull after her pass
-// ends while the brake's hold still stands; see summonWaiting.
+// A summons is a turn in the development manager's conversation, so it is
+// taken where the recurring firings take theirs: beside the pull, holding her
+// conversation until it ends, so the watch goes on pulling while she answers
+// and no firing of hers is claimed into the conversation meanwhile; see
+// launchTurn. One that finds a pass of hers, or any other turn of this
+// session's, still taking turns there is not made into it: the summons claims
+// her task's firing before it asks her anything, and a turn the conversation is
+// held for would be refused after that claim, spending it on a failed firing
+// and leaving the hold to the cooldown's probe for nothing. It waits instead,
+// and is made at the first pull after that turn ends while the brake's hold
+// still stands; see summonWaiting. While it waits or is being taken the brake
+// probes nothing on the cooldown alone; see workBrake.
 func (s Scheduler) summon(ctx context.Context, schedule *Schedule, firings *recurringFirings, brake ScheduleBrake, summons ScheduleSummons, held runstate.IntakeHold) {
 	if brake == nil {
 		return
 	}
-	if summons != nil && firings != nil {
-		if _, busy := firings.holding(roleConversationKey(domain.RoleDevelopmentManager)); busy {
-			firings.summoning = &waitingSummons{brake: brake, summons: summons}
-			return
-		}
-	}
-	var problem string
 	if summons == nil {
+		s.summoned(schedule, brake, false, Fired{}, nil, s.now())
+		return
+	}
+	if firings == nil {
+		fired, err := summons.Summon(ctx, BrakeSummons{Hold: held})
+		s.summoned(schedule, brake, true, fired, err, s.now())
+		return
+	}
+	conversation := roleConversationKey(domain.RoleDevelopmentManager)
+	if _, busy := firings.inFlight[conversation]; busy {
+		firings.summoning = &waitingSummons{brake: brake, summons: summons}
+		return
+	}
+	firings.launchTurn(StartedFiring{Task: summonsTask, Role: domain.RoleDevelopmentManager, Conversation: conversation},
+		func(ctx context.Context) func(*Schedule) {
+			fired, err := summons.Summon(ctx, BrakeSummons{Hold: held})
+			at := s.now()
+			return func(schedule *Schedule) { s.summoned(schedule, brake, true, fired, err, at) }
+		}, s.now)
+}
+
+// summoned writes what one summons came to onto the schedule and the hold, at
+// the moment its turn ended. It is written on the session's goroutine, once the
+// summons is collected.
+func (s Scheduler) summoned(schedule *Schedule, brake ScheduleBrake, wired bool, fired Fired, err error, ended time.Time) {
+	var problem string
+	if !wired {
 		problem = "nothing was wired to summon the development manager, so the hold is decided by the cooldown's probe rather than by her"
 	} else {
-		fired, err := summons.Summon(ctx, BrakeSummons{Hold: held})
 		// What the summons cost is the session's spend, exactly as a firing's is
 		// and for the same reason.
 		schedule.SpentUSD += fired.CostUSD
@@ -3771,7 +3814,7 @@ func (s Scheduler) summon(ctx context.Context, schedule *Schedule, firings *recu
 			schedule.Fired = append(schedule.Fired, fired)
 		}
 	}
-	at := s.now().UTC()
+	at := ended.UTC()
 	// A hold lifted while her turn was being taken — by her own decision, or by
 	// `yoyo release` — has no record to write onto, and that is not a failure:
 	// the summons did what it was for.
@@ -3817,7 +3860,12 @@ const (
 // without a record, which restarts the cooldown rather than starting a second
 // probe on the spot: the ending is unknown, and an unknown ending is not a
 // landing.
-func (s Scheduler) workBrake(schedule *Schedule, pull Pull, hold runstate.IntakeHold, mine map[string]int) brakeAction {
+//
+// While a summons of hers is being taken, or waits for her conversation, the
+// cooldown running out probes nothing: the summons is how she is asked, and a
+// cooldown of zero waits for her summoned turn and no longer. A probe she
+// decided on is made whatever else is in flight.
+func (s Scheduler) workBrake(schedule *Schedule, pull Pull, hold runstate.IntakeHold, mine map[string]int, summoning bool) brakeAction {
 	if !hold.Braked() || pull.Brake == nil {
 		return brakeWaiting
 	}
@@ -3859,7 +3907,7 @@ func (s Scheduler) workBrake(schedule *Schedule, pull Pull, hold runstate.Intake
 		}
 		s.settleLostProbe(schedule, pull, now)
 		return brakeWaiting
-	case trip.ProbeDue(now):
+	case trip.ProbeDue(now) && (trip.Decision == runstate.BrakeDecisionProbe || !summoning):
 		return brakeProbing
 	default:
 		return brakeWaiting
@@ -4580,14 +4628,49 @@ func (s Scheduler) missed(ctx context.Context, schedule *Schedule, pull Pull, wa
 // correct wakes whichever role is owed a correction, and records what came back
 // on the schedule.
 //
+// Corrections that can wake beside the pull do: the wakeup is claimed here,
+// among the conversations no firing or other turn of this session is holding, and
+// its turn is taken on the path the recurring firings take theirs, so the watch
+// goes on pulling while the role answers and a refusal in a conversation a pass is
+// using waits for the pass to end rather than being woken into it. One wakeup is
+// in flight at a time, and a session draining to restart that hosts no run starts
+// none, for the reason it starts no firing. Corrections that cannot are woken in
+// place, as they always were.
+//
 // Nothing here stops the pass, for the reason the firing and the delivery beside
 // it do not: a wakeup that failed costs the pass nothing it was doing, so it is
 // reported beside the pull rather than in place of it.
-func (s Scheduler) correct(ctx context.Context, schedule *Schedule, pull Pull) {
+func (s Scheduler) correct(ctx context.Context, schedule *Schedule, pull Pull, firings *recurringFirings, starting bool) {
 	if pull.Corrections == nil {
 		return
 	}
-	sweep, err := pull.Corrections.Correct(ctx)
+	concurrent, beside := pull.Corrections.(ScheduleCorrectionsConcurrent)
+	if !beside || firings == nil {
+		sweep, err := pull.Corrections.Correct(ctx)
+		s.corrected(schedule, sweep, err)
+		return
+	}
+	if !starting || firings.taking(correctionTask) {
+		return
+	}
+	start, err := concurrent.Start(ctx, firings.busy())
+	if start.Started == nil {
+		s.corrected(schedule, CorrectionSweep{Paused: start.Paused}, err)
+		return
+	}
+	started := *start.Started
+	firings.launchTurn(StartedFiring{Task: correctionTask, Role: started.Identity.Role, Conversation: started.Conversation},
+		func(ctx context.Context) func(*Schedule) {
+			corrected := started.Take(ctx)
+			return func(schedule *Schedule) {
+				s.corrected(schedule, CorrectionSweep{Corrected: []Corrected{corrected}}, nil)
+			}
+		}, s.now)
+}
+
+// corrected writes what one pass did about the refusals onto the schedule. A
+// wakeup taken beside the pull is written once it is collected.
+func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err error) {
 	var problems []string
 	if err != nil {
 		problems = append(problems, fmt.Sprintf("a role whose tracker block was refused could not be woken to re-issue it, so those actions are waiting on somebody prompting it: %v", err))

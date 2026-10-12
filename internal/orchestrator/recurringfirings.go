@@ -25,6 +25,12 @@ package orchestrator
 // since it fell due is claimed next, whatever kind of firing it is. A critical
 // report's delivery waits by the time its oldest report was filed, so a starved
 // role's pass that fell due an hour ago goes ahead of it.
+//
+// The brake's summons of the development manager and the wake correcting a
+// refused tracker block are taken on the same path, though neither is a firing:
+// each holds its conversation as a firing does, so neither is made into a
+// conversation a pass is using, and no pass is started into one while it runs;
+// see launchTurn.
 
 import (
 	"context"
@@ -32,6 +38,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
@@ -82,6 +89,10 @@ type StartedFiring struct {
 	// Due is when the firing fell due, where that is known.
 	Due  time.Time
 	take func(context.Context) Fired
+	// beside marks a turn that is not a recurring firing at all — the brake's
+	// summons, or the wake correcting a refused tracker block — taken on the same
+	// path so it holds its conversation the same way; see launchTurn.
+	beside bool
 }
 
 // Take takes the firing's turns and records what they came to. It never
@@ -349,6 +360,9 @@ type firingDone struct {
 	started StartedFiring
 	fired   Fired
 	at      time.Time
+	// settle is what a turn taken beside the firings writes once it is
+	// collected, in place of a firing's account; see launchTurn.
+	settle func(*Schedule)
 }
 
 // recurringFirings is a watching session's firings in flight, by the
@@ -360,9 +374,13 @@ type recurringFirings struct {
 	// its bound has run out with nothing else hosted.
 	ctx    context.Context
 	cancel context.CancelFunc
+	// taken, where set, counts the turns launchTurn has in flight until each is
+	// handed back; see Scheduler.besideTurns.
+	taken *sync.WaitGroup
 	// summoning is the brake's summons of the development manager, where one
-	// found a pass of hers taking turns in her conversation and is waiting for it
-	// to end. It is made by summonWaiting at the first pull after that.
+	// found a pass of hers, or another turn, taking turns in her conversation and
+	// is waiting for it to end. It is made by summonWaiting at the first pull
+	// after that.
 	summoning *waitingSummons
 }
 
@@ -378,9 +396,10 @@ func newRecurringFirings(ctx context.Context) *recurringFirings {
 	firingCtx, cancel := context.WithCancel(ctx)
 	return &recurringFirings{
 		inFlight: map[string]StartedFiring{},
-		// Buffered to the bound, so a firing that ends never waits on the session
-		// collecting it: the session may be asleep for a poll interval.
-		done:   make(chan firingDone, MaxConcurrentFirings),
+		// Buffered to the bound and the turns taken beside it, so a firing that
+		// ends never waits on the session collecting it: the session may be asleep
+		// for a poll interval.
+		done:   make(chan firingDone, MaxConcurrentFirings+besideTurns),
 		ctx:    firingCtx,
 		cancel: cancel,
 	}
@@ -409,6 +428,63 @@ func (f *recurringFirings) launch(started StartedFiring, now func() time.Time) {
 		fired := started.Take(f.ctx)
 		f.done <- firingDone{started: started, fired: fired, at: now()}
 	}()
+}
+
+// besideTurns is how many turns that are not recurring firings a session can
+// have in flight at once: one summons of the development manager by the brake,
+// and one wake correcting a refused tracker block.
+const besideTurns = 2
+
+// summonsTask and correctionTask name the two turns taken beside the firings,
+// where a firing waiting behind one says what holds its conversation.
+const (
+	summonsTask    = "the brake's summons of the development manager"
+	correctionTask = "the wake correcting a refused tracker block"
+)
+
+// launchTurn takes a turn that is not a recurring firing on the same path the
+// firings take theirs: in a goroutine of its own, holding its conversation
+// against every firing and every other such turn until it is collected, while
+// the pull goes on. The brake's summons and the wake correcting a refused
+// tracker block are taken this way, because either taken inside the pull held
+// the pull for the length of a turn, and either made into a conversation a
+// firing of this session was taking turns in was refused.
+//
+// What the turn came to is written on the session's goroutine, by the settle
+// that take returns, when the turn is collected — the schedule and the hold's
+// record are written by nobody else. These turns are not counted against
+// MaxConcurrentFirings when they start, so neither waits on a slot, but each
+// holds one while it runs, so the firings yield to them.
+func (f *recurringFirings) launchTurn(started StartedFiring, take func(context.Context) func(*Schedule), now func() time.Time) {
+	started.beside = true
+	f.inFlight[started.Conversation] = started
+	taken := f.taken
+	if taken != nil {
+		taken.Add(1)
+	}
+	go func() {
+		settle := take(f.ctx)
+		f.done <- firingDone{started: started, settle: settle, at: now()}
+		if taken != nil {
+			taken.Done()
+		}
+	}()
+}
+
+// taking reports whether a turn of task taken beside the firings is in flight.
+func (f *recurringFirings) taking(task string) bool {
+	for _, started := range f.inFlight {
+		if started.beside && started.Task == task {
+			return true
+		}
+	}
+	return false
+}
+
+// summonsPending reports a summons of the development manager in flight, or
+// held back for her own pass to end.
+func (f *recurringFirings) summonsPending() bool {
+	return f.summoning != nil || f.taking(summonsTask)
 }
 
 // startFirings claims what the schedule has due, takes the turns of each
@@ -471,8 +547,11 @@ func waitingReason(waiting WaitingFiring, firings *recurringFirings) string {
 		return fmt.Sprintf("all %d of the firings a session takes at once were in flight (%s), and the firings that had waited longer since falling due went first",
 			MaxConcurrentFirings, strings.Join(holding, ", "))
 	}
-	if task, held := firings.holding(waiting.Conversation); held {
-		return fmt.Sprintf("its conversation was taking the turns of the recurring task %s, which had not ended", task)
+	if started, held := firings.inFlight[waiting.Conversation]; held {
+		if started.beside {
+			return fmt.Sprintf("its conversation was taking the turn of %s, which had not ended", started.Task)
+		}
+		return fmt.Sprintf("its conversation was taking the turns of the recurring task %s, which had not ended", started.Task)
 	}
 	return "its conversation was taking the turns of another firing, which had not ended"
 }
@@ -494,6 +573,10 @@ func (s Scheduler) collectFirings(schedule *Schedule, firings *recurringFirings,
 			}
 		}
 		delete(firings.inFlight, done.started.Conversation)
+		if done.settle != nil {
+			done.settle(schedule)
+			continue
+		}
 		fired := done.fired
 		// What the firing cost is the session's spend, exactly as a delivery's is:
 		// the provider charged for the turns either way, and a session bounded by a
@@ -520,7 +603,7 @@ func (s Scheduler) collectFirings(schedule *Schedule, firings *recurringFirings,
 }
 
 // summonWaiting makes the brake's summons that waited on the development
-// manager's own pass, once that pass has ended, and only while the brake's hold
+// manager's conversation, once the turn holding it has ended, and only while the brake's hold
 // it was for still stands and is still the harness's to work. A hold she or the
 // operator lifted in the meantime, or one escalated to the operator, has
 // nothing left to summon her over, so the waiting summons is dropped. A hold

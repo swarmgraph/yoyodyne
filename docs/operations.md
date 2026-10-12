@@ -1239,7 +1239,9 @@ acts on her decision at its next poll. Where she records none by
 `execution.brake_cooldown` — thirty minutes by default — the session decides on
 evidence instead: it starts one probe run under the hold, and the probe landing
 reopens intake while the probe blocking keeps it held, restarts the cooldown,
-and puts the question to her again with the probe's own stoppage. A broken
+and puts the question to her again with the probe's own stoppage. Her summoned
+turn is taken beside the poll, so the session goes on pulling while she answers,
+and no probe starts on the cooldown alone until that turn has ended. A broken
 machine is therefore probed once per cooldown and put to her each time, and a
 machine that was fine is choosing again within a cooldown of the trip whether or
 not anybody answered. That loop is bounded: after
