@@ -2796,10 +2796,10 @@ resizing keep working on it as they would on any other command's output. Editing
 what you are composing uses the keys a shell's own line editor does:
 
 - the arrow keys, home and end, and Ctrl-A and Ctrl-E for the start and end;
-- Option-left and Option-right, or Alt with the arrows, or Alt-B and Alt-F, to
-  move a word at a time;
-- backspace and delete, and Option-backspace or Ctrl-W to delete the word before
-  the cursor;
+- Option or Alt held with the left and right arrows, or Alt-B and Alt-F, to move
+  a word at a time;
+- backspace and delete, and backspace with Option or Alt held, or Ctrl-W, to
+  delete the word before the cursor;
 - Ctrl-U to delete everything before the cursor, and Ctrl-K everything after it
   to the end of its line, or the newline at the end of one;
 - Ctrl-Y to put back what those last deleted. Several deletions in a row are put
