@@ -143,3 +143,26 @@ func TestARunPausedOnADependencyIsSaidAsPausedAndItsSlotAsFree(t *testing.T) {
 		t.Fatalf("brief rendering:\n%s\nwant the paused head kept", brief)
 	}
 }
+
+// A confirmed document's landing is running, not paused, and holds no developer
+// slot: it is listed with the running runs and every developer slot beside it
+// reads free.
+func TestADocumentLandingIsSaidAsRunningAndHoldsNoDeveloperSlot(t *testing.T) {
+	t.Parallel()
+	sources := quietSources()
+	sources.Capacity = 1
+	sources.Slots = []domain.DeveloperSlot{{Prefer: []string{"dashboard"}}}
+	sources.Runs = fakeRuns{
+		incomplete: []runstate.State{{
+			RunID: "run-document", WorkItemID: "run-document", Status: runstate.StatusRunning, Phase: runstate.PhaseChecking,
+			StartedAt: moment.Add(-time.Minute), Document: &runstate.DocumentPublication{WriteID: "document-4.1"},
+		}},
+	}
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.Running) != 1 || standing.Running[0].RunID != "run-document" || len(standing.PausedRuns) != 0 {
+		t.Fatalf("running = %+v, paused = %+v; want the landing running", standing.Running, standing.PausedRuns)
+	}
+	if len(standing.DeveloperSlots) != 1 || !standing.DeveloperSlots[0].Free() {
+		t.Fatalf("developer slots = %+v, want the one slot free beside the landing", standing.DeveloperSlots)
+	}
+}

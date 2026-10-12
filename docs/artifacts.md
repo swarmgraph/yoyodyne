@@ -225,9 +225,23 @@ With an automatic policy, such as `approvals.designs: automatic`, the harness
 confirms the saved document without asking you. It records `by: harness` and
 the policy name against the revision, then opens a run carrying exactly the
 owning role's document, with permission to change only its file. No developer
-rewrites it. The configured checks and an independent reviewer judge that
+rewrites it. The document's checks and an independent reviewer judge that
 candidate, and it lands through the normal integration path. The primary
-checkout is left clean. The run's record says it was chosen by the owning
+checkout is left clean.
+
+That run is a document landing, and it is counted on its own: at most
+`execution.document_landings` of them (two by default) go at once, and none of
+them takes or waits for a developer slot, so a design is never stuck behind
+development work and no development run waits on a design. Only a change whose
+every path lies inside the artifact homes — the product specifications with
+their goals, the designs, the decisions and their invariants, each home's
+`README.md` included — lands this way; anything else is refused from it before
+any check runs. Its checks are the project's `document_checks` where it declares
+any, the tests that read the governed documents rather than the whole suite,
+and the full `checks` where it declares none; see
+[the document checks](configuration.md#the-document-checks). The record of the
+checks that passed names the list they ran, and the promotion refuses them if
+that list has changed since. The run's record says it was chosen by the owning
 conversation, naming the conversation, the document, and the turn it was
 written in.
 
@@ -249,16 +263,17 @@ changes, say — never holds up the conversation. The confirmed document stays
 saved, the owning role is told what is holding it, and it is tried again at the
 next message without being written again.
 
-A run that cannot start because every developer slot is taken is not a failure.
-The document is kept as waiting for a slot, in the run store beside the runs it
-waits behind, and the owning role is told once. A watching session
-(`yoyo work --watch`, which `yoyo start` runs) starts it in the next slot that
-frees, ahead of any new development run and without waiting for a message in
+A run that cannot start because every document landing is taken is not a
+failure. The document is kept as waiting for a landing, in the run store beside
+the runs it waits behind, and the owning role is told once. A watching session
+(`yoyo work --watch`, which `yoyo start` runs) starts it as soon as a landing
+frees, whatever the developer slots hold and without waiting for a message in
 the conversation; a run already going is never stopped for it. The conversation
-still offers it at its next message, and whichever reserves the slot first runs
-it — the same document is never given two runs, across a restart too.
+still offers it at its next message, and whichever reserves the landing first
+runs it — the same document is never given two runs, across a restart too.
 `yoyo status` lists a waiting document under the not-startable line, beside the
-ready work waiting for a slot, naming the document and the role that owns it.
+ready work waiting for a developer slot, naming the document and the role that
+owns it.
 
 A document can name the work items it is the design or ruling for, in its
 `answers`. The harness writes the document into each of those items' notes as

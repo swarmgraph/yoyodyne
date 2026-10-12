@@ -41,6 +41,8 @@ type configDocument struct {
 	// statement, and a list half from a bundle and half from a project is not the
 	// list either layer wrote.
 	LandingChecks *[]string `yaml:"landing_checks"`
+	// DocumentChecks replaces an inherited list entirely, for the same reason.
+	DocumentChecks *[]string `yaml:"document_checks"`
 	// PathChecks replaces an inherited list entirely, for the same reason.
 	PathChecks *[]PathCheck             `yaml:"path_checks"`
 	Agents     map[string]agentDocument `yaml:"agents"`
@@ -101,6 +103,7 @@ type productDocument struct {
 
 type executionDocument struct {
 	MaxConcurrentDevelopers                *int      `yaml:"max_concurrent_developers"`
+	DocumentLandings                       *int      `yaml:"document_landings"`
 	RepairAttemptsBeforeReplan             *int      `yaml:"repair_attempts_before_replan"`
 	IntegrationRetriesBeforeReconciliation *int      `yaml:"integration_retries_before_reconciliation"`
 	TransientRelaunchesBeforeBlocking      *int      `yaml:"transient_relaunches_before_blocking"`

@@ -12,7 +12,9 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/artifacthome"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
@@ -78,6 +80,9 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	if !filed {
 		return p.refuseDocument(document, errors.New("confirmed document is outside its kind's configured home"))
+	}
+	if err := documentRouteRefusal(p.Config, []string{document.Candidate.Artifact.Path}); err != nil {
+		return p.refuseDocument(document, err)
 	}
 	if !p.automatic() {
 		return p.refuseDocument(document, errors.New("reviewed document publication requires automatic integration"))
@@ -231,8 +236,8 @@ type documentHeld struct {
 
 func (h documentHeld) Error() string { return h.summary }
 
-// documentWaiting is an attempt every developer slot being taken kept from
-// starting; PublishDocument records the document as waiting for one.
+// documentWaiting is an attempt every document landing being taken kept from
+// starting; PublishDocument records the document as waiting for one to free.
 type documentWaiting struct {
 	runID    string
 	attempt  int
@@ -309,9 +314,9 @@ func (p Pipeline) awaitDocumentRetry(previous runstate.State) (waiting, waited s
 	now := runstate.HoldingDeveloperSlots(active)
 	if now+1 >= at {
 		d := previous.Document
-		return fmt.Sprintf("Document %s (%s) is confirmed, and run %s ran out of check time while %d developer runs were going. The next attempt waits until fewer are going than that; %d are going now, with this one it would be %d. It is checked again at the next message, and the document does not need writing again.\n", d.WriteID, d.Candidate.Artifact.Title, previous.RunID, at, now, now+1), "", nil
+		return fmt.Sprintf("Document %s (%s) is confirmed, and run %s ran out of check time while %d runs were going, itself among them. The next attempt waits until fewer are going than that; %d developer runs are going now, and with this one it would be %d. It is checked again at the next message, and the document does not need writing again.\n", d.WriteID, d.Candidate.Artifact.Title, previous.RunID, at, now, now+1), "", nil
 	}
-	return "", fmt.Sprintf("started once fewer developer runs were going: %d when its checks ran out of time, %d with this attempt", at, now+1), nil
+	return "", fmt.Sprintf("started once fewer runs were going: %d when its checks ran out of time, %d with this attempt", at, now+1), nil
 }
 
 // recordDocumentRetry writes what one document run says about the attempt
@@ -542,8 +547,8 @@ func (p Pipeline) refuseDocument(document runstate.DocumentPublication, refusal 
 	return runstate.DocumentDelivery{}, fmt.Errorf("%w: %v", runstate.ErrDocumentNotPublishable, refusal)
 }
 
-// DocumentWaits is where a confirmed document waits for a developer slot when
-// every slot is taken; see runstate.DocumentWait. It is an optional capability
+// DocumentWaits is where a confirmed document waits for a document landing to
+// free when every one is taken; see runstate.DocumentWait. It is an optional capability
 // of the pipeline's StateStore, satisfied by *runstate.Store. A store without it
 // keeps nothing waiting, and the document is offered again only at its
 // conversation's next message, as it was before the scheduler could start one.
@@ -552,8 +557,8 @@ type DocumentWaits interface {
 	ClearDocumentWait(runID string) error
 }
 
-// waitForSlot records a document whose attempt every developer slot being
-// taken refused, so the scheduler starts it in the next slot that frees. Its
+// waitForSlot records a document whose attempt every document landing being
+// taken refused, so the scheduler starts it as soon as one frees. Its
 // conversation keeps the handoff and is told once that it waits; nothing about
 // it is a failure.
 func (p Pipeline) waitForSlot(ctx context.Context, document runstate.DocumentPublication, refused documentWaiting) (runstate.DocumentDelivery, error) {
@@ -561,16 +566,16 @@ func (p Pipeline) waitForSlot(ctx context.Context, document runstate.DocumentPub
 	delivery := runstate.DocumentDelivery{RunID: refused.runID, WaitingForSlot: &capacity}
 	waits, ok := p.Store.(DocumentWaits)
 	if !ok {
-		delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a developer slot (%s). It is tried again at the next message in this conversation; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
+		delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a document landing to free (%s). It is tried again at the next message in this conversation; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
 		return delivery, nil
 	}
 	if _, waiting, err := waits.WaitForSlot(ctx, document, refused.attempt, p.clock().Now()); err != nil {
-		return runstate.DocumentDelivery{}, fmt.Errorf("record document %s as waiting for a developer slot: %w", document.WriteID, err)
+		return runstate.DocumentDelivery{}, fmt.Errorf("record document %s as waiting for a document landing: %w", document.WriteID, err)
 	} else if !waiting {
 		// Another process reserved its run under the same lock just now.
 		return runstate.DocumentDelivery{RunID: refused.runID}, nil
 	}
-	delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a developer slot (%s). The harness starts its reviewed run in the next slot that frees, ahead of any new development run, without waiting for a message here; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
+	delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a document landing to free (%s). The harness starts its reviewed run as soon as one does, without waiting for a message here and without taking a developer slot; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
 	return delivery, nil
 }
 
@@ -585,10 +590,10 @@ func (p Pipeline) clearDocumentWait(document runstate.DocumentPublication) {
 }
 
 // PublishWaitingDocument is the scheduler starting a document that waited for a
-// developer slot: the same publication its conversation would offer, through
-// PublishDocument, answered as the outcome of a run the scheduler hosted. A
-// document that lost the slot to another run is answered with the capacity
-// error, which the scheduler records as declined rather than failed.
+// document landing to free: the same publication its conversation would offer,
+// through PublishDocument, answered as the outcome of a run the scheduler
+// hosted. A document that lost the landing to another run is answered with the
+// capacity error, which the scheduler records as declined rather than failed.
 func (p Pipeline) PublishWaitingDocument(ctx context.Context, document runstate.DocumentPublication) (Outcome, error) {
 	delivery, err := p.PublishDocument(ctx, document)
 	// The run is named only where one is recorded: a document that went on
@@ -858,8 +863,62 @@ func (a *activeRun) gateCandidateVerification(ctx context.Context) error {
 	return a.gateSelfVerification(ctx)
 }
 
+// documentRouteRefusal is why a change may not take the document landing route,
+// or nil where it may: only a change whose every path lies inside one of the
+// artifact homes the configuration names — the product specifications with
+// their goals, the designs, the decisions, and the invariants, each home's
+// directory index included — lands as a document. Anything else goes the
+// ordinary way, as a developer's work item.
+func documentRouteRefusal(cfg config.Config, changed []string) error {
+	homes := artifacthome.Homes(cfg)
+	var outside []string
+	for _, changedPath := range changed {
+		inside := slices.ContainsFunc(homes, func(home artifacthome.Home) bool {
+			return strings.HasPrefix(changedPath, home.Directory+"/")
+		})
+		if !inside {
+			outside = append(outside, changedPath)
+		}
+	}
+	if len(changed) == 0 || len(outside) > 0 {
+		directories := make([]string, 0, len(homes))
+		for _, home := range homes {
+			directories = append(directories, home.Directory)
+		}
+		return fmt.Errorf("only a change wholly inside the artifact homes (%s) lands as a document; %v is not", strings.Join(directories, ", "), outside)
+	}
+	return nil
+}
+
+// documentChecks is the list a confirmed document's landing runs in place of
+// the configured checks and path checks, and whether the project declared one.
+// A project that declared none has its document landings run the configured
+// checks, exactly as every other run does.
+func (a *activeRun) documentChecks() ([]string, bool) {
+	if a.state.Document == nil || len(a.pipeline.Config.DocumentChecks) == 0 {
+		return nil, false
+	}
+	return append([]string(nil), a.pipeline.Config.DocumentChecks...), true
+}
+
+// documentCheckSet is the digest of the list of checks a confirmed document's
+// landing runs over changed, as verify chooses it: the document checks where the
+// project declared any, and the configured checks with the path checks the
+// change adds where it declared none.
+func (a *activeRun) documentCheckSet(changed []string) string {
+	commands, declared := a.documentChecks()
+	if !declared {
+		commands, _ = withPathChecks(a.pipeline.Config.Checks, pathChecksFor(a.worktree.Path, a.pipeline.Config.PathChecks, changed))
+	}
+	return config.CheckSetDigest(commands)
+}
+
 func (a *activeRun) gateDocument(ctx context.Context, changed []string) error {
 	candidate := a.state.Document.Candidate
+	// Settled before any check runs, by the gate every round passes first.
+	if err := documentRouteRefusal(a.pipeline.Config, changed); err != nil {
+		return err
+	}
 	if len(changed) != 1 || changed[0] != candidate.Artifact.Path {
 		return fmt.Errorf("document publication may change exactly %s; changed paths: %v", candidate.Artifact.Path, changed)
 	}

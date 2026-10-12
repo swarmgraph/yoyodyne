@@ -215,6 +215,7 @@ product:
 execution:
   max_concurrent_developers: 1
   repair_attempts_before_replan: 2
+  document_landings: 2
   integration_retries_before_reconciliation: 2
   transient_relaunches_before_blocking: 2
   worktree_root: auto
@@ -257,6 +258,7 @@ services:           # the parts of the product, each on or off; see Services
 checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
 path_checks: []     # checks a change runs only when it touches what they vouch for
+document_checks: [] # what a confirmed document's landing runs; see "The document checks"
 
 accounts:
   default: {}       # the provider account the agents below run under
@@ -3097,6 +3099,43 @@ Path checks are not landing checks and are not narrowed: a landing runs
 `landing_checks` alone. An entry with no command, or with a `paths` that is
 absolute or leaves the repository, is refused when the configuration loads.
 
+### The document checks
+
+A design, a decision record, or the goals a role writes and the harness
+confirms lands through a reviewed run of its own, a document landing, with no
+developer in it ([documents written in conversation](artifacts.md)). Those runs
+are counted apart from the developer slots: at most
+`execution.document_landings` of them go at once, two unless you say otherwise,
+and none of them takes or waits for a developer slot, so a document is never
+stuck behind development work and no development run waits on a document.
+Their checks still run through the same check runner as every other run's, so
+whatever bounds the machine's checks bounds theirs.
+
+```yaml
+execution:
+  document_landings: 2
+document_checks:
+  - go test ./internal/terms ./internal/doclink ./internal/artifact
+```
+
+`document_checks` is the list a document landing runs in place of `checks` and
+`path_checks`: the tests that read the governed documents, rather than the
+whole suite and never a race check. A project that declares none has its
+document landings run `checks` and the path checks the change adds, exactly as
+every other run does. A test that reads the documents and is missing from the
+list is caught by `landing_checks` on the target branch, if you run the whole
+suite there; add it to the list then. The record of the checks a landing
+passed names the digest of the list it ran, and its promotion refuses that
+record if the list in force has changed since.
+
+Only a change whose every path lies inside the artifact homes — `product.specifications`
+with its goals, `product.designs`, `product.decisions`, and
+`product.invariants`, each home's `README.md` included — takes this route.
+Anything else is refused from it before any check runs. Independent review and
+the promotion through the pull request, and the merge queue where it is on,
+are the same as for any run. An entry with no command is refused when the
+configuration loads, and `document_landings` may not be negative.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at
@@ -3311,10 +3350,11 @@ A decided repair or re-run is fired by the same pass, oldest decision first, and
 one about a stopped run whose branch or worktree is still there takes the first
 free developer slot ahead of fresh pulls of any priority, naming in its reason
 the ready work it went ahead of. Every other decision waits behind ready work of
-a higher priority than its item. A confirmed document waiting for a developer slot goes ahead of all of
-these: it takes the first free slot before any decided repair or re-run, any
-run paused on work its item waits on, and any pull from the queue, and nothing
-already running is stopped for it.
+a higher priority than its item. A confirmed document waiting to land takes no
+developer slot at all: it is counted against `execution.document_landings`
+rather than `max_concurrent_developers`, and starts as soon as a document
+landing frees, whatever the developer slots hold; nothing already running is
+stopped for it.
 [How work flows](work.md#letting-the-harness-choose-the-work) has the whole
 rule; it changes no gate and nothing a decision costs.
 

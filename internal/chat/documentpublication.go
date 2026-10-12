@@ -120,9 +120,9 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 			continue
 		}
 		if delivery.WaitingForSlot != nil {
-			// Every developer slot was taken. The document is kept waiting where the
-			// scheduler starts it as a slot frees, and the role is told so once rather
-			// than at every message it goes on waiting through.
+			// Every document landing was taken. The document is kept waiting where
+			// the scheduler starts it as one frees, and the role is told so once
+			// rather than at every message it goes on waiting through.
 			if record.failure != documentWaitingForSlot {
 				record.failure = documentWaitingForSlot
 				if err := s.carryResults(delivery.Detail); err != nil {
@@ -165,8 +165,9 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 }
 
 // documentWaitingForSlot is what a document's last offer is remembered as while
-// it waits for a developer slot, so the role is told of the wait once.
-const documentWaitingForSlot = "waiting for a developer slot"
+// it waits for a document landing to free, so the role is told of the wait
+// once.
+const documentWaitingForSlot = "waiting for a document landing"
 
 // confirmDocument confirms one waiting document under the automatic policy and
 // saves the publication handoff, reporting whether it did. A document the

@@ -1729,12 +1729,13 @@ decision about a priority-3 item waits while a priority-0 item stands ready,
 takes the slot the walk of the order reaches its priority with, or takes a slot
 the queue left empty, and a pull that gave it none writes onto the item which
 ready items outranked it. Neither changes what a decision costs or which gate
-refuses it. One thing goes ahead of both: a document a role
-wrote and the harness confirmed, whose landing run found every developer slot
-taken, waits in the run store and takes the first free slot before any decided
-repair or re-run, any run paused on work its item waits on, and any pull from
-the queue. Its run is short and what it unblocks is usually waiting behind it,
-and nothing already running is stopped for it;
+refuses it. A document a role wrote and the harness confirmed is outside both:
+its landing run takes no developer slot. It is counted against
+`execution.document_landings` instead, and one that found every document
+landing taken waits in the run store and starts as soon as a landing frees,
+whatever the developer slots hold, so it goes ahead of nothing in the
+developer queue and nothing there waits for it. Nothing already running is
+stopped for it;
 [writing a document from a conversation](artifacts.md#writing-a-document-from-a-conversation)
 says how it comes to wait. Recording the
 decision is what causes it, and `yoyo triage repair` and

@@ -54,3 +54,19 @@ func (c Config) Revision() string {
 	}
 	return RevisionPrefix + hex.EncodeToString(digest.Sum(nil))[:RevisionDigits]
 }
+
+// CheckSetPrefix marks a check set's digest as one, the way RevisionPrefix
+// marks a configuration revision.
+const CheckSetPrefix = "checks-"
+
+// CheckSetDigest identifies an ordered list of check commands. A document
+// landing records it beside the evidence its checks passed, and its promotion
+// refuses evidence recorded under any other list, so a change to the document
+// checks between the checks and the promotion is a change the evidence does not
+// cover.
+func CheckSetDigest(commands []string) string {
+	// A list of strings always encodes.
+	encoded, _ := json.Marshal(commands)
+	sum := sha256.Sum256(encoded)
+	return CheckSetPrefix + hex.EncodeToString(sum[:])[:RevisionDigits]
+}

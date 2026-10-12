@@ -944,6 +944,11 @@ type ChecksPassed struct {
 	Commit string `json:"commit,omitempty"`
 	// Commands are the configured checks that passed, in the order they ran.
 	Commands []string `json:"commands,omitempty"`
+	// CheckSet is the digest of the list of checks a confirmed document's
+	// landing ran (config.CheckSetDigest): its document checks, or the full
+	// checks where none are declared. Its promotion refuses evidence recorded
+	// under any other list. Empty for every other run.
+	CheckSet string `json:"check_set,omitempty"`
 	// CouldNotRun are the configured checks that said they could not run, with
 	// why: the gate let the change on without them, and this is where the
 	// evidence says which checks it is short of.
@@ -4702,6 +4707,16 @@ func (s Status) InFlight() bool {
 // Store.ReclaimSlot. The reservation, the scheduler's free slots, the triage
 // actions' slot check, and the status's running line all count by this, so what
 // each says is free is one fact.
+//
+// A confirmed document's landing holds no developer slot either: it is counted
+// against execution.document_landings instead (HoldsDocumentLanding), so a
+// landing never waits on development and development never waits on a landing.
 func (s State) HoldsDeveloperSlot() bool {
-	return s.Status.InFlight() && s.DependencyPause == nil
+	return s.Status.InFlight() && s.DependencyPause == nil && s.Document == nil
+}
+
+// HoldsDocumentLanding reports a run counted against
+// execution.document_landings: a confirmed document's landing in flight.
+func (s State) HoldsDocumentLanding() bool {
+	return s.Status.InFlight() && s.Document != nil
 }

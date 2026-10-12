@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -834,5 +835,236 @@ func TestWaitingCopiesOfADecisionRecordAreResolvedAtTheNextTurn(t *testing.T) {
 	}
 	if len(provider.RequestsForRole(domain.RoleDeveloper)) != 0 {
 		t.Fatal("a developer was asked to write the decision record")
+	}
+}
+
+// Only a change wholly inside the artifact homes takes the document landing
+// route, a home's directory index included.
+func TestTheDocumentRouteTakesOnlyChangesInsideTheArtifactHomes(t *testing.T) {
+	cfg := config.Config{Product: config.Product{Specifications: config.DefaultSpecifications, Designs: config.DefaultDesigns, Decisions: config.DefaultDecisions, Invariants: config.DefaultInvariants}}
+	for _, inside := range [][]string{
+		{"docs/designs/recovery-design.md"},
+		{"docs/designs/README.md"},
+		{"docs/product/goals/v1-goals.md"},
+		{"docs/decisions/a-decision.md", "docs/decisions/invariants/an-invariant.md"},
+	} {
+		if err := documentRouteRefusal(cfg, inside); err != nil {
+			t.Errorf("documentRouteRefusal(%v) = %v, want it on the route", inside, err)
+		}
+	}
+	for _, outside := range [][]string{
+		{"docs/designs/recovery-design.md", "internal/orchestrator/pipeline.go"},
+		{"Makefile"},
+		{"docs/operations.md"},
+		{"docs/designs-old/recovery-design.md"},
+		{},
+	} {
+		if err := documentRouteRefusal(cfg, outside); err == nil {
+			t.Errorf("documentRouteRefusal(%v) = nil, want it refused from the route", outside)
+		}
+	}
+}
+
+// A document run whose change reaches outside the artifact homes is refused
+// from the route before any check runs.
+func TestAMixedChangeIsRefusedFromTheDocumentRouteBeforeAnyCheck(t *testing.T) {
+	repository, _, _, pipeline, _ := automaticFixture(t)
+	marker := filepath.Join(t.TempDir(), "checks-ran")
+	pipeline.Config.Checks = []string{"touch " + marker}
+	pipeline.Config.DocumentChecks = []string{"touch " + marker}
+	store := artifact.StoreFor(repository, pipeline.Config.Product)
+	candidate, automatic, err := store.PrepareConfirmation(domain.RoleArchitect, artifact.Write{Action: artifact.WriteCreate, ID: "mixed-design", Kind: artifact.KindDesign, Title: "Mixed", Directory: "docs/designs", Body: "# Mixed", Reason: "written by the architect"}, artifact.Policy{Designs: domain.ApprovalAutomatic}, "confirmed by harness", time.Now())
+	if err != nil || !automatic {
+		t.Fatal(err)
+	}
+	tree, err := pipeline.Worktrees.Create(context.Background(), gitworktree.CreateRequest{RunID: pipelineRunID, WorkItemID: "document", BaseRef: "main", TargetBranch: "main"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree.Path, "docs/designs"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree.Path, candidate.Artifact.Path), []byte(candidate.Content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tree.Path, "code.go"), []byte("package code\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	a := &activeRun{pipeline: pipeline, state: runstate.State{Document: &runstate.DocumentPublication{Candidate: candidate}}, worktree: tree}
+	err = a.verify(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "only a change wholly inside the artifact homes") || !strings.Contains(err.Error(), "code.go") {
+		t.Fatalf("verify() = %v, want the change refused from the document route", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("a check ran over a change refused from the route: %v", err)
+	}
+}
+
+// documentCheckMarkers is a full check list standing for the race check and a
+// document check list, each leaving a marker where it ran.
+func documentCheckMarkers(t *testing.T) (full, document string, fullChecks, documentChecks []string) {
+	t.Helper()
+	directory := t.TempDir()
+	full, document = filepath.Join(directory, "race-ran"), filepath.Join(directory, "document-checks-ran")
+	return full, document, []string{"touch " + full}, []string{"touch " + document}
+}
+
+func landDesign(t *testing.T, pipeline Pipeline, provider *orchestratortest.Backend, runs *runstate.Store) runstate.State {
+	t.Helper()
+	original := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleArchitect {
+			return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: submittedDesign("checked-design", "# Checked\n\nThe owner's exact words.")}, nil
+		}
+		return original(request)
+	}
+	options, _ := publicationConversation(t, pipeline, provider)
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Write the design."); err != nil {
+		t.Fatal(err)
+	}
+	recorded, err := runs.Recorded()
+	if err != nil || len(recorded) != 1 {
+		t.Fatalf("runs = %+v, %v", recorded, err)
+	}
+	return recorded[0]
+}
+
+// A project that declares document checks has its document landings run
+// exactly those and never its full checks, the race check among them. The
+// evidence names the check set, and the landing is still independently
+// reviewed.
+func TestADocumentLandingRunsTheDeclaredDocumentChecksAndNeverTheRaceCheck(t *testing.T) {
+	_, _, provider, pipeline, runs := automaticFixture(t)
+	full, document, fullChecks, documentChecks := documentCheckMarkers(t)
+	pipeline.Config.Checks, pipeline.Config.DocumentChecks = fullChecks, documentChecks
+	state := landDesign(t, pipeline, provider, runs)
+	if state.Status != runstate.StatusSucceeded || state.Integration == nil {
+		t.Fatalf("run = %+v, want the design landed", state)
+	}
+	if _, err := os.Stat(document); err != nil {
+		t.Fatalf("the declared document checks did not run: %v", err)
+	}
+	if _, err := os.Stat(full); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the full checks, race check among them, ran over a document: %v", err)
+	}
+	if passed := state.ChecksPassed; passed == nil || !slices.Equal(passed.Commands, documentChecks) || passed.CheckSet != config.CheckSetDigest(documentChecks) {
+		t.Fatalf("evidence = %+v, want the document checks named and their set's digest", passed)
+	}
+	if state.ReviewDecision != runstate.ReviewApprove || len(provider.RequestsForRole(domain.RoleReviewer)) != 1 {
+		t.Fatal("the document landed without its independent review")
+	}
+}
+
+// A project that declares no document checks has its document landings run the
+// full checks, as every other run does.
+func TestADocumentLandingRunsTheFullChecksWhereNoneAreDeclared(t *testing.T) {
+	_, _, provider, pipeline, runs := automaticFixture(t)
+	full, document, fullChecks, _ := documentCheckMarkers(t)
+	pipeline.Config.Checks = fullChecks
+	state := landDesign(t, pipeline, provider, runs)
+	if state.Status != runstate.StatusSucceeded || state.Integration == nil {
+		t.Fatalf("run = %+v, want the design landed", state)
+	}
+	if _, err := os.Stat(full); err != nil {
+		t.Fatalf("the full checks did not run: %v", err)
+	}
+	if _, err := os.Stat(document); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("document checks ran where none are declared: %v", err)
+	}
+	if passed := state.ChecksPassed; passed == nil || passed.CheckSet != config.CheckSetDigest(fullChecks) {
+		t.Fatalf("evidence = %+v, want the full checks' set digest", passed)
+	}
+}
+
+// The document checks narrow the checks and nothing else: a reviewer that
+// refuses the document still keeps it from landing.
+func TestADocumentUnderDeclaredChecksStillNeedsItsReviewersApproval(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	_, _, fullChecks, documentChecks := documentCheckMarkers(t)
+	pipeline.Config.Checks, pipeline.Config.DocumentChecks = fullChecks, documentChecks
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			return backend.RunResult{SessionID: "independent", FinalText: `{"decision":"repair","summary":"revise the document","findings":[{"severity":"blocker","message":"state the missing decision"}]}`}, nil
+		}
+		return backend.RunResult{}, errors.New("unexpected invocation")
+	}
+	state := landDesign(t, pipeline, provider, runs)
+	if state.Status == runstate.StatusSucceeded || state.Integration != nil || !state.DocumentJudged() {
+		t.Fatalf("run = %+v, want the reviewer's refusal to keep the document from landing", state)
+	}
+	if _, err := os.Stat(filepath.Join(repository, "docs/designs/checked-design.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the refused document reached the target: %v", err)
+	}
+}
+
+// The check evidence is bound to the document check set: a list changed after
+// the checks passed and before the promotion leaves the landing without
+// evidence for the list in force, and nothing lands.
+func TestADocumentCheckSetChangedBeforeThePromotionRefusesIt(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	_, _, fullChecks, documentChecks := documentCheckMarkers(t)
+	pipeline.Config.Checks, pipeline.Config.DocumentChecks = fullChecks, documentChecks
+	original := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			// The pipeline is held by value, and its list shares this array.
+			documentChecks[0] = "exit 0"
+		}
+		return original(request)
+	}
+	state := landDesign(t, pipeline, provider, runs)
+	if state.Status == runstate.StatusSucceeded || state.Integration != nil || !strings.Contains(state.Failure, "check set") {
+		t.Fatalf("run = %+v, want the promotion refused for evidence under another check set", state)
+	}
+	if _, err := os.Stat(filepath.Join(repository, "docs/designs/checked-design.md")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the document reached the target without evidence for its check set: %v", err)
+	}
+}
+
+// Under declared document checks, runs that keep handing the document back to
+// its owner still stop automatic publication at the bound and tell the owner.
+func TestDocumentReturnsUnderDocumentChecksStillStopAtBound(t *testing.T) {
+	_, _, provider, pipeline, runs := automaticFixture(t)
+	full, _, fullChecks, _ := documentCheckMarkers(t)
+	pipeline.Config.Checks = fullChecks
+	pipeline.Config.DocumentChecks = []string{"! grep -q '# Needs revision' docs/designs/bounded-design.md"}
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleArchitect {
+			return backend.RunResult{SessionID: "author", FinalText: submittedDesign("bounded-design", "# Needs revision")}, nil
+		}
+		return backend.RunResult{SessionID: "independent", FinalText: approveVerdict}, nil
+	}
+	options, store := publicationConversation(t, pipeline, provider)
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < runstate.MaxDocumentReturns+1; i++ {
+		if _, err := session.Send(context.Background(), "Revise it."); err != nil {
+			t.Fatal(err)
+		}
+	}
+	records, err := runs.Recorded()
+	if err != nil || len(records) != runstate.MaxDocumentReturns {
+		t.Fatalf("runs: %d, %v", len(records), err)
+	}
+	saved, err := store.Load(runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(saved.PendingTrackerResults, "automatic publication stopped after 3 returned runs") {
+		t.Fatal(saved.PendingTrackerResults)
+	}
+	for _, record := range records {
+		if record.CheckFailure == nil || !record.DocumentJudged() {
+			t.Fatalf("run = %+v, want each returned on its failing document check", record)
+		}
+	}
+	if _, err := os.Stat(full); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the full checks ran over a document: %v", err)
 	}
 }

@@ -357,7 +357,7 @@ func TestADocumentRetryAfterATimeLimitWaitsForFewerDeveloperRuns(t *testing.T) {
 		t.Fatalf("retry = %s %q, want it landed once the load fell", second.Status, second.Failure)
 	}
 	first = runByID(t, runs, first.RunID)
-	if !strings.Contains(first.DocumentRetry.WaitedFor, "fewer developer runs were going: 3 when its checks ran out of time, 2 with this attempt") {
+	if !strings.Contains(first.DocumentRetry.WaitedFor, "fewer runs were going: 3 when its checks ran out of time, 2 with this attempt") {
 		t.Fatalf("waited for = %q", first.DocumentRetry.WaitedFor)
 	}
 }
