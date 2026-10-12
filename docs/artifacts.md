@@ -260,6 +260,28 @@ it — the same document is never given two runs, across a restart too.
 `yoyo status` lists a waiting document under the not-startable line, beside the
 ready work waiting for a slot, naming the document and the role that owns it.
 
+A document can name the work items it is the design or ruling for, in its
+`answers`. The harness writes the document into each of those items' notes as
+soon as it is written — what it is, whether it has been sent, and its text, cut
+at 16 KiB with a pointer to where the whole of it is kept — so a developer can
+start from it before it is published.
+
+The owning role can also put a hold on sending one document, naming the work
+item whose closing lifts it and why — a fix to publication itself not yet
+merged, say. A hold delays only the sending. The document is written, kept in
+the conversation's record ready to send, and noted on the items it answers like
+any other; it is not put to you, and the role is told it is held and why. At
+the first message in that conversation after the named item closes — a
+recurring pass's message counts — the harness sends it from the kept text, and
+the role does not write it again. A hold naming an item the tracker does not
+hold is refused, because nothing could lift it. A conversation keeps up to four
+held documents beside the two that may wait for a decision or a run, so a role
+waiting on such a fix goes on finishing designs. A held document is let go only
+while fewer than two are waiting: when several holds lift at once, the rest
+stay held, the role is told why, and they are sent as the waiting ones settle. A recurring pass's record says
+an item whose finished document is held is *held for sending*, not ruled; see
+[the status line for recurring passes](operations.md#where-the-harness-stands-the-four-lines).
+
 This also applies to documents already waiting in a conversation's store:
 when that conversation resumes, the harness uses their saved identities and
 content before asking the role to write anything else. Confirmation and the

@@ -99,6 +99,9 @@ type writeRecord struct {
 	// this process, so a cause that persists is said once rather than at every
 	// message.
 	failure string
+	// holdLifted is a hold on sending this process saw lifted, so the document
+	// goes on to confirmation and publication as any other does.
+	holdLifted bool
 }
 
 // WriteOutcome is what became of one document the operator decided. It is what
@@ -203,7 +206,9 @@ func (s *Session) artifactFiling() []artifact.KindHome {
 func (s *Session) Writes() []PendingWrite {
 	pending := make([]PendingWrite, 0, len(s.writes))
 	for _, record := range s.writes {
-		if !record.decided && record.pending.Publication == nil {
+		// A document held for sending is its owner's to release, not the
+		// operator's to decide, until the work item its hold names closes.
+		if !record.decided && record.pending.Publication == nil && !record.heldForSending() {
 			pending = append(pending, record.pending)
 		}
 	}
@@ -216,7 +221,7 @@ func (s *Session) Writes() []PendingWrite {
 // document refuses the whole block, the way an unreadable one already does — a
 // block is one request, and half-carrying it out would leave the repository in a
 // state nobody asked for.
-func (s *Session) refuseWrites(writes []artifact.Write) error {
+func (s *Session) refuseWrites(ctx context.Context, writes []artifact.Write) error {
 	if len(writes) == 0 {
 		return nil
 	}
@@ -239,22 +244,15 @@ func (s *Session) refuseWrites(writes []artifact.Write) error {
 	// already decided costs the record nothing, so a conversation that has
 	// written and filed two documents is not thereby a conversation that may
 	// never write a third.
-	waiting := 0
-	for _, record := range s.writes {
-		if !record.decided {
-			waiting++
-		}
-	}
-	if waiting+len(writes) > runstate.MaxPendingWrites {
-		return fmt.Errorf("%d document(s) are already waiting for confirmation or publication and the limit is %d; finish those before writing another",
-			waiting, runstate.MaxPendingWrites)
+	if err := s.refuseWriteCount(writes); err != nil {
+		return err
 	}
 	for _, write := range writes {
 		if err := s.options.Documents.CheckWrite(s.state.Role, write); err != nil {
 			return err
 		}
 	}
-	return nil
+	return s.refuseWorkItemReferences(ctx, writes)
 }
 
 // renderDocumentRefusal names what was refused and what is still waiting.
@@ -643,6 +641,8 @@ func (p PendingWrite) recorded() runstate.PendingWrite {
 		Directory:   strings.TrimSpace(p.Write.Directory),
 		Body:        p.Write.Body,
 		Reason:      strings.TrimSpace(p.Write.Reason),
+		Answers:     p.Write.Answers,
+		Hold:        p.Write.Hold,
 	}
 }
 
@@ -666,6 +666,8 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 			Directory: recorded.Directory,
 			Body:      recorded.Body,
 			Reason:    recorded.Reason,
+			Answers:   recorded.Answers,
+			Hold:      recorded.Hold,
 		},
 	}
 }
@@ -676,15 +678,37 @@ func restoredWrite(conversationID string, recorded runstate.PendingWrite) Pendin
 // writing too many, and this keeps a record that grew some other way inside what
 // a state file may hold.
 func (s *Session) undecidedWrites() []runstate.PendingWrite {
-	var pending []runstate.PendingWrite
+	// Held documents are bounded apart from the rest, as refuseWriteCount
+	// bounds them, and each count keeps its latest. The documents keep the
+	// order they were written in, which is the order PublishDocuments goes
+	// through them, so a waiting document settles before a held one behind it
+	// asks for its room.
+	var all []runstate.PendingWrite
+	waiting, held := 0, 0
 	for _, record := range s.writes {
 		if record.decided {
 			continue
 		}
-		pending = append(pending, record.pending.recorded())
+		recorded := record.pending.recorded()
+		if recorded.Held() {
+			held++
+		} else {
+			waiting++
+		}
+		all = append(all, recorded)
 	}
-	if len(pending) > runstate.MaxPendingWrites {
-		pending = pending[len(pending)-runstate.MaxPendingWrites:]
+	pending := make([]runstate.PendingWrite, 0, len(all))
+	for _, recorded := range all {
+		if recorded.Held() {
+			if held > runstate.MaxHeldWrites {
+				held--
+				continue
+			}
+		} else if waiting > runstate.MaxPendingWrites {
+			waiting--
+			continue
+		}
+		pending = append(pending, recorded)
 	}
 	return pending
 }

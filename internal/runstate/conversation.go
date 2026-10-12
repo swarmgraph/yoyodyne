@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -484,6 +485,17 @@ type PendingWrite struct {
 	Directory string   `json:"directory,omitempty"`
 	Body      string   `json:"body"`
 	Reason    string   `json:"reason"`
+	// Answers are the work items the document is the design or ruling for, and
+	// Hold is what its owning role put on sending it; see artifact.Write.
+	Answers []string              `json:"answers,omitempty"`
+	Hold    *artifact.SendingHold `json:"hold,omitempty"`
+}
+
+// Held reports a document kept ready to send under a hold its owner put on
+// sending it, and not yet confirmed for publication: once the hold lifts and the
+// document is confirmed, it waits as any other document does.
+func (w PendingWrite) Held() bool {
+	return w.Hold != nil && w.Publication == nil
 }
 
 // MaxPendingWrites bounds the undecided documents one conversation carries, and
@@ -495,8 +507,15 @@ type PendingWrite struct {
 //
 // The byte bound matches what the write contract accepts, so a document the
 // harness took from a reply is never one it then cannot write down.
+//
+// MaxHeldWrites bounds the documents held for sending beside them. They are
+// counted apart because a hold is put on sending, not on the work: a role
+// waiting for a fix to publication goes on finishing designs, and two
+// documents held for that fix must not stop it writing a third. Held documents
+// carry no publication candidate, so each costs the record its body alone.
 const (
 	MaxPendingWrites     = 2
+	MaxHeldWrites        = 4
 	MaxPendingWriteBytes = 64 << 10
 )
 
@@ -723,9 +742,19 @@ func (c Conversation) Validate() error {
 			problems = append(problems, fmt.Errorf("pending_concerns[%d] has no id", i))
 		}
 	}
-	if len(c.PendingWrites) > MaxPendingWrites {
+	held := 0
+	for _, write := range c.PendingWrites {
+		if write.Held() {
+			held++
+		}
+	}
+	if waiting := len(c.PendingWrites) - held; waiting > MaxPendingWrites {
 		problems = append(problems, fmt.Errorf("%d undecided documents are recorded, limit is %d",
-			len(c.PendingWrites), MaxPendingWrites))
+			waiting, MaxPendingWrites))
+	}
+	if held > MaxHeldWrites {
+		problems = append(problems, fmt.Errorf("%d documents held for sending are recorded, limit is %d",
+			held, MaxHeldWrites))
 	}
 	for i, write := range c.PendingWrites {
 		if write.Publication != nil {
