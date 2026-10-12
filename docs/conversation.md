@@ -834,6 +834,7 @@ everything else is said to the Lead Product Manager:
 /directive artifact <artifact> <what is unresolved> | <what changes>
 /resolve <directive-id> <how it was settled>
 /withdraw <directive-id> <why you no longer mean it>
+/terminal-setup          set this terminal up so shift-return adds a new line
 /help                    the list
 /exit                    end the conversation, stopping anything it is running
 ```
@@ -2804,7 +2805,22 @@ opens — the kitty keyboard protocol, or xterm's modifyOtherKeys — and where 
 answers, shift-return inserts a newline. Where it does not, **alt-return** does,
 and so does **ending a line with a backslash**, which asks the terminal for
 nothing at all and works on a redirected stream too. `/help` says which of these
-this terminal supports rather than listing all of them at you. The price of the
+this terminal supports rather than listing all of them at you. Where shift-return
+is not reported, `/help` also names `/terminal-setup`, which sets the terminal
+itself up so that shift-return sends what alt-return sends — escape, then
+return — and so adds a new line whatever the terminal will report. It says which
+terminal it found and what it is about to change before changing it. In iTerm2
+it adds shift-return to the global key bindings (Settings, then Keys, then Key
+Bindings), and iTerm2 has to be quit and opened again to use it; in VS Code
+(and VS Code Insiders) it adds a keybinding to the editor's `keybindings.json`
+that applies only while the terminal has the focus, and VS Code reads it at once.
+Running it again changes nothing more, and a binding you already put on
+shift-return is left alone. Terminal.app cannot be told what to send for
+shift-return, so there, as on any terminal it does not know, it names the
+terminal and the keys that work instead; in Terminal.app alt-return is option
+and return once Use Option as Meta key is ticked under Settings, Profiles,
+Keyboard. A terminal that already reports shift-return is told there is nothing
+to change. The price of the
 backslash is that a message ending in one cannot be typed: the backslash is what
 carries the line on. What you compose is drawn in the same region, over as many
 rows as it has lines, and reaches the Lead Product Manager with its lines where you

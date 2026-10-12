@@ -211,5 +211,10 @@ func TestHelpNamesOnlyTheKeysThisTerminalHas(t *testing.T) {
 		if fallbacks := strings.ToLower(help); !strings.Contains(fallbacks, "alt-return") || !strings.Contains(fallbacks, `\`) {
 			t.Fatalf("composingHelp(%v) leaves the operator nothing that always works: %q", test.mode, help)
 		}
+		// Where shift-return is not reported yet, the command that sets the
+		// terminal up to report it is named, and only there.
+		if names := strings.Contains(help, "/terminal-setup"); names == test.shift {
+			t.Fatalf("composingHelp(%v) = %q; /terminal-setup named = %v", test.mode, help, names)
+		}
 	}
 }

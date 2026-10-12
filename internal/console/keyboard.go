@@ -209,5 +209,5 @@ func composingHelp(mode keyboardMode) string {
 	case keyboardModifyOther:
 		return `Multi-line: shift-return inserts a newline — this terminal reports it, over modifyOtherKeys. Alt-return and a line ending in \ do the same. Return sends.`
 	}
-	return `Multi-line: this terminal does not report shift-return, so it sends like return. Alt-return inserts a newline, and so does ending a line with \. Return sends.`
+	return `Multi-line: this terminal does not report shift-return, so it sends like return; /terminal-setup sets the terminal up so that it adds a newline, where the terminal can be. Alt-return inserts a newline, and so does ending a line with \. Return sends.`
 }
