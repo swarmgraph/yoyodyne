@@ -21,9 +21,10 @@ type documentWaitRuns struct {
 
 func (r documentWaitRuns) DocumentWaits() ([]runstate.DocumentWait, error) { return r.waits, r.err }
 
-// A confirmed document waiting for a developer slot is listed where the ready
-// work waiting for one is, naming the document and the role that owns it, and
-// saying the harness starts it in the next slot ahead of new development work.
+// A confirmed document waiting for a document landing to free is listed beside
+// the ready work waiting for a developer slot, naming the document and the role
+// that owns it, and saying the harness starts it as soon as a landing frees,
+// without taking a developer slot.
 func TestADocumentWaitingForASlotIsListedWithItsOwningRole(t *testing.T) {
 	t.Parallel()
 	sources := quietSources()

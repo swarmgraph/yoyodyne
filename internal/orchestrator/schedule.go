@@ -1180,8 +1180,8 @@ type Schedule struct {
 	// nothing it was doing, so it is reported beside the pull rather than stopping
 	// it, and the paused run is read again at the next pull.
 	ContinuationProblem string `json:"continuation_problem,omitempty"`
-	// DocumentProblem says the documents waiting for a developer slot could not
-	// be read. Like a continuation problem it stops nothing else the pass does,
+	// DocumentProblem says the documents waiting for a document landing to free
+	// could not be read. Like a continuation problem it stops nothing else the pass does,
 	// and the waits are read again at the next pull.
 	DocumentProblem string `json:"document_problem,omitempty"`
 	// Fired is the recurring tasks this pass woke a role for, and what came back.
@@ -6276,7 +6276,7 @@ type completed struct {
 	// for every ordinary run: the queue chose those, and there is no decision behind
 	// them to account for.
 	carriedOut *CarriedOut
-	// document marks the run of a confirmed document that waited for a slot;
+	// document marks the run of a confirmed document that waited for a landing;
 	// see nextDocuments.
 	document bool
 }
@@ -6717,7 +6717,7 @@ func (s Schedule) Render() string {
 		fmt.Fprintf(&rendered, "a run paused on work its item waits on was not continued: %s\n", s.ContinuationProblem)
 	}
 	if s.DocumentProblem != "" {
-		fmt.Fprintf(&rendered, "a confirmed document waiting for a developer slot was not started: %s\n", s.DocumentProblem)
+		fmt.Fprintf(&rendered, "a confirmed document waiting for a document landing to free was not started: %s\n", s.DocumentProblem)
 	}
 	// And what the pass woke on a cadence, said beside both: a session that spent
 	// turns on a sweep is a session that did something, and the whole account of

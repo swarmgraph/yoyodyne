@@ -816,8 +816,8 @@ func openPull(configPath string, stderr io.Writer) (orchestrator.Pull, error) {
 		// recording the continuation; the run store says whether a stop was
 		// recorded on the run, which is honoured before any continuation.
 		Continuations: pausedRunContinuations{Client: tracker, stops: parts.store},
-		// A confirmed document whose reviewed run found every developer slot taken,
-		// started into the next slot that frees rather than at its conversation's
+		// A confirmed document whose reviewed run found every document landing
+		// taken, started as soon as one frees rather than at its conversation's
 		// next message. The run store holds the wait, and the pipeline built from
 		// this pull's configuration lands it exactly as the conversation would.
 		Documents: waitingDocuments{parts: parts},
