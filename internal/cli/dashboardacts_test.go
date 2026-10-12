@@ -18,18 +18,44 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
 
 // A proposed change decided from the dashboard is recorded exactly as
 // `yoyo amendment approve` records it — the operator deciding under the
 // owner's authority — and is then no longer waiting, so a second press is
 // refused rather than decided twice. A decline without a reason is refused by
-// the record itself, as the command line's is.
+// the record itself, as the command line's is. Only a proposal the attention
+// line names as the operator's can be found at all: one in the architect's
+// batch of recommendations is, and an ordinary one, the architect's to move,
+// is refused as not waiting on him.
 func TestTheDashboardDecidesAProposedChangeAsTheCommandLineDoes(t *testing.T) {
 	configPath, _ := amendmentProject(t)
 	proposal := recordProposal(t, "amendment-0123456789abcdef0123456789abcdef")
+	ordinary := recordProposal(t, "amendment-fedcba9876543210fedcba9876543210")
+	stateRoot, err := resolvedTestStateRoot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runs, err := runstate.NewStore(stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 8, 19, 9, 0, 0, 0, time.UTC)
+	if err := runs.Sweeps().Append(runstate.Sweep{
+		SchemaVersion: runstate.SweepSchemaVersion, ProductID: "yoyodyne", Task: "architect-amendments", Role: domain.RoleArchitect,
+		StartedAt: at, EndedAt: at.Add(time.Minute), Turns: 1,
+		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "argued one", Recommendations: []sweep.Recommendation{
+			{Proposal: proposal.ID, Verdict: sweep.RecommendApprove, Reason: "the ordering was never settled"},
+		}},
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
 	actor := newDashboardActor(context.Background(), configPath, io.Discard)
 
+	if _, err := actor.Find(context.Background(), readmodel.DecisionAmendment, "", ordinary.ID); !errors.Is(err, dashboard.ErrNotWaiting) {
+		t.Fatalf("Find() on an ordinary proposal = %v, want ErrNotWaiting: it is the architect's to move", err)
+	}
 	found, err := actor.Find(context.Background(), readmodel.DecisionAmendment, "", proposal.ID)
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
@@ -45,10 +71,6 @@ func TestTheDashboardDecidesAProposedChangeAsTheCommandLineDoes(t *testing.T) {
 		t.Fatalf("Decide() said %q", said)
 	}
 
-	stateRoot, err := resolvedTestStateRoot()
-	if err != nil {
-		t.Fatal(err)
-	}
 	store, err := runstate.NewAmendmentStore(stateRoot, "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
@@ -64,8 +86,8 @@ func TestTheDashboardDecidesAProposedChangeAsTheCommandLineDoes(t *testing.T) {
 	if _, err := actor.Find(context.Background(), readmodel.DecisionAmendment, "", proposal.ID); !errors.Is(err, dashboard.ErrNotWaiting) {
 		t.Fatalf("Find() after deciding = %v, want ErrNotWaiting", err)
 	}
-	// The command line agrees it is decided.
-	if stdout, _, code := runCLI(t, "amendment", "list", "--config", configPath); code != 0 || !strings.Contains(stdout, "no proposed changes are waiting") {
+	// The command line agrees it is decided, and still lists the ordinary one.
+	if stdout, _, code := runCLI(t, "amendment", "list", "--config", configPath); code != 0 || strings.Contains(stdout, proposal.ID) || !strings.Contains(stdout, ordinary.ID) {
 		t.Fatalf("amendment list after the dashboard decided = %q (code %d)", stdout, code)
 	}
 }

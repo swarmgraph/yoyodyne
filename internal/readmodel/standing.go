@@ -638,11 +638,10 @@ type Standing struct {
 	// says they could not be read.
 	DocumentsWaitingForSlot []DocumentSlotWait `json:"documents_waiting_for_slot,omitempty"`
 	DocumentsWaitingProblem string             `json:"documents_waiting_problem,omitempty"`
-	// OperatorDecisions is everything waiting on the operator's own approve or
-	// decline — proposed changes to documents, documents written in a
-	// conversation, and work proposed in one — which the dashboard puts to him
-	// one at a time; see ReadOperatorDecisions. OperatorDecisionsProblem says a
-	// source of them could not be read.
+	// OperatorDecisions is what the attention line names as the operator's
+	// that a verb approves or declines, opened into the records it carries,
+	// which the dashboard puts to him one at a time; see ReadOperatorDecisions.
+	// OperatorDecisionsProblem says a source of them could not be read.
 	OperatorDecisions        []OperatorDecision `json:"operator_decisions,omitempty"`
 	OperatorDecisionsProblem string             `json:"operator_decisions_problem,omitempty"`
 	// Admitted is the whole backlog this reading saw, so a short not-startable
@@ -826,7 +825,6 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.AdmittedItems = waits.admitted
 	standing.WaitingForSlot = waits.slotWait
 	standing.DocumentsWaitingForSlot, standing.DocumentsWaitingProblem = readDocumentWaits(sources)
-	standing.OperatorDecisions, standing.OperatorDecisionsProblem = ReadOperatorDecisions(sources)
 	if waits.groups != nil {
 		standing.NotStartableGroups = waits.groups
 		standing.NotStartableForOperator = ForOperator(waits.groups)
@@ -903,6 +901,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	}
 	standing.AmendmentsProblem = joinProblems(amendments.problem, amendments.sweepProblem)
 	actions = append(actions, amendments.batchAttention()...)
+	standing.OperatorDecisions, standing.OperatorDecisionsProblem = amendments.operatorDecisions()
 
 	needs, needsProblem := readNeedsHuman(sources, switches, actions, amendments)
 	needsProblem = joinProblems(needsProblem, actionsProblem)

@@ -5,9 +5,9 @@ package dashboard
 // The dashboard reads, and it takes exactly three acts besides: approve and
 // decline one thing waiting on the operator's decision, and ask about one
 // before deciding it. What waits is the read model's list
-// (readmodel.ReadOperatorDecisions) — a proposed change to a document, a
-// document an owning role wrote in its conversation, and work proposed in one
-// — and each act is carried out by the Actor the process is handed, which does
+// (readmodel.ReadOperatorDecisions), which is what the attention line names as
+// the operator's and a verb decides — never an owner the page works out for
+// itself — and each act is carried out by the Actor the process is handed, which does
 // what the command-line verb for the same decision does and records it the
 // same way. Nothing here records anything itself, and nothing here can do
 // what the command line cannot.

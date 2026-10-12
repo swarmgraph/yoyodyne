@@ -557,34 +557,29 @@
       "says": "the developer proposes a change to v1-harness-design, decided under the architect's authority"
     },
     {
-      "kind": "document",
-      "id": "document-41.1",
-      "label": "document to approve",
-      "role": "product-manager",
-      "agent": "product-manager",
-      "owner": "product-manager",
-      "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
-      "subject": "V1 non-goals",
-      "detail": "A reduced, local dashboard is in v1 scope, and it may take the operator's own decisions: approve and decline, starting with what waits on him.",
-      "why": "The operator decided on October 11 that the dashboard may take his own decisions.",
-      "ask_role": "product-manager",
-      "ask_agent": "product-manager",
-      "says": "the Lead Product Manager wrote document-41.1 (V1 non-goals) in conversation chat-91253e0e070c17b0663651cc48602122, and it waits on your approval"
-    },
-    {
-      "kind": "proposal",
-      "id": "42.1",
-      "label": "proposed work",
-      "role": "product-manager",
-      "agent": "product-manager",
-      "conversation_id": "chat-91253e0e070c17b0663651cc48602122",
-      "subject": "Decline from the phone keeps the reason",
-      "detail": "The dashboard's decline asks for a reason and the record keeps it.",
-      "why": "A decline with no reason is argued again.",
-      "asking": "it names a goal the Lead Product Manager may not admit work against without you",
-      "ask_role": "product-manager",
-      "ask_agent": "product-manager",
-      "says": "the Lead Product Manager proposed work 42.1 (Decline from the phone keeps the reason) in conversation chat-91253e0e070c17b0663651cc48602122, and it waits on your decision"
+      "kind": "amendment",
+      "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
+      "label": "proposed document change",
+      "role": "developer",
+      "owner": "architect",
+      "subject": "observability-and-dashboard",
+      "detail": "The design should say the dashboard counts the attention line by the mover each entry carries.",
+      "why": "The read model carries the mover, and the page counts by it rather than by the words beside it.",
+      "work_item_id": "yoyodyne-ifd.432.5",
+      "raised_at": "2026-09-19T12:45:00Z",
+      "recommendation": {
+        "proposal": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
+        "artifact": "observability-and-dashboard",
+        "owner": "architect",
+        "verdict": "decline",
+        "reason": "The design already says this in its own words.",
+        "task": "architect-amendments",
+        "recommended_at": "2026-09-19T13:00:00Z"
+      },
+      "ask_role": "developer",
+      "ask_agent": "developer",
+      "decline_needs_reason": true,
+      "says": "the developer proposes a change to observability-and-dashboard, decided under the architect's authority"
     }
   ]
 }

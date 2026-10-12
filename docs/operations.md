@@ -5880,19 +5880,21 @@ below; every other entry here is still acted on at the command line.
 
 ### Deciding from the page
 
-Everything waiting on your own approve or decline is put to you on the page,
-one thing at a time: a change proposed to a document, which `yoyo amendment
-approve` and `decline` decide; a document an owning role wrote in its
-conversation, which `yoyo agent chat <agent> --message "approve
-document-4.1"` decides (`yoyo chat` for the Lead Product Manager's); and work
-an agent proposed in its conversation and stopped to ask you about, which
-`"approve 3.1"` sent the same way decides. The standing carries them under
-`standing.operator_decisions`, read from the amendment log and the
-conversation records and from nothing else, and while any wait the band shows
-a **Your decisions** tile counting them. A document confirmed for publication
-or held for sending is not on it, because it is not yours to decide. Neither is
-anything on the fourth line that no verb approves or declines — a hold, a
-directive, a step only a person can take — which stays where it was.
+What the attention line names as yours, and a verb approves or declines, is
+put to you on the page one thing at a time. Who owns each entry is the line's
+answer and never the page's: the page lists only the line's own entries whose
+mover is you, opened into the records they carry. Today those are changes
+proposed to documents — one whose entry names you, and each proposal in an
+owning role's [batch of recommendations](#where-a-finding-that-needs-your-hand-goes),
+which the line names as a finding for you — decided by `yoyo amendment
+approve` and `decline`. An ordinary proposed change is the owning role's to
+move, as its entry on the line says, and is not on the page's list; neither is
+a document or proposed work waiting in a conversation, for which the line names
+nobody. The standing carries the list under `standing.operator_decisions`,
+read from the same derivation the line is built from, and while anything is on
+it the band shows a **Your decisions** tile counting it. Anything on the line
+that no verb approves or declines — a hold, a directive, a step only a person
+can take — stays where it was.
 
 **Your decisions** opens a pop-up headed by what sort of decision it is, with
 `1 of 3` and when the standing was read under the heading, and the decision
@@ -5903,10 +5905,11 @@ raised it, the authority it is decided under, and its id. **Previous** and
 **Next** move between them. Under them:
 
 - **Approve** decides it at once, with one press.
-- **Decline** asks for a reason first and declines it with **Decline it**. The
-  reason is optional, except on a proposed change, whose record keeps why it
-  was turned down and refuses a decline without one — the pop-up says so beside
-  the box, and the refusal says so if it is left empty.
+- **Decline** asks for a reason and declines it with **Decline it**. The
+  pop-up asks for the reason as optional where the record takes a decline
+  without one; a proposed change's record keeps why it was turned down and
+  refuses a decline without one, so for those the pop-up says the reason is
+  needed beside the box, and the refusal says so if it is left empty.
 - **Ask first** asks for your question and sends it with **Send the
   question** to the conversation of the role that raised the decision, as
   `yoyo agent chat <agent> --message` would — or to the Lead Product Manager's
@@ -5918,10 +5921,12 @@ raised it, the authority it is decided under, and its id. **Previous** and
 What came of each press is said under the buttons, in the verb's own words,
 and a decision carried out leaves the list at once. A decision is recorded
 exactly as the verb typed at the command line records it, as the operator's: the amendment
-log's decision by the operator under the owner's authority, or the
-conversation's own record of an approval, which writes the document and
-records your approval in it. Nothing the page does is something the command
-line cannot.
+log's decision by the operator under the owner's authority. Nothing the page
+does is something the command line cannot. The dashboard also knows how to
+carry out the conversation's own verb for a document or proposed work — "approve
+document-4.1" sent to that conversation — for the day the line names you for
+one; until then none is listed, and an act naming one is refused as not
+waiting.
 
 **Only a person acts, never a token.** The token the dashboard prints or reads
 from `services.dashboard.token` reads everything and resolves to nobody, so a
@@ -5957,9 +5962,9 @@ build that has them; `yoyo config validate` and `yoyo doctor` name any that
 cannot read it.
 
 A person acts only where they hold the grant the decision needs:
-`own-intent` for a document or proposed work, and `decide-amendments` for a
-proposed change, with `own-intent` beside it for a change to a document the
-Lead Product Manager owns. Asking first is held to the same grant as deciding,
+`decide-amendments` for a proposed change, with `own-intent` beside it for a
+change to a document the Lead Product Manager owns, and `own-intent` for a
+document or proposed work. Asking first is held to the same grant as deciding,
 because it is the first half of deciding. A person without it is refused
 naming the grant.
 
@@ -5970,9 +5975,8 @@ kind, a verdict, or a field the page does not take; sent as anything but JSON;
 sent to any other path, or with any method but `POST` to `/api/acts/decide` and
 `/api/acts/ask`; and from a foreign `Host` or `Origin` — each is refused with a
 one-line reason, carries the content-security policy, reflects nothing of the
-request, and does nothing. A document or proposed work whose conversation is
-taking a turn right now is refused too, saying to decide again once the turn
-has ended, rather than holding the page for minutes.
+request, and does nothing. So is an act on a proposed change the line gives
+to its owning role, as not waiting on you.
 
 The rest of what a person does at the command line — releasing intake,
 resuming, resolving a directive, recording a step only a person takes,

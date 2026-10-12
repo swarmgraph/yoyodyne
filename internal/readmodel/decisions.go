@@ -3,29 +3,32 @@ package readmodel
 // What waits on the operator's own approve-or-decline, read once for every
 // surface that puts it to him.
 //
-// Three records hold a decision only he makes, and each already has a verb that
-// makes it: a change proposed to a document, decided by `yoyo amendment approve`
-// or `decline`; a document an owning role wrote in its conversation, decided by
-// "approve document-4.1" sent to that conversation; and work an agent proposed
-// in its conversation and stopped to ask about, decided by "approve 3.1" sent
-// the same way. The dashboard puts these to him one at a time and carries out
-// the same verbs, so the list is derived here from the amendment log and the
-// conversation records and nowhere else — the page reads it, and a second
-// derivation in the page would be a second answer to "what is waiting on me".
+// Who owns a thing waiting is the attention line's answer, which every surface
+// projects, and never decided here: this list is the line's own entries whose
+// mover is the operator, narrowed to the ones a verb approves or declines and
+// opened into the records they carry, so the dashboard can put each to him one
+// at a time and carry out the same verb. Today that is the proposed changes the
+// line names as his — one whose entry names him, and each proposal in an owning
+// role's batch of recommendations — decided by `yoyo amendment approve` or
+// `decline`. An ordinary proposed change is the owning role's, as its entry on
+// the line says, and is not here.
 //
-// What is not here is everything on the attention line that no verb approves
-// or declines: a hold is released, a directive resolved, a step a person took
+// Two more kinds have a verb and are named below, so the dashboard can carry
+// them out the day the line names the operator for one: a document an owning
+// role wrote in its conversation, decided by "approve document-4.1" sent to
+// that conversation, and work proposed in one, decided by "approve 3.1". The
+// line has no entry for either today, so neither is listed.
+//
+// What is not here is everything on the line that no verb approves or
+// declines: a hold is released, a directive resolved, a step a person took
 // recorded. Those stay on the line, and the page offers no button for them.
 
 import (
 	"fmt"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
-	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // DecisionKind is which of the three records an operator decision is about.
@@ -126,50 +129,59 @@ func (d OperatorDecision) Key() string {
 	return string(d.Kind) + ":" + d.Agent + ":" + d.ID
 }
 
-// ReadOperatorDecisions lists what waits on the operator's approve or decline:
-// every undecided proposed change, oldest first, and then every undecided
-// document and proposed work in each recorded conversation, conversation by
-// conversation in agent order. A source that could not be read is named in the
-// problem and costs only its own part of the list.
+// ReadOperatorDecisions lists what waits on the operator's approve or decline,
+// and nothing the attention line does not already give him. Who owns an entry
+// is never decided here: the list is the attention line's own entries for the
+// proposed changes, whose mover is the operator, opened into the proposals they
+// carry. That is a proposed change whose entry names him, and every proposal in
+// an owning role's batch of recommendations, which is the operator-action
+// finding the line names as his; an ordinary proposal is the owning role's, as
+// its entry says, and is not here. A document or proposed work in a
+// conversation has no entry on the line naming him, so none is listed.
+// Proposals come oldest first, by the log's order. A source that could not be
+// read is named in the problem rather than read as an empty list.
 func ReadOperatorDecisions(sources Sources) ([]OperatorDecision, string) {
+	return readAmendments(sources, sources.now()).operatorDecisions()
+}
+
+// operatorDecisions is the list from one reading of the proposed changes, which
+// the standing shares with the attention line it is derived from.
+func (reading amendmentReading) operatorDecisions() ([]OperatorDecision, string) {
+	if reading.problem != "" {
+		return nil, reading.problem
+	}
+	recommended := map[string]RecommendedAmendment{}
+	for _, each := range reading.recommended {
+		recommended[each.Proposal] = each
+	}
+	theirs := map[string]bool{}
+	for _, entry := range reading.attention() {
+		if entry.Mover == MoverOperator && entry.Amendment != nil {
+			theirs[entry.ID] = true
+		}
+	}
+	for _, entry := range reading.batchAttention() {
+		if entry.Mover != MoverOperator {
+			continue
+		}
+		for _, each := range reading.recommended {
+			if amendmentBatchKey(each.Task, each.RecommendedAt) == entry.ID {
+				theirs[each.Proposal] = true
+			}
+		}
+	}
 	var decisions []OperatorDecision
-	var problems []string
-	if sources.Amendments != nil {
-		records, err := sources.Amendments.List()
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("the proposed changes could not be read: %v", err))
-		} else {
-			recommended := map[string]RecommendedAmendment{}
-			if sources.Sweeps != nil {
-				if sweeps, _, err := sources.Sweeps.List(); err == nil {
-					for _, each := range RecommendedAmendments(sweeps, records) {
-						recommended[each.Proposal] = each
-					}
-				}
-			}
-			for _, proposal := range amendment.Pending(records) {
-				decision := amendmentDecision(proposal)
-				if each, found := recommended[proposal.ID]; found {
-					decision.Recommendation = &each
-				}
-				decisions = append(decisions, decision)
-			}
+	for _, proposal := range amendment.Pending(reading.records) {
+		if !theirs[proposal.ID] {
+			continue
 		}
-	}
-	if sources.Conversations != nil {
-		conversations, err := sources.Conversations.Recorded()
-		if err != nil {
-			problems = append(problems, fmt.Sprintf("the conversations could not be read: %v", err))
-		} else {
-			sort.SliceStable(conversations, func(i, j int) bool {
-				return conversations[i].Identity().Agent < conversations[j].Identity().Agent
-			})
-			for _, conversation := range conversations {
-				decisions = append(decisions, conversationDecisions(conversation)...)
-			}
+		decision := amendmentDecision(proposal)
+		if each, found := recommended[proposal.ID]; found {
+			decision.Recommendation = &each
 		}
+		decisions = append(decisions, decision)
 	}
-	return decisions, strings.Join(problems, "; ")
+	return decisions, reading.sweepProblem
 }
 
 // FindOperatorDecision is one decision by its kind, the agent whose
@@ -209,40 +221,4 @@ func amendmentDecision(proposal amendment.Proposal) OperatorDecision {
 	}
 	decision.Says = fmt.Sprintf("the %s proposes a change to %s, decided under the %s's authority", proposal.Role.Title(), proposal.Artifact, proposal.Owner.Title())
 	return decision
-}
-
-func conversationDecisions(conversation runstate.Conversation) []OperatorDecision {
-	identity := conversation.Identity()
-	var decisions []OperatorDecision
-	for _, write := range conversation.PendingWrites {
-		// A document confirmed for publication waits on its run, and one held
-		// for sending is its owner's to release: neither is the operator's to
-		// decide, which is what the conversation itself says of them.
-		if write.Publication != nil || write.Held() {
-			continue
-		}
-		subject := strings.TrimSpace(write.Title)
-		if subject == "" {
-			subject = write.Artifact
-		}
-		decision := OperatorDecision{
-			Kind: DecisionDocument, ID: write.ID, Label: DecisionDocument.Label(),
-			Role: identity.Role, Agent: identity.Agent, Owner: identity.Role, ConversationID: conversation.ConversationID,
-			Subject: subject, Detail: write.Body, Why: write.Reason,
-			AskRole: identity.Role, AskAgent: identity.Agent,
-		}
-		decision.Says = fmt.Sprintf("the %s wrote %s (%s) in conversation %s, and it waits on your approval", identity.Role.Title(), write.ID, subject, conversation.ConversationID)
-		decisions = append(decisions, decision)
-	}
-	for _, proposal := range conversation.PendingProposals {
-		decision := OperatorDecision{
-			Kind: DecisionProposal, ID: proposal.ID, Label: DecisionProposal.Label(),
-			Role: identity.Role, Agent: identity.Agent, ConversationID: conversation.ConversationID,
-			Subject: proposal.Title, Detail: proposal.Description, Why: proposal.Rationale, Asking: proposal.Asking,
-			AskRole: identity.Role, AskAgent: identity.Agent,
-		}
-		decision.Says = fmt.Sprintf("the %s proposed work %s (%s) in conversation %s, and it waits on your decision", identity.Role.Title(), proposal.ID, proposal.Title, conversation.ConversationID)
-		decisions = append(decisions, decision)
-	}
-	return decisions
 }

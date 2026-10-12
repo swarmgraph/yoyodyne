@@ -2186,9 +2186,9 @@ var standingWarningAgeSeconds = 5 * 60;
 
   // ---- deciding
 
-  // The pop-up the band's "Your decisions" tile opens: everything waiting on
-  // the operator's own approve or decline, from the standing's
-  // operator_decisions, one at a time. Approve and Decline post the act to
+  // The pop-up the band's "Your decisions" tile opens: what the attention line
+  // names as the operator's and a verb approves or declines, from the
+  // standing's operator_decisions, one at a time. Approve and Decline post the act to
   // /api/acts/decide and Ask first posts the question to /api/acts/ask; the
   // dashboard checks who the session is and carries each out with the
   // command-line verb's own code, so the page says what came back and nothing
@@ -2370,7 +2370,7 @@ var standingWarningAgeSeconds = 5 * 60;
         section("decide", "error", standing.operator_decisions_problem, whatToDoAboutTheStanding());
         return;
       }
-      section("decide", "empty", "Nothing waits on your approve or decline: no proposed change to a document, no document written in a conversation, and no proposed work, as of " + clock(standing.observed_at) + ".");
+      section("decide", "empty", "Nothing the attention line names as yours waits on your approve or decline, as of " + clock(standing.observed_at) + ".");
       return;
     }
     var index = 0;

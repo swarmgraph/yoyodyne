@@ -423,11 +423,11 @@ it has a token. Everything else is refused: a request for the read model with no
 token or the wrong one, a Host or Origin that is not the address it bound, and
 durable state it cannot read each get a refusal and never part of an answer.
 
-Everything waiting on the operator's own approve or decline -- a change proposed
-to a document, a document an owning role wrote in its conversation, and work
-proposed in one -- is put to him on the page one at a time, with Approve,
-Decline, and a way to ask the role that raised it first. A decision is recorded
-exactly as `+"`yoyo amendment approve`"+` or `+"`yoyo agent chat <agent> --message \"approve document-4.1\"`"+`
+What the attention line names as the operator's and a verb approves or
+declines -- today, a change proposed to a document whose entry names him, and
+each proposal in an owning role's batch of recommendations -- is put to him on
+the page one at a time, with Approve, Decline, and a way to ask the role that
+raised it first. A decision is recorded exactly as `+"`yoyo amendment approve`"+`
 records it, and asking decides nothing. Only a person acts: the token printed or
 read above reads only, and a person binds a token of their own under
 operators.<name>.dashboard_token -- `+"`keychain`"+`, the item
