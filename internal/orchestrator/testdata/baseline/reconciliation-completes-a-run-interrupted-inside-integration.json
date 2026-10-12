@@ -52,6 +52,9 @@
           "target_branch": "main",
           "target_commit": "\u003ccommit-2\u003e"
         },
+        "landing_step": {
+          "doing": "recording that the landing onto main finished"
+        },
         "phase": "completing",
         "preservation": {
           "branch": "yoyodyne/yoyodyne-task/01234567",
@@ -265,7 +268,8 @@
         "Review summary: the change matches the acceptance criteria",
         "Integrated into: main",
         "Integrated commit: \u003ccommit-2\u003e",
-        "Previous target commit: \u003ccommit-1\u003e"
+        "Previous target commit: \u003ccommit-1\u003e",
+        "Landing stopped at: recording that the landing onto main finished."
       ],
       [
         "Yoyodyne reconciled an interrupted run: its integration commit was found in the target branch even though the run never recorded it, so the item is being closed and the run's artifacts removed.",
