@@ -183,6 +183,10 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.WorkTriage},
 		gap:      "holding triage does not say which run a decision may name; that is a scope over the subject, and scopes are the next step of this workstream",
 	},
+	"dashboard.person-act": {
+		question: "none: the check is asked of a person, and no role holds a bundle that says what a person may decide",
+		gap:      "it reads a person's grants from the operators mapping, which are a human's authority rather than any role's, so no role's capabilities can express it",
+	},
 	"sidestream.no-action": {
 		question: "does a side thread hold the capability this block asks for?",
 		asks:     []capability.Capability{capability.WorkItemRead, capability.RepositoryRead},

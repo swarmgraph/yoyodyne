@@ -5917,7 +5917,7 @@ raised it, the authority it is decided under, and its id. **Previous** and
 
 What came of each press is said under the buttons, in the verb's own words,
 and a decision carried out leaves the list at once. A decision is recorded
-exactly as the command-line verb records it, as the operator's: the amendment
+exactly as the verb typed at the command line records it, as the operator's: the amendment
 log's decision by the operator under the owner's authority, or the
 conversation's own record of an approval, which writes the document and
 records your approval in it. Nothing the page does is something the command
@@ -6065,7 +6065,7 @@ build reads, under `projects/<product>/state/config-readers/`, so a later key it
 cannot read is named against the dashboard. Both records direct no work. The
 one thing a request does besides read is [the operator's own approve, decline,
 and ask](#deciding-from-the-page), from a person's own token, carried out by
-the command-line verbs' own code; every other button on the page opens or
+the code the verbs typed at the command line run; every other button on the page opens or
 closes one of its own pop-ups and nothing else, and nothing but `GET` and
 `HEAD`, and `POST` to the two act paths, is answered at all. Restarting it
 changes nothing about the harness and loses nothing, because the history it
