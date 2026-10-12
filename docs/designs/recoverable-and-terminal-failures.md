@@ -1,7 +1,7 @@
 ---
 id: recoverable-and-terminal-failures
 kind: design
-title: "Recoverable and terminal failures: the boundary per failure class, and what a retry may never do"
+title: 'Recoverable and terminal failures: the boundary per failure class, and what a retry may never do'
 supports:
     - v1-goals
 status: active
@@ -10,8 +10,17 @@ revisions:
       by: architect
       at: 2026-09-25T09:00:00Z
       reason: yoyodyne-ifd.265 - the operator's 2026-09-03 rule that the harness never fails outright on anything that can recover, drawn as a taxonomy per boundary; the provider boundary's window narrowed to thirty minutes, lease-held waits bounded to the promotion queue's fifteen minutes, and what exhausting a window produces stated
+    - action: amended
+      by: architect
+      at: 2026-10-12T08:08:57.152703Z
+      reason: 'yoyodyne-gms - states the October 11 ruling on checks stopped by their time limit: unfinished rather than failed, rerun from the start on the same candidate at most twice within three times the limit, bounds shared by every path and never reset by a restart, no reruns added by load scaling, spent bounds kept for the development manager; the per-check load-scaling work (yoyodyne-ifd.429.41) built it and the design still said such a check failed and was never retried'
+approvals:
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-12T08:08:57.152703Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 738, for document-738.1 under the automatic approval policy
 ---
-
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
 ## What this is for
@@ -38,7 +47,15 @@ A failure whose class the harness does not recognize is treated as an answer and
 
 **Local Git.** A command the harness's own budget ended is an environmental refusal and is not retried in place: a replay it killed is abandoned and recorded as an integration stop the resume picks up, and a checkout it killed is refused with nothing charged. A conflict is an answer, to a person, with both sides preserved. Neither is a recoverable failure, because the identical command on the same machine at the same load is not a different request.
 
-**The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried; a check the timeout ended is a failed check, because the budget is the operator's statement about the suite and a second thirty-minute run on the same machine is the load the budget exists to bound. A reviewer invocation the provider killed is the provider boundary, and is reissued without a repair attempt being spent.
+**The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried. A check stopped by its own time limit, or by the stage's limit, is not a failing check: it did not finish, so it is neither a pass nor a failure, and it earns no credit toward any gate. It is recovered within fixed bounds:
+
+- It is run again from the start, on the same candidate commit, at most twice, and the first run and both reruns together take at most three times its limit. Both bounds are shared by every path that runs checks, so no path gets an allowance of its own.
+- Each rerun is recorded on the run before it starts. A restart or redeploy of the harness never resets the count: a process that comes back finds the reruns it had already spent.
+- Scaling a check's limit for machine load lengthens that limit and adds no reruns.
+- When either bound is spent, the change is kept, no repair attempt or review round is charged, and the run stops for a cause outside the work. It goes to the development manager, who decides what happens to it, and never back to the developer as a failure, because nothing about the change was judged.
+- A new candidate commit starts the count again.
+
+The time limit is still the operator's statement about how long the suite may take on this machine, and the two reruns within three times the limit are what keep the load it exists to bound bounded. Treating a stop by the limit as a failing check sent developers to repair changes that nothing was wrong with, and that is the failure this rule removes. A reviewer invocation the provider killed is the provider boundary, and is reissued without a repair attempt being spent.
 
 ## What a retry may never do
 
@@ -53,4 +70,4 @@ Never a silent terminal failure. A window that runs out produces exactly what th
 
 ## What this orders
 
-Two changes to the machinery as shipped, for the product manager to admit: the provider boundary's post-budget window shortened from two hours to thirty minutes, and the lease-held waits bounded to the promotion queue's fifteen minutes with the release-and-record behavior above. Everything else in this design describes the recovery rule as it ships and gives it the taxonomy it was waiting on.
+Two changes to the machinery as shipped, for the product manager to admit: the provider boundary's post-budget window shortened from two hours to thirty minutes, and the lease-held waits bounded to the promotion queue's fifteen minutes with the release-and-record behavior above. Everything else in this design describes the recovery rule as it ships and gives it the taxonomy it was waiting on, including the bounded reruns of a check stopped by its time limit, built by the per-check load-scaling work (yoyodyne-ifd.429.41).
