@@ -37,6 +37,32 @@ func TestRunnerStopsAfterFailedCheck(t *testing.T) {
 	}
 }
 
+// Each check is reported as it ends and before the next one starts, so a
+// caller can keep what has passed if the stage is stopped part way through.
+func TestRunnerReportsEachCheckAsItFinishes(t *testing.T) {
+	t.Parallel()
+
+	var order []string
+	results, _, err := (Runner{Process: execution.OSProcessRunner{}}).Run(
+		context.Background(),
+		Request{
+			RunID:     "run-0123456789abcdef0123456789abcdef",
+			Directory: t.TempDir(),
+			Commands:  []string{"exit 0", "exit 3", "exit 0"},
+			Started:   func(command string, _ time.Duration) { order = append(order, "started "+command) },
+			Finished:  func(result Result) { order = append(order, "finished "+result.Command) },
+		},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	want := []string{"started exit 0", "finished exit 0", "started exit 3", "finished exit 3"}
+	if len(results) != 2 || !reflect.DeepEqual(order, want) {
+		t.Fatalf("order = %q, want %q", order, want)
+	}
+}
+
 func TestRunnerUsesANonLoginShell(t *testing.T) {
 	t.Parallel()
 

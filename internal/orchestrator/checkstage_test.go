@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -584,7 +585,15 @@ func TestTheRecordSaysWhichCheckTheStageIsOnWhileItRuns(t *testing.T) {
 			t.Fatalf("record while the stage ran = %s, want it to carry %s", recorded, want)
 		}
 	}
-	if strings.Contains(string(recorded), `"finished_at"`) {
+	// The stage's own end is what is asked about; a kept check's result carries
+	// a finish time of its own.
+	var running struct {
+		CheckStage map[string]any `json:"check_stage"`
+	}
+	if err := json.Unmarshal(recorded, &running); err != nil {
+		t.Fatalf("decode the record while the stage ran: %v", err)
+	}
+	if _, finished := running.CheckStage["finished_at"]; finished {
 		t.Fatalf("record while the stage ran = %s, want the stage still running", recorded)
 	}
 	state, err := store.Load(pipelineRunID)

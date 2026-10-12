@@ -1916,6 +1916,9 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		readopted := *state.RedeployStop
 		state.Readopted = &readopted
 	}
+	// A run the restart stopped at its checks is owed only the checks that had
+	// not finished (keptchecks.go).
+	pickedUpAtChecks := state.RedeployStop != nil && state.RedeployStop.Phase == runstate.PhaseChecking
 	state.RedeployStop = nil
 	// The invariants are re-read rather than carried in run state: they are the
 	// repository's current constraints, and a resumed attempt must be held to what
@@ -2007,6 +2010,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 			AmendmentProblem: state.AmendmentProblem,
 		},
 	}
+	run.keptChecksOwed = pickedUpAtChecks
 	// A run resumed at its promotion carries the verdict that authorized it into
 	// the outcome it reports, because the steps past this point read the outcome:
 	// the independence check reads the two sessions off it, the notes recorded on
@@ -2457,6 +2461,11 @@ type activeRun struct {
 	// nothing is watching, which is every run a rolled-back project starts and
 	// every run started before the definition existed.
 	trial *deliveryTrial
+	// keptChecksOwed is a run picked up after a restart onto a new build
+	// stopped it at its checks: its next check stage reuses what
+	// state.KeptChecks holds for the same candidate (keptchecks.go). It is
+	// spent by that stage, whichever way it goes.
+	keptChecksOwed bool
 }
 
 // chargingProcess is what this process charges this run's review rounds under.
@@ -5873,46 +5882,60 @@ func (a *activeRun) verify(ctx context.Context) error {
 		stageCommands, providerCLIs = commands, nil
 		narrowed = "the document checks, in place of the configured checks, because the change is a confirmed document"
 	}
+	// A run picked up after a restart onto a new build stopped it at its checks
+	// runs only the checks that had not already passed over this same candidate,
+	// and every check that passes from here is kept as it passes (keptchecks.go).
+	keeping := a.keepChecks(ctx, stageCommands, providerCLIs)
 	configured := p.checkStageTimeout()
 	stage := &runstate.CheckStage{
 		StartedAt:         p.clock().Now(),
 		BoundSeconds:      int64(configured / time.Second),
 		ConfiguredSeconds: int64(configured / time.Second),
 		Narrowed:          narrowed,
+		Kept:              keeping.keptCommands(),
+	}
+	if len(stage.Kept) == 0 {
+		stage.Kept = nil
 	}
 	p.scaleCheckStage(stage)
 	a.state.CheckStage = stage
 	a.state.UpdatedAt = p.clock().Now()
 	_ = p.Store.Save(a.state)
-	checkResults, lastSequence, err := p.Checks.Run(ctx, checks.Request{
-		RunID:        a.state.RunID,
-		Directory:    a.worktree.Path,
-		Commands:     stageCommands,
-		ProviderCLIs: providerCLIs,
-		LastSequence: a.state.LastSequence,
-		Env:          []string{narrowing.Env()},
-		// The bound is read again as each check begins, because the load a
-		// stage starts under is not the load three suites beside each other
-		// build up; it only ever grows, and the record carries it before the
-		// check it bounds starts.
-		StageBound: func() time.Duration {
-			p.scaleCheckStage(stage)
-			return stage.Bound()
-		},
-		// Which check the stage is on goes onto the record as each begins.
-		Started: func(command string, _ time.Duration) {
-			stage.Command = command
-			a.state.UpdatedAt = p.clock().Now()
-			_ = p.Store.Save(a.state)
-		},
-	}, a.sink)
+	var ranResults []checks.Result
+	lastSequence := a.state.LastSequence
+	if len(keeping.commands) > 0 {
+		ranResults, lastSequence, err = p.Checks.Run(ctx, checks.Request{
+			RunID:        a.state.RunID,
+			Directory:    a.worktree.Path,
+			Commands:     keeping.commands,
+			ProviderCLIs: keeping.providerCLIs,
+			LastSequence: a.state.LastSequence,
+			Env:          []string{narrowing.Env()},
+			// The bound is read again as each check begins, because the load a
+			// stage starts under is not the load three suites beside each other
+			// build up; it only ever grows, and the record carries it before the
+			// check it bounds starts.
+			StageBound: func() time.Duration {
+				p.scaleCheckStage(stage)
+				return stage.Bound()
+			},
+			// Which check the stage is on goes onto the record as each begins.
+			Started: func(command string, _ time.Duration) {
+				stage.Command = command
+				a.state.UpdatedAt = p.clock().Now()
+				_ = p.Store.Save(a.state)
+			},
+			Finished: a.keepPassed,
+		}, a.sink)
+	}
+	checkResults := append(append([]checks.Result(nil), keeping.kept...), ranResults...)
 	a.outcome.Checks = checkResults
 	a.state.LastSequence = lastSequence
-	a.closeCheckStage(stage, checkResults)
+	a.closeCheckStage(stage, ranResults)
 	if err != nil {
 		return stoppedBy(runstate.StopChecks, fmt.Errorf("verification infrastructure failed: %w", err))
 	}
-	for _, check := range checkResults {
+	for _, check := range ranResults {
 		// A check that said it could not run judged nothing about the change,
 		// so it is neither repair input nor a stop: the change goes on without
 		// it, and the record below says which check it went without and why.
@@ -5926,6 +5949,9 @@ func (a *activeRun) verify(ctx context.Context) error {
 		var cause error = fmt.Errorf("verification failed: %s exited with %d", check.Command, check.Process.ExitCode)
 		switch {
 		case check.Process.Status == execution.ProcessFailed:
+			// The stage reached its verdict, so nothing it passed is owed to a
+			// later stage.
+			a.state.KeptChecks = nil
 			cause = checkFailure{result: check}
 		case check.StoppedByCaller:
 			// The context the run was given ended under the check: a deadline
@@ -5975,6 +6001,7 @@ func (a *activeRun) verify(ctx context.Context) error {
 		return fmt.Errorf("verification infrastructure failed: name the change the checks passed over: %w", err)
 	}
 	a.state.CheckFailure = nil
+	a.state.KeptChecks = nil
 	commands := make([]string, 0, len(checkResults))
 	for _, check := range checkResults {
 		if check.CouldNotRun == "" {
@@ -9842,8 +9869,14 @@ func renderCheckNotes(outcome Outcome) []string {
 				check.Command, check.CouldNotRun, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("Check: %s (passed=%t, exit=%d, %s of %s)",
-			check.Command, check.Passed, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout))
+		// A check kept across a restart onto a new build passed before the
+		// restart and was not run again (keptchecks.go), and the note says so.
+		kept := ""
+		if outcome.CheckStage != nil && slices.Contains(outcome.CheckStage.Kept, check.Command) {
+			kept = "; kept from before the restart onto a new build, not run again"
+		}
+		lines = append(lines, fmt.Sprintf("Check: %s (passed=%t, exit=%d, %s of %s%s)",
+			check.Command, check.Passed, check.Process.ExitCode, check.Elapsed().Round(time.Second), check.Timeout, kept))
 		if !check.Passed {
 			lines = append(lines, boundedCheckOutput(check))
 		}

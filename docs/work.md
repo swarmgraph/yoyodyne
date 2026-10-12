@@ -2120,8 +2120,10 @@ where it is and preserving it whole for the session that comes back to re-adopt,
 with every counter as it was. A run it has stopped no longer counts as one it
 hosts, so nothing it stopped holds the restart back, and a recurring pass still
 taking its turns is stopped too and recorded as a missed pass. A running check stage is stopped at the drain limit even
-when load has extended the stage's own limit; the session that comes back runs
-it again from the start. A stage that has already finished gets a brief grace
+when load has extended the stage's own limit. Each check that passed before
+the stop keeps its result: the session that comes back runs only the checks
+that had not finished, and only when the change is exactly the one they passed
+on — a changed change runs every check again. A stage that has already finished gets a brief grace
 to record its verdict. A run at its promotion is waited out past the bound
 because it holds the target branch's lease. That stop is recorded as
 a restart rather than an ending, so `yoyo status` and the Slack sink say a
