@@ -2869,10 +2869,25 @@ is as wide as the terminal decides, and any other control character is dropped
 as it is when typed. The bracketing is turned off whenever the terminal changes
 hands, exactly as the keyboard is.
 
-Ctrl-C still interrupts the way it always did, and Ctrl-Z still stops the
-conversation. A terminal that has agreed to report shift-return stops raising
-the signal keys itself, so yoyo raises what it reports — to the same process
-group the terminal would have. The keyboard is handed back exactly as it was
+Esc and Ctrl-C work as they do in Claude Code. While a turn is being answered,
+Esc stops it and puts you back at the prompt with the conversation intact; the
+conversation's record says you stopped it, nothing the Lead Product Manager
+asked for after that is carried out, and anything it had already done is
+reported as usual. Ctrl-C stops a turn the same way. At the prompt, Ctrl-C
+clears what you are typing — Ctrl-Y puts it back — and on an empty prompt it
+says that pressing it again ends the conversation; a second press within two
+seconds does. Anything else you type while a turn is being answered waits for
+the prompt, as it always has. Esc on its own is told apart from the keys whose
+sequences begin with the same byte by waiting a tenth of a second for anything
+to follow it, so over a very slow connection an arrow key can occasionally
+arrive as Esc. Ctrl-C is read as a key only while yoyo is reading the keyboard
+— at the prompt and while a turn is being answered — and the rest of the time it
+interrupts as it always did, so a wait for another process to finish its turn
+still ends on it.
+
+Ctrl-Z still stops the conversation. A terminal that has agreed to report
+shift-return stops raising the signal keys itself, so yoyo raises what it
+reports — to the same process group the terminal would have. The keyboard is handed back exactly as it was
 found whenever the terminal changes hands: when the conversation ends, and when
 Ctrl-Z stops it, so the shell you drop into finds none of this on it. Resuming
 takes it back and asks again, because what a terminal agreed to before a stop is
@@ -2888,9 +2903,9 @@ turn that is slow because the service or your account is declining work is
 telling you something worth knowing. Nothing arriving for twenty seconds stops
 the animation: the line then says how long it has been quiet, because a display
 that keeps moving through a stall looks like progress, and looking like progress
-is worse than saying nothing. It is drawn above the line you are typing and
-erased when there is a reply to read, so it is never in your way and never in
-the scrollback.
+is worse than saying nothing. It ends by naming the key that stops the turn,
+`esc to stop`. It is drawn above the line you are typing and erased when there
+is a reply to read, so it is never in your way and never in the scrollback.
 
 The reply itself arrives while it is being written rather than all at once when
 it is finished. The provider reports the Lead Product Manager's message before the

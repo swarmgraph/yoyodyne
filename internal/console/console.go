@@ -75,7 +75,9 @@ type Console interface {
 	// Prompt reads one line the operator types. It returns ErrInterrupted,
 	// without losing what has been typed, when interrupt fires, so the caller
 	// can write above the composing line and prompt again. A closed input
-	// returns io.EOF.
+	// returns io.EOF, and so does Ctrl-C pressed twice on an empty prompt where
+	// the console reads keystrokes: both are the operator ending the
+	// conversation.
 	Prompt(ctx context.Context, prompt string, interrupt <-chan struct{}) (string, error)
 	// Choose puts a question whose answers can be counted to the operator and
 	// returns the one they gave: one of the options, exactly as it was handed
@@ -90,6 +92,12 @@ type Console interface {
 	// beginning with the phase it is in now. It is closed by the caller once
 	// there is an answer to read.
 	Working(phase string) Activity
+	// WatchForStop reads the keyboard while the operator waits on a turn rather
+	// than typing, and closes the channel it returns the first time they press a
+	// key that stops the turn: Esc, or Ctrl-C. Anything else they type is kept for
+	// the next prompt. done ends the watching and is safe to call more than once.
+	// A console with no keystrokes to read returns a channel that never closes.
+	WatchForStop() (stop <-chan struct{}, done func())
 	// Status leaves one line resting under the conversation, above whatever is
 	// being composed, until it is replaced or emptied. It carries what is true
 	// between turns — what the last turn cost — rather than what happened, which

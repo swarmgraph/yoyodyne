@@ -55,7 +55,9 @@ message from the command line, and every recurring role pass
     `emit` (appends a harness event to the log).
 11. **The console loop.** `Converse` → `converse` (one line in, one answer
     out; lines starting with `/` go to `command` in `steer.go`), `speak`
-    (calls `Send` with progress on screen), `reportSpend`, `awaitOperator`
+    (watches the keyboard so Esc or Ctrl-C stops the turn, which it records
+    and reports as `ErrTurnStopped`), `speakUntil` (calls `Send` with progress
+    on screen), `reportSpend`, `awaitOperator`
     (puts the conversation down at the prompt), `takeConversationBack`,
     `AwaitConversation`, `ask`, `choose`, `await`.
 12. **Printing what a turn did.** `reportTrackerActions`, `reportResearch`,

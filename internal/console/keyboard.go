@@ -28,11 +28,11 @@ const (
 
 // signalKey is a signal the terminal driver raises itself until a keyboard is
 // negotiated, after which the terminal reports the key and raises nothing.
+// Ctrl-C is not one of them: it is a key of the console's own (keyInterrupt).
 type signalKey int
 
 const (
 	signalNone signalKey = iota
-	signalInterrupt
 	signalSuspend
 	signalQuit
 )
@@ -42,8 +42,6 @@ const (
 // this passes it through too.
 func signalFor(pressed rune) (signalKey, bool) {
 	switch pressed {
-	case 'c':
-		return signalInterrupt, true
 	case 'z':
 		return signalSuspend, true
 	case '\\':
