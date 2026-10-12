@@ -334,42 +334,11 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 	if err != nil {
 		return nil, err
 	}
-	known := accountFor(entries, replacements, ordinary, documentNames)
-	pending := make(map[string]bool, len(unread))
-	for _, word := range unread {
-		pending[strings.ToLower(word)] = true
-	}
-	written := make(map[string]bool)
+	found := newCompoundScan(accountFor(entries, replacements, ordinary, documentNames), unread)
 
 	var problems []Problem
 	report := func(path string, stretches []passage, markdown bool) {
-		for _, stretch := range stretches {
-			text := stretch.text
-			if markdown {
-				text = blankOut(text)
-			}
-			seen := make(map[string]bool)
-			for _, at := range compoundsIn(text) {
-				spelled := text[at[0]:at[1]]
-				word := strings.ToLower(spelled)
-				line := stretch.lineOf(at[0])
-				key := fmt.Sprintf("%d %s", line, word)
-				if seen[key] || known.covers(spelled) {
-					continue
-				}
-				seen[key] = true
-				if pending[word] {
-					written[word] = true
-					continue
-				}
-				problems = append(problems, Problem{
-					Path: path, Line: line, Term: word,
-					Reason: fmt.Sprintf("%q is a compound word nothing defines; write the ordinary words it stands for, "+
-						"or register it with a row in %s, or, if it is ordinary English or a name, list it under %q there",
-						word, RegisterPath, strings.TrimPrefix(OrdinaryHeading, "## ")),
-				})
-			}
-		}
+		problems = append(problems, found.problems(path, stretches, markdown)...)
 	}
 
 	files, err := compoundSourceFiles(root)
@@ -413,7 +382,7 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 	}
 
 	for _, word := range unread {
-		if !written[strings.ToLower(word)] {
+		if !found.written[strings.ToLower(word)] {
 			problems = append(problems, Problem{
 				Path: UnreadPath, Term: word,
 				Reason: fmt.Sprintf("%q is listed as still to be decided and nothing writes it any more; take it off the list", word),
@@ -421,6 +390,57 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 		}
 	}
 	return problems, nil
+}
+
+// compoundScan is the compound half of the check as it reads one file after
+// another: what accounts for a compound, the words still to be decided, and
+// which of those were seen written.
+type compoundScan struct {
+	known   accounted
+	pending map[string]bool
+	written map[string]bool
+}
+
+func newCompoundScan(known accounted, unread []string) compoundScan {
+	pending := make(map[string]bool, len(unread))
+	for _, word := range unread {
+		pending[strings.ToLower(word)] = true
+	}
+	return compoundScan{known: known, pending: pending, written: make(map[string]bool)}
+}
+
+// problems reports the compounds nothing accounts for in some passages of one
+// file, once per line each is written on.
+func (c compoundScan) problems(path string, stretches []passage, markdown bool) []Problem {
+	var problems []Problem
+	for _, stretch := range stretches {
+		text := stretch.text
+		if markdown {
+			text = blankOut(text)
+		}
+		seen := make(map[string]bool)
+		for _, at := range compoundsIn(text) {
+			spelled := text[at[0]:at[1]]
+			word := strings.ToLower(spelled)
+			line := stretch.lineOf(at[0])
+			key := fmt.Sprintf("%d %s", line, word)
+			if seen[key] || c.known.covers(spelled) {
+				continue
+			}
+			seen[key] = true
+			if c.pending[word] {
+				c.written[word] = true
+				continue
+			}
+			problems = append(problems, Problem{
+				Path: path, Line: line, Term: word,
+				Reason: fmt.Sprintf("%q is a compound word nothing defines; write the ordinary words it stands for, "+
+					"or register it with a row in %s, or, if it is ordinary English or a name, list it under %q there",
+					word, RegisterPath, strings.TrimPrefix(OrdinaryHeading, "## ")),
+			})
+		}
+	}
+	return problems
 }
 
 // UnreadPath is where the unread compounds are listed, so a word taken out of
