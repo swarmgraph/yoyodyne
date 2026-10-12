@@ -474,8 +474,18 @@ func TestADocumentThatFoundEveryLandingTakenWaitsThroughARestartAndLandsWhenOneF
 		t.Fatalf("Schedule() error = %v", err)
 	}
 	documentRun := waits[0].RunID()
-	if got, want := harness.pullOrder(), []string{documentRun, "yoyodyne-one"}; !slices.Equal(got, want) {
-		t.Fatalf("started %v, want the waiting design first and the ready item after it", got)
+	// The order the pass chose them in is the order of its started entries. Each
+	// run then goes on in a goroutine of its own, so the order the two reached the
+	// fakes in is the machine's, and only that both were reached is asked of it.
+	var chosen []string
+	for _, started := range schedule.Started {
+		chosen = append(chosen, started.WorkItemID)
+	}
+	if want := []string{documentRun, "yoyodyne-one"}; !slices.Equal(chosen, want) {
+		t.Fatalf("started %v, want the waiting design first and the ready item after it", chosen)
+	}
+	if reached := harness.pullOrder(); len(reached) != 2 || !slices.Contains(reached, documentRun) || !slices.Contains(reached, "yoyodyne-one") {
+		t.Fatalf("runs reached %v, want the design and the ready item each run once", reached)
 	}
 	if schedule.Started[0].Failure != "" || schedule.Started[0].Declined != "" || schedule.Started[0].Outcome.Status != runstate.StatusSucceeded {
 		t.Fatalf("document run = %#v, want it landed", schedule.Started[0])
