@@ -88,7 +88,9 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 				continue
 			}
 		}
-		delivery, err := publisher.PublishDocument(ctx, *record.pending.Publication)
+		publishing, release := withoutDeadline(ctx)
+		delivery, err := publisher.PublishDocument(publishing, *record.pending.Publication)
+		release()
 		if errors.Is(err, runstate.ErrDocumentNotPublishable) {
 			// No run was opened for it, and the confirmation it carries no
 			// longer holds — the policy or the integration setting changed since.
@@ -162,6 +164,28 @@ func (s *Session) PublishDocuments(ctx context.Context) error {
 		}
 	}
 	return s.record()
+}
+
+// withoutDeadline is the context a document's run is given: it ends when the
+// message that started the run is cancelled, and not when that message's
+// deadline passes. A message is bounded by how long its sender waits for an
+// answer, which says nothing about how long a document's checks and review may
+// take; those are bounded by the run's own limits (execution.check_timeout, the
+// check stage's bound, the review's), so a deadline inherited from the message
+// would stop a run that none of them had stopped. A person or the development
+// manager stopping the run asks for it through its stop request, which the run
+// reads at its own boundaries whatever context it was given.
+func withoutDeadline(ctx context.Context) (context.Context, context.CancelFunc) {
+	detached, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	stop := context.AfterFunc(ctx, func() {
+		if !errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			cancel(context.Cause(ctx))
+		}
+	})
+	return detached, func() {
+		stop()
+		cancel(nil)
+	}
 }
 
 // documentWaitingForSlot is what a document's last offer is remembered as while
