@@ -78,6 +78,12 @@ type terminal struct {
 	// message they send exactly as it is drawn.
 	line   []rune
 	cursor int
+	// killed is what Ctrl-K, Ctrl-U, Ctrl-W, or Option-backspace last deleted,
+	// which Ctrl-Y puts back. It outlives the message it came from, so text cut
+	// from one message can be put into the next. killing says the last key
+	// applied was one of them, so the next one adds to it rather than replacing it.
+	killed  []rune
+	killing bool
 
 	// recall is the messages sent earlier in the conversation, oldest first,
 	// which up and down step through (recall.go). recalled is which of them is
@@ -787,6 +793,7 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 			t.apply(pressed)
 			continue
 		}
+		t.killing = false
 		line := string(t.line)
 		// A message whose last character is a backslash is one the operator is
 		// carrying on: the newline that asks the terminal for nothing at all, and
@@ -824,6 +831,8 @@ func (t *terminal) consume(data []byte) (string, bool, []signalKey, error) {
 
 // apply is one keystroke's effect on the message being composed.
 func (t *terminal) apply(pressed key) {
+	killing := t.killing
+	t.killing = false
 	switch pressed.code {
 	case keyRune:
 		t.insert(pressed.value)
@@ -861,20 +870,73 @@ func (t *terminal) apply(pressed key) {
 		t.cursor = 0
 	case keyEnd:
 		t.cursor = len(t.line)
+	case keyWordLeft:
+		t.cursor = t.wordStart()
+	case keyWordRight:
+		end := t.cursor
+		for end < len(t.line) && separates(t.line[end]) {
+			end++
+		}
+		for end < len(t.line) && !separates(t.line[end]) {
+			end++
+		}
+		t.cursor = end
 	case keyKillLine:
-		t.line = t.line[t.cursor:]
-		t.cursor = 0
+		t.kill(0, t.cursor, killing)
 	case keyKillWord:
-		start := t.cursor
-		for start > 0 && separates(t.line[start-1]) {
-			start--
+		t.kill(t.wordStart(), t.cursor, killing)
+	case keyKillToEnd:
+		// To the end of the line the cursor is on rather than of the whole
+		// message, and at the end of a line it takes the newline, joining the
+		// next line to this one.
+		end := t.cursor
+		for end < len(t.line) && t.line[end] != '\n' {
+			end++
 		}
-		for start > 0 && !separates(t.line[start-1]) {
-			start--
+		if end == t.cursor && end < len(t.line) {
+			end++
 		}
-		t.line = append(t.line[:start], t.line[t.cursor:]...)
-		t.cursor = start
+		t.kill(t.cursor, end, killing)
+	case keyYank:
+		for _, value := range t.killed {
+			t.insert(value)
+		}
 	}
+}
+
+// wordStart is where the word before the cursor begins, past any separators
+// between it and the cursor.
+func (t *terminal) wordStart() int {
+	start := t.cursor
+	for start > 0 && separates(t.line[start-1]) {
+		start--
+	}
+	for start > 0 && !separates(t.line[start-1]) {
+		start--
+	}
+	return start
+}
+
+// kill deletes the runes between from and to and keeps them for Ctrl-Y to put
+// back. Kills pressed one straight after another are kept together, in the
+// order they stood in the message, so three Ctrl-Ws put back three words
+// rather than the last of them.
+func (t *terminal) kill(from, to int, following bool) {
+	t.killing = true
+	if from == to {
+		return
+	}
+	removed := append([]rune(nil), t.line[from:to]...)
+	switch {
+	case !following:
+		t.killed = removed
+	case from < t.cursor:
+		t.killed = append(removed, t.killed...)
+	default:
+		t.killed = append(t.killed, removed...)
+	}
+	t.line = append(t.line[:from], t.line[to:]...)
+	t.cursor = from
 }
 
 // insert puts one rune where the cursor is. A newline is a rune like any other

@@ -25,8 +25,14 @@ const (
 	keyDown
 	keyHome
 	keyEnd
+	keyWordLeft
+	keyWordRight
 	keyKillLine
 	keyKillWord
+	// keyKillToEnd deletes from the cursor to the end of the line it is on, and
+	// keyYank puts back what the kill keys last deleted (terminal.go).
+	keyKillToEnd
+	keyYank
 	// keySignal is a key the terminal driver would have turned into a signal and
 	// which a negotiated keyboard reports as a key instead. It is not an edit:
 	// the console raises what the terminal stopped raising.
@@ -71,6 +77,12 @@ func decodeKey(buffer []byte) (key, int, bool) {
 		return key{code: keyHome}, 1, true
 	case 0x05:
 		return key{code: keyEnd}, 1, true
+	case 0x0b:
+		return key{code: keyKillToEnd}, 1, true
+	case 0x19:
+		// Ctrl-Y is the delayed suspend on the BSDs, macOS among them, but only
+		// with IEXTEN set, which cbreak clears (tty_unix.go), so it arrives here.
+		return key{code: keyYank}, 1, true
 	case 0x15:
 		return key{code: keyKillLine}, 1, true
 	case 0x17:
@@ -107,6 +119,31 @@ func decodeEscape(buffer []byte) (key, int, bool) {
 		// in front of the return, so this is the key that works everywhere.
 		return key{code: keyNewline}, 2, true
 	}
+	// Option or Alt held with a key, from a terminal that says so by putting an
+	// escape in front of what the key would have sent. An escape pressed on its
+	// own and then one of these letters reads the same, and is taken the same way.
+	switch buffer[1] {
+	case 'b':
+		return key{code: keyWordLeft}, 2, true
+	case 'f':
+		return key{code: keyWordRight}, 2, true
+	case 0x7f, 0x08:
+		return key{code: keyKillWord}, 2, true
+	case 0x1b:
+		// Option or Alt with an arrow, from a terminal that sends the escape in
+		// front of the arrow's own sequence rather than reporting it held.
+		pressed, size, complete := decodeEscape(buffer[1:])
+		if !complete {
+			return key{}, 0, false
+		}
+		switch pressed.code {
+		case keyLeft:
+			pressed = key{code: keyWordLeft}
+		case keyRight:
+			pressed = key{code: keyWordRight}
+		}
+		return pressed, size + 1, true
+	}
 	if buffer[1] != '[' && buffer[1] != 'O' {
 		// Escape followed by something else is not a sequence this understands.
 		return key{code: keyIgnored}, 1, true
@@ -139,8 +176,14 @@ func escapeKey(parameters string, final byte) key {
 		// or last line through the messages sent before it (recall.go).
 		return key{code: keyDown}
 	case 'C':
+		if movesByWord(parameters) {
+			return key{code: keyWordRight}
+		}
 		return key{code: keyRight}
 	case 'D':
+		if movesByWord(parameters) {
+			return key{code: keyWordLeft}
+		}
 		return key{code: keyLeft}
 	case 'H':
 		return key{code: keyHome}
@@ -197,7 +240,18 @@ func reportedKey(code, modifiers int) key {
 		}
 		return key{code: keyEnter}
 	case 0x7f, '\b':
+		if held&(modifierAlt|modifierCtrl) != 0 {
+			return key{code: keyKillWord}
+		}
 		return key{code: keyBackspace}
+	}
+	if held&modifierAlt != 0 && held&modifierCtrl == 0 {
+		switch code {
+		case 'b':
+			return key{code: keyWordLeft}
+		case 'f':
+			return key{code: keyWordRight}
+		}
 	}
 	if held&modifierCtrl != 0 {
 		if signal, raised := signalFor(rune(code)); raised {
@@ -207,7 +261,7 @@ func reportedKey(code, modifiers int) key {
 			return key{code: keyIgnored}
 		}
 		// Everything else the terminal used to send as a control byte means what
-		// it always meant, so Ctrl-U and Ctrl-W still edit.
+		// it always meant, so Ctrl-U, Ctrl-W, Ctrl-K and Ctrl-Y still edit.
 		pressed, _, _ := decodeKey([]byte{byte(code - 'a' + 1)})
 		return pressed
 	}
@@ -215,6 +269,13 @@ func reportedKey(code, modifiers int) key {
 		return key{code: keyIgnored}
 	}
 	return key{code: keyRune, value: rune(code)}
+}
+
+// movesByWord reports an arrow held with Option, Alt, or Ctrl, which every
+// terminal that reports it spells as a second parameter: "1;3" for Alt.
+func movesByWord(parameters string) bool {
+	held := field(parameters, 1) - 1
+	return held > 0 && held&(modifierAlt|modifierCtrl) != 0
 }
 
 // field reads one semicolon-separated parameter as a number. A parameter that

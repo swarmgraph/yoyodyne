@@ -2793,8 +2793,19 @@ sentence: what you have typed stays exactly as it is, and you carry on from
 where you were. The conversation is written into the terminal's ordinary output
 rather than an alternate screen, so scrollback, selection and copying, and
 resizing keep working on it as they would on any other command's output. Editing
-what you are composing is deliberately small — the arrow keys, home and end,
-backspace and delete, and Ctrl-U and Ctrl-W.
+what you are composing uses the keys a shell's own line editor does:
+
+- the arrow keys, home and end, and Ctrl-A and Ctrl-E for the start and end;
+- Option or Alt held with the left and right arrows, or Alt-B and Alt-F, to move
+  a word at a time;
+- backspace and delete, and backspace with Option or Alt held, or Ctrl-W, to
+  delete the word before the cursor;
+- Ctrl-U to delete everything before the cursor, and Ctrl-K everything after it
+  to the end of its line, or the newline at the end of one;
+- Ctrl-Y to put back what those last deleted. Several deletions in a row are put
+  back together, and what you deleted from one message can be put into the next.
+
+Any other key is ignored rather than typed into the message.
 
 Up and down move between the lines of a message of more than one line. On its
 first line, up brings back the message you sent before it, and each further
