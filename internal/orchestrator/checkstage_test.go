@@ -240,7 +240,7 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if !stopped.StoppedAtStageBound() || !stopped.HarnessContinuesCheckStage() {
+			if !stopped.StoppedUnfinishedAtChecks() || !stopped.HarnessContinuesCheckStage() {
 				t.Fatalf("stopped run = %#v, want one the stage bound stopped that the harness continues", stopped)
 			}
 			// The stoppage is on the docket, saying load stopped it and that the harness
@@ -405,7 +405,7 @@ func TestADecidedCheckStageContinuationWithNoRepairAttemptsReachesTheChecks(t *t
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !stopped.StoppedAtStageBound() || stopped.RepairAttempts != 0 {
+	if !stopped.StoppedUnfinishedAtChecks() || stopped.RepairAttempts != 0 {
 		t.Fatalf("stopped run = %#v, want a first-attempt check-stage timeout", stopped)
 	}
 	if _, err := store.Triage().GrantRepair(ctx, tracker.Item.ID, triageDecided(runstate.TriageDecisionRepair, stopped.RunID), 2, docketedNow, handbackCaps); err != nil {

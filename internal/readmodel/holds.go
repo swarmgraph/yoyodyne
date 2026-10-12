@@ -738,7 +738,7 @@ func stoppage(run runstate.State) bool {
 	if run.WorkItemID == "" || !run.Status.Terminal() {
 		return false
 	}
-	return strings.TrimSpace(run.Blocker) != "" || run.DiedInItsOwnProcess() || run.StoppedAtStageBound()
+	return strings.TrimSpace(run.Blocker) != "" || run.DiedInItsOwnProcess() || run.StoppedUnfinishedAtChecks()
 }
 
 // raiseRerun says why an item a role raised as unmeetable is held once the

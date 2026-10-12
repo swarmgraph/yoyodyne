@@ -1553,11 +1553,14 @@ func TestPipelineReportsElapsedAndBudgetWhenACheckTimesOut(t *testing.T) {
 	}
 	runner.Timeout = 100 * time.Millisecond
 	pipeline.Checks = runner
+	pipeline.Config.Execution.CheckTimeout = config.Duration(100 * time.Millisecond)
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
-	assertSavedStopClass(t, store, outcome.RunID, runstate.StopCheckTimeout)
-	if outcome.StopClass != runstate.StopCheckTimeout {
-		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.StopCheckTimeout)
+	// Stopped at its own limit, the check is unfinished: a stop from outside the
+	// work, which the harness runs again within its bounds.
+	assertSavedStopClass(t, store, outcome.RunID, runstate.CauseCheckTimeLimit.StopClass())
+	if outcome.StopClass != runstate.CauseCheckTimeLimit.StopClass() {
+		t.Fatalf("stop class = %q, want %q", outcome.StopClass, runstate.CauseCheckTimeLimit.StopClass())
 	}
 	if err == nil {
 		t.Fatal("Run() error = nil, want the run stopped at the check budget")

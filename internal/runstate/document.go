@@ -113,7 +113,7 @@ func (s State) DocumentJudged() bool {
 // started it.
 func (s State) DocumentStoppedOnTime() bool {
 	class := s.RecordedStopClass()
-	return class == StopCheckTimeout || class == CauseCheckStageBound.StopClass()
+	return class == StopCheckTimeout || class == CauseCheckStageBound.StopClass() || class == CauseCheckTimeLimit.StopClass()
 }
 
 // ErrDocumentNotPublishable marks a publication refused before any run was

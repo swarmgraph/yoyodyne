@@ -10,11 +10,13 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
 
-// defaultTimeout is what a runner built without a budget gives each check. The
+// DefaultTimeout is what a runner built without a budget gives each check. The
 // harness wires execution.check_timeout into every runner it builds, so this
 // only covers a runner assembled in code, and it matches that configured
-// default so the two never describe different behavior.
-const defaultTimeout = 30 * time.Minute
+// default so the two never describe different behavior. It is exported so the
+// record a pipeline writes of a check's limit names the figure the runner
+// actually used where the configuration named none.
+const DefaultTimeout = 30 * time.Minute
 
 // DefaultStageTimeout is what a runner built without a stage bound gives the
 // whole list, for the same reason and matching execution.check_stage_timeout's
@@ -108,6 +110,12 @@ type Request struct {
 	// machine's load grows as the load does and never takes back time a check
 	// was already given. Unbounded still wins over it.
 	StageBound func() time.Duration
+	// CheckBound, where set, is asked for a check's own limit as that check
+	// begins, after StageBound, in place of Timeout and the runner's. A caller
+	// uses it to scale each check's limit for the machine's load and to hold a
+	// check run again to what its allowance has left. An answer of zero or less
+	// leaves the check the budget it would otherwise have had.
+	CheckBound func(command string) time.Duration
 	// Gate, when set, is asked for the launch gate each check is started
 	// behind, so a caller can write down which process a check is before the
 	// check does any work, and hand it a file that shows afterwards whether any
@@ -122,7 +130,7 @@ type Runner struct {
 	Shell   string
 	// Timeout is the total budget each check gets, the whole time it may run
 	// rather than the time it may stay quiet: a suite that keeps printing is
-	// still spending it. Zero falls back to defaultTimeout.
+	// still spending it. Zero falls back to DefaultTimeout.
 	Timeout time.Duration
 	// StageTimeout is the total budget the whole list gets, from the first
 	// check starting to the last one ending. A check is given the smaller of its
@@ -157,7 +165,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		timeout = request.Timeout
 	}
 	if timeout == 0 {
-		timeout = defaultTimeout
+		timeout = DefaultTimeout
 	}
 	stageTimeout := r.StageTimeout
 	if stageTimeout == 0 {
@@ -205,6 +213,12 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 				stageTimeout = bound
 			}
 		}
+		checkTimeout := timeout
+		if request.CheckBound != nil {
+			if limit := request.CheckBound(safeCommand); limit > 0 {
+				checkTimeout = limit
+			}
+		}
 		if request.Started != nil {
 			request.Started(safeCommand, stageElapsed)
 		}
@@ -227,7 +241,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 					StartedAt:  now,
 					FinishedAt: now,
 				},
-				Timeout:        timeout,
+				Timeout:        checkTimeout,
 				StageTimeout:   stageTimeout,
 				StageElapsed:   stageElapsed,
 				StoppedByStage: true,
@@ -239,8 +253,8 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			lastAccepted = sequence.Last()
 			break
 		}
-		budget := timeout
-		boundByStage := stageTimeout > 0 && remaining < timeout
+		budget := checkTimeout
+		boundByStage := stageTimeout > 0 && remaining < checkTimeout
 		if boundByStage {
 			budget = remaining
 		}
@@ -324,7 +338,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			Command:      safeCommand,
 			Process:      processResult,
 			Passed:       passed,
-			Timeout:      timeout,
+			Timeout:      checkTimeout,
 			StageTimeout: stageTimeout,
 			StageElapsed: clock.Now().Sub(stageStarted),
 			// A check killed on time under a budget the stage cut short was

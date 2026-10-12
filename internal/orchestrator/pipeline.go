@@ -5842,10 +5842,11 @@ func (a *activeRun) verify(ctx context.Context) error {
 	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
 	configured := p.checkStageTimeout()
 	stage := &runstate.CheckStage{
-		StartedAt:         p.clock().Now(),
-		BoundSeconds:      int64(configured / time.Second),
-		ConfiguredSeconds: int64(configured / time.Second),
-		Narrowed:          narrowing.Describe() + describePathChecks(p.Config.PathChecks, added),
+		StartedAt:              p.clock().Now(),
+		BoundSeconds:           int64(configured / time.Second),
+		ConfiguredSeconds:      int64(configured / time.Second),
+		CheckConfiguredSeconds: int64(p.checkTimeout() / time.Second),
+		Narrowed:               narrowing.Describe() + describePathChecks(p.Config.PathChecks, added),
 	}
 	p.scaleCheckStage(stage)
 	a.state.CheckStage = stage
@@ -5866,6 +5867,13 @@ func (a *activeRun) verify(ctx context.Context) error {
 		StageBound: func() time.Duration {
 			p.scaleCheckStage(stage)
 			return stage.Bound()
+		},
+		// Each check's own limit is scaled by the same reading, after the
+		// stage's, and recorded before the check starts (checkLimit).
+		CheckBound: func(command string) time.Duration {
+			limit := a.checkLimit(*stage, command)
+			stage.CheckLimitSeconds = int64(limit / time.Second)
+			return limit
 		},
 		// Which check the stage is on goes onto the record as each begins.
 		Started: func(command string, _ time.Duration) {
@@ -5918,13 +5926,18 @@ func (a *activeRun) verify(ctx context.Context) error {
 				"the check stage reached its %s execution.check_stage_timeout bound%s during %s, which had run for %s; the stage had spent %s across %d check(s) (gate narrowed to: %s); narrow the per-run gate to what the change touches with $%s, move the whole suite to landing_checks, or raise the bound",
 				stage.Bound(), stageBoundLoad(*stage), check.Command, check.Elapsed().Round(time.Second), stage.Elapsed().Round(time.Second), len(checkResults), stage.Narrowed, checks.ChangedGoPackagesVariable)
 			a.recordEnvironmentalRefusal(runstate.CauseCheckStageBound, cause.Error(), ranAnyway)
+			a.state.ChecksPassed = nil
 		case check.Process.Status == execution.ProcessTimedOut:
-			// A check stopped on time says nothing about the change: the work
-			// may have been passing the whole way, as it was when this bound
-			// was flat and a contended suite grew past it. So the failure names
-			// both numbers and the setting that moves the ceiling, rather than
-			// reporting the kill as an exit code nobody chose.
-			cause = stoppedBy(runstate.StopCheckTimeout, checkTimedOut(check))
+			// A check stopped at its own limit is unfinished: neither passed
+			// nor failed, so it hands the developer nothing to repair and earns
+			// the change no credit at the gate. The limit was already scaled for
+			// the machine's load, so it is recorded as a stop from outside the
+			// work and run again within the bounds runstate.CheckStageContinuation
+			// describes — bounds, because load cannot prove the change did not
+			// make the check hang.
+			cause = stoppedBy(runstate.StopCheckTimeout, checkTimedOut(check, *stage, a.state))
+			a.recordEnvironmentalRefusal(runstate.CauseCheckTimeLimit, cause.Error(), ranAnyway)
+			a.state.ChecksPassed = nil
 		case check.Process.Status == execution.ProcessCancelled || check.Process.Status == execution.ProcessStalled:
 			cause = fmt.Errorf("verification was stopped: %s was %s after %s and judged nothing about the change", check.Command, check.Process.Status, check.Elapsed().Round(time.Second))
 		}
@@ -6034,6 +6047,10 @@ func (a *activeRun) closeCheckStage(stage *runstate.CheckStage, results []checks
 		stage.Command = results[last].Command
 		stage.ElapsedSeconds = int64(results[last].StageElapsed / time.Second)
 		stage.StoppedAtBound = results[last].StoppedByStage
+		stage.CheckLimitSeconds = int64(results[last].Timeout / time.Second)
+		stage.CheckElapsedSeconds = int64(results[last].Elapsed() / time.Second)
+		stage.CheckStoppedAtLimit = results[last].Process.Status == execution.ProcessTimedOut &&
+			!results[last].StoppedByStage && !results[last].StoppedByCaller
 	}
 	stage.Ran, stage.CouldNotRun = nil, nil
 	for _, result := range results {
@@ -6073,20 +6090,73 @@ func (p Pipeline) scaleCheckStage(stage *runstate.CheckStage) {
 }
 
 // checkTimedOut is the stop of a check the process runner reported as timed
-// out, in words that cannot contradict themselves: the budget is named as what
+// out, in words that cannot contradict themselves: the limit is named as what
 // stopped the check only where the check ran for the whole of it. One stopped
 // short of it was stopped by a limit the record does not name, and saying it
-// reached a budget it did not is a reason nobody can act on.
-func checkTimedOut(check checks.Result) error {
+// reached a limit it did not is a reason nobody can act on. Either way it names
+// the configured and scaled limits, the load, the revision the check was
+// judging, and what the check has spent of its rerun allowance.
+func checkTimedOut(check checks.Result, stage runstate.CheckStage, state runstate.State) error {
 	ran := check.Elapsed().Round(time.Second)
+	stopped := fmt.Sprintf("stopped at its own %s execution.check_timeout limit%s", check.Timeout, checkLimitLoad(stage, check.Timeout))
 	if check.Timeout > 0 && check.Elapsed() < check.Timeout-time.Second {
-		return fmt.Errorf(
-			"verification timed out: %s ran for %s and was stopped by a time limit before it reached its own %s execution.check_timeout budget, which judged nothing about the change; the limit that stopped it is not one this run records",
-			check.Command, ran, check.Timeout)
+		stopped = fmt.Sprintf("stopped by a time limit before it reached its own %s execution.check_timeout limit%s; the limit that stopped it is not one this run records", check.Timeout, checkLimitLoad(stage, check.Timeout))
 	}
+	revision := state.HarnessCommit
+	if revision == "" {
+		revision = "the uncommitted change"
+	}
+	spent, allowance := state.CheckAllowance(check.Command, check.Elapsed(), check.Timeout)
 	return fmt.Errorf(
-		"verification timed out: %s ran for %s and was stopped at its %s execution.check_timeout budget; raise that budget or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
-		check.Command, ran, check.Timeout)
+		"verification timed out: %s ran for %s on attempt %d at %s and was %s; the check is unfinished, neither passed nor failed, so nothing was handed back to the developer; it has spent %s of its %s allowance on this candidate (%d times its limit), and its checks have been run again %d of %d times; if it stops again once that is spent, raise execution.check_timeout or lower execution.max_concurrent_developers, because concurrent runs multiply the wall clock of every suite",
+		check.Command, ran, state.RepairAttempts, revision, stopped, spent.Round(time.Second), allowance, runstate.CheckRerunAllowanceFactor,
+		len(state.CheckReruns()), runstate.MaxCheckStageContinuations)
+}
+
+// checkLimitLoad is what a check's stop says about the load its limit was
+// scaled for, in the words stageBoundLoad uses for the stage's bound.
+func checkLimitLoad(stage runstate.CheckStage, limit time.Duration) string {
+	configured := time.Duration(stage.CheckConfiguredSeconds) * time.Second
+	switch {
+	case configured > 0 && limit > configured:
+		return fmt.Sprintf(" (the configured %s scaled for %s)", configured, stage.LoadSays())
+	case configured > 0 && limit < configured:
+		return fmt.Sprintf(" (the configured %s held to what the stage's bound or the check's rerun allowance had left)", configured)
+	case stage.LoadSays() != "":
+		return fmt.Sprintf(" (not scaled: %s is at or under one per core)", stage.LoadSays())
+	default:
+		return ""
+	}
+}
+
+// checkLimit is the limit one check of the stage is given: execution.check_timeout
+// scaled for the heaviest load the stage's bound was scaled for, by the same
+// rule and ceiling (gitworktree.ScaleForLoad), never above the stage's bound,
+// and never above what the check's rerun allowance has left on this candidate,
+// so a check run again cannot spend more than the allowance however far the
+// load has raised its limit.
+func (a *activeRun) checkLimit(stage runstate.CheckStage, command string) time.Duration {
+	limit := a.pipeline.checkTimeout()
+	if stage.Cores > 0 {
+		limit = gitworktree.ScaleForLoad(limit, stage.Load, stage.Cores)
+	}
+	if bound := stage.Bound(); bound > 0 && limit > bound {
+		limit = bound
+	}
+	if remaining, bounded := a.state.CheckRerunRemaining(command); bounded && remaining < limit {
+		limit = max(remaining, time.Second)
+	}
+	return limit
+}
+
+// checkTimeout is execution.check_timeout as configured, with the runner's own
+// default where the configuration names none, so the record and the runner
+// agree.
+func (p Pipeline) checkTimeout() time.Duration {
+	if budget := p.Config.Execution.CheckTimeout.Duration(); budget > 0 {
+		return budget
+	}
+	return checks.DefaultTimeout
 }
 
 // callerStoppedCheck is the stop of a check whose run's own context ended
@@ -9776,6 +9846,8 @@ func renderCheckNotes(outcome Outcome) []string {
 		line := fmt.Sprintf("Check stage: %s of the %s execution.check_stage_timeout bound%s", stage.Elapsed().Round(time.Second), stage.Bound(), stageBoundLoad(*stage))
 		if stage.StoppedAtBound {
 			line += ", stopped at the bound during " + stage.Command
+		} else if stage.CheckStoppedAtLimit {
+			line += fmt.Sprintf(", %s stopped unfinished at its own %s execution.check_timeout limit%s", stage.Command, time.Duration(stage.CheckLimitSeconds)*time.Second, checkLimitLoad(*stage, time.Duration(stage.CheckLimitSeconds)*time.Second))
 		}
 		if stage.Narrowed != "" {
 			line += " (gate narrowed to: " + stage.Narrowed + ")"

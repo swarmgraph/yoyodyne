@@ -91,7 +91,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     and `blockOnReviewBound` in `reviewbound.go` — self-verification gate,
     configured checks), `integrationEarned` (reads the record, compares
     `ContentIdentity`), `closeCheckStage`, `scaleCheckStage`,
-    `checkStageTimeout`, `landingCheckTimeout`, `gateProtectedPaths`,
+    `checkStageTimeout`, `checkLimit` and `checkTimeout` (each check's own
+    limit, scaled and capped), `checkTimedOut` (a check unfinished at its own
+    limit), `landingCheckTimeout`, `gateProtectedPaths`,
     `pathRefusal`, `checkFailure`.
 14. **Promotion and landing.** `integrate`, `finish`, `runLandingChecks`,
     `leaseLanding`, `fileRedLanding`, `nameUnreadingParts`.

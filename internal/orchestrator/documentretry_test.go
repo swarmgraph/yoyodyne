@@ -126,10 +126,10 @@ func TestADocumentRunStoppedByACheckTimeLimitIsRunAgainWithTheSameText(t *testin
 	}
 	document := *recorded[0].Document
 	first, second := runByID(t, runs, document.RunIDFor(0)), runByID(t, runs, document.RunIDFor(1))
-	if first.Status == runstate.StatusSucceeded || first.DocumentJudged() || first.RecordedStopClass() != runstate.StopCheckTimeout {
+	if first.Status == runstate.StatusSucceeded || first.DocumentJudged() || first.RecordedStopClass() != runstate.CauseCheckTimeLimit.StopClass() {
 		t.Fatalf("first run = %s %s, want stopped on its check time limit without judging the document", first.Status, first.RecordedStopClass())
 	}
-	if !strings.Contains(first.Failure, "was stopped at its 1s execution.check_timeout budget") {
+	if !strings.Contains(first.Failure, "was stopped at its own 1s execution.check_timeout limit") {
 		t.Fatalf("first run's reason = %q, want the budget that stopped it", first.Failure)
 	}
 	if second.Status != runstate.StatusSucceeded || second.Integration == nil {
@@ -491,11 +491,11 @@ func TestACheckStopNeverClaimsABudgetItDidNotReach(t *testing.T) {
 		t.Fatalf("class = %s, want a time limit", class)
 	}
 	check.StoppedByCaller = false
-	if said := checkTimedOut(check).Error(); strings.Contains(said, "stopped at its 30m0s") || !strings.Contains(said, "before it reached its own 30m0s") {
+	if said := checkTimedOut(check, runstate.CheckStage{}, runstate.State{}).Error(); strings.Contains(said, "stopped at its own 30m0s") || !strings.Contains(said, "before it reached its own 30m0s") {
 		t.Fatalf("a stop short of the budget said as %q", said)
 	}
 	check.Process.FinishedAt = started.Add(30 * time.Minute)
-	if said := checkTimedOut(check).Error(); !strings.Contains(said, "ran for 30m0s and was stopped at its 30m0s execution.check_timeout budget") {
+	if said := checkTimedOut(check, runstate.CheckStage{}, runstate.State{}).Error(); !strings.Contains(said, "ran for 30m0s") || !strings.Contains(said, "was stopped at its own 30m0s execution.check_timeout limit") {
 		t.Fatalf("a stop at the budget said as %q", said)
 	}
 }

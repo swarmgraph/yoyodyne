@@ -1625,13 +1625,13 @@ func diedHolding(state runstate.State, found triage.Found) bool {
 // fired from, and what the development manager decides from once those
 // continuations are spent.
 func stageBoundHolding(state runstate.State, found triage.Found) bool {
-	return state.StoppedAtStageBound() && found.Holds()
+	return state.StoppedUnfinishedAtChecks() && found.Holds()
 }
 
 // stageBoundFailure is where the bound stopped the stage, in the words the run
 // ended on, for a run the bound stopped and for no other.
 func stageBoundFailure(state runstate.State) string {
-	if !state.StoppedAtStageBound() {
+	if !state.StoppedUnfinishedAtChecks() {
 		return ""
 	}
 	return runstate.RecordFailure(state.Failure)

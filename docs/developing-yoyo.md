@@ -338,7 +338,7 @@ passed the twenty minutes the figure used to be, and up to 1,170 seconds under
 `make test` ([the record](diagnoses/yoyodyne-ifd-429-69-orchestrator-test-limit.md)).
 It stays under the thirty minutes of
 [`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
-is not scaled for load, so a hang is still reported by `go test` with its dump
+load only ever lengthens, so a hang is still reported by `go test` with its dump
 of every goroutine before the harness ends the check. That makes twenty-eight
 minutes the ceiling rather than a step: the figure is interim until the
 package split (yoyodyne-ifd.429.14) lands, and a package that grows until it
