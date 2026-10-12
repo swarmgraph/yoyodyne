@@ -1,15 +1,13 @@
 package runstate
 
-// A confirmed document waiting for a developer slot.
+// A confirmed document waiting for a document landing to free.
 //
-// A document's reviewed run takes a developer slot like any run. Where every
-// slot is taken when its conversation offers it, nothing is reserved, and the
-// document used to be offered again only at the next message in that
-// conversation — so a design that unblocks other work waited for as long as the
-// conversation stayed quiet, however many slots freed meanwhile. So the
-// publication is written down here as waiting, beside the runs it waits behind,
-// and the scheduler starts it in the next slot that frees, ahead of any new
-// development run; the conversation still offers it at its next message, and
+// A document's reviewed run is counted against execution.document_landings
+// rather than the developer slots (State.HoldsDocumentLanding). Where every
+// landing is taken when its conversation offers it, nothing is reserved, and the
+// publication is written down here as waiting, beside the runs it waits behind;
+// the scheduler starts it as soon as a landing frees, whatever the developer
+// slots hold, and the conversation still offers it at its next message, and
 // whichever of the two reserves first runs it.
 //
 // A wait is one file per document, named for the run the document's first
@@ -37,7 +35,7 @@ import (
 const DocumentWaitSchemaVersion = 1
 
 // DocumentWait is one confirmed document whose reviewed run could not be
-// reserved because every developer slot was taken. It carries the publication
+// reserved because every document landing was taken. It carries the publication
 // whole, so the scheduler can start it without the owning conversation; which
 // attempt at publishing it is waiting, counted from zero as RunIDFor counts; and
 // when it began waiting, which orders the waits and says how long one has
@@ -69,7 +67,7 @@ func (w DocumentWait) Validate() error {
 	return errors.Join(problems...)
 }
 
-// WaitForSlot records a document as waiting for a developer slot, and reports
+// WaitForSlot records a document as waiting for a document landing, and reports
 // whether it is waiting. A document already waiting keeps the moment it began,
 // whichever attempt waited then. One whose attempt's run is already recorded is
 // not waiting at all — another process reserved it — so nothing is written and
@@ -135,7 +133,7 @@ func (s *Store) WaitForSlot(ctx context.Context, document DocumentPublication, a
 	return wait, true, nil
 }
 
-// DocumentWaits lists the documents waiting for a developer slot, longest
+// DocumentWaits lists the documents waiting for a document landing, longest
 // waiting first, which is the order the scheduler starts them in. No directory
 // is no document waiting. A record that cannot be read is an error rather than
 // skipped, because a wait nobody can read is a document nothing would start.

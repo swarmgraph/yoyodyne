@@ -8,7 +8,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// DocumentWaits is the confirmed documents waiting for a developer slot. It is
+// DocumentWaits is the confirmed documents waiting for a document landing to
+// free. It is
 // an optional capability of Runs, satisfied by *runstate.Store; a reading over
 // runs without it names no waiting document.
 type DocumentWaits interface {
@@ -16,7 +17,7 @@ type DocumentWaits interface {
 }
 
 // DocumentSlotWait is one confirmed document whose reviewed run waits for a
-// developer slot: which document, the role that owns it and the conversation
+// document landing to free: which document, the role that owns it and the conversation
 // it was written in, and since when it has waited.
 type DocumentSlotWait struct {
 	RunID          string           `json:"run_id"`
@@ -33,15 +34,15 @@ type DocumentSlotWait struct {
 
 // documentWaitNext is what happens to a waiting document, and whose move it is:
 // nobody's.
-const documentWaitNext = "the harness starts it in the next developer slot that frees, ahead of any new development run, and nothing is asked of anybody"
+const documentWaitNext = "the harness starts it as soon as a document landing frees, without taking a developer slot, and nothing is asked of anybody"
 
 // Says is the waiting document in the words the not-startable line prints.
 func (w DocumentSlotWait) Says() string {
-	return fmt.Sprintf("document %s (%s), the %s's, from conversation %s, waiting for a developer slot since %s",
+	return fmt.Sprintf("document %s (%s), the %s's, from conversation %s, waiting for a document landing since %s",
 		w.WriteID, w.Title, w.Owner.Title(), w.ConversationID, localMoment(w.Since))
 }
 
-// readDocumentWaits reads the documents waiting for a developer slot from the
+// readDocumentWaits reads the documents waiting for a document landing from the
 // run store, longest waiting first.
 func readDocumentWaits(sources Sources) ([]DocumentSlotWait, string) {
 	waits, ok := sources.Runs.(DocumentWaits)
@@ -50,7 +51,7 @@ func readDocumentWaits(sources Sources) ([]DocumentSlotWait, string) {
 	}
 	recorded, err := waits.DocumentWaits()
 	if err != nil {
-		return nil, fmt.Sprintf("the documents waiting for a developer slot could not be read: %v", err)
+		return nil, fmt.Sprintf("the documents waiting for a document landing could not be read: %v", err)
 	}
 	var listed []DocumentSlotWait
 	for _, wait := range recorded {

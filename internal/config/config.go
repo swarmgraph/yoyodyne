@@ -85,6 +85,13 @@ type Config struct {
 	// that names none runs nothing after a landing, which is what every project
 	// did before this existed.
 	LandingChecks []string `yaml:"landing_checks,omitempty" json:"landing_checks,omitempty"`
+	// DocumentChecks are the commands a confirmed document's landing runs in
+	// place of Checks and PathChecks, for a change that lies wholly inside the
+	// artifact homes: the tests that read the governed documents rather than the
+	// whole suite. A project that names none runs Checks as every other run does.
+	// The landing's check evidence names the digest of the list it ran
+	// (DocumentChecksDigest), so evidence from a different list is not evidence.
+	DocumentChecks []string `yaml:"document_checks,omitempty" json:"document_checks,omitempty"`
 	// PathChecks are commands the per-run gate adds after Checks for a change
 	// that touches what they vouch for, and leaves out for one that touches none
 	// of it. Each names a file in the repository listing the paths it vouches
@@ -254,8 +261,30 @@ type Product struct {
 	IntentRepository string `yaml:"-" json:"-"`
 }
 
+// DefaultDocumentLandings is how many confirmed documents may be landing at
+// once where the configuration says nothing: enough that a role confirming two
+// documents in a row does not queue the second, and few enough that their
+// checks beside a full developer pool are a small share of the machine.
+const DefaultDocumentLandings = 2
+
+// DocumentLandingLimit is execution.document_landings, with zero — a
+// configuration assembled without the resolver's defaults — read as the default.
+func (e Execution) DocumentLandingLimit() int {
+	if e.DocumentLandings < 1 {
+		return DefaultDocumentLandings
+	}
+	return e.DocumentLandings
+}
+
 type Execution struct {
-	MaxConcurrentDevelopers    int `yaml:"max_concurrent_developers" json:"max_concurrent_developers"`
+	MaxConcurrentDevelopers int `yaml:"max_concurrent_developers" json:"max_concurrent_developers"`
+	// DocumentLandings is how many confirmed documents may be landing at once,
+	// counted on their own and never against MaxConcurrentDevelopers: a document
+	// landing takes no developer slot and waits on none, and no developer run
+	// waits on a landing. A landing's checks run through the same check runner
+	// as every run's, so whatever bounds the machine's heavy checks bounds them.
+	// Zero reads as DefaultDocumentLandings; see DocumentLandingLimit.
+	DocumentLandings           int `yaml:"document_landings" json:"document_landings"`
 	RepairAttemptsBeforeReplan int `yaml:"repair_attempts_before_replan" json:"repair_attempts_before_replan"`
 	// IntegrationRetriesBeforeReconciliation bounds the replays of a run whose
 	// promotion lost a race — to another run, or to whoever moved the target
@@ -974,6 +1003,9 @@ func (c Config) Validate() error {
 	if c.Execution.MaxConcurrentDevelopers < 1 {
 		problems = append(problems, "max_concurrent_developers must be at least 1")
 	}
+	if c.Execution.DocumentLandings < 0 {
+		problems = append(problems, "document_landings cannot be negative")
+	}
 	problems = append(problems, developerSlotProblems(c.Execution)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
@@ -1264,6 +1296,11 @@ func (c Config) Validate() error {
 	for index, check := range c.LandingChecks {
 		if strings.TrimSpace(check) == "" {
 			problems = append(problems, fmt.Sprintf("landing check %d cannot be empty", index))
+		}
+	}
+	for index, check := range c.DocumentChecks {
+		if strings.TrimSpace(check) == "" {
+			problems = append(problems, fmt.Sprintf("document check %d cannot be empty", index))
 		}
 	}
 	for index, check := range c.PathChecks {

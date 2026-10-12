@@ -200,6 +200,9 @@ type StateStore interface {
 	// entry point into an in-flight run goes through one of them, so resuming a
 	// run is exactly as exclusive as starting one.
 	Reserve(ctx context.Context, state runstate.State, maxConcurrent int) (*runstate.Lease, error)
+	// ReserveDocumentLanding is Reserve for a confirmed document's run, counted
+	// against execution.document_landings and never a developer slot.
+	ReserveDocumentLanding(ctx context.Context, state runstate.State, maxLandings int) (*runstate.Lease, error)
 	Adopt(ctx context.Context, workItemID string) (runstate.State, *runstate.Lease, error)
 	// ReclaimSlot takes a developer slot back for an adopted run paused on work
 	// its item waited on, under the limit Reserve enforces and refusing with the
@@ -623,11 +626,20 @@ func (p Pipeline) reserveRun(ctx context.Context, state runstate.State) (runstat
 	}
 	state.ProviderEffort = p.Config.InvocationEffort(p.developer(), effortModel)
 	state.EffortSettled = true
-	lease, err := p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
+	var lease *runstate.Lease
+	reserving := "reserve developer run"
+	if state.Document != nil {
+		// A confirmed document's landing is counted on its own, so it never takes
+		// or waits on a developer slot (runstate.State.HoldsDocumentLanding).
+		reserving = "reserve document landing"
+		lease, err = p.Store.ReserveDocumentLanding(ctx, state, p.Config.Execution.DocumentLandingLimit())
+	} else {
+		lease, err = p.Store.Reserve(ctx, state, p.Config.Execution.MaxConcurrentDevelopers)
+	}
 	if err != nil {
 		// The wrapping is the reservation's own, so that what a caller reports about
 		// a run it could not start still says which of the two steps refused it.
-		return state, nil, fmt.Errorf("reserve developer run: %w",
+		return state, nil, fmt.Errorf("%s: %w", reserving,
 			refusedByEnvironment("the run could not be reserved in durable state", err))
 	}
 	return state, lease, nil
@@ -5850,20 +5862,28 @@ func (a *activeRun) verify(ctx context.Context) error {
 	// that part and costs nothing for one that does not. Where it runs, its
 	// result is one more check result, so the review evidence carries it the
 	// way it carries every other.
+	//
+	// A confirmed document's landing runs the project's document checks in place
+	// of all of that where it declares any (documentChecks).
 	narrowing := checks.NarrowGoPackages(a.worktree.Path, changed)
 	added := pathChecksFor(a.worktree.Path, p.Config.PathChecks, changed)
+	narrowed := narrowing.Describe() + describePathChecks(p.Config.PathChecks, added)
+	stageCommands, providerCLIs := withPathChecks(p.Config.Checks, added)
+	if commands, declared := a.documentChecks(); declared {
+		stageCommands, providerCLIs = commands, nil
+		narrowed = "the document checks, in place of the configured checks, because the change is a confirmed document"
+	}
 	configured := p.checkStageTimeout()
 	stage := &runstate.CheckStage{
 		StartedAt:         p.clock().Now(),
 		BoundSeconds:      int64(configured / time.Second),
 		ConfiguredSeconds: int64(configured / time.Second),
-		Narrowed:          narrowing.Describe() + describePathChecks(p.Config.PathChecks, added),
+		Narrowed:          narrowed,
 	}
 	p.scaleCheckStage(stage)
 	a.state.CheckStage = stage
 	a.state.UpdatedAt = p.clock().Now()
 	_ = p.Store.Save(a.state)
-	stageCommands, providerCLIs := withPathChecks(p.Config.Checks, added)
 	checkResults, lastSequence, err := p.Checks.Run(ctx, checks.Request{
 		RunID:        a.state.RunID,
 		Directory:    a.worktree.Path,
@@ -5969,6 +5989,10 @@ func (a *activeRun) verify(ctx context.Context) error {
 		CouldNotRun: stage.CouldNotRun,
 		At:          p.clock().Now().UTC(),
 	}
+	if a.state.Document != nil {
+		// The list is what documentCheckSet reads it back as at the promotion.
+		a.state.ChecksPassed.CheckSet = config.CheckSetDigest(stageCommands)
+	}
 	// A replay conflict is cleared here too, and this is the moment it stops
 	// describing the change: it was moved into the worktree for its author to
 	// settle, and a change that passes its checks on top of the target is that
@@ -6001,8 +6025,18 @@ var ErrIntegrationUnearned = errors.New("integration refused: the record does no
 func (a *activeRun) integrationEarned(ctx context.Context) error {
 	state := a.state
 	if state.Document != nil {
-		if _, err := a.gateProtectedPaths(ctx); err != nil {
+		changed, err := a.gateProtectedPaths(ctx)
+		if err != nil {
 			return err
+		}
+		// A confirmed document's evidence is bound to the list of checks its
+		// landing runs as well, so a change to the document checks after they
+		// passed leaves the landing without evidence for the list now in force.
+		if state.ChecksPassed != nil {
+			if want := a.documentCheckSet(changed); state.ChecksPassed.CheckSet != want {
+				return fmt.Errorf("%w: the checks passed as check set %q and the document's landing now runs %q",
+					ErrIntegrationUnearned, state.ChecksPassed.CheckSet, want)
+			}
 		}
 	}
 	switch {

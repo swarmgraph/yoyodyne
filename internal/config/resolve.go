@@ -221,6 +221,7 @@ func newResolution() *resolution {
 			},
 			Execution: Execution{
 				MaxConcurrentDevelopers:    1,
+				DocumentLandings:           DefaultDocumentLandings,
 				RepairAttemptsBeforeReplan: 2,
 				// Two retries is the same shape of bound as the repair one: enough
 				// for a target that moved under a run to be caught up with, and far
@@ -318,6 +319,7 @@ func newResolution() *resolution {
 			"approvals.publishing":                                OriginDefault,
 			"approvals.work_items":                                OriginDefault,
 			"execution.max_concurrent_developers":                 OriginDefault,
+			"execution.document_landings":                         OriginDefault,
 			"execution.repair_attempts_before_replan":             OriginDefault,
 			"execution.integration_retries_before_reconciliation": OriginDefault,
 			"execution.transient_relaunches_before_blocking":      OriginDefault,
@@ -366,6 +368,7 @@ func (r *resolution) apply(applied layer) error {
 	}
 	if execution := document.Execution; execution != nil {
 		setValue(r.origins, "execution.max_concurrent_developers", execution.MaxConcurrentDevelopers, &r.config.Execution.MaxConcurrentDevelopers, applied.origin)
+		setValue(r.origins, "execution.document_landings", execution.DocumentLandings, &r.config.Execution.DocumentLandings, applied.origin)
 		setValue(r.origins, "execution.repair_attempts_before_replan", execution.RepairAttemptsBeforeReplan, &r.config.Execution.RepairAttemptsBeforeReplan, applied.origin)
 		setValue(r.origins, "execution.integration_retries_before_reconciliation", execution.IntegrationRetriesBeforeReconciliation, &r.config.Execution.IntegrationRetriesBeforeReconciliation, applied.origin)
 		setValue(r.origins, "execution.transient_relaunches_before_blocking", execution.TransientRelaunchesBeforeBlocking, &r.config.Execution.TransientRelaunchesBeforeBlocking, applied.origin)
@@ -572,6 +575,10 @@ func (r *resolution) apply(applied layer) error {
 	if document.LandingChecks != nil {
 		r.config.LandingChecks = append([]string(nil), (*document.LandingChecks)...)
 		r.origins["landing_checks"] = applied.origin
+	}
+	if document.DocumentChecks != nil {
+		r.config.DocumentChecks = append([]string(nil), (*document.DocumentChecks)...)
+		r.origins["document_checks"] = applied.origin
 	}
 	if document.PathChecks != nil {
 		r.config.PathChecks = append([]PathCheck(nil), (*document.PathChecks)...)

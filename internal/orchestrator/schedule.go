@@ -801,10 +801,14 @@ type Pull struct {
 	// item waits on once that work has closed. Optional; see
 	// ScheduleContinuations.
 	Continuations ScheduleContinuations
-	// Documents is the confirmed documents waiting for a developer slot, which a
-	// pull starts into its free slots before anything else takes one. Optional;
-	// see ScheduleDocuments.
+	// Documents is the confirmed documents waiting for a document landing to
+	// free, which a pull starts as landings free whatever the developer slots
+	// hold. Optional; see ScheduleDocuments.
 	Documents ScheduleDocuments
+	// DocumentLandings is execution.document_landings as this pull read it: how
+	// many confirmed documents may be landing at once, counted apart from
+	// Capacity. Zero reads as the configuration's default.
+	DocumentLandings int
 	// Divergences is the product's record of the target branches the harness
 	// will not catch up to the remote's. Optional; see ScheduleDivergences. A
 	// pull wired without it chooses into a wedged target exactly as it did, and
@@ -1597,6 +1601,11 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// failed, so a pull leaves each for continuationRetry rather than attempting
 	// it every poll.
 	refusedDocuments := map[string]refusedDocument{}
+	// myDocuments is the waiting documents this session started whose runs have
+	// not come back, by the run each is landed as, so a pull counts each against
+	// the document landings rather than a developer slot before its run is
+	// recorded.
+	myDocuments := map[string]bool{}
 
 	// settle takes one finished run into the schedule: what became of it, what it
 	// cost, and what it does to the storm the brake is counting.
@@ -1608,6 +1617,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		// no item's exclusion. A start that failed is left for continuationRetry; one
 		// that lost the slot to another run is tried at the next pull.
 		if done.document {
+			delete(myDocuments, started.WorkItemID)
 			started.record(done)
 			if cancel, live := hosted[done.index]; live {
 				cancel(nil)
@@ -2430,6 +2440,11 @@ pulling:
 		// taken out of what counts against the capacity here and kept only for the
 		// race guard below: its change is still in its worktree, and work started
 		// beside it that shares its files would conflict with it when it lands.
+		//
+		// A confirmed document's landing holds no developer slot either, and is
+		// taken out first: it is counted against the document landings alone
+		// (nextDocuments), and it waits on nothing.
+		landing := documentLandings(occupied)
 		waitingRuns := waitingOnDependencies(occupied)
 		// The runs a session before this one stopped for its own redeploy are
 		// picked up here, before anything new is chosen and before the intake hold
@@ -2478,6 +2493,12 @@ pulling:
 			// A run this session started and that has not reserved yet is in flight
 			// with no identifier to name; one that has reserved is already here under
 			// the identifier the store gave it.
+			if myDocuments[id] {
+				if _, recorded := landing[id]; !recorded {
+					landing[id] = runstate.State{WorkItemID: id}
+				}
+				continue
+			}
 			if _, recorded := occupied[id]; !recorded {
 				occupied[id] = runstate.State{WorkItemID: id}
 			}
@@ -2495,16 +2516,17 @@ pulling:
 		// a carried-out decision took before the queue was read.
 		freeAtPoll, filledByCarryOut := max(free, 0), 0
 
-		// A confirmed document waiting for a developer slot takes the first free
-		// one, ahead of the development manager's decisions, the paused runs, and
-		// the queue below: it is a short reviewed run of a document a role has
-		// already written, and what it unblocks is usually work waiting behind it.
-		// Nothing already running is stopped for it; it waits for a slot to free.
-		// It is held back by the same switches a continuation is, for the same
-		// reasons, and the run reads them again itself.
+		// A confirmed document waiting for a document landing to free is started
+		// as soon as one has, whatever the developer slots hold: it is a short
+		// reviewed run of a document a role has already written, counted against
+		// the document landings alone, and what it unblocks is usually work
+		// waiting behind it. It takes no developer slot, so the queue below is
+		// chosen against the same free slots whether or not one starts. It is held
+		// back by the same switches a continuation is, for the same reasons, and
+		// the run reads them again itself.
 		startedDocuments := 0
 		if _, declining := drain.declinesStarts(pull.Poll, s.now()); !paused && !held && !declining {
-			documents, err := s.nextDocuments(pull, occupied, mine, refusedDocuments, free, len(schedule.Started), passOver)
+			documents, err := s.nextDocuments(pull, landing, mine, refusedDocuments, len(schedule.Started), passOver)
 			if err != nil {
 				schedule.DocumentProblem = err.Error()
 			} else {
@@ -2515,10 +2537,10 @@ pulling:
 				delete(deferred, runID)
 				index := len(schedule.Started)
 				schedule.Started = append(schedule.Started, Started{WorkItemID: runID, Reason: documentReason(wait)})
-				occupied[runID] = runstate.State{WorkItemID: runID}
+				landing[runID] = runstate.State{WorkItemID: runID}
 				mine[runID] = index
+				myDocuments[runID] = true
 				running++
-				free--
 				startedDocuments++
 				// Hosted like any run this session starts, so a drain bound that runs
 				// out stops it exactly as it stops a chosen one.
@@ -3245,14 +3267,16 @@ pulling:
 			// held them, because a slot another process's run freed is refilled here
 			// with nothing of this session's having ended, and a reader who sees only
 			// the count cannot tell where the room came from.
-			slots := filledLine(filledByCarryOut+startedDocuments+started, freeAtPoll, running-firedCarryOuts-startedDocuments-started)
+			// A document landing fills no developer slot, so it is said beside the
+			// count rather than in it.
+			slots := filledLine(filledByCarryOut+started, freeAtPoll, running-firedCarryOuts-startedDocuments-started)
 			if started == 0 {
 				what := "a triage decision the development manager recorded was carried out"
 				switch {
 				case startedDocuments > 0 && carrying:
-					what = "a confirmed document that waited for a slot was started, and " + what
+					what = "a confirmed document that waited for a document landing to free was started, and " + what
 				case startedDocuments > 0:
-					what = "a confirmed document that waited for a slot was started"
+					what = "a confirmed document that waited for a document landing to free was started"
 				}
 				session.filled(fmt.Sprintf("%s; %s; nothing was pulled from a backlog of %d admitted, %d of them ready",
 					slots, what, len(queue.Entries), queue.Ready()) + freedLine(freed))
@@ -6270,6 +6294,9 @@ func (s *Started) record(done completed) {
 	var capacity runstate.CapacityError
 	var existing ExistingRunError
 	switch {
+	case errors.As(done.err, &capacity) && capacity.Landings:
+		s.Declined = fmt.Sprintf("the last free document landing went to another document before this one was reserved (%d landing, limit %d)",
+			capacity.Active, capacity.Limit)
 	case errors.As(done.err, &capacity):
 		s.Declined = fmt.Sprintf("the last free developer slot went to another run before this one was reserved (%d active, limit %d)",
 			capacity.Active, capacity.Limit)
@@ -6367,6 +6394,22 @@ func waitingOnDependencies(occupied map[string]runstate.State) map[string]runsta
 		}
 	}
 	return waiting
+}
+
+// documentLandings takes the confirmed documents' landings out of occupied and
+// returns them. Such a run holds no developer slot
+// (runstate.State.HoldsDocumentLanding), so what is left in occupied is what the
+// capacity is counted against, and what is returned is what the document
+// landings are.
+func documentLandings(occupied map[string]runstate.State) map[string]runstate.State {
+	landing := map[string]runstate.State{}
+	for id, state := range occupied {
+		if state.HoldsDocumentLanding() {
+			landing[id] = state
+			delete(occupied, id)
+		}
+	}
+	return landing
 }
 
 // slotsOf reads which developer slot each run in flight occupies and which are

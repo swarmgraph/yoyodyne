@@ -395,6 +395,9 @@ type RunningRun struct {
 	// recordedSlot is the developer slot the run's record names, and zero where
 	// it names none; the slot below is read from it before the labels.
 	recordedSlot int
+	// documentLanding is a confirmed document's landing, which is counted
+	// against execution.document_landings and holds no developer slot.
+	documentLanding bool
 	// Backend, Model, and Account are what the run is spending: the provider it
 	// runs on, the model it asked for (the resolved identifier where the provider
 	// reported one), and the account alias it runs under. The alias is exactly
@@ -631,10 +634,10 @@ type Standing struct {
 	// the harness starts the next of it as a run finishes.
 	WaitingForSlot *SlotWait `json:"waiting_for_slot,omitempty"`
 	// DocumentsWaitingForSlot is the confirmed documents whose reviewed run found
-	// every developer slot taken, longest waiting first, each with the role that
-	// owns it. They are not admitted work and are counted nowhere above: the
-	// harness starts each in the next slot that frees, ahead of any new
-	// development run, and nothing is asked of anybody. DocumentsWaitingProblem
+	// every document landing taken, longest waiting first, each with the role
+	// that owns it. They are not admitted work and are counted nowhere above: the
+	// harness starts each as a document landing frees, without taking a
+	// developer slot, and nothing is asked of anybody. DocumentsWaitingProblem
 	// says they could not be read.
 	DocumentsWaitingForSlot []DocumentSlotWait `json:"documents_waiting_for_slot,omitempty"`
 	DocumentsWaitingProblem string             `json:"documents_waiting_problem,omitempty"`
@@ -1147,7 +1150,11 @@ func readRunning(sources Sources, now time.Time) ([]RunningRun, []RunningRun, st
 				break
 			}
 		}
-		if !state.HoldsDeveloperSlot() {
+		// A confirmed document's landing holds no developer slot either, but it is
+		// running rather than paused: it is listed with the running and kept out
+		// of the developer slots (readSlots).
+		run.documentLanding = state.HoldsDocumentLanding()
+		if !state.HoldsDeveloperSlot() && !run.documentLanding {
 			if state.DependencyPause != nil {
 				run.WaitingOn = state.DependencyPause.Summary()
 			}
@@ -1198,6 +1205,9 @@ func readSlots(sources Sources, running []RunningRun) []DeveloperSlotStanding {
 	}
 	inFlight := make([]developerslot.Run, 0, len(running))
 	for _, run := range running {
+		if run.documentLanding {
+			continue
+		}
 		inFlight = append(inFlight, developerslot.Run{
 			RunID:      run.RunID,
 			WorkItemID: run.WorkItemID,

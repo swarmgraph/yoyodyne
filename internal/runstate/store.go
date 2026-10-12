@@ -168,12 +168,19 @@ func (l *Lease) Release() error {
 // rather than failing has to be able to say what it is waiting on — and the
 // fields are named in its JSON for the same reason: a state an operator reads is
 // a state a machine reads too.
+//
+// Landings marks the refusal as the document landings' own count being full
+// rather than the developer slots (see ReserveDocumentLanding).
 type CapacityError struct {
-	Limit  int `json:"limit"`
-	Active int `json:"active"`
+	Limit    int  `json:"limit"`
+	Active   int  `json:"active"`
+	Landings bool `json:"landings,omitempty"`
 }
 
 func (e CapacityError) Error() string {
+	if e.Landings {
+		return fmt.Sprintf("document landings are full: %d landing(s) running, limit %d", e.Active, e.Limit)
+	}
 	return fmt.Sprintf("developer capacity is full: %d active run(s), limit %d", e.Active, e.Limit)
 }
 
@@ -205,6 +212,42 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 	if maxConcurrent < 1 {
 		return nil, errors.New("max concurrent developers must be greater than zero")
 	}
+	if state.Document != nil {
+		return nil, errors.New("a document landing is reserved against the document landings, not a developer slot")
+	}
+	return s.reserve(ctx, state, func(active []State) error {
+		// A run paused on work its item waits on is in flight for the duplicate
+		// check and holds no slot here: see State.HoldsDeveloperSlot.
+		if holding := HoldingDeveloperSlots(active); holding >= maxConcurrent {
+			return CapacityError{Limit: maxConcurrent, Active: holding}
+		}
+		return nil
+	})
+}
+
+// ReserveDocumentLanding is Reserve for a confirmed document's landing, counted
+// against execution.document_landings rather than the developer slots: under
+// the same lock and with the same duplicate check, it refuses only where
+// maxLandings landings are already in flight, however many developer runs are,
+// and it is never counted against a developer run's reservation.
+func (s *Store) ReserveDocumentLanding(ctx context.Context, state State, maxLandings int) (*Lease, error) {
+	if maxLandings < 1 {
+		return nil, errors.New("document landings must be greater than zero")
+	}
+	if state.Document == nil {
+		return nil, errors.New("only a confirmed document's run is reserved as a document landing")
+	}
+	return s.reserve(ctx, state, func(active []State) error {
+		if holding := HoldingDocumentLandings(active); holding >= maxLandings {
+			return CapacityError{Limit: maxLandings, Active: holding, Landings: true}
+		}
+		return nil
+	})
+}
+
+// reserve is the check-and-create both reservations share, with full refusing
+// the run where the count it is reserved against is full.
+func (s *Store) reserve(ctx context.Context, state State, full func(active []State) error) (*Lease, error) {
 	if state.Status != StatusPending {
 		return nil, fmt.Errorf("reserved run state must be pending, got %q", state.Status)
 	}
@@ -230,10 +273,8 @@ func (s *Store) Reserve(ctx context.Context, state State, maxConcurrent int) (*L
 			return nil, ExistingWorkItemError{State: existing}
 		}
 	}
-	// A run paused on work its item waits on is in flight for the duplicate check
-	// above and holds no slot here: see State.HoldsDeveloperSlot.
-	if holding := HoldingDeveloperSlots(active); holding >= maxConcurrent {
-		return nil, CapacityError{Limit: maxConcurrent, Active: holding}
+	if err := full(active); err != nil {
+		return nil, err
 	}
 	// The lease is taken before the state exists, so no run is ever recorded as
 	// in flight without an owner holding it.
@@ -256,6 +297,19 @@ func HoldingDeveloperSlots(states []State) int {
 	holding := 0
 	for _, state := range states {
 		if state.HoldsDeveloperSlot() {
+			holding++
+		}
+	}
+	return holding
+}
+
+// HoldingDocumentLandings counts the runs among states that are confirmed
+// documents landing, which is what execution.document_landings is measured
+// against.
+func HoldingDocumentLandings(states []State) int {
+	holding := 0
+	for _, state := range states {
+		if state.HoldsDocumentLanding() {
 			holding++
 		}
 	}

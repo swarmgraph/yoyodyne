@@ -360,9 +360,10 @@ func (s Standing) renderNotStartable() string {
 	return rendered.String()
 }
 
-// renderDocumentWaits is the confirmed documents waiting for a developer slot,
-// each with its owning role, said beside the ready work waiting for one because
-// that is the same wait and the harness ends it the same way.
+// renderDocumentWaits is the confirmed documents waiting for a document landing
+// to free, each with its owning role, said beside the ready work waiting for a
+// developer slot because both are work the harness starts by itself as room
+// frees.
 func (s Standing) renderDocumentWaits() string {
 	var rendered strings.Builder
 	listed, further := bound(len(s.DocumentsWaitingForSlot))

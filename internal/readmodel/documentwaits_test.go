@@ -48,8 +48,8 @@ func TestADocumentWaitingForASlotIsListedWithItsOwningRole(t *testing.T) {
 		t.Fatalf("document waiting = %+v", wait)
 	}
 	rendered := standing.Render()
-	want := "  - document document-12.1 (Stopped-run recovery), the architect's, from conversation chat-architect, waiting for a developer slot since " + localMoment(since) +
-		" — the harness starts it in the next developer slot that frees, ahead of any new development run, and nothing is asked of anybody\n"
+	want := "  - document document-12.1 (Stopped-run recovery), the architect's, from conversation chat-architect, waiting for a document landing since " + localMoment(since) +
+		" — the harness starts it as soon as a document landing frees, without taking a developer slot, and nothing is asked of anybody\n"
 	if !strings.Contains(rendered, want) {
 		t.Fatalf("rendered lacks %q:\n%s", want, rendered)
 	}
@@ -62,7 +62,7 @@ func TestDocumentWaitsThatCannotBeReadAreSaid(t *testing.T) {
 	sources := quietSources()
 	sources.Runs = documentWaitRuns{fakeRuns: fakeRuns{prices: map[string]runstate.ItemPrice{}}, err: errors.New("disk unreadable")}
 	standing := ReadStanding(context.Background(), sources)
-	if !strings.Contains(standing.DocumentsWaitingProblem, "disk unreadable") || !strings.Contains(standing.Render(), "the documents waiting for a developer slot could not be read: disk unreadable") {
+	if !strings.Contains(standing.DocumentsWaitingProblem, "disk unreadable") || !strings.Contains(standing.Render(), "the documents waiting for a document landing could not be read: disk unreadable") {
 		t.Fatalf("problem = %q, rendered:\n%s", standing.DocumentsWaitingProblem, standing.Render())
 	}
 }

@@ -57,8 +57,9 @@ const MaxDocumentAttempts = 3
 // DocumentRetry is what a document run that stopped without judging its
 // document records about the run after it.
 type DocumentRetry struct {
-	// DevelopersAtStop is how many runs held a developer slot, this one
-	// included, when this run's checks were stopped by a time limit. Zero where
+	// DevelopersAtStop is how many runs held a developer slot when this run's
+	// checks were stopped by a time limit, plus this run, which holds a
+	// document landing rather than a slot. Zero where
 	// the stop was not a time limit or the count could not be taken. The next
 	// attempt waits until fewer are running, because the same suite under the
 	// same load would be stopped the same way.

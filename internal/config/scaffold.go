@@ -254,6 +254,11 @@ execution:
   # developer_slots:
   #   - prefer: [reliability]   # developer slot 1 pulls reliability-labelled work first
   repair_attempts_before_replan: %d
+  # How many confirmed documents -- a design, a decision record, the goals --
+  # may be landing at once. A document landing is counted here and never
+  # against max_concurrent_developers: it takes no developer slot and waits on
+  # none, and no developer run waits on it.
+  document_landings: %d
   # A promotion that loses a race -- to another run, or to whoever moved the
   # target branch while this one was working -- is replayed onto where the
   # target went and tried again. Every replay re-runs the checks and asks for a
@@ -455,6 +460,7 @@ approvals:
 		effective.Product.Decisions,
 		effective.Execution.MaxConcurrentDevelopers,
 		effective.Execution.RepairAttemptsBeforeReplan,
+		effective.Execution.DocumentLandings,
 		effective.Execution.IntegrationRetriesBeforeReconciliation,
 		effective.Execution.TransientRelaunchesBeforeBlocking,
 		effective.Execution.WorktreeRoot,
