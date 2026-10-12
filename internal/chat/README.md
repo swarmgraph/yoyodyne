@@ -44,7 +44,9 @@ message from the command line, and every recurring role pass
    `servedByAlternate`.
 7. **`Send`** — one message, start to finish (see below).
 8. **`takeTurn`** — one provider invocation with its waits, failover,
-   compaction and recording (see below). `recordOperatorMessage`.
+   compaction and recording (see below). `recordOperatorMessage` (marks a
+   message typed at the console prompt), `typedMessages` (reads those back
+   from the event log for up to recall at the prompt).
 9. **Splitting a reply.** `parsedReply`, `splitReply`, `collectReply`,
    `appendProblem`, `appendProse`, `carryResults`.
 10. **Proposals and concerns.** `Proposals`, `Concerns`, `Answer`,

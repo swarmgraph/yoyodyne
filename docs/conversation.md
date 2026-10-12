@@ -2796,6 +2796,20 @@ resizing keep working on it as they would on any other command's output. Editing
 what you are composing is deliberately small — the arrow keys, home and end,
 backspace and delete, and Ctrl-U and Ctrl-W.
 
+Up and down move between the lines of a message of more than one line. On its
+first line, up brings back the message you sent before it, and each further
+press goes one message further back; down comes forward again, and past the last
+message you sent brings back what you were writing, exactly as you left it. A
+message brought back this way is edited and sent like any other, and a change
+you make to one and then move away from is not kept. What up brings back is what
+you typed at the prompt in this conversation, including in an earlier `yoyo
+chat` you have since left: those messages are read back from the conversation's
+own record when it opens. A command such as `/backlog` is brought back too for as
+long as the conversation stays open, but is not recorded, so it is not there once
+you open it again; and neither is anything said to the role some other way, by a
+scheduled pass, by Slack, or with `yoyo chat -m`. A conversation started with
+`--new` starts with nothing to bring back.
+
 Return sends the message, and shift-return puts a newline in it, so what you say
 can be more than one line. Whether shift-return reaches yoyo at all is the
 terminal's decision rather than yoyo's: in a terminal's legacy mode return and

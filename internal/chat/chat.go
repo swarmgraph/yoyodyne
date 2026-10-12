@@ -10,6 +10,7 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -821,6 +822,9 @@ type Session struct {
 	// shiftReturn is whether that console's terminal agreed to report
 	// shift-return, which is what /terminal-setup has nothing to change for.
 	shiftReturn bool
+	// typing says the message being sent was typed at the console's prompt,
+	// which is what marks it in the record as one up recalls later.
+	typing bool
 }
 
 // proposalRecord is one proposal and whether the operator has finished with it.
@@ -2468,9 +2472,55 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 // redactor, and cut to the same bound the backends cut a reply to, so the two
 // halves of an exchange are read back under one rule and neither is where a
 // secret or a mis-piped file gets into the record.
+//
+// A message typed at the console's prompt is marked as one, because the same
+// event also records what a recurring pass, an escalation, or Slack said to the
+// role, and only what the operator typed here is what up recalls at the prompt
+// the next time this conversation is opened (typedMessages).
 func (s *Session) recordOperatorMessage(message string) error {
 	text := execution.NewRedactor(s.options.RedactValues...).Redact(message)
-	return s.emit(execution.EventOperatorMessage, execution.ReplyPayload(text))
+	payload := execution.ReplyPayload(text)
+	if s.typing {
+		payload[typedAtConsole] = true
+	}
+	return s.emit(execution.EventOperatorMessage, payload)
+}
+
+// typedAtConsole is the field an operator.message event carries when the
+// operator typed the message at this conversation's console prompt.
+const typedAtConsole = "typed_at_console"
+
+// typedMessages is what the operator typed at the console prompt in this
+// conversation, oldest first, read back out of its event log so that up recalls
+// them in a later process exactly as in the one they were typed in. A message
+// the record holds only part of is left out, because recalling it would send
+// the cut and its marker as though the operator had typed them. A log that
+// cannot be read gives nothing to recall rather than a conversation that will
+// not open: recall is a convenience, and the conversation is not.
+func (s *Session) typedMessages() []string {
+	if s.state.ConversationID == "" {
+		return nil
+	}
+	events, err := s.options.Store.LoadEvents(s.state.ConversationID)
+	if err != nil {
+		return nil
+	}
+	var typed []string
+	for _, event := range events {
+		if event.Type != execution.EventOperatorMessage || len(event.Payload) == 0 {
+			continue
+		}
+		var payload struct {
+			Text  string `json:"text"`
+			Cut   bool   `json:"cut"`
+			Typed bool   `json:"typed_at_console"`
+		}
+		if err := json.Unmarshal(event.Payload, &payload); err != nil || !payload.Typed || payload.Cut {
+			continue
+		}
+		typed = append(typed, payload.Text)
+	}
+	return typed
 }
 
 // parsedReply is one answer taken apart: the prose the operator reads, the
@@ -3176,6 +3226,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 	// whether shift was held must not be told it will.
 	s.composing = screen.Composing()
 	s.shiftReturn = console.ReportsShiftReturn(screen)
+	// Up at the prompt recalls what the operator typed in this conversation
+	// before, including in the processes that held it before this one.
+	console.Remember(screen, s.typedMessages()...)
 	// What the harness says in answer to a command is dressed as its own kind of
 	// thing, because it is something the operator asked for and has to act on
 	// rather than part of the conversation.
@@ -3224,6 +3277,10 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		if message == "" {
 			continue
 		}
+		// A command is recalled as a message is for as long as this console is
+		// open. Only a message reaches the record, so only a message is recalled
+		// once the conversation is opened again.
+		console.Remember(screen, message)
 		// The rule goes down as soon as the operator's turn is over, so it
 		// separates what they said from the answer while the answer is still
 		// being worked on rather than arriving with it.
@@ -3447,10 +3504,12 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 	stream := s.replyStream(screen)
 	s.stream = stream
 	s.shownReply = false
+	s.typing = true
 	defer func() {
 		display.Close()
 		s.activity = nil
 		s.stream = nil
+		s.typing = false
 	}()
 	reply, err := s.Send(ctx, message)
 	s.shownReply = stream.end()
