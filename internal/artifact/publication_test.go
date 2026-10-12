@@ -98,3 +98,23 @@ func TestIntentKindCannotBeConfirmedUnderTheDesignsSetting(t *testing.T) {
 		}
 	}
 }
+
+// A decision record is the architect's, and is confirmed or put to the operator
+// under approvals.designs exactly as a design is.
+func TestADecisionRecordIsConfirmedUnderTheDesignsSetting(t *testing.T) {
+	store := generatedStore(t.TempDir())
+	record := Write{Action: WriteCreate, ID: "authority-by-capability", Kind: KindDecision, Title: "Authority by capability", Directory: decisionsHome, Body: "# Authority by capability", Reason: "the architect's ruling"}
+	candidate, automatic, err := store.PrepareConfirmation(domain.RoleArchitect, record, Policy{Designs: domain.ApprovalAutomatic}, "confirmed under policy", moment())
+	if err != nil || !automatic {
+		t.Fatalf("confirmation: %v, %v", automatic, err)
+	}
+	if approval, _ := candidate.Artifact.LatestApproval(); approval.By != ApproverHarness || approval.Policy != "approvals.designs" {
+		t.Fatalf("approval = %+v", approval)
+	}
+	if err := candidate.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	if _, automatic, err := store.PrepareConfirmation(domain.RoleArchitect, record, Policy{Designs: domain.ApprovalHuman}, "confirmed under policy", moment()); err != nil || automatic {
+		t.Fatalf("confirmed under a human designs setting: %v, %v", automatic, err)
+	}
+}

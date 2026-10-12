@@ -196,16 +196,15 @@ func TestWhatRequiresApprovalIsTheProjectsToSay(t *testing.T) {
 	if setting, mode, governed := policy.Setting(KindNonGoals); !governed || setting != "approvals.goals" || mode != domain.ApprovalHuman {
 		t.Errorf("Setting(non-goals) = %q, %q, %v", setting, mode, governed)
 	}
-	// A decision record is the architect's account of how something was decided
-	// rather than a statement of what the product should do, and no setting names
-	// one.
-	if setting, _, governed := policy.Setting(KindDecision); governed || setting != "" {
-		t.Errorf("Setting(decision) = %q, %v", setting, governed)
+	// A decision record is the architect's, and is governed as the architect's
+	// designs are.
+	if setting, mode, governed := policy.Setting(KindDecision); !governed || setting != "approvals.designs" || mode != domain.ApprovalAutomatic {
+		t.Errorf("Setting(decision) = %q, %q, %v", setting, mode, governed)
 	}
 
 	// A project that decided otherwise gets what it decided, in both directions.
 	relaxed := Policy{Brief: domain.ApprovalAutomatic, Goals: domain.ApprovalAutomatic, Designs: domain.ApprovalHuman}
-	if relaxed.Requires(KindGoals) || !relaxed.Requires(KindDesign) {
+	if relaxed.Requires(KindGoals) || !relaxed.Requires(KindDesign) || !relaxed.Requires(KindDecision) {
 		t.Errorf("relaxed = %#v", relaxed)
 	}
 }

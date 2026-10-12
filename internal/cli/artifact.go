@@ -538,8 +538,8 @@ recorded as fundamental, or one that does not say, is still put to you.
 
 What needs your approval is your configuration's to say: approvals.brief and
 approvals.goals default to human, approvals.designs to automatic, and a decision record is the
-architect's account of a decision rather than a statement of intent, so nothing
-asks you to approve one. A revision that only gives a goals document's goals
+architect's account of a decision rather than a statement of intent, so it is
+governed by approvals.designs as a design is. A revision that only gives a goals document's goals
 identifiers -- the bracketed name an entry opens with -- changes no goal's words,
 so it is recorded as an identity revision rather than an amendment and leaves
 your approval standing.

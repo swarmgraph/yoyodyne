@@ -37,13 +37,18 @@ type confirmationPreparer interface {
 }
 
 // PublishDocuments also handles documents saved by an older build. Confirmation
-// and its complete candidate are saved before any delivery work can start.
+// and its complete candidate are saved before any delivery work can start, and a
+// second waiting copy of one document is released first (see releaseCopies), so
+// the copy kept is the one confirmed.
 //
 // It never stands between the operator and the role. A publication that could
 // not start or finish is kept and told to the owning role, and the message that
 // called this goes on; only a failure to record the conversation itself is
 // returned.
 func (s *Session) PublishDocuments(ctx context.Context) error {
+	if err := s.releaseCopies(); err != nil {
+		return err
+	}
 	publisher := s.options.DocumentPublisher
 	if publisher == nil {
 		return nil
