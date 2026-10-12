@@ -21,32 +21,35 @@ its own, and what lets it close. All times are Pacific (PDT), on October 12 2026
   the approval should be given again. The test
   `TestStandingApprovalLandsThroughReviewedRunAndLeavesCheckoutClean` covers a
   command-line approval landing through a run with the checkout left clean.
-- **None of it is on main.** This run's base, `33d59a62`, is the parent's base
-  `d19d1b7b` plus the non-goals revision (yoyodyne-48j), and has none of the
-  functions above. The command-line path depends on the parent's conversation
-  path from its first attempt (`e50c2ff1`), so it cannot be taken alone.
-- **The parent stopped over documents, not code.** Its reviewer asked for repair
-  twice. The last review found the code met the item, with every check passing,
-  and asked for three passages to be corrected: `README.md` and
-  `docs/conversation.md` still tell the operator to commit an approved document,
-  and `docs/artifacts.md` still says an approval lands in the checkout
-  uncommitted. With its two repairs used, the parent was stopped and its branch
-  kept for a replan.
+- **None of it is on main.** Main, up to and including the merge of the
+  document-deadline fix (yoyodyne-trt, `2e6a4a43`), has none of the functions
+  above; the parent's branch was cut
+  from `d19d1b7b`, and nothing merged to main since carries its change. The
+  command-line path depends on the parent's conversation path from its first
+  attempt (`e50c2ff1`), so it cannot be taken alone.
+- **The parent's remaining documents are now corrected.** Its third attempt was
+  stopped after its reviewer found the code met the item, with every check
+  passing, but asked for three passages to be corrected: `README.md` and
+  `docs/conversation.md` told the operator to commit an approved document, and
+  `docs/artifacts.md` said an approval lands in the checkout uncommitted. A
+  fourth attempt on the same branch, commit `6645c6f3` at 14:48, corrects all
+  three. What remains on the parent is for that attempt to be reviewed and pull
+  request #1205 merged.
 
 ## Why this run does not redo the parent
 
 Landing the child here means carrying the parent's whole change, about 900 lines
 across 24 files, into a second branch. Pull request #1205 would then conflict
-with it, and two changes would claim the same work. Finishing the parent is the
-smaller step: correct the three passages above on its kept branch, and the child
-is met when it merges.
+with it, and two changes would claim the same work. Nothing needs to be redone:
+this item is met when pull request #1205 is reviewed and merged, apart from the
+decision below.
 
 ## What is left to decide
 
 The child asks that no approval path write into the checkout. The parent's
 branch still writes the approval into the checkout in two cases where no
 reviewed run can carry it: a project with no reviewer configured, and one that
-keeps its intent in a separate repository. Whoever finishes the parent either
-keeps those two exceptions, documented as they are, and the child is narrowed
-to match, or makes the command refuse in those cases and say what to set up
-instead.
+keeps its intent in a separate repository, and its corrected `README.md` now
+describes both. Whoever finishes the parent either keeps those two exceptions,
+and the child is narrowed to match, or makes the command refuse in those cases
+and say what to set up instead.
