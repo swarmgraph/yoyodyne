@@ -1004,6 +1004,9 @@ type Outcome struct {
 	// either bookkeeping left after a merge the forge made, or — where the forge
 	// did not merge — the reason the run was stopped and the item blocked.
 	PublishFailure string `json:"publish_failure,omitempty"`
+	// LandingStep is the step of landing this run was taking, present only
+	// while it is landing and on a run that stopped there (landingstop.go).
+	LandingStep *LandingStep `json:"landing_step,omitempty"`
 	// Catchup is the local aftermath of a merge the forge performed: the target
 	// branch brought onto the merge commit the forge made above the promotion,
 	// so the checkout a person reads carries what the forge has. It is recorded
@@ -2769,6 +2772,7 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	a.state.IntegrationRetries++
 	a.state.ReplayUnjudged = true
 	a.outcome.IntegrationRetries = a.state.IntegrationRetries
+	a.landingAt("replaying the change onto "+a.worktree.TargetBranch+", which moved after this change was prepared on it", false)
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return false, fmt.Errorf("save integration retry %d: %w", a.state.IntegrationRetries, err)
@@ -2781,13 +2785,20 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 		return false, withFailedRecord(err, recordErr)
 	}
 	if errors.Is(err, gitworktree.ErrRebaseConflict) {
-		return a.continueOnRebaseConflict(ctx, err)
+		retry, err := a.continueOnRebaseConflict(ctx, err)
+		if retry {
+			a.leftLanding()
+		}
+		return retry, err
 	}
 	if err != nil {
 		return false, fmt.Errorf("replay the change onto the moved target branch: %w", err)
 	}
 	// The published branch has to become the replayed one, or the pull request
 	// would carry work the authoritative local branch no longer has.
+	if a.outcome.PullRequest != nil {
+		a.landingAt(fmt.Sprintf("publishing the replayed change to pull request #%d", a.outcome.PullRequest.Number), true)
+	}
 	if err := a.republishRebase(ctx, rebase); err != nil {
 		return false, err
 	}
@@ -2811,6 +2822,7 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	// rather than beside the refusal that caused it, because until the replay has
 	// actually been prepared the run may still be ending on it.
 	a.observe(ctx, deliveryIntegrate, "superseded")
+	a.leftLanding()
 	return true, nil
 }
 
@@ -6255,11 +6267,14 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	if err := a.integrationEarned(ctx); err != nil {
 		return err
 	}
+	target := a.worktree.TargetBranch
+	a.landingAt("recording that the landing onto "+target+" began", false)
 	a.state.Phase = runstate.PhaseIntegrating
 	a.state.UpdatedAt = p.clock().Now()
 	if err := p.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save integrating run state: %w", err)
 	}
+	a.landingAt("waiting for this run's turn to land on "+target, false)
 	lease, err := p.Store.LeasePromotion(ctx, a.worktree.TargetBranch)
 	if err != nil {
 		return stoppedBy(runstate.StopIntegration, fmt.Errorf("wait for this run's turn to promote: %w", err))
@@ -6273,6 +6288,7 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// can be neither published nor taken back, so finding out afterwards closes the
 	// item as integrated against a divergence nothing owns; finding out here leaves
 	// a change that can still be replayed onto wherever the target went.
+	a.landingAt("checking where "+p.Config.Execution.Remote+"'s "+target+" stands before landing", true)
 	if err := a.settleRemoteTarget(ctx); err != nil {
 		return stoppedBy(runstate.StopIntegration, err)
 	}
@@ -6283,8 +6299,10 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// has not performed yet leaves the local target ahead of the remote with
 	// nothing that ever reconciles the two.
 	promote := p.Worktrees.Integrate
+	a.landingAt("promoting the change onto the local "+target, false)
 	if a.landsThroughPullRequest(ctx) {
 		promote = p.Worktrees.PrepareLanding
+		a.landingAt("preparing the commit to land on "+target+" through its pull request", false)
 	}
 	integration, err := promote(ctx, a.worktree, integrationMessage(a.item, a.outcome))
 	if err != nil {
@@ -6341,11 +6359,13 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	if integration.ThroughPullRequest && !a.landedThroughPullRequest() {
 		return a.blockOnUnlandedPullRequest(integration)
 	}
+	a.landingAt("recording that the landing onto "+target+" finished", false)
 	a.state.Phase = runstate.PhaseCompleting
 	a.state.UpdatedAt = p.clock().Now()
 	if err := p.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save integrated run state: %w", err)
 	}
+	a.leftLanding()
 	return nil
 }
 
@@ -9381,7 +9401,7 @@ func renderRebaseConflictNotes(outcome Outcome, failure string, conflict *runsta
 		}
 	}
 	lines = append(lines, "The branch and worktree are preserved exactly as they were. A repair granted in triage continues this run's developer session with the conflict handed back to reconcile against the target; a re-run starts the change over on the target as it now stands.")
-	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
+	return withLandingStop(strings.Join(append(lines, renderReviewNotes(outcome)...), "\n"), outcome, failure)
 }
 
 // renderDivergedTargetNotes describes a target branch that has gone a different
@@ -9410,7 +9430,7 @@ func renderDivergedTargetNotes(outcome Outcome, catchup gitworktree.Catchup, rem
 	if resumable {
 		lines = append(lines, fmt.Sprintf("Once the branches are settled, `yoyo triage resume %s` resumes the promotion with the approval standing and charges no review round, repair grant, or re-run; asked before then, it refuses and says what is still diverged.", outcome.RunID))
 	}
-	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
+	return withLandingStop(strings.Join(append(lines, renderReviewNotes(outcome)...), "\n"), outcome, failure)
 }
 
 // divergedTargetRecovery is the route out of a target branch that has gone a
@@ -9446,7 +9466,7 @@ func renderPromotedDivergenceNotes(outcome Outcome, integration gitworktree.Inte
 	if outcome.PullRequest != nil {
 		lines = append(lines, fmt.Sprintf("Pull request left unmerged: #%d %s", outcome.PullRequest.Number, outcome.PullRequest.URL))
 	}
-	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
+	return withLandingStop(strings.Join(append(lines, renderReviewNotes(outcome)...), "\n"), outcome, failure)
 }
 
 // renderUsageLimitPauseNotes describes a run that is waiting rather than one
@@ -9934,7 +9954,9 @@ func renderFailureNotes(outcome Outcome) string {
 	// and with more at stake: a run the stage bound stopped is read from this
 	// note, and the note has to say the stage was what stopped it.
 	lines = append(lines, renderCheckNotes(outcome)...)
-	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
+	// A run that stopped while landing ends on the step it stopped at, for the
+	// reason one stopped while developing ends on its cause.
+	return withLandingStop(strings.Join(append(lines, renderReviewNotes(outcome)...), "\n"), outcome, outcome.Failure)
 }
 
 // renderPreservationNotes says what is left of a failed run's change, from what

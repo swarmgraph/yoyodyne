@@ -126,7 +126,11 @@ field holds X" questions are answered in `internal/runstate/state.go`.
 21. **Notes written on the work item.** `renderOutcomeNotes` (success),
     `renderFailureNotes` + `renderPreservationNotes` (failure), one
     `render…Notes` per blocker and pause, `renderReviewNotes`,
-    `renderCheckNotes`, `renderCleanupNotes`, `integrationMessage`.
+    `renderCheckNotes`, `renderCleanupNotes`, `integrationMessage`. A run
+    that stops while landing ends its blocker and its failure note on the
+    step it stopped at and what the forge said there: `integrate`,
+    `publishIntegration` and `prepareIntegrationRetry` record the step with
+    `landingAt`, and `renderLandingStop` in `landingstop.go` writes the line.
 
 ## Questions developer runs keep asking
 
