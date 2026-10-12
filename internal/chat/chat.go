@@ -590,6 +590,9 @@ type Options struct {
 	NewID              func() (string, error)
 	// Fresh starts a new conversation instead of resuming the recorded one.
 	Fresh bool
+	// TerminalSetup is the machine /terminal-setup changes the terminal's
+	// settings on. Its zero value is the one this process runs on.
+	TerminalSetup console.SetupHost
 }
 
 // Session is one open conversation. It owns the durable record, so every turn
@@ -815,6 +818,9 @@ type Session struct {
 	// single message from a command line is: nothing is being composed there, so
 	// /help claims nothing about how it would be.
 	composing string
+	// shiftReturn is whether that console's terminal agreed to report
+	// shift-return, which is what /terminal-setup has nothing to change for.
+	shiftReturn bool
 }
 
 // proposalRecord is one proposal and whether the operator has finished with it.
@@ -3169,6 +3175,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 	// console reports it supports, asked once here: a terminal that will not say
 	// whether shift was held must not be told it will.
 	s.composing = screen.Composing()
+	s.shiftReturn = console.ReportsShiftReturn(screen)
 	// What the harness says in answer to a command is dressed as its own kind of
 	// thing, because it is something the operator asked for and has to act on
 	// rather than part of the conversation.

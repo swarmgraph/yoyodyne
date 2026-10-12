@@ -17,6 +17,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -52,6 +53,7 @@ const commandHelp = `Commands the harness carries out for you:
                               settle a directive and let the work it paused carry on
   /withdraw <directive-id> <why you no longer mean it>
                               take a directive out of force, keeping what it said
+  /terminal-setup             set this terminal up so shift-return adds a new line rather than sending
   /help                       this list
   /exit                       end the conversation, stopping anything it is running
 
@@ -108,13 +110,16 @@ type singleMessageRule struct {
 // somebody made, and TestEveryDispatchedCommandRecordsWhatASingleMessageMeans
 // reads the dispatcher's own switch and fails on a command missing from here.
 var singleMessage = map[string]singleMessageRule{
-	"/status":          {},
-	"/backlog":         {},
-	"/show":            {},
-	"/diff":            {},
-	"/reports":         {},
-	"/refresh":         {},
-	"/help":            {},
+	"/status":  {},
+	"/backlog": {},
+	"/show":    {},
+	"/diff":    {},
+	"/reports": {},
+	"/refresh": {},
+	"/help":    {},
+	// Setting the terminal up reads the environment the terminal started this
+	// process with, which a single message typed at that terminal has too.
+	"/terminal-setup":  {},
 	"/hold":            {},
 	"/release":         {},
 	"/intake":          {},
@@ -196,6 +201,17 @@ func (s *Session) command(ctx context.Context, line string, out io.Writer) (bool
 		// into the list above, which is the same on every terminal there is.
 		if s.composing != "" {
 			fmt.Fprintln(out, s.composing)
+		}
+		fmt.Fprintln(out)
+		return false, nil
+	case "/terminal-setup":
+		// What was found and changed is said before any failure, because naming
+		// the terminal and what was about to change is what the operator needs to
+		// put it right by hand.
+		said, err := console.SetUpTerminal(ctx, s.options.TerminalSetup, s.shiftReturn)
+		fmt.Fprint(out, said)
+		if err != nil {
+			return false, err
 		}
 		fmt.Fprintln(out)
 		return false, nil

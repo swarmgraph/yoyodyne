@@ -221,7 +221,9 @@ func TestHelpSaysHowAMultiLineMessageIsTypedOnThisConsole(t *testing.T) {
 	if !strings.Contains(transcript, `end a line with \`) {
 		t.Fatalf("transcript = %q, want it to say how a stream composes more than one line", transcript)
 	}
-	if strings.Contains(transcript, "shift-return") {
+	// The command list names /terminal-setup on every console, which offers to
+	// set a terminal up rather than claiming shift-return works on this one.
+	if strings.Contains(transcript, "shift-return inserts") {
 		t.Fatalf("a stream was told about a key it can never report: %q", transcript)
 	}
 
@@ -262,6 +264,31 @@ func TestAMultiLineMessageReachesTheProductManagerWithItsLinesIntact(t *testing.
 	}
 	if !strings.Contains(provider.requests[0].Prompt, "two goals:\n- one that ships\n- one that lasts") {
 		t.Fatalf("the message lost its lines on the way:\n%s", provider.requests[0].Prompt)
+	}
+}
+
+// /terminal-setup is carried out by the harness rather than said to the product
+// manager, and names the terminal it found with the keys that work where it
+// cannot set that terminal up.
+func TestTerminalSetupNamesTheTerminalItFound(t *testing.T) {
+	t.Parallel()
+
+	provider := &fakeBackend{}
+	options := testOptions(t, provider)
+	options.TerminalSetup = console.SetupHost{
+		Env:  func(name string) string { return map[string]string{"TERM_PROGRAM": "Apple_Terminal"}[name] },
+		Home: t.TempDir(),
+	}
+	session := openTestSession(t, options)
+	var out strings.Builder
+	if err := session.Converse(context.Background(), testConsole(strings.NewReader("/terminal-setup\n/exit\n"), &out)); err != nil {
+		t.Fatalf("Converse() error = %v", err)
+	}
+	if !strings.Contains(out.String(), "This is Terminal.app.") || !strings.Contains(out.String(), "Alt-return adds a new line") {
+		t.Fatalf("transcript = %q", out.String())
+	}
+	if len(provider.requests) != 0 {
+		t.Fatalf("the command reached the product manager: %d requests", len(provider.requests))
 	}
 }
 
