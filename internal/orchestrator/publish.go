@@ -406,7 +406,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		return nil
 	}
 	published := *a.outcome.PullRequest
-	a.landingAt(fmt.Sprintf("checking that pull request #%d carries the approved commit", published.Number), false)
+	a.landingAt(fmt.Sprintf("checking that pull request #%d carries the approved commit", published.Number), landingAsksNothing)
 	// What the forge merges is the pull request's head, so a promotion that
 	// integrated some other commit must not be merged: the remote would receive a
 	// change the authoritative branch does not have. It happens when the worktree
@@ -442,7 +442,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	// it is handed back as a sentinel rather than as its own failure so the merge
 	// does not read a recoverable class in it and buy a second window for a
 	// question already answered.
-	a.landingAt(fmt.Sprintf("asking the forge to merge pull request #%d into %s", published.Number, integration.TargetBranch), true)
+	a.landingAt(fmt.Sprintf("asking the forge to merge pull request #%d into %s", published.Number, integration.TargetBranch), landingAsksForge)
 	var verifyFailure error
 	result, err := recoveringValue(ctx, a, runstate.RetryMerge, func(ctx context.Context) (publish.MergeResult, error) {
 		verifyFailure = a.recovering(ctx, runstate.RetryRemoteTarget, func(ctx context.Context) error {
@@ -458,7 +458,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		})
 	})
 	if verifyFailure != nil {
-		a.landingAt(fmt.Sprintf("checking where %s's %s stands before asking the forge to merge pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), true)
+		a.landingAt(fmt.Sprintf("checking where %s's %s stands before asking the forge to merge pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), landingReadsRemote)
 		cause := fmt.Errorf("check the remote target branch before merging: %w", verifyFailure)
 		// A landing through the pull request moved nothing, so a remote that moved
 		// under it is the race a promotion can lose rather than a divergence: the
@@ -500,7 +500,7 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		}
 		return nil
 	}
-	a.landingAt(fmt.Sprintf("confirming the forge merged pull request #%d", published.Number), true)
+	a.landingAt(fmt.Sprintf("confirming the forge merged pull request #%d", published.Number), landingAsksForge)
 	merged, err := a.awaitMerge(ctx)
 	if err != nil {
 		a.recordPublishFailure(fmt.Errorf("confirm the pull request merged: %w", err))
@@ -672,7 +672,7 @@ func (a *activeRun) blockOnUnlandedPullRequest(integration gitworktree.Integrati
 func (a *activeRun) replayUnlandedChange(ctx context.Context, cause error) error {
 	a.outcome.Integration = nil
 	a.state.Integration = nil
-	a.landingAt(fmt.Sprintf("bringing the local %s onto %s's, which moved before the forge was asked to merge", a.worktree.TargetBranch, a.pipeline.Config.Execution.Remote), true)
+	a.landingAt(fmt.Sprintf("bringing the local %s onto %s's, which moved before the forge was asked to merge", a.worktree.TargetBranch, a.pipeline.Config.Execution.Remote), landingReadsRemote)
 	catchup, err := recoveringValue(ctx, a, runstate.RetryCatchUpTarget, func(ctx context.Context) (gitworktree.Catchup, error) {
 		return a.pipeline.Worktrees.CatchUpTarget(ctx, a.worktree.TargetBranch)
 	})

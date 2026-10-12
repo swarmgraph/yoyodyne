@@ -3,13 +3,16 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -159,7 +162,183 @@ func TestALandingStoppedByADivergedRemoteEndsOnTheRemoteCheck(t *testing.T) {
 	}
 	assertLandingStop(t, tracker, store, outcome.RunID,
 		"checking where origin's main stands before landing",
-		"What the forge said: ")
+		"What the remote showed: ",
+		"The forge was never asked to merge pull request #1.")
+}
+
+// assertFailureNoteEndsOnLanding holds that the note a stopped landing records
+// as it ends finishes on the step it stopped at, for the stops that hand over
+// no blocker of their own.
+func assertFailureNoteEndsOnLanding(t *testing.T, tracker *orchestratortest.Tracker, want ...string) {
+	t.Helper()
+	if len(tracker.NoteRecords) == 0 {
+		t.Fatal("the stopped landing recorded no note on its item")
+	}
+	last := lastLine(tracker.NoteRecords[len(tracker.NoteRecords)-1])
+	if !strings.HasPrefix(last, "Landing stopped at: ") {
+		t.Fatalf("failure note does not end on the step the landing stopped at; it ends:\n%s", last)
+	}
+	for _, phrase := range want {
+		if !strings.Contains(last, phrase) {
+			t.Errorf("failure note's last line does not say %q:\n%s", phrase, last)
+		}
+	}
+}
+
+// landingWorktrees is the real worktree manager with one landing step made to
+// fail the way a person would meet it.
+type landingWorktrees struct {
+	WorktreeManager
+	republishErr error
+	catchupErr   error
+	wrongHead    bool
+}
+
+func (w *landingWorktrees) RepublishBranch(ctx context.Context, worktree gitworktree.Worktree, previousCommit string) (gitworktree.Publication, error) {
+	if w.republishErr != nil {
+		return gitworktree.Publication{}, w.republishErr
+	}
+	return w.WorktreeManager.RepublishBranch(ctx, worktree, previousCommit)
+}
+
+func (w *landingWorktrees) CatchUpTarget(ctx context.Context, targetBranch string) (gitworktree.Catchup, error) {
+	if w.catchupErr != nil {
+		return gitworktree.Catchup{}, w.catchupErr
+	}
+	return w.WorktreeManager.CatchUpTarget(ctx, targetBranch)
+}
+
+// PrepareLanding prepares the real landing and, where asked, reports it as a
+// commit other than the one the pull request carries, which is what a worktree
+// written to after the last attempt was published produces.
+func (w *landingWorktrees) PrepareLanding(ctx context.Context, worktree gitworktree.Worktree, message string) (gitworktree.Integration, error) {
+	integration, err := w.WorktreeManager.PrepareLanding(ctx, worktree, message)
+	if err == nil && w.wrongHead {
+		integration.SourceCommit = otherCommit(integration.SourceCommit)
+		integration.TargetCommit = integration.SourceCommit
+	}
+	return integration, err
+}
+
+// otherCommit is a commit name that is not commit's, of the same shape.
+func otherCommit(commit string) string {
+	last := "0"
+	if strings.HasSuffix(commit, "0") {
+		last = "1"
+	}
+	return commit[:len(commit)-1] + last
+}
+
+// leaseRefusingStore is the run store with another promotion holding the
+// target branch for the whole wait.
+type leaseRefusingStore struct {
+	StateStore
+}
+
+func (leaseRefusingStore) LeasePromotion(_ context.Context, targetBranch string) (*runstate.Lease, error) {
+	return nil, fmt.Errorf("wait to promote into %s: another promotion held the lease for the whole 15m0s wait", targetBranch)
+}
+
+// protectedLandingRun is a publishing run against a protected main whose worktree
+// manager can be made to fail one landing step.
+func protectedLandingRun(t *testing.T, forge *orchestratortest.Forge, worktrees *landingWorktrees) (Pipeline, *orchestratortest.Tracker, string) {
+	t.Helper()
+	repository, remote := publishedRepository(t)
+	forge.Remote = remote
+	forge.TargetProtection = publish.BranchProtection{Protected: true, By: "branch protection"}
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline, _ := newPublishingPipeline(t, repository, tracker, provider, forge, []string{"exit 0"})
+	worktrees.WorktreeManager = pipeline.Worktrees
+	pipeline.Worktrees = worktrees
+	return pipeline, tracker, remote
+}
+
+// Another promotion holding main for the whole wait stops the landing before
+// anything is asked of anyone.
+func TestALandingThatNeverGotItsTurnSaysSo(t *testing.T) {
+	t.Parallel()
+
+	forge := &orchestratortest.Forge{}
+	pipeline, tracker, _ := protectedLandingRun(t, forge, &landingWorktrees{})
+	pipeline.Store = leaseRefusingStore{StateStore: pipeline.Store}
+
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err == nil || !strings.Contains(err.Error(), "held the lease") {
+		t.Fatalf("Run() error = %v, want the refused turn", err)
+	}
+	assertFailureNoteEndsOnLanding(t, tracker,
+		"waiting for this run's turn to land on main",
+		"never asked to merge pull request #1")
+}
+
+// A replayed change the remote will not take onto its pull request stops the
+// landing at the push, in the remote's words.
+func TestALandingWhoseReplayedChangeTheRemoteRefusedSaysWhatTheRemoteShowed(t *testing.T) {
+	t.Parallel()
+
+	forge := &orchestratortest.Forge{}
+	worktrees := &landingWorktrees{republishErr: errors.New("git push exited 1: ! [rejected] yoyodyne/yoyodyne-task/01234567 (stale info)")}
+	pipeline, tracker, remote := protectedLandingRun(t, forge, worktrees)
+	forge.OnEnsure = func() { driftRemoteTarget(t, remote, "main") }
+
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err == nil || !strings.Contains(err.Error(), "stale info") {
+		t.Fatalf("Run() error = %v, want the refused push", err)
+	}
+	if len(forge.Merges) != 0 {
+		t.Fatalf("merges = %v, want the forge never asked", forge.Merges)
+	}
+	assertFailureNoteEndsOnLanding(t, tracker,
+		"publishing the replayed change to pull request #1",
+		"What the remote showed: ",
+		"stale info",
+		"The forge was never asked to merge pull request #1.")
+}
+
+// A pull request that does not carry the approved commit is never merged, and
+// the landing says the refusal was this repository's own.
+func TestALandingWhosePullRequestCarriesAnotherCommitSaysTheForgeWasNeverAsked(t *testing.T) {
+	t.Parallel()
+
+	forge := &orchestratortest.Forge{}
+	pipeline, tracker, _ := protectedLandingRun(t, forge, &landingWorktrees{wrongHead: true})
+	store := pipeline.Store.(*runstate.Store)
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err == nil {
+		t.Fatalf("Run() = %#v, want the run stopped on the pull request carrying another commit", outcome)
+	}
+	if len(forge.Merges) != 0 {
+		t.Fatalf("merges = %v, want the forge never asked", forge.Merges)
+	}
+	assertLandingStop(t, tracker, store, outcome.RunID,
+		"checking that pull request #1 carries the approved commit",
+		"never asked to merge pull request #1",
+		"the failure above is this repository's")
+}
+
+// A remote that moved just before the merge was asked for, and that the local
+// main then could not be brought onto, stops the landing at the catch-up.
+func TestALandingThatCouldNotCatchUpBeforeTheMergeSaysWhatTheRemoteShowed(t *testing.T) {
+	t.Parallel()
+
+	forge := &orchestratortest.Forge{MergeResets: 1}
+	worktrees := &landingWorktrees{catchupErr: errors.New("fatal: refusing to fetch into branch 'refs/heads/main' checked out at the primary checkout")}
+	pipeline, tracker, remote := protectedLandingRun(t, forge, worktrees)
+	forge.AfterMergeReset = func() { driftRemoteTarget(t, remote, "main") }
+	pipeline = waiting(pipeline, &pausingClock{now: baseTime}, 6*time.Hour, 6*time.Hour)
+
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err == nil || !strings.Contains(err.Error(), "refusing to fetch") {
+		t.Fatalf("Run() error = %v, want the refused catch-up", err)
+	}
+	if len(forge.Merges) != 0 {
+		t.Fatalf("merges = %v, want the dropped attempt the only time the forge was asked", forge.Merges)
+	}
+	assertFailureNoteEndsOnLanding(t, tracker,
+		"bringing the local main onto origin's, which moved before the forge was asked to merge",
+		"What the remote showed: ",
+		"refusing to fetch")
 }
 
 // A run that stops anywhere but its landing says nothing about landing.
@@ -215,9 +394,9 @@ func TestEveryLandingStepRendersItsStopLine(t *testing.T) {
 		},
 		{
 			name: "checking the remote",
-			step: &LandingStep{Doing: "checking where origin's main stands before landing", AsksForge: true},
+			step: &LandingStep{Doing: "checking where origin's main stands before landing", ReadsRemote: true},
 			pull: open, failure: "check the remote target branch before promoting: fatal: could not read from remote repository",
-			want: "Landing stopped at: checking where origin's main stands before landing. What the forge said: check the remote target branch before promoting: fatal: could not read from remote repository",
+			want: "Landing stopped at: checking where origin's main stands before landing. What the remote showed: check the remote target branch before promoting: fatal: could not read from remote repository. The forge was never asked to merge pull request #1181.",
 		},
 		{
 			name: "preparing the commit",
@@ -239,9 +418,9 @@ func TestEveryLandingStepRendersItsStopLine(t *testing.T) {
 		},
 		{
 			name: "republishing",
-			step: &LandingStep{Doing: "publishing the replayed change to pull request #1181", AsksForge: true},
+			step: &LandingStep{Doing: "publishing the replayed change to pull request #1181", ReadsRemote: true},
 			pull: open, failure: "republish the replayed developer branch: ! [rejected] (stale info)",
-			want: "Landing stopped at: publishing the replayed change to pull request #1181. What the forge said: republish the replayed developer branch: ! [rejected] (stale info)",
+			want: "Landing stopped at: publishing the replayed change to pull request #1181. What the remote showed: republish the replayed developer branch: ! [rejected] (stale info). The forge was never asked to merge pull request #1181.",
 		},
 		{
 			name: "wrong head",
@@ -263,9 +442,9 @@ func TestEveryLandingStepRendersItsStopLine(t *testing.T) {
 		},
 		{
 			name: "remote moved before the merge",
-			step: &LandingStep{Doing: "bringing the local main onto origin's, which moved before the forge was asked to merge", AsksForge: true},
+			step: &LandingStep{Doing: "bringing the local main onto origin's, which moved before the forge was asked to merge", ReadsRemote: true},
 			pull: open,
-			want: "Landing stopped at: bringing the local main onto origin's, which moved before the forge was asked to merge. The forge gave no answer this run could read.",
+			want: "Landing stopped at: bringing the local main onto origin's, which moved before the forge was asked to merge. The forge was never asked to merge pull request #1181.",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

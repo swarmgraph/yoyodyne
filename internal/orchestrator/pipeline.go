@@ -2772,7 +2772,7 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	a.state.IntegrationRetries++
 	a.state.ReplayUnjudged = true
 	a.outcome.IntegrationRetries = a.state.IntegrationRetries
-	a.landingAt("replaying the change onto "+a.worktree.TargetBranch+", which moved after this change was prepared on it", false)
+	a.landingAt("replaying the change onto "+a.worktree.TargetBranch+", which moved after this change was prepared on it", landingAsksNothing)
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return false, fmt.Errorf("save integration retry %d: %w", a.state.IntegrationRetries, err)
@@ -2797,7 +2797,7 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	// The published branch has to become the replayed one, or the pull request
 	// would carry work the authoritative local branch no longer has.
 	if a.outcome.PullRequest != nil {
-		a.landingAt(fmt.Sprintf("publishing the replayed change to pull request #%d", a.outcome.PullRequest.Number), true)
+		a.landingAt(fmt.Sprintf("publishing the replayed change to pull request #%d", a.outcome.PullRequest.Number), landingReadsRemote)
 	}
 	if err := a.republishRebase(ctx, rebase); err != nil {
 		return false, err
@@ -6268,13 +6268,13 @@ func (a *activeRun) integrate(ctx context.Context) error {
 		return err
 	}
 	target := a.worktree.TargetBranch
-	a.landingAt("recording that the landing onto "+target+" began", false)
+	a.landingAt("recording that the landing onto "+target+" began", landingAsksNothing)
 	a.state.Phase = runstate.PhaseIntegrating
 	a.state.UpdatedAt = p.clock().Now()
 	if err := p.Store.Save(a.state); err != nil {
 		return fmt.Errorf("save integrating run state: %w", err)
 	}
-	a.landingAt("waiting for this run's turn to land on "+target, false)
+	a.landingAt("waiting for this run's turn to land on "+target, landingAsksNothing)
 	lease, err := p.Store.LeasePromotion(ctx, a.worktree.TargetBranch)
 	if err != nil {
 		return stoppedBy(runstate.StopIntegration, fmt.Errorf("wait for this run's turn to promote: %w", err))
@@ -6288,7 +6288,7 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// can be neither published nor taken back, so finding out afterwards closes the
 	// item as integrated against a divergence nothing owns; finding out here leaves
 	// a change that can still be replayed onto wherever the target went.
-	a.landingAt("checking where "+p.Config.Execution.Remote+"'s "+target+" stands before landing", true)
+	a.landingAt("checking where "+p.Config.Execution.Remote+"'s "+target+" stands before landing", landingReadsRemote)
 	if err := a.settleRemoteTarget(ctx); err != nil {
 		return stoppedBy(runstate.StopIntegration, err)
 	}
@@ -6299,10 +6299,10 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	// has not performed yet leaves the local target ahead of the remote with
 	// nothing that ever reconciles the two.
 	promote := p.Worktrees.Integrate
-	a.landingAt("promoting the change onto the local "+target, false)
+	a.landingAt("promoting the change onto the local "+target, landingAsksNothing)
 	if a.landsThroughPullRequest(ctx) {
 		promote = p.Worktrees.PrepareLanding
-		a.landingAt("preparing the commit to land on "+target+" through its pull request", false)
+		a.landingAt("preparing the commit to land on "+target+" through its pull request", landingAsksNothing)
 	}
 	integration, err := promote(ctx, a.worktree, integrationMessage(a.item, a.outcome))
 	if err != nil {
@@ -6359,7 +6359,7 @@ func (a *activeRun) integrate(ctx context.Context) error {
 	if integration.ThroughPullRequest && !a.landedThroughPullRequest() {
 		return a.blockOnUnlandedPullRequest(integration)
 	}
-	a.landingAt("recording that the landing onto "+target+" finished", false)
+	a.landingAt("recording that the landing onto "+target+" finished", landingAsksNothing)
 	a.state.Phase = runstate.PhaseCompleting
 	a.state.UpdatedAt = p.clock().Now()
 	if err := p.Store.Save(a.state); err != nil {

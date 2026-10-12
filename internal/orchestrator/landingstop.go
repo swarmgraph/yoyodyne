@@ -16,16 +16,31 @@ import (
 type LandingStep struct {
 	// Doing is the step, in words that finish "Landing stopped at: ...".
 	Doing string `json:"doing"`
-	// AsksForge is a step whose failure is the forge's answer, or the remote's,
-	// rather than this repository's.
+	// AsksForge is a step whose failure is the forge's own answer to a request
+	// made of it: the merge, or the question whether it merged.
 	AsksForge bool `json:"asks_forge,omitempty"`
+	// ReadsRemote is a step that reads or pushes to the remote repository
+	// rather than asking the forge anything, so its failure is what git found
+	// there — a branch somebody rewrote, a push the remote turned away — and is
+	// never said as the forge's refusal.
+	ReadsRemote bool `json:"reads_remote,omitempty"`
 }
+
+// What a landing step asks of anything outside this repository, which decides
+// whose words its failure is said in.
+type landingAsks int
+
+const (
+	landingAsksNothing landingAsks = iota
+	landingAsksForge
+	landingReadsRemote
+)
 
 // landingAt records the step the run's landing is taking now. It lives on the
 // outcome only: a landing a process restarts begins its steps again, and a
 // stopped one carries the step into the notes written as it ends.
-func (a *activeRun) landingAt(doing string, asksForge bool) {
-	a.outcome.LandingStep = &LandingStep{Doing: doing, AsksForge: asksForge}
+func (a *activeRun) landingAt(doing string, asks landingAsks) {
+	a.outcome.LandingStep = &LandingStep{Doing: doing, AsksForge: asks == landingAsksForge, ReadsRemote: asks == landingReadsRemote}
 }
 
 // leftLanding is the run going back to its gate, or on past its landing, so
@@ -34,12 +49,12 @@ func (a *activeRun) leftLanding() {
 	a.outcome.LandingStep = nil
 }
 
-// maxForgeAnswerBytes keeps what the forge said to one readable line. The whole
-// of it is on the run record and in the note's failure line.
+// maxForgeAnswerBytes keeps what the forge or the remote said to one readable
+// line. The whole of it is on the run record and in the note's failure line.
 const maxForgeAnswerBytes = 600
 
 // renderLandingStop is the line a stopped landing ends its notes with: the step
-// it stopped at, and what the forge said there. A step that does not ask the
+// it stopped at, and what the forge said there. A step that did not ask the
 // forge says the merge was never asked for, because "nothing the forge said is
 // recorded" is exactly what a reader cannot tell apart from a lost answer. A
 // run that is not landing writes nothing.
@@ -53,15 +68,23 @@ func renderLandingStop(outcome Outcome, failure string) string {
 	if answer == "" {
 		answer = strings.TrimSpace(failure)
 	}
-	switch {
-	case step.AsksForge && answer != "":
-		line += " What the forge said: " + singleLine(answer, maxForgeAnswerBytes)
-	case step.AsksForge:
-		line += " The forge gave no answer this run could read."
-	case outcome.PullRequest != nil && !outcome.PullRequest.Merged && !outcome.PullRequest.MergeQueued:
-		line += fmt.Sprintf(" The forge was never asked to merge pull request #%d, so nothing the forge said stopped this landing; the failure above is this repository's.", outcome.PullRequest.Number)
+	if step.AsksForge {
+		if answer == "" {
+			return line + " The forge gave no answer this run could read."
+		}
+		return line + " What the forge said: " + singleLine(answer, maxForgeAnswerBytes)
 	}
-	return line
+	if step.ReadsRemote && answer != "" {
+		line += " What the remote showed: " + strings.TrimRight(singleLine(answer, maxForgeAnswerBytes), ".") + "."
+	}
+	pull := outcome.PullRequest
+	if pull == nil || pull.Merged || pull.MergeQueued {
+		return line
+	}
+	if step.ReadsRemote {
+		return line + fmt.Sprintf(" The forge was never asked to merge pull request #%d.", pull.Number)
+	}
+	return line + fmt.Sprintf(" The forge was never asked to merge pull request #%d, so nothing the forge said stopped this landing; the failure above is this repository's.", pull.Number)
 }
 
 // withLandingStop appends the landing's stop line to a note that has one.
