@@ -496,6 +496,11 @@ type CheckStage struct {
 	// while from one nothing asked.
 	Ran         []string           `json:"ran,omitempty"`
 	CouldNotRun []CheckCouldNotRun `json:"could_not_run,omitempty"`
+	// Kept is every check this stage did not run because it had already passed
+	// over the same candidate in the stage a restart onto a new build stopped
+	// (KeptChecks). It is written as the stage begins, and a kept check is in
+	// neither Ran nor CouldNotRun.
+	Kept []string `json:"kept,omitempty"`
 }
 
 // CloseInterrupted ends a stage the process running it never ended: the sweep
@@ -971,6 +976,69 @@ func (c ChecksPassed) Validate() error {
 	for i, command := range c.Commands {
 		if strings.TrimSpace(command) == "" {
 			problems = append(problems, fmt.Errorf("commands[%d] is blank", i))
+		}
+	}
+	return errors.Join(problems...)
+}
+
+// MaxKeptCheckOutputBytes bounds each output stream a kept check carries: its
+// last bytes, which is what the reviewer is quoted of a check in any case. The
+// whole of what the check printed stays in the run's event log.
+const MaxKeptCheckOutputBytes = MaxCheckOutputBytes
+
+// KeptChecks is the checks of the current check stage that have passed so far,
+// bound to the candidate they passed over the way ChecksPassed is: the content
+// of the change as the worktree held it when the stage began, the attempt, and
+// the harness commit. Each check is added as it passes.
+//
+// It exists for one reader. A watch session restarting onto a newly deployed
+// build stops a run still in its checks once its wait runs out
+// (execution.redeploy_drain_limit), and the run it picks back up is owed the
+// gate from the checks. That run reruns only the checks this does not hold, and
+// only where the candidate it is about to check is exactly the one these passed
+// over; any other candidate runs every check again. Nothing else reuses it: every
+// other entry to the checks writes it afresh.
+type KeptChecks struct {
+	Content string      `json:"content"`
+	Attempt int         `json:"attempt"`
+	Commit  string      `json:"commit,omitempty"`
+	Checks  []KeptCheck `json:"checks,omitempty"`
+}
+
+// KeptCheck is one check that passed, as its result was when it finished: what
+// the reviewer is shown of a check and the outcome notes name, and no more.
+// Stdout and Stderr are the last MaxKeptCheckOutputBytes of each stream.
+type KeptCheck struct {
+	Command        string                  `json:"command"`
+	Status         execution.ProcessStatus `json:"status"`
+	ExitCode       int                     `json:"exit_code"`
+	StartedAt      time.Time               `json:"started_at"`
+	FinishedAt     time.Time               `json:"finished_at"`
+	Stdout         string                  `json:"stdout,omitempty"`
+	Stderr         string                  `json:"stderr,omitempty"`
+	TimeoutSeconds int64                   `json:"timeout_seconds,omitempty"`
+}
+
+// Binds reports these results being for exactly this candidate.
+func (k KeptChecks) Binds(content string, attempt int, commit string) bool {
+	return strings.TrimSpace(k.Content) != "" && k.Content == content && k.Attempt == attempt && k.Commit == commit
+}
+
+// Validate rejects kept results that cannot say which candidate they are for.
+func (k KeptChecks) Validate() error {
+	var problems []error
+	if strings.TrimSpace(k.Content) == "" {
+		problems = append(problems, errors.New("content is required: results bound to no change are results for any change"))
+	}
+	if k.Attempt < 0 {
+		problems = append(problems, fmt.Errorf("attempt %d cannot be negative", k.Attempt))
+	}
+	for index, check := range k.Checks {
+		if strings.TrimSpace(check.Command) == "" {
+			problems = append(problems, fmt.Errorf("checks[%d]: command is blank", index))
+		}
+		if len(check.Stdout) > MaxKeptCheckOutputBytes || len(check.Stderr) > MaxKeptCheckOutputBytes {
+			problems = append(problems, fmt.Errorf("checks[%d]: output exceeds the %d byte bound", index, MaxKeptCheckOutputBytes))
 		}
 	}
 	return errors.Join(problems...)
@@ -1851,6 +1919,14 @@ func (s *State) recordedTexts() []recordedText {
 		unstated("check_stage.narrowed", "check_stage.narrowed", &s.CheckStage.Narrowed, MaxRecordedTextBytes)
 		for index := range s.CheckStage.CouldNotRun {
 			unstated("check_stage.could_not_run[].reason", at("check_stage.could_not_run", index, "reason"), &s.CheckStage.CouldNotRun[index].Reason, MaxRecordedTextBytes)
+		}
+	}
+	// A kept check's output is the tail the run cut it to; this holds it to that
+	// bound for a record written some other way.
+	if s.KeptChecks != nil {
+		for index := range s.KeptChecks.Checks {
+			nested("kept_checks.checks[].stdout", at("kept_checks.checks", index, "stdout"), &s.KeptChecks.Checks[index].Stdout, MaxKeptCheckOutputBytes)
+			nested("kept_checks.checks[].stderr", at("kept_checks.checks", index, "stderr"), &s.KeptChecks.Checks[index].Stderr, MaxKeptCheckOutputBytes)
 		}
 	}
 	// A check's reason for not running is its own words, cut by the runner and
@@ -2971,6 +3047,10 @@ type State struct {
 	// promote. Recording a failing check clears it, and recording it clears the
 	// failure, so at most one of the two describes the current attempt.
 	ChecksPassed *ChecksPassed `json:"checks_passed,omitempty"`
+	// KeptChecks is the checks of the current stage that have passed so far, so
+	// a run a restart onto a new build stopped at its checks reruns only the
+	// rest. It is cleared once the stage reaches a verdict.
+	KeptChecks *KeptChecks `json:"kept_checks,omitempty"`
 	// PathRefusal carries the protected paths the gate refused before any check
 	// ran. It is the third kind of repair input and behaves as the other two do:
 	// at most one of the three describes the current attempt, and because this
@@ -3695,6 +3775,11 @@ func (s State) Validate() error {
 		// a record carrying both describes a gate that has not decided.
 		if s.CheckFailure != nil {
 			problems = append(problems, errors.New("checks_passed and check_failure cannot both describe the current attempt"))
+		}
+	}
+	if s.KeptChecks != nil {
+		if err := s.KeptChecks.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("kept_checks: %w", err))
 		}
 	}
 	if s.CheckoutRestorePending && (!s.Status.Terminal() || s.ChecksPassed != nil) {

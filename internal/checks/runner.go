@@ -88,6 +88,10 @@ type Request struct {
 	// check the stage is on while it is still running rather than only once it
 	// has ended.
 	Started func(command string, stageElapsed time.Duration)
+	// Finished is told each check's result as the check ends, before the next
+	// one begins. It is optional, and it is what lets a run keep the checks that
+	// have already passed if the stage is stopped part way through.
+	Finished func(result Result)
 	// Timeout, where set, is the budget each check of this request gets in
 	// place of the runner's. Unbounded runs the request with no stage bound at
 	// all: each check has its budget and the list may take the sum. Both are
@@ -337,6 +341,9 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			result.FailureOutput = failure.render()
 		}
 		results = append(results, result)
+		if request.Finished != nil {
+			request.Finished(result)
+		}
 		if err := emitCompleted(request.RunID, sequence, clock, sink, result); err != nil {
 			return results, lastAccepted, err
 		}

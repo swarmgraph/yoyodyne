@@ -1087,6 +1087,7 @@ var notAStep = map[string]string{
 	"republishRebase":            "replaces the published run branch with the one the local branch now carries, inside candidate.develop's publication",
 	"verifyHandback":             "checks a resumed run still has the change it preserved",
 	"closeCheckStage":            "records how the check stage ended, inside candidate.check",
+	"keepChecks":                 "chooses, inside candidate.check, which checks a stage picked up after a restart onto a new build still runs",
 
 	// The declarative path. These step the workflow instance a run is observed
 	// through and are the one group here that is not part of the delivery at all:

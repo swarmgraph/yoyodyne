@@ -2816,7 +2816,8 @@ hosted past the bound:
   ahead of anything new and into the seat the run already holds, and continues
   it from the recorded phase: a developer attempt resumes in the same session,
   and a run stopped at its checks or its review re-earns the gate from the
-  checks. Its selection reason says it was handed over rather than chosen. A
+  checks — where it was stopped at its checks, keeping the checks that had
+  already passed on the same change, as the next point but one says. Its selection reason says it was handed over rather than chosen. A
   re-adoption the pipeline could not take at that moment — a lease another
   process held, a tracker that did not answer — is made again at the next
   pull for as long as the run's record carries its stop, reported on one line
@@ -2838,8 +2839,14 @@ hosted past the bound:
 - A run still running its checks is stopped at `execution.redeploy_drain_limit`,
   independently of the check stage's own bound. Load can scale
   `execution.check_stage_timeout` to hours, and waiting for that would leave
-  the session on the old build for hours. The session that comes back runs the
-  interrupted stage again from the start. A stage that has already finished
+  the session on the old build for hours. Each check that passed before the
+  stop keeps its result: the session that comes back runs only the checks that
+  had not finished, and only when the change is exactly the one they passed on
+  — same content, same commit, same repair attempt. A changed change runs every
+  check again. The work item gets a note naming the checks that kept their
+  results and the ones that ran again, and the run's outcome notes mark each
+  kept check. A check that said it could not run is not kept, and runs again.
+  A stage that has already finished
   gets up to a minute's grace to record its verdict and move the run on to its
   review or a repair; the next look stops it there. This brief wait uses the
   ordinary loop too, so pulls and recurring tasks continue.
@@ -2885,8 +2892,8 @@ declined for being within a poll of it, the not-startable line names the
 restart as its own state — whose move is nobody's, because the session comes
 back on its own — rather than reporting an idle session or no session, either
 of which would send you to start one that is already on its way back. Running
-check stages are stopped at the drain limit and preserved for the next session
-to run again from the start. A run at its promotion is never stopped: it holds
+check stages are stopped at the drain limit and preserved for the next session,
+which runs only the checks that had not already passed on the same change. A run at its promotion is never stopped: it holds
 the target branch's lease, and the session waits it out however long it takes
 and restarts the moment it ends. While it does, its line says how many runs it
 is waiting out at their promotion and since when, and the not-startable line

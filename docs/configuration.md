@@ -3947,8 +3947,11 @@ never does, however long it goes on pulling. A run at its promotion is waited
 out past the bound rather than interrupted, because it holds the target
 branch's lease. A running check stage is stopped at the drain bound, however
 far the machine's load has scaled
-[`check_stage_timeout`](#what-a-whole-check-stage-may-cost); the session that
-comes back runs the checks again from the start. A stage that has already
+[`check_stage_timeout`](#what-a-whole-check-stage-may-cost). Every check that
+passed before the stop keeps its result, so the session that comes back runs
+only the checks that had not finished — and only when the change is exactly the
+one they passed on; a changed change runs every check again. The work item's
+notes say which checks kept their results and which ran again. A stage that has already
 finished gets up to a minute's grace to record its verdict and move the run
 on to its review or a repair, where the next look stops it. A run that has
 already landed and is running its

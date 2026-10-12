@@ -92,7 +92,10 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     configured checks), `integrationEarned` (reads the record, compares
     `ContentIdentity`), `closeCheckStage`, `scaleCheckStage`,
     `checkStageTimeout`, `landingCheckTimeout`, `gateProtectedPaths`,
-    `pathRefusal`, `checkFailure`.
+    `pathRefusal`, `checkFailure`. Which checks a stage runs after a restart
+    onto a new build stopped the run at its checks is `keepChecks` in
+    `keptchecks.go`: checks that already passed on the same change keep their
+    results, and `keepPassed` records each check as it passes.
 14. **Promotion and landing.** `integrate`, `finish`, `runLandingChecks`,
     `leaseLanding`, `fileRedLanding`, `nameUnreadingParts`.
 15. **Endings.** `complete` (outcome notes, close, price, terminal record),
