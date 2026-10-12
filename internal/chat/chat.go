@@ -404,7 +404,7 @@ type Options struct {
 	Interventions Interventions
 	// Documents is how a document this role owns reaches the repository: the role
 	// writes a typed action, it is confirmed under the approval policy or by the
-	// operator, and the harness performs the write under that role's authority. It is optional like the rest, and a
+	// operator, and the harness lands it under that role's authority. It is optional like the rest, and a
 	// conversation without one is one that cannot write a document — the role is
 	// not told it can, and a block that arrived anyway is refused rather than
 	// appearing to have been filed.
@@ -652,6 +652,9 @@ type Session struct {
 	// resumeWaitTold is each stopped document whose owner has been told it is
 	// waiting for room in this conversation, so it is said once per process.
 	resumeWaitTold map[string]bool
+	// told collects what the owning role is told while PublishApproved runs, so
+	// the operator who just approved a document reads it too; nil otherwise.
+	told *strings.Builder
 	// concerns is what the product manager has raised instead of proposing, and
 	// whether the operator has answered it. It is kept the same way and for the
 	// same reason: a question nobody answered is a loose end, not silence.
@@ -939,7 +942,7 @@ type Reply struct {
 	// Writes are the documents this turn wrote that are awaiting the operator's
 	// decision; a document the approval policy confirms is not among them. Like
 	// proposals they have changed nothing: no file exists for any of them until
-	// the operator approves it, and the harness is what writes it then.
+	// the operator approves it, and the harness is what lands it then.
 	Writes []PendingWrite `json:"writes,omitempty"`
 	// Concerns are the things this turn would not propose until the operator
 	// answers: work it could not place under a goal, work it says would cut
@@ -2709,6 +2712,9 @@ func appendProse(existing, addition string) string {
 // research sources returned. Both are appended rather than replacing each other,
 // so a round that produced both carries both.
 func (s *Session) carryResults(results string) error {
+	if s.told != nil {
+		s.told.WriteString(results)
+	}
 	s.state.PendingTrackerResults = boundText(s.state.PendingTrackerResults+results, maxPendingResultBytes)
 	if err := s.record(); err != nil {
 		return fmt.Errorf("record the results the %s has not been told: %w", RoleTitle(s.state.Role), err)

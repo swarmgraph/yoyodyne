@@ -224,11 +224,17 @@ func (s *Session) confirmDocument(record *writeRecord, publishes bool) (bool, er
 		record.decided = true
 		return false, s.carryResults(fmt.Sprintf("Document %s (%s) was not published. The %s must revise its plan: automatic publication stopped after %d returned runs for this document in this conversation. No operator decision or developer run is requested.\n", record.pending.ID, candidate.Artifact.Title, s.state.Role.Title(), runstate.MaxDocumentReturns))
 	}
-	record.pending.Publication = &runstate.DocumentPublication{Candidate: candidate, ConversationID: record.pending.ConversationID, WriteID: record.pending.ID, Turn: record.pending.Turn, Owner: s.state.Role, AuthorSession: s.state.ProviderSessionID, AuthorBackend: string(s.state.Backend), AuthorModel: s.requestedModel(), AuthorAccount: s.options.AccountAlias, AuthorConfigRevision: s.options.ConfigRevision}
+	record.pending.Publication = s.publicationFor(record, candidate)
 	if err := s.record(); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// publicationFor is the handoff that lands one confirmed or approved document,
+// bound to the conversation, turn, and provider that wrote it.
+func (s *Session) publicationFor(record *writeRecord, candidate artifact.ConfirmedDocument) *runstate.DocumentPublication {
+	return &runstate.DocumentPublication{Candidate: candidate, ConversationID: record.pending.ConversationID, WriteID: record.pending.ID, Turn: record.pending.Turn, Owner: s.state.Role, AuthorSession: s.state.ProviderSessionID, AuthorBackend: string(s.state.Backend), AuthorModel: s.requestedModel(), AuthorAccount: s.options.AccountAlias, AuthorConfigRevision: s.options.ConfigRevision}
 }
 
 // resumeStoppedDocuments puts back a document whose automatic publication in

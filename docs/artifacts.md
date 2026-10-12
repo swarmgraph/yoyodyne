@@ -329,16 +329,24 @@ document document-4.1 · create v2-goals (goals) in docs/product
   # Goals
   ...
 
-create v2-goals (goals) in docs/product? [y or yes writes it and records your
+create v2-goals (goals) in docs/product? [y or yes approves it and records your
 approval in it; anything else declines, and is kept as the reason]
 ```
 
-On your `y` the harness performs the write itself: it files the document in the
-artifact home, generates the frontmatter the contract requires, records the
-revision under the role that wrote it, and records your approval against that
-revision. `yoyo artifact show v2-goals` then reads back exactly what any
-hand-written document reads back as, because it is one. Anything else declines,
-and what you said is kept as the reason.
+On your `y` the harness prepares the document itself: it generates the
+frontmatter the contract requires for the artifact home, records the revision
+under the role that wrote it, and records your approval against that revision.
+It then lands exactly that file the way a document confirmed under an automatic
+policy lands, through a run with its own checks, an independent review, and the
+protected merge through a pull request; everything said below about such runs
+holds for it. Nothing is written into your checkout and nothing is yours to
+commit. The result names the run, `yoyo status` shows it until it merges, and
+the run starts before the command or prompt returns, so what it came to is said
+to you as well as to the owning role; with `--json` it is carried as
+`published`. Once it merges, `yoyo artifact show
+v2-goals` reads back exactly what any hand-written document reads back as,
+because it is one. Anything else declines, and what you said is kept as the
+reason.
 
 Nothing about that widens what a role may do. The write goes through the same
 ownership boundary every other change to these documents goes through, so the
@@ -411,12 +419,15 @@ conversation is opened. Each run's start and end is also noted on the work item
 named at the start of the document's revision reason, where the tracker holds
 one.
 
-**A write confirmed by you still stops at your working tree.** This is the
-existing human confirmation path: the document is an uncommitted change in
-the checkout the configuration points to, and committing it is yours under
-your own identity. The printed result names that checkout and file, and
-`--json` carries it as `pending_commit`. This does not apply to documents
-confirmed under an automatic policy.
+**A document you approve is written into your working tree only where no run
+can land it.** That is a project whose `approvals.integration` is not
+`automatic`, where every change is yours to merge, and a project that keeps its
+intent in a companion intent repository, whose reviewed run is not built yet.
+There the document is an uncommitted change in the checkout the configuration
+points to, and committing it is yours under your own identity. The printed
+result names that checkout and file, and `--json` carries it as
+`pending_commit`; a document landing through a run carries `publishing`
+instead, naming the run.
 
 ## Goals, and what work serves them
 

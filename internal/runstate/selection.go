@@ -47,8 +47,8 @@ const (
 	// record names the item as its probe — see IntakeHold.Probing.
 	SelectedByBrake = "intake brake"
 	// SelectedByConversation is a document run: the owning role's conversation
-	// supplied a document the harness confirmed under policy, and the run
-	// publishes exactly that. No scheduler read the backlog to choose it.
+	// supplied a document the harness confirmed under policy or the operator
+	// approved, and the run publishes exactly that. No scheduler read the backlog to choose it.
 	SelectedByConversation = "owning conversation"
 )
 

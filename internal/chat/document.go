@@ -13,10 +13,12 @@ package chat
 // So it runs exactly as a proposal does, and for the same reasons. The role
 // emits a typed action carrying what it decided; the harness refuses what the
 // role may not write and saves what survives durably. Automatic policy
-// confirms it and opens a reviewed run carrying the exact saved content.
-// Other policies retain operator confirmation and a write into the checkout.
-// Both use the store's Authorize and record confirmation against the revision
-// the write produced.
+// confirms it and opens a reviewed run carrying the exact saved content. Other
+// policies put it to the operator, and a document they approve opens the same
+// reviewed run, their approval recorded in it; only where no run can land a
+// document is it written into the checkout (approvedDocumentRoute). Every route
+// uses the store's Authorize and records the approval against the revision the
+// document carries.
 //
 // What the role never gets is a way past its own boundary. It cannot write a
 // kind it does not own or file a document anywhere but its kind's home. A role that owns no
@@ -125,6 +127,10 @@ type WriteOutcome struct {
 	// operator commits it — in the words `yoyo artifact approve` uses for the same
 	// fact. It is set whenever a document was written, approval recorded or not.
 	PendingCommit string `json:"pending_commit,omitempty"`
+	// Publishing says the approved document is being landed through a reviewed
+	// run rather than written into the checkout, naming the run. It is set
+	// instead of PendingCommit, never beside it.
+	Publishing string `json:"publishing,omitempty"`
 	// Reason is why a declined document was turned down, in the operator's own
 	// words where they gave any.
 	Reason string `json:"reason,omitempty"`
@@ -136,9 +142,10 @@ type WriteOutcome struct {
 }
 
 // Render describes one decision for an operator reading what their message did.
-// The four approved outcomes are said apart because they are four different
-// things to do next: nothing, try again later, take it up with whoever owns the
-// document, or commit what is now in the working tree.
+// The approved outcomes are said apart because they are different things to do
+// next: nothing while a reviewed run lands it, try again later, take it up with
+// whoever owns the document, or commit what is now in the working tree of a
+// project no run lands a document in.
 func (o WriteOutcome) Render() string {
 	switch {
 	case !o.Approved:
@@ -154,6 +161,9 @@ func (o WriteOutcome) Render() string {
 		return fmt.Sprintf("[%s] refused: %s\n", o.WriteID, o.Artifact) +
 			indent(o.Problem) +
 			indent("nothing was written and it is not waiting on you; the role has to write a document it owns")
+	case o.Publishing != "":
+		return fmt.Sprintf("[%s] approved %s, with your approval recorded in it, for %s\n", o.WriteID, o.Artifact, o.Path) +
+			indent(o.Publishing)
 	case o.Problem != "":
 		return fmt.Sprintf("[%s] wrote %s to %s\n", o.WriteID, o.Artifact, o.Path) +
 			indent("the record is incomplete: "+o.Problem) +
@@ -361,8 +371,11 @@ func (s *Session) recordWrites(writes []artifact.Write) ([]PendingWrite, error) 
 	return pending, nil
 }
 
-// ApproveWrite writes the document the operator approved, under the authority of
-// the role that wrote it, and records their approval in the document itself.
+// ApproveWrite carries out the operator's approval of a document, under the
+// authority of the role that wrote it, and records their approval in the
+// document itself. Wherever a reviewed run can land the document, the approved
+// document is handed to one (approvedDocumentRoute); otherwise it is written
+// into the checkout as follows.
 //
 // The order is what makes the record honest. The approval is emitted before
 // anything is written, so a write that failed still shows the operator decided;
@@ -386,6 +399,9 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		return outcome, fmt.Errorf("record document approval: %w", err)
 	}
 	now := s.options.clock().Now()
+	if preparer, lands := s.approvedDocumentRoute(); lands {
+		return s.approveForPublication(record, preparer, outcome, now)
+	}
 	var written artifact.Artifact
 	switch write.Action {
 	case artifact.WriteCreate:
@@ -394,28 +410,7 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 		written, err = s.options.Documents.Amend(s.state.Role, strings.TrimSpace(write.ID), write.Amendment(), now)
 	}
 	if err != nil {
-		outcome.Problem = err.Error()
-		// An ownership refusal is the store answering about the document rather
-		// than failing at it, and the answer will be the same however often it is
-		// asked. So it decides the write rather than parking it: a document left
-		// waiting on an approval that can never succeed would hold a pending slot
-		// the role needs for a document it may actually write, and it would tell
-		// the operator to try again at something that will never work. The action
-		// layer refuses this before the operator is ever asked; this is what
-		// happens if the document changed hands between the two.
-		if errors.Is(err, artifact.ErrUnauthorized) {
-			record.decided = true
-			s.notice("the operator approved document %s, and the harness refused it: %v", record.pending.ID, err)
-			s.noteHandStep(intervention.KindApprove, nil, "", strings.TrimSpace(write.ID),
-				fmt.Sprintf("approved document %s, which the harness then refused to write", record.pending.ID))
-			return outcome, fmt.Errorf("write document %s: %w", strings.TrimSpace(write.ID), err)
-		}
-		// Anything else is the store failing rather than answering, so nothing was
-		// written and the document is still awaiting a decision: approving it again
-		// asks for the same document rather than losing it to a store that refused
-		// this once.
-		outcome.Undecided = true
-		return outcome, fmt.Errorf("write document %s: %w", strings.TrimSpace(write.ID), err)
+		return s.unwrittenApproval(record, outcome, err)
 	}
 	record.decided = true
 	s.noteHandStep(intervention.KindApprove, nil, "", written.ID,
@@ -447,6 +442,113 @@ func (s *Session) ApproveWrite(writeID string) (WriteOutcome, error) {
 	outcome.Approval = true
 	outcome.Path = approved.Path
 	return outcome, nil
+}
+
+// unwrittenApproval is an approval the store would not carry out, said back.
+//
+// An ownership refusal is the store answering about the document rather than
+// failing at it, and the answer will be the same however often it is asked. So
+// it decides the write rather than parking it: a document left waiting on an
+// approval that can never succeed would hold a pending slot the role needs for a
+// document it may actually write, and it would tell the operator to try again at
+// something that will never work. The action layer refuses this before the
+// operator is ever asked; this is what happens if the document changed hands
+// between the two.
+//
+// Anything else is the store failing rather than answering, so nothing was
+// written and the document is still awaiting a decision: approving it again
+// asks for the same document rather than losing it to a store that refused this
+// once.
+func (s *Session) unwrittenApproval(record *writeRecord, outcome WriteOutcome, err error) (WriteOutcome, error) {
+	id := strings.TrimSpace(record.pending.Write.ID)
+	outcome.Problem = err.Error()
+	if errors.Is(err, artifact.ErrUnauthorized) {
+		record.decided = true
+		s.notice("the operator approved document %s, and the harness refused it: %v", record.pending.ID, err)
+		s.noteHandStep(intervention.KindApprove, nil, "", id,
+			fmt.Sprintf("approved document %s, which the harness then refused to write", record.pending.ID))
+		return outcome, fmt.Errorf("write document %s: %w", id, err)
+	}
+	outcome.Undecided = true
+	return outcome, fmt.Errorf("write document %s: %w", id, err)
+}
+
+// approvalPreparer is the part of the store that renders an approved document
+// for a reviewed run rather than writing it into the checkout.
+type approvalPreparer interface {
+	PrepareApproval(domain.AgentRole, artifact.Write, string, time.Time) (artifact.ConfirmedDocument, error)
+}
+
+// approvedDocumentLander is the part of the publisher that says whether a
+// document the operator approves can land through a reviewed run in the
+// project's own repository.
+type approvedDocumentLander interface {
+	LandsApprovedDocuments() bool
+}
+
+// approvedDocumentRoute reports whether a document the operator approves is
+// published through a reviewed run, and the store that renders it if so.
+//
+// That is the route wherever a run can land it: the operator's approval decides
+// the document, and the run is how it reaches the target branch with its own
+// checks, an independent review, and the protected merge, exactly as a document
+// the harness confirms does. Writing it into the checkout instead left a change
+// nobody committed, which every run over that checkout refuses to start over.
+// The write into the working tree is kept only where no run can land a document:
+// a project that does not integrate automatically, where every change is the
+// operator's to merge, and one that keeps its intent in a companion intent
+// repository, which no run starts from.
+func (s *Session) approvedDocumentRoute() (approvalPreparer, bool) {
+	preparer, ok := s.options.Documents.(approvalPreparer)
+	if !ok {
+		return nil, false
+	}
+	lander, ok := s.options.DocumentPublisher.(approvedDocumentLander)
+	if !ok || !lander.LandsApprovedDocuments() {
+		return nil, false
+	}
+	return preparer, true
+}
+
+// approveForPublication records the operator's approval in the document the
+// role wrote and hands it to a reviewed run, writing nothing into the checkout.
+// The approval is recorded against the revision the document will carry, so the
+// file the run lands is the one the operator approved, approval included. The
+// run starts at the next publication of this conversation's documents, which
+// whoever took the decision asks for straight after (PublishApproved).
+func (s *Session) approveForPublication(record *writeRecord, preparer approvalPreparer, outcome WriteOutcome, now time.Time) (WriteOutcome, error) {
+	candidate, err := preparer.PrepareApproval(s.state.Role, record.pending.Write, s.approvalReason(record.pending), now)
+	if err != nil {
+		return s.unwrittenApproval(record, outcome, err)
+	}
+	record.pending.Publication = s.publicationFor(record, candidate)
+	if err := s.record(); err != nil {
+		record.pending.Publication = nil
+		outcome.Undecided = true
+		outcome.Problem = err.Error()
+		return outcome, err
+	}
+	runID := record.pending.Publication.RunID()
+	s.noteHandStep(intervention.KindApprove, nil, "", candidate.Artifact.ID,
+		fmt.Sprintf("approved document %s, which is published through reviewed run %s", record.pending.ID, runID))
+	s.notice("the operator approved document %s, and the harness is publishing %s through reviewed run %s with its own checks and an independent review; nothing was written to the checkout",
+		record.pending.ID, candidate.Artifact.ID, runID)
+	outcome.Path = candidate.Artifact.Path
+	outcome.Approval = true
+	outcome.Publishing = fmt.Sprintf("it is not written to your checkout and nothing is yours to commit: run %s lands it with its own checks, an independent review and a pull request, the way a document confirmed under an automatic policy lands. Until it merges, yoyo status shows the run, and the %s is told how it goes.",
+		runID, RoleTitle(s.state.Role))
+	return outcome, nil
+}
+
+// PublishApproved publishes this conversation's documents straight after the
+// operator approved one, and returns what their runs came to in the words the
+// owning role is told, so the operator who approved it reads the same account.
+func (s *Session) PublishApproved(ctx context.Context) (string, error) {
+	var told strings.Builder
+	s.told = &told
+	defer func() { s.told = nil }()
+	err := s.PublishDocuments(ctx)
+	return told.String(), err
 }
 
 // approvalReason says how the approval was given, which is what the record in
@@ -585,6 +687,7 @@ func (s *Session) decideWrites(ctx context.Context, writes []PendingWrite, scree
 	// that puts it above the composing region, and anywhere else it is the stream
 	// it always was.
 	var out io.Writer = screen
+	publishing := false
 	fmt.Fprint(out, s.theme.Proposal(fmt.Sprintf(
 		"The %s wrote %d document(s). Nothing is written to the repository unless you approve it.\n\n",
 		RoleTitle(s.state.Role), len(writes))))
@@ -597,6 +700,11 @@ func (s *Session) decideWrites(ctx context.Context, writes []PendingWrite, scree
 		line, err := s.ask(ctx, screen, writeDecisionPrompt(pending))
 		if errors.Is(err, io.EOF) {
 			fmt.Fprintln(out, "input ended before you decided; nothing was written.")
+			if publishing {
+				published, err := s.PublishApproved(ctx)
+				fmt.Fprint(out, published)
+				return err
+			}
 			return nil
 		}
 		if err != nil {
@@ -628,8 +736,19 @@ func (s *Session) decideWrites(ctx context.Context, writes []PendingWrite, scree
 		}
 		fmt.Fprint(out, outcome.Render())
 		fmt.Fprintln(out)
+		publishing = publishing || outcome.Publishing != ""
 	}
-	return nil
+	// An approved document's reviewed run starts now rather than at whatever the
+	// operator says next, and what it came to is said to them as well as to the
+	// owning role.
+	if !publishing {
+		return nil
+	}
+	published, err := s.PublishApproved(ctx)
+	if published != "" {
+		fmt.Fprintln(out, published)
+	}
+	return err
 }
 
 func (s *Session) isWriteDecided(writeID string) bool {
@@ -645,7 +764,7 @@ func (s *Session) isWriteDecided(writeID string) bool {
 // what would happen to the repository rather than asking a bare yes: this is the
 // one prompt in a conversation whose answer changes a file.
 func writeDecisionPrompt(pending PendingWrite) string {
-	return fmt.Sprintf("%s? [y or yes writes it and records your approval in it; anything else declines, and is kept as the reason] ",
+	return fmt.Sprintf("%s? [y or yes approves it and records your approval in it; anything else declines, and is kept as the reason] ",
 		pending.Write.Describe())
 }
 

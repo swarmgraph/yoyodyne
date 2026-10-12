@@ -160,6 +160,122 @@ func TestNonautomaticDocumentStillWaitsForOperatorConfirmation(t *testing.T) {
 	}
 }
 
+// A document the operator approves lands the way a confirmed one does: through
+// a run with its own checks and an independent review, with the approval in
+// the file, and never as an uncommitted change in the primary checkout.
+func TestOperatorApprovedDocumentLandsThroughReviewedRunAndLeavesCheckoutClean(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	original := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleArchitect {
+			return backend.RunResult{Backend: domain.BackendClaudeCode, SessionID: "author-session", FinalText: submittedDesign("approved-design", "# Approved\n\nThe owner's exact words.")}, nil
+		}
+		return original(request)
+	}
+	options, _ := publicationConversation(t, pipeline, provider)
+	options.DocumentPolicy.Designs = domain.ApprovalHuman
+	pipeline.Config.Approvals.Designs = domain.ApprovalHuman
+	options.DocumentPublisher = pipeline
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Write the design."); err != nil {
+		t.Fatal(err)
+	}
+	waiting := session.Writes()
+	if len(waiting) != 1 {
+		t.Fatalf("document was not put to the operator: %+v", waiting)
+	}
+	outcomes, decided, err := session.DecideWrites("approve " + waiting[0].ID)
+	if err != nil || !decided || len(outcomes) != 1 {
+		t.Fatalf("DecideWrites = %+v, %v, %v", outcomes, decided, err)
+	}
+	outcome := outcomes[0]
+	if outcome.Publishing == "" || outcome.PendingCommit != "" || !outcome.Approval || outcome.Path != "docs/designs/approved-design.md" {
+		t.Fatalf("approval outcome = %+v", outcome)
+	}
+	rendered := outcome.Render()
+	if strings.Contains(rendered, "commit it") || strings.Contains(rendered, "uncommitted") || !strings.Contains(rendered, "nothing is yours to commit") {
+		t.Fatalf("approval asks the operator to commit, or does not say it need not:\n%s", rendered)
+	}
+	// Nothing reaches the checkout at the moment of approval.
+	if status := publicationGit(t, repository, "status", "--porcelain"); status != "" {
+		t.Fatalf("approval wrote into the primary checkout: %s", status)
+	}
+	if len(session.Writes()) != 0 {
+		t.Fatal("an approved document is still put to the operator")
+	}
+	told, err := session.PublishApproved(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(told) == "" {
+		t.Fatal("the operator was not told what the approved document's run came to")
+	}
+	recorded, err := runs.Recorded()
+	if err != nil || len(recorded) != 1 {
+		t.Fatalf("runs = %+v, %v", recorded, err)
+	}
+	state := recorded[0]
+	if state.Status != runstate.StatusSucceeded || state.Document == nil || state.Integration == nil || state.ReviewSessionID == "" || state.ReviewSessionID == state.Document.AuthorSession {
+		t.Fatalf("run = %+v", state)
+	}
+	if !strings.Contains(outcome.Publishing, state.RunID) {
+		t.Fatalf("approval outcome does not name the run %s: %s", state.RunID, outcome.Publishing)
+	}
+	if len(provider.RequestsForRole(domain.RoleDeveloper)) != 0 || len(provider.RequestsForRole(domain.RoleReviewer)) != 1 {
+		t.Fatal("publication did not use exactly an independent review")
+	}
+	if state.Selection == nil || !strings.Contains(state.Selection.Reason, "approved by the operator") {
+		t.Fatalf("selection does not say the operator approved it: %+v", state.Selection)
+	}
+	content := publicationGit(t, repository, "show", "main:docs/designs/approved-design.md")
+	if content != strings.TrimSpace(state.Document.Candidate.Content) {
+		t.Fatalf("published different bytes: %s", content)
+	}
+	if !strings.Contains(content, "by: operator") || strings.Contains(content, "by: harness") || !strings.Contains(content, waiting[0].ID) {
+		t.Fatalf("the operator's approval is not what the published document records:\n%s", content)
+	}
+	if status := publicationGit(t, repository, "status", "--porcelain"); status != "" {
+		t.Fatalf("primary checkout left dirty: %s", status)
+	}
+}
+
+// Where no run can land a document — the project does not integrate
+// automatically — the approved document is still written into the working tree
+// and the operator is told it is theirs to commit.
+func TestOperatorApprovedDocumentIsWrittenWhereNoRunCanLandIt(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		return backend.RunResult{SessionID: "author", FinalText: submittedDesign("manual-design", "# Manual")}, nil
+	}
+	pipeline.Config.Approvals.Integration = domain.ApprovalHuman
+	options, _ := publicationConversation(t, pipeline, provider)
+	options.DocumentPolicy.Designs = domain.ApprovalHuman
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Send(context.Background(), "Write it."); err != nil {
+		t.Fatal(err)
+	}
+	waiting := session.Writes()
+	if len(waiting) != 1 {
+		t.Fatalf("waiting = %+v", waiting)
+	}
+	outcomes, _, err := session.DecideWrites("approve " + waiting[0].ID)
+	if err != nil || len(outcomes) != 1 || outcomes[0].Publishing != "" || outcomes[0].PendingCommit == "" {
+		t.Fatalf("outcomes = %+v, %v", outcomes, err)
+	}
+	if status := publicationGit(t, repository, "status", "--porcelain", "--untracked-files=all"); !strings.Contains(status, "manual-design.md") {
+		t.Fatalf("status = %q", status)
+	}
+	if records, err := runs.Recorded(); err != nil || len(records) != 0 {
+		t.Fatalf("runs = %v, %v", records, err)
+	}
+}
+
 type interruptedPublication struct{ chat.DocumentPublisher }
 
 func (p interruptedPublication) PublishDocument(context.Context, runstate.DocumentPublication) (runstate.DocumentDelivery, error) {

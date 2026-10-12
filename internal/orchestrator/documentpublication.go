@@ -33,6 +33,17 @@ import (
 // ErrCompanionPublicationNotBuilt.
 func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
 
+// LandsApprovedDocuments reports whether a document the operator approves can
+// land through a reviewed run, rather than being written into the checkout:
+// the project integrates automatically and keeps its intent in its own
+// repository. A companion intent repository is answered no, unlike in
+// PublishesDocuments, because holding a person's approval until that run is
+// built would keep the document out of the repository indefinitely, where the
+// write into the companion repository holds no run up.
+func (p Pipeline) LandsApprovedDocuments() bool {
+	return p.automatic() && !p.Config.Product.HasIntentRepository()
+}
+
 // ErrCompanionPublicationNotBuilt is why a confirmed document of a project that
 // keeps its intent in a companion intent repository is held rather than landed.
 // The reviewed run that would land it there — a branch cut from that repository,
@@ -62,11 +73,18 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if err := document.Validate(); err != nil {
 		return p.refuseDocument(document, err)
 	}
-	policy := artifact.Policy{Brief: p.Config.Approvals.Brief, Goals: p.Config.Approvals.Goals, Designs: p.Config.Approvals.Designs, SpecificationsHome: p.Config.Product.Specifications}
-	name, mode, governed := policy.SettingFor(document.Candidate.Artifact)
-	approval, _ := document.Candidate.Artifact.LatestApproval()
-	if !governed || mode != domain.ApprovalAutomatic || approval.Policy != name {
-		return p.refuseDocument(document, errors.New("the document's automatic confirmation policy no longer applies"))
+	// A document the operator approved answers to no approval setting: a person
+	// decided it, and only the harness's own confirmation is bounded by the
+	// setting it was given under.
+	confirmed := "approved by the operator"
+	if !document.Candidate.OperatorApproved() {
+		policy := artifact.Policy{Brief: p.Config.Approvals.Brief, Goals: p.Config.Approvals.Goals, Designs: p.Config.Approvals.Designs, SpecificationsHome: p.Config.Product.Specifications}
+		name, mode, governed := policy.SettingFor(document.Candidate.Artifact)
+		approval, _ := document.Candidate.Artifact.LatestApproval()
+		if !governed || mode != domain.ApprovalAutomatic || approval.Policy != name {
+			return p.refuseDocument(document, errors.New("the document's automatic confirmation policy no longer applies"))
+		}
+		confirmed = "confirmed under " + name
 	}
 	filing, err := artifact.StoreFor(p.Repository, p.Config.Product).Filing(document.Owner)
 	if err != nil {
@@ -97,7 +115,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	record := documentItemRecorder{tracker: p.Tracker, document: document}
 	docket := p.Docket
 	p.Docket, p.Prices = nil, nil
-	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Conversation %s supplied document %s, written by the %s at turn %d and confirmed under %s; publish its exact content through independent review.", document.ConversationID, document.WriteID, document.Owner.Title(), document.Turn, name)}
+	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Conversation %s supplied document %s, written by the %s at turn %d and %s; publish its exact content through independent review.", document.ConversationID, document.WriteID, document.Owner.Title(), document.Turn, confirmed)}
 	p.Tracker = &documentTracker{item: documentItem(document, 0)}
 	if err := p.validateDispatch(); err != nil {
 		return runstate.DocumentDelivery{}, err
@@ -134,7 +152,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 	}
 	p.Tracker = &documentTracker{item: documentItem(document, attempt)}
-	saved, ran, err := p.publishDocumentAttempt(ctx, document, attempt, approval.Policy, record)
+	saved, ran, err := p.publishDocumentAttempt(ctx, document, attempt, confirmed, record)
 	var held documentHeld
 	if errors.As(err, &held) {
 		return runstate.DocumentDelivery{RunID: held.runID, Detail: held.summary, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. It is tried again at the next message and does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, held.summary)}, nil
@@ -381,7 +399,7 @@ func documentStopSays(state runstate.State) string {
 
 // publishDocumentAttempt starts or continues the run that makes one attempt,
 // reporting the record it left and whether a run was entered at all.
-func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.DocumentPublication, attempt int, policy string, record documentItemRecorder) (runstate.State, bool, error) {
+func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.DocumentPublication, attempt int, confirmed string, record documentItemRecorder) (runstate.State, bool, error) {
 	tracker := p.Tracker.(*documentTracker)
 	item := tracker.item
 	publishing, skipped, err := p.resolvePublishing(ctx)
@@ -453,7 +471,7 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 	if err != nil {
 		return runstate.State{}, false, err
 	}
-	a := &activeRun{pipeline: p, state: state, item: tracker.item, claimed: true, publishing: publishing, invariants: invariants, context: fmt.Sprintf("Publish the %s's exact document %s from conversation %s, turn %d. Confirmed under %s. No developer may rewrite it.\n", document.Owner.Title(), document.Candidate.Artifact.Title, document.ConversationID, document.Turn, policy), outcome: Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: state.Status, Phase: state.Phase, PublishSkipped: skipped, Summary: "Publish the owning role's confirmed document without rewriting its content.", PullRequest: state.PullRequest}}
+	a := &activeRun{pipeline: p, state: state, item: tracker.item, claimed: true, publishing: publishing, invariants: invariants, context: fmt.Sprintf("Publish the %s's exact document %s from conversation %s, turn %d, %s. No developer may rewrite it.\n", document.Owner.Title(), document.Candidate.Artifact.Title, document.ConversationID, document.Turn, confirmed), outcome: Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: state.Status, Phase: state.Phase, PublishSkipped: skipped, Summary: "Publish the owning role's confirmed document without rewriting its content.", PullRequest: state.PullRequest}}
 	a.worktree = gitworktree.Worktree{RunID: state.RunID, WorkItemID: state.WorkItemID, Path: state.WorktreePath, Branch: state.Branch, BaseCommit: state.BaseCommit, TargetBranch: state.TargetBranch, HarnessCommit: state.HarnessCommit}
 	a.outcome.Branch, a.outcome.WorktreePath, a.outcome.BaseCommit = state.Branch, state.WorktreePath, state.BaseCommit
 	if err := a.claim(ctx); err != nil {
