@@ -137,6 +137,8 @@ var structuredStrings = map[string]string{
 	"kept_checks.checks[].command":                                  "a command the configuration declares",
 	"kept_checks.checks[].status":                                   "a process status the runner names",
 	"check_stage.could_not_run[].command":                           "a command the configuration declares",
+	"check_stage.permit_wait.check":                                 "a heavy check name the configuration declares",
+	"landing_checks.permit_wait.check":                              "a heavy check name the configuration declares",
 	"check_stage_continuations[].command":                           "a command the configuration declares",
 	"landing_checks.commit":                                         "the integrated commit the harness recorded",
 	"landing_checks.target_branch":                                  "a local branch name",

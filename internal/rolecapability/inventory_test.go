@@ -214,6 +214,10 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.WorkTriage},
 		gap:      "holding triage does not say how far it may move a cap or how often; a step size and a per-item bound are scopes over the subject, and scopes are the next step of this workstream",
 	},
+	"heavy-checks.release-by-hand": {
+		question: "none: the command reads which role launched its process, the way the verbs that record a person's decision do",
+		gap:      "no capability names giving back a heavy check's place; releasing one is a run-reliability judgement the development manager makes, and the role marker a launched process carries is the only thing a command at a shell can read",
+	},
 	"triage.override-is-the-operators": {
 		question: "none: the operator is not a role and holds no bundle",
 		gap:      "what the operator may do by hand at a terminal is outside this vocabulary entirely, which is why the refusal has to live in the store rather than in a bundle",

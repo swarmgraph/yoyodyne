@@ -35,6 +35,11 @@ type LaunchGate struct {
 	// everything it starts. Run closes this process's copy once the process has
 	// started, so what holds the file afterwards is the process tree alone.
 	Hold *os.File
+	// Holds are further files handed to the process and everything it starts
+	// the same way, and closed in this process the same way, for a launch two
+	// records each watch the processes of: a check that holds a place among the
+	// machine's heavy checks as well as its caller's own record.
+	Holds []*os.File
 	// Register is called once the process exists and before it may do any
 	// work. Returning an error ends the process before the gate opens, so a
 	// launch that could not be written down never ran.
@@ -56,7 +61,8 @@ var ErrGateUnsupported = errors.New("starting a provider behind a launch gate is
 // gateScript waits for the word go on descriptor 3 and only then replaces
 // itself with the command. Anything else — the end of the pipe because the
 // harness died, or a refusal — exits with gateRefusedExit and runs nothing.
-// Descriptor 3 is closed for the command; descriptor 4, the hold, is not.
+// Descriptor 3 is closed for the command; descriptor 4, the hold, and any
+// further holds after it, are not.
 const gateScript = `IFS= read -r gate <&3 || exit 97; [ "$gate" = go ] || exit 97; exec 3<&-; exec "$@"`
 
 // gateRefusedExit is the exit status of a gate that never opened.
@@ -96,7 +102,7 @@ func prepareGate(process *exec.Cmd, name string, args []string, gate *LaunchGate
 	process.Path = shell
 	process.Args = append([]string{shell, "-c", gateScript, "yoyodyne-launch", resolved}, args...)
 	process.Err = nil
-	process.ExtraFiles = []*os.File{read, gate.Hold}
+	process.ExtraFiles = append([]*os.File{read, gate.Hold}, gate.Holds...)
 	return &gatedProcess{open: write}, nil
 }
 

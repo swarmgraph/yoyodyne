@@ -5926,6 +5926,31 @@ func (a *activeRun) verify(ctx context.Context) error {
 				_ = p.Store.Save(a.state)
 			},
 			Finished: a.keepPassed,
+			// A heavy check waits for a place among the machine's (heavychecks.go),
+			// and the wait goes onto the record as it begins and as it ends, so the
+			// run reads as waiting rather than running while it waits. The run
+			// keeps its developer slot meanwhile.
+			Permit: checks.PermitRequest{
+				WorkItemID: a.state.WorkItemID,
+				Commit:     a.state.BaseCommit,
+				Priority:   heavyCheckPriority(a.state),
+				Waiting: func(check string, since time.Time) {
+					if stage.PermitWait == nil {
+						stage.PermitWait = &runstate.HeavyCheckWait{}
+					}
+					stage.PermitWait.Begin(check, since)
+					a.state.UpdatedAt = p.clock().Now()
+					_ = p.Store.Save(a.state)
+				},
+				Granted: func(_ string, waited time.Duration) {
+					if !stage.PermitWait.Waiting() {
+						return
+					}
+					stage.PermitWait.Granted(waited)
+					a.state.UpdatedAt = p.clock().Now()
+					_ = p.Store.Save(a.state)
+				},
+			},
 		}, a.sink)
 	}
 	checkResults := append(append([]checks.Result(nil), keeping.kept...), ranResults...)
@@ -6544,6 +6569,29 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 			Env:       []string{checks.Narrowing{Whole: true, Reason: "a landing runs the whole suite"}.Env()},
 			Timeout:   budget,
 			Unbounded: true,
+			// A landing's heavy checks are let start ahead of every run's gate
+			// (heavychecks.go). The landing lease above is taken first and a place
+			// second, never the other way round, so a landing waiting for a place
+			// never holds one while it waits for its turn on the branch.
+			Permit: checks.PermitRequest{
+				WorkItemID: a.state.WorkItemID,
+				Commit:     commit,
+				Priority:   domain.HeavyCheckForLanding,
+				Waiting: func(check string, since time.Time) {
+					if landed.PermitWait == nil {
+						landed.PermitWait = &runstate.HeavyCheckWait{}
+					}
+					landed.PermitWait.Begin(check, since)
+					a.saveLanding(landed)
+				},
+				Granted: func(_ string, waited time.Duration) {
+					if !landed.PermitWait.Waiting() {
+						return
+					}
+					landed.PermitWait.Granted(waited)
+					a.saveLanding(landed)
+				},
+			},
 		}, a.sink)
 		a.state.LastSequence = lastSequence
 		if removeErr := p.Landings.RemoveCheckout(ctx, path); removeErr != nil {
@@ -6610,7 +6658,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 	// take a note is recorded as such rather than waited out.
 	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Landing checks: "+landed.Describe()); err != nil {
+	if _, err := p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Landing checks: "+landed.Describe(p.clock().Now())); err != nil {
 		landed.Problem = strings.Join(append(problems, fmt.Sprintf("the item could not be told: %v", err)), "; ")
 		a.saveLanding(landed)
 	}

@@ -222,7 +222,7 @@ func FromRun(before, after runstate.State, look func(runstate.State) triage.Foun
 		case after.LandingChecks.Unverified():
 			kind, severity = KindLandingUnverified, report.SeverityWarning
 		}
-		say(kind, severity, Harness(), Detail{Landing: after.LandingChecks.Describe()})
+		say(kind, severity, Harness(), Detail{Landing: after.LandingChecks.Describe(time.Now())})
 	}
 	if !parked(before) && parked(after) {
 		say(KindRunParked, parkSeverity(after), Harness(), Detail{Cause: causeOf(after)})

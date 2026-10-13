@@ -557,6 +557,24 @@ func withListingRecord(client beads.Client, listings *runstate.TrackerListingSto
 	return client
 }
 
+// heavyCheckPermits is the record of places the check runner asks for a heavy
+// check's place, under the state root every product on the machine shares, and
+// nil for a project that names no heavy check.
+func heavyCheckPermits(cfg config.Config, stateRoot string) checks.Permits {
+	if len(cfg.Execution.HeavyChecks) == 0 {
+		return nil
+	}
+	store, err := runstate.NewHeavyCheckStore(stateRoot)
+	if err != nil {
+		// A project that declared heavy checks never runs them without their
+		// limit: each one is refused with the reason, which stops the stage as a
+		// failure of the harness and says why, rather than running unlimited and
+		// saying nothing.
+		return orchestrator.UnopenedHeavyChecks{Execution: cfg.Execution, Err: err}
+	}
+	return orchestrator.HeavyCheckPermits{Store: store, Product: cfg.Product.ID, Execution: cfg.Execution}
+}
+
 func buildPipeline(configPath string) (orchestrator.Pipeline, error) {
 	parts, err := buildComponents(configPath)
 	if err != nil {
@@ -610,6 +628,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			// passes only because one is installed here fails before review
 			// rather than on a machine without it.
 			HiddenExecutables: providerExecutables(cfg),
+			// A check the project names in execution.heavy_checks waits for a
+			// place among the machine's before it launches; a project that names
+			// none never opens the record of places.
+			Permits: heavyCheckPermits(cfg, parts.stateRoot),
 		},
 		// The stage's bound is that figure scaled for the machine's load, by the
 		// same reading and cap a local Git command's budget is scaled by, because
@@ -1080,7 +1102,7 @@ func reportRunResult(stdout, stderr io.Writer, jsonOutput bool, outcome orchestr
 			// about this run: the run succeeded whichever way it went, and a red
 			// one is the target branch's news and the item it filed.
 			if outcome.LandingChecks != nil {
-				fmt.Fprintf(stdout, "landing checks: %s\n", outcome.LandingChecks.Describe())
+				fmt.Fprintf(stdout, "landing checks: %s\n", outcome.LandingChecks.Describe(time.Now()))
 			}
 		}
 		if outcome.CleanupFailure != "" {

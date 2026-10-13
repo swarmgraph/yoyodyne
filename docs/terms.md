@@ -233,7 +233,7 @@ for.
 `end-to-end` `exactly-once` `fan-out` `fast-forward` `fast-forwarding`
 `fast-forwards` `find-generic-password` `follow-on` `follow-up` `follow-ups`
 `form-action` `frame-ancestors` `free-form` `front-loading` `general-purpose`
-`grep-resistant` `hand-edit` `hand-written` `high-judgment` `high-risk`
+`grep-resistant` `hand-edit` `hand-written` `heavy-checks` `high-judgment` `high-risk`
 `highest-priority` `html-comment` `img-src` `input-token` `intra-document`
 `intra-file` `local-timezone` `long-running` `long-term` `low-cost` `lower-case`
 `lowest-cost` `ls-tree` `machine-readably` `merge-queue` `minute-long`

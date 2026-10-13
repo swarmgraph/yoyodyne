@@ -25,7 +25,7 @@ func TestALandingCheckThatCouldNotRunMakesNothingRed(t *testing.T) {
 	if _, failing := landing.Failing(); failing {
 		t.Fatal("Failing() named the check that could not run")
 	}
-	if said := landing.Describe(); !strings.Contains(said, "green landing") || !strings.Contains(said, "make codex-resume could not run: codex is not installed") {
+	if said := landing.Describe(time.Now()); !strings.Contains(said, "green landing") || !strings.Contains(said, "make codex-resume could not run: codex is not installed") {
 		t.Fatalf("Describe() = %q", said)
 	}
 }
