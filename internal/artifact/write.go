@@ -470,6 +470,27 @@ func (s Store) CheckWrite(role domain.AgentRole, write Write) error {
 	return nil
 }
 
+// WritePath is the repository-relative file a write lands in: the file a
+// creation names in its directory, or the file the document a revision names
+// is already read from. It is what the document is checked as before it is
+// written, since a link is resolved from the directory it is written in.
+func (s Store) WritePath(write Write) (string, error) {
+	id := strings.TrimSpace(write.ID)
+	if write.Action == WriteCreate {
+		_, relative, err := s.path(id, write.Directory)
+		return relative, err
+	}
+	set, err := s.Load()
+	if err != nil {
+		return "", err
+	}
+	found, exists := set.Find(id)
+	if !exists {
+		return "", fmt.Errorf("no artifact %q is recorded in %s", id, strings.Join(set.Homes, ", "))
+	}
+	return found.Path, nil
+}
+
 // checkFiling refuses a new document filed anywhere but the home its kind
 // belongs in. Being inside some artifact home is not enough: three homes in one
 // configuration are three different sorts of document, and a design filed under
@@ -563,6 +584,8 @@ To write one, end your reply with exactly one block of this shape:
 A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `. For a goals or brief revision, also record "intent":"consistent" or "intent":"fundamental". It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
 
 The kinds you may write, and where this project files each of them, are ` + strings.Join(kinds, ", ") + `. Any other kind is refused and nothing is written, and so is a document filed anywhere but the directory its own kind belongs in — being inside one of this project's ` + strings.Join(directories, " or ") + ` is not enough. The id is the file name without its extension, so it also has to be one: an id that already answers to a document is a revision rather than a creation.
+
+When you write it, the body is checked for a coined word or compound the project's register of terms does not define, and for a link to a file or heading that is not there. Either refuses the document back to you in the same message, naming each one and its line in the body; reword or register it, mend the link, and write the document again.
 
 Automatic publication leaves no uncommitted document in the primary checkout. If checks fail, review refuses it, or target changes conflict, the findings return to this conversation for you to revise; no developer rewrites it and no operator decision is requested. A revision opens a fresh run. After three returned runs for one document in this conversation, automatic publication stops and you must revise your plan. A document the operator approves lands the same way, through its own reviewed run with the operator's approval recorded in it, wherever the project integrates automatically from its own repository. Never claim that a document landed until the harness reports it.
 

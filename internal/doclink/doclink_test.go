@@ -407,3 +407,32 @@ func write(t *testing.T, root, relative, content string) {
 		t.Fatalf("WriteFile() error = %v", err)
 	}
 }
+
+// A document is checked before it is written, so the links it makes resolve
+// against the repository as it stands, its own headings come from what it says
+// rather than from a file that is not there yet, and a link to itself by path
+// is not reported as a document that is missing.
+func TestCheckDocumentResolvesLinksBeforeTheDocumentIsWritten(t *testing.T) {
+	t.Parallel()
+
+	root := newRepository(t)
+	write(t, root, "docs/designs/other.md", "# Other\n\n## Why\n")
+	content := "# New\n\n## Here\n\n[why](other.md#why), [here](#here), [itself](new.md#here)\n" +
+		"[gone](missing.md)\n[no heading](other.md#nowhere)\n"
+	problems, err := CheckDocument(root, "docs/designs/new.md", content)
+	if err != nil {
+		t.Fatalf("CheckDocument() error = %v", err)
+	}
+	if len(problems) != 2 {
+		t.Fatalf("CheckDocument() = %v, want the missing file and the missing heading", problems)
+	}
+	if problems[0].Line != 6 || problems[0].Target != "missing.md" || !strings.Contains(problems[0].Reason, "docs/designs/missing.md") {
+		t.Errorf("first problem = %#v", problems[0])
+	}
+	if problems[1].Line != 7 || problems[1].Target != "other.md#nowhere" {
+		t.Errorf("second problem = %#v", problems[1])
+	}
+	if _, err := os.Stat(filepath.Join(root, "docs", "designs", "new.md")); !os.IsNotExist(err) {
+		t.Fatalf("checking a document wrote it: %v", err)
+	}
+}

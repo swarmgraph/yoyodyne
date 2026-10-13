@@ -370,6 +370,15 @@ something already answers to is refused for the mirror of that reason. A role
 that owns no document at all — the development manager, the developer, the
 reviewer — cannot write one under any circumstances.
 
+A document is also read, as it is written, for what the checks of the run
+landing it would refuse in it: a coined word or compound that `docs/terms.md`
+does not define, and a link to a file or heading that is not there. Each one
+found refuses the document the same way, naming the rule, the word or link, and
+its line in the body the role wrote, so the role rewords it in the same message
+rather than a run later. A repository with no `docs/terms.md` is checked for
+links alone. A check that cannot be run at all lets the document through with a
+notice to the role, and the run landing it still runs every check either way.
+
 A readable document submission that the write gate refuses does not fail the
 conversation or its scheduled pass. The other tracker actions, reports, and
 memory writes continue. The role receives the refusal reason and the identifiers

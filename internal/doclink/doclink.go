@@ -132,6 +132,32 @@ func Check(root string) ([]Problem, error) {
 	return problems, nil
 }
 
+// CheckDocument reports the links one document makes that would resolve to
+// nothing once it is filed at document, before it is: what a role writes from
+// its conversation is checked here when it is written, rather than by the run
+// that lands it. The repository's documents supply the headings a fragment may
+// name, with content standing in for whatever document holds now, and each
+// problem's line is the line of content the link is written on.
+func CheckDocument(root, document, content string) ([]Problem, error) {
+	documents, err := Documents(root)
+	if err != nil {
+		return nil, err
+	}
+	headings := make(map[string]map[string]bool, len(documents)+1)
+	for _, existing := range documents {
+		if existing == document {
+			continue
+		}
+		read, err := read(filepath.Join(root, filepath.FromSlash(existing)))
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", existing, err)
+		}
+		headings[existing] = anchorsIn(read)
+	}
+	headings[document] = anchorsIn(content)
+	return problemsIn(root, forgeHome(root), document, content, headings), nil
+}
+
 // skippedDirectories are the trees a documentation check has no business
 // walking: the two databases a checkout carries, the fixtures tests write to be
 // malformed on purpose, and the release output. Everything else under the root
@@ -370,6 +396,11 @@ func resolve(root, document, directory, target, written string, headings map[str
 		if linked == ".." || strings.HasPrefix(linked, "../") {
 			return fmt.Sprintf("it links to %q, which leaves the repository, so nothing here can say whether it is there", written)
 		}
+		// A document naming itself by its path is there however the filesystem
+		// answers: one being checked before it is written is not on disk yet.
+		if linked == document {
+			return resolveFragment(linked, fragment, written, headings)
+		}
 		info, err := os.Stat(filepath.Join(root, filepath.FromSlash(linked)))
 		if err != nil {
 			return fmt.Sprintf("it links to %q, and %s is not in the repository", written, linked)
@@ -380,6 +411,12 @@ func resolve(root, document, directory, target, written string, headings map[str
 			return ""
 		}
 	}
+	return resolveFragment(linked, fragment, written, headings)
+}
+
+// resolveFragment says why a fragment names no heading in the document linked,
+// and returns nothing for one that does or for a link carrying none.
+func resolveFragment(linked, fragment, written string, headings map[string]map[string]bool) string {
 	if fragment == "" {
 		return ""
 	}
