@@ -341,6 +341,16 @@ checks:
   - make race
   - make vet
 
+# What a confirmed document's landing runs in place of the checks above: the
+# tests that read the governed documents -- their wording, their links, their
+# identity and ownership, and the release-readiness assessment that reads them
+# too -- and not the whole suite or the race check, which judge Go code a
+# document landing cannot change. docs/configuration.md, "The document
+# checks", says what the list does. A test that reads the documents and is
+# missing here is one to add.
+document_checks:
+  - go test ./internal/terms ./scripts/vocabulary ./internal/doclink ./internal/artifact ./internal/conformance
+
 path_checks:
   - command: make adoption
     paths: scripts/walk-adoption.paths
