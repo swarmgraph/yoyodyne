@@ -24,6 +24,9 @@ type DocumentPublication struct {
 	AuthorModel          string                     `json:"author_model"`
 	AuthorAccount        string                     `json:"author_account,omitempty"`
 	AuthorConfigRevision string                     `json:"author_config_revision,omitempty"`
+	// Retried is set on a handoff the development manager's retry of a stopped
+	// document run made; see DocumentPublication.RetryOf.
+	Retried *DocumentRetried `json:"retried,omitempty"`
 }
 
 // RunID is the run that makes the first attempt to publish this document.
@@ -175,6 +178,11 @@ func (d DocumentPublication) Validate() error {
 	}
 	if err := artifact.Authorize(d.Owner, d.Candidate.Artifact.Kind); err != nil {
 		return err
+	}
+	if d.Retried != nil {
+		if err := d.Retried.Validate(); err != nil {
+			return err
+		}
 	}
 	switch {
 	case d.StandingApproval():

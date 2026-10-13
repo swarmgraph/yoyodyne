@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -414,6 +415,29 @@ func conversationStops(parts components, role domain.AgentRole) chat.DecidedStop
 		return nil
 	}
 	return conversationDecidedStops{store: parts.store, productID: parts.config.Product.ID, clock: execution.RealClock{}}
+}
+
+// conversationPublications wires the hand that retries or retires a stopped
+// document publication, for the development manager's conversation and no
+// other. Its pull request is closed through the same forge client the re-run
+// and the convergence sweep close one with, and the branch it carried is deleted
+// through the same manager that created it.
+func conversationPublications(parts components, role domain.AgentRole) chat.StoppedPublications {
+	if role != domain.RoleDevelopmentManager || parts.store == nil {
+		return nil
+	}
+	return orchestrator.DocumentDecider{
+		Runs: parts.store,
+		Publications: publish.GitHub{
+			Runner:       parts.runner,
+			Dir:          parts.repository,
+			Remote:       parts.config.Execution.Remote,
+			PushRemote:   parts.config.Execution.PushRemote,
+			RedactValues: parts.redactValues,
+		},
+		Branches: parts.worktrees,
+		Clock:    execution.RealClock{},
+	}
 }
 
 // conversationInFlight wires the hand that dockets the Lead Product Manager's

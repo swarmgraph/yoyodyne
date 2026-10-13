@@ -309,6 +309,12 @@ type Options struct {
 	// without one refuses a stop rather than recording a decision nothing will
 	// carry out.
 	Stops DecidedStops
+	// Publications is how the development manager's retry or retirement of a
+	// stopped document publication is carried out: such a run has no work item,
+	// so the decision is recorded on the run rather than on an item. It is wired
+	// into her conversation and no other, and a conversation without one refuses
+	// both decisions rather than recording one nothing will carry out.
+	Publications StoppedPublications
 	// InFlight is how the Lead Product Manager's decision about an item whose run
 	// is in flight reaches the development manager's docket. It is wired into her
 	// conversation and no other, and a conversation without one refuses the

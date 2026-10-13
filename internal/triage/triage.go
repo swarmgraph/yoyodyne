@@ -1211,6 +1211,9 @@ type Entry struct {
 	Summary     string       `json:"summary,omitempty"`
 	Artifacts   Artifacts    `json:"artifacts"`
 	Publication *Publication `json:"publication,omitempty"`
+	// Document is the confirmed document a document publication's run was
+	// landing, on that run's stopped-run entry, and nil on every other entry.
+	Document *Document `json:"document,omitempty"`
 	// SessionResumable says this stoppage is the harness having stopped a
 	// provider that had judged nothing — a stream gone silent, or a total budget
 	// run out — with the developer session, branch, and worktree it stopped in
@@ -1597,6 +1600,11 @@ func (e Entry) Validate() error {
 			problems = append(problems, fmt.Errorf("findings[%d]: line %d cannot be negative", index, finding.Line))
 		}
 	}
+	if e.Document != nil {
+		if err := e.Document.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if e.Check != nil {
 		if strings.TrimSpace(e.Check.Command) == "" {
 			problems = append(problems, errors.New("check: command is required"))
@@ -1886,7 +1894,7 @@ func (e Entry) Render() string {
 	// The two unstarted classes say the same field in their own words above,
 	// because "died holding its change" is exactly what did not happen to either.
 	stoppedByRequest := e.StopRequested != nil && e.StopRequested.Landed
-	if e.Blocker == "" && e.Failure != "" && e.Class != ClassUnstartedRun && e.Class != ClassUnstartedAttempt && !stoppedByRequest {
+	if e.Blocker == "" && e.Failure != "" && e.Class != ClassUnstartedRun && e.Class != ClassUnstartedAttempt && !stoppedByRequest && e.Document == nil {
 		rendered.WriteString(indented("Died holding its change; the work item carries no blocker for it", e.Failure))
 	}
 	rendered.WriteString(e.renderStopRequested())
@@ -1919,6 +1927,7 @@ func (e Entry) Render() string {
 		rendered.WriteString(indented(
 			label, e.Check.Output))
 	}
+	rendered.WriteString(e.renderDocument())
 	rendered.WriteString(e.renderArtifacts())
 	if e.Publication != nil {
 		rendered.WriteString(e.renderPublication())
@@ -1934,6 +1943,13 @@ func (e Entry) Render() string {
 	// is about a run in flight rather than a stoppage.
 	if e.Class != ClassProductDecision {
 		rendered.WriteString(e.renderNextMover())
+	}
+	// A document publication has no work item, so it has no triage budget to
+	// report: the two decisions that answer it spend none.
+	if e.Document != nil {
+		rendered.WriteString(e.renderDecisions())
+		rendered.WriteString(e.renderEarlier())
+		return rendered.String()
 	}
 	fmt.Fprintf(&rendered, "      Triage counters: %d of %s review round(s) used%s; %d repair attempt(s) spent in this run; a grant would hand it %d\n",
 		e.Counters.ReviewRounds, capFigure(e.Counters.ReviewRoundsCap), roundsNote(e.Counters),
@@ -2211,6 +2227,9 @@ func (e Entry) renderReplayConflict() string {
 // because the verb a reader reaches for after an approval is the resume and the
 // resume cannot help it.
 func (e Entry) renderNextMover() string {
+	if e.Document != nil {
+		return e.documentNextMover()
+	}
 	gone := ""
 	if e.IntegrationStop != nil {
 		if e.integrationResumable() {

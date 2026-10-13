@@ -2089,7 +2089,13 @@ the change it has, `rerun` runs it again from the start, `rescope` splits out
 what was refused as out of scope, `rearm` repeats a merge the forge dropped —
 or arms one nothing ever asked the forge for, which is also answered by
 `rerun` — `wait` says nothing is to be done yet, `escalate` hands it to you, and
-`retire-raise` ends a raise its owner's amendment made moot. One more,
+`retire-raise` ends a raise its owner's amendment made moot. A stopped
+document publication has no work item, so none of those can be recorded on it:
+its entry names the document and its pull request, and she answers it with
+`retry`, which lands the same confirmed text through a fresh run and closes the
+stopped run's pull request, or `retire`, which closes the pull request with her
+reason, each naming the run and no `id` — see [writing a document from a
+conversation](artifacts.md#writing-a-document-from-a-conversation). One more,
 `stop`, is about a run that has not stopped yet: it names a run still in flight
 whose work is superseded, narrowed, or mis-launched, with the item doing the work
 instead as `superseded_by` where there is one, and the harness asks that run to
