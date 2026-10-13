@@ -11,13 +11,21 @@ revisions:
       by: architect
       at: 2026-10-05T00:33:22.166145Z
       reason: 'yoyodyne-3xd: specify shared lifecycle recovery, fresh standing health for both managers and evidence-backed pass completion; preserve run ownership, interrupted phase and truthful workflow history without changing product intent.'
+    - action: amended
+      by: architect
+      at: 2026-10-13T17:44:18.572813Z
+      reason: 'yoyodyne-ab2: adds the callable evidence and recovery contract the development manager asked for, and the development-manager, architect and shared prompt rules the operator assigned on October 4, with the split between prompting and code, six bounded slices and outcome scenarios (a) to (h). Rewritten after the reviewer refused document-827.1: adoption of the prompt rules is a developer item that writes the live persona files and their templates through a reviewed run, never a step handed to the operator; the results section uses plain words only; every item is named by what it is.'
 approvals:
     - revision: 0
       by: operator
       at: 2026-10-05T00:33:22.166145Z
       reason: approved by the operator in conversation chat-11558d325e9a214ebfd00bb4a0012750, turn 135, for the document the architect wrote there (document-135.1)
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-13T17:44:18.572813Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 832, for document-832.1 under the automatic approval policy
 ---
-
 # Purpose and scope
 
 This design serves the approved management and supervision goals through the management-and-supervision and program-manager designs. It specifies Fresh factory-health evidence and accountable scheduled-pass completion (yoyodyne-3xd). It changes neither product intent nor role authority.
@@ -111,3 +119,140 @@ These are acceptance interfaces for already admitted work, not a decomposition o
 # Evidence and limits
 
 Repository inspection used commit dfc0079ad98c. The continuation, redeploy, reconciliation, declarative workflow and dependency-test files were read in full. Earlier scheduler and state-schema reads were truncated, so their unseen portions are not verification evidence. Supplied tracker incident accounts are evidence of reported behavior, not execution verified by the architect. No tests were run during design inspection.
+
+# Addendum: what managers can call, and the rules that use it
+
+This addendum answers the development manager and architect prompt rules and the evidence and recovery contract behind them (yoyodyne-ab2). It carries two things forward. The first is the development manager's finding that the guidance above is not enough to build from, because it says what must be true without saying what a manager can actually ask the harness for. The second is the operator's assignment of October 4: concrete rules for how the development manager and the architect decide, and the evidence and tools that let them follow those rules.
+
+Rules in a prompt cannot supply evidence the harness does not gather or actions it does not offer. So the addendum first defines five capabilities, then the rules that rely on them, then which parts are enforced in code and which are left to the prompt. Everything here reuses the run records, leases, reservation lock, pass records, reports, read model and role authority already described above. No parallel monitoring or recovery service is added, and nothing in a prompt grants authority.
+
+## The five capabilities
+
+Each is registered as a tool under [the tool interface design](tool-interface.md): a descriptor, its mark in the registry, and an audit event for every call. The harness performs every call itself. An owning conversation turn and a scheduled pass reach the same capability with the same request and result fields, on both supported backends, in the form the tool interface design gives each backend.
+
+`health.observe`, class read, built by shared health delivery (yoyodyne-e7c). Request: the product, and optionally a list of runs to restrict it to. Result: an observation identifier and its time; the sources read and how complete each was; each read failure; every actionable anomaly with its identity (product, run and condition), first seen, last seen, how many times it has recurred, and its classification under the shared lifecycle account above. It also reports each supervised service: every running copy with its build and start time and whether that build is the current one; the search path the service runs with and whether each provider command it needs is found on it; maintenance failures recorded since the last pass and whether they were delivered; and each configuration file it names with whether that file exists. This is how a pass establishes configuration health rather than guessing it, and it covers the development manager's report of a supervisor configuration pointing at a file missing from its test directory.
+
+A result larger than the rendering bound returns exact totals, the identities it left out, and a cursor.
+
+`health.follow`, class read, built by shared health delivery. Request: an observation identifier and a cursor. Result: the next part of what that observation left out. An observation older than fifteen minutes is refused with the reason, and the caller observes again.
+
+`run.inspect`, class read, built by shared health delivery. Request: one run. Result: the run record, cut at 48 KiB with the cut declared; the lease holder; the worker's identity as defined below and whether it is live, absent, or uncertain; whether the branch and worktree exist; the reservation; any wait and its release condition; the last continuation attempt and refusal.
+
+`run.verify`, class read, built by shared health delivery. Request: one run and one expected state, from this closed list: worker live, durable wait recorded, reservation released, continuation started, integration completed, unresolved hold recorded. Result: met, not met, or unknown, with the evidence read and its observation time. Unknown is never reported as met.
+
+`run.recover`, class act, built by lifecycle recovery (yoyodyne-06m). Request: a request identifier the caller makes up and never reuses, one run, the observation identifier the decision rests on, the saved status and phase the caller expects, one action, and a reason. The actions are a closed list: continue the same run; record a dependency wait; complete the steps after a recorded integration; release the reservation of a terminal run with no worker; record an unresolved hold naming its owner, next action and follow-up. Result: applied, refused, or unknown, as defined below.
+
+Dispositions are recorded where they are recorded now, on the pass record, and manager coverage validation (yoyodyne-5eu) checks them. No new capability is added for them.
+
+## What binds a request
+
+Every `run.recover` request carries the product, the run, the observation identifier and the expected status and phase. The harness takes the run lease, reloads the record strictly and compares. If anything differs from what the caller expected, the request is refused as state moved, nothing is changed, and the result names what differs. An observation older than fifteen minutes is refused for any act.
+
+The checks that matter for safety are made at the moment the harness acts, under the lease, and not at the moment the caller observed. An action that needs no worker is refused if a worker is live or uncertain when the harness acts, whatever the observation said.
+
+## How a worker is identified
+
+A worker is identified by four things together: its process number, the start time the operating system reports for that process, the build it runs, and the run and attempt number it recorded when it started. A worker is live only when a running process matches all four. A process number alone never establishes a worker, because the operating system reuses numbers. A replacement worker for the same run carries a new attempt number, so a request decided against the earlier attempt is refused as state moved.
+
+## Request identity and repeats
+
+The harness records a `run.recover` request on the run record, under the lease, before it acts, and records the result after. A repeat with the same identifier and the same content returns the recorded result without acting again. A repeat with the same identifier and different content is refused. If the first result was unknown, a repeat does not act again: it reads the run first, as the next section says.
+
+## Applied, refused and unknown
+
+Applied means the change was written, and the harness read the record back afterwards and found the change there.
+
+Refused means nothing was changed. The reason is one of: state moved; observation too old; a worker is live or uncertain; the action is not allowed for the run's saved status and phase; the caller does not hold the capability; the request identifier was used before with different content.
+
+Unknown means the harness tried to write and afterwards could not tell whether the write happened, for example because the file system reported an error after the file may already have been replaced. On unknown, nobody acts on that run again until the harness has reloaded it under the lease and established what it holds. Until then the run carries an unresolved hold that names the development manager, the attempted action and the request identifier, and the next health observation reports it.
+
+## Checking the outcome
+
+Applied is not the same as recovered. After an applied result, the caller checks the outcome with `run.verify`, using the expected state that matches the action: continue the same run leads to continuation started and then worker live; a dependency wait to durable wait recorded; completing steps after integration to integration completed; releasing a reservation to reservation released; an unresolved hold to unresolved hold recorded.
+
+A disposition of verified resolution must cite a `run.verify` result of met from an observation taken after the action. A worker that started, an action that was applied, or a pull request that merged is not enough on its own.
+
+## Who holds what
+
+The development manager's bundle holds all five. The factory-flow program manager's bundle holds `health.observe`, `health.follow`, `run.inspect` and `run.verify`, and never `run.recover`, as the authority section above already says. The architect's bundle holds `health.observe`, `health.follow` and `run.inspect`, so a design can rest on how runs actually behave. A grant is registered by the slice that builds the capability, and a call without the grant is refused.
+
+## What is enforced in code and what is left to the prompt
+
+Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation and expected state; the checks made at the moment of acting; worker identity; request identity and repeats; the closed lists of actions and expected states; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
+
+Left to the prompt: judgment about which obstruction matters, whether a pattern is recurring, which supported action is smallest, and how a design is ordered. The prompt rules below tell a role how to use what the code guarantees. They grant nothing, and a role that ignores one is held by the checks above, not by the wording.
+
+The responsibilities sit as follows. The descriptor of each capability is in the tool registry. The fixed contract every role conversation is built on carries the shared rule and a short account of the three results. The scheduled pass message carries a fresh `health.observe` result, as the fresh health delivery section already requires. Each role's persona carries that role's rules.
+
+## The rules, word for word
+
+Shared, for every role, in the shared ground of every role conversation, built in `internal/chat/role.go`:
+
+> Before adding a dependency or asking for another decision, name the specific question that is still open and say why existing authority and evidence cannot answer it. Before reporting progress, keep four things apart: what you found, what you decided, what was carried out, and what you checked afterwards.
+
+The development manager, in `.yoyodyne/personas/development-manager.md` and the shipped template it is generated from:
+
+> 1. Trace the obstruction. When work stops, name the exact step that failed, the evidence for it from a fresh observation, and the supported next action. Saying the problem is covered by an existing item is not a recovery decision: say what that item does for this run, and when.
+>
+> 2. A decision is not finished until it has an effect you have checked. That means a worker `run.verify` reports live, a reservation it reports released, or a wait or refusal recorded with an owner and a condition for trying again.
+>
+> 3. Look for repetition. Across passes, count repeated failures of the same kind, P0 work that waited while developer slots were free, and checks repeated on the same revision. Raise a pattern that persists as a pattern, even when each event looks handled.
+>
+> 4. Check the real path. When a service or a role fails, look at the environment that service or role actually runs with, as `health.observe` reports it, not at one set up by hand to make it work.
+>
+> 5. Prefer the smallest supported action that restores progress and keeps the work and its checks. Continue the same run before starting a new one, and never cancel preserved work to free a slot.
+
+The architect, in `.yoyodyne/personas/architect.md` and the shipped template it is generated from:
+
+> 1. When a capability needs a design that cannot be published without that capability, say so and settle that first: name what can ship before it, and in what order.
+>
+> 2. Separate what this design needs from a wider redesign. Say what can ship under existing rules and what needs a new ruling, and rule only on the second.
+>
+> 3. Design for finishing. Say who owns the work while it runs, what happens on a restart, what anyone can observe once it is done, and how records already broken are mended.
+>
+> 4. A missing tool or a limit of the current build is an engineering problem to design, not a reason to hand work to a person. Real safety boundaries stay; say which kind each constraint is.
+>
+> 5. Count the cost to throughput: checks repeated, checks restarted by deploys, and work held in the scheduler, not only whether one part is correct on its own.
+
+The development manager's second rule names `run.verify`, so it goes in only after that capability exists. Every other rule names only what exists today and can go in now. That is the minimum path that ships under existing policy.
+
+## Adoption
+
+The live persona files under `.yoyodyne/personas` and the templates they are generated from are repository files. A developer run writes them like any other file, through review and integration, and the product moves itself onto the new build. No step in adoption falls to the operator. If at the time of the run a protection on those paths refuses a developer's write, the run is held for the development manager. She names the harness change needed, and the hold is not handed to a person.
+
+Adoption is checked against what each role actually receives, not against the files alone. After the change lands, the next development manager pass, the next architect pass and one owning conversation turn of each are read as delivered, and each rule's text is found in the prompt that role received. Whether the rules work is then judged by the outcome scenarios below, never by the presence of the text.
+
+## Slices
+
+Each slice can be checked on its own. Decomposing them into items is the development manager's; the mapping below lets the Lead Product Manager release or re-scope the three delivery items already admitted.
+
+1. `health.observe` and `health.follow`, including services, search paths, maintenance delivery and configuration files, with the scheduled pass message carrying a fresh observation and the grants for both. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
+2. Worker identity recorded at worker start, `run.inspect` and `run.verify`, with their grants. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
+3. `run.recover`: binding, the checks at the moment of acting, request identity and repeats, the three results, and the hold on unknown, with its grant. Lifecycle recovery (yoyodyne-06m). Depends on slice 2.
+4. Disposition validation: verified resolution needs a later met result, unknown is never complete, and a start, an applied result or a merge alone is refused as resolution. Manager coverage validation (yoyodyne-5eu). Depends on slices 2 and 3.
+5. The shared rule, the five architect rules and the development manager's rules 1, 3, 4 and 5, written into `internal/chat/role.go`, the two live persona files and their shipped templates, with the delivered prompts checked as the adoption section says. A new item. The developer names the template files before starting. Depends on nothing.
+6. The development manager's rule 2, written into the same two files for her, and checked in the same way. A new item. Depends on slices 2 and 3.
+
+## Outcome scenarios
+
+Each scenario is checked by what happens, in a test home or on the live factory, never by finding prompt text.
+
+(a) Maintenance failures recorded but never delivered (yoyodyne-ifd.428.72). A maintenance job fails after the last pass. The next `health.observe` reports the failure, and the pass record carries a disposition that cites it.
+
+(b) A repair decision never carried out: assessing and recovering the preserved run a redeploy stopped (yoyodyne-9j7), shared health delivery (yoyodyne-e7c), and the case recorded under the orchestrator's fakes moving to a helper package (yoyodyne-ifd.429.13.6). The development manager decides to continue a stopped run, and carrying it out fails. The next observation shows the anomaly still open with its owner, and validation refuses a complete result for that pass.
+
+(c) A stale reservation blocking the fix needed to release it: the reservation item named in the audit (yoyodyne-ifd.428.68), lifecycle recovery (yoyodyne-06m), and the run on holding a check stopped by its own time limit (yoyodyne-ifd.428.37). A terminal run with no worker holds a reservation. `run.recover` releases it with an applied result, `run.verify` reports reservation released as met, and the blocked fix is then started.
+
+(d) Automatic publication waiting on a ruling it cannot publish: the stopped design publication item named in the audit (yoyodyne-ifd.433.21.1) and the design of how the owning role decides an amendment (yoyodyne-ifd.437.14). A confirmed document whose publication depends on a capability not yet built appears in `health.observe` as waiting with an owner. The architect's design for it names what ships first and in what order.
+
+(e) A search path supplied by hand hiding broken service and role invocation (yoyodyne-ifd.435.12). A service is started with a search path that lacks a provider command. `health.observe` reports the missing command against that service, even though a person's own shell finds it.
+
+(f) Fifteen minute redeploy drains restarting checks that take 12 to 24 minutes, which the capacity rules for heavy checks (yoyodyne-ifd.429.43) address. Checks restarted by deploys appear as one anomaly with a recurrence count of two or more. The development manager's disposition raises it as a pattern rather than closing each event separately.
+
+(g) A worker that started, or a merged pull request carrying only evidence, mistaken for completed recovery: shared health delivery (yoyodyne-e7c) and manager coverage validation (yoyodyne-5eu). Validation refuses a verified resolution that cites only a start, an applied result or a merge, and accepts one that cites a later `run.verify` met result.
+
+(h) Dashboard test state left behind after a restart meant only to restore availability, and stale service copies left running on old builds (yoyodyne-ifd.434.19). A restart leaves an older copy running. The next `health.observe` lists both copies with their builds and reports the older one as an anomaly.
+
+## Evidence and limits of this addendum
+
+The design above was read at commit 968d33ed. The live persona directory `.yoyodyne/personas` was listed at the same commit and holds the architect and development manager files named here. Where the shipped templates live was not read, which is why slice 5 has its developer name them before starting. The tool interface design was not read again for this addendum. No code was read and no tests were run. No invariant is added: the rules marked as enforced in code are requirements of this design, held by its slices and their tests.
