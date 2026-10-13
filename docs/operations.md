@@ -514,7 +514,9 @@ What it will not do:
   step until you resume. The intake hold does not, because a cut chooses no
   work.
 - **Cut more than one release a day**, or a version whose tag is already on
-  origin. A tag in this repository that is not on origin and that the harness
+  origin. One a day is the release schedule you delegated to the Lead Product
+  Manager, which her sweep is told and her release items state, and the cut
+  holds to it as well. A tag in this repository that is not on origin and that the harness
   did not make is left for whoever made it.
 - **Deploy.** A release is not a deploy, and nothing here starts one.
 

@@ -898,7 +898,7 @@ Up to three layers produce the effective configuration, later ones winning:
    `releases: human` is exactly what a file written before it got: a person cuts
    every release.
 
-   **`work_items` is the one of the two that changes an existing project's
+   **`work_items` is the one of the three that changes an existing project's
    behavior**, and it is worth being plain about rather than leaving to be
    discovered. `publishing: human` is exactly what a file written before it got:
    the harness publishes nothing. `work_items: human` is not, because before this

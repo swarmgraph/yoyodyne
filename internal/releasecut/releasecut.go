@@ -245,6 +245,11 @@ func (c *Cutter) next(ctx context.Context, cuts []runstate.ReleaseCut) runstate.
 	if len(releases) == 0 {
 		return skipped(step, "no release the Lead Product Manager decided is waiting to be cut")
 	}
+	// One a day is the release schedule the operator delegated, as the Lead
+	// Product Manager's sweep is told it ("Never cut more than one a day") and
+	// as a release item's own done condition states it. The design's ruling
+	// has the harness cut under that schedule, so the cut holds to it too
+	// rather than relying on the admissions alone.
 	for _, cut := range cuts {
 		if cut.State == runstate.ReleaseCutPushed && sameDay(cut.UpdatedAt, c.now()) {
 			return skipped(step, fmt.Sprintf("%s was cut today, at %s, and no more than one release is cut a day", cut.Version, local(cut.UpdatedAt)))
