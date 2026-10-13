@@ -191,7 +191,9 @@ func TestBriefingThatCannotFitFailsOnceNamingTheSizes(t *testing.T) {
 	briefing := assembledBriefing(t, 60<<10, 60<<10, 60<<10)
 	provider := &sizedConversationBackend{speakingBackend: &speakingBackend{}, limit: 8 << 10}
 	session := openTestSession(t, briefingFitOptions(t, provider, briefing))
-	session.ForPass("development-manager-sweep")
+	// A turn the operator opens: a recurring turn's briefing is cut to the
+	// product intent first and held to a third of the window, below any
+	// endpoint's input limit; see passcontext.go.
 	_, err := session.Send(context.Background(), "Decide the docket.")
 	var tooLarge *TurnTooLarge
 	if !errors.As(err, &tooLarge) || !errors.Is(err, ErrTurnUnassembled) {
