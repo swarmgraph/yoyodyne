@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <p class="render-note">Opened over the decisions-unreadable render, which is not repeated here.</p>
+    <div id="decide" class="popup" role="dialog" aria-modal="true" aria-labelledby="decide-heading" data-state="error">
+      <div id="decide-backdrop" class="popup-backdrop"></div>
+      <div class="popup-card">
+        <div class="popup-head">
+          <div>
+            <h2 id="decide-heading" class="popup-title">Your decisions</h2>
+            <p id="decide-note" class="popup-note">read 14:05:09</p>
+          </div>
+          <button type="button" id="decide-close" class="popup-close">Close</button>
+        </div>
+        <div class="section-error" role="alert">
+          <p id="decide-problem" class="problem">Could not be read: the proposed changes could not be read: open /Users/somebody/Library/Application Support/Yoyodyne/state/projects/yoyodyne/state/amendments.jsonl: permission denied</p>
+          <p id="decide-remedy" class="remedy">The dashboard asks again every ten seconds. If this stays, yoyo status in the checkout says the same thing with more room, and yoyo doctor says what cannot be read.</p>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -5576,9 +5576,14 @@ when it starts, and the second of them once:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 it is printed here and nowhere else, and a restarted dashboard prints a new one; stop with ctrl-c
+mason approves, declines, and asks from the page with their own token, read from the keychain item yoyo-dashboard.yoyodyne.mason under the account yoyo and not printed
 ```
+
+The last line is one per person who [binds a token of their
+own](#deciding-from-the-page); with nobody bound it says the page reads only
+and refuses every approve, decline, and ask.
 
 **A configured token outlives a restart.** Set `services.dashboard.token` to
 `keychain` or `file` and the command reads the token from the store the
@@ -5591,7 +5596,7 @@ the value:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:8765/
 the token was read from the keychain item yoyo-dashboard.yoyodyne under the account yoyo, as services.dashboard.token names, and is not printed
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, /api/program-managers/<agent>, and /api/session, and a person's own token posts the operator's approve, decline, and ask to /api/acts/decide and /api/acts/ask
 it outlives a restart: a restarted dashboard reads the same one; stop with ctrl-c
 ```
 
@@ -5982,9 +5987,113 @@ entry that opened the entry card. The card has the four states: **ready**;
 card was opened — which it says in a sentence with the key it was opened on;
 **error** when a poll finds the line unreadable; and **loading** while the
 standing has not arrived. Every value on it reaches the page as JSON and is
-written as text, and no button on it does anything but open or close a pop-up:
-acting on an entry from the page is its own item (`yoyodyne-ifd.432.8`),
-behind the architect's ruling on whose identity the page would act as.
+written as text, and no button on it does anything but open or close a pop-up.
+What waits on your own approve or decline is decided from a pop-up of its own,
+below; every other entry here is still acted on at the command line.
+
+### Deciding from the page
+
+What the attention line names as yours, and a verb approves or declines, is
+put to you on the page one thing at a time. Who owns each entry is the line's
+answer and never the page's: the page lists only the line's own entries whose
+mover is you, opened into the records they carry. Today those are changes
+proposed to documents — one whose entry names you, and each proposal in an
+owning role's [batch of recommendations](#where-a-finding-that-needs-your-hand-goes),
+which the line names as a finding for you — decided by `yoyo amendment
+approve` and `decline`. An ordinary proposed change is the owning role's to
+move, as its entry on the line says, and is not on the page's list; neither is
+a document or proposed work waiting in a conversation, for which the line names
+nobody. The standing carries the list under `standing.operator_decisions`,
+read from the same derivation the line is built from, and while anything is on
+it the band shows a **Your decisions** tile counting it. Anything on the line
+that no verb approves or declines — a hold, a directive, a step only a person
+can take — stays where it was.
+
+**Your decisions** opens a pop-up headed by what sort of decision it is, with
+`1 of 3` and when the standing was read under the heading, and the decision
+whole under it: what it is, the document or the work, the change, the document,
+or the description in full, why, why it waits on you where the proposal says,
+what the owning role recommended where it argued about a proposed change, who
+raised it, the authority it is decided under, and its id. **Previous** and
+**Next** move between them. Under them:
+
+- **Approve** decides it at once, with one press.
+- **Decline** asks for a reason and declines it with **Decline it**. The
+  pop-up asks for the reason as optional where the record takes a decline
+  without one; a proposed change's record keeps why it was turned down and
+  refuses a decline without one, so for those the pop-up says the reason is
+  needed beside the box, and the refusal says so if it is left empty.
+- **Ask first** asks for your question and sends it with **Send the
+  question** to the conversation of the role that raised the decision, as
+  `yoyo agent chat <agent> --message` would — or to the Lead Product Manager's
+  where that role has no conversation here — naming what it is about, and
+  decides nothing. The answer takes a turn, so it is sent in the background:
+  what comes back at once says whose conversation it went to and the command
+  that reads the answer there, and the decision stays where it was.
+
+What came of each press is said under the buttons, in the verb's own words,
+and a decision carried out leaves the list at once. A decision is recorded
+exactly as the verb typed at the command line records it, as the operator's: the amendment
+log's decision by the operator under the owner's authority. Nothing the page
+does is something the command line cannot. The dashboard also knows how to
+carry out the conversation's own verb for a document or proposed work — "approve
+document-4.1" sent to that conversation — for the day the line names you for
+one; until then none is listed, and an act naming one is refused as not
+waiting.
+
+**Only a person acts, never a token.** The token the dashboard prints or reads
+from `services.dashboard.token` reads everything and resolves to nobody, so a
+tab holding it is told, when the pop-up opens, that it reads only, and every
+act from it is refused with that reason. To act, bind a token of your own in
+the configuration's [operators mapping](configuration.md#operators):
+
+```yaml
+operators:
+  mason:
+    git_email: you@example.com
+    dashboard_token: keychain   # or: file
+    grants:
+      - own-intent
+      - direct-work
+      - decide-amendments
+```
+
+and store the token where it names: `security add-generic-password -s
+yoyo-dashboard.<product id>.<name> -a yoyo -w` for the keychain, or `mkdir -p
+<state root>/projects/<product id>/state && (umask 077 && openssl rand -hex 32 >
+<state root>/projects/<product id>/state/dashboard.<name>.token)` for the
+file. `yoyo dashboard` reads each person's token as it starts and says, in a
+line per person, which were bound and which could not be read, with the
+command that stores the missing one; a token shorter than sixty-four
+characters, the shared token itself, or a token two people bound binds nobody.
+Sign in on the page with your own token and the pop-up says the session is
+yours. Your token reads everything the shared one does, travels only as a
+bearer header, and pays the same plain-HTTP cost. A configuration carrying
+`dashboard_token` or `decide-amendments` is refused whole by a build from
+before them, so every running part of the product needs restarting onto a
+build that has them; `yoyo config validate` and `yoyo doctor` name any that
+cannot read it.
+
+A person acts only where they hold the grant the decision needs:
+`decide-amendments` for a proposed change, with `own-intent` beside it for a
+change to a document the Lead Product Manager owns, and `own-intent` for a
+document or proposed work. Asking first is held to the same grant as deciding,
+because it is the first half of deciding. A person without it is refused
+naming the grant.
+
+**Everything else is refused with the reason.** An act from a session with no
+token, or one nobody bound; from the shared token; by a person without the
+grant; on a decision no longer waiting, decided since the page last read; of a
+kind, a verdict, or a field the page does not take; sent as anything but JSON;
+sent to any other path, or with any method but `POST` to `/api/acts/decide` and
+`/api/acts/ask`; and from a foreign `Host` or `Origin` — each is refused with a
+one-line reason, carries the content-security policy, reflects nothing of the
+request, and does nothing. So is an act on a proposed change the line gives
+to its owning role, as not waiting on you.
+
+The rest of what a person does at the command line — releasing intake,
+resuming, resolving a directive, recording a step only a person takes,
+activating a role — is still to come to the page, each as an item of its own.
 
 ### Opening a program manager's report
 
@@ -6032,7 +6141,8 @@ and dropping the hidden ones — one file per scenario — `quiet`, `busy`,
 `wrong-token`, `stale`, `snapshot`, `snapshot-old`, `snapshot-failed`, and
 `signin` for the page, `spend-days`,
 `spend-days-empty`, `spend-days-error`, and `spend-days-loading` for the month
-behind the spend box, and `card`, `card-loading`,
+behind the spend box, `decisions` and `decisions-unreadable` for the band's
+**Your decisions** tile, and `card`, `card-loading`,
 `card-missing`, `card-refused`, `grouping`, `grouping-landed`,
 `grouping-empty`, `grouping-error`, `grouping-loading`, `grouping-card`,
 `closed`, and `closed-after-poll` for the pop-ups on work items, and
@@ -6042,7 +6152,11 @@ behind the spend box, and `card`, `card-loading`,
 and `attention-closed` for the list of what is waiting, and on whom, and the cards
 opened from it, and `report`, `report-blocked`, `report-unwritten`,
 `report-loading`, `report-missing`, `report-refused`, and `report-closed` for
-a program manager's report card, each opened by clicking what a reader would click on
+a program manager's report card, and `decide`, `decide-next`,
+`decide-approve`, `decide-decline`, `decide-ask`, `decide-unbound`,
+`decide-loading`, `decide-empty`, `decide-error`, and `decide-closed` for
+deciding from the page — the driver holding each act the page posts to the
+path, the body, and the bearer header the scenario expects — each opened by clicking what a reader would click on
 one of the pages and holding the pop-ups alone, over the page render it names
 — which together show every section and each pop-up in each of its four
 states. The `busy` page lists a program manager in each of the three
@@ -6066,9 +6180,11 @@ which `yoyo status` and the Slack sink write too, so an instance the scheduler
 never woke can read stale; and its own build and the configuration keys that
 build reads, under `projects/<product>/state/config-readers/`, so a later key it
 cannot read is named against the dashboard. Both records direct no work. The
-only form is the one that takes the token, every button on the page opens or
-closes one of its own pop-ups and
-nothing else, and nothing but `GET` and `HEAD` is answered at all. Restarting it
+one thing a request does besides read is [the operator's own approve, decline,
+and ask](#deciding-from-the-page), from a person's own token, carried out by
+the code the verbs typed at the command line run; every other button on the page opens or
+closes one of its own pop-ups and nothing else, and nothing but `GET` and
+`HEAD`, and `POST` to the two act paths, is answered at all. Restarting it
 changes nothing about the harness and loses nothing, because the history it
 shows lives in the records rather than in the page. It is not a second control
 plane, and work is still directed from the conversation and the commands above.

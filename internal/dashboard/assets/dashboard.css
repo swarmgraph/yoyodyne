@@ -1042,6 +1042,67 @@ input:focus-visible {
   padding: 0.35rem 0.7rem;
 }
 
+/* Deciding: who the session is, the decision whole, and the acts under it.
+   Approve is the accent; Decline and Ask first are outlined, so the three are
+   told apart by their words and their weight as well as by their colour. A
+   button the page is waiting on is marked disabled, and says so in its words. */
+.decide-session {
+  margin: 0 0 0.75rem;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+}
+
+.decide-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.decide-actions .decide-form {
+  flex-basis: 100%;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.decide-actions textarea {
+  font: inherit;
+  min-height: 4.5rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--rule-strong);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.decide-actions textarea:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.decide-quiet {
+  background: var(--panel);
+  color: var(--accent-ink);
+  border-color: var(--rule-strong);
+}
+
+.decide-actions button[disabled] {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+.decide-outcome {
+  margin-top: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-paper);
+}
+
+.decide-outcome.decide-refused {
+  border-left-color: var(--attention);
+  background: var(--attention-paper);
+}
+
 /* The grouping: one entry per item, its title opening the item's card. */
 .grouping-items {
   list-style: none;

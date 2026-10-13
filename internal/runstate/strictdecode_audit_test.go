@@ -128,6 +128,7 @@ var strictSites = map[string]strictSite{
 	"internal/research/research.go:Decode":              {strictValidator, "a research block in an agent's reply"},
 	"internal/selfcheck/selfcheck.go:Decode":            {strictValidator, "a verification block in a developer's reply"},
 	"internal/sidestream/contract.go:decodeSide":        {strictValidator, "a side-stream block in an agent's reply"},
+	"internal/dashboard/acts.go:(*Server).serveAct":     {strictValidator, "an act the dashboard page sent; one carrying a field this build does not take is refused with the reason, so nothing is decided from part of what a person pressed"},
 	"internal/sweep/sweep.go:Decode":                    {strictValidator, "a sweep block in a role's reply"},
 
 	// Tests holding a document to its schema.

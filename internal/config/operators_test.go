@@ -327,3 +327,43 @@ func contains(values []string, want string) bool {
 	}
 	return false
 }
+
+// A human binds a dashboard token of their own by naming where it is kept, and
+// is granted deciding proposed changes by name. What is bound is a store and
+// never a token, and `generated` is no store, so it is refused.
+func TestAHumanBindsADashboardTokenAndTheGrantToDecideAmendments(t *testing.T) {
+	t.Parallel()
+
+	cfg := loadProject(t, minimalProjectConfig+`operators:
+  mason:
+    git_email: hamneggs@gmail.com
+    dashboard_token: keychain
+    grants:
+      - own-intent
+      - decide-amendments
+  jordan:
+    dashboard_token: file
+    grants:
+      - direct-work
+  sam:
+    git_email: sam@example.com
+`, nil).Config
+	bindings := cfg.DashboardBindings()
+	want := []DashboardBinding{
+		{Operator: "jordan", Source: DashboardTokenFile, Grants: []Grant{GrantDirectWork}},
+		{Operator: "mason", Source: DashboardTokenKeychain, Grants: []Grant{GrantOwnIntent, GrantDecideAmendments}},
+	}
+	if !reflect.DeepEqual(bindings, want) {
+		t.Fatalf("DashboardBindings() = %+v, want %+v", bindings, want)
+	}
+
+	_, err := loadProjectError(t, minimalProjectConfig+`operators:
+  mason:
+    dashboard_token: generated
+    grants:
+      - own-intent
+`, nil)
+	if err == nil || !strings.Contains(err.Error(), "operators.mason.dashboard_token") {
+		t.Fatalf("a generated dashboard token = %v, want it refused by key", err)
+	}
+}

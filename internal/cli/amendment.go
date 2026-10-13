@@ -156,32 +156,10 @@ func decideAmendment(verb string, verdict amendment.Verdict, args []string, stdo
 	if code != 0 {
 		return code
 	}
-	records, err := store.List()
+	found, decision, err := recordAmendmentDecision(store, *flags.configPath, flags.id(), verdict, *reason, "yoyo amendment "+verb, stderr)
 	if err != nil {
 		return reportAmendmentError(stdout, stderr, *flags.jsonOutput, err)
 	}
-	found, ok := amendment.Find(records, flags.id())
-	if !ok {
-		return reportAmendmentError(stdout, stderr, *flags.jsonOutput,
-			fmt.Errorf("no proposed change %q was raised for this product", flags.id()))
-	}
-	decision, err := found.Decide(verdict, amendment.DeciderOperator, *reason, time.Now())
-	if err != nil {
-		return reportAmendmentError(stdout, stderr, *flags.jsonOutput, err)
-	}
-	if err := store.Decide(decision); err != nil {
-		return reportAmendmentError(stdout, stderr, *flags.jsonOutput, err)
-	}
-	step := handStep{
-		kind:    intervention.KindApprove,
-		subject: found.ID + " on " + found.Artifact,
-		said:    "approved the proposed change " + found.ID + " to " + found.Artifact + " with yoyo amendment approve",
-	}
-	if verdict != amendment.VerdictApproved {
-		step.kind = intervention.KindDecline
-		step.said = "declined the proposed change " + found.ID + " to " + found.Artifact + " with yoyo amendment decline"
-	}
-	noteHandStepFor(*flags.configPath, stderr, step)
 	if *flags.jsonOutput {
 		return writeJSON(stdout, stderr, amendmentOutput{
 			Proposals: []amendment.Proposal{found},
@@ -197,6 +175,40 @@ func decideAmendment(verb string, verdict amendment.Verdict, args []string, stdo
 		fmt.Fprintf(stdout, "amend %s as the %s, recording the revision under that role\n", found.Artifact, found.Owner)
 	}
 	return 0
+}
+
+// recordAmendmentDecision is the decision itself, as `yoyo amendment approve`
+// and `decline` record it and as the dashboard records the same decision: the
+// proposal found in the log, decided under its owner's authority by the
+// operator, appended, and noted as a step a person took. how is the verb the
+// step is said to have been taken with.
+func recordAmendmentDecision(store *runstate.AmendmentStore, configPath, id string, verdict amendment.Verdict, reason, how string, stderr io.Writer) (amendment.Proposal, amendment.Decision, error) {
+	records, err := store.List()
+	if err != nil {
+		return amendment.Proposal{}, amendment.Decision{}, err
+	}
+	found, ok := amendment.Find(records, id)
+	if !ok {
+		return amendment.Proposal{}, amendment.Decision{}, fmt.Errorf("no proposed change %q was raised for this product", id)
+	}
+	decision, err := found.Decide(verdict, amendment.DeciderOperator, reason, time.Now())
+	if err != nil {
+		return amendment.Proposal{}, amendment.Decision{}, err
+	}
+	if err := store.Decide(decision); err != nil {
+		return amendment.Proposal{}, amendment.Decision{}, err
+	}
+	step := handStep{
+		kind:    intervention.KindApprove,
+		subject: found.ID + " on " + found.Artifact,
+		said:    "approved the proposed change " + found.ID + " to " + found.Artifact + " with " + how,
+	}
+	if verdict != amendment.VerdictApproved {
+		step.kind = intervention.KindDecline
+		step.said = "declined the proposed change " + found.ID + " to " + found.Artifact + " with " + how
+	}
+	noteHandStepFor(configPath, stderr, step)
+	return found, decision, nil
 }
 
 // ownedBy narrows a listing to what one role is being asked to decide, which is
