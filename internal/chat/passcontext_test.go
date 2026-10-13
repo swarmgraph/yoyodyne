@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
@@ -309,4 +310,15 @@ func storedEvents(t *testing.T, session *Session) map[execution.EventType]int {
 		counted[event.Type]++
 	}
 	return counted
+}
+
+// A long account is cut to its end on a whole character, within its bound.
+func TestALongAccountIsCarriedOnAWholeCharacter(t *testing.T) {
+	t.Parallel()
+	session := &Session{pass: "architect-pass#1"}
+	session.carryPassForward(true, strings.Repeat("é", runstate.MaxPassCarriedForwardBytes))
+	carried := session.state.PassCarriedForward
+	if len(carried) > runstate.MaxPassCarriedForwardBytes || !utf8.ValidString(carried) || !strings.HasSuffix(carried, "é") {
+		t.Fatalf("carried %d bytes, valid %v", len(carried), utf8.ValidString(carried))
+	}
 }

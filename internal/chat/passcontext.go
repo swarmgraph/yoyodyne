@@ -43,6 +43,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/contextbundle"
@@ -143,12 +144,15 @@ func (s *Session) carryPassForward(fresh bool, text string) {
 	}
 	if len(text) > runstate.MaxPassCarriedForwardBytes {
 		const cut = "[The start of this account is not carried: it was longer than the harness keeps.]\n\n"
-		text = text[len(text)-(runstate.MaxPassCarriedForwardBytes-len(cut)):]
-		// Start on a whole line, and on a whole character.
-		if at := strings.IndexByte(text, '\n'); at >= 0 && at < len(text)-1 {
-			text = text[at+1:]
+		// Keep the end, starting on a whole character and then on a whole line.
+		start := len(text) - (runstate.MaxPassCarriedForwardBytes - len(cut))
+		for start < len(text) && !utf8.RuneStart(text[start]) {
+			start++
 		}
-		text = cut + strings.ToValidUTF8(text, "")
+		if at := strings.IndexByte(text[start:], '\n'); at >= 0 && start+at < len(text)-1 {
+			start += at + 1
+		}
+		text = cut + text[start:]
 	}
 	s.state.PassCarriedForward = text
 	s.state.PassCarriedForwardFrom = s.pass
