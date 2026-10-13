@@ -1,7 +1,7 @@
 ---
 id: observability-and-dashboard
 kind: design
-title: One observability read model, and the read-only dashboard that projects it
+title: One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 supports:
     - v1-goals
 status: active
@@ -13,15 +13,15 @@ revisions:
     - action: amended
       by: architect
       at: 2026-09-19T00:30:00Z
-      reason: 'approved amendment 608138f6 from yoyodyne-ifd.141.1 (591e0ae5 declined as superseded by the repair round''s rename) - the capacity-blocked state landed as a read-model query; the deviation-to-implement recorded at promotion is discharged'
+      reason: approved amendment 608138f6 from yoyodyne-ifd.141.1 (591e0ae5 declined as superseded by the repair round's rename) - the capacity-blocked state landed as a read-model query; the deviation-to-implement recorded at promotion is discharged
     - action: amended
       by: architect
       at: 2026-09-19T14:10:00Z
-      reason: 'operator direction of 2026-09-19 (directive-6de828a8) - the bind address and allowed hosts become configuration with loopback defaults; a non-loopback bind is an opt-in requiring a supplied token, with Host and Origin validated against the configured set and every other rule unchanged; the read-only, no-write-path property recorded as what makes the opt-in safe, and plain-HTTP transport stated honestly'
+      reason: operator direction of 2026-09-19 (directive-6de828a8) - the bind address and allowed hosts become configuration with loopback defaults; a non-loopback bind is an opt-in requiring a supplied token, with Host and Origin validated against the configured set and every other rule unchanged; the read-only, no-write-path property recorded as what makes the opt-in safe, and plain-HTTP transport stated honestly
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'yoyodyne-ifd.430.6 companion, also landing approved amendment 7b674d9e from yoyodyne-ifd.432.9 - the read model gains the program-manager query and the page a section projecting it; the section list is restated as shipped, with spend in its own box under the status band and throughput reporting endings only'
+      reason: yoyodyne-ifd.430.6 companion, also landing approved amendment 7b674d9e from yoyodyne-ifd.432.9 - the read model gains the program-manager query and the page a section projecting it; the section list is restated as shipped, with spend in its own box under the status band and throughput reporting endings only
     - action: amended
       by: architect
       at: 2026-09-26T16:00:00Z
@@ -34,9 +34,18 @@ revisions:
       by: architect
       at: 2026-09-30T02:30:00Z
       reason: yoyodyne-ifd.430 - the factory problems and every read-model entry carry the owner, reason, remedy, and hand the ownership resolver returns, and the needs-a-human line prints yours to decide and a role's decision that needs your hand from it
+    - action: amended
+      by: architect
+      at: 2026-10-13T09:19:09.624414Z
+      reason: 'The dashboard is no longer read-only: the v1 non-goals were revised on October 11 to let it take the operator''s own decisions, recorded as the command line records them. This revision for yoyodyne-ifd.437.44 removes the read-only wording, lists the acts and their grants, and keeps the resolved person on every record; it carries the change proposed in amendment-a7dfcc49. The management and supervision design follows in a second revision.'
+approvals:
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-10-13T09:19:09.624414Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 773, for document-773.1 under the automatic approval policy
 ---
-
-# One observability read model, and the read-only dashboard that projects it
+# One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
 ## What this is for
 
@@ -65,9 +74,9 @@ The model also serves what Slack's governed behavior already needs — per-item 
 
 ## The dashboard *(the sections yoyodyne-ifd.141 builds)*
 
-A locally hosted, read-only page with seven visually distinct sections: a top status band (active agents, queued work, attention count, throughput, landed today and this week); a spend box directly under it, showing the last 24 hours rolling and the last seven local days by kind — runs, conversations, branch reviews, exchanges, side threads — with a 30-day daily listing behind it, every figure classified and every floor marked; live agent and work cards (role, item title and id, phase, provider and model, elapsed time); a compact pipeline view showing where work accumulates or blocks; throughput over the same two windows, reporting endings only in the run history's own words, with cost left to the spend box; the factory problems from the model's problems query, grouped by kind with broken first, each entry its sentence, its age and count, its cost with every unknown marked, its mover as a word, its fixing item as a link or the words `none admitted yet`, and the factory-flow program manager's remedy where its report cites the entry, with that instance's lane-report summary as the section's own summary; provider capacity is folded in as entries of kind degraded and has no section of its own; and the program managers, each instance with its name in full, its lane, its status as blocked, stale, or working, and a link opening its lane report, from the model's `program_managers` query per [program-manager](program-manager.md). Attractiveness is an acceptance requirement — hierarchy, typography, spacing, accessible color, responsive layout, useful empty, loading, and error states, a small amount of purposeful motion — and polish must never imply precision the model did not claim. Simple polling; push infrastructure is deferred unless polling proves inadequate. A degraded source gets a prominent indicator while the page stays usable. Restarting the dashboard changes no workflow state and loses no history, because the history lives in the durable records, not in the page.
+A locally hosted page with seven visually distinct sections: a top status band (active agents, queued work, attention count, throughput, landed today and this week); a spend box directly under it, showing the last 24 hours rolling and the last seven local days by kind — runs, conversations, branch reviews, exchanges, side threads — with a 30-day daily listing behind it, every figure classified and every floor marked; live agent and work cards (role, item title and id, phase, provider and model, elapsed time); a compact pipeline view showing where work accumulates or blocks; throughput over the same two windows, reporting endings only in the run history's own words, with cost left to the spend box; the factory problems from the model's problems query, grouped by kind with broken first, each entry its sentence, its age and count, its cost with every unknown marked, its mover as a word, its fixing item as a link or the words `none admitted yet`, and the factory-flow program manager's remedy where its report cites the entry, with that instance's lane-report summary as the section's own summary; provider capacity is folded in as entries of kind degraded and has no section of its own; and the program managers, each instance with its name in full, its lane, its status as blocked, stale, or working, and a link opening its lane report, from the model's `program_managers` query per [program-manager](program-manager.md). Attractiveness is an acceptance requirement — hierarchy, typography, spacing, accessible color, responsive layout, useful empty, loading, and error states, a small amount of purposeful motion — and polish must never imply precision the model did not claim. Simple polling; push infrastructure is deferred unless polling proves inadequate. A degraded source gets a prominent indicator while the page stays usable. Restarting the dashboard changes no workflow state and loses no history, because the history lives in the durable records, not in the page.
 
-The dashboard is a projection, never an engine: it owns no workflow, conversation, provider, or configuration state, and offers no write of any kind. This is the boundary [the v1 non-goals] now record, and this design binds to it.
+The dashboard is a projection, never an engine: it owns no workflow, conversation, provider, or configuration state, and keeps no store of work state of its own. The only writes it makes are the operator's own decisions listed under *Acting from the dashboard* below, each carried out by the same code the command line runs for that act and recorded exactly as the command line records it. This is the boundary [the v1 non-goals] record as amended on 2026-10-11, and this design binds to it.
 
 ## Web security *(the repository's web-service conventions, established here)*
 
@@ -76,14 +85,20 @@ The bind address and the allowed hosts are configuration; the defaults are loopb
 - **A token is required on every request**, presented in a header or cookie and never in a URL or a log; a request without one, or with a wrong one, fails closed. Under the loopback default the token is generated per start and printed where the operator can read it. **Under a non-loopback bind the token must be supplied** — from the per-project secret store or the environment, never from `.yoyodyne` — because a generated token printed to one terminal is unusable from another device; a non-loopback bind with no supplied token, or a supplied token below the minimum entropy, is refused at load.
 - **Host and Origin are validated against the configured address and allowed hosts**, not hard-wired to loopback. A request naming a host outside the configured set fails closed exactly as it did before.
 - The content-security policy stays restrictive and CDN-free; all user-, model-, repository-, and Slack-supplied text stays untrusted and escaped; nothing secret, credential, or private-identifier enters the read model or the page.
-- **What a wider bind exposes is a read-only projection.** The dashboard has no write path at any bind address; the opt-in widens who can read observability data, never who can direct work.
+- **What a wider bind exposes.** The shared token reads the projection and acts on nothing. An act is open only to a session bound to a person by that person's own token, and only for an act that person holds the grant for, as below. So the opt-in widens who can read observability data, and lets a bound person take their own decisions from another device; it never lets anyone act beyond the grants they hold.
 - **Transport is plain HTTP in V1.** A non-loopback bind sends the token and the page in clear over the operator's network; TLS termination is deferred, and the opt-in is for networks the operator trusts. Binding to a specific interface address is preferred over a wildcard, which reaches every interface the machine has.
 
 ## Acting from the dashboard: who a session is
 
 The shared token reads and acts on nothing, because it resolves to nobody. A person who acts from the page binds a fourth identifier namespace in the operators mapping, `dashboard_token`, a reference to a per-person token in the keychain (`yoyo-dashboard.<product>.<operator>`) or the token file under the state root, written by `yoyo operator token <name>` and refused to agent processes. A session presenting that token is that person while the tab holds it: proof is possession, the same layer as the forge's push authentication. It reads everything the shared token reads, travels only as a bearer header under the rules above, and pays the same plain-HTTP cost.
 
-Two acts exist and each needs a grant held by the person, never by the token: settling an owed step needs `direct-work`; deciding an amendment needs `decide-amendments`, and an amendment against a product document needs `own-intent` beside it. An act records the resolved human — name, the `dashboard` namespace, a digest prefix of the token — on the same record the terminal writes, in place of `by: operator`. A session may never direct work, never reach anything an agent could, never read more than the shared token reads, and never write anything but those two records; every other method and path is refused as today.
+The acts a bound session may take are the operator's own decisions, and only these:
+
+- **Approving or declining what waits on his decision**: a proposed change to a document, a document a role wrote in a conversation that waits for his approval, and work proposed in a conversation.
+- **Settling a step he owes**, which needs `direct-work`.
+- **An ask** about any of the above, which puts a question to the role concerned and decides nothing.
+
+Each act is carried out by the command-line verb's own code for the same act, and needs the grant the command line needs for it, held by the person, never by the token: deciding a proposed change needs `decide-amendments`, and one against a product document needs `own-intent` beside it. An act records the resolved human — name, the `dashboard` namespace, a digest prefix of the token — on the same record the terminal writes, in place of `by: operator`. A further act the command line offers is added to this list by a revision of this design, one feature at a time, as the v1 non-goals allow. A session may never direct work beyond those acts, never reach anything an agent could, never read more than the shared token reads, and never write anything but the records those acts write; every other method and path is refused.
 
 ## Process shape
 
