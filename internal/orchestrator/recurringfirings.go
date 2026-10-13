@@ -371,9 +371,12 @@ type recurringFirings struct {
 	inFlight map[string]StartedFiring
 	done     chan firingDone
 	// cancel stops every firing in flight, which the redeploy drain does once
-	// its bound has run out with nothing else hosted.
+	// its bound has run out, with the RedeployDrain as the cause. A firing's
+	// turns can be carrying a document publication (internal/chat,
+	// PublishDocuments), and that run reads the cause to record the restart as
+	// what stopped it rather than an unexplained cancellation.
 	ctx    context.Context
-	cancel context.CancelFunc
+	cancel context.CancelCauseFunc
 	// taken, where set, counts the turns launchTurn has in flight until each is
 	// handed back; see Scheduler.besideTurns.
 	taken *sync.WaitGroup
@@ -393,7 +396,7 @@ type waitingSummons struct {
 }
 
 func newRecurringFirings(ctx context.Context) *recurringFirings {
-	firingCtx, cancel := context.WithCancel(ctx)
+	firingCtx, cancel := context.WithCancelCause(ctx)
 	return &recurringFirings{
 		inFlight: map[string]StartedFiring{},
 		// Buffered to the bound and the turns taken beside it, so a firing that
