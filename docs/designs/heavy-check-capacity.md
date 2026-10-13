@@ -1,0 +1,115 @@
+---
+id: heavy-check-capacity
+kind: design
+title: 'Capacity for heavy checks: one count per machine home, durable waiting, and recovery'
+supports:
+    - v1-goals
+status: active
+revisions:
+    - action: created
+      by: architect
+      at: 2026-10-13T13:00:28.052475Z
+      reason: 'yoyodyne-ifd.429.43: the first copy (document-779.1) was refused by the word check for two words I wrote, a joined name for the measurement build and a figurative word for a run never granted a permit. This copy writes both in plain words, states that a run holds one permit at a time, and records the alternatives rejected. The rules are unchanged from the ruling already recorded on the permits build (yoyodyne-ifd.429.47) and the measurement build (yoyodyne-ifd.429.48).'
+approvals:
+    - policy: approvals.designs
+      revision: 0
+      by: harness
+      at: 2026-10-13T13:00:28.052475Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 797, for document-797.1 under the automatic approval policy
+---
+# Capacity for heavy checks: one count per machine home, durable waiting, and recovery
+
+Some of a project's declared checks are heavy: in this repository `make race` and `make test` each take most of the machine for many minutes. When several developer runs reach their checks at once, those checks run side by side, each takes longer than its time limit allows, and runs stop for reasons that have nothing to do with their work. This design bounds how many of each heavy check run at once on one machine, separately from how many developer runs there are, and says how a run waits, how its place is released, and how all of it survives a restart.
+
+It serves the v1 goal to isolate implementation tasks in harness-managed Git worktrees and integrate successful work automatically, and the goal to run development nearly autonomously: a check stopped by load judges nothing and costs a person's attention to recover.
+
+## The setting
+
+`execution.heavy_checks` names a declared check and how many copies of it may run at once on this machine home. This repository declares:
+
+```yaml
+execution:
+  heavy_checks:
+    race: 1
+    test: 2
+```
+
+A check not named there is not heavy and runs as it does today. Each count must be a whole number of at least one, and each name must be a check the project declares; anything else is refused when the configuration is read. The setting is the development manager's to change, under section 6 of the portable agent configuration design, through the reviewed path. It is separate from developer slots: changing one never changes the other, and a check waiting for capacity does not count as an idle slot or a busy one.
+
+## The capacity record
+
+The count is kept in one record per machine home, under the state root, read and written only while holding a file lock beside it. Every harness process on the machine reads the same record, so two processes can never each believe they hold the last place. Each entry is one permit: the check's name, the run and work item it belongs to, its state, the process group the check was launched in, and when it entered each state.
+
+A permit is in one of four states:
+
+- **waiting**: asked for, not yet granted;
+- **running**: granted, and the check is launched in its own process group;
+- **exited**: the check's main process has ended, and the harness has not yet confirmed its process group is empty;
+- **released**: the place is free. Released entries are removed when the record is next written.
+
+## Asking, holding and releasing
+
+A run asks for a permit just before it launches a heavy check, and holds at most one permit at a time: a check never asks for a second permit while it holds one, so no run can wait on itself and no two runs can each hold what the other needs.
+
+A permit is released only when the check's process group is confirmed to hold no processes. The main process ending is not enough. A check whose child process outlives the main process keeps its permit, and the run is shown as a problem naming the check, the run and the process group, because those processes are still using the machine.
+
+A run that is cancelled, stopped, or fails releases its permit by the same rule. Success, failure and interruption are treated alike.
+
+## Waiting
+
+A run waiting for a permit shows the waiting state on the run, with the time waited, on the dashboard and in `yoyo status`. A wait longer than the greater of one hour and the check's time limit is listed under problems with the runs holding the permits, and the run keeps its place.
+
+Permits are granted in this order:
+
+1. checks for a landing or promotion, which already hold the target branch's landing lease;
+2. checks for a decided repair or rerun holding preserved work;
+3. every other check, in the order the permits were asked for.
+
+Within each group the order is the order of asking, so a run that asked first is never passed over by a later run of the same group.
+
+A landing run takes the landing lease first and its permit second, never the other way round, so no two runs can each hold one and wait for the other.
+
+## Time limits
+
+A check's time limit starts when the check launches with its permit, never while it waits. Scaling a check's limit for machine load still applies at launch. A check stopped by its limit is unfinished, not failed, under the recovery design: its reruns, at most two within three times its limit, each take a permit like any check.
+
+## Recovery after a restart
+
+When the harness starts, it reads the capacity record before granting anything:
+
+- a running or exited permit whose process group still has processes is kept, and the run that owns it is reattached as any preserved run is;
+- a running or exited permit whose process group is confirmed gone is released, and the run is recovered as a check stopped from outside the work, spending no repair attempt;
+- waiting permits keep their place in the order.
+
+A restart never resets a count, never grants a permit twice, and never loses a waiting run's place.
+
+## What the count covers, and what it does not
+
+The count covers heavy checks the harness itself launches, because only those run in a process group the harness started and can watch. A full suite a developer chooses to run inside its own session is outside it; the developer contract keeps asking for the declared checks to be run by the harness, and the measurement build reports such runs, from machine load and process listings, rather than this design claiming to count them.
+
+In CI mode (checks on CI) the full suite runs on the forge and takes no permit; only the short local check runs here, and it is not heavy unless the project declares it so. A fallback to local checks takes permits like any local check. A document landing's declared document checks take a permit only if one of them is declared heavy.
+
+## What the measurement build measures
+
+The numbers are the measurement build's (yoyodyne-ifd.429.48), not this design's. For each heavy check it records the time waited for a permit, the time run, the machine load and free memory at launch, and the outcome: passed, failed, or stopped by its limit. For the machine it records load against the number of heavy checks running. From that it proposes limits that keep checks finishing inside their time limits, which the development manager applies under section 6. Its measurements are taken on a machine that is not already heavily loaded, because limits set from an overloaded machine would rest on misleading numbers. Until then the defaults above stand.
+
+## Alternatives rejected
+
+- **Counting checks within developer slots.** Rejected because it ties two different limits together: lowering slots to protect checks leaves runs idle that could be writing code, and raising them brings the overload back.
+- **A count held in one process's memory.** Rejected because two harness processes on one machine would each grant places, and a restart would forget who holds what.
+- **An operating system semaphore.** Rejected because it does not survive a restart with its holders known, and cannot show a person which run is waiting and for how long.
+
+## Builds
+
+- **Permits with durable waiting and recovery** (yoyodyne-ifd.429.47): the setting and its validation, the capacity record and its lock, the four states, the release rule with process group confirmation, the waiting order, time limits from launch, recovery after a restart, and the waiting state on the dashboard and in `yoyo status`.
+- **The measurement build** (yoyodyne-ifd.429.48): the measurements above and the proposed limits.
+
+## How a reviewer checks an implementation
+
+- With `race: 1` declared, two runs reaching `make race` at once run it one after the other, and the second shows as waiting.
+- A check's time limit is measured from its launch, not from when it asked for a permit.
+- A check whose child process survives the main process keeps its permit and shows as a problem.
+- A landing run waiting for a permit already holds the landing lease, and is granted before a development run that asked earlier.
+- A run never holds two permits at once.
+- After a restart with a check still running, its permit is kept and no second copy of the check starts.
+- A project with no heavy checks declared behaves exactly as before.
