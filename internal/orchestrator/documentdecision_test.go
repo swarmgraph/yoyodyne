@@ -190,7 +190,7 @@ func TestWhichStoppedDocumentPublicationsAreTheDevelopmentManagers(t *testing.T)
 	}
 	now := time.Date(2026, 10, 12, 15, 0, 0, 0, time.UTC)
 	older := *base.Document
-	older.WriteID, older.Turn = "document-700.1", older.Turn
+	older.WriteID = "document-700.1"
 	newer := *base.Document
 	newer.WriteID, newer.Turn = "document-900.1", older.Turn+1
 	olderRun, newerRun := at(older, now.Add(-3*time.Hour)), at(newer, now.Add(-10*time.Minute))
