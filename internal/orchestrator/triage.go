@@ -313,10 +313,11 @@ func (d Docketer) Build() (DocketBuild, error) {
 	}
 	already := docketStanding(docketed)
 	now := d.now()
+	copies := documentCopiesOf(recorded)
 	added := 0
 	var problems []error
 	for _, state := range recorded {
-		entries, err := d.entriesFor(state, now, already)
+		entries, err := d.entriesFor(state, now, already, copies)
 		if err != nil {
 			problems = append(problems, err)
 			continue
@@ -374,6 +375,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// docketed again tomorrow folds the same way.
 	live := triage.Fold(open)
 	d.lookAgain(live, recorded)
+	joinDocuments(live, byID, copies)
 	// Where a run a product decision is about stands now, which is what she
 	// decides between stopping it and letting it finish from.
 	joinProductDecisions(live, byID, now)
@@ -777,6 +779,9 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 	entry, err := d.stoppedRunEntry(state, d.now(), found)
 	if err != nil {
 		return false, err
+	}
+	if state.Document != nil {
+		entry.Document = documentCopies{}.document(state)
 	}
 	return d.Docket.RecordOnce(entry)
 }
@@ -1475,9 +1480,19 @@ func (d Docketer) unreadyEntry(item beads.WorkItem, unmet []readiness.Unmet, now
 // it costs nothing: a run that carried one always did, and no record written
 // before the verb existed can carry it. So an escalation whose docket write
 // failed as the run ended is picked up by the next scan, exactly as a blocker is.
-func (d Docketer) entriesFor(state runstate.State, now time.Time, already standingDocket) ([]triage.Entry, error) {
-	if state.Document != nil && !documentHandedOver(state) {
-		return nil, nil
+//
+// A document run contributes only its stoppage, and only once it is the
+// development manager's to decide; see documentdocket.go.
+func (d Docketer) entriesFor(state runstate.State, now time.Time, already standingDocket, copies documentCopies) ([]triage.Entry, error) {
+	if state.Document != nil {
+		if !copies.docketable(state, now, d.Triage.StuckMergeAge.Duration()) || !already.dockets(triage.Key(triage.ClassStoppedRun, state.RunID), stoppedAt(state)) {
+			return nil, nil
+		}
+		entry, err := d.documentEntry(state, now, copies)
+		if err != nil {
+			return nil, err
+		}
+		return []triage.Entry{entry}, nil
 	}
 	var entries []triage.Entry
 	var problems []error

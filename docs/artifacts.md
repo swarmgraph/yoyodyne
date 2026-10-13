@@ -425,7 +425,25 @@ frees. If all three runs stop that way, the last is handed to the
 development manager as a stopped run, with the confirmed text kept on its
 record, rather than back to the owner. A document whose publication had already
 stopped over such runs is published again from its kept text the next time its
-conversation is opened. Each run's start and end is also noted on the work item
+conversation is opened.
+
+**A stopped document publication is the development manager's to decide.** It
+has no work item behind it, so it is put on her list of stopped runs as a run
+that names the document, its pull request, and whether a newer stopped copy of
+the same document exists or one has landed since. That list takes the run whose
+attempts were all spent, as above, and also any document run that left its pull
+request open and that its conversation will not land: an older copy of a
+document written again since, or a copy of a document that has landed by
+another run. A conversation's latest copy joins the list once it has stood
+stopped for `triage.stuck_merge_age`. She answers each with one of two
+decisions, naming the run and no work item. `retry` lands the same confirmed
+text again through a fresh run, which the harness starts as a document landing
+frees, under the same checks and independent review, and whose record says it
+was started on her decision; the stopped run's pull request is closed, since the
+fresh run opens its own, and a fresh run that stops again without judging the
+document is continued by the harness. `retire` closes the pull request with her
+reason and lands nothing. Both are recorded on the stopped run, and the closed
+pull request carries a comment saying who decided what and why. Each run's start and end is also noted on the work item
 named at the start of the document's revision reason, where the tracker holds
 one.
 

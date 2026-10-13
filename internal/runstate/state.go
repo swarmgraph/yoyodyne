@@ -1906,8 +1906,17 @@ func (s *State) recordedTexts() []recordedText {
 	if s.DocumentRetry != nil {
 		unstated("document_retry.waited_for", "document_retry.waited_for", &s.DocumentRetry.WaitedFor, MaxRecordedTextBytes)
 	}
+	if s.DocumentDecision != nil {
+		unstated("document_decision.reason", "document_decision.reason", &s.DocumentDecision.Reason, MaxRecordedTextBytes)
+		unstated("document_decision.decided_by", "document_decision.decided_by", &s.DocumentDecision.DecidedBy, MaxRecordedTextBytes)
+		unstated("document_decision.problem", "document_decision.problem", &s.DocumentDecision.Problem, MaxRecordedTextBytes)
+	}
 	if s.Document != nil {
 		d := s.Document
+		if d.Retried != nil {
+			unstated("document.retried.reason", "document.retried.reason", &d.Retried.Reason, MaxRecordedTextBytes)
+			unstated("document.retried.decided_by", "document.retried.decided_by", &d.Retried.DecidedBy, MaxRecordedTextBytes)
+		}
 		nested("document.candidate.content", "document.candidate.content", &d.Candidate.Content, artifact.MaxFileBytes)
 		nested("document.candidate.artifact.title", "document.candidate.artifact.title", &d.Candidate.Artifact.Title, artifact.MaxTitleBytes)
 		for i := range d.Candidate.Artifact.Revisions {
@@ -2703,6 +2712,9 @@ type State struct {
 	// DocumentRetry is what a document run stopped by something that judged
 	// nothing says about the attempt after it. See DocumentRetry.
 	DocumentRetry *DocumentRetry `json:"document_retry,omitempty"`
+	// DocumentDecision is the development manager's retry or retirement of a
+	// document run that stopped. See DocumentDecision.
+	DocumentDecision *DocumentDecision `json:"document_decision,omitempty"`
 	// Retirement ends obsolete work without removing its branch or checkout.
 	Retirement    *RunRetirement   `json:"retirement,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
@@ -3614,6 +3626,13 @@ func (s State) Validate() error {
 	if s.Document != nil {
 		if err := s.Document.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("document publication: %w", err))
+		}
+	}
+	if s.DocumentDecision != nil {
+		if s.Document == nil {
+			problems = append(problems, errors.New("only a document run carries a document decision"))
+		} else if err := s.DocumentDecision.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("document decision: %w", err))
 		}
 	}
 	if s.Retirement != nil {

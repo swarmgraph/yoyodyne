@@ -161,6 +161,9 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	docket := p.Docket
 	p.Docket, p.Prices = nil, nil
 	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Document %s was supplied, %s, and %s; publish its exact content through independent review.", document.WriteID, document.Origin(), confirmed)}
+	if retried := document.Retried; retried != nil {
+		p.Selection.Reason += " " + oneline.Fold(fmt.Sprintf("It retries run %s, as decided by %s at %s: %s", retried.FromRun, retried.DecidedBy, retried.DecidedAt.Local().Format("2006-01-02 15:04 MST"), retried.Reason), 1024)
+	}
 	p.Tracker = &documentTracker{item: documentItem(document, 0)}
 	if err := p.validateDispatch(); err != nil {
 		return runstate.DocumentDelivery{}, err
@@ -243,6 +246,16 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if document.StandingApproval() {
 		return runstate.DocumentDelivery{RunID: saved.RunID, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and run %s stopped without judging it: %s. Nothing about the document was found wrong. %s\n", document.WriteID, document.Candidate.Artifact.Title, saved.RunID, documentStopSays(saved), triedAgain(document))}, nil
 	}
+	if document.Retried != nil {
+		// A retry the development manager decided has no conversation holding it to
+		// offer it again, so its next attempt is put where the scheduler starts it.
+		if waits, ok := p.Store.(DocumentWaits); ok {
+			if _, _, err := waits.WaitForSlot(ctx, document, attempt+1, p.clock().Now()); err != nil {
+				return runstate.DocumentDelivery{RunID: saved.RunID}, fmt.Errorf("record the next attempt at retried document %s for the scheduler: %w", document.WriteID, err)
+			}
+		}
+		return runstate.DocumentDelivery{RunID: saved.RunID, Retrying: fmt.Sprintf("Document %s (%s), retried by the development manager, stopped in run %s without being judged: %s. The harness starts attempt %d of %d itself as a document landing frees.\n", document.WriteID, document.Candidate.Artifact.Title, saved.RunID, documentStopSays(saved), attempt+2, runstate.MaxDocumentAttempts)}, nil
+	}
 	return runstate.DocumentDelivery{RunID: saved.RunID, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and run %s stopped without judging it: %s. Nothing about the document was found wrong, so the harness runs the same text again (attempt %d of %d); it does not need writing again, and nothing is counted against it.\n", document.WriteID, document.Candidate.Artifact.Title, saved.RunID, documentStopSays(saved), attempt+2, runstate.MaxDocumentAttempts)}, nil
 }
 
@@ -259,34 +272,18 @@ func (p Pipeline) ResumableDocuments(conversationID string) ([]runstate.Document
 	if err != nil {
 		return nil, nil, err
 	}
-	// The last run of each handoff is the one with the highest attempt.
-	last := map[string]runstate.State{}
-	for _, state := range recorded {
-		if state.Document == nil || state.Document.ConversationID != conversationID {
-			continue
-		}
-		attempt := state.DocumentAttempt()
-		if attempt < 0 {
-			continue
-		}
-		if seen, ok := last[state.Document.WriteID]; !ok || seen.DocumentAttempt() < attempt {
-			last[state.Document.WriteID] = state
-		}
-	}
+	last := documentHandoffEnds(recorded, func(state runstate.State) bool { return state.Document.ConversationID == conversationID })
 	judged := map[string]int{}
-	latest := map[string]runstate.State{}
 	for _, state := range last {
-		id := state.Document.Candidate.Artifact.ID
 		if state.Status.Terminal() && state.Status != runstate.StatusSucceeded && state.DocumentJudged() {
-			judged[id]++
-		}
-		if seen, ok := latest[id]; !ok || state.Document.Turn > seen.Document.Turn || (state.Document.Turn == seen.Document.Turn && state.Document.WriteID > seen.Document.WriteID) {
-			latest[id] = state
+			judged[state.Document.Candidate.Artifact.ID]++
 		}
 	}
 	var resumable []runstate.DocumentPublication
-	for _, state := range latest {
-		if retryable(state) && !documentHandedOver(state) {
+	for _, state := range latestDocumentHandoffs(last) {
+		// A run the development manager decided is hers: a retry already put the
+		// same text into a handoff of its own, and a retirement withdrew it.
+		if retryable(state) && !documentHandedOver(state) && state.DocumentDecision == nil {
 			resumable = append(resumable, *state.Document)
 		}
 	}

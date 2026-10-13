@@ -148,11 +148,18 @@ const (
 	// is an override, on the same record, beside the decisions rather than among
 	// them.
 	decisionCross = "cross"
+	// decisionRetryDocument and decisionRetireDocument answer a stopped document
+	// publication, which has no work item and so no triage record: retrying lands
+	// the same confirmed text through a fresh run, and retiring closes its pull
+	// request. They are recorded on the run itself (see documentdecision.go), so
+	// they name the run and no item.
+	decisionRetryDocument  = runstate.DocumentDecisionRetry
+	decisionRetireDocument = runstate.DocumentDecisionRetire
 )
 
 // triageDecisions lists the vocabulary in the order the contract states it, so a
 // refusal names exactly what was available.
-var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross)
+var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross, decisionRetryDocument, decisionRetireDocument)
 
 // triageSettles is which docketed stoppage each decision is an answer to, and
 // therefore which entry it closes. It is a map from the vocabulary rather than a
@@ -201,6 +208,10 @@ var triageSettles = map[string]triageSettlement{
 	// Retiring a raise answers the raise, and only a raise: it is refused on a run
 	// that raised nothing before it gets this far.
 	decisionRetireRaise: {classes: []triage.Class{triage.ClassEscalation}},
+	// A stopped document publication is docketed as a stopped run and nothing
+	// else, so that is the entry both of its decisions answer.
+	decisionRetryDocument:  {classes: []triage.Class{triage.ClassStoppedRun}},
+	decisionRetireDocument: {classes: []triage.Class{triage.ClassStoppedRun}},
 }
 
 // runlessDecisions are the decisions that may be recorded on an attempt that
@@ -259,6 +270,10 @@ var triageVerbs = map[string]string{
 	// was are the whole of what makes the note answerable. This is the fallback
 	// nothing writes and the entry the vocabulary check reads.
 	decisionCross: "Triaged: one of its caps crossed on the development manager's own authority",
+	// A document publication has no item to write a note on, so these are the
+	// entries the vocabulary check reads and nothing more.
+	decisionRetryDocument:  "Triaged: its document landed again through a fresh run",
+	decisionRetireDocument: "Triaged: its document publication retired, its pull request closed",
 }
 
 // TriageBudgets is what one work item has already been given and may still be
@@ -423,6 +438,8 @@ func (a TrackerAction) triageProblems() []error {
 			decision, strings.Join(triageDecisions, ", ")))
 	}
 	switch run := strings.TrimSpace(a.Run); {
+	case run == "" && a.decidesDocument():
+		problems = append(problems, fmt.Errorf("triage %q requires \"run\", the stopped document publication's run the docket entry names", strings.TrimSpace(a.Decision)))
 	case run == "" && !runlessDecisions[strings.TrimSpace(a.Decision)]:
 		problems = append(problems, fmt.Errorf("triage requires \"run\", the run the docket entry names; only %q and %q may leave it out, for an attempt that never became a run, which names none",
 			decisionWait, decisionEscalate))
@@ -661,6 +678,14 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	id := strings.TrimSpace(action.ID)
 	decision := strings.TrimSpace(action.Decision)
 	run := strings.TrimSpace(action.Run)
+	if action.decidesDocument() {
+		s.carryOutDocumentDecision(ctx, outcome, decision, run)
+		return
+	}
+	if err := s.refuseDocumentRun(ctx, decision, run); err != nil {
+		outcome.refused(err)
+		return
+	}
 	if run == "" {
 		s.carryOutRunlessTriage(ctx, outcome, id, decision)
 		return

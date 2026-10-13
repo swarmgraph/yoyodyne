@@ -1045,6 +1045,14 @@ func (a TrackerAction) validateSubject() error {
 			return errors.New("directive does not take an id; it names the directive it ends in \"directive\", and a directive is not a work item")
 		}
 		return nil
+	case a.decidesDocument():
+		// A document publication has no work item: the decision names its run and
+		// is recorded there. An id naming the run's own record is accepted, since
+		// that is what the docket entry shows in the item's place.
+		if id != "" && id != strings.TrimSpace(a.Run) {
+			return fmt.Errorf("triage %q takes no id: it answers a document publication, which has no work item, so it names the run alone", strings.TrimSpace(a.Decision))
+		}
+		return nil
 	case id == "":
 		return fmt.Errorf("%s requires the id of the item to act on", a.Action)
 	default:
@@ -1056,6 +1064,9 @@ func (a TrackerAction) validateSubject() error {
 // is every operation but admitting new work and surveying the queue.
 func (a TrackerAction) actsOnExistingItem() bool {
 	if a.readsReport() {
+		return false
+	}
+	if a.decidesDocument() {
 		return false
 	}
 	switch a.Action {
