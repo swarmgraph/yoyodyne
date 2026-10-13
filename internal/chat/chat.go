@@ -588,8 +588,12 @@ type Options struct {
 	// measures it, before its next turn is sent without it and the conversation
 	// rebuilt from the record instead. Zero takes SessionBudgetBytes.
 	SessionBudgetBytes int
-	Clock              execution.Clock
-	NewID              func() (string, error)
+	// PassContextBytes is the most a recurring turn may start from, in bytes as
+	// the adapter measures a request. Zero takes a third of the serving
+	// endpoint's context window; see passcontext.go.
+	PassContextBytes int
+	Clock            execution.Clock
+	NewID            func() (string, error)
 	// Fresh starts a new conversation instead of resuming the recorded one.
 	Fresh bool
 	// TerminalSetup is the machine /terminal-setup changes the terminal's
@@ -611,6 +615,14 @@ type Session struct {
 	// where one is, so a lane report it writes is stamped with it. It is empty on
 	// an operator's own conversation.
 	pass string
+	// passFresh says the next message is a recurring turn's first, which starts
+	// a provider session of its own; ForPass sets it and Send takes it.
+	// freshPass is true while that message's first round is being taken, and
+	// passAccountInPrompt while a turn the operator opened carries the last
+	// recurring turn's account. See passcontext.go.
+	passFresh           bool
+	freshPass           bool
+	passAccountInPrompt bool
 	// proposals is what this process has seen the product manager propose and
 	// what the operator has decided about it. Every proposal and every decision
 	// is durable in the conversation's event log; this is the pending set a
@@ -1038,6 +1050,12 @@ type Reply struct {
 	Memories []MemoryOutcome `json:"memories,omitempty"`
 	// CompactionSaves are the memory turns taken before rebuilding a session.
 	CompactionSaves []CompactionSave `json:"compaction_saves,omitempty"`
+	// ProviderCompactions are the times the provider compacted the session this
+	// message's turns ran in, as it reported them.
+	ProviderCompactions []backend.ProviderCompaction `json:"provider_compactions,omitempty"`
+	// PassStart is what a recurring turn started from, on the message that
+	// started a provider session of its own; see passcontext.go.
+	PassStart *PassStart `json:"pass_start,omitempty"`
 	// LaneReport is what became of the lane report this reply carried: the
 	// version it became, or why it was refused and the report before it stands.
 	// A reply that carried none has none.
@@ -1128,6 +1146,10 @@ func Open(options Options) (*Session, error) {
 		if !options.Fresh {
 			session.adopt(existing)
 			session.resumed = true
+			// A recurring turn that set the conversation's session aside and
+			// never put it back was in a process that has gone, since this one
+			// could not have opened the conversation while that one held it.
+			session.putBackSessionAside()
 			return session, nil
 		}
 	case errors.Is(err, runstate.ErrNoConversation):
@@ -1439,6 +1461,15 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			s.stream.endMessage()
 		}
 	}
+	// A recurring turn's first message starts a provider session of its own;
+	// see passcontext.go. Only its first round does: the rounds after it are the
+	// harness handing back what that round asked for, in the session it began.
+	fresh := s.pass != "" && s.passFresh
+	s.passFresh = false
+	if fresh {
+		s.startFreshPass()
+		defer func() { s.freshPass = false }()
+	}
 	prompt := s.turnPrompt(trimmed, picture)
 	resultsInPrompt := s.state.PendingTrackerResults
 	// chargeTo is the exchange the next invocation belongs to, set when a round of
@@ -1466,6 +1497,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	operatorMessage := trimmed
 	for round := 0; ; round++ {
 		answer, err := s.takeTurn(ctx, prompt, operatorMessage, &reply, false, resultsInPrompt)
+		s.freshPass = false
 		if round == 0 && errors.Is(err, errTurnInputTooLarge) {
 			err = fmt.Errorf("%w: %w", ErrTurnUnassembled, err)
 		}
@@ -1821,6 +1853,14 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		prompt = continuation
 	}
 
+	// What a recurring turn said is kept for the next one, which starts in a
+	// session of its own and would otherwise not hear it.
+	if s.pass != "" {
+		s.carryPassForward(fresh, reply.Text)
+		if err := s.record(); err != nil {
+			return reply, err
+		}
+	}
 	// A turn with no recorded session cannot be resumed. The answer is real and
 	// is returned, but the operator has to know the conversation ends here.
 	if s.state.ProviderSessionID == "" {
@@ -1864,14 +1904,24 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	}
 	systemPrompt := WithRemit(SystemPrompt(s.state.Role, s.options.Admission, s.artifactFiling(), s.options.Persona), s.state.Role, s.options.Remit)
 	turnPrompt := prompt
-	prompt = s.renderMemories() + turnPrompt
+	lead := s.renderMemories()
 	if !savingMemory {
-		prompt = renderReplyCuts(s.state.ReplyCuts) + prompt
+		lead = renderReplyCuts(s.state.ReplyCuts) + lead
 	}
+	prompt = s.briefingFirst(lead, turnPrompt)
 	// The repository documents, the tracker's own text, and the operator's words
 	// all go to the provider, so anything recognizably sensitive is redacted on
 	// the way out rather than only in what comes back.
 	prompt = execution.NewRedactor(s.options.RedactValues...).Redact(prompt)
+	// A recurring turn's start is held to its bound before anything is recorded
+	// or sent; see passcontext.go.
+	if s.freshPass && !savingMemory {
+		bounded, err := s.boundPassStart(systemPrompt, prompt, reply)
+		if err != nil {
+			return "", err
+		}
+		prompt = bounded
+	}
 	if inputBytes := len(systemPrompt) + len(prompt); inputBytes > MaxTurnInputBytes {
 		return "", fmt.Errorf("conversation turn is %d bytes, limit is %d: %w", inputBytes, MaxTurnInputBytes, errTurnInputTooLarge)
 	}
@@ -2046,7 +2096,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// Which endpoint will serve is the failover's answer rather than a second
 	// reading of the same log taken here, so the preparation and the routing cannot
 	// come apart.
-	if !savingMemory && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
+	// A recurring turn starting a session of its own is the one turn with no
+	// session that is not rebuilt: what it starts from is the whole of what it is
+	// meant to have.
+	if !savingMemory && !s.freshPass && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
 		rebuilt, rebuildErr := s.rebuildForOwnEndpoint(request)
 		if rebuildErr != nil {
 			s.failoverProblem = appendProblem(s.failoverProblem, singleLine(rebuildErr.Error(), maxTrackerFailureBytes))
@@ -2209,9 +2262,18 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 				request.Prompt = s.renderMemories() + turnPrompt
 			} else {
 				turnPrompt = s.turnPrompt(retryMessage, nil)
-				request.Prompt = renderReplyCuts(s.state.ReplyCuts) + s.renderMemories() + turnPrompt
+				request.Prompt = s.briefingFirst(renderReplyCuts(s.state.ReplyCuts)+s.renderMemories(), turnPrompt)
 			}
 			request.Prompt = execution.NewRedactor(s.options.RedactValues...).Redact(request.Prompt)
+			if s.freshPass && !savingMemory {
+				// Another turn may have changed the memories and the picture, so
+				// the start is bounded again as it now reads.
+				bounded, boundErr := s.boundPassStart(systemPrompt, request.Prompt, reply)
+				if boundErr != nil {
+					return "", boundErr
+				}
+				request.Prompt = bounded
+			}
 			s.compacting = false
 			s.rebuiltFrom = nil
 			if !sizeRetried {
@@ -2255,7 +2317,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 					provider = s.meteredFailover(true)
 				}
 			}
-			if sizeRetried {
+			if sizeRetried && !s.freshPass {
 				// Another turn may have advanced the session and memories while
 				// we waited. Rebuild that newer record on the reduced allowance,
 				// including for a save, rather than returning to native history.
@@ -2269,7 +2331,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 				}
 				request = rebuilt
 			}
-			if !savingMemory && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
+			if !savingMemory && !s.freshPass && s.state.Turns > 0 && request.SessionID == "" && !policy.ServesElsewhere(request.Model) {
 				rebuilt, rebuildErr := s.rebuildForOwnEndpoint(request)
 				if rebuildErr != nil {
 					return "", rebuildErr
@@ -2303,6 +2365,11 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		s.stream.interrupted()
 	}
 	s.state.LastSequence = lastSequence
+	// What the provider compacted is recorded whichever way the turn ended: the
+	// session lost detail either way.
+	if compactErr := s.recordProviderCompactions(result, reply); compactErr != nil {
+		return "", errors.Join(compactErr, s.record())
+	}
 	// A reply this turn recorded cut is owed to the next turn whichever way this
 	// one ended: the record lost it either way.
 	if len(s.turnCuts) > 0 {
@@ -2382,8 +2449,9 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		s.state.ProviderSessionID = result.SessionID
 		// A fresh session has served a turn, so nothing is set aside any more.
 		s.state.SessionSetAside = ""
-	} else if s.compacting {
-		// A compacted turn left the old session behind, so a provider that named no
+	} else if s.compacting || s.freshPass {
+		// A compacted turn, or a recurring turn starting a session of its own,
+		// left the old session behind, so a provider that named no
 		// new one leaves nothing to resume. Keeping the old identifier would have the
 		// next turn resume the oversized session under a measure that calls it small.
 		s.state.ProviderSessionID = ""
@@ -2426,6 +2494,10 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if !savingMemory {
 		s.notices = nil
 		s.noticesDropped = false
+		if s.passAccountInPrompt {
+			s.state.PassAccountOwed = false
+			s.passAccountInPrompt = false
+		}
 		if resultsInPrompt != "" {
 			s.state.PendingTrackerResults = strings.Replace(s.state.PendingTrackerResults, resultsInPrompt, "", 1)
 		}
@@ -2437,7 +2509,13 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// The same is true of the picture: it stops being owed only once the turn that
 	// delivered it succeeded, and its text is kept as what the agent last received,
 	// which is what the next refresh's changes are measured against.
-	delivered := !savingMemory && s.carried != nil
+	// A recurring turn's picture went to a session of its own rather than the
+	// conversation's, so it is not recorded as the one the conversation was
+	// given: a refresh it carried is still owed to the conversation's session.
+	delivered := !savingMemory && s.carried != nil && s.pass == ""
+	if !savingMemory && s.pass != "" {
+		s.carried = nil
+	}
 	if delivered {
 		s.state.ContextGatheredAt = s.carried.GatheredAt
 		s.state.ContextCommit = s.carried.Commit
@@ -4316,7 +4394,21 @@ func (s *Session) pendingCards() []card {
 func (s *Session) turnPrompt(message string, picture *PictureAge) string {
 	var prompt strings.Builder
 	s.carriedChanges = false
+	s.passAccountInPrompt = false
 	switch {
+	case s.freshPass && s.refresh != nil:
+		// A recurring turn starts a session of its own, which has never held a
+		// picture, so it is given the whole of the refreshed one.
+		s.carried = &s.refresh.briefing
+		prompt.WriteString(s.refresh.briefing.Text)
+		prompt.WriteString("\n")
+	case s.freshPass:
+		s.carried = &s.options.Briefing
+		prompt.WriteString(s.options.Briefing.Text)
+		prompt.WriteString("\n")
+	case s.pass != "":
+		// A recurring turn's later message continues the session its first one
+		// started, which already holds the picture.
 	case s.refresh != nil && s.state.Turns == 0:
 		// Nothing has been said yet, so the refreshed picture is simply the
 		// briefing: there is no earlier one for it to be reconciled against.
@@ -4333,6 +4425,11 @@ func (s *Session) turnPrompt(message string, picture *PictureAge) string {
 	}
 	if picture != nil {
 		prompt.WriteString(picture.prompt())
+	}
+	if s.freshPass {
+		prompt.WriteString(s.renderPassStart())
+	} else if s.pass == "" {
+		prompt.WriteString(s.renderPassAccountForOperator())
 	}
 	prompt.WriteString(s.renderNotices())
 	// What other roles have proposed changing in this role's own documents, which

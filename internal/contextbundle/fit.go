@@ -38,6 +38,32 @@ var GiveWayOrder = []string{
 // FittedHeading opens the list of what a fitted briefing shortened or left out.
 const FittedHeading = "## Left out of this briefing to fit the provider"
 
+// PassHeading opens the list of the documents a recurring turn's briefing
+// leaves out; see PassContext.
+const PassHeading = "## Left out of what a recurring turn starts from"
+
+// fitWording is what a briefing that gave way says about it: the heading of
+// the list at its end, the sentence opening that list, and why a section in
+// place says it is missing.
+type fitWording struct {
+	heading string
+	lead    string
+	why     string
+}
+
+var (
+	providerFitWording = fitWording{
+		heading: FittedHeading,
+		lead:    "This briefing did not fit beside your instructions and this turn's evidence in what the provider serving this turn accepts, so the harness shortened it. Your own instructions, the standing goals, the section saying whether a brief and goals are recorded, the work items and docket, and this turn's evidence and message are carried whole. These sections gave way, in this order:",
+		why:     "to fit the provider serving this turn",
+	}
+	passWording = fitWording{
+		heading: PassHeading,
+		lead:    "A recurring turn starts from your instructions, your memories, the product intent whole, the work items and docket, your previous recurring turn's account and this turn's message. The documents below are left out of it, and are there to read when the turn needs one:",
+		why:     "of what a recurring turn starts from",
+	}
+)
+
 // minShortenedBytes is how little of a document is worth keeping rather than
 // leaving the whole of it out. Below it, a fragment costs the role more reading
 // than it tells it.
@@ -121,13 +147,29 @@ func BriefingSections(text string) []SectionSize {
 // place what became of it, and is listed under FittedHeading with how to read it
 // in full. A context already within the target comes back unchanged.
 func FitProductContext(text string, target int) Fit {
+	return fitKeeping(text, target, nil, providerFitWording)
+}
+
+// PassContext is the briefing a recurring turn starts from: the product intent
+// and the directory indexes whole, and every other document — the role's own
+// designs, decision records and invariants, the shipped documentation, the
+// command help — left out and listed with how to read it. A recurring turn
+// reads the documents it needs on demand rather than starting from all of
+// them. A briefing with nothing to leave out comes back unchanged.
+func PassContext(text string) Fit {
+	return fitKeeping(text, 0, map[string]bool{IntentHeading: true, "Directory index": true}, passWording)
+}
+
+// fitKeeping lets every section give way but the kinds kept, and says so in
+// wording's words.
+func fitKeeping(text string, target int, kept map[string]bool, wording fitWording) Fit {
 	if len(text) <= target {
 		return Fit{Text: text, Fits: true}
 	}
 	segments := splitBriefing(text)
 	candidates := make([]int, 0, len(segments))
 	for index, segment := range segments {
-		if segment.kind != "" {
+		if segment.kind != "" && !kept[segment.kind] {
 			candidates = append(candidates, index)
 		}
 	}
@@ -148,10 +190,10 @@ func FitProductContext(text string, target int) Fit {
 		segment := &segments[index]
 		// Charged at its longest, so a section that keeps part of itself always
 		// saves what it was cut for.
-		overhead := len(shortenedNote(len(segment.text), len(segment.text))) +
+		overhead := len(shortenedNote(wording, len(segment.text), len(segment.text))) +
 			len(renderFittedEntry(FittedSection{Kind: segment.kind, Path: segment.path, Bytes: len(segment.text), KeptBytes: len(segment.text)}))
 		if given == 0 {
-			overhead += len(renderFittedList(nil))
+			overhead += len(renderFittedList(wording, nil))
 		}
 		keep := len(segment.text) - len(segment.heading) - excess - overhead
 		if keep < minShortenedBytes {
@@ -160,8 +202,8 @@ func FitProductContext(text string, target int) Fit {
 		given++
 		segment.order = given
 		segment.fitted = &FittedSection{Kind: segment.kind, Path: segment.path, Bytes: len(segment.text)}
-		segment.text = renderGivenWay(*segment, keep)
-		fit.Text = joinBriefing(segments)
+		segment.text = renderGivenWay(wording, *segment, keep)
+		fit.Text = joinBriefing(wording, segments)
 	}
 	fit.Sections = fittedSections(segments)
 	fit.Fits = len(fit.Text) <= target
@@ -259,7 +301,7 @@ func giveWayRank(kind string) int {
 
 // renderGivenWay is a section after it has given way: its heading, the first
 // keep bytes of its text cut back to a line, and a note saying what is missing.
-func renderGivenWay(segment briefingSegment, keep int) string {
+func renderGivenWay(wording fitWording, segment briefingSegment, keep int) string {
 	body := strings.TrimPrefix(segment.text, segment.heading)
 	var kept string
 	if keep > 0 && keep < len(body) {
@@ -269,27 +311,27 @@ func renderGivenWay(segment briefingSegment, keep int) string {
 	}
 	segment.fitted.KeptBytes = len(kept)
 	if kept == "" {
-		return segment.heading + leftOutNote(segment.fitted.Bytes)
+		return segment.heading + leftOutNote(wording, segment.fitted.Bytes)
 	}
-	return segment.heading + kept + shortenedNote(len(kept), segment.fitted.Bytes)
+	return segment.heading + kept + shortenedNote(wording, len(kept), segment.fitted.Bytes)
 }
 
-func leftOutNote(bytes int) string {
-	return fmt.Sprintf("\n[Left out of this briefing to fit the provider serving this turn: this section is %d bytes. The list under %q, at the end of the briefing, says how to read it.]\n",
-		bytes, strings.TrimPrefix(FittedHeading, "## "))
+func leftOutNote(wording fitWording, bytes int) string {
+	return fmt.Sprintf("\n[Left out %s: this section is %d bytes. The list under %q, at the end of the briefing, says how to read it.]\n",
+		wording.why, bytes, strings.TrimPrefix(wording.heading, "## "))
 }
 
-func shortenedNote(kept, bytes int) string {
-	return fmt.Sprintf("\n[Shortened to fit the provider serving this turn: only the first %d of this section's %d bytes are above. The list under %q, at the end of the briefing, says how to read it in full.]\n",
-		kept, bytes, strings.TrimPrefix(FittedHeading, "## "))
+func shortenedNote(wording fitWording, kept, bytes int) string {
+	return fmt.Sprintf("\n[Shortened %s: only the first %d of this section's %d bytes are above. The list under %q, at the end of the briefing, says how to read it in full.]\n",
+		strings.Replace(wording.why, "of what", "to fit what", 1), kept, bytes, strings.TrimPrefix(wording.heading, "## "))
 }
 
-func joinBriefing(segments []briefingSegment) string {
+func joinBriefing(wording fitWording, segments []briefingSegment) string {
 	var joined strings.Builder
 	for _, segment := range segments {
 		joined.WriteString(segment.text)
 	}
-	return joined.String() + renderFittedList(fittedSections(segments))
+	return joined.String() + renderFittedList(wording, fittedSections(segments))
 }
 
 func fittedSections(segments []briefingSegment) []FittedSection {
@@ -310,10 +352,10 @@ func fittedSections(segments []briefingSegment) []FittedSection {
 // renderFittedList is the account a role is given of what its briefing lost,
 // with how to read each in full. Rendered for no sections, it is what the
 // account costs before its entries.
-func renderFittedList(sections []FittedSection) string {
+func renderFittedList(wording fitWording, sections []FittedSection) string {
 	var rendered strings.Builder
-	rendered.WriteString("\n" + FittedHeading + "\n\n")
-	rendered.WriteString("This briefing did not fit beside your instructions and this turn's evidence in what the provider serving this turn accepts, so the harness shortened it. Your own instructions, the standing goals, the section saying whether a brief and goals are recorded, the work items and docket, and this turn's evidence and message are carried whole. These sections gave way, in this order:\n\n")
+	rendered.WriteString("\n" + wording.heading + "\n\n")
+	rendered.WriteString(wording.lead + "\n\n")
 	for _, section := range sections {
 		rendered.WriteString(renderFittedEntry(section))
 	}

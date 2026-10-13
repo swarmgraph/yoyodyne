@@ -32,7 +32,8 @@ message from the command line, and every recurring role pass
 3. **`Options`** — everything one conversation is opened with: `Role`,
    `Backend`, `Store`, `Hold`, `Tracker`, `Documents`, `Memories`, `Reports`,
    `UsageLimits`, `ProviderOutages`, `Model`, `Effort`, the failover fields,
-   `Persona`, `Remit`, `Lane`, `Timeout`, `SessionBudgetBytes`, `Fresh`.
+   `Persona`, `Remit`, `Lane`, `Timeout`, `SessionBudgetBytes`,
+   `PassContextBytes`, `Fresh`.
 4. **`Session`** — one open conversation: `options`, `state` (the durable
    record), `pass` (set by `ForPass` for a recurring pass), pending
    proposals, concerns, writes, carried results, spend, effort evidence.
@@ -140,6 +141,20 @@ report block it sends `sweep.ReportRequest()` once (`RetryReport` /
 message by `Trigger.PassFailures`; who they go to is
 `ownership.ResolvePassFailure`.
 
+### What does a recurring turn start from?
+`passcontext.go`. `ForPass` arms it; `Send` calls `startFreshPass` for the
+message's first round, which sets the conversation's session aside on the
+record and sets `freshPass`, so `resumableSession` and `alternateSession`
+offer nothing and no rebuild replays history. `turnPrompt` carries the
+briefing and `renderPassStart` (the previous turn's account); `briefingFirst`
+puts the briefing ahead of the memories. `takeTurn` leaves the documents other
+than product intent out (`contextbundle.PassContext`) and holds the start to
+its bound with `boundPassStart` before anything is recorded, and
+records the provider's compactions with `recordProviderCompactions`. `Send`
+keeps the account with `carryPassForward`. `EndPass` (called by
+`roleConversation.Wake`) puts the conversation's session back, and `Open`
+does the same for a pass whose process died.
+
 ### Where are compaction and memory?
 `compact.go`: `compactionDue`, `saveBeforeCompaction` (one turn for the
 role to save memories first, built by `memorySaveRequest` and
@@ -213,6 +228,7 @@ removes them from the record once a turn has delivered them.
 | `document.go`, `documentpublication.go` | document writes, policy confirmation, durable publication and returns to the owner |
 | `sendinghold.go` | a hold on sending one document, lifted when its named work item closes; the notes a document leaves on the items it answers |
 | `compact.go`, `memory.go` | session compaction and the role's own memory |
+| `passcontext.go` | what a recurring turn starts from: a provider session of its own, the product intent with other documents left out, bounded to a third of the window, the previous turn's account carried forward, the conversation's session set aside and put back (`EndPass`), and compactions the provider reports |
 | `usagelimit.go`, `providerwait.go`, `provideroutage.go`, `hold.go` | provider refusals, waits that put the conversation down, the operator hold |
 | `rebuild.go` | continuing on a provider that never held the session |
 | `requestsize.go` | measuring the selected endpoint's input, shortening history and then the briefing before sending, and retrying a size refusal once |

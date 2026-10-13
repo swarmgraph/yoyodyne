@@ -54,8 +54,10 @@ func (b *conversationWaitBackend) Run(_ context.Context, request backendapi.RunR
 }
 
 // The maintenance message waits with its hold down. A real scheduled pass
-// takes that same conversation, then the original message resumes its latest
-// session and event sequence. Cancellation during the wait preserves the pass.
+// takes that same conversation in a provider session of its own, then the
+// original message carries on from the conversation's own session — here none,
+// since its first attempt was refused — at the latest event sequence, and is
+// given the pass's account. Cancellation during the wait preserves the pass.
 func TestAProviderWaitLetsAScheduledPassRunAndPreservesItsTurn(t *testing.T) {
 	for _, test := range []struct {
 		name    string
@@ -188,6 +190,11 @@ func TestAProviderWaitLetsAScheduledPassRunAndPreservesItsTurn(t *testing.T) {
 				wantTurns = 1
 			}
 			wantID, wantSession := conversationID, "session-after-pass"
+			if test.cancel {
+				// The pass's own session was put back to the conversation's, which
+				// held none.
+				wantSession = ""
+			}
 			if test.replace {
 				wantID, wantSession, wantTurns = replacementID, "", 0
 			}
@@ -197,8 +204,9 @@ func TestAProviderWaitLetsAScheduledPassRunAndPreservesItsTurn(t *testing.T) {
 			if test.cancel && recorded.PendingTrackerResults != pending {
 				t.Fatalf("the cancelled wait overwrote a later result: %+v", recorded)
 			}
-			if !test.cancel && !test.replace && (len(provider.requests) != 3 || provider.requests[2].SessionID != "session-after-pass" || !strings.Contains(provider.requests[2].Prompt, pending) || !strings.Contains(provider.requests[2].Prompt, "Verification pass")) {
-				t.Fatalf("the retry did not resume the pass's session: %+v", provider.requests)
+			if !test.cancel && !test.replace && (len(provider.requests) != 3 || provider.requests[2].SessionID != "" || !strings.Contains(provider.requests[2].Prompt, pending) ||
+				!strings.Contains(provider.requests[2].Prompt, "Verification pass") || !strings.Contains(provider.requests[2].Prompt, "looked at the docket")) {
+				t.Fatalf("the retry resumed the pass's session or lost what the pass said: %+v", provider.requests)
 			}
 			if (test.cancel || test.replace) && len(provider.requests) != 2 {
 				t.Fatalf("the stopped wait invoked a provider again: %+v", provider.requests)

@@ -63,6 +63,10 @@ const (
 	eventPatchApplyBegin   = "patch_apply_begin"
 	eventPatchApplyEnd     = "patch_apply_end"
 	eventTokenCount        = "token_count"
+	// eventContextCompacted is Codex's report that it compacted the session the
+	// turn is running in. Its non-interactive stream has not been seen to carry
+	// it, so an item whose type names a compaction is read the same way.
+	eventContextCompacted = "context_compacted"
 )
 
 // The newer vocabulary's names, each one seen in a recorded stream. An item is
@@ -400,6 +404,8 @@ func (p *streamParser) ParseLine(line string) error {
 		})
 	case eventTokenCount:
 		return p.parseTokenCount(message)
+	case eventContextCompacted:
+		return p.parseCompacted(message.Type, "")
 	case eventStreamError:
 		// The provider is retrying by itself. The dialect is asked anyway, so the
 		// answer for a retry in progress is the contract's rather than this
@@ -601,8 +607,22 @@ func (p *streamParser) parseItem(message providerMessage) error {
 			"error":         truncate(p.redactor.Redact(item.Message)),
 		})
 	default:
+		if strings.Contains(item.Type, "compact") {
+			return p.parseCompacted(message.Type, item.Type)
+		}
 		return p.parseUnrecognized(message.Type + " (" + item.Type + " item)")
 	}
+}
+
+// parseCompacted records that Codex compacted the session. It names no sizes,
+// so the compaction carries only when it was read.
+func (p *streamParser) parseCompacted(eventType, itemType string) error {
+	p.result.Compactions = append(p.result.Compactions, backend.ProviderCompaction{At: p.clock.Now().UTC()})
+	payload := map[string]any{"provider_type": eventType}
+	if itemType != "" {
+		payload["item_type"] = itemType
+	}
+	return p.emit(execution.EventProcessOutput, payload)
 }
 
 // parseTurnCompleted is the newer vocabulary's successful ending. It carries no

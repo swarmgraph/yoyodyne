@@ -90,6 +90,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -273,6 +274,10 @@ type Turn struct {
 	// account it is what says an item's design or ruling is finished and held
 	// rather than ruled, and what refuses that claim where no document backs it.
 	HeldForSending map[string]string `json:"held_for_sending,omitempty"`
+	// Compactions are the times the provider compacted the session the turn
+	// ran in, as it reported them. They are carried whichever way the turn went,
+	// and a turn compacted twice makes its pass partial.
+	Compactions []backend.ProviderCompaction `json:"compactions,omitempty"`
 }
 
 // ErrRoleUnreachable reports a firing that failed before the role was asked
@@ -1217,6 +1222,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			heldForSending = answered.HeldForSending
 		}
 		recorded.ReportsFiled += answered.ReportsFiled
+		for _, compaction := range answered.Compactions {
+			if len(recorded.Compactions) < runstate.MaxSweepCompactions {
+				recorded.Compactions = append(recorded.Compactions, compaction)
+			}
+		}
 		for _, admitted := range answered.Admitted {
 			if admitted = strings.TrimSpace(admitted); admitted != "" && len(recorded.Admitted) < runstate.MaxSweepSavedWrites {
 				recorded.Admitted = append(recorded.Admitted, admitted)
@@ -1280,6 +1290,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		if answered.ResultProblem != "" {
 			problems = append(problems, answered.ResultProblem)
 		}
+		// A turn starts from a third of the provider's window, so one the
+		// provider compacted twice outgrew that many times over while it worked,
+		// and lost detail each time. Its pass ends partial, and what it would
+		// have gone on to do waits for the next firing.
+		compactedTwice := len(answered.Compactions) >= 2
+		if compactedTwice {
+			fired.Truncated = true
+			problems = append(problems, fmt.Sprintf(
+				"the provider compacted turn %d of the recurring task %s %d times, so its pass is partial: what the compactions dropped is only in the %s's conversation record, and the rest waits for the next firing",
+				turn+1, name, len(answered.Compactions), task.Role))
+		}
 		if answered.Result == nil {
 			failed = true
 			problems = append(problems, fmt.Sprintf(
@@ -1300,9 +1321,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				merged.Status = sweep.StatusMore
 			}
 		}
-		if answered.Result == nil {
+		if answered.Result == nil || compactedTwice {
 			// Work cannot complete without its account; the next pass carries any
-			// unread docket entries and all writes this pass already saved.
+			// unread docket entries and all writes this pass already saved. A
+			// turn compacted twice ends the pass where it stands.
+			if compactedTwice && merged != nil {
+				merged.Status = sweep.StatusMore
+			}
 			break
 		}
 		if merged != nil && merged.Status != sweep.StatusMore {

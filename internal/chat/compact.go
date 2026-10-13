@@ -313,7 +313,7 @@ func (s *Session) measureSession(resumed bool, prompt, reply string) {
 // resumedOn reports whether the turn served on this endpoint continued a session
 // the record already held for it, rather than starting one.
 func (s *Session) resumedOn(serving backend.Endpoint) bool {
-	if s.compacting {
+	if s.compacting || s.freshPass {
 		return false
 	}
 	if serving.Provider == "" || serving.Provider == s.options.Provider {

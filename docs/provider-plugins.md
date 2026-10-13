@@ -85,6 +85,23 @@ callers that cannot reconstruct a conversation. A provider declaration uses its
 compiled adapter's bound; it cannot change the bound or grant authority through
 configuration.
 
+## Context window and compactions
+
+A compiled adapter may also expose `backend.ContextWindow`, stating how many
+tokens of context the model a request names holds. A recurring turn starts from
+at most a third of it, at about four bytes a token; see
+[what a recurring turn starts from](conversation.md#how-fresh-the-conversations-picture-is-and-how-to-refresh-it).
+The Claude Code adapter states 1,000,000 tokens for the opus and sonnet
+families and 200,000 for any other model. The Codex adapter states the 258,000
+tokens Codex compacts against. An adapter that states none is taken to hold
+200,000.
+
+An adapter reports each compaction the provider makes during an invocation on
+the result, as `RunResult.Compactions`, with the provider's sizes where it gave
+them. The Claude Code adapter reads `compact_boundary` and its size before
+compacting. The Codex adapter reads `context_compacted`, and an item whose type
+names a compaction, with no sizes.
+
 ## Executable setup and precedence
 
 Interactive role chats, scheduled turns, developer and reviewer runs, and

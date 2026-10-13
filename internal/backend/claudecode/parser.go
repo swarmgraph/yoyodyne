@@ -96,7 +96,23 @@ type streamEnvelope struct {
 	// discarding the parts this version does not act on is what made the
 	// question unanswerable the last time it was asked.
 	RateLimitInfo json.RawMessage `json:"rate_limit_info"`
+	// CompactMetadata is what a compact_boundary says about the compaction it
+	// marks: why it happened and how large the session was before it.
+	CompactMetadata *compactMetadata `json:"compact_metadata"`
 }
+
+// compactMetadata is Claude Code's account of one compaction. post_tokens is
+// read where a version reports it; the versions recorded so far report only
+// the size before.
+type compactMetadata struct {
+	Trigger    string `json:"trigger"`
+	PreTokens  int    `json:"pre_tokens"`
+	PostTokens int    `json:"post_tokens"`
+}
+
+// compactBoundarySubtype is the system event Claude Code writes where it has
+// compacted the session the invocation is running in.
+const compactBoundarySubtype = "compact_boundary"
 
 // Everything this parser used to know about rate limits, retries, and reset
 // times now lives in dialect.go, as one implementation of the provider contract
@@ -372,6 +388,23 @@ func (p *streamParser) parseSystem(envelope streamEnvelope) error {
 			"attempt":          envelope.Attempt,
 			"max_retries":      envelope.MaxRetries,
 			"error":            envelope.Error,
+		})
+	case compactBoundarySubtype:
+		compaction := backend.ProviderCompaction{At: p.clock.Now().UTC()}
+		if metadata := envelope.CompactMetadata; metadata != nil {
+			compaction.Trigger = truncate(metadata.Trigger)
+			compaction.BeforeTokens = max(metadata.PreTokens, 0)
+			compaction.AfterTokens = max(metadata.PostTokens, 0)
+		}
+		if !p.sawResult {
+			p.result.Compactions = append(p.result.Compactions, compaction)
+		}
+		return p.emit(execution.EventProcessOutput, map[string]any{
+			"provider_type":    envelope.Type,
+			"provider_subtype": envelope.Subtype,
+			"trigger":          compaction.Trigger,
+			"before_tokens":    compaction.BeforeTokens,
+			"after_tokens":     compaction.AfterTokens,
 		})
 	default:
 		return p.emit(execution.EventProcessOutput, map[string]any{

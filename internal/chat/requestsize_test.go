@@ -114,7 +114,7 @@ func TestProviderRequestSizeShortensAnOversizedCompactionAndKeepsDurableRecords(
 			// Reproduce compaction plus a large current docket. The save must finish
 			// before shortening, and neither the docket nor new evidence may be cut.
 			session.options.SessionBudgetBytes = 1
-			session.ForPass("development-manager-sweep")
+			continuePass(session, "development-manager-sweep")
 			waiting := "Current docket and evidence: " + strings.Repeat("e", 90<<10)
 			before := len(provider.requests)
 			if test.retrySave {
@@ -237,7 +237,7 @@ func TestProviderRequestSizeRejectionRetriesAPassOnceWithAShorterRequest(t *test
 			provider := &sizedConversationBackend{speakingBackend: &speakingBackend{}}
 			session := sizeTestHistory(t, testOptions(t, provider), provider.speakingBackend)
 			session.state.ProviderSessionID = ""
-			session.ForPass("test-sweep")
+			continuePass(session, "test-sweep")
 			last := backendapi.RunResult{SessionID: "new", FinalText: "Pass completed."}
 			if rejectsAgain {
 				last = backendapi.RunResult{IsError: true, FinalText: recordedCodexSizeRefusal}
@@ -409,7 +409,7 @@ func TestProviderRequestSizeMemorySaveRetriesOnlyOnce(t *testing.T) {
 	options.Memories = memories
 	session := sizeTestHistory(t, options, provider.speakingBackend)
 	session.options.SessionBudgetBytes = 1
-	session.ForPass("test-sweep")
+	continuePass(session, "test-sweep")
 	before := len(provider.requests)
 	refusal := backendapi.RunResult{IsError: true, FinalText: recordedCodexSizeRefusal}
 	provider.results = append(provider.results, refusal, refusal)
@@ -473,7 +473,7 @@ func TestProviderRequestSizeRecoverySurvivesACapacityWait(t *testing.T) {
 			if test.savingMemory {
 				session.options.SessionBudgetBytes = 1
 			}
-			session.ForPass("test-sweep")
+			continuePass(session, "test-sweep")
 			before := len(provider.requests)
 			refusal := backendapi.RunResult{IsError: true, FinalText: recordedCodexSizeRefusal}
 			capacity := refusedForCapacity(clock.now.Add(30 * time.Minute))
@@ -609,4 +609,14 @@ func TestProviderRequestSizeAlternateRecoverySurvivesACapacityWait(t *testing.T)
 	if continued.LastSequence <= shorter.LastSequence {
 		t.Fatal("alternate's continuation reused event numbers")
 	}
+}
+
+// continuePass marks the session's turns as a pass's later ones, which continue
+// the session the pass's first message began rather than starting another. The
+// tests above are about a session that is resumed, rebuilt, compacted or
+// shortened, which a recurring turn's first message never is: it starts from a
+// bounded context of its own; see passcontext.go.
+func continuePass(session *Session, pass string) {
+	session.ForPass(pass)
+	session.passFresh = false
 }

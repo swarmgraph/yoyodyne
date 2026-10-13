@@ -624,6 +624,7 @@ var productSectionHeadings = map[string]bool{
 	"## Specifications that do not follow the required structure": true,
 	"## Specifications omitted for size":                          true,
 	FittedHeading:                                                 true,
+	PassHeading:                                                   true,
 }
 
 // SectionHeading reports whether one line of an assembled product context opens
