@@ -55,6 +55,19 @@ func neverDocketedBesideAStoppage(t *testing.T) *rerunHarness {
 	return harness
 }
 
+// neverDocketedThenAnotherDecided is neverDocketedBesideAStoppage with the
+// docketed stoppage decided afterwards, as a wait, so the item's latest decision
+// is about another run than the re-run is. The re-run still holds the item.
+func neverDocketedThenAnotherDecided(t *testing.T) *rerunHarness {
+	t.Helper()
+	harness := neverDocketedBesideAStoppage(t)
+	if _, err := harness.runs.Triage().RecordDecision(context.Background(), docketedItem,
+		triageDecided(runstate.TriageDecisionWait, docketedRunID), docketedNow.Add(time.Minute)); err != nil {
+		t.Fatalf("RecordDecision() error = %v", err)
+	}
+	return harness
+}
+
 func TestARerunOfARunTheDocketNeverHeldIsCarriedOut(t *testing.T) {
 	t.Parallel()
 
@@ -64,6 +77,7 @@ func TestARerunOfARunTheDocketNeverHeldIsCarriedOut(t *testing.T) {
 	}{
 		{name: "no other entry for the item", harness: neverDocketedHarness},
 		{name: "another entry for the item", harness: neverDocketedBesideAStoppage},
+		{name: "another entry decided after the re-run", harness: neverDocketedThenAnotherDecided},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -119,6 +133,7 @@ func TestARefusedRerunOfARunTheDocketNeverHeldReleasesItsItemAndSaysWhy(t *testi
 	}{
 		{name: "no other entry for the item", harness: neverDocketedHarness},
 		{name: "another entry for the item", harness: neverDocketedBesideAStoppage, heldAfter: true},
+		{name: "another entry decided after the re-run", harness: neverDocketedThenAnotherDecided, heldAfter: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

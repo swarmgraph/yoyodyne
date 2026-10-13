@@ -1822,7 +1822,10 @@ from the target branch, claimed under the key the docket would have given the
 run, so that run is re-run once like any stoppage. Every gate a re-run asks
 still applies, and the run only has to have ended. It is carried out whether or
 not anything else of the item is on the docket: the pass looks for decisions on
-every item the harness holds a run of, which are the items whose holds it reads.
+every item the harness holds a run of, which are the items whose holds it reads,
+and a re-run is attempted even where a later decision about another of the
+item's runs, such as a wait, came after it, because the re-run still holds the
+item.
 Until the pass starts it, the item's hold says it waits on the harness; a re-run
 refused for a cause that will not clear, over a run that left no branch or
 worktree, releases the item and says so on it, as

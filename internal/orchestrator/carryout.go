@@ -373,9 +373,11 @@ type heldDecision struct {
 // cancelled on its way out, say — has a decision no entry leads to. An item with
 // no entry at all is walked too, because the hold reads every item with a run
 // (readmodel's holdDecisions), and a decision that holds an item nothing here
-// walks is one nobody attempts and nobody refuses (yoyodyne-ifd.428.94). Only the
-// latest is taken there, because an earlier decision about another of the item's
-// runs is one she has since decided past.
+// walks is one nobody attempts and nobody refuses (yoyodyne-ifd.428.94). Of the
+// other kinds only the latest is taken there, because an earlier decision about
+// another of the item's runs is one she has since decided past; a re-run still
+// standing is taken whatever came after it, for the reason undocketedDecisions
+// gives.
 func (c CarryOut) read() (carryOutReading, error) {
 	if err := c.validate(); err != nil {
 		return carryOutReading{}, err
@@ -529,27 +531,25 @@ func (c CarryOut) read() (carryOutReading, error) {
 		if item.problem != nil {
 			continue
 		}
-		latest, found := item.latestDecision()
-		if !found || docketed[latest.RunID] {
-			continue
-		}
-		// A re-run is answered by any run of the item started since it was
-		// decided, as the hold reads it (readmodel's decisionHold): offering it
-		// again would start the item a second time beside that run.
-		if latest.Decision == runstate.TriageDecisionRerun {
-			if since, err := startedSince(workItemID, latest, history); err != nil {
-				problems = append(problems, err)
-				continue
-			} else if since {
-				continue
+		for _, decision := range undocketedDecisions(item, docketed) {
+			// A re-run is answered by any run of the item started since it was
+			// decided, as the hold reads it (readmodel's decisionHold): offering it
+			// again would start the item a second time beside that run.
+			if decision.Decision == runstate.TriageDecisionRerun {
+				if since, err := startedSince(workItemID, decision, history); err != nil {
+					problems = append(problems, err)
+					continue
+				} else if since {
+					continue
+				}
 			}
+			consider(triage.Entry{
+				Key:        triage.Key(triage.ClassStoppedRun, decision.RunID),
+				Class:      triage.ClassStoppedRun,
+				RunID:      decision.RunID,
+				WorkItemID: workItemID,
+			}, item)
 		}
-		consider(triage.Entry{
-			Key:        triage.Key(triage.ClassStoppedRun, latest.RunID),
-			Class:      triage.ClassStoppedRun,
-			RunID:      latest.RunID,
-			WorkItemID: workItemID,
-		}, item)
 	}
 	// A re-arm is fired on its own path, and what that path holds back is written
 	// down here with everything else the sweep holds back, so a re-arm no pass
@@ -1503,6 +1503,36 @@ func (c CarryOut) DeliverNotes(ctx context.Context) error {
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// undocketedDecisions is what the second walk of read considers for one item:
+// its latest decision, of whatever kind, and every re-run still standing about a
+// run, each where no stopped-run entry stands for the run it is about.
+//
+// A re-run is taken whether or not it is the latest, because the hold judges each
+// run's decision on its own (readmodel's holdDecisions): a re-run about a run the
+// docket never held, followed by a wait or a re-scope about another of the item's
+// runs, still holds the item, so it has to be attempted or refused rather than
+// passed over as decided past (yoyodyne-ifd.428.94). A re-run superseded by a
+// later decision about the same run is not standing, and is not taken.
+func undocketedDecisions(item outstandingItem, docketed map[string]bool) []runstate.TriageDecision {
+	var decisions []runstate.TriageDecision
+	taken := make(map[string]bool)
+	if latest, found := item.latestDecision(); found && !docketed[latest.RunID] {
+		decisions = append(decisions, latest)
+		taken[latest.RunID] = true
+	}
+	for _, decision := range item.counters.Decisions {
+		if decision.Decision != runstate.TriageDecisionRerun || docketed[decision.RunID] || taken[decision.RunID] {
+			continue
+		}
+		if current, found := item.counters.DecisionOf(decision.RunID); !found || current != decision {
+			continue
+		}
+		decisions = append(decisions, decision)
+		taken[decision.RunID] = true
+	}
+	return decisions
 }
 
 // startedSince reports a run of the item other than the one a decision is about
