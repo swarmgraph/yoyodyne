@@ -56,9 +56,17 @@ message from the command line, and every recurring role pass
     `emit` (appends a harness event to the log).
 11. **The console loop.** `Converse` → `converse` (one line in, one answer
     out; lines starting with `/` go to `command` in `steer.go`), `speak`
-    (watches the keyboard so Esc or Ctrl-C stops the turn, which it records
-    and reports as `ErrTurnStopped`), `speakUntil` (calls `Send` with progress
-    on screen), `reportSpend`, `awaitOperator`
+    (Esc or Ctrl-C stops the turn, which it records and reports as
+    `ErrTurnStopped`; on a console that is a `console.Waiting` the keys are
+    read by the prompt kept open beside the turn, and anywhere else by
+    `WatchForStop`), `speakUntil` (calls `Send` with progress on screen; on a
+    `console.Waiting` it runs `Send` on a goroutine of its own and keeps the
+    prompt open beside it in `composeDuringTurn`, where a sent message waits
+    and a command runs at once through `commandDuringTurn` unless
+    `waitsForTurn` in `steer.go` says why it waits; `turncommand.go` carries
+    it out on a copy of the conversation, and `speak` writes what it kept
+    once the turn ends), `nextMessage` (a waiting message before the
+    prompt), `reportSpend`, `awaitOperator`
     (puts the conversation down at the prompt), `takeConversationBack`,
     `AwaitConversation`, `ask`, `choose`, `await`.
 12. **Printing what a turn did.** `reportTrackerActions`, `reportResearch`,
@@ -233,6 +241,7 @@ removes them from the record once a turn has delivered them.
 | `rebuild.go` | continuing on a provider that never held the session |
 | `requestsize.go` | measuring the selected endpoint's input, shortening history and then the briefing before sending, and retrying a size refusal once |
 | `steer.go`, `work.go`, `milestone.go` | console slash commands: `/work`, `/stop`, surveys (`SurveyWork`), `StartWork`, `StopWork` |
+| `turncommand.go` | a command typed while a turn is being answered: carried out at once on a copy of the conversation, what it would write kept and written when the turn ends |
 | `triage.go`, `triagestop.go`, `repair.go` | development manager decisions on stopped runs |
 | `proposal.go`, `admission.go`, `resemblance.go`, `condition.go`, `concern.go`, `decision.go`, `withdraw.go` | proposals, admission without asking, duplicates, concerns, batch decisions |
 | `origin.go` | reading an admission's origin back out of an older item's notes, for `yoyo goals origins`; the origin an admission records is `creationOrigin` in `admission.go` |

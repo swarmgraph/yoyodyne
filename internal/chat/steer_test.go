@@ -1033,7 +1033,12 @@ func TestNoticesToTheProductManagerAreBounded(t *testing.T) {
 // exactly what it was asked to do, which is what makes "only the operator
 // steers work" an assertion rather than a claim.
 type fakeWork struct {
-	mu         sync.Mutex
+	mu sync.Mutex
+	// runs is the context each run was started under, and running is told as
+	// each starts, so a test can ask a run's own context whether it is still
+	// live rather than wait to see whether the run noticed.
+	runs       []context.Context
+	running    chan struct{}
 	survey     Survey
 	surveyErr  error
 	queue      backlog.Queue
@@ -1097,8 +1102,12 @@ func (f *fakeWork) Run(ctx context.Context, workItemID string, selection Selecti
 	f.mu.Lock()
 	f.started = append(f.started, workItemID)
 	f.selections = append(f.selections, selection)
-	gate, ignoreCancel := f.gate, f.ignoreCancel
+	f.runs = append(f.runs, ctx)
+	gate, ignoreCancel, running := f.gate, f.ignoreCancel, f.running
 	f.mu.Unlock()
+	if running != nil {
+		running <- struct{}{}
+	}
 	if gate != nil {
 		if ignoreCancel {
 			<-gate

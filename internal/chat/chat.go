@@ -9,6 +9,7 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -716,6 +717,13 @@ type Session struct {
 	// shownReply says the answer to the message being handled has already been
 	// read on screen as it formed, so the conversation does not write it again.
 	shownReply bool
+	// turn is the turn being answered while the operator can type beside it, and
+	// what the commands they typed would have written (turncommand.go). It is
+	// set and read only on the goroutine reading their typing.
+	turn *turnInFlight
+	// stopTurn stops the turn being answered, for the prompt open beside it to
+	// call when the operator presses a key that stops one (speak).
+	stopTurn func()
 	// turnCostUSD is what the provider charged for the message being answered,
 	// summed across the rounds it took, and sessionCostUSD is what this process
 	// has spent on the conversation. Both are what the provider reported rather
@@ -3352,7 +3360,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		message, err := s.awaitOperator(ctx, screen, harness)
+		message, err := s.nextMessage(ctx, screen, harness)
 		if errors.Is(err, io.EOF) {
 			return nil
 		}
@@ -3595,7 +3603,23 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 func (s *Session) speak(ctx context.Context, screen console.Console, message string) (Reply, error) {
 	turn, cancel := context.WithCancel(ctx)
 	defer cancel()
-	stop, unwatch := screen.WatchForStop()
+	var (
+		stop    <-chan struct{}
+		unwatch func()
+	)
+	if waiting, ok := screen.(console.Waiting); ok {
+		// The operator types beside the turn here, and the prompt they type at is
+		// what reads the keyboard: a second reader would take keys from it. So
+		// the stop keys are read by the prompt (composeDuringTurn), which closes
+		// this when one is pressed.
+		stopKeys := make(chan struct{})
+		var once sync.Once
+		s.stopTurn = func() { once.Do(func() { close(stopKeys) }) }
+		stop, unwatch = stopKeys, waiting.BesideTurn()
+		defer func() { s.stopTurn = nil }()
+	} else {
+		stop, unwatch = screen.WatchForStop()
+	}
 	defer unwatch()
 	var stopped atomic.Bool
 	go func() {
@@ -3606,10 +3630,11 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 		case <-turn.Done():
 		}
 	}()
-	reply, err := s.speakUntil(turn, screen, message)
+	reply, err := s.speakUntil(turn, ctx, screen, message)
 	// A turn that finished as the key was pressed was not stopped: its answer
 	// arrived and is shown. Only a turn the stop ended reports one.
 	if err == nil || !stopped.Load() || ctx.Err() != nil {
+		s.writeCommandsKept(screen)
 		return reply, err
 	}
 	// A turn stopped while it waited out a provider was stopped with the
@@ -3626,6 +3651,7 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 	if recordErr := s.emit(execution.EventTurnStopped, map[string]any{"by": "operator"}); recordErr != nil {
 		return reply, errors.Join(ErrTurnStopped, recordErr)
 	}
+	s.writeCommandsKept(screen)
 	return reply, ErrTurnStopped
 }
 
@@ -3636,7 +3662,12 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 var ErrTurnStopped = errors.New("you stopped the turn before the answer was finished")
 
 // speakUntil is speak's turn itself, under the context the stop keys cancel.
-func (s *Session) speakUntil(ctx context.Context, screen console.Console, message string) (Reply, error) {
+// conversation is the context the conversation itself runs under, which the
+// prompt kept open beside the turn and every command typed there run under
+// instead: a run /work starts there belongs to the conversation, and has to
+// outlive the turn it was typed during, whether that turn is answered or
+// stopped.
+func (s *Session) speakUntil(ctx, conversation context.Context, screen console.Console, message string) (Reply, error) {
 	display := screen.Working(phaseSending)
 	s.activity = &turnActivity{display: display, phase: phaseSending}
 	// Where the console may be dressed, the answer is read as it is written and
@@ -3653,9 +3684,124 @@ func (s *Session) speakUntil(ctx context.Context, screen console.Console, messag
 		s.stream = nil
 		s.typing = false
 	}()
-	reply, err := s.Send(ctx, message)
+	waiting, ok := screen.(console.Waiting)
+	if !ok {
+		reply, err := s.Send(ctx, message)
+		s.shownReply = stream.end()
+		return reply, err
+	}
+	// On a console that can keep a message waiting, the prompt stays open under
+	// the account of the turn, so the operator can write the next thing while
+	// this one is answered rather than watch a spinner until it is. The turn is
+	// the only thing that runs beside the prompt: everything else here, the
+	// commands that run at once among it, is on this goroutine.
+	var (
+		reply Reply
+		err   error
+	)
+	// The conversation as it stands now is what a command typed during the turn
+	// is carried out against; it is taken here, before the turn's goroutine
+	// exists, because from then on the record is the turn's.
+	s.turn = &turnInFlight{began: s.state}
+	answered := make(chan struct{})
+	go func() {
+		defer close(answered)
+		reply, err = s.Send(ctx, message)
+	}()
+	s.composeDuringTurn(conversation, screen, waiting, answered)
+	<-answered
 	s.shownReply = stream.end()
+	// What the commands typed beside the turn would have written is written by
+	// speak (writeCommandsKept), once a stopped turn has taken the conversation
+	// back and said it was stopped.
 	return reply, err
+}
+
+// composeDuringTurn reads what the operator sends while a turn is being
+// answered, until the turn ends. A message waits on screen and goes as the next
+// message once the answer has arrived, which is what nextMessage takes it for;
+// until then it can be taken back with up, changed, and sent again, or emptied
+// away. A command is the operator asking the harness rather than the agent, so
+// it runs at once, with what it would write into the conversation kept until
+// the turn ends (turncommand.go); the few that cannot run beside a turn wait
+// with the messages (waitsForTurn says which, and why).
+//
+// What is being typed when the answer arrives is kept exactly as it is, and the
+// next prompt picks it up, the same way a run finishing mid-line is reported
+// without costing the operator what they had typed.
+func (s *Session) composeDuringTurn(ctx context.Context, screen console.Console, waiting console.Waiting, answered <-chan struct{}) {
+	harness := s.theme.Harness(screen)
+	for {
+		line, err := screen.Prompt(ctx, operatorPrompt, answered)
+		if errors.Is(err, console.ErrStopTurn) {
+			// The turn is stopped and the prompt stays open while it winds down,
+			// so what was being typed is still there to finish.
+			if s.stopTurn != nil {
+				s.stopTurn()
+			}
+			continue
+		}
+		if err != nil {
+			// The answer arrived, the input ended, or the conversation was
+			// cancelled. Only the first leaves anything to do, and it is done once
+			// the turn has finished being recorded: the next prompt either way
+			// meets the same end of input or the same cancellation, and says so.
+			return
+		}
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		console.Remember(screen, line)
+		if IsCommand(line) {
+			why, waits := waitsForTurn(line)
+			if !waits {
+				s.commandDuringTurn(ctx, line, screen, harness)
+				continue
+			}
+			// Said once, as it is sent, so a command shown waiting is not taken
+			// for one the harness failed to notice.
+			name, _ := splitCommand(line)
+			fmt.Fprintf(harness, "%s waits for the answer: %s.\n", name, why)
+		}
+		// It is written into the transcript when it is sent, not now: written now
+		// it would sit in the middle of an answer it was never part of.
+		waiting.Wait(line)
+	}
+}
+
+// commandDuringTurn carries out a command while a turn is being answered. The
+// command and its answer are gathered before either is written, so they land
+// above the composing line together rather than interleaved with the reply
+// arriving beside them.
+func (s *Session) commandDuringTurn(ctx context.Context, line string, screen console.Console, harness io.Writer) {
+	fmt.Fprintf(screen, "%s%s\n", operatorPrompt, line)
+	var answer bytes.Buffer
+	if _, err := s.dispatchDuringTurn(ctx, line, &answer); err != nil {
+		fmt.Fprintf(&answer, "%v\n\n", err)
+	}
+	harness.Write(answer.Bytes())
+}
+
+// nextMessage is what the operator says next: the oldest message they sent
+// while the last answer was being worked on, if one is still waiting, and
+// otherwise whatever they type at the prompt. A waiting message is taken with
+// the conversation still held, because nothing was put down while it waited,
+// and it is written into the transcript under the prompt it was typed at, so
+// what was said and when still reads in order.
+func (s *Session) nextMessage(ctx context.Context, screen console.Console, harness io.Writer) (string, error) {
+	if waiting, ok := screen.(console.Waiting); ok {
+		if message, taken := waiting.NextWaiting(); taken {
+			// What a run crossed or how it ended while the last answer was being
+			// written is said before the next message goes, as the prompt would
+			// have said it.
+			s.reportMilestones(harness)
+			s.reportFinishedWork(harness)
+			fmt.Fprintf(screen, "%s%s\n", operatorPrompt, message)
+			return message, nil
+		}
+	}
+	return s.awaitOperator(ctx, screen, harness)
 }
 
 // reportSpend leaves what the conversation has cost on the line that rests

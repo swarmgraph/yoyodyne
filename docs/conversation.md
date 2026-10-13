@@ -2876,11 +2876,13 @@ Esc and Ctrl-C work as they do in Claude Code. While a turn is being answered,
 Esc stops it and puts you back at the prompt with the conversation intact; the
 conversation's record says you stopped it, nothing the Lead Product Manager
 asked for after that is carried out, and anything it had already done is
-reported as usual. Ctrl-C stops a turn the same way. At the prompt, Ctrl-C
+reported as usual. Ctrl-C stops a turn the same way, except that where you
+have started typing beside the turn it clears that first, as it does at any
+prompt, and a second press stops the turn. At the prompt, Ctrl-C
 clears what you are typing — Ctrl-Y puts it back — and on an empty prompt it
 says that pressing it again ends the conversation; a second press within two
-seconds does. Anything else you type while a turn is being answered waits for
-the prompt, as it always has. Esc on its own is told apart from the keys whose
+seconds does. Anything else you type while a turn is being answered goes into
+the line under it, described below. Esc on its own is told apart from the keys whose
 sequences begin with the same byte by waiting a tenth of a second for anything
 to follow it, so over a very slow connection an arrow key can occasionally
 arrive as Esc. Ctrl-C is read as a key only while yoyo is reading the keyboard
@@ -2909,6 +2911,31 @@ that keeps moving through a stall looks like progress, and looking like progress
 is worse than saying nothing. It ends by naming the key that stops the turn,
 `esc to stop`. It is drawn above the line you are typing and erased when there
 is a reply to read, so it is never in your way and never in the scrollback.
+
+The line you type in stays open under it the whole time, so you can write your
+next message while the answer is still arriving. Return sends it, but not yet:
+it is shown under the account of the turn as `waiting to send:` and goes as your
+next message the moment the answer has arrived, after anything you are asked to
+decide about that answer. Until then it is still yours. Up on an empty line takes
+the last waiting message back into the line, where you can change it and send it
+again, or empty it, which withdraws it. Several can wait at once and go in the
+order you sent them, each as its own message. A message still waiting when the
+conversation ends is left on screen marked `not sent:`. Stopping the turn with
+Esc leaves what is waiting as it was, so it goes once the stop has been said. A
+command typed while a
+turn is being answered runs at once and answers above the line: `/hold` holds
+intake, `/stop` stops the run, `/directive` is in force, and `/status` reads the
+harness, there and then. What a command writes into this conversation's own log
+— the entry saying it was done, and the note the Lead Product Manager is told on
+its next turn — is written the moment the answer has arrived, because the turn
+numbers the log's entries as they arrive and an entry slipped in beside it would
+take a number the turn is about to use. Four commands wait with the messages
+instead, and say so when you send them: `/refresh`, because it replaces the
+picture the answer is being written from; `/wait`, because it would stop you
+typing until the run finished; and `/exit` and `/quit`, which end the
+conversation once the answer has arrived. This is a terminal's: a
+conversation held over a stream reads your next line once the answer is written,
+as it always has.
 
 The reply itself arrives while it is being written rather than all at once when
 it is finished. The provider reports the Lead Product Manager's message before the
