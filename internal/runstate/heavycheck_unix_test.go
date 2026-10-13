@@ -70,6 +70,18 @@ func launchHeld(t *testing.T, grant *HeavyCheckGrant, script string) *exec.Cmd {
 	return command
 }
 
+// leftover is a script that leaves a process behind in its group and exits,
+// and the way to end that process. The process runs until stop is called or
+// for at most sixty seconds, so it outlives its check however slowly a loaded
+// machine runs the test, and ends by itself however the test ends.
+func leftover(t *testing.T) (script string, stop func()) {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "stop")
+	stop = func() { _ = os.WriteFile(marker, nil, 0o600) }
+	t.Cleanup(stop)
+	return "end=$(( $(date +%s) + 60 )); ( while [ ! -e '" + marker + "' ] && [ \"$(date +%s)\" -lt \"$end\" ]; do sleep 0.1; done ) & exit 0", stop
+}
+
 func recordOf(t *testing.T, store *HeavyCheckStore) HeavyCheckRecord {
 	t.Helper()
 	record, err := store.Record()
@@ -193,7 +205,8 @@ func TestAChildThatOutlivesItsCheckKeepsThePlace(t *testing.T) {
 	store := newHeavyCheckStoreForTest(t)
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	command := launchHeld(t, grant, "sleep 3 & exit 0")
+	script, stop := leftover(t)
+	command := launchHeld(t, grant, script)
 	_ = command.Wait()
 	kept, err := grant.Finish("succeeded, exit code 0")
 	if err != nil {
@@ -207,6 +220,9 @@ func TestAChildThatOutlivesItsCheckKeepsThePlace(t *testing.T) {
 	}
 	granted, waiting, failed := acquireLater(store, heavyAsk("run-b", "make race", 1, domain.HeavyCheckOrdinary))
 	expectWaiting(t, waiting, failed)
+	expectStillWaiting(t, granted, failed)
+	// The leftover process goes, and the place with it.
+	stop()
 	second := expectGranted(t, granted, failed)
 	released, _ := recordOf(t, store).Permit(kept.ID)
 	if released.State != HeavyCheckReleased || released.ReleasedAt.After(*second.Permit.GrantedAt) {
@@ -475,7 +491,8 @@ func TestAPlaceIsReleasedByHandWithWhoAndWhy(t *testing.T) {
 	store := newHeavyCheckStoreForTest(t)
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	command := launchHeld(t, grant, "sleep 6 & exit 0")
+	script, _ := leftover(t)
+	command := launchHeld(t, grant, script)
 	_ = command.Wait()
 	kept, _ := grant.Finish("succeeded, exit code 0")
 	if !kept.Stuck() {

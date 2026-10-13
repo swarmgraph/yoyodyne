@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
@@ -18,8 +19,7 @@ import (
 
 // A place kept for a check's leftover process is listed with why, is refused
 // to a developer's process, and is given back by the development manager or a
-// person, recorded with who and why. The leftover process ends by itself
-// within ten seconds whatever the test does.
+// person, recorded with who and why.
 func TestAKeptHeavyCheckPlaceIsListedAndGivenBackByHand(t *testing.T) {
 	// Not parallel: the state root and the role marker are this process's
 	// environment.
@@ -39,7 +39,11 @@ func TestAKeptHeavyCheckPlaceIsListedAndGivenBackByHand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("/bin/sh", "-c", "sleep 10 & exit 0")
+	// The leftover process runs until the test ends, or for at most sixty
+	// seconds, so it outlives its check however loaded the machine is.
+	marker := filepath.Join(t.TempDir(), "stop")
+	t.Cleanup(func() { _ = os.WriteFile(marker, nil, 0o600) })
+	command := exec.Command("/bin/sh", "-c", "end=$(( $(date +%s) + 60 )); ( while [ ! -e '"+marker+"' ] && [ \"$(date +%s)\" -lt \"$end\" ]; do sleep 0.1; done ) & exit 0")
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.ExtraFiles = []*os.File{grant.Hold()}
 	if err := command.Start(); err != nil {
