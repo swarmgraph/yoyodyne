@@ -1,7 +1,7 @@
 ---
 id: management-and-supervision
 kind: design
-title: "Management and supervision: the typed request contract and process residency"
+title: 'Management and supervision: the typed request contract and process residency'
 supports:
     - v1-goals
 status: active
@@ -34,8 +34,17 @@ revisions:
       by: architect
       at: 2026-09-25T04:00:00Z
       reason: yoyodyne-ifd.430.6 companion - the program manager joins the ask channel, and the supervisor takes its bounded restart request as the one role request it executes, under its own bounds and never from a noticing surface
+    - action: amended
+      by: architect
+      at: 2026-10-13T10:43:25.67514Z
+      reason: 'yoyodyne-ifd.437.44 - the dashboard is no longer described as a read-only projection: since the v1 non-goals were revised on October 11, its only acts are the operator''s own decisions, carried out by the code the command line runs; the companion revision of observability-and-dashboard lists those acts'
+approvals:
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-10-13T10:43:25.67514Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 775, for document-775.1 under the automatic approval policy
 ---
-
 # Management and supervision: the typed request contract and process residency
 
 ## What this is for
@@ -80,7 +89,7 @@ A role resolves what its own authority covers, and requests the role that owns w
 
 ## Process residency and the service shape
 
-The long-term shape is **one durable interaction and state service**, with local chat, Slack, and the CLI as conversational clients and the dashboard as a read-only projection — "one pane" means shared state and supervision, not one literal interface. The residency direction: `yoyo chat` is the single entry point; the **product manager supervises the resident subprocesses, the Slack sink included**; today's chat-spawns-subprocesses shape is explicitly interim, on the way to a headless product-manager service — under launchd on macOS, the tested platform — with chat as a thin attach-detach client. The supervising process holds the Slack tokens and **constructs every child's environment by allowlist, never inheritance**, so no provider subprocess ever receives them; that construction is the enforced boundary and is covered by a test. Separately started services are acceptable while they keep clean service boundaries and health/readiness hooks; model sessions are execution details and are never the durable conversation record. Process separation now must not force a new state model later.
+The long-term shape is **one durable interaction and state service**, with local chat, Slack, and the CLI as conversational clients and the dashboard as a projection whose only acts are the operator's own decisions, carried out by the same code the command line runs — "one pane" means shared state and supervision, not one literal interface. The residency direction: `yoyo chat` is the single entry point; the **product manager supervises the resident subprocesses, the Slack sink included**; today's chat-spawns-subprocesses shape is explicitly interim, on the way to a headless product-manager service — under launchd on macOS, the tested platform — with chat as a thin attach-detach client. The supervising process holds the Slack tokens and **constructs every child's environment by allowlist, never inheritance**, so no provider subprocess ever receives them; that construction is the enforced boundary and is covered by a test. Separately started services are acceptable while they keep clean service boundaries and health/readiness hooks; model sessions are execution details and are never the durable conversation record. Process separation now must not force a new state model later.
 
 A watch session takes up a build installed over it by itself: between runs, never interrupting one. The takeover happens only at a boundary where the process has nothing in flight; the new process reattaches through the normal lease machinery; and pinned workflow instances continue on their pinned definitions and authority — a new binary changes the executor, never in-flight work's contract. This is settled here rather than deferred: a later headless supervisor inherits this behavior rather than re-deciding it.
 
