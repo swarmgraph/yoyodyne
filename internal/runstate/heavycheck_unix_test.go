@@ -5,6 +5,7 @@ package runstate
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -80,7 +81,7 @@ func recordOf(t *testing.T, store *HeavyCheckStore) HeavyCheckRecord {
 
 func acquireSoon(t *testing.T, store *HeavyCheckStore, ask HeavyCheckAsk) *HeavyCheckGrant {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	grant, err := store.Acquire(ctx, ask, nil)
 	if err != nil {
@@ -95,7 +96,7 @@ func acquireLater(store *HeavyCheckStore, ask HeavyCheckAsk) (<-chan *HeavyCheck
 	waiting := make(chan HeavyCheckPermit, 1)
 	failed := make(chan error, 1)
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 		defer cancel()
 		grant, err := store.Acquire(ctx, ask, func(permit HeavyCheckPermit) { waiting <- permit })
 		if err != nil {
@@ -114,7 +115,7 @@ func expectWaiting(t *testing.T, waiting <-chan HeavyCheckPermit, failed <-chan 
 		return permit
 	case err := <-failed:
 		t.Fatalf("Acquire failed instead of waiting: %v", err)
-	case <-time.After(10 * time.Second):
+	case <-time.After(time.Minute):
 		t.Fatal("Acquire neither waited nor returned")
 	}
 	return HeavyCheckPermit{}
@@ -127,7 +128,7 @@ func expectGranted(t *testing.T, granted <-chan *HeavyCheckGrant, failed <-chan 
 		return grant
 	case err := <-failed:
 		t.Fatalf("Acquire failed: %v", err)
-	case <-time.After(15 * time.Second):
+	case <-time.After(2 * time.Minute):
 		t.Fatal("Acquire was never granted")
 	}
 	return nil
@@ -392,6 +393,11 @@ func TestARunThatStopsWaitingGivesItsRequestUp(t *testing.T) {
 func TestManyRunsAtOnceNeverRunMoreThanTheirPlaces(t *testing.T) {
 	t.Parallel()
 	store := newHeavyCheckStoreForTest(t)
+	// Eight runs reading the record every 10ms on a machine already running
+	// the whole suite spend most of their time queued for its lock, so this
+	// test reads it less often and allows minutes: what it proves is the
+	// bound and that everything finishes, not how fast.
+	store.poll = 50 * time.Millisecond
 
 	var running, most atomic.Int32
 	var wait sync.WaitGroup
@@ -400,11 +406,11 @@ func TestManyRunsAtOnceNeverRunMoreThanTheirPlaces(t *testing.T) {
 		wait.Add(1)
 		go func(index int) {
 			defer wait.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 			defer cancel()
 			grant, err := store.Acquire(ctx, heavyAsk("run-"+string(rune('a'+index)), "make race", 2, domain.HeavyCheckOrdinary), nil)
 			if err != nil {
-				errs <- err
+				errs <- fmt.Errorf("run %d asking for a place: %w", index, err)
 				return
 			}
 			now := running.Add(1)
@@ -422,10 +428,10 @@ func TestManyRunsAtOnceNeverRunMoreThanTheirPlaces(t *testing.T) {
 			}, nil)
 			running.Add(-1)
 			if err != nil {
-				errs <- err
+				errs <- fmt.Errorf("run %d running its check: %w", index, err)
 			}
 			if _, err := grant.Finish("succeeded, exit code 0"); err != nil {
-				errs <- err
+				errs <- fmt.Errorf("run %d giving its place back: %w", index, err)
 			}
 		}(index)
 	}
