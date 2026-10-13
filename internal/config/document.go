@@ -197,6 +197,10 @@ type approvalsDocument struct {
 	WorkItemExemptions *[]domain.WorkItemClass `yaml:"work_item_exemptions"`
 	Integration        *domain.ApprovalMode    `yaml:"integration"`
 	Publishing         *domain.ApprovalMode    `yaml:"publishing"`
+	// Releases is absent from every file written before the harness could cut
+	// a release, and a layer that does not supply it leaves the harness default
+	// of a person cutting it in place.
+	Releases *domain.ApprovalMode `yaml:"releases"`
 }
 
 // slackDocument deliberately has no operators key. A file that still carries one

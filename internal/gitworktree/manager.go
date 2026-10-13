@@ -440,6 +440,13 @@ const (
 	harnessCommitAuthorEmail = "harness@yoyodyne.invalid"
 )
 
+// HarnessIdentity is the name and email the harness's own Git objects carry,
+// for a writer outside this package: the release tag internal/releasecut makes
+// is the harness's act in the same way an integration commit is.
+func HarnessIdentity() (name, email string) {
+	return harnessCommitAuthorName, harnessCommitAuthorEmail
+}
+
 var (
 	// ErrNoChanges reports that there is nothing to integrate. It is a refusal,
 	// not a failure: an empty commit would claim work that does not exist.

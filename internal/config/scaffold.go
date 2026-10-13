@@ -446,6 +446,11 @@ conversation:
 # refused unless it is actually gated by the checks below and a reviewer agent,
 # and publishing is what pushes a branch and opens a pull request where other
 # people can see it.
+#
+# Releases are opted in to the same way. "human" leaves cutting a release your
+# Lead Product Manager decided, and pushing its tag, to you; "automatic" has
+# the harness cut it and push the tag once the release item's reviewed run has
+# landed its notes and their readiness stamp.
 approvals:
   brief: %s
   goals: %s
@@ -453,6 +458,7 @@ approvals:
   work_items: %s
   integration: %s
   publishing: %s
+  releases: %s
 `,
 		effective.Product.Specifications,
 		effective.Product.Invariants,
@@ -493,6 +499,7 @@ approvals:
 		effective.Approvals.WorkItems,
 		effective.Approvals.Integration,
 		effective.Approvals.Publishing,
+		effective.Approvals.Releases,
 	)
 
 	renderScaffoldIntent(&builder, effective.Intent)

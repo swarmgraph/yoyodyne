@@ -45,6 +45,22 @@
 # opened for it where the forge's command line is installed; the cut after
 # that merge finds the result on the default branch and goes through.
 #
+# The harness runs this too, as the gates of a cut it makes itself under
+# approvals.releases: automatic, with YOYODYNE_RELEASE_CUT=automatic in the
+# environment (internal/releasecut). That mode prepares nothing and tags
+# nothing, because preparing the notes and stamping them is the release item's
+# reviewed run and the tag, its push, and the record of both are the harness's.
+# So in it: notes that are missing, or a readiness result that is not current,
+# refuse with exit status 3 and write nothing -- no draft, no branch, no pull
+# request -- which is the harness's cue to hand the release back to the Lead
+# Product Manager; a checkout on a detached HEAD is accepted, because the
+# harness cuts in a worktree of its own at the commit origin's default branch
+# holds, and that commit is still required to be what origin holds; origin
+# being unreachable refuses rather than being named as unchecked, because
+# HEAD at origin's default branch is a gate the harness cannot skip; and once
+# every gate is green it prints the commit they ran on and exits 0 with no tag
+# written.
+#
 # Requires git 1.9 or newer, for the `:(exclude)` pathspec the cleanliness
 # check uses. Also make, go, python3 -- which compares and stamps the readiness
 # result here as well as rendering the draft in scripts/release-notes.sh --
@@ -106,6 +122,15 @@ step()   { printf '\n=== %s\n' "$*"; }
 # question is always whether anything was left behind. Nothing was, unless the
 # refusal says so.
 refuse() { printf '\ncut-release: %s\n' "$*" >&2; exit 1; }
+# Whether the harness is running this as the gates of its own cut; see the
+# header. Anything else is a person's cut, exactly as before.
+automatic=0
+[ "${YOYODYNE_RELEASE_CUT:-}" = "automatic" ] && automatic=1
+# A refusal over the release's preparation, in the harness's mode: the notes
+# or their readiness result are the release item's reviewed run to land, so
+# the harness hands the release back rather than preparing it itself. Its own
+# exit status is how the harness tells it from a red gate.
+refuse_preparation() { printf '\ncut-release: %s\n' "$*" >&2; exit 3; }
 
 walk_log=""
 readiness=""
@@ -167,7 +192,10 @@ default_branch="$(git -C "$repository" symbolic-ref --quiet --short refs/remotes
 default_branch="${default_branch#origin/}"
 [ -n "$default_branch" ] || default_branch="main"
 branch="$(git -C "$repository" branch --show-current)"
-if [ "$branch" != "$default_branch" ]; then
+# The harness's worktree is detached at the commit origin's default branch
+# holds, which the check below still requires; a branch other than the default
+# is refused in either mode.
+if [ "$branch" != "$default_branch" ] && { [ "$automatic" != "1" ] || [ -n "$branch" ]; }; then
   refuse "a release is cut from $default_branch; this checkout is on \"${branch:-a detached HEAD}\""
 fi
 
@@ -186,6 +214,8 @@ if git -C "$repository" fetch --quiet origin "$default_branch" 2>/dev/null; then
   fi
   printf 'origin/%s agrees\n' "$default_branch"
   origin_reachable=1
+elif [ "$automatic" = "1" ]; then
+  refuse "origin is unreachable, so whether HEAD is where origin/$default_branch is could not be checked, and the harness cuts nothing it has not checked"
 else
   printf 'SKIPPED: origin is unreachable, so whether HEAD is current was not checked\n'
 fi
@@ -279,6 +309,9 @@ step "gate: this release's notes"
 # items that landed and the cut refuses, leaving the operator a file to read,
 # place, and commit. The tag then names a commit that carries its own notes.
 notes_file="$notes_home/$tag.md"
+if [ ! -f "$notes_file" ] && [ "$automatic" = "1" ]; then
+  refuse_preparation "docs/releases/$tag.md is not on $default_branch, so $tag was not cut and nothing was written. The release item's reviewed run drafts and curates the notes; the harness does not draft them"
+fi
 if [ ! -f "$notes_file" ]; then
   printf '%s has no notes yet, so they are drafted here from what landed since\n' "$tag"
   printf 'the last tag. Nothing else has been written and no tag exists.\n\n'
@@ -411,6 +444,9 @@ else
   esac
 fi
 
+if [ "$stamp_current" != "1" ] && [ "$automatic" = "1" ]; then
+  refuse_preparation "docs/releases/$tag.md on $default_branch does not carry a readiness result matching this reading, so $tag was not cut and nothing was written. The release item's reviewed run stamps it with yoyo conformance --notes; the harness opens no pull request for it"
+fi
 if [ "$stamp_current" != "1" ]; then
   # The branch carries the tag and the commit the stamp was taken against, so a
   # second cut at the same commit -- the operator running it again before the
@@ -503,6 +539,13 @@ if [ "$origin_reachable" = "1" ]; then
   else
     printf 'SKIPPED: origin became unreachable, so whether %s still holds %s was not checked\n' "$default_branch" "$head"
   fi
+fi
+# The harness's mode stops here: the tag, its push, and the record of both are
+# the harness's, made against the commit this names (see the header).
+if [ "$automatic" = "1" ]; then
+  printf '\n=== gates green\n'
+  printf 'checked commit: %s\n' "$head"
+  exit 0
 fi
 # Last, and only now: everything above passed, so this tag never needs undoing.
 # On the commit the gates ran on, by hash, so a tree the walkthrough left dirty

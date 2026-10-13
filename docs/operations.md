@@ -370,7 +370,7 @@ services:
     every: 10m     # the default; a minute is the shortest
 ```
 
-Each pass takes six steps, in this order, and each is recorded:
+Each pass takes seven steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -399,11 +399,20 @@ Each pass takes six steps, in this order, and each is recorded:
   still being moved.
 - **slack** — where the sink stands: `yoyo slack ensure`, which the supervisor's
   own look at the sink already takes every few seconds.
+- **release** — a release the Lead Product Manager decided, cut and its tag
+  pushed by the harness where `approvals.releases` is `automatic`, and said
+  to be a person's where it is `human`, the default.
+  [Cutting a decided release](#cutting-a-decided-release) is the whole of it.
+  Its gates take the better part of an hour, so the cut runs beside the passes
+  rather than inside one: a pass starts it, the passes taken meanwhile say it
+  is under way, and the pass that finds it finished records what it came to.
+  While one is under way the supervisor takes up no deployed build.
 
-The pass writes no tracker status of its own. The one step that touches the
-tracker is `yoyo reconcile`, whose every write is a settlement the harness
-records with a note on the item; nothing here runs `bd`, so there is no
-`bd update --status` for anybody to miss, which is what an operator's script
+The pass writes no tracker status of its own. `yoyo reconcile` writes
+settlements, each one recorded with a note on its item. The release step reads
+the tracker to find a decided release and writes only notes, appended to that
+release's own item. Nothing here runs `bd update --status`, so there is none
+for anybody to miss, which is what an operator's script
 beside the old job did to four items on 2026-09-18. And the scheduler is never
 stopped by it: a watch session takes a deployed build up itself, between the
 runs it hosts, under [`execution.redeploy_drain_limit`](#a-session-draining-to-restart-into-a-deployed-build),
@@ -417,13 +426,14 @@ skipped or failed in capitals and saying why:
 
 ```text
 2026-09-29T17:00:00Z  maintenance (the supervisor's own pass, no role woken)
-  3 step(s) ran, 3 skipped, 0 failed
+  3 step(s) ran, 4 skipped, 0 failed
   - provider: ran, answering
   - reconcile: ran, yoyo reconcile exited 0: settled 0 runs
   - rebuild: ran, /Users/you/github/yoyodyne/bin/yoyo is built from main's tip 3d3d367a1b2c
   - restart-requests: SKIPPED, no program manager has an open restart request
   - redeploy: SKIPPED, every part is on the deployed build 3d3d367a1b2c; nothing to take up
   - slack: SKIPPED, the sink is not enabled in the services section
+  - release: SKIPPED, approvals.releases is human, so a release the Lead Product Manager decided is cut by a person with make release
 ```
 
 `yoyo sweeps --task maintenance` reads them alone. A pass with a failed step
@@ -434,6 +444,100 @@ pass twice, and a recurring task may not be named `maintenance`. A product
 whose maintenance part is off gets none of this: `yoyo reconcile` is then yours
 to schedule, and the supervisor stays on the build it was started from until it
 is restarted.
+
+#### Cutting a decided release
+
+A release is decided by the Lead Product Manager. Her sweep admits a release
+item titled for its version, such as `Cut v0.6.0: …`, and that item is the
+decision. Its own reviewed run does the preparation: it drafts and curates
+`docs/releases/<version>.md`, stamps the readiness result into it with
+`yoyo conformance --notes`, and lands both on `main` through review like any
+other change. What remains is the cut and the tag push, and who does them is
+`approvals.releases`:
+
+```yaml
+approvals:
+  releases: automatic   # the harness cuts; "human", the default, leaves it to you
+```
+
+**Under `human`** the cut is yours, exactly as
+[cutting a release](developing-yoyo.md#cutting-a-release) describes:
+`make release VERSION=<version>` in the primary checkout, then the
+`git push origin <version>` it prints. The maintenance pass's release step
+says so and does nothing else.
+
+**Under `automatic`** the maintenance pass cuts it. On a pass with nothing
+else in the way, the step:
+
+1. finds the lowest-numbered release item that the Lead Product Manager
+   admitted, that is not closed, and whose tag origin does not hold;
+2. reads the commit origin's default branch holds, and starts from that;
+3. checks that `docs/releases/<version>.md` is there at that commit, and that
+   it last changed after the release was decided;
+4. runs every gate a person's cut runs, in a worktree of its own detached at
+   that commit under the product's state directory: `HEAD` at `origin/main`
+   with a clean tree, the notes, release readiness matching the notes' stamp,
+   the adoption walkthrough, `make check`, and the release build. These are
+   `scripts/cut-release.sh` itself, run with `YOYODYNE_RELEASE_CUT=automatic`,
+   which drafts nothing, opens no pull request, and tags nothing. The worktree
+   is removed afterwards;
+5. records its intent to cut in `release-cuts.json` under the product's state
+   directory, before any tag exists: the version, the commit, the verdict and
+   definition the readiness stamp records, the notes' digest, the gates that
+   passed, and which process cut;
+6. writes an annotated tag on that commit under the harness's own identity
+   (`Yoyodyne Harness`), pushes the tag alone to `execution.remote`, and reads
+   origin back to confirm it holds the tag on that commit;
+7. records the push on the release item, in a note naming the commit, the
+   gates, and the readiness verdict, and on the pass, and files a `warning` so
+   the channel says it. The Lead Product Manager closes the item on that note.
+
+The tag push is what [the release workflow](../.github/workflows/release.yml)
+publishes from, so the archives that ship are built by the workflow from the
+tagged commit. The archives the gate builds in the cut's worktree only prove
+the build works, and they are removed with the worktree.
+
+What it will not do:
+
+- **Prepare anything.** Notes that are missing, older than the release
+  decision, or carrying a readiness result that no longer matches a fresh
+  reading refuse the cut. Nothing is drafted, committed, or opened, and the
+  release goes back to the Lead Product Manager: a note on its item and a
+  `warning` report saying its reviewed run has the notes or the stamp still to
+  land. That happens once for each version of the notes, however often `main`
+  moves.
+- **Cut over a red gate.** A red walkthrough, `make check`, or build writes no
+  tag. It is noted on the release item, once for each distinct failure, and
+  that commit is not gated again. The next cut is tried once origin's default
+  branch has moved on.
+- **Cut while you have paused the harness.** `yoyo pause` stops the release
+  step until you resume. The intake hold does not, because a cut chooses no
+  work.
+- **Cut more than one release a day**, or a version whose tag is already on
+  origin. One a day is the release schedule you delegated to the Lead Product
+  Manager, which her sweep is told and her release items state, and the cut
+  holds to it as well. A tag in this repository that is not on origin and that the harness
+  did not make is left for whoever made it.
+- **Deploy.** A release is not a deploy, and nothing here starts one.
+
+**An interrupted cut is finished from its record.** If the pass is killed, or
+the push is lost, after the intent is recorded, the next pass reads where the
+tag stands and acts on it:
+
+| What the next pass finds | What it does |
+|---|---|
+| no tag here or on origin, and origin's default branch still at the recorded commit | writes the tag, pushes it, and confirms it, without running the gates again |
+| no tag here or on origin, and origin's default branch has moved on | marks the intent stale; the pass after starts a fresh cut and runs every gate again |
+| the tag here on the recorded commit, not on origin | pushes it and confirms it |
+| origin holding the tag on the recorded commit | adopts it as pushed: the earlier push landed |
+| the tag, here or on origin, on any other commit | holds the release for the Lead Product Manager to choose a new version, with a note and a `warning`; nothing is moved or deleted |
+| origin not answering | tries again on the next pass, counted; the third pass that cannot confirm the tag holds the release for the Lead Product Manager the same way |
+
+A release held this way is not cut again under that version.
+
+**The manual alternative stays.** Set `approvals.releases` back to `human`, or
+leave it there, and `make release` is the cut. A tag you push by hand is
+seen by the next pass, which then leaves that version alone.
 
 **Retiring the hand-rolled scripts.** With the launch agent installed and the
 maintenance part on, nothing the operator's two scripts did is left to them.

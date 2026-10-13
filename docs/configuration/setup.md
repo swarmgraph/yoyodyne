@@ -219,6 +219,7 @@ approvals:
   work_items: human
   integration: human
   publishing: human
+  releases: human
 
 services:           # the parts of the product, each on or off; see Services
   slack:
@@ -419,7 +420,8 @@ Up to three layers produce the effective configuration, later ones winning:
    `execution.check_timeout` (`30m`),
    `triage.stuck_merge_age` (`2h`),
    `triage.review_rounds_cap` (4),
-   `approvals.publishing` (`human`), `approvals.work_items` (`human`), an
+   `approvals.publishing` (`human`), `approvals.work_items` (`human`),
+   `approvals.releases` (`human`), an
    agent's `instances` (1), and every value under [`services`](../configuration.md#services):
    `services.slack.enabled` (`false`), `services.dashboard.enabled` (`false`),
    `services.dashboard.port` (8765), `services.dashboard.bind` (`127.0.0.1`),
@@ -431,15 +433,17 @@ Up to three layers produce the effective configuration, later ones winning:
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been
    applied, and is floored at 1 for a project that repairs nothing routinely.
-   `approvals.publishing` and `approvals.work_items` are the only approvals with
-   a harness default, because they are the ones added after configurations
-   existed, and a file that mentions neither loads rather than failing over a key
-   that did not exist when it was written. The bundle states both at the same
-   value the default holds, so extending it inherits neither and upgrading the
-   executable moves neither. Both are opt-ins, and an opt-in that arrived by
-   inheritance would not be one.
+   `approvals.publishing`, `approvals.work_items`, and `approvals.releases` are
+   the only approvals with a harness default, because they are the ones added
+   after configurations existed, and a file that mentions none of them loads
+   rather than failing over a key that did not exist when it was written. The
+   bundle states all three at the same value the default holds, so extending it
+   inherits none of them and upgrading the executable moves none of them. All
+   three are opt-ins, and an opt-in that arrived by inheritance would not be one.
+   `releases: human` is exactly what a file written before it got: a person cuts
+   every release.
 
-   **`work_items` is the one of the two that changes an existing project's
+   **`work_items` is the one of the three that changes an existing project's
    behavior**, and it is worth being plain about rather than leaving to be
    discovered. `publishing: human` is exactly what a file written before it got:
    the harness publishes nothing. `work_items: human` is not, because before this

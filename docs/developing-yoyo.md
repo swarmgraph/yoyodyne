@@ -769,6 +769,24 @@ drives a scratch remote whose `main` refuses every direct push through the
 two-cut loop to a pushed tag, and `make test` runs it, so changing the verb is
 checked by the same command as changing anything else.
 
+**The harness can cut it instead.** A release the Lead Product Manager decided
+has its own work item, and that item's reviewed run is where the notes are
+drafted, curated, and stamped. Its change lands them on `main` like any other.
+Under `approvals.releases: automatic` the supervisor's maintenance pass then
+runs this same verb, with `YOYODYNE_RELEASE_CUT=automatic`, as the gates of a
+cut it makes itself, and pushes the tag under the harness's identity.
+[Cutting a decided release](operations.md#cutting-a-decided-release) says what
+it checks, what it refuses, and how an interrupted cut is finished. In that
+mode the verb prepares nothing and tags nothing. Notes that are missing, or a
+readiness result that is not current, make it exit 3, writing no draft, no
+branch, and no pull request, and the harness hands the release back to the Lead
+Product Manager. A checkout on a detached `HEAD` is accepted, because the
+harness cuts in a worktree of its own at the commit `origin/main` holds, and
+that commit is still required to be what origin holds. Origin being unreachable
+refuses the cut rather than being named as unchecked. Once every gate is green,
+the verb prints `checked commit: <commit>` and exits 0 without writing a tag.
+Under `human`, the default, everything above is yours, unchanged.
+
 ## Release readiness
 
 `make check` says the code does what its tests say. A tag says more than that:
@@ -818,6 +836,13 @@ anything is stamped.
 
 A release nobody can read is a release nobody adopts, so
 [`docs/releases/<tag>.md`](releases/README.md) is a gate rather than a courtesy.
+For a release the Lead Product Manager decided, the loop below is the release
+item's reviewed run, not yours. It drafts the notes with
+`scripts/release-notes.sh`, curates them, puts the section
+`yoyo conformance --notes` prints between the readiness markers, and lands the
+file through review. The harness's cut then finds it on `main`
+([above](#cutting-a-release)). What follows is the manual cut, which is what a
+project under `approvals.releases: human` runs.
 The cut checks for it before it spends the walkthrough, and a tag with no notes
 is the first of the two refusals that leave something behind: it drafts them
 and stops. The second is the readiness stamp, committed on a branch and opened

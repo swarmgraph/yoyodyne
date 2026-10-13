@@ -92,6 +92,7 @@ var strictSites = map[string]strictSite{
 	// Gates: a refusal the caller declines to proceed on and reports.
 	"internal/runstate/hold.go:(*OperatorHoldStore).Held":                         {strictValidator, "a hold nobody can read is never spent through as though it were absent; the read model reports it as a problem and the sink reads it past"},
 	"internal/runstate/intake.go:(*IntakeHoldStore).Held":                         {strictValidator, "an intake hold nobody can read is never taken for a clear one; the read model reports it and the sink reads it past"},
+	"internal/runstate/releasecut.go:(*ReleaseCutStore).List":                     {strictWriter, "the release cuts are read by the cut that writes them back, and a record it could not read whole could lose an intent to push a tag"},
 	"internal/runstate/provideroutage.go:(*ProviderOutageStore).Standing":         {strictValidator, "an outage nobody can read is never started through; the read model reports it and the sink reads it past"},
 	"internal/runstate/launchsettingshold.go:(*LaunchSettingsHoldStore).Standing": {strictWriter, "a hold on developers nobody can read is never pulled through as though absent, and the same read precedes every write of the record"},
 	"internal/runstate/divergedtarget.go:(*DivergedTargetStore).Standing":         {strictWriter, "a divergence nobody can read is never pulled through as though absent, and the same read precedes every write of the record"},

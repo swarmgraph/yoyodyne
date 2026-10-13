@@ -1072,6 +1072,91 @@ else
   fail "expected v0.3.0, got: $(tags "$project")"
 fi
 
+# cut_automatic runs the fabricated verb the way the harness runs it, as the
+# gates of a cut the harness makes itself, and sets status to how it exited:
+# the harness tells a refusal over preparation from a red gate by it.
+cut_automatic() {
+  local project="$1"; shift
+  if output="$(cd "$project" && PATH="$project/bin:$PATH" YOYODYNE_RELEASE_CUT=automatic \
+      "$project/scripts/cut-release.sh" "$@" 2>&1)"; then status=0; else status=$?; fi
+}
+
+# detach leaves a fabricated repository's checkout on a detached HEAD at the
+# commit it is on, which is how the harness's own worktree for a cut stands.
+detach() { git -C "$1" checkout -q --detach HEAD; }
+
+step "the harness's cut: missing notes hand the release back, drafting nothing"
+project="$(fabricate automatic-absent green green absent)"
+origin_for "$project" >/dev/null
+detach "$project"
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "3" ]; then pass "it exits 3, the status that hands preparation back"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "the harness does not draft them" "the refusal says the notes are the release item's run to write"
+if [ ! -e "$project/docs/releases/v0.3.0.md" ]; then pass "nothing was drafted"; else fail "the harness's cut drafted notes"; fi
+if [ -z "$(tags "$project")" ]; then pass "no tag was written"; else fail "the refused cut left tags behind: $(tags "$project")"; fi
+
+step "the harness's cut: a readiness result not in the notes hands the release back, opening nothing"
+project="$(fabricate automatic-unstamped green green unstamped)"
+origin="$(origin_for "$project")"
+detach "$project"
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "3" ]; then pass "it exits 3"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "opens no pull request" "the refusal says the stamp is the release item's run to land"
+missing "$output" "adoption walkthrough" "it refuses before spending the walkthrough"
+if [ -z "$(branches "$project")" ]; then pass "no branch was committed"; else fail "the harness's cut committed $(branches "$project")"; fi
+if [ ! -s "$(pull_requests_of "$project")" ]; then pass "no pull request was opened"; else fail "the harness's cut opened a pull request"; fi
+if [ "$(git -C "$origin" for-each-ref --format='%(refname)' | tr '\n' ' ')" = "refs/heads/main " ]; then
+  pass "and nothing reached origin"
+else
+  fail "the harness's cut left refs on origin: $(git -C "$origin" for-each-ref --format='%(refname)' | tr '\n' ' ')"
+fi
+
+step "the harness's cut: origin has to be reachable"
+project="$(fabricate automatic-unreachable green green)"
+detach "$project"
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "1" ]; then pass "it exits 1"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "origin is unreachable" "it says why"
+missing "$output" "SKIPPED" "it does not pass over the check the way a person's cut does"
+
+step "the harness's cut: a detached HEAD origin does not hold is refused"
+project="$(fabricate automatic-diverged green green)"
+origin_for "$project" >/dev/null
+git -C "$project" commit -q --allow-empty -m "a commit origin does not have"
+detach "$project"
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "1" ]; then pass "it exits 1"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "HEAD is not where origin/main is" "it refuses as a person's cut does"
+
+step "the harness's cut: a red gate is told apart from preparation"
+project="$(fabricate automatic-check-red green check-red)"
+origin_for "$project" >/dev/null
+detach "$project"
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "1" ]; then pass "a red make check exits 1, not 3"; else fail "it exited $status -- got: $output"; fi
+if [ -z "$(tags "$project")" ]; then pass "no tag was written"; else fail "the refused cut left tags behind: $(tags "$project")"; fi
+
+step "the harness's cut: green all the way through names the commit and tags nothing"
+project="$(fabricate automatic-green green green)"
+origin="$(origin_for "$project")"
+detach "$project"
+checked="$(git -C "$project" rev-parse HEAD)"
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "0" ]; then pass "it exits 0"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "checked commit: $checked" "it names the commit the gates ran on"
+contains "$output" "stub built v0.3.0" "the release build still ran as a gate"
+missing "$output" "git push origin" "it prints no push, because the push is the harness's"
+if [ -z "$(tags "$project")" ]; then pass "no tag was written; the tag is the harness's"; else fail "the harness's cut tagged: $(tags "$project")"; fi
+if [ -z "$(git -C "$origin" tag --list)" ]; then pass "and nothing was pushed"; else fail "the harness's cut pushed $(git -C "$origin" tag --list)"; fi
+
+step "the harness's cut is still refused off another branch"
+project="$(fabricate automatic-branch green green)"
+origin_for "$project" >/dev/null
+git -C "$project" checkout -q -b feature
+cut_automatic "$project" "v0.3.0"
+if [ "$status" = "1" ]; then pass "it exits 1"; else fail "it exited $status -- got: $output"; fi
+contains "$output" "this checkout is on \"feature\"" "it names the branch"
+
 step "make release passes the tag through, and withholds the describe default"
 wiring="$(make -C "$repository" -n release VERSION=v9.9.9 2>&1 || true)"
 contains "$wiring" "scripts/cut-release.sh v9.9.9" "make release VERSION=<tag> reaches the verb with the tag"

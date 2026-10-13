@@ -5,9 +5,9 @@
 // The job it absorbs ran as a launchd script outside the repository, and its
 // history is the reason each rule here is what it is. An operator's script
 // beside it rewrote four tracker statuses with a bare `bd update --status`
-// nobody could see, so this pass writes no tracker status of its own: the one
-// step that touches the tracker is `yoyo reconcile`, whose every write is a
-// settlement the harness records with a note. The job force-restarted the
+// nobody could see, so this pass writes no tracker status of its own: `yoyo
+// reconcile` writes settlements, each recorded with a note, and the release
+// step only appends notes to the release item it cut. The job force-restarted the
 // watch 158 times while the provider's login was expired, so nothing here
 // restarts anything while the provider cannot be reached or is not logged in.
 // It bounced a live watch session for a redeploy and cancelled a run, so the
@@ -36,6 +36,13 @@
 //     itself, which re-executes into the build once this record is written.
 //   - slack: `yoyo slack ensure`, as the supervisor's own look at the sink
 //     already takes it every few seconds; the step records where it stands.
+//   - release: a release the Lead Product Manager decided, cut and its tag
+//     pushed under approvals.releases: automatic (internal/releasecut). Its
+//     gates take the better part of an hour, so the cut runs beside the pass
+//     rather than inside it: a pass starts one where none is under way, and the
+//     pass that finds it finished records what it came to. While one is under
+//     way the supervisor takes up no deployed build, because re-executing would
+//     leave the cut's gates running with nothing to record them.
 package maintain
 
 import (
@@ -50,6 +57,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/releasecut"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -62,6 +70,7 @@ const (
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"
 	StepSlack           = "slack"
+	StepRelease         = releasecut.StepName
 )
 
 const (
@@ -119,6 +128,12 @@ type Host interface {
 	RestartOnRequest(ctx context.Context, name config.ServiceName, now time.Time) string
 }
 
+// Releaser is the release step: a decided release cut and its tag pushed. It
+// is satisfied by *releasecut.Cutter.
+type Releaser interface {
+	Pass(ctx context.Context) runstate.SweepStep
+}
+
 // Pass is the supervisor's periodic pass over one product.
 type Pass struct {
 	Product domain.ProductID
@@ -143,6 +158,9 @@ type Pass struct {
 	NoRebuild string
 	Host      Host
 	Runner    execution.ProcessRunner
+	// Release cuts a decided release, and is nil where nothing is wired to;
+	// the step then says so.
+	Release Releaser
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -156,6 +174,15 @@ type Pass struct {
 	// reports once it is done.
 	running *underway
 	last    *runstate.Sweep
+	// releasing is the release cut under way beside the passes, and released
+	// what one came to once a Wait collected it before a pass did.
+	releasing *cutting
+	released  *runstate.SweepStep
+}
+
+type cutting struct {
+	started time.Time
+	done    chan runstate.SweepStep
 }
 
 type underway struct {
@@ -219,11 +246,26 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 	p.log("maintenance pass %d starting", claimed.Firings)
 	reconciled := p.running.reconciled
 	go func() { reconciled <- p.reconcile(ctx) }()
+	if p.Release != nil && p.releasing == nil && p.released == nil {
+		// Beside the pass rather than inside it: see the package comment. It
+		// touches nothing of the supervisor's.
+		p.releasing = &cutting{started: now, done: make(chan runstate.SweepStep, 1)}
+		done := p.releasing.done
+		go func() { done <- p.Release.Pass(ctx) }()
+	}
 }
 
 // Wait finishes the pass under way, blocking until its reconcile is back. It
 // is for a test, and for nothing that holds the supervisor's looks.
 func (p *Pass) Wait(ctx context.Context) {
+	if p.releasing != nil {
+		select {
+		case released := <-p.releasing.done:
+			p.releasing, p.released = nil, &released
+		case <-ctx.Done():
+			return
+		}
+	}
 	if p.running == nil {
 		return
 	}
@@ -272,9 +314,13 @@ func (p *Pass) finish(ctx context.Context, reconciled runstate.SweepStep) {
 	recorded.Steps = append(recorded.Steps, reconciled)
 	recorded.Steps = append(recorded.Steps, p.rebuild())
 	recorded.Steps = append(recorded.Steps, p.restartRequests(ctx))
+	// Collected before the redeploy is decided, so a cut that has just finished
+	// does not hold a take-up back for a pass.
+	release := p.release()
 	redeploy, takeUp := p.redeploy()
 	recorded.Steps = append(recorded.Steps, redeploy)
 	recorded.Steps = append(recorded.Steps, p.slack())
+	recorded.Steps = append(recorded.Steps, release)
 	for index := range recorded.Steps {
 		recorded.Steps[index].Detail = bounded(recorded.Steps[index].Detail)
 		step := recorded.Steps[index]
@@ -303,6 +349,32 @@ func (p *Pass) finish(ctx context.Context, reconciled runstate.SweepStep) {
 			p.log("the deployed build %s was not taken up: %v", takeUp, err)
 		}
 	}
+}
+
+// release is what the release cut beside the passes came to, where it has
+// finished, and that it is under way where it has not.
+func (p *Pass) release() runstate.SweepStep {
+	step := runstate.SweepStep{Name: StepRelease}
+	if p.Release == nil {
+		step.Outcome, step.Detail = runstate.StepSkipped, "no release cut is wired, so a decided release is cut by a person"
+		return step
+	}
+	if p.released != nil {
+		step, p.released = *p.released, nil
+		return step
+	}
+	if p.releasing == nil {
+		step.Outcome, step.Detail = runstate.StepSkipped, "no release cut is under way; the next pass starts one"
+		return step
+	}
+	select {
+	case released := <-p.releasing.done:
+		p.releasing = nil
+		return released
+	default:
+	}
+	step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("a release cut has been under way since %s; the pass that finds it finished records what it came to", p.releasing.started.UTC().Format(time.RFC3339))
+	return step
 }
 
 // provider reads whether the provider is answering. The hold itself is the
@@ -446,6 +518,11 @@ func (p *Pass) redeploy() (runstate.SweepStep, string) {
 		return step, ""
 	}
 	behind := fmt.Sprintf("the supervisor is on build %s, behind the deployed %s", short(running), short(deployed))
+	if p.releasing != nil {
+		parts = append([]string{fmt.Sprintf("%s, and it is taken up at a later pass, once the release cut under way since %s has finished", behind, p.releasing.started.UTC().Format(time.RFC3339))}, parts...)
+		step.Outcome, step.Detail = runstate.StepSkipped, strings.Join(parts, "; ")
+		return step, ""
+	}
 	if held := p.hold(); held != "" {
 		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("%s, and nothing is restarted while %s", behind, held)
 		return step, ""

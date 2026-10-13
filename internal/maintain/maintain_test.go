@@ -212,7 +212,7 @@ func TestAPassRecordsEveryStepAndWhySkippedOnesWereSkipped(t *testing.T) {
 			t.Errorf("step %s was %s and says nothing about why", step.Name, step.Outcome)
 		}
 	}
-	want := []string{StepProvider, StepReconcile, StepRebuild, StepRestartRequests, StepRedeploy, StepSlack}
+	want := []string{StepProvider, StepReconcile, StepRebuild, StepRestartRequests, StepRedeploy, StepSlack, StepRelease}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", names, want)
 	}
@@ -431,4 +431,62 @@ func (r blockingRunner) Run(ctx context.Context, _ execution.Command, _ executio
 	case <-ctx.Done():
 	}
 	return r.result, nil
+}
+
+// gatedRelease is a release cut that finishes when the test says so, so a test
+// can see a pass taken while one is under way.
+type gatedRelease struct {
+	release chan struct{}
+	said    runstate.SweepStep
+	calls   int
+	mu      sync.Mutex
+}
+
+func (r *gatedRelease) Pass(ctx context.Context) runstate.SweepStep {
+	r.mu.Lock()
+	r.calls++
+	r.mu.Unlock()
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+	}
+	return r.said
+}
+
+// The release cut runs beside the passes: a pass taken while one is under way
+// says so and takes up no deployed build, and the pass that finds it finished
+// records what it came to and takes the build up.
+func TestAReleaseCutRunsBesideThePassesAndHoldsATakeUpBack(t *testing.T) {
+	t.Parallel()
+	f := newFixture(t)
+	f.host.deployed = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	cut := &gatedRelease{release: make(chan struct{}), said: runstate.SweepStep{Name: StepRelease, Outcome: runstate.StepRan, Detail: "pushed v0.6.0 on 0123456789ab"}}
+	f.pass.Release = cut
+
+	f.pass.Look(context.Background(), f.now)
+	reconciled := <-f.pass.running.reconciled
+	f.pass.finish(context.Background(), reconciled)
+	recorded, _ := f.pass.Last()
+	if step := stepNamed(t, recorded, StepRelease); step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "under way since") {
+		t.Errorf("release step = %+v, want it under way", step)
+	}
+	if step := stepNamed(t, recorded, StepRedeploy); step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "once the release cut") || f.host.takenUp != "" {
+		t.Errorf("redeploy step = %+v, took up %q, want it held for the cut", step, f.host.takenUp)
+	}
+
+	close(cut.release)
+	f.now = f.now.Add(11 * time.Minute)
+	recorded = f.pass1(t)
+	if step := stepNamed(t, recorded, StepRelease); step.Outcome != runstate.StepRan || step.Detail != "pushed v0.6.0 on 0123456789ab" {
+		t.Errorf("release step = %+v, want what the cut came to", step)
+	}
+	if f.host.takenUp != f.host.deployed {
+		t.Errorf("took up %q, want the build taken up once the cut finished", f.host.takenUp)
+	}
+	cut.mu.Lock()
+	calls := cut.calls
+	cut.mu.Unlock()
+	if calls != 1 {
+		t.Errorf("the cut was started %d times across two passes, want once while it was under way", calls)
+	}
 }
