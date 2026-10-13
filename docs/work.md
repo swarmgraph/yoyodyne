@@ -1820,7 +1820,14 @@ docket holds **no** stoppage of — a re-run the harness cancelled on its way ou
 say, which is never docketed — is carried out too. The item is started again
 from the target branch, claimed under the key the docket would have given the
 run, so that run is re-run once like any stoppage. Every gate a re-run asks
-still applies, and the run only has to have ended. What such a run cannot take
+still applies, and the run only has to have ended. It is carried out whether or
+not anything else of the item is on the docket: the pass looks for decisions on
+every item the harness holds a run of, which are the items whose holds it reads.
+Until the pass starts it, the item's hold says it waits on the harness; a re-run
+refused for a cause that will not clear, over a run that left no branch or
+worktree, releases the item and says so on it, as
+[a refused carry-out](run-stops.md#permanent-carry-out-refusals) does. A run of the item started since the
+decision answers it, so it is not started a second time. What such a run cannot take
 is a repair, because a repair re-enters a docketed stoppage's worktree. A repair
 of it, or a re-run of a run the harness holds no record of, is attempted and
 refused. The refusal says how the run ended and names the decision the harness
