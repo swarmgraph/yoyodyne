@@ -1178,6 +1178,12 @@ func (c Config) Validate() error {
 		{name: "releases", mode: c.Approvals.Releases},
 	}
 	for _, approval := range approvalValues {
+		// Releases unset is a person cutting them, the default, so a
+		// configuration assembled in code before the key existed still means
+		// what it meant; nothing but "automatic" lets the harness cut.
+		if approval.name == "releases" && approval.mode == "" {
+			continue
+		}
 		if !approval.mode.Valid() {
 			problems = append(problems, fmt.Sprintf("approval %s must be %q or %q", approval.name, domain.ApprovalHuman, domain.ApprovalAutomatic))
 		}
