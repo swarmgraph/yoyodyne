@@ -365,14 +365,19 @@ type heldDecision struct {
 // read is the sweep behind Outstanding and RecordUnattempted, so what a pass
 // attempts and what it writes down as unattempted are one reading's two halves.
 //
-// It walks the docket's stopped runs and then, for every item the docket names,
-// the item's latest decision where that decision is about a run no stopped-run
-// entry stands for. The second walk is the half the entry-by-entry reading could
-// never reach: a decision is recorded by run, and an item whose latest stoppage
-// was never docketed as a stopped run — a re-run cancelled on its way out, say —
-// has a decision no entry leads to. Only the latest is taken there, because an
-// earlier decision about another of the item's runs is one she has since decided
-// past.
+// It walks the docket's stopped runs and then, for every item the docket names
+// or the harness holds a run of, the item's latest decision where that decision
+// is about a run no stopped-run entry stands for. The second walk is the half the
+// entry-by-entry reading could never reach: a decision is recorded by run, and an
+// item whose latest stoppage was never docketed as a stopped run — a re-run
+// cancelled on its way out, say — has a decision no entry leads to. An item with
+// no entry at all is walked too, because the hold reads every item with a run
+// (readmodel's holdDecisions), and a decision that holds an item nothing here
+// walks is one nobody attempts and nobody refuses (yoyodyne-ifd.428.94). Of the
+// other kinds only the latest is taken there, because an earlier decision about
+// another of the item's runs is one she has since decided past; a re-run still
+// standing is taken whatever came after it, for the reason undocketedDecisions
+// gives.
 func (c CarryOut) read() (carryOutReading, error) {
 	if err := c.validate(); err != nil {
 		return carryOutReading{}, err
@@ -514,21 +519,37 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		consider(entry, item)
 	}
+	recordedItems, err := c.itemsWithRuns(history)
+	if err != nil {
+		problems = append(problems, err)
+	}
+	for _, workItemID := range recordedItems {
+		itemFor(workItemID)
+	}
 	for _, workItemID := range items {
 		item := read[workItemID]
 		if item.problem != nil {
 			continue
 		}
-		latest, found := item.latestDecision()
-		if !found || docketed[latest.RunID] {
-			continue
+		for _, decision := range undocketedDecisions(item, docketed) {
+			// A re-run is answered by any run of the item started since it was
+			// decided, as the hold reads it (readmodel's decisionHold): offering it
+			// again would start the item a second time beside that run.
+			if decision.Decision == runstate.TriageDecisionRerun {
+				if since, err := startedSince(workItemID, decision, history); err != nil {
+					problems = append(problems, err)
+					continue
+				} else if since {
+					continue
+				}
+			}
+			consider(triage.Entry{
+				Key:        triage.Key(triage.ClassStoppedRun, decision.RunID),
+				Class:      triage.ClassStoppedRun,
+				RunID:      decision.RunID,
+				WorkItemID: workItemID,
+			}, item)
 		}
-		consider(triage.Entry{
-			Key:        triage.Key(triage.ClassStoppedRun, latest.RunID),
-			Class:      triage.ClassStoppedRun,
-			RunID:      latest.RunID,
-			WorkItemID: workItemID,
-		}, item)
 	}
 	// A re-arm is fired on its own path, and what that path holds back is written
 	// down here with everything else the sweep holds back, so a re-arm no pass
@@ -1461,17 +1482,92 @@ func (c CarryOut) DeliverNotes(ctx context.Context) error {
 	if err != nil {
 		return errors.Join(append(problems, fmt.Errorf("read the docket for pending carry-out notes: %w", err))...)
 	}
-	seen := make(map[string]bool)
+	var workItems []string
 	for _, entry := range entries {
-		if entry.WorkItemID == "" || seen[entry.WorkItemID] {
+		workItems = append(workItems, entry.WorkItemID)
+	}
+	// A refusal of a decision about a run the docket never held is written onto
+	// an item that may have no entry at all, so its note is retried from the runs.
+	recordedItems, err := c.itemsWithRuns(onceRecorded(c.Runs))
+	if err != nil {
+		problems = append(problems, err)
+	}
+	seen := make(map[string]bool)
+	for _, workItemID := range append(workItems, recordedItems...) {
+		if workItemID == "" || seen[workItemID] {
 			continue
 		}
-		seen[entry.WorkItemID] = true
-		if err := c.deliverItemNotes(ctx, entry.WorkItemID); err != nil {
-			problems = append(problems, fmt.Errorf("deliver pending carry-out notes on %s: %w", entry.WorkItemID, err))
+		seen[workItemID] = true
+		if err := c.deliverItemNotes(ctx, workItemID); err != nil {
+			problems = append(problems, fmt.Errorf("deliver pending carry-out notes on %s: %w", workItemID, err))
 		}
 	}
 	return errors.Join(problems...)
+}
+
+// undocketedDecisions is what the second walk of read considers for one item:
+// its latest decision, of whatever kind, and every re-run still standing about a
+// run, each where no stopped-run entry stands for the run it is about.
+//
+// A re-run is taken whether or not it is the latest, because the hold judges each
+// run's decision on its own (readmodel's holdDecisions): a re-run about a run the
+// docket never held, followed by a wait or a re-scope about another of the item's
+// runs, still holds the item, so it has to be attempted or refused rather than
+// passed over as decided past (yoyodyne-ifd.428.94). A re-run superseded by a
+// later decision about the same run is not standing, and is not taken.
+func undocketedDecisions(item outstandingItem, docketed map[string]bool) []runstate.TriageDecision {
+	var decisions []runstate.TriageDecision
+	taken := make(map[string]bool)
+	if latest, found := item.latestDecision(); found && !docketed[latest.RunID] {
+		decisions = append(decisions, latest)
+		taken[latest.RunID] = true
+	}
+	for _, decision := range item.counters.Decisions {
+		if decision.Decision != runstate.TriageDecisionRerun || docketed[decision.RunID] || taken[decision.RunID] {
+			continue
+		}
+		if current, found := item.counters.DecisionOf(decision.RunID); !found || current != decision {
+			continue
+		}
+		decisions = append(decisions, decision)
+		taken[decision.RunID] = true
+	}
+	return decisions
+}
+
+// startedSince reports a run of the item other than the one a decision is about
+// that started at or after the decision was recorded.
+func startedSince(workItemID string, decision runstate.TriageDecision, history func() ([]runstate.State, error)) (bool, error) {
+	recorded, err := history()
+	if err != nil {
+		return false, err
+	}
+	for _, state := range recorded {
+		if state.WorkItemID == workItemID && state.RunID != decision.RunID && !state.StartedAt.Before(decision.DecidedAt) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// itemsWithRuns names every work item the harness holds a run of, once each, in
+// the order the runs are recorded. It is the set of items the hold reads
+// decisions for, so a decision that holds one of them is one this package walks.
+func (c CarryOut) itemsWithRuns(history func() ([]runstate.State, error)) ([]string, error) {
+	recorded, err := history()
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[string]bool)
+	var workItems []string
+	for _, state := range recorded {
+		if state.WorkItemID == "" || seen[state.WorkItemID] {
+			continue
+		}
+		seen[state.WorkItemID] = true
+		workItems = append(workItems, state.WorkItemID)
+	}
+	return workItems, nil
 }
 
 func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string) error {

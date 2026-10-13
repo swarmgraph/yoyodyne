@@ -542,7 +542,10 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 			(decision.Decision == runstate.TriageDecisionRearm && mergeConfirmed(run)) {
 			return backlog.Hold{}, ""
 		}
-		if !stoppage(run) && !outstandingPublication(run) && !run.Escalated() {
+		// A re-run asks only that its run has ended, so a run the docket never held
+		// is one it answers: the carry-out walks it and starts the item again from
+		// the target branch (yoyodyne-ifd.428.94).
+		if !stoppage(run) && !outstandingPublication(run) && !run.Escalated() && decision.Decision != runstate.TriageDecisionRerun {
 			problem = fmt.Sprintf("run %s records neither a stoppage nor an unfinished publication nor a raised item", decision.RunID)
 		}
 	}
@@ -553,13 +556,13 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 		}, problem
 	}
 	reading := decided.of(workItemID, run)
-	if (stoppage(run) || run.Escalated()) && !outstandingPublication(run) && reading.releasesRerun(look(run)) {
+	if !outstandingPublication(run) && reading.releasesRerun(look(run)) {
 		return backlog.Hold{}, ""
 	}
 	switch {
 	case outstandingPublication(run) && mergeConfirmed(run):
 		return heldFor(run.RunID, mergedPublication(run), reading, stoppedAt(run)), ""
-	case stoppage(run):
+	case stoppage(run) || (!outstandingPublication(run) && !run.Escalated()):
 		return stoppageHold(run, decided, look(run)), ""
 	case outstandingPublication(run):
 		if run.WaitingOnRedTarget() {
