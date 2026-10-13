@@ -33,6 +33,52 @@ import (
 // ErrCompanionPublicationNotBuilt.
 func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
 
+// LandsApprovedDocuments reports whether a document the operator approves can
+// go through a reviewed run, rather than being written into the checkout: the
+// project keeps its intent in its own repository and has an independent
+// reviewer configured. Where the project integrates automatically the run lands
+// it; where it does not, the run checks and reviews it and leaves it on its
+// branch for the operator to merge, as every change there is (reviewDocument).
+//
+// A companion intent repository is answered no, unlike in PublishesDocuments,
+// because holding a person's approval until that run is built would keep the
+// document out of the repository indefinitely, where the write into the
+// companion repository holds no run up. A project with no reviewer to run is
+// answered no as well, because the run could only stop for want of one.
+func (p Pipeline) LandsApprovedDocuments() bool {
+	return !p.Config.Product.HasIntentRepository() && p.validateReviewPolicy() == nil
+}
+
+// PublishStandingApproval lands the operator's approval of a document as it now
+// stands, given with `yoyo artifact approve`, through a reviewed run that
+// changes only that file, rather than writing it into the checkout. The
+// document's text is what its owner last recorded; the run adds the approval,
+// and the handoff is the owning role's, so the same ownership, filing, checks,
+// and independent review hold as for a document that role wrote. Where
+// LandsApprovedDocuments says no run can carry it, the caller writes the
+// approval into the working tree instead.
+//
+// Each approval is its own handoff, named by the document, the revision
+// approved, and the file it would land, so giving the approval again after a
+// run that did not land it starts a fresh run rather than colliding with it.
+func (p Pipeline) PublishStandingApproval(ctx context.Context, id, reason string, now time.Time) (runstate.DocumentPublication, runstate.DocumentDelivery, error) {
+	candidate, err := artifact.StoreFor(p.Repository, p.Config.Product).PrepareStandingApproval(id, reason, now)
+	if err != nil {
+		return runstate.DocumentPublication{}, runstate.DocumentDelivery{}, err
+	}
+	owner, owned := artifact.Owner(candidate.Artifact.Kind)
+	if !owned {
+		return runstate.DocumentPublication{}, runstate.DocumentDelivery{}, fmt.Errorf("no role owns a %s artifact, so no run can land an approval of %s", candidate.Artifact.Kind, candidate.Artifact.ID)
+	}
+	publication := runstate.DocumentPublication{
+		Candidate: candidate,
+		Owner:     owner,
+		WriteID:   fmt.Sprintf("%s%s.%d-%s", runstate.StandingApprovalPrefix, candidate.Artifact.ID, len(candidate.Artifact.Revisions)-1, artifact.DocumentIdentity([]byte(candidate.Content))[:12]),
+	}
+	delivery, err := p.PublishDocument(ctx, publication)
+	return publication, delivery, err
+}
+
 // ErrCompanionPublicationNotBuilt is why a confirmed document of a project that
 // keeps its intent in a companion intent repository is held rather than landed.
 // The reviewed run that would land it there — a branch cut from that repository,
@@ -48,8 +94,10 @@ func (p Pipeline) PublishesDocuments() bool { return p.automatic() }
 var ErrCompanionPublicationNotBuilt = errors.New("this project keeps its intent in a companion intent repository, and the reviewed run that lands a document there is not built yet; the document stays confirmed and saved in this conversation and is tried again at each later message, and nothing about it is waiting on the operator")
 
 // PublishDocument enters the ordinary delivery gates with an already written
-// candidate. Only the owning conversation can supply this handoff; there is no
-// developer invocation or repair of its content inside a publication run.
+// candidate. Only the owning conversation, or the operator's approval of a
+// document as it stands (PublishStandingApproval), can supply this handoff;
+// there is no developer invocation or repair of its content inside a
+// publication run.
 //
 // One handoff may take more than one run. A run that stops for a cause that
 // judged nothing about the document — a check stopped by a time limit, the
@@ -62,11 +110,18 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if err := document.Validate(); err != nil {
 		return p.refuseDocument(document, err)
 	}
-	policy := artifact.Policy{Brief: p.Config.Approvals.Brief, Goals: p.Config.Approvals.Goals, Designs: p.Config.Approvals.Designs, SpecificationsHome: p.Config.Product.Specifications}
-	name, mode, governed := policy.SettingFor(document.Candidate.Artifact)
-	approval, _ := document.Candidate.Artifact.LatestApproval()
-	if !governed || mode != domain.ApprovalAutomatic || approval.Policy != name {
-		return p.refuseDocument(document, errors.New("the document's automatic confirmation policy no longer applies"))
+	// A document the operator approved answers to no approval setting: a person
+	// decided it, and only the harness's own confirmation is bounded by the
+	// setting it was given under.
+	confirmed := "approved by the operator"
+	if !document.Candidate.OperatorApproved() {
+		policy := artifact.Policy{Brief: p.Config.Approvals.Brief, Goals: p.Config.Approvals.Goals, Designs: p.Config.Approvals.Designs, SpecificationsHome: p.Config.Product.Specifications}
+		name, mode, governed := policy.SettingFor(document.Candidate.Artifact)
+		approval, _ := document.Candidate.Artifact.LatestApproval()
+		if !governed || mode != domain.ApprovalAutomatic || approval.Policy != name {
+			return p.refuseDocument(document, errors.New("the document's automatic confirmation policy no longer applies"))
+		}
+		confirmed = "confirmed under " + name
 	}
 	filing, err := artifact.StoreFor(p.Repository, p.Config.Product).Filing(document.Owner)
 	if err != nil {
@@ -84,8 +139,16 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if err := documentRouteRefusal(p.Config, []string{document.Candidate.Artifact.Path}); err != nil {
 		return p.refuseDocument(document, err)
 	}
-	if !p.automatic() {
+	// A document the operator approved goes through a reviewed run whatever the
+	// integration setting, and is left for them to merge where it is not
+	// automatic; the harness's own confirmation lands only where the run can.
+	if !p.automatic() && !document.Candidate.OperatorApproved() {
 		return p.refuseDocument(document, errors.New("reviewed document publication requires automatic integration"))
+	}
+	if !p.automatic() {
+		if err := p.validateReviewPolicy(); err != nil {
+			return p.refuseDocument(document, err)
+		}
 	}
 	if p.Config.Product.HasIntentRepository() {
 		return runstate.DocumentDelivery{}, ErrCompanionPublicationNotBuilt
@@ -97,7 +160,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	record := documentItemRecorder{tracker: p.Tracker, document: document}
 	docket := p.Docket
 	p.Docket, p.Prices = nil, nil
-	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Conversation %s supplied document %s, written by the %s at turn %d and confirmed under %s; publish its exact content through independent review.", document.ConversationID, document.WriteID, document.Owner.Title(), document.Turn, name)}
+	p.Selection = runstate.Selection{By: runstate.SelectedByConversation, Reason: fmt.Sprintf("Document %s was supplied, %s, and %s; publish its exact content through independent review.", document.WriteID, document.Origin(), confirmed)}
 	p.Tracker = &documentTracker{item: documentItem(document, 0)}
 	if err := p.validateDispatch(); err != nil {
 		return runstate.DocumentDelivery{}, err
@@ -134,10 +197,10 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 	}
 	p.Tracker = &documentTracker{item: documentItem(document, attempt)}
-	saved, ran, err := p.publishDocumentAttempt(ctx, document, attempt, approval.Policy, record)
+	saved, ran, err := p.publishDocumentAttempt(ctx, document, attempt, confirmed, record)
 	var held documentHeld
 	if errors.As(err, &held) {
-		return runstate.DocumentDelivery{RunID: held.runID, Detail: held.summary, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. It is tried again at the next message and does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, held.summary)}, nil
+		return runstate.DocumentDelivery{RunID: held.runID, Detail: held.summary, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. %s\n", document.WriteID, document.Candidate.Artifact.Title, held.summary, triedAgain(document))}, nil
 	}
 	var waiting documentWaiting
 	if errors.As(err, &waiting) {
@@ -176,6 +239,9 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 			return runstate.DocumentDelivery{}, err
 		}
 		return p.handOverDocument(ctx, docket, record, saved)
+	}
+	if document.StandingApproval() {
+		return runstate.DocumentDelivery{RunID: saved.RunID, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and run %s stopped without judging it: %s. Nothing about the document was found wrong. %s\n", document.WriteID, document.Candidate.Artifact.Title, saved.RunID, documentStopSays(saved), triedAgain(document))}, nil
 	}
 	return runstate.DocumentDelivery{RunID: saved.RunID, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and run %s stopped without judging it: %s. Nothing about the document was found wrong, so the harness runs the same text again (attempt %d of %d); it does not need writing again, and nothing is counted against it.\n", document.WriteID, document.Candidate.Artifact.Title, saved.RunID, documentStopSays(saved), attempt+2, runstate.MaxDocumentAttempts)}, nil
 }
@@ -255,6 +321,17 @@ type documentInFlight struct {
 
 func (f documentInFlight) Error() string {
 	return "run " + f.runID + " is already publishing this document"
+}
+
+// triedAgain says what starts a document's run again after one that did not
+// start or finish. A conversation offers its document again at its next
+// message; an approval given with `yoyo artifact approve` has no conversation
+// to do that, so it is given again.
+func triedAgain(document runstate.DocumentPublication) string {
+	if document.StandingApproval() {
+		return "Nothing was written to the checkout; give the approval again with yoyo artifact approve to start a fresh run."
+	}
+	return "It is tried again at the next message in its conversation and does not need writing again."
 }
 
 // documentItem is the bookkeeping item one attempt's run is recorded under.
@@ -381,7 +458,7 @@ func documentStopSays(state runstate.State) string {
 
 // publishDocumentAttempt starts or continues the run that makes one attempt,
 // reporting the record it left and whether a run was entered at all.
-func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.DocumentPublication, attempt int, policy string, record documentItemRecorder) (runstate.State, bool, error) {
+func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.DocumentPublication, attempt int, confirmed string, record documentItemRecorder) (runstate.State, bool, error) {
 	tracker := p.Tracker.(*documentTracker)
 	item := tracker.item
 	publishing, skipped, err := p.resolvePublishing(ctx)
@@ -446,14 +523,14 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 		defer lease.Release()
 		p.clearDocumentWait(document)
 		started = true
-		record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to publish document %s (%s), written by the %s in conversation %s at turn %d; attempt %d of at most %d.", runID, document.WriteID, document.Candidate.Artifact.Title, document.Owner.Title(), document.ConversationID, document.Turn, attempt+1, runstate.MaxDocumentAttempts))
+		record.note(ctx, fmt.Sprintf("Yoyodyne started run %s to publish document %s (%s), %s; attempt %d of at most %d.", runID, document.WriteID, document.Candidate.Artifact.Title, document.Origin(), attempt+1, runstate.MaxDocumentAttempts))
 	}
 	tracker.item.Status = "in_progress"
 	invariants, err := p.loadInvariants()
 	if err != nil {
 		return runstate.State{}, false, err
 	}
-	a := &activeRun{pipeline: p, state: state, item: tracker.item, claimed: true, publishing: publishing, invariants: invariants, context: fmt.Sprintf("Publish the %s's exact document %s from conversation %s, turn %d. Confirmed under %s. No developer may rewrite it.\n", document.Owner.Title(), document.Candidate.Artifact.Title, document.ConversationID, document.Turn, policy), outcome: Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: state.Status, Phase: state.Phase, PublishSkipped: skipped, Summary: "Publish the owning role's confirmed document without rewriting its content.", PullRequest: state.PullRequest}}
+	a := &activeRun{pipeline: p, state: state, item: tracker.item, claimed: true, publishing: publishing, invariants: invariants, context: fmt.Sprintf("Publish the %s's exact document %s, %s, %s. No developer may rewrite it.\n", document.Owner.Title(), document.Candidate.Artifact.Title, document.Origin(), confirmed), outcome: Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: state.Status, Phase: state.Phase, PublishSkipped: skipped, Summary: "Publish the owning role's confirmed document without rewriting its content.", PullRequest: state.PullRequest}}
 	a.worktree = gitworktree.Worktree{RunID: state.RunID, WorkItemID: state.WorkItemID, Path: state.WorktreePath, Branch: state.Branch, BaseCommit: state.BaseCommit, TargetBranch: state.TargetBranch, HarnessCommit: state.HarnessCommit}
 	a.outcome.Branch, a.outcome.WorktreePath, a.outcome.BaseCommit = state.Branch, state.WorktreePath, state.BaseCommit
 	if err := a.claim(ctx); err != nil {
@@ -566,7 +643,7 @@ func (p Pipeline) waitForSlot(ctx context.Context, document runstate.DocumentPub
 	delivery := runstate.DocumentDelivery{RunID: refused.runID, WaitingForSlot: &capacity}
 	waits, ok := p.Store.(DocumentWaits)
 	if !ok {
-		delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a document landing to free (%s). It is tried again at the next message in this conversation; it does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error())
+		delivery.Detail = fmt.Sprintf("Document %s (%s) is confirmed and waiting for a document landing to free (%s). %s\n", document.WriteID, document.Candidate.Artifact.Title, capacity.Error(), triedAgain(document))
 		return delivery, nil
 	}
 	if _, waiting, err := waits.WaitForSlot(ctx, document, refused.attempt, p.clock().Now()); err != nil {
@@ -716,11 +793,24 @@ func documentDelivery(state runstate.State) runstate.DocumentDelivery {
 		result.Settled = false
 		return result
 	}
-	if result.Landed {
+	switch {
+	case result.Landed:
 		result.Detail = fmt.Sprintf("Document %s (%s) landed through reviewed run %s at %s.\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, d.Candidate.Artifact.Path)
-	} else {
+	case state.Status == runstate.StatusSucceeded:
+		// A run under an integration setting that is not automatic: the document
+		// passed and is waiting for the operator's merge, as every change there is.
+		where := "on branch " + state.Branch
+		if state.PullRequest != nil && state.PullRequest.URL != "" {
+			where += " and pull request " + state.PullRequest.URL
+		}
+		result.Detail = fmt.Sprintf("Document %s (%s) passed its checks and the independent review in run %s and is %s, for the operator to merge, because this project's integration is not automatic. Nothing is waiting in the checkout.\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, where)
+	default:
 		var detail strings.Builder
-		fmt.Fprintf(&detail, "Document %s (%s) did not land in run %s. The %s must revise the document in this conversation and submit it again; that opens a fresh reviewed run.\n%s\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, d.Owner.Title(), state.Failure)
+		next := fmt.Sprintf("The %s must revise the document in this conversation and submit it again; that opens a fresh reviewed run.", d.Owner.Title())
+		if d.StandingApproval() {
+			next = "Only the operator's approval of it as it stands was being landed; nothing reached the checkout, and once what stopped it is answered the approval is given again with yoyo artifact approve."
+		}
+		fmt.Fprintf(&detail, "Document %s (%s) did not land in run %s. %s\n%s\n", d.WriteID, d.Candidate.Artifact.Title, state.RunID, next, state.Failure)
 		if state.CheckFailure != nil {
 			fmt.Fprintf(&detail, "Failing check: %s\n%s\n", state.CheckFailure.Command, state.CheckFailure.Output)
 		}
@@ -824,13 +914,24 @@ func (a *activeRun) reviewDocument(ctx context.Context) (Outcome, error) {
 			return a.stop(ctx, err)
 		}
 		a.observe(ctx, deliveryCheck, "passed")
+		automatic := a.pipeline.automatic()
 		verdict, err := a.reviewChange(ctx)
-		a.observeReviewEnded(ctx, verdict, err, budgetSpent)
+		// The definition a project that does not integrate automatically binds has
+		// no review step, so the review is not put to it.
+		if automatic {
+			a.observeReviewEnded(ctx, verdict, err, budgetSpent)
+		}
 		if err != nil {
 			return a.stop(ctx, err)
 		}
 		if verdict != review.DecisionApprove {
 			return a.fail(stoppedBy(runstate.StopReview, errors.New("the independent reviewer refused the document: "+a.state.ReviewSummary)), runstate.StatusFailed)
+		}
+		// Where integration is not automatic the reviewed document is left on its
+		// branch, and on its pull request where the project publishes, for the
+		// operator to merge, exactly as every other change there is.
+		if !automatic {
+			return a.finish(ctx)
 		}
 		outcome, replayed, err := a.promoteApproved(ctx)
 		if !replayed {

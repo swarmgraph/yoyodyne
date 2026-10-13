@@ -15,7 +15,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// ConfirmedDocument is the immutable candidate the harness confirmed. Content
+// ConfirmedDocument is the immutable candidate the harness confirmed or the
+// operator approved, its last revision carrying that approval. Content
 // includes generated metadata and the owner's prose; Before names the file it
 // replaces so a later target cannot silently overwrite another revision.
 type ConfirmedDocument struct {
@@ -33,38 +34,7 @@ func DocumentIdentity(content []byte) string {
 // without writing into the primary checkout. A false result retains the human
 // confirmation path.
 func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Policy, reason string, now time.Time) (ConfirmedDocument, bool, error) {
-	if err := s.CheckWrite(role, write); err != nil {
-		// An older waiting creation can already have been transcribed by hand.
-		// Only the same owner-authored document can be confirmed in that case;
-		// different content must return to its owner rather than be overwritten.
-		if write.Action != WriteCreate {
-			return ConfirmedDocument{}, false, err
-		}
-		set, loadErr := s.Load()
-		if loadErr != nil {
-			return ConfirmedDocument{}, false, loadErr
-		}
-		existing, found := set.Find(write.ID)
-		if !found || existing.Kind != write.Kind || existing.Title != write.Title || path.Dir(existing.Path) != path.Clean(write.Directory) || !reflect.DeepEqual(existing.Supports, trimmedList(write.Supports)) {
-			return ConfirmedDocument{}, false, err
-		}
-		_, body, readErr := s.loadOne(existing.ID)
-		if readErr != nil || strings.TrimSpace(body) != strings.TrimSpace(write.Body) {
-			return ConfirmedDocument{}, false, err
-		}
-		write.Action, write.Kind, write.Directory = WriteRevise, "", ""
-		if err := s.CheckWrite(role, write); err != nil {
-			return ConfirmedDocument{}, false, err
-		}
-	}
-	var recorded Artifact
-	var err error
-	switch write.Action {
-	case WriteCreate:
-		recorded, _, err = s.prepareCreate(role, write.Draft(), now)
-	default:
-		recorded, _, err = s.prepareAmend(role, write.ID, write.Amendment(), now)
-	}
+	recorded, body, err := s.prepareCandidate(role, write, now)
 	if err != nil {
 		return ConfirmedDocument{}, false, err
 	}
@@ -83,24 +53,103 @@ func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Po
 		}
 	}
 	recorded.Approvals = append(recorded.Approvals, Approval{Revision: len(recorded.Revisions) - 1, By: ApproverHarness, Policy: name, At: now.UTC(), Reason: reason})
-	if err := recorded.Validate(); err != nil {
-		return ConfirmedDocument{}, false, err
-	}
-	content, err := render(recorded, write.Body)
+	confirmed, err := s.renderCandidate(recorded, body)
 	if err != nil {
 		return ConfirmedDocument{}, false, err
 	}
+	return confirmed, true, nil
+}
+
+// PrepareApproval renders the candidate an operator approved, with their
+// approval recorded against the revision it produces, without writing into the
+// primary checkout. It is PrepareConfirmation for a document a person decided
+// rather than a policy, so it answers to no approval setting: the operator may
+// approve any revision its owner may write, a change of fundamental intent
+// included. The candidate lands the way a confirmed one does, through a reviewed
+// run, so an approval never leaves the checkout holding a change nobody
+// committed.
+func (s Store) PrepareApproval(role domain.AgentRole, write Write, reason string, now time.Time) (ConfirmedDocument, error) {
+	recorded, body, err := s.prepareCandidate(role, write, now)
+	if err != nil {
+		return ConfirmedDocument{}, err
+	}
+	if strings.TrimSpace(reason) == "" {
+		return ConfirmedDocument{}, fmt.Errorf("approving artifact %q needs a reason saying how the approval was given", recorded.ID)
+	}
+	recorded.Approvals = append(recorded.Approvals, Approval{Revision: len(recorded.Revisions) - 1, By: ApproverOperator, At: now.UTC(), Reason: strings.TrimSpace(reason)})
+	return s.renderCandidate(recorded, body)
+}
+
+// prepareCandidate checks the role's authority over a write and records the
+// revision it would make, returning the document and its body without writing
+// either.
+func (s Store) prepareCandidate(role domain.AgentRole, write Write, now time.Time) (Artifact, string, error) {
+	if err := s.CheckWrite(role, write); err != nil {
+		// An older waiting creation can already have been transcribed by hand.
+		// Only the same owner-authored document can be confirmed in that case;
+		// different content must return to its owner rather than be overwritten.
+		if write.Action != WriteCreate {
+			return Artifact{}, "", err
+		}
+		set, loadErr := s.Load()
+		if loadErr != nil {
+			return Artifact{}, "", loadErr
+		}
+		existing, found := set.Find(write.ID)
+		if !found || existing.Kind != write.Kind || existing.Title != write.Title || path.Dir(existing.Path) != path.Clean(write.Directory) || !reflect.DeepEqual(existing.Supports, trimmedList(write.Supports)) {
+			return Artifact{}, "", err
+		}
+		_, body, readErr := s.loadOne(existing.ID)
+		if readErr != nil || strings.TrimSpace(body) != strings.TrimSpace(write.Body) {
+			return Artifact{}, "", err
+		}
+		write.Action, write.Kind, write.Directory = WriteRevise, "", ""
+		if err := s.CheckWrite(role, write); err != nil {
+			return Artifact{}, "", err
+		}
+	}
+	var recorded Artifact
+	var err error
+	switch write.Action {
+	case WriteCreate:
+		recorded, _, err = s.prepareCreate(role, write.Draft(), now)
+	default:
+		recorded, _, err = s.prepareAmend(role, write.ID, write.Amendment(), now)
+	}
+	if err != nil {
+		return Artifact{}, "", err
+	}
+	return recorded, write.Body, nil
+}
+
+// renderCandidate is the file a prepared document with its approval recorded
+// would be, bound to the file it replaces.
+func (s Store) renderCandidate(recorded Artifact, body string) (ConfirmedDocument, error) {
+	if err := recorded.Validate(); err != nil {
+		return ConfirmedDocument{}, err
+	}
+	content, err := render(recorded, body)
+	if err != nil {
+		return ConfirmedDocument{}, err
+	}
 	if len(content) > MaxFileBytes {
-		return ConfirmedDocument{}, false, fmt.Errorf("confirmed document exceeds %d bytes", MaxFileBytes)
+		return ConfirmedDocument{}, fmt.Errorf("confirmed document exceeds %d bytes", MaxFileBytes)
 	}
 	confirmed := ConfirmedDocument{Artifact: recorded, Content: content}
 	prior, err := os.ReadFile(filepath.Join(s.RepositoryRoot, recorded.Path))
 	if err == nil {
 		confirmed.Before = DocumentIdentity(prior)
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return ConfirmedDocument{}, false, err
+		return ConfirmedDocument{}, err
 	}
-	return confirmed, true, nil
+	return confirmed, nil
+}
+
+// OperatorApproved reports a candidate the operator approved, rather than one
+// the harness confirmed under an automatic approval setting.
+func (d ConfirmedDocument) OperatorApproved() bool {
+	approval, ok := d.Artifact.LatestApproval()
+	return ok && approval.By == ApproverOperator
 }
 
 // IntentPolicy reports whether an approval setting governs the product's
@@ -156,10 +205,10 @@ func (d ConfirmedDocument) Validate() error {
 		return errors.New("confirmed document has an invalid path")
 	}
 	approval, ok := d.Artifact.LatestApproval()
-	if !ok || approval.By != ApproverHarness || approval.Revision != len(d.Artifact.Revisions)-1 {
-		return errors.New("confirmed document needs harness confirmation for its last revision")
+	if !ok || !approval.By.Valid() || approval.Revision != len(d.Artifact.Revisions)-1 {
+		return errors.New("confirmed document needs the operator's approval or the harness's confirmation for its last revision")
 	}
-	if IntentKind(d.Artifact.Kind) && !IntentPolicy(approval.Policy) {
+	if approval.By == ApproverHarness && IntentKind(d.Artifact.Kind) && !IntentPolicy(approval.Policy) {
 		return fmt.Errorf("a %s document is product intent and cannot be confirmed under %s", d.Artifact.Kind, approval.Policy)
 	}
 	return nil

@@ -348,20 +348,46 @@ func (p Policy) Requires(kind Kind) bool {
 // supports, and its status are untouched, so an approval can never become a way
 // to edit a document by another name.
 func (s Store) Approve(id, reason string, now time.Time) (Artifact, error) {
-	existing, body, err := s.loadOne(id)
+	approved, body, err := s.standingApproval(id, reason, now)
 	if err != nil {
 		return Artifact{}, err
 	}
+	if err := s.write(approved.Path, approved, body); err != nil {
+		return Artifact{}, err
+	}
+	return approved, nil
+}
+
+// PrepareStandingApproval is Approve without the write: the document as it now
+// stands with the operator's approval recorded against its last revision,
+// rendered as the file a reviewed run lands, bound to the file it replaces. It
+// is how `yoyo artifact approve` reaches the target branch without leaving an
+// uncommitted change in the checkout.
+func (s Store) PrepareStandingApproval(id, reason string, now time.Time) (ConfirmedDocument, error) {
+	approved, body, err := s.standingApproval(id, reason, now)
+	if err != nil {
+		return ConfirmedDocument{}, err
+	}
+	return s.renderCandidate(approved, body)
+}
+
+// standingApproval is the operator's approval of a document as it now stands,
+// recorded against its last revision, and the document's body.
+func (s Store) standingApproval(id, reason string, now time.Time) (Artifact, string, error) {
+	existing, body, err := s.loadOne(id)
+	if err != nil {
+		return Artifact{}, "", err
+	}
 	if ended, hasEnding := existing.Ended(); hasEnding {
-		return Artifact{}, fmt.Errorf("artifact %q was %s on %s and is not approved afterwards: %s",
+		return Artifact{}, "", fmt.Errorf("artifact %q was %s on %s and is not approved afterwards: %s",
 			id, ended.Action, ended.At.Format(time.RFC3339), ended.Reason)
 	}
 	if strings.TrimSpace(reason) == "" {
-		return Artifact{}, fmt.Errorf("approving artifact %q needs a reason saying how the approval was given; this record speaks for a person, and one that cannot be traced back to them is a claim made on their behalf", id)
+		return Artifact{}, "", fmt.Errorf("approving artifact %q needs a reason saying how the approval was given; this record speaks for a person, and one that cannot be traced back to them is a claim made on their behalf", id)
 	}
 	revision := len(existing.Revisions) - 1
 	if latest, approved := existing.LatestApproval(); approved && existing.ApprovalState() == ApprovalApproved {
-		return Artifact{}, fmt.Errorf("artifact %q is already approved as it stands, at revision %d on %s: %s",
+		return Artifact{}, "", fmt.Errorf("artifact %q is already approved as it stands, at revision %d on %s: %s",
 			id, latest.Revision, latest.At.Format(time.RFC3339), latest.Reason)
 	}
 	approved := existing
@@ -372,12 +398,9 @@ func (s Store) Approve(id, reason string, now time.Time) (Artifact, error) {
 		Reason:   strings.TrimSpace(reason),
 	})
 	if err := approved.Validate(); err != nil {
-		return Artifact{}, err
+		return Artifact{}, "", err
 	}
-	if err := s.write(approved.Path, approved, body); err != nil {
-		return Artifact{}, err
-	}
-	return approved, nil
+	return approved, body, nil
 }
 
 // PendingCommit is what a surface says, as it records an approval, about where
@@ -388,7 +411,11 @@ func (s Store) Approve(id, reason string, now time.Time) (Artifact, error) {
 // surface that writes an approval owes the operator the same fact, and a second
 // one wording it differently would be a second account of what the harness just
 // did. Its callers are `yoyo artifact approve` and the typed artifact write a
-// conversation performs once the operator approves the document.
+// conversation performs once the operator approves the document, each only
+// where no reviewed run can carry the approval instead (a project with no
+// reviewer configured, or one keeping its intent in a companion intent
+// repository); everywhere else the approval lands through a run and nothing is
+// written into the checkout.
 //
 // What it says is the settled shape rather than an apology for an unfinished
 // one. The write stops at the working tree because the only ways into the target

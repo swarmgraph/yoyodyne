@@ -306,12 +306,15 @@ by asking a model to look something up.
 The brief and the goals are the Lead Product Manager's documents and yours to
 approve. It has no way to write a file, so it hands the harness the document
 instead. With a human confirmation policy, you are shown what would be written
-and asked; your `y` files it, recording the Lead Product Manager's revision and
-your approval. That file then sits uncommitted in your checkout until you commit
-it. An automatic policy confirms a revision recorded as consistent with intent
-and sends its exact content through an isolated run, checks, independent review,
-and normal integration. No operator prompt or manual commit is needed for that
-path. The policy and the owning role are recorded in the document; see [writing a document from a
+and asked; your `y` records the Lead Product Manager's revision and your
+approval in it and sends its exact content through the same isolated run,
+checks, and independent review a document confirmed under an automatic policy
+takes, merged the way every change in your project is. Nothing is left in your
+checkout for you to commit, except in a project with no reviewer configured or
+one that keeps its intent in a separate companion repository, where the
+approved document is written into your checkout for you to commit. An automatic
+policy confirms a revision recorded as consistent with intent and sends it
+through that run without asking you at all. The policy and the owning role are recorded in the document; see [writing a document from a
 conversation](artifacts.md#writing-a-document-from-a-conversation). A change that
 moves what the goals admit or refuse is still yours to decide, and it says so.
 

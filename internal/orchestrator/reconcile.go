@@ -2224,7 +2224,9 @@ func renderReconcileBlockerNotes(state runstate.State, observation gitworktree.O
 		lines = append(lines, fmt.Sprintf("The local %s was not moved: its target is protected, so the change lands only by the forge merging its pull request, and until then it is on its pull request and its branch and on no target branch.",
 			state.Integration.TargetBranch))
 	}
-	if state.Document != nil {
+	if state.Document != nil && state.Document.StandingApproval() {
+		lines = append(lines, fmt.Sprintf("Document %s (%s) carries only the operator's approval of it as it stands, and the approval is given again with yoyo artifact approve; no developer run is requested.", state.Document.WriteID, state.Document.Candidate.Artifact.Title))
+	} else if state.Document != nil {
 		lines = append(lines, fmt.Sprintf("The %s must revise document %s (%s) in conversation %s and submit it again; no developer run is requested.", state.Document.Owner.Title(), state.Document.WriteID, state.Document.Candidate.Artifact.Title, state.Document.ConversationID))
 	}
 	if state.RepairAttempts > 0 {

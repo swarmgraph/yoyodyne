@@ -39,6 +39,7 @@ package cli
 // when it runs this.
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -49,6 +50,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 )
 
 type artifactOutput struct {
@@ -66,7 +68,12 @@ type artifactOutput struct {
 	// because a machine-readable caller is the operator's own script, and it needs
 	// the commit exactly as much as they do. Only a command that wrote sets it.
 	PendingCommit string `json:"pending_commit,omitempty"`
-	Error         string `json:"error,omitempty"`
+	// Publishing says an approval is being landed through a reviewed run rather
+	// than written into the checkout, naming the run; Published is what the run
+	// came to. They are set instead of PendingCommit, never beside it.
+	Publishing string `json:"publishing,omitempty"`
+	Published  string `json:"published,omitempty"`
+	Error      string `json:"error,omitempty"`
 }
 
 // artifactApproval is what a machine-readable listing says about one document's
@@ -85,7 +92,7 @@ type artifactApproval struct {
 	RevisionsSinceApproval int `json:"revisions_since_approval,omitempty"`
 }
 
-func runArtifact(args []string, stdout, stderr io.Writer) int {
+func runArtifact(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 || args[0] == "help" || args[0] == "-h" || args[0] == "--help" {
 		printArtifactUsage(stdout)
 		return 0
@@ -96,7 +103,7 @@ func runArtifact(args []string, stdout, stderr io.Writer) int {
 	case "show":
 		return showArtifact(args[1:], stdout, stderr)
 	case "approve":
-		return approveArtifact(args[1:], stdout, stderr)
+		return approveArtifact(ctx, args[1:], stdout, stderr)
 	case "identify":
 		return identifyArtifact(args[1:], stdout, stderr)
 	default:
@@ -217,7 +224,13 @@ func showArtifact(args []string, stdout, stderr io.Writer) int {
 // stands. The revision it applies to is never asked for: it is the last one the
 // document records, so an approval cannot be recorded against a version of the
 // document nobody was looking at.
-func approveArtifact(args []string, stdout, stderr io.Writer) int {
+//
+// Where a reviewed run can carry it, the approval is landed by one: the run
+// changes only that document, with its own checks and an independent review,
+// and nothing is written into the checkout. Only where no run can carry it — a
+// project that keeps its intent in a companion intent repository, or one with
+// no reviewer configured — is the approval written into the working tree.
+func approveArtifact(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	flags := newArtifactFlags("artifact approve", stderr)
 	reason := flags.set.String("reason", "", "how this approval was given and what it covered; required")
 	if code, ok := flags.parse(args, 1); !ok {
@@ -233,6 +246,13 @@ func approveArtifact(args []string, stdout, stderr io.Writer) int {
 	store, policy, code := flags.store(stderr)
 	if code != 0 {
 		return code
+	}
+	parts, err := buildComponents(*flags.configPath)
+	if err != nil {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	if pipeline := pipelineFrom(parts); pipeline.LandsApprovedDocuments() {
+		return approveThroughRun(ctx, pipeline, flags, *reason, policy, stdout, stderr)
 	}
 	approved, err := store.Approve(flags.id(), *reason, time.Now())
 	if err != nil {
@@ -259,6 +279,49 @@ func approveArtifact(args []string, stdout, stderr io.Writer) int {
 	// it because what they asked for is the approval and this is what it cost.
 	fmt.Fprintln(stdout, store.PendingCommit(approved.Path))
 	return 0
+}
+
+// approveThroughRun lands the operator's approval through a reviewed run and
+// says where it stands: landed, waiting for the operator's merge where the
+// project does not integrate automatically, stopped, or still going. Nothing is
+// written into the checkout whichever it is.
+func approveThroughRun(ctx context.Context, pipeline orchestrator.Pipeline, flags *artifactFlags, reason string, policy artifact.Policy, stdout, stderr io.Writer) int {
+	publication, delivery, err := pipeline.PublishStandingApproval(ctx, flags.id(), reason, time.Now())
+	if err != nil {
+		return reportArtifactError(stdout, stderr, *flags.jsonOutput, err)
+	}
+	candidate := publication.Candidate.Artifact
+	publishing := fmt.Sprintf("your approval is not written to your checkout and nothing is yours to commit: run %s carries it into %s with its own checks and an independent review", nonEmptyText(delivery.RunID, publication.RunID()), candidate.Path)
+	published := strings.TrimSpace(nonEmptyText(delivery.Detail, delivery.Retrying))
+	if published == "" && !delivery.Settled {
+		published = fmt.Sprintf("Run %s has not finished; yoyo status shows it until it does. If it stops without landing the approval, give the approval again.", nonEmptyText(delivery.RunID, publication.RunID()))
+	}
+	if *flags.jsonOutput {
+		listed := []artifact.Artifact{candidate}
+		return writeJSON(stdout, stderr, artifactOutput{
+			Artifacts:  listed,
+			Approvals:  artifactApprovals(listed, policy),
+			Publishing: publishing,
+			Published:  published,
+		})
+	}
+	fmt.Fprintf(stdout, "%s [%s, %s] %s\n", candidate.ID, candidate.Kind, candidate.Status, candidate.Title)
+	fmt.Fprintf(stdout, "file: %s\n", candidate.Path)
+	fmt.Fprintf(stdout, "approval: %s\n", renderArtifactApproval(candidate, policy))
+	fmt.Fprintln(stdout, "recorded in the document's frontmatter as the run lands it; nothing the document says changed, and no gate moved")
+	fmt.Fprintln(stdout, publishing)
+	fmt.Fprintln(stdout, published)
+	return 0
+}
+
+// nonEmptyText is the first of its arguments that says anything.
+func nonEmptyText(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 // identifyArtifact records a goals document's goals being given identifiers,
@@ -546,12 +609,16 @@ your approval standing.
 
 An unapproved document still loads, still governs what is downstream of it, and
 stops nothing that reads it; approving writes nothing but the approval, and the
-document itself stays the owning role's to change. That write lands in your
-checkout and stops there -- nothing commits it and nothing opens a pull request
-for it -- so the document is an uncommitted change until you commit it, and a run
-against that checkout refuses to start while it is. Approving says so as it
-writes, naming the checkout, which is the one this configuration points at rather
-than whichever one you are standing in. What your approval
+document itself stays the owning role's to change. The approval lands through a
+reviewed run that changes only that document, with its own checks and an
+independent review, and is merged through the protected merge -- or left on its
+branch for you to merge where approvals.integration is not automatic. Nothing is
+written into your checkout and nothing is yours to commit; approving names the
+run and says what it came to. Only where no run can carry it -- no reviewer is
+configured, or the intent is kept in a companion intent repository -- is the
+approval written into the checkout this configuration points at, as an
+uncommitted change approving names. The approval counts from when it reaches
+the target branch, as anything on it does. What your approval
 of the goals decides is what reaches the work queue: under approvals.work_items:
 automatic, work that traces to a goal an approved goals document states is
 admitted without asking you, and anything else is still put to you. That is why

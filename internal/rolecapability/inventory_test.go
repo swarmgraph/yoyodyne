@@ -285,6 +285,11 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 		gap:      "the approval policy, filing home, and recorded claim of consistent intent are conditions on the document rather than capabilities that grant its author more authority",
 	},
+	"artifact.prepare-approval": {
+		question: "does the author hold the capability the document's kind belongs to?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
+		gap:      "the operator's approval and the filing home are conditions on the document rather than capabilities that grant its author more authority",
+	},
 	"artifact.write-authorize": {
 		question: "does the role writing a document from its conversation hold the capability the document's kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},

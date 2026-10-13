@@ -349,9 +349,14 @@ what you are building and it drafts the brief and goals with you. It cannot
 change your files (on Claude Code it has no tools; on Codex it can only read),
 so when a document is ready it hands the
 harness a typed write: you are shown the document, and **on your `y` the harness
-files it in `docs/product/` with its frontmatter and your approval recorded in
-it — then you commit it**, because a run refuses to start while it is
-uncommitted. [Writing a document from a
+lands it in `docs/product/` through its own reviewed run**, with its frontmatter
+and your approval recorded in it: the run checks it, an independent reviewer
+reads it, and it is merged the way every change in your project is — by the
+harness where `approvals.integration` is `automatic`, by you where it is not.
+Nothing is left in your checkout for you to commit. The exceptions are a project
+with no reviewer configured and one that keeps its intent in a separate
+companion repository: there the document is written into your checkout and
+committing it is yours. [Writing a document from a
 conversation](docs/artifacts.md#writing-a-document-from-a-conversation) has the
 rest. Goals are what work is admitted against, so without them it will ask you
 for one.

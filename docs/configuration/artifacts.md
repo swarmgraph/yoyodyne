@@ -408,7 +408,21 @@ approvals:
 — an approval given in conversation is written down afterwards — so say when and
 how you gave it in `--reason`, which is the half only you can attest to.
 
-**The write lands in your checkout and stops there, and the command says so.**
+**The approval lands through a reviewed run, and the command says so.** The
+run changes only that document, adding your approval to its frontmatter; it
+runs the document's checks and an independent review, and lands through the
+protected merge, or, where `approvals.integration` is not `automatic`, is left
+on its branch for you to merge as every change there is. Nothing is written into
+your checkout and nothing is yours to commit. The command names the run and
+prints what it came to, and `--json` carries the two as `publishing` and
+`published`. A run that stops without landing the approval says why, and the
+approval is given again once that is answered. The only ways into the target
+branch are a reviewed promotion and your own hand, which is why the approval
+takes the first of them rather than a commit the harness makes.
+
+**Where no run can carry it, the write lands in your checkout and stops
+there, and the command says so.** That is a project with no independent reviewer
+configured, and one that keeps its intent in a companion intent repository:
 
 ```
 docs/product/brief.md is now an uncommitted change in /home/you/src/example, and
@@ -420,21 +434,9 @@ yours, under your own identity
 in is this configuration's answer: `--config` naming another project, a
 `YOYODYNE_CONFIG` in your environment, and a linked worktree carrying its own
 `.yoyodyne` each point `approve` at a different repository, and the run that
-refuses to start is a run over the one that was written to. Ordinarily that is
-the checkout you are standing in and the sentence tells you nothing you did not
-know; where it is not, it is the difference between committing the file and
-looking for it where it never landed.
-
-Nothing commits it and nothing opens a pull request for it. The only ways into
-the target branch are a reviewed promotion and your own hand, so a harness-made
-commit would be a promotion by another name, carrying tree state nothing
-reviewed; and stopping at your tree keeps a document to two readings — committed,
-or an edit of yours that is visibly holding the runs up — rather than adding a
-third that is on the branch and that nobody touched. The price is the dirty
-checkout, which is why it is said as the write happens rather than left to arrive
-as `primary repository has uncommitted changes` from the next command you run.
-`--json` carries the same sentence as `pending_commit`. A refused approval writes
-nothing, so it says nothing.
+refuses to start is a run over the one that was written to. `--json` carries the
+same sentence as `pending_commit`. A refused approval writes nothing, so it says
+nothing.
 
 **The approval is yours, and a process an agent started cannot record one.** A
 goal you approved is what lets work be admitted without asking you, so a run

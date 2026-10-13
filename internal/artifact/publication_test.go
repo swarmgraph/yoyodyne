@@ -118,3 +118,44 @@ func TestADecisionRecordIsConfirmedUnderTheDesignsSetting(t *testing.T) {
 		t.Fatalf("confirmed under a human designs setting: %v, %v", automatic, err)
 	}
 }
+
+// The operator may approve any revision its owner may write, a change of
+// fundamental intent included, and the candidate carries their approval
+// rather than the harness's, without anything reaching the primary checkout.
+func TestOperatorApprovalPreparesACandidateForAnyRevisionWithoutWritingPrimary(t *testing.T) {
+	for _, kind := range []Kind{KindGoals, KindNonGoals} {
+		t.Run(string(kind), func(t *testing.T) {
+			store := generatedStore(t.TempDir())
+			id := "intent-document"
+			if _, err := store.Create(domain.RoleProductManager, Draft{ID: id, Kind: kind, Title: "Product intent", Directory: productHome, Body: "# Goals\n\n- Keep the boundary.", Reason: "created by owner"}, moment()); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(store.RepositoryRoot, productHome, id+".md")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			candidate, err := store.PrepareApproval(domain.RoleProductManager, Write{Action: WriteRevise, ID: id, Body: "# Goals\n\n- A wider boundary.", Reason: "the operator widened the boundary", Intent: IntentFundamental}, "approved by the operator in conversation chat-1, turn 2", moment().Add(time.Hour))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := candidate.Validate(); err != nil {
+				t.Fatal(err)
+			}
+			approval, _ := candidate.Artifact.LatestApproval()
+			if !candidate.OperatorApproved() || approval.By != ApproverOperator || approval.Policy != "" || approval.Revision != len(candidate.Artifact.Revisions)-1 {
+				t.Fatalf("approval = %+v", approval)
+			}
+			if candidate.Before != DocumentIdentity(before) || !strings.Contains(candidate.Content, "A wider boundary") {
+				t.Fatalf("candidate = %+v", candidate)
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("primary was written: %v", err)
+			}
+			if _, err := store.PrepareApproval(domain.RoleArchitect, Write{Action: WriteRevise, ID: id, Body: "# Goals", Reason: "not the owner"}, "approved", moment().Add(time.Hour)); err == nil {
+				t.Fatal("an approval let a role write a document it does not own")
+			}
+		})
+	}
+}

@@ -147,6 +147,28 @@ type DocumentDelivery struct {
 	WaitingForSlot *CapacityError `json:"waiting_for_slot,omitempty"`
 }
 
+// StandingApprovalPrefix opens the WriteID of a handoff that lands the
+// operator's approval of a document as it already stands, recorded with
+// `yoyo artifact approve` rather than in a conversation.
+const StandingApprovalPrefix = "approval-"
+
+// StandingApproval reports a handoff that lands only the operator's approval of
+// a document as it already stands. No conversation and no provider wrote it:
+// the document's text is what its owner last recorded, and what the run adds is
+// the approval the operator gave on the command line.
+func (d DocumentPublication) StandingApproval() bool {
+	return d.ConversationID == "" && strings.HasPrefix(d.WriteID, StandingApprovalPrefix)
+}
+
+// Origin says where a handoff came from, in the words a run's record and its
+// owner are told.
+func (d DocumentPublication) Origin() string {
+	if d.StandingApproval() {
+		return fmt.Sprintf("the operator's approval of %s as it stands, given with yoyo artifact approve", d.Candidate.Artifact.ID)
+	}
+	return fmt.Sprintf("written by the %s in conversation %s at turn %d", d.Owner.Title(), d.ConversationID, d.Turn)
+}
+
 func (d DocumentPublication) Validate() error {
 	if err := d.Candidate.Validate(); err != nil {
 		return err
@@ -154,7 +176,12 @@ func (d DocumentPublication) Validate() error {
 	if err := artifact.Authorize(d.Owner, d.Candidate.Artifact.Kind); err != nil {
 		return err
 	}
-	if !strings.HasPrefix(d.ConversationID, "chat-") || !strings.HasPrefix(d.WriteID, "document-") || d.Turn < 1 || !domain.Backend(d.AuthorBackend).Valid() || strings.TrimSpace(d.AuthorModel) == "" {
+	switch {
+	case d.StandingApproval():
+		if !d.Candidate.OperatorApproved() || d.Turn != 0 || len(d.WriteID) <= len(StandingApprovalPrefix) {
+			return errors.New("a standing approval's publication must carry the operator's approval and name the approval it lands")
+		}
+	case !strings.HasPrefix(d.ConversationID, "chat-") || !strings.HasPrefix(d.WriteID, "document-") || d.Turn < 1 || !domain.Backend(d.AuthorBackend).Valid() || strings.TrimSpace(d.AuthorModel) == "":
 		return errors.New("document publication must name its owning conversation, write, turn, and author provider")
 	}
 	revision := d.Candidate.Artifact.Revisions[len(d.Candidate.Artifact.Revisions)-1]
