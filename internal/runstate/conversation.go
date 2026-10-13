@@ -162,6 +162,25 @@ type Conversation struct {
 	// it did and did not — so it travels the same way rather than in a field of its
 	// own.
 	PendingTrackerResults string `json:"pending_tracker_results,omitempty"`
+	// PassCarriedForward is the account the last recurring turn of this
+	// conversation gave, as its reply's prose, and PassCarriedForwardFrom the
+	// pass that gave it. Every recurring turn starts a provider session of its
+	// own rather than continuing the last one, so this is how what one pass said
+	// it would do next reaches the next: the role's memory holds its judgment,
+	// and this holds the account. It is bounded by MaxPassCarriedForwardBytes,
+	// keeping the end of a longer account, where the closing report is.
+	PassCarriedForward     string `json:"pass_carried_forward,omitempty"`
+	PassCarriedForwardFrom string `json:"pass_carried_forward_from,omitempty"`
+	// PassAccountOwed says the account above has not yet reached a turn the
+	// operator opened. Those turns go on resuming the conversation's own
+	// session, which never saw the recurring turn, so the next one is given the
+	// account once.
+	PassAccountOwed bool `json:"pass_account_owed,omitempty"`
+	// SessionAsideForPass is the provider session the conversation's other
+	// turns resume, kept here while a recurring turn runs in a session of its
+	// own and put back when it ends. A process that died during the pass left it
+	// here, and the next process to open the conversation puts it back.
+	SessionAsideForPass *HeldProviderSession `json:"session_aside_for_pass,omitempty"`
 	// ReplyCuts are the replies of this conversation's last turn that the event
 	// log holds only the beginning of, and that the role has not been told about
 	// yet. The log is where a role's ruling lives until it can write the document
@@ -634,6 +653,48 @@ const MaxDeliveredReportIDs = 256
 // well below the state file's own limit rather than growing with the tracker.
 const MaxPendingTrackerResultBytes = 64 << 10
 
+// HeldProviderSession is a provider session as a conversation record holds
+// it: which session, on which endpoint, how large the harness measures it, and
+// why one was set aside where the provider refused it. They are the fields that
+// decide what a turn resumes, so they are kept and put back together.
+type HeldProviderSession struct {
+	SessionID    string         `json:"session_id,omitempty"`
+	SetAside     string         `json:"set_aside,omitempty"`
+	Bytes        int            `json:"bytes,omitempty"`
+	BudgetBytes  int            `json:"budget_bytes,omitempty"`
+	Backend      domain.Backend `json:"backend,omitempty"`
+	Model        string         `json:"model,omitempty"`
+	AccountAlias string         `json:"account_alias,omitempty"`
+	Effort       string         `json:"effort,omitempty"`
+}
+
+// HeldSession is the provider session the record holds now.
+func (c Conversation) HeldSession() HeldProviderSession {
+	return HeldProviderSession{
+		SessionID: c.ProviderSessionID, SetAside: c.SessionSetAside,
+		Bytes: c.ProviderSessionBytes, BudgetBytes: c.ProviderSessionBudgetBytes,
+		Backend: c.Backend, Model: c.ProviderModel, AccountAlias: c.AccountAlias, Effort: c.ProviderEffort,
+	}
+}
+
+// Hold makes held the provider session the record holds. The endpoint fields
+// are put back only where the held record had served a turn, which is where it
+// names a model, so a record that had served none keeps the endpoint the turn
+// since was served on.
+func (c *Conversation) Hold(held HeldProviderSession) {
+	c.ProviderSessionID, c.SessionSetAside = held.SessionID, held.SetAside
+	c.ProviderSessionBytes, c.ProviderSessionBudgetBytes = held.Bytes, held.BudgetBytes
+	if held.Model != "" {
+		c.Backend, c.ProviderModel, c.AccountAlias, c.ProviderEffort = held.Backend, held.Model, held.AccountAlias, held.Effort
+	}
+}
+
+// MaxPassCarriedForwardBytes bounds the account one recurring turn carries to
+// the next. It is a small part of what a turn starts from, so the bound on that
+// is spent on the role's memory, its work and the product intent rather than on
+// an old account.
+const MaxPassCarriedForwardBytes = 24 << 10
+
 var conversationIDPattern = regexp.MustCompile(`^chat-[a-f0-9]{32}$`)
 
 func NewConversationID() (string, error) {
@@ -697,6 +758,10 @@ func (c Conversation) Validate() error {
 	if len(c.PendingTrackerResults) > MaxPendingTrackerResultBytes {
 		problems = append(problems, fmt.Errorf("pending tracker results are %d bytes, limit is %d",
 			len(c.PendingTrackerResults), MaxPendingTrackerResultBytes))
+	}
+	if len(c.PassCarriedForward) > MaxPassCarriedForwardBytes {
+		problems = append(problems, fmt.Errorf("the account carried forward from the last pass is %d bytes, limit is %d",
+			len(c.PassCarriedForward), MaxPassCarriedForwardBytes))
 	}
 	// A recorded refusal that says nothing about what was wrong is one nothing can
 	// act on: the wakeup carries the harness's own words, and a record without

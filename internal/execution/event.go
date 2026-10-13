@@ -243,6 +243,13 @@ const (
 	EventSessionMemorySaveRequested EventType = "session.memory_save_requested"
 	EventSessionMemorySaved         EventType = "session.memory_saved"
 	EventSessionMemorySaveFailed    EventType = "session.memory_save_failed"
+	// A recurring turn started on a provider session of its own, with how large
+	// what it started from was, the bound it was held to, and any briefing
+	// sections that gave way to fit it.
+	EventSessionPassStarted EventType = "session.pass_started"
+	// The provider compacted the session a turn was running in, with when, why
+	// and the sizes before and after where the provider reported them.
+	EventSessionProviderCompacted EventType = "session.provider_compacted"
 	// A turn the operator stopped from the console before the role finished
 	// answering it, with Esc or Ctrl-C. The turn's own failure is recorded where
 	// any failed turn's is; this says who ended it, because a turn the operator

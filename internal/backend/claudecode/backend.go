@@ -42,6 +42,18 @@ func (b Backend) RequestSize(request backend.RunRequest) (int, int) {
 	return len(prompt) + len(system), 32 << 20
 }
 
+// ContextWindowTokens is the model's context window. The opus and sonnet
+// families hold a million tokens: the conversations served on opus were
+// recorded reading 745,000 tokens of context in one invocation. Haiku, and any
+// model this does not recognize, is given the 200,000 every current Claude
+// model holds.
+func (Backend) ContextWindowTokens(request backend.RunRequest) int {
+	if backend.ModelInFamily(request.Model, "opus", "sonnet") {
+		return 1_000_000
+	}
+	return backend.DefaultContextWindowTokens
+}
+
 // defaultIdleTimeout bounds the gap between one event and the next. A working
 // agent emits events continuously -- a thought, a tool call, its result -- so
 // silence for this long means nothing is happening, and it can be far shorter

@@ -756,6 +756,17 @@ func composePrompt(request backend.RunRequest, named string) string {
 	return prompt
 }
 
+// contextWindowTokens is the window Codex compacts against: the architect's
+// sessions were recorded climbing to about 250,000 tokens against a
+// 258,000-token window before Codex compacted them.
+const contextWindowTokens = 258_000
+
+// ContextWindowTokens is the same for every model, since Codex states the
+// window it compacts against rather than one per model.
+func (Backend) ContextWindowTokens(backend.RunRequest) int {
+	return contextWindowTokens
+}
+
 // RequestSize includes everything composePrompt adds. Codex turn/start refused
 // input past 1,048,576 characters in the development manager's October 5 record
 // (events 13747–13749). Counting UTF-8 bytes is conservative for that character

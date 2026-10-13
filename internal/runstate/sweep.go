@@ -44,6 +44,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -101,6 +102,11 @@ const MaxSweepCriticals = 10
 // exported so the writer holds the list to it rather than lose the pass's
 // report over its length.
 const MaxSweepSavedWrites = 64
+
+// MaxSweepCompactions bounds how many provider compactions one pass records. A
+// turn compacted twice ends its pass, so a pass reaches this only across many
+// turns; the writer holds the list to it rather than lose the record.
+const MaxSweepCompactions = 16
 
 // SavedWriteKind is which store a pass's saved write went into.
 type SavedWriteKind string
@@ -429,6 +435,15 @@ type Sweep struct {
 	// It is absent on a pass handed none, on a program manager instance's pass,
 	// and on every record written before passes carried it.
 	Delivered []DeliveredWork `json:"delivered,omitempty"`
+	// Compactions are the times the provider compacted the session one of this
+	// pass's turns was running in, in the order they happened, with the sizes
+	// before and after where the provider reported them. A turn starts a
+	// session of its own and is bounded well inside the provider's window, so a
+	// compaction says the turn outgrew that bound while it worked; a turn
+	// compacted twice makes the pass partial. Absent on a pass the provider
+	// compacted nothing in, and on every record written before passes carried
+	// it.
+	Compactions []backend.ProviderCompaction `json:"compactions,omitempty"`
 	// Steps is what the harness's own maintenance pass did, one entry per step in
 	// the order it took them, each saying whether it ran, was skipped, or failed,
 	// and why. A step that was skipped says so rather than being left out,
@@ -923,6 +938,14 @@ func (s Sweep) Validate() error {
 	}
 	if len(s.Saved) > MaxSweepSavedWrites {
 		problems = append(problems, fmt.Errorf("%d saved writes in one pass, limit is %d", len(s.Saved), MaxSweepSavedWrites))
+	}
+	if len(s.Compactions) > MaxSweepCompactions {
+		problems = append(problems, fmt.Errorf("%d compactions in one pass, limit is %d", len(s.Compactions), MaxSweepCompactions))
+	}
+	for i, compaction := range s.Compactions {
+		if compaction.At.IsZero() || compaction.BeforeTokens < 0 || compaction.AfterTokens < 0 || len(compaction.Trigger) > MaxSweepModelBytes {
+			problems = append(problems, fmt.Errorf("compactions[%d] must say when it happened, with sizes no smaller than zero", i))
+		}
 	}
 	for i, saved := range s.Saved {
 		if err := saved.Validate(); err != nil {

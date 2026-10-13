@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -59,6 +61,8 @@ type scriptedTurn struct {
 	actedOn []string
 	// held is the items documents held for sending answer, with each document.
 	held map[string]string
+	// compactions are the times the provider compacted the turn's session.
+	compactions []backend.ProviderCompaction
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, _ RecurringTurnOptions) (Turn, error) {
@@ -78,7 +82,7 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 		ConversationID: "chat-1", CostUSD: answer.cost, Model: answer.model, Result: answer.result, ResultProblem: answer.problem,
 		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported,
 		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
-		ActedOn: answer.actedOn, HeldForSending: answer.held,
+		ActedOn: answer.actedOn, HeldForSending: answer.held, Compactions: answer.compactions,
 	}, answer.err
 }
 
@@ -305,6 +309,44 @@ func TestAPassTruncatedByItsBoundSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(fired.Fired[0].Problem, "still had more to do") {
 		t.Errorf("problem = %q, want it to say the bound ended the pass", fired.Fired[0].Problem)
+	}
+}
+
+// A compaction the provider made during a pass is on the pass's record, and a
+// turn compacted twice ends its pass partial rather than complete.
+func TestAPassRecordsCompactionsAndATurnCompactedTwiceIsPartial(t *testing.T) {
+	t.Parallel()
+
+	at := recurringNow.Add(10 * time.Minute)
+	once := []backend.ProviderCompaction{{At: at, Trigger: "auto", BeforeTokens: 250_000, AfterTokens: 80_000}}
+	twice := []backend.ProviderCompaction{{At: at, Trigger: "auto", BeforeTokens: 250_000}, {At: at.Add(time.Minute), BeforeTokens: 240_000}}
+	for name, test := range map[string]struct {
+		compactions []backend.ProviderCompaction
+		partial     bool
+	}{"once": {once, false}, "twice": {twice, true}} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			store := sweepStore(t)
+			role := &wokenRole{answers: []scriptedTurn{{result: complete("done"), compactions: test.compactions}, {result: complete("a turn the pass must not take")}}}
+			trigger := Trigger{Tasks: hourlyTask("sweep"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}
+			fired, err := trigger.Fire(context.Background())
+			if err != nil {
+				t.Fatalf("Fire() error = %v", err)
+			}
+			recorded, _, err := store.List()
+			if err != nil || len(recorded) != 1 {
+				t.Fatalf("List() = %+v, %v", recorded, err)
+			}
+			if !reflect.DeepEqual(recorded[0].Compactions, test.compactions) {
+				t.Fatalf("compactions on the record = %+v, want %+v", recorded[0].Compactions, test.compactions)
+			}
+			if fired.Fired[0].Truncated != test.partial || strings.Contains(recorded[0].Problem, "its pass is partial") != test.partial {
+				t.Fatalf("partial = %v, problem = %q, want partial %v", fired.Fired[0].Truncated, recorded[0].Problem, test.partial)
+			}
+			if test.partial && (len(role.messages) != 1 || recorded[0].Result.Status != sweep.StatusMore) {
+				t.Fatalf("a pass compacted twice took %d turns and ended %q", len(role.messages), recorded[0].Result.Status)
+			}
+		})
 	}
 }
 

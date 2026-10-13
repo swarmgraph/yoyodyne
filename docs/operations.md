@@ -6619,6 +6619,14 @@ These outcomes look similar in a listing and are not the same thing:
   lines](#where-the-harness-stands-the-four-lines).
 - **A pass stopped by its turn bound** is recorded as partial, naming the bound,
   so a truncated pass is never mistaken for a finished one.
+- **A pass the provider compacted** says so on a line for each compaction:
+  when it happened, the sizes before and after where the provider reported
+  them, and the provider's reason where it gave one. `--json` carries them as
+  `compactions`. Each turn of a pass starts from a third of the provider's
+  window, so a compaction means the turn outgrew that while it worked. A turn
+  compacted twice ends its pass as partial, and the rest waits for the next
+  firing. See [what a recurring turn starts
+  from](conversation.md#how-fresh-the-conversations-picture-is-and-how-to-refresh-it).
 - **A development manager's pass that leaves docket entries unread** records
   how many live entries were never delivered and names the oldest, including
   when a provider refusal ended the pass. Its continuation turns carry each

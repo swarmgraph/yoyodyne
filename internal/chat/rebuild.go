@@ -90,8 +90,9 @@ func (s *Session) servingEndpoint(served modelfailover.Served) backend.Endpoint 
 // rarely the process that takes the next one.
 func (s *Session) resumableSession() string {
 	// A turn compacting the session is sent without it, whichever endpoint holds
-	// it; see compact.go.
-	if s.compacting {
+	// it; see compact.go. So is a recurring turn starting a session of its own;
+	// see passcontext.go.
+	if s.compacting || s.freshPass {
 		return ""
 	}
 	if s.state.Backend != "" && s.state.Backend != s.options.Provider {
@@ -110,7 +111,7 @@ func (s *Session) resumableSession() string {
 // question resumableSession asks, asked about the other endpoint.
 func (s *Session) alternateSession() string {
 	alternate := s.options.FailoverEndpoint.Provider
-	if s.compacting || alternate == "" || s.state.Backend != alternate {
+	if s.compacting || s.freshPass || alternate == "" || s.state.Backend != alternate {
 		return ""
 	}
 	return s.state.ProviderSessionID
@@ -153,7 +154,9 @@ func (s *Session) rebuildForOwnEndpoint(request backend.RunRequest) (backend.Run
 // carries the context, so reconstructing it would be telling the provider what it
 // already knows, once per turn, for as long as the window stands.
 func (s *Session) rebuildForAlternate(request backend.RunRequest) (backend.RunRequest, error) {
-	if s.alternateSession() != "" {
+	// A recurring turn starting a session of its own already carries what it is
+	// meant to start from, on either endpoint.
+	if s.alternateSession() != "" || s.freshPass {
 		return request, nil
 	}
 	return s.rebuildFromRecord(request, crossedProviders)

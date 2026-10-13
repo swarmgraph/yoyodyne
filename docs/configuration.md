@@ -7650,6 +7650,14 @@ turns. A pass recorded before passes named their model is shown as
 spending decision: `every: 1h` is a turn an hour for as long as a `yoyo work
 --watch` session is running.
 
+**Each turn of a pass starts a provider session of its own.** It does not resume
+the conversation's session. It starts from the role's instructions, its
+memories, the product briefing with the product intent whole and the other
+documents left out to be read on demand, what the previous recurring turn said,
+and the pass's message, bounded to a third of the provider's context window. The
+conversation's own session is put back for the turns the operator opens. See
+[what a recurring turn starts from](conversation.md#how-fresh-the-conversations-picture-is-and-how-to-refresh-it).
+
 **Firings of different roles do not wait on one another, and none holds the
 pull.** A pull claims the firings that are due and takes their turns beside
 itself, each in its role's own conversation — a program manager instance's in

@@ -398,6 +398,10 @@ type RunResult struct {
 	// failure: it is the one wait that spends nothing, and a result that also
 	// asked for a relaunch would spend exactly what this exists not to.
 	ProviderOutage *ProviderOutage
+	// Compactions are the times the provider compacted the session during this
+	// invocation, in the order it reported them, and empty where it reported
+	// none. See compaction.go.
+	Compactions []ProviderCompaction
 }
 
 // maxFailureDetailBytes bounds the provider's own words in a described failure.

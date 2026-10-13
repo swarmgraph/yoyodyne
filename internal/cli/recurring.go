@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
@@ -516,6 +517,14 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	}
 	defer lease.Release()
 	session.ForPass(pass)
+	// The turn ran in a provider session of its own, and the conversation's is
+	// put back before the hold is given up, so the next turn anybody opens
+	// resumes the conversation's session rather than this turn's.
+	defer func() {
+		if err := session.EndPass(); err != nil {
+			fmt.Fprintf(r.errors(), "yoyo: the %s's conversation session could not be put back after %s: %v\n", role, pass, err)
+		}
+	}()
 
 	reply, err := session.Send(ctx, message)
 	// The conversation and what the turn cost are carried whichever way it went: a
@@ -547,6 +556,8 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 		// And the items whose finished documents the conversation keeps held
 		// for sending, which the pass's record says apart from items ruled.
 		HeldForSending: heldForSending(session),
+		// And the times the provider compacted the session it ran in.
+		Compactions: reply.ProviderCompactions,
 	}
 	if err != nil {
 		return turn, notWoken(err)
@@ -563,6 +574,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			recovered, recoveryErr := session.Send(ctx, sweep.ReportRequest())
 			turn.CostUSD += session.TurnCostUSD()
 			turn.Saved = append(turn.Saved, recovered.Saved...)
+			turn.Compactions = append(turn.Compactions, recovered.ProviderCompactions...)
 			turn.Wording = append(turn.Wording, recovered.Wording...)
 			turn.ReportsFiled += len(recovered.Reports)
 			turn.Admitted = append(turn.Admitted, recovered.AdmittedWork()...)
@@ -979,6 +991,11 @@ func renderSweep(recorded runstate.Sweep) string {
 	if handed := describeDelivered(recorded); handed != "" {
 		fmt.Fprintf(&rendered, "  %s\n", handed)
 	}
+	// Each time the provider compacted a session the pass ran in, because the
+	// detail it dropped is only in the conversation's record from then on.
+	for _, compaction := range recorded.Compactions {
+		fmt.Fprintf(&rendered, "  %s\n", describeCompaction(compaction))
+	}
 	if recorded.Result == nil {
 		fmt.Fprintf(&rendered, "  no account of this pass was recorded: %s\n", nonEmptySweepProblem(recorded.Problem))
 		return rendered.String()
@@ -1089,6 +1106,24 @@ func describeCarried(events map[string]int) string {
 // maxRenderedDelivered is how many handed items a pass's entry names before it
 // counts the rest; the first is the one the line is read for.
 const maxRenderedDelivered = 5
+
+// describeCompaction says when the provider compacted a pass's session, why
+// where it said, and the sizes it reported.
+func describeCompaction(compaction backend.ProviderCompaction) string {
+	said := "the provider compacted the session at " + compaction.At.UTC().Format(time.RFC3339)
+	switch {
+	case compaction.BeforeTokens > 0 && compaction.AfterTokens > 0:
+		said += fmt.Sprintf(", from %d tokens to %d", compaction.BeforeTokens, compaction.AfterTokens)
+	case compaction.BeforeTokens > 0:
+		said += fmt.Sprintf(", from %d tokens; it did not say how large the session was after", compaction.BeforeTokens)
+	default:
+		said += "; it reported no sizes"
+	}
+	if trigger := strings.TrimSpace(compaction.Trigger); trigger != "" {
+		said += fmt.Sprintf(" (its reason: %s)", trigger)
+	}
+	return said
+}
 
 // describeDelivered says what a pass was handed, in order, with whether it took
 // each, and nothing for a pass handed none. An item not taken is said in

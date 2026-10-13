@@ -3140,6 +3140,65 @@ refusal during the save turn does not stop the session rebuild or the waiting
 reply. The role receives the refused write's result on its next turn, including
 the turn answering the waiting message after the rebuild.
 
+**A recurring turn starts a provider session of its own.** Everything above
+is about a turn the operator opens, which resumes the conversation's session
+and is unchanged. A turn a [recurring task](configuration.md#recurring-tasks)
+takes does not resume it. Each one starts a fresh provider session, built from
+the role's instructions, persona and remit, its saved memories, the product
+briefing, what the previous recurring turn said, and the turn's own message.
+Nothing else said in the conversation is carried, and the conversation stays
+the record: every turn is still written to its event log. The rounds after the
+first, where the harness hands back what the role asked for, and the one
+request for a missing closing report, continue the session that turn started.
+While the recurring turn runs, the conversation's own session is set aside on
+the record (`session_aside_for_pass`). It is put back when the turn ends, so
+the next turn you open resumes the session it always has. If the process dies
+mid-turn, the next process to open the conversation puts it back. The picture
+the recurring turn carried went to its own session, so a refresh it carried is
+still given to your next turn.
+
+**The briefing a recurring turn starts from carries the product intent whole
+and leaves the other documents out.** The role's own designs, decision records
+and architectural invariants, the shipped documentation and the command help
+are each replaced by their heading and a note. The briefing ends with a list
+of them under `Left out of what a recurring turn starts from`, with each path,
+for the role to read with a repository read when the turn needs one. The
+product intent, the directory indexes, the section saying whether a brief and
+goals are recorded, and the work items and docket are carried whole. The
+briefing comes first, ahead of the memories. It changes least from one pass to
+the next, since its work items are its last section, so a provider that caches
+the start of its requests can reuse it in the next pass's new session.
+
+**What a recurring turn starts from is bounded.** The bound is a third of the
+serving provider's context window, at about four bytes a token, measured the
+way the adapter measures a request. That is 1,333,333 bytes on Claude Code's
+opus and sonnet (a 1,000,000-token window) and 266,666 bytes on other Claude
+models (200,000 tokens). On Codex it is 344,000 bytes (258,000 tokens). A
+provider whose adapter states no window gets 200,000 tokens. The other two
+thirds are left for the turn's own work, so the provider should not need to
+compact the session. Nothing in the start gives way to the bound: not the
+role's instructions, its memories, the product intent, the previous turn's
+account, or the turn's message. A start over it is refused before the provider
+is asked. The error names the size of each part, and the pass is recorded as a
+firing that failed before its first turn. Each recurring turn writes a
+`session.pass_started` event with its size, the bound, the window it came from,
+and the documents left out.
+
+**What one recurring turn said reaches the next.** The role's memory holds its
+judgment, and the previous turn's account holds what it did and what it said it
+would do next. The harness keeps that account on the conversation record
+(`pass_carried_forward`, at most 24 KiB, keeping the end of a longer one) and
+gives it to the next recurring turn. It is also given once to the next turn
+you open, since the session that turn resumes never saw it.
+
+**A compaction the provider makes anyway is recorded.** Claude Code reports a
+compaction with the session's size before it. Codex reports one only where its
+stream says so, with no sizes. Each compaction is written to the
+conversation's log as `session.provider_compacted`, with when it happened, why
+where the provider said, and the sizes before and after where it gave them. It
+is also on the pass's record and in [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found).
+A recurring turn the provider compacts twice ends its pass as partial.
+
 **The harness refreshes on its own past a threshold.** The line above turned
 out not to be enough: on 2026-09-18 the Lead Product Manager advised adding a
 section to CLAUDE.md that the file at HEAD had opened with for a month, from a

@@ -158,8 +158,14 @@ func (s *Session) keepsLaneReport() bool {
 // recurring task that fired it names it, so a lane report written by one is
 // stamped with the pass as well as the turn. A session nothing marks is an
 // operator's conversation, and its reports are stamped with the turn alone.
+//
+// The next message is the recurring turn's own, and it starts a provider
+// session of its own rather than resuming the conversation's; the messages
+// after it, until ForPass is called again, continue that session. EndPass puts
+// the conversation's session back. See passcontext.go.
 func (s *Session) ForPass(pass string) {
 	s.pass = strings.TrimSpace(pass)
+	s.passFresh = s.pass != ""
 }
 
 // writeLaneReport carries out one reply's lane report, or records why it could
