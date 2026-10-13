@@ -4880,6 +4880,30 @@ leave no note on any item, and their own records in
 task, when, its place in the order, and whether that pass took it — and the
 dashboard's item card says the same under **Last pass**.
 
+**An item a role's passes keep leaving is decided or asked about.** Every pass
+that leaves the item first in its order records how many of the task's passes
+in a row have left it, this one included, and the reason each gave is in its
+note on the item. Only an item nothing outside the role holds is counted: one
+the tracker says depends on an unfinished item, or records as blocked, carries
+what holds it on the pass's record instead, may be left for as long as it is
+held, and is never pressed; a parked item is never handed to a pass at all. The
+count is of passes, not of identical reasons, so a role that rewords its reason
+has still left the same item. Once two passes in a row have left it, the next
+pass is told so at its start, with their reasons, and asked to do one of two
+things: decide the item, writing down the assumptions its decision makes, or
+put one question about it to whoever can answer — another role, or the operator
+only where the decision is his. Its account says which under `settled`, and the
+harness writes on the item what was decided with its assumptions, or the
+question and who it was put to. A pass that ends having left the item anyway is
+sent back once, in one more turn of the same pass even where that is past the
+task's turn bound, with everything else it did kept. A pass that still leaves
+it is not failed: its record says it left the item again, the note on the item
+says so, and the development manager's passes are told of the item until a
+later pass takes it. After a question, the passes that leave the item are
+waiting on the answer and are not counted. The status line says `DECIDED` or
+`ASKED` beside an item taken that way, and the count beside an item left more
+than once in a row, in capitals from the third.
+
 Naming an item leaves the four lines out. They are about the product, and a
 question about one piece of work is a different question. `--json` carries the
 same derivation under `standing`, so a second surface reads the answer rather
@@ -6446,6 +6470,12 @@ account says which items it left and why in its `left` entries; an item it
 neither acted on in the tracker nor named in a finding it acted on is not taken.
 A pass recorded before passes carried this, and a program manager instance's
 pass, which is handed no such list, say nothing about it.
+`--json` carries, on each delivered item, `held_outside` where the tracker said
+something outside the role holds it, `left_in_a_row` on a first item the pass
+left, `settled` (`decided` or `asked`) on an item the pass decided or asked
+about, and `sent_back` on the pass that was sent back to do that; the account's
+`settled` entries carry the decision and its assumptions, or the question and
+who it was put to.
 
 Each entry leads with **the questions the pass could not settle itself**, because
 that is the one part of a report that asks for anything: a report with no

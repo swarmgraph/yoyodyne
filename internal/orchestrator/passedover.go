@@ -20,6 +20,11 @@ package orchestrator
 // that names the item is its reason. A role that names an item in "left" and
 // also acts on it in the tracker took it: the tracker is what happened.
 //
+// An item the account says it decided, with its assumptions, or put one
+// question about is taken, and the record says which of the two
+// (repeatleave.go): that is what a pass told it keeps leaving an item is asked
+// to do with it, and it stands over a "left" entry for the same item.
+//
 // An item a document kept held for sending answers was taken too, and is
 // recorded as held for sending with that document, because its design or
 // ruling is finished and only the sending waits. An item the account lists
@@ -59,7 +64,7 @@ func boundedDelivery(items []runstate.DeliveredWork) []runstate.DeliveredWork {
 		if len(kept) == runstate.MaxSweepDelivered {
 			break
 		}
-		kept = append(kept, runstate.DeliveredWork{ID: strings.TrimSpace(item.ID), Priority: max(item.Priority, 0)})
+		kept = append(kept, runstate.DeliveredWork{ID: strings.TrimSpace(item.ID), Priority: max(item.Priority, 0), HeldOutside: boundedLeftReason(item.HeldOutside)})
 	}
 	return kept
 }
@@ -77,9 +82,21 @@ func judgeDelivered(delivered []runstate.DeliveredWork, actedOn []string, heldFo
 	}
 	judged := make([]runstate.DeliveredWork, len(delivered))
 	for i, item := range delivered {
-		item.Taken, item.Reason, item.HeldForSending = false, "", ""
+		item.Taken, item.Reason, item.HeldForSending, item.Settled = false, "", "", ""
 		document := strings.TrimSpace(heldForSending[item.ID])
+		var settled sweep.Settled
+		var answered bool
+		if account != nil {
+			settled, answered = account.SettledItem(item.ID)
+		}
 		switch {
+		case answered:
+			// A decision or a question is what the pass was told to do with an item
+			// it kept leaving, so it is the item taken, and the record says which.
+			item.Taken, item.HeldForSending, item.Settled = true, document, runstate.SettledAsked
+			if settled.Decided() {
+				item.Settled = runstate.SettledDecided
+			}
 		case changed[item.ID]:
 			item.Taken, item.HeldForSending = true, document
 		case document != "":
@@ -214,9 +231,23 @@ func passedOverNote(pass string, role domain.AgentRole, recorded runstate.Sweep,
 		took = fmt.Sprintf("; it took %d of the others", taken)
 	}
 	return fmt.Sprintf(
-		"Passed over by the %s's recurring pass %s at %s: this item (P%d) %s from the work waiting in the %s's conversation, and the pass did not take it%s. Reason: %s.",
+		"Passed over by the %s's recurring pass %s at %s: this item (P%d) %s from the work waiting in the %s's conversation, and the pass did not take it%s. Reason: %s.%s",
 		role.Title(), pass, recorded.StartedAt.Local().Format("15:04 MST on January 2, 2006"),
-		first.Priority, where, role.Title(), took, strings.TrimSuffix(reason, "."))
+		first.Priority, where, role.Title(), took, strings.TrimSuffix(reason, "."), leftInARowSays(role, first))
+}
+
+// leftInARowSays is what the note adds where passes in a row have left the
+// item with nothing outside the role holding it (repeatleave.go).
+func leftInARowSays(role domain.AgentRole, first runstate.DeliveredWork) string {
+	switch {
+	case first.LeftInARow > runstate.LeftInARowBeforeSettling:
+		return fmt.Sprintf(" This is the %s pass in a row to leave it with nothing outside the %s's role holding it. The pass was told at its start to decide it, writing down its assumptions, or to put one question about it%s, and it did neither. The development manager is told at that role's next pass.",
+			ordinal(first.LeftInARow), role.Title(), sentBackSays(first.SentBack))
+	case first.LeftInARow == runstate.LeftInARowBeforeSettling:
+		return fmt.Sprintf(" This is the %s pass in a row to leave it with nothing outside the %s's role holding it, so the next pass is told to decide it, writing down its assumptions, or to put one question about it.",
+			ordinal(first.LeftInARow), role.Title())
+	}
+	return ""
 }
 
 func takenCount(delivered []runstate.DeliveredWork) int {

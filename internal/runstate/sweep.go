@@ -466,13 +466,42 @@ const MaxSweepDelivered = 200
 // HeldForSending names the document, kept in the role's conversation, that
 // holds the item's finished design or ruling under a hold on sending it: such
 // an item was taken and is not yet ruled, and the record says so apart.
+//
+// HeldOutside is what outside the role holds the item, as the tracker said
+// when the pass was handed it: an unfinished item it depends on, or the
+// tracker's own record that it is blocked. It is empty for an item nothing
+// outside the role holds, which is the only kind whose leaving is counted.
+//
+// Settled is what the pass did about an item it was told it had left twice in a
+// row with nothing outside the role holding it: SettledDecided or SettledAsked,
+// with the decision or the question in the pass's account. LeftInARow is, on
+// the item first in the order, how many of the task's passes in a row, this one
+// included, left it with nothing outside the role holding it, and SentBack
+// marks the pass that was sent back to decide it or ask about it before it
+// ended. Each is absent where it does not apply and on records written before
+// passes carried it.
 type DeliveredWork struct {
 	ID             string `json:"id"`
 	Priority       int    `json:"priority"`
 	Taken          bool   `json:"taken,omitempty"`
 	Reason         string `json:"reason,omitempty"`
 	HeldForSending string `json:"held_for_sending,omitempty"`
+	HeldOutside    string `json:"held_outside,omitempty"`
+	Settled        string `json:"settled,omitempty"`
+	LeftInARow     int    `json:"left_in_a_row,omitempty"`
+	SentBack       bool   `json:"sent_back,omitempty"`
 }
+
+// What a pass did about an item it was told not to leave again.
+const (
+	SettledDecided = "decided"
+	SettledAsked   = "asked"
+)
+
+// LeftInARowBeforeSettling is how many passes in a row may leave an item first
+// in a role's order with nothing outside the role holding it before the next
+// pass is told to decide it or ask one question about it.
+const LeftInARowBeforeSettling = 2
 
 // FirstDelivered is the item first in the order the pass was handed, and false
 // where it was handed none.
@@ -890,6 +919,14 @@ func (s Sweep) Validate() error {
 			problems = append(problems, fmt.Errorf("delivered[%d] was taken, so it carries no reason for being left", i))
 		case len(delivered.Reason) > MaxSweepTextBytes:
 			problems = append(problems, fmt.Errorf("delivered[%d] reason is %d bytes, limit is %d", i, len(delivered.Reason), MaxSweepTextBytes))
+		case len(delivered.HeldOutside) > MaxSweepTextBytes:
+			problems = append(problems, fmt.Errorf("delivered[%d] held outside is %d bytes, limit is %d", i, len(delivered.HeldOutside), MaxSweepTextBytes))
+		case delivered.Settled != "" && delivered.Settled != SettledDecided && delivered.Settled != SettledAsked:
+			problems = append(problems, fmt.Errorf("delivered[%d] settled %q must be %q or %q", i, delivered.Settled, SettledDecided, SettledAsked))
+		case delivered.Settled != "" && !delivered.Taken:
+			problems = append(problems, fmt.Errorf("delivered[%d] was decided or asked about, so it was taken", i))
+		case delivered.LeftInARow < 0:
+			problems = append(problems, fmt.Errorf("delivered[%d] left in a row %d is negative", i, delivered.LeftInARow))
 		}
 	}
 	if len(s.Model) > MaxSweepModelBytes {

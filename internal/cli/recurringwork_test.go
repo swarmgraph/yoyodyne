@@ -219,3 +219,25 @@ func TestSweepsSayWhatAPassWasHandedAndTook(t *testing.T) {
 		t.Errorf("a pass handed nothing says %q", quiet)
 	}
 }
+
+// What outside the role holds an item is read from the tracker as the backlog
+// reads it: an unfinished dependency, or the tracker's own blocked status. An
+// item whose dependency closed is held by nothing.
+func TestHeldOutsideReadsDependenciesAndTheBlockedStatus(t *testing.T) {
+	t.Parallel()
+	unfinished := map[string]struct{}{"yoyodyne-7o2": {}}
+	for _, test := range []struct {
+		name string
+		item beads.WorkItem
+		want string
+	}{
+		{"unfinished dependency", beads.WorkItem{Status: "open", Dependencies: []beads.Dependency{{ID: "yoyodyne-7o2", Type: beads.BlocksDependency}}}, "it depends on yoyodyne-7o2, not yet finished"},
+		{"finished dependency", beads.WorkItem{Status: "open", Dependencies: []beads.Dependency{{ID: "yoyodyne-old", Type: beads.BlocksDependency, Status: "closed"}}}, ""},
+		{"blocked status", beads.WorkItem{Status: "blocked"}, "the tracker records it as blocked"},
+		{"nothing", beads.WorkItem{Status: "open"}, ""},
+	} {
+		if got := heldOutside(test.item, unfinished); got != test.want {
+			t.Errorf("%s: heldOutside() = %q, want %q", test.name, got, test.want)
+		}
+	}
+}

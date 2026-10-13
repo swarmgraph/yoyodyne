@@ -191,10 +191,31 @@ func (w sweepConversationWork) Read(ctx context.Context, role domain.AgentRole) 
 	}
 	waiting := readmodel.ConversationWork(items, role)
 	reading := orchestrator.ConversationWorkReading{Section: contextbundle.ConversationWorkSection(waiting, "")}
+	unfinished := map[string]struct{}{}
+	for _, item := range items {
+		if item.Status != "closed" {
+			unfinished[item.ID] = struct{}{}
+		}
+	}
 	for _, item := range contextbundle.ConversationWorkListed(waiting) {
-		reading.Items = append(reading.Items, runstate.DeliveredWork{ID: item.ID, Priority: item.Priority})
+		reading.Items = append(reading.Items, runstate.DeliveredWork{ID: item.ID, Priority: item.Priority, HeldOutside: heldOutside(item, unfinished)})
 	}
 	return reading, nil
+}
+
+// heldOutside is what outside the woken role holds an item, as the tracker
+// records it: an unfinished item it depends on, read as the backlog reads one,
+// or the tracker's own status of blocked. A parked item is never listed, so
+// parking is not asked here. Empty where nothing does, which is the item whose
+// passes are counted when they leave it (orchestrator/repeatleave.go).
+func heldOutside(item beads.WorkItem, unfinished map[string]struct{}) string {
+	if waiting := item.WaitingOn(unfinished); len(waiting) > 0 {
+		return "it depends on " + strings.Join(waiting, ", ") + ", not yet finished"
+	}
+	if item.Status == "blocked" {
+		return "the tracker records it as blocked"
+	}
+	return ""
 }
 
 // trackerNotes appends the harness's note to a work item, through the same
