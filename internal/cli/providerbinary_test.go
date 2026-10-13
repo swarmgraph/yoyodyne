@@ -116,8 +116,15 @@ printf '%s\n' '{"type":"result","subtype":"success","session_id":"claude-fixture
 							t.Fatalf("Codex turn = %+v, %v", reply, err)
 						}
 					}
-					if session.Evidence().SessionID != "codex-fixture-session" {
-						t.Fatalf("no completed Codex process: %+v", session.Evidence())
+					// A scheduled turn ran in a session of its own and the
+					// conversation's was put back when it ended; the commands below
+					// are what show the Codex process ran.
+					wantSession := "codex-fixture-session"
+					if scheduled {
+						wantSession = map[bool]string{true: "", false: "claude-fixture-session"}[role == domain.RoleArchitect]
+					}
+					if session.Evidence().SessionID != wantSession {
+						t.Fatalf("the conversation holds session %q, want %q: %+v", session.Evidence().SessionID, wantSession, session.Evidence())
 					}
 					started := false
 					for _, command := range runner.commands {
