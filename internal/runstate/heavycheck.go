@@ -59,6 +59,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -535,12 +536,10 @@ func (h *heavyCheckSession) release(permit *HeavyCheckPermit, why string) {
 	_ = h.root.Remove(permit.Hold)
 }
 
+// boundedReason is a reason on one line, cut on a character boundary to the
+// bound the record keeps.
 func boundedReason(reason string) string {
-	reason = strings.TrimSpace(reason)
-	if len(reason) > heavyCheckReasonBytes {
-		reason = reason[:heavyCheckReasonBytes]
-	}
-	return reason
+	return oneline.Bound(strings.TrimSpace(reason), heavyCheckReasonBytes)
 }
 
 // settle reads every permit not yet released against what is still alive:

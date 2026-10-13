@@ -260,8 +260,8 @@ execution:
   # none, and no developer run waits on it.
   document_landings: %d
   # Checks only so many of may run at once on this machine, across every run
-  # of every project it hosts: a slow, machine-heavy suite such as a race
-  # detector. A run whose check has no free place keeps its developer slot and
+  # of every project it hosts: a slow suite that loads the whole machine, such
+  # as a race detector. A run whose check has no free place keeps its developer slot and
   # waits, and the check's time limit starts when it launches. Name each check
   # the way the check lists write it; a command that begins with the name and
   # then a space counts under it, and a name with no number gets 1. Delete the

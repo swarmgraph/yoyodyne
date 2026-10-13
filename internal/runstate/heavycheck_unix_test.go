@@ -192,7 +192,7 @@ func TestAChildThatOutlivesItsCheckKeepsThePlace(t *testing.T) {
 	store := newHeavyCheckStoreForTest(t)
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	command := launchHeld(t, grant, "sleep 1.5 & exit 0")
+	command := launchHeld(t, grant, "sleep 3 & exit 0")
 	_ = command.Wait()
 	kept, err := grant.Finish("succeeded, exit code 0")
 	if err != nil {
@@ -469,9 +469,12 @@ func TestAPlaceIsReleasedByHandWithWhoAndWhy(t *testing.T) {
 	store := newHeavyCheckStoreForTest(t)
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	command := launchHeld(t, grant, "sleep 1 & exit 0")
+	command := launchHeld(t, grant, "sleep 6 & exit 0")
 	_ = command.Wait()
 	kept, _ := grant.Finish("succeeded, exit code 0")
+	if !kept.Stuck() {
+		t.Fatalf("permit = %#v, want it holding its place for its surviving process", kept)
+	}
 	if _, err := store.ReleaseByHand(context.Background(), kept.ID, "", ""); err == nil {
 		t.Fatal("a release naming nobody was accepted")
 	}
