@@ -6658,7 +6658,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 	// take a note is recorded as such rather than waited out.
 	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if _, err := p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Landing checks: "+landed.Describe()); err != nil {
+	if _, err := p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Landing checks: "+landed.Describe(p.clock().Now())); err != nil {
 		landed.Problem = strings.Join(append(problems, fmt.Sprintf("the item could not be told: %v", err)), "; ")
 		a.saveLanding(landed)
 	}

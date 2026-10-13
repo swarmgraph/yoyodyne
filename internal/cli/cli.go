@@ -107,6 +107,8 @@ func RunContext(ctx context.Context, args []string, stdout, stderr io.Writer, ve
 		return reportCosts(ctx, args[1:], stdout, stderr)
 	case "reconcile":
 		return reconcileRuns(ctx, args[1:], stdout, stderr)
+	case "heavy-checks":
+		return runHeavyChecks(args[1:], stdout, stderr)
 	case "slack":
 		return runSlack(ctx, args[1:], stdout, stderr, version)
 	case "doctor":
@@ -851,6 +853,7 @@ Commands:
   review            review what a branch accumulated over a base, as one change
   cost              price work items from the runs made for them, and record it
   reconcile         settle interrupted runs, then converge local state on the forge
+  heavy-checks      read the places among this machine's heavy checks, and give a kept one back
   slack             report what the harness is doing into a Slack channel
   doctor            check this installation, and say what would fix what is wrong
   dashboard         serve the read model to a browser on this machine, read-only

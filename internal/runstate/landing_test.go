@@ -116,7 +116,7 @@ func TestAWaitingLandingSaysSoAndDyingWhileWaitingIsSaidAsSuch(t *testing.T) {
 	started := time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC)
 	waiting := started.Add(time.Second)
 	landed := LandingChecks{Commit: strings.Repeat("a", 40), StartedAt: started, BoundSeconds: 7200, TargetBranch: "main", WaitingSince: &waiting}
-	if got, want := landed.Describe(), "landing checks waiting over aaaaaaaaaaaa behind another landing on main, since 2026-09-25T10:00:01Z"; got != want {
+	if got, want := landed.Describe(time.Now()), "landing checks waiting over aaaaaaaaaaaa behind another landing on main, since 2026-09-25T10:00:01Z"; got != want {
 		t.Fatalf("Describe() = %q, want %q", got, want)
 	}
 
@@ -131,7 +131,7 @@ func TestAWaitingLandingSaysSoAndDyingWhileWaitingIsSaidAsSuch(t *testing.T) {
 	ran := landed
 	ran.AdmittedAt, ran.FinishedAt, ran.Ran, ran.Green = &admitted, &finished, true, true
 	ran.Checks = []LandingCheckResult{{Command: "make race", Passed: true}}
-	if got, want := ran.Describe(), "green landing: 1 landing check passed over aaaaaaaaaaaa in 18m, after waiting 4m behind another landing on main"; got != want {
+	if got, want := ran.Describe(time.Now()), "green landing: 1 landing check passed over aaaaaaaaaaaa in 18m, after waiting 4m behind another landing on main"; got != want {
 		t.Fatalf("Describe() = %q, want %q", got, want)
 	}
 }

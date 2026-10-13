@@ -371,6 +371,9 @@ type Sources struct {
 	// TrackerListings is how the tracker's listings stand, as every listing the
 	// harness's tracker client makes records it. Nil says nothing about them.
 	TrackerListings TrackerListingRecord
+	// HeavyChecks is the record of places for the machine's heavy checks, which
+	// every product under the state root shares. Nil says nothing about them.
+	HeavyChecks HeavyCheckPlaces
 	// TrackerTimeout bounds one tracker command, so an unresponsive tracker costs
 	// this answer a line rather than hanging the surface that asked.
 	TrackerTimeout time.Duration
@@ -1044,6 +1047,14 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		needs = append(needs, unrunCheckAttention(check))
 	}
 	needsProblem = joinProblems(needsProblem, unrunProblem)
+	// A heavy check's place kept for leftover processes is said here because
+	// every other run's check of that name on the machine is waiting behind it,
+	// and the permit's own record is a file nobody reads by accident.
+	kept, keptProblem := ReadKeptHeavyChecks(sources)
+	for _, place := range kept {
+		needs = append(needs, keptHeavyCheckAttention(place))
+	}
+	needsProblem = joinProblems(needsProblem, keptProblem)
 	// Held work is on both lines for the reason handed-off work below is, and says
 	// a different thing on each: the queue's line says why nothing pulls each
 	// item, and this says who has to move and how many items are waiting on them.

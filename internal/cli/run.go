@@ -566,7 +566,11 @@ func heavyCheckPermits(cfg config.Config, stateRoot string) checks.Permits {
 	}
 	store, err := runstate.NewHeavyCheckStore(stateRoot)
 	if err != nil {
-		return nil
+		// A project that declared heavy checks never runs them without their
+		// limit: each one is refused with the reason, which stops the stage as a
+		// failure of the harness and says why, rather than running unlimited and
+		// saying nothing.
+		return orchestrator.UnopenedHeavyChecks{Execution: cfg.Execution, Err: err}
 	}
 	return orchestrator.HeavyCheckPermits{Store: store, Product: cfg.Product.ID, Execution: cfg.Execution}
 }
@@ -1098,7 +1102,7 @@ func reportRunResult(stdout, stderr io.Writer, jsonOutput bool, outcome orchestr
 			// about this run: the run succeeded whichever way it went, and a red
 			// one is the target branch's news and the item it filed.
 			if outcome.LandingChecks != nil {
-				fmt.Fprintf(stdout, "landing checks: %s\n", outcome.LandingChecks.Describe())
+				fmt.Fprintf(stdout, "landing checks: %s\n", outcome.LandingChecks.Describe(time.Now()))
 			}
 		}
 		if outcome.CleanupFailure != "" {

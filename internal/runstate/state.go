@@ -937,8 +937,9 @@ func (l LandingChecks) Failing() (LandingCheckResult, bool) {
 	return LandingCheckResult{}, false
 }
 
-// Describe says what became of the landing, in one line every surface uses.
-func (l LandingChecks) Describe() string {
+// Describe says what became of the landing, in one line every surface uses,
+// as of now: a landing still waiting for a place says how long it has waited.
+func (l LandingChecks) Describe(now time.Time) string {
 	commit := l.Commit
 	if len(commit) > 12 {
 		commit = commit[:12]
@@ -948,7 +949,7 @@ func (l LandingChecks) Describe() string {
 	case !l.Finished() && l.Waiting():
 		return fmt.Sprintf("landing checks waiting over %s behind another landing on %s, since %s", commit, nonEmptyBranch(l.TargetBranch), l.WaitingSince.UTC().Format(time.RFC3339))
 	case !l.Finished() && l.PermitWait.Waiting():
-		return fmt.Sprintf("landing checks over %s %s, since %s", commit, l.PermitWait.Says(time.Now()), l.PermitWait.Since.UTC().Format(time.RFC3339))
+		return fmt.Sprintf("landing checks over %s %s, since %s", commit, l.PermitWait.Says(now), l.PermitWait.Since.UTC().Format(time.RFC3339))
 	case !l.Finished():
 		return fmt.Sprintf("landing checks running over %s, each bounded at %s", commit, describeSpan(l.Bound()))
 	case !l.Ran:

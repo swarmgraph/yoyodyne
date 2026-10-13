@@ -697,7 +697,7 @@ func (r Reconciler) settleInterruptedLandingChecks(ctx context.Context, state ru
 		return reconciliationOf(state, ActionUnsettled), fmt.Errorf("save the unverified landing of %s: %w", state.RunID, err)
 	}
 	result := reconciliationOf(state, ActionCompleted)
-	result.Detail = "settled the landing checks the run's process died inside as unverified: " + state.LandingChecks.Describe()
+	result.Detail = "settled the landing checks the run's process died inside as unverified: " + state.LandingChecks.Describe(time.Now())
 	return result, nil
 }
 

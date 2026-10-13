@@ -105,6 +105,10 @@ func (a Attention) Since() time.Time {
 		if a.DegradedCapacity != nil {
 			return a.DegradedCapacity.Window.At
 		}
+	case AttentionKeptHeavyCheck:
+		if a.KeptHeavyCheck != nil {
+			return a.KeptHeavyCheck.Since()
+		}
 	}
 	return time.Time{}
 }

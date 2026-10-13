@@ -165,6 +165,9 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 				", so each of them went on without it; latest reason: codex is not installed on this machine"},
 		AttentionCapacityDegraded: {degradedCapacityAttention(degradedFixture(moment)),
 			"the seven-day usage limit on account default is 93% used, past the 90% threshold, resets " + localMoment(moment.Add(48*time.Hour)) + "; read 1 hour ago"},
+		AttentionKeptHeavyCheck: {keptHeavyCheckAttention(keptHeavyCheckFixture(moment)),
+			"the heavy check make race of run run-kept over yoyodyne-ifd.429.47 (product yoyodyne) has kept its place since " + localMoment(moment.Add(-time.Hour)) +
+				", because it exited and its process group 4242 still has members, which may be processes it started; every other run's make race on this machine waits behind it"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
@@ -247,6 +250,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionTrackerUnanswered: "2026-08-30T11:00:00Z",
 		AttentionUnrunCheck:        "make codex-resume",
 		AttentionCapacityDegraded:  "default:seven_day",
+		AttentionKeptHeavyCheck:    "permit-0123456789abcdef",
 	} {
 		if got := fixtures[kind].entry.ID; got != want {
 			t.Errorf("%s: id = %q, want %q", kind, got, want)

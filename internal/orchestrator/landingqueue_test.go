@@ -46,7 +46,7 @@ func TestTwoLandingsOnOneTargetBranchRunOneAtATime(t *testing.T) {
 	waiting := awaitLanding(t, store, second.state.RunID, func(landed *runstate.LandingChecks) bool {
 		return landed.Waiting()
 	})
-	described := waiting.Describe()
+	described := waiting.Describe(time.Now())
 	for _, want := range []string{"landing checks waiting over 222222222222", "behind another landing on main", "since "} {
 		if !strings.Contains(described, want) {
 			t.Fatalf("the waiting landing reads %q, want it to say %q", described, want)
@@ -79,10 +79,10 @@ func TestTwoLandingsOnOneTargetBranchRunOneAtATime(t *testing.T) {
 	if queued.WaitingSince == nil || queued.AdmittedAt == nil || queued.AdmittedAt.Before(*queued.WaitingSince) {
 		t.Fatalf("second landing = %#v, want when it began waiting and when it was let in recorded", queued)
 	}
-	if !strings.Contains(queued.Describe(), "after waiting") {
-		t.Fatalf("the second landing reads %q, want the wait said beside the result", queued.Describe())
+	if !strings.Contains(queued.Describe(time.Now()), "after waiting") {
+		t.Fatalf("the second landing reads %q, want the wait said beside the result", queued.Describe(time.Now()))
 	}
-	if unqueued := first.outcome.LandingChecks; unqueued.WaitingSince != nil || strings.Contains(unqueued.Describe(), "waiting") {
+	if unqueued := first.outcome.LandingChecks; unqueued.WaitingSince != nil || strings.Contains(unqueued.Describe(time.Now()), "waiting") {
 		t.Fatalf("first landing = %#v, want no wait recorded on a landing that never waited", unqueued)
 	}
 }

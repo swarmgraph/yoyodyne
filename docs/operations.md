@@ -4665,6 +4665,7 @@ they are not the labels a person reads:
 | `factory-stall` | nothing completing |
 | `tracker-unanswered` | tracker not answering |
 | `check-could-not-run` | check not running |
+| `heavy-check-kept` | check place kept |
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident
@@ -4902,13 +4903,14 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `publication`, `degraded-service`, `failing-task`, `config-mismatch`, `service-copies`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
-`check-could-not-run` — the `id`
+`check-could-not-run`, `heavy-check-kept` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
 `capacity`, and for a `factory-stall` the moment the factory last did anything
 and for a `tracker-unanswered` the moment listings began failing, and for a
-`check-could-not-run` the check's command), the
+`check-could-not-run` the check's command, and for a `heavy-check-kept` the
+permit holding the place), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -4917,7 +4919,7 @@ the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`, `service_copies`,
 `owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
-`tracker_listings`, `unrun_check`, and for a hold `operator_hold`, `intake_hold`, or
+`tracker_listings`, `unrun_check`, `kept_heavy_check`, and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work

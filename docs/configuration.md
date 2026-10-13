@@ -3101,8 +3101,19 @@ process the check started is gone**, read the way a provider's processes are
 read: a file the check's processes inherit, whose lock goes only with the last
 of them, and a process group with no members left. A check that leaves a
 process behind keeps its place, and the record says why on that permit, until
-the process goes; the development manager may release it by hand, and the
-release records who and why.
+the process goes. Every other run's check of the same name on the machine waits
+behind it meanwhile, so it is an entry on the attention line in `yoyo status`
+and on the dashboard, labelled *check place kept* and the development manager's
+to settle, naming the check, the run and its item, and why the place is kept.
+`yoyo heavy-checks` lists every place running, waiting, or kept on the machine,
+and `yoyo heavy-checks release <permit> --by <name> --reason <why>` gives a kept
+place back once she, or a person, has decided the leftover process is a hang;
+the release is written onto the permit with who gave it back and why. A process
+the harness launched for any other role is refused it.
+
+If the record of places cannot be opened, a heavy check is not started without
+its limit: it is refused, naming why, and the run stops at its checks the way it
+stops for any other failure of the harness rather than of the change.
 
 A harness that restarts reads the record before it gives out anything. A
 running check whose processes are still alive keeps its place; one whose
@@ -3111,6 +3122,10 @@ was already running waits for that launch to end rather than starting a second
 beside it, and a run that died while waiting keeps its place in the order — it
 holds nobody up meanwhile — and takes it up again when it comes back. Nothing
 resets the count.
+
+[What limiting heavy checks costs, and what it saves](experiments/yoyodyne-ifd-429-47-heavy-check-permits.md)
+records what a place costs — about a sixth of a second per heavy check — and
+what a limit of one did to wall time, CPU time, and waiting on a busy machine.
 
 What this does not cover: a suite a developer runs inside its own session is
 its own, and takes no place; and a [suite the forge runs](#where-the-whole-suite-runs)

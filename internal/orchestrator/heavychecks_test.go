@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -176,6 +177,20 @@ func TestACheckNoHeavyCheckNamesIsNotAskedForAPlace(t *testing.T) {
 	}
 }
 
+// A declared limit whose record could not be opened refuses the heavy check,
+// saying why, and leaves every other check alone.
+func TestAHeavyCheckWhoseRecordCannotBeOpenedIsRefusedNotRunUnlimited(t *testing.T) {
+	t.Parallel()
+	permits := UnopenedHeavyChecks{Execution: config.Execution{HeavyChecks: map[string]int{"make race": 1}}, Err: errors.New("state root must be an absolute path")}
+	if permit, err := permits.Acquire(context.Background(), checks.PermitAsk{RunID: "run-a", Command: "make vet"}, nil); err != nil || permit != nil {
+		t.Fatalf("make vet: %v, %v; want it launched as usual", permit, err)
+	}
+	_, err := permits.Acquire(context.Background(), checks.PermitAsk{RunID: "run-a", Command: "make race RACE_PACKAGES=./..."}, nil)
+	if err == nil || !strings.Contains(err.Error(), "make race is not started without its execution.heavy_checks limit") || !strings.Contains(err.Error(), "absolute path") {
+		t.Fatalf("make race: %v, want it refused with the reason", err)
+	}
+}
+
 func TestTheGatesChecksAreOrderedByWhatTheRunIsFor(t *testing.T) {
 	t.Parallel()
 	cases := map[domain.HeavyCheckPriority]runstate.State{
@@ -191,93 +206,4 @@ func TestTheGatesChecksAreOrderedByWhatTheRunIsFor(t *testing.T) {
 	if got := heavyCheckPriority(runstate.State{RepairContinuations: []runstate.RepairContinuation{{}}}); got != domain.HeavyCheckForPreservedWork {
 		t.Fatalf("a continued repair is ordered %s", got)
 	}
-}
-
-// TestMeasureHeavyCheckPermits measures what places cost and what they save,
-// and runs only when YOYODYNE_MEASURE_HEAVY_CHECKS names a directory to write
-// its figures to: it starts CPU-heavy and Go-building work several at once, so
-// it is a measurement to run by hand on a quiet machine and never a check.
-func TestMeasureHeavyCheckPermits(t *testing.T) {
-	out := os.Getenv("YOYODYNE_MEASURE_HEAVY_CHECKS")
-	if out == "" {
-		t.Skip("set YOYODYNE_MEASURE_HEAVY_CHECKS to a directory to measure heavy check places")
-	}
-	repository, err := filepath.Abs("../..")
-	if err != nil {
-		t.Fatal(err)
-	}
-	type scenario struct {
-		name    string
-		command string
-		runs    int
-	}
-	// A CPU-bound shell loop that ends by itself after a fixed amount of work,
-	// for the non-Go case; one narrow Go package and a broader set for the Go
-	// cases, each with its own build cache so the cache is not what is measured.
-	burn := "i=0; while [ $i -lt 3000000 ]; do i=$((i+1)); done"
-	goTest := func(packages string) string {
-		return fmt.Sprintf("cache=\"$PWD/gocache\"; cd '%s' && GOFLAGS=-count=1 GOCACHE=\"$cache\" go test %s >/dev/null", repository, packages)
-	}
-	scenarios := []scenario{
-		{name: "non-go cpu loop", command: burn, runs: 4},
-		{name: "narrow go package", command: goTest("./internal/domain"), runs: 2},
-		{name: "broad go packages", command: goTest("./internal/checks ./internal/config ./internal/domain"), runs: 2},
-	}
-	var report strings.Builder
-	fmt.Fprintf(&report, "scenario\tplaces\twall\tsum of check time\tlongest wait\tsum of waits\n")
-	for _, s := range scenarios {
-		for _, places := range []int{0, 1} {
-			heavy := map[string]int(nil)
-			if places > 0 {
-				heavy = map[string]int{s.command: places}
-			}
-			var runIDs []string
-			for index := 0; index < s.runs; index++ {
-				runIDs = append(runIDs, fmt.Sprintf("run-%d", index))
-			}
-			began := time.Now()
-			runs := runHeavyStages(t, t.TempDir(), heavy, runIDs, []string{s.command}, 20*time.Minute)
-			wall := time.Since(began)
-			var checkTime, waits, longest time.Duration
-			for runID, run := range runs {
-				if run.err != nil || len(run.results) != 1 || !run.results[0].Passed {
-					t.Fatalf("%s %s: %#v", s.name, runID, run)
-				}
-				checkTime += run.results[0].Elapsed()
-				waits += run.waited
-				if run.waited > longest {
-					longest = run.waited
-				}
-			}
-			label := "unlimited"
-			if places > 0 {
-				label = strconv.Itoa(places)
-			}
-			fmt.Fprintf(&report, "%s x%d\t%s\t%s\t%s\t%s\t%s\n", s.name, s.runs, label, wall.Round(10*time.Millisecond), checkTime.Round(10*time.Millisecond), longest.Round(10*time.Millisecond), waits.Round(10*time.Millisecond))
-		}
-	}
-	// The place's own cost, with nobody else asking: ask, register, finish.
-	store := mustHeavyStore(t, t.TempDir())
-	const rounds = 50
-	began := time.Now()
-	for index := 0; index < rounds; index++ {
-		grant, err := store.Acquire(context.Background(), runstate.HeavyCheckAsk{Product: "yoyodyne", RunID: "run-a", Check: "make race", Command: "make race", Limit: 1, Priority: domain.HeavyCheckOrdinary}, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := (execution.OSProcessRunner{}).Run(context.Background(), execution.Command{
-			Name: "/bin/sh", Args: []string{"-c", "exit 0"}, Dir: t.TempDir(), Timeout: time.Minute,
-			Gate: &execution.LaunchGate{Hold: grant.Hold(), Register: grant.Register},
-		}, nil); err != nil {
-			t.Fatal(err)
-		}
-		if _, err := grant.Finish("succeeded, exit code 0"); err != nil {
-			t.Fatal(err)
-		}
-	}
-	fmt.Fprintf(&report, "lifecycle of one uncontended place (ask, gated launch of exit 0, give back), mean of %d\t%s\n", rounds, (time.Since(began) / rounds).Round(100*time.Microsecond))
-	if err := os.WriteFile(filepath.Join(out, "heavy-check-measurements.tsv"), []byte(report.String()), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Log("\n" + report.String())
 }

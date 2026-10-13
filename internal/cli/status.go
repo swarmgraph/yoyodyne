@@ -701,6 +701,11 @@ func standingSources(configPath string) readmodel.Sources {
 	if err == nil {
 		sources.TrackerListings = listings
 	}
+	// The record of places for the machine's heavy checks, so a place kept for
+	// a check's leftover processes is said with the check and run holding it.
+	if store, err := runstate.NewHeavyCheckStore(stateRoot); err == nil {
+		sources.HeavyChecks = store
+	}
 	repository, err := resolvePath(config.ProjectDirectory(resolved.Path), cfg.Product.Repository)
 	if err != nil {
 		sources.Tracker = unreadableTracker{fmt.Errorf("resolve product repository: %w", err)}
@@ -1274,7 +1279,7 @@ func printRunReasons(writer io.Writer, run runstate.RunSummary) bool {
 	// that its run's ending does not carry: the run succeeded, and the target
 	// branch is red.
 	if run.LandingChecks != nil {
-		fmt.Fprintf(writer, "  %s\n", singleLine(run.LandingChecks.Describe()))
+		fmt.Fprintf(writer, "  %s\n", singleLine(run.LandingChecks.Describe(time.Now())))
 		printed = true
 	}
 	// A refused path is said here rather than left to the run's JSON for the
