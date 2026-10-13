@@ -289,6 +289,89 @@ func TestStoppingATurnFromThePromptBesideItKeepsWhatIsWaiting(t *testing.T) {
 	}
 }
 
+// TestARunStartedDuringATurnOutlivesTheTurn is /work typed while an answer is
+// being written. The run belongs to the conversation, not to the turn it was
+// typed during, so it is still going once that turn has ended — answered, or
+// stopped with Esc — and only ending the conversation stops it.
+func TestARunStartedDuringATurnOutlivesTheTurn(t *testing.T) {
+	t.Parallel()
+
+	for _, ending := range []string{"answered", "stopped"} {
+		t.Run(ending, func(t *testing.T) {
+			t.Parallel()
+
+			work := &fakeWork{gate: make(chan struct{}), running: make(chan struct{}, 1)}
+			var (
+				provider Backend
+				begun    <-chan struct{}
+				finish   func(interrupt <-chan struct{}) (string, error)
+			)
+			if ending == "answered" {
+				held := &heldBackend{
+					fakeBackend: fakeBackend{results: []backendapi.RunResult{{SessionID: "session-1", FinalText: "the answer"}}},
+					started:     make(chan struct{}),
+					release:     make(chan struct{}),
+				}
+				provider, begun = held, held.started
+				finish = func(interrupt <-chan struct{}) (string, error) {
+					close(held.release)
+					<-interrupt
+					return "", console.ErrInterrupted
+				}
+			} else {
+				stopped := &stoppedBackend{stop: make(chan struct{}), next: &fakeBackend{}}
+				provider, begun = stopped, stopped.stop
+				finish = func(<-chan struct{}) (string, error) { return "", console.ErrStopTurn }
+			}
+			options := testOptions(t, provider)
+			options.Work = work
+			session := openTestSession(t, options)
+
+			out := &transcript{}
+			screen := &waitingConsole{out: out}
+			screen.prompts = []string{"the question", "/exit"}
+			screen.composes = []func(interrupt <-chan struct{}) (string, error){
+				func(<-chan struct{}) (string, error) {
+					<-begun
+					return "/work yoyodyne-1", nil
+				},
+				finish,
+				func(interrupt <-chan struct{}) (string, error) {
+					<-interrupt
+					return "", console.ErrInterrupted
+				},
+			}
+			screen.asked = func(index int) {
+				if index != 1 {
+					return
+				}
+				// The turn is over and its context with it; the run is not.
+				<-work.running
+				work.mu.Lock()
+				run := work.runs[0]
+				work.mu.Unlock()
+				if run.Err() != nil {
+					t.Errorf("the run started during the turn was cancelled when the turn was %s", ending)
+				}
+				if item, _, running := session.RunningWork(); !running || item != "yoyodyne-1" {
+					t.Errorf("the conversation no longer has the run it started during the turn")
+				}
+			}
+
+			if err := session.Converse(context.Background(), screen); err != nil {
+				t.Fatalf("Converse() error = %v", err)
+			}
+			if started := work.startedRuns(); len(started) != 1 || started[0] != "yoyodyne-1" {
+				t.Fatalf("started = %#v, want the run /work named", started)
+			}
+			// Ending the conversation is what stops it, as it always was.
+			if !work.wasCancelled() {
+				t.Fatal("the run outlived the conversation that owned it")
+			}
+		})
+	}
+}
+
 // heldBackend is a provider whose first turn does not finish until the test
 // lets it, so a test can do what an operator does while a turn is still being
 // answered.
@@ -319,6 +402,10 @@ type waitingConsole struct {
 	composes []func(interrupt <-chan struct{}) (string, error)
 	waiting  []string
 	beside   bool
+	// asked is called before each ordinary prompt with how many came before
+	// it, so a test can look at what is true between one turn and the next.
+	asked func(index int)
+	count int
 }
 
 func (c *waitingConsole) Write(text []byte) (int, error) { return c.out.Write(text) }
@@ -327,6 +414,10 @@ func (c *waitingConsole) Prompt(_ context.Context, prompt string, interrupt <-ch
 	if c.beside {
 		return c.compose(interrupt)
 	}
+	if c.asked != nil {
+		c.asked(c.count)
+	}
+	c.count++
 	fmt.Fprint(c.out, prompt)
 	if len(c.prompts) == 0 {
 		fmt.Fprintln(c.out)

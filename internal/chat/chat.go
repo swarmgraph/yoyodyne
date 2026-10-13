@@ -3630,7 +3630,7 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 		case <-turn.Done():
 		}
 	}()
-	reply, err := s.speakUntil(turn, screen, message)
+	reply, err := s.speakUntil(turn, ctx, screen, message)
 	// A turn that finished as the key was pressed was not stopped: its answer
 	// arrived and is shown. Only a turn the stop ended reports one.
 	if err == nil || !stopped.Load() || ctx.Err() != nil {
@@ -3662,7 +3662,12 @@ func (s *Session) speak(ctx context.Context, screen console.Console, message str
 var ErrTurnStopped = errors.New("you stopped the turn before the answer was finished")
 
 // speakUntil is speak's turn itself, under the context the stop keys cancel.
-func (s *Session) speakUntil(ctx context.Context, screen console.Console, message string) (Reply, error) {
+// conversation is the context the conversation itself runs under, which the
+// prompt kept open beside the turn and every command typed there run under
+// instead: a run /work starts there belongs to the conversation, and has to
+// outlive the turn it was typed during, whether that turn is answered or
+// stopped.
+func (s *Session) speakUntil(ctx, conversation context.Context, screen console.Console, message string) (Reply, error) {
 	display := screen.Working(phaseSending)
 	s.activity = &turnActivity{display: display, phase: phaseSending}
 	// Where the console may be dressed, the answer is read as it is written and
@@ -3703,7 +3708,7 @@ func (s *Session) speakUntil(ctx context.Context, screen console.Console, messag
 		defer close(answered)
 		reply, err = s.Send(ctx, message)
 	}()
-	s.composeDuringTurn(ctx, screen, waiting, answered)
+	s.composeDuringTurn(conversation, screen, waiting, answered)
 	<-answered
 	s.shownReply = stream.end()
 	// What the commands typed beside the turn would have written is written by
