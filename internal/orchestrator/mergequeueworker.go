@@ -546,6 +546,9 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		// narrows what a landing has to answer for.
 		Env:  []string{checks.Narrowing{Whole: true, Reason: "a merge queue candidate is checked whole"}.Env()},
 		Gate: launched.gate,
+		// A candidate is checked for a landing, so its heavy checks are let
+		// start ahead of every run's gate (heavychecks.go).
+		Permit: checks.PermitRequest{Priority: domain.HeavyCheckForLanding},
 	}, w.Events)
 	finished := w.now()
 	if lastSequence > generation.LastSequence {

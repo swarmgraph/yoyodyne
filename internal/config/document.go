@@ -133,6 +133,11 @@ type executionDocument struct {
 	// preference nobody wrote down. Absent leaves every slot preferring nothing,
 	// which is what every file written before slots could prefer anything means.
 	DeveloperSlots *[]domain.DeveloperSlot `yaml:"developer_slots"`
+	// HeavyChecks is each heavy check with how many may run at once, and a
+	// check named with no number is given DefaultHeavyCheckLimit. A supplied
+	// map replaces an inherited one wholesale, the way the check list does:
+	// which checks are heavy is one statement.
+	HeavyChecks *map[string]*int `yaml:"heavy_checks"`
 	// DeveloperModels is the label-to-model mapping a run's developer invocations
 	// are resolved against. A supplied list replaces an inherited one wholesale
 	// for the reason the slot list does: the order is what decides which of an

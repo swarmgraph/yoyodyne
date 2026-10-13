@@ -445,6 +445,16 @@ A budget of `0` is refused rather than read as "unbounded": nothing else bounds 
 check, so one that never returns would hold a worktree, a claim, and a run open
 indefinitely.
 
+### How many of a heavy check may run at once
+
+`execution.heavy_checks` names the checks only so many of may run at once on
+this machine, across every run of every project it hosts, and a run whose check
+has no free place waits for one, keeping its developer slot, with the check's
+time starting only when it launches.
+[How many of a heavy check may run at once](../configuration.md#how-many-of-a-heavy-check-may-run-at-once)
+is the whole of it: how a command is matched to a name, the order waiting
+checks start in, and what a restart does to a place.
+
 ### A check that could not run
 
 A check can end a third way besides passing and failing: it could not run at

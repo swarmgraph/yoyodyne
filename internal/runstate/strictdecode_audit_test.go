@@ -79,6 +79,7 @@ var strictSites = map[string]strictSite{
 	"internal/runstate/mergequeue.go:(*MergeQueueStore).decode":                      {strictDoor, "Admit and its readback are strict because they rewrite and settle what they read; Entries is tolerant"},
 	"internal/runstate/mergequeuegeneration.go:(*MergeQueueStore).decodeGenerations": {strictDoor, "RecordGeneration is strict because it rewrites what it reads; Generations and VerifiedGeneration are tolerant"},
 	"internal/runstate/mergequeuelanding.go:(*MergeQueueStore).decodeLanding":        {strictDoor, "RecordLanding is strict because it extends what it reads; Landing is tolerant"},
+	"internal/runstate/heavycheck.go:readHeavyCheckRecord":                           {strictDoor, "every change to the places is strict, under the record's lock, because it rewrites what it read; Record, which surfaces read, is tolerant"},
 
 	// Reads that precede a write.
 	"internal/runstate/workflowinstance.go:(*Store).LoadWorkflowInstance": {strictWriter, "an instance is only ever read to be advanced and saved back"},

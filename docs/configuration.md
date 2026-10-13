@@ -3049,6 +3049,74 @@ running; `yoyo reconcile` settles that landing as unverified, saying the process
 died, and removes the checkout it was running in — a live process running them
 holds the run's lease and is left alone.
 
+### How many of a heavy check may run at once
+
+Some checks are heavy enough that two of them at once slow every run on the
+machine: a race detector over the whole module, a full test run. Name those
+under `execution.heavy_checks`, each with how many may run at once, and every
+run of every project under the same [state root](#where-the-harness-keeps-its-state-state_root) counts
+against the same places:
+
+```yaml
+execution:
+  heavy_checks:
+    make race: 1   # one race suite at a time on this machine
+    make test: 2
+```
+
+A check is named the way the check lists write it. A configured command counts
+under a name when it is the name, or begins with the name and then a space, so
+`make race RACE_PACKAGES="${YOYODYNE_CHANGED_GO_PACKAGES-./...}"` counts under
+`make race`, and `make racecar` does not; where two names match, the longer
+one wins. A name given no number gets one place. A name that matches nothing in
+`checks`, `landing_checks`, `document_checks`, or `path_checks` is refused when
+the configuration loads, and so is a number below one. Name none, which is the
+default, and every check starts as soon as its stage reaches it, as it always
+did.
+
+A run whose heavy check has no free place **waits for one, keeping its
+developer slot**, and the wait is on its record from the moment it begins:
+`yoyo status` and the dashboard say `checks: 3m of 30m, waiting 4m for a free
+place to run make race` rather than naming a check that is not running. **A
+check's time starts when it launches.** Neither its own `check_timeout` nor the
+stage's `check_stage_timeout` is spent while it waits, and the stage's bound is
+scaled for the machine's load as the check launches rather than as it began
+waiting. A check re-run after its limit stopped it asks for a place again.
+
+Waiting checks are let start in three orders: checks for a landing or a
+promotion first — the [landing checks](#where-the-whole-suite-runs), a merge
+queue candidate checked locally, and a replay onto a target branch that moved;
+then a run continuing work an earlier attempt preserved, a decided repair or a
+re-run started from a preserved branch; then everything else. Within each, the
+one that asked first starts first. A landing takes its turn on its target
+branch first and its place second, never the other way round. A confirmed
+document's landing takes a place only for a document check named here.
+
+The places are kept in one record under the state root, `heavy-checks/`,
+changed only under a file lock beside it. A place moves through four states,
+each recorded before the step it names: waiting, running (given the place and
+started in a process group of its own), exited (its main process ended and its
+result is recorded), and released. **A place is given back only once every
+process the check started is gone**, read the way a provider's processes are
+read: a file the check's processes inherit, whose lock goes only with the last
+of them, and a process group with no members left. A check that leaves a
+process behind keeps its place, and the record says why on that permit, until
+the process goes; the development manager may release it by hand, and the
+release records who and why.
+
+A harness that restarts reads the record before it gives out anything. A
+running check whose processes are still alive keeps its place; one whose
+processes are gone is released. A run that comes back and asks for a check it
+was already running waits for that launch to end rather than starting a second
+beside it, and a run that died while waiting keeps its place in the order — it
+holds nobody up meanwhile — and takes it up again when it comes back. Nothing
+resets the count.
+
+What this does not cover: a suite a developer runs inside its own session is
+its own, and takes no place; and a [suite the forge runs](#where-the-whole-suite-runs)
+takes none either, while a fallback to running it here does. The places count
+one machine's state root: two state roots on one machine count separately.
+
 ### Checks a change runs only when it touches what they vouch for
 
 Some checks vouch for one part of the repository and cost something whatever

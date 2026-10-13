@@ -501,6 +501,73 @@ type CheckStage struct {
 	// (KeptChecks). It is written as the stage begins, and a kept check is in
 	// neither Ran nor CouldNotRun.
 	Kept []string `json:"kept,omitempty"`
+	// PermitWait is the stage's waiting for places among the machine's heavy
+	// checks (execution.heavy_checks), absent on a stage that never waited.
+	// Its waits are never counted against the bound: SpentBy leaves them out.
+	PermitWait *HeavyCheckWait `json:"permit_wait,omitempty"`
+}
+
+// HeavyCheckWait is a stage's waiting for places among the machine's heavy
+// checks: the check it is waiting to run now and since when, and what its
+// earlier waits came to. A check's time starts when it launches, so this is
+// what a stage's spend and a landing's leave out.
+type HeavyCheckWait struct {
+	Check         string     `json:"check,omitempty"`
+	Since         *time.Time `json:"since,omitempty"`
+	WaitedSeconds int64      `json:"waited_seconds,omitempty"`
+}
+
+// Waiting reports a stage waiting for a place now.
+func (w *HeavyCheckWait) Waiting() bool {
+	return w != nil && w.Check != "" && w.Since != nil
+}
+
+// WaitedBy is every wait as of a moment, the one still going included.
+func (w *HeavyCheckWait) WaitedBy(now time.Time) time.Duration {
+	if w == nil {
+		return 0
+	}
+	waited := time.Duration(w.WaitedSeconds) * time.Second
+	if w.Waiting() && now.After(*w.Since) {
+		waited += now.Sub(*w.Since)
+	}
+	return waited
+}
+
+// Begin records that the stage has begun waiting for a place to run check.
+func (w *HeavyCheckWait) Begin(check string, since time.Time) {
+	w.Check, w.Since = check, &since
+}
+
+// Granted records that the wait ended with a place given, after waited.
+func (w *HeavyCheckWait) Granted(waited time.Duration) {
+	if waited > 0 {
+		w.WaitedSeconds += int64(waited / time.Second)
+	}
+	w.Check, w.Since = "", nil
+}
+
+// Says is the wait in a phrase: "waiting 4m for a free place to run make
+// race", and empty for a stage not waiting.
+func (w *HeavyCheckWait) Says(now time.Time) string {
+	if !w.Waiting() {
+		return ""
+	}
+	return fmt.Sprintf("waiting %s for a free place to run %s", describeSpan(now.Sub(*w.Since)), w.Check)
+}
+
+func (w *HeavyCheckWait) validate() error {
+	if w == nil {
+		return nil
+	}
+	var problems []error
+	if w.WaitedSeconds < 0 {
+		problems = append(problems, errors.New("permit_wait.waited_seconds cannot be negative"))
+	}
+	if (w.Check == "") != (w.Since == nil) {
+		problems = append(problems, errors.New("permit_wait names the check it waits for and since when, or neither"))
+	}
+	return errors.Join(problems...)
 }
 
 // CloseInterrupted ends a stage the process running it never ended: the sweep
@@ -536,6 +603,9 @@ func (c CheckStage) Validate() error {
 	}
 	if c.FinishedAt != nil && c.FinishedAt.Before(c.StartedAt) {
 		problems = append(problems, errors.New("finished_at cannot precede started_at"))
+	}
+	if err := c.PermitWait.validate(); err != nil {
+		problems = append(problems, err)
 	}
 	return errors.Join(problems...)
 }
@@ -654,12 +724,13 @@ func (c CheckStage) Elapsed() time.Duration {
 }
 
 // SpentBy is what the stage has spent as of a moment: the recorded spend once
-// it has ended, and the time since it began while it runs.
+// it has ended, and the time since it began while it runs, less whatever it
+// has spent waiting for places among the machine's heavy checks.
 func (c CheckStage) SpentBy(now time.Time) time.Duration {
 	if c.FinishedAt != nil {
 		return time.Duration(c.ElapsedSeconds) * time.Second
 	}
-	if spent := now.Sub(c.StartedAt); spent > 0 {
+	if spent := now.Sub(c.StartedAt) - c.PermitWait.WaitedBy(now); spent > 0 {
 		return spent
 	}
 	return 0
@@ -669,6 +740,9 @@ func (c CheckStage) SpentBy(now time.Time) time.Duration {
 // it: what it has spent of its bound, and which check it is on.
 func (c CheckStage) Describe(now time.Time) string {
 	said := fmt.Sprintf("checks: %s of %s", describeSpan(c.SpentBy(now)), c.BoundSays())
+	if c.Running() && c.PermitWait.Waiting() {
+		return said + ", " + c.PermitWait.Says(now)
+	}
 	if c.Command != "" {
 		switch {
 		case c.StoppedAtBound:
@@ -715,6 +789,10 @@ type LandingChecks struct {
 	// its bound or died waiting — and has run no check and cut no checkout.
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
 	AdmittedAt   *time.Time `json:"admitted_at,omitempty"`
+	// PermitWait is the landing's waiting for places among the machine's heavy
+	// checks, taken after the landing's turn on its branch and never before
+	// it, absent on a landing that never waited for one.
+	PermitWait *HeavyCheckWait `json:"permit_wait,omitempty"`
 	// BoundSeconds is the budget each landing check ran under —
 	// execution.landing_check_timeout — which is its own rather than the
 	// gate's: the suite moved to the landing is the one too long for the gate's
@@ -775,6 +853,9 @@ func (l LandingChecks) Validate() error {
 	}
 	if l.BoundSeconds <= 0 {
 		problems = append(problems, errors.New("bound_seconds must be positive"))
+	}
+	if err := l.PermitWait.validate(); err != nil {
+		problems = append(problems, err)
 	}
 	for index, check := range l.Checks {
 		if strings.TrimSpace(check.Command) == "" {
@@ -866,6 +947,8 @@ func (l LandingChecks) Describe() string {
 	switch {
 	case !l.Finished() && l.Waiting():
 		return fmt.Sprintf("landing checks waiting over %s behind another landing on %s, since %s", commit, nonEmptyBranch(l.TargetBranch), l.WaitingSince.UTC().Format(time.RFC3339))
+	case !l.Finished() && l.PermitWait.Waiting():
+		return fmt.Sprintf("landing checks over %s %s, since %s", commit, l.PermitWait.Says(time.Now()), l.PermitWait.Since.UTC().Format(time.RFC3339))
 	case !l.Finished():
 		return fmt.Sprintf("landing checks running over %s, each bounded at %s", commit, describeSpan(l.Bound()))
 	case !l.Ran:

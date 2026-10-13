@@ -407,6 +407,19 @@ func (r *resolution) apply(applied layer) error {
 			}
 			r.origins["execution.developer_slots"] = applied.origin
 		}
+		// The heavy checks are replaced and copied for the same two reasons, and
+		// a check named with no number is given the one place a name alone means.
+		if execution.HeavyChecks != nil {
+			r.config.Execution.HeavyChecks = make(map[string]int, len(*execution.HeavyChecks))
+			for name, places := range *execution.HeavyChecks {
+				limit := DefaultHeavyCheckLimit
+				if places != nil {
+					limit = *places
+				}
+				r.config.Execution.HeavyChecks[name] = limit
+			}
+			r.origins["execution.heavy_checks"] = applied.origin
+		}
 		// And the label-to-model mapping, replaced and copied for the same two
 		// reasons: the order is the statement, and a layer's own slice must not
 		// become the resolved configuration's.

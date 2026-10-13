@@ -118,6 +118,9 @@ type Request struct {
 	// process it started is still alive (execution.LaunchGate). Nil starts every
 	// check the ordinary way.
 	Gate func(command string) (*execution.LaunchGate, error)
+	// Permit is what this stage's heavy checks ask for their places with
+	// (permits.go). It is read only by a runner given Permits.
+	Permit PermitRequest
 }
 
 type Runner struct {
@@ -139,6 +142,9 @@ type Runner struct {
 	// search path: every provider the project can run, by the executable each
 	// one launches. searchpath.go says why.
 	HiddenExecutables []string
+	// Permits, where set, is asked for a place before each heavy check
+	// launches (permits.go). Nil launches every check at once.
+	Permits Permits
 }
 
 func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Event) error) ([]Result, uint64, error) {
@@ -192,8 +198,11 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 	redactor := execution.NewRedactor(r.RedactValues...)
 	// The stage starts as its first check does, so the first check is given the
 	// smaller of the two budgets whole rather than that less the instant it took
-	// to get here.
+	// to get here. waited is the time the stage's checks have spent asking for
+	// and waiting for places among the machine's heavy checks, which is never
+	// counted against the stage: a check's time starts when it launches.
 	var stageStarted time.Time
+	var waited time.Duration
 	for index, command := range request.Commands {
 		if strings.TrimSpace(command) == "" {
 			return results, lastAccepted, errors.New("check command cannot be empty")
@@ -203,12 +212,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		if stageStarted.IsZero() {
 			stageStarted = now
 		}
-		stageElapsed := now.Sub(stageStarted)
-		if request.StageBound != nil && !request.Unbounded {
-			if bound := request.StageBound(); bound > 0 && (len(results) == 0 || bound > stageTimeout) {
-				stageTimeout = bound
-			}
-		}
+		stageElapsed := now.Sub(stageStarted) - waited
 		if request.Started != nil {
 			request.Started(safeCommand, stageElapsed)
 		}
@@ -216,12 +220,44 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			return results, lastAccepted, err
 		}
 		lastAccepted = sequence.Last()
+		// A heavy check waits here for its place, before anything about its
+		// budget is worked out, so the wait is the stage's to subtract and the
+		// load the stage's bound is scaled for is read as the check launches.
+		permit, waitedNow, stopped, err := r.acquire(ctx, request, command, safeCommand, sequence, clock, sink, &lastAccepted)
+		waited += waitedNow
+		if err != nil {
+			return results, lastAccepted, err
+		}
+		if stopped {
+			now := clock.Now()
+			result := Result{
+				Command:         safeCommand,
+				Process:         execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1, StartedAt: now, FinishedAt: now},
+				Timeout:         timeout,
+				StageTimeout:    stageTimeout,
+				StageElapsed:    now.Sub(stageStarted) - waited,
+				StoppedByCaller: true,
+			}
+			results = append(results, result)
+			if err := emitCompleted(request.RunID, sequence, clock, sink, result); err != nil {
+				return results, lastAccepted, err
+			}
+			lastAccepted = sequence.Last()
+			break
+		}
+		stageElapsed = clock.Now().Sub(stageStarted) - waited
+		if request.StageBound != nil && !request.Unbounded {
+			if bound := request.StageBound(); bound > 0 && (len(results) == 0 || bound > stageTimeout) {
+				stageTimeout = bound
+			}
+		}
 		// What the stage has left is what this check may have, and a check the
 		// stage has nothing left for is not started at all: a check given a
 		// budget of nothing would be killed as it began and read as a check that
 		// ran, which is the one thing a stopped stage must not record.
 		remaining := stageTimeout - stageElapsed
 		if stageTimeout > 0 && remaining <= 0 {
+			finishPermit(permit, execution.ProcessResult{})
 			now := clock.Now()
 			result := Result{
 				Command: safeCommand,
@@ -258,9 +294,11 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		if request.Gate != nil {
 			var gateErr error
 			if gate, gateErr = request.Gate(safeCommand); gateErr != nil {
+				finishPermit(permit, execution.ProcessResult{})
 				return results, lastAccepted, fmt.Errorf("prepare the launch of check %q: %w", safeCommand, gateErr)
 			}
 		}
+		gate = gateWithPermit(gate, permit)
 		processResult, err := r.Process.Run(ctx, execution.Command{
 			Name:    shell,
 			Args:    []string{"-c", command},
@@ -289,6 +327,16 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			}
 			lastAccepted = sequence.Last()
 		})
+		// The place is given back before anything else is made of the result,
+		// whatever the result is, once every process the check started is gone.
+		if finishErr := finishPermit(permit, processResult); finishErr != nil && err == nil {
+			if emitErr := emit(request.RunID, sequence, clock, sink, execution.EventProcessOutput, map[string]any{
+				"kind": "check", "command": safeCommand, "stream": execution.StreamStderr,
+				"text": fmt.Sprintf("the end of %s could not be written to the record of heavy check places, so its place is given back by the next run that asks once its processes are gone: %v", safeCommand, finishErr),
+			}); emitErr == nil {
+				lastAccepted = sequence.Last()
+			}
+		}
 		if err != nil {
 			return results, lastAccepted, fmt.Errorf("run check %q: %w", safeCommand, err)
 		}
@@ -330,7 +378,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			Passed:       passed,
 			Timeout:      timeout,
 			StageTimeout: stageTimeout,
-			StageElapsed: clock.Now().Sub(stageStarted),
+			StageElapsed: clock.Now().Sub(stageStarted) - waited,
 			// A check killed on time under a budget the stage cut short was
 			// stopped by the stage, whatever its own budget would have allowed.
 			StoppedByStage:  boundByStage && processResult.Status == execution.ProcessTimedOut && ctx.Err() == nil,
@@ -353,6 +401,61 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		}
 	}
 	return results, lastAccepted, nil
+}
+
+// acquire asks for a heavy check's place, waiting for it, and says how long
+// that took. A command that is not heavy, or a runner with no Permits, gets
+// no permit and waits for nothing. stopped is a wait the caller's context cut
+// short, which ends the stage the way a check stopped by its caller does.
+func (r Runner) acquire(ctx context.Context, request Request, command, safeCommand string, sequence *execution.Sequence, clock execution.Clock, sink func(execution.Event) error, lastAccepted *uint64) (Permit, time.Duration, bool, error) {
+	if r.Permits == nil {
+		return nil, 0, false, nil
+	}
+	began := clock.Now()
+	var observerErr error
+	permit, err := r.Permits.Acquire(ctx, PermitAsk{
+		RunID:      request.RunID,
+		WorkItemID: request.Permit.WorkItemID,
+		Commit:     request.Permit.Commit,
+		Command:    command,
+		Priority:   request.Permit.Priority,
+	}, func(check string, since time.Time) {
+		if request.Permit.Waiting != nil {
+			request.Permit.Waiting(check, since)
+		}
+		if observerErr = emit(request.RunID, sequence, clock, sink, execution.EventProcessOutput, map[string]any{
+			"kind": "check", "command": safeCommand, "stream": execution.StreamStdout,
+			"text": fmt.Sprintf("waiting for a free place to run %s: only so many may run at once on this machine (execution.heavy_checks), and its time limit starts when it launches", check),
+		}); observerErr == nil {
+			*lastAccepted = sequence.Last()
+		}
+	})
+	took := clock.Now().Sub(began)
+	if took < 0 {
+		took = 0
+	}
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, took, true, nil
+		}
+		return nil, took, false, fmt.Errorf("ask for a place to run check %q: %w", safeCommand, err)
+	}
+	if observerErr != nil {
+		finishPermit(permit, execution.ProcessResult{})
+		return nil, took, false, observerErr
+	}
+	if permit != nil && request.Permit.Granted != nil {
+		request.Permit.Granted(permit.Check(), permit.Waited())
+	}
+	return permit, took, false, nil
+}
+
+// finishPermit gives a heavy check's place back, where it had one.
+func finishPermit(permit Permit, result execution.ProcessResult) error {
+	if permit == nil {
+		return nil
+	}
+	return permit.Finish(result)
 }
 
 // emitCompleted records what a check spent against what it was allowed, not

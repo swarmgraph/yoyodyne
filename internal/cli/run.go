@@ -557,6 +557,20 @@ func withListingRecord(client beads.Client, listings *runstate.TrackerListingSto
 	return client
 }
 
+// heavyCheckPermits is the record of places the check runner asks for a heavy
+// check's place, under the state root every product on the machine shares, and
+// nil for a project that names no heavy check.
+func heavyCheckPermits(cfg config.Config, stateRoot string) checks.Permits {
+	if len(cfg.Execution.HeavyChecks) == 0 {
+		return nil
+	}
+	store, err := runstate.NewHeavyCheckStore(stateRoot)
+	if err != nil {
+		return nil
+	}
+	return orchestrator.HeavyCheckPermits{Store: store, Product: cfg.Product.ID, Execution: cfg.Execution}
+}
+
 func buildPipeline(configPath string) (orchestrator.Pipeline, error) {
 	parts, err := buildComponents(configPath)
 	if err != nil {
@@ -610,6 +624,10 @@ func pipelineFrom(parts components) orchestrator.Pipeline {
 			// passes only because one is installed here fails before review
 			// rather than on a machine without it.
 			HiddenExecutables: providerExecutables(cfg),
+			// A check the project names in execution.heavy_checks waits for a
+			// place among the machine's before it launches; a project that names
+			// none never opens the record of places.
+			Permits: heavyCheckPermits(cfg, parts.stateRoot),
 		},
 		// The stage's bound is that figure scaled for the machine's load, by the
 		// same reading and cap a local Git command's budget is scaled by, because

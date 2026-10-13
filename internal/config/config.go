@@ -479,6 +479,18 @@ type Execution struct {
 	// preference runs what any slot runs, under the same contract, checks, and
 	// reviewer, so there is nothing here a persona or a role could be widened by.
 	DeveloperSlots []domain.DeveloperSlot `yaml:"developer_slots,omitempty" json:"developer_slots,omitempty"`
+	// HeavyChecks names the configured checks only so many of may run at once
+	// on this machine, each with how many: every run of every product under the
+	// same state root counts against the same places, and a run whose check has
+	// no free place waits for one, keeping its developer slot, with its check's
+	// budget and its stage's bound starting only when the check launches. Empty
+	// is every check starting as soon as its stage reaches it, which is what
+	// every project did before this existed. heavychecks.go says how a command
+	// is matched to a name.
+	//
+	// It selects when a check may start and nothing else, so there is nothing
+	// here a role could be widened by.
+	HeavyChecks map[string]int `yaml:"heavy_checks,omitempty" json:"heavy_checks,omitempty"`
 	// DeveloperModels is the model a run takes for the work it is over, keyed by
 	// the item's labels and read in this list's own order: the first entry any of
 	// an item's labels matches is the model that item's developer invocations ask
@@ -1017,6 +1029,7 @@ func (c Config) Validate() error {
 		problems = append(problems, "document_landings cannot be negative")
 	}
 	problems = append(problems, developerSlotProblems(c.Execution)...)
+	problems = append(problems, heavyCheckProblems(c)...)
 	problems = append(problems, developerModelProblems(c.Execution)...)
 	if c.Execution.RepairAttemptsBeforeReplan < 0 {
 		problems = append(problems, "repair_attempts_before_replan cannot be negative")

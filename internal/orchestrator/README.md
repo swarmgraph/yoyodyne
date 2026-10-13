@@ -95,7 +95,12 @@ field holds X" questions are answered in `internal/runstate/state.go`.
     `pathRefusal`, `checkFailure`. Which checks a stage runs after a restart
     onto a new build stopped the run at its checks is `keepChecks` in
     `keptchecks.go`: checks that already passed on the same change keep their
-    results, and `keepPassed` records each check as it passes.
+    results, and `keepPassed` records each check as it passes. A heavy check
+    (`execution.heavy_checks`) waits for a place among the machine's before it
+    launches: `HeavyCheckPermits` and `heavyCheckPriority` in
+    `heavychecks.go` are what `verify`, `runLandingChecks` and the merge queue
+    worker ask through, and the record of places is `runstate`'s
+    `heavycheck.go`.
 14. **Promotion and landing.** `integrate`, `finish`, `runLandingChecks`,
     `leaseLanding`, `fileRedLanding`, `nameUnreadingParts`.
 15. **Endings.** `complete` (outcome notes, close, price, terminal record),
