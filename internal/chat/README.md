@@ -148,7 +148,9 @@ role to save memories first, built by `memorySaveRequest` and
 `applyMemoryWrite`, `renderMemories`, `keepsMemory`.
 
 ### How is a document write proposed, refused, approved?
-`document.go`. A reply's writes are checked by `refuseWrites`; a refusal is
+`document.go`. A reply's writes are checked by `refuseWrites`, where
+`checkDocument` holds each body to the coined-words and link rules
+(`internal/documentcheck`) after the filing checks; a refusal is
 rendered by `renderDocumentRefusal` and handed back to the role with
 `carryResults` in `Send`. Accepted writes become `PendingWrite` through
 `recordWrites`. `documentpublication.go` confirms automatic-policy writes,
