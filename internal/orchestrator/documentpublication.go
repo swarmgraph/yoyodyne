@@ -185,10 +185,7 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	if previous != nil {
 		if _, err := p.Store.Load(document.RunIDFor(attempt)); errors.Is(err, os.ErrNotExist) {
-			waiting, waited, err := p.awaitDocumentRetry(*previous)
-			if err != nil || waiting != "" {
-				return runstate.DocumentDelivery{RunID: previous.RunID, Retrying: waiting}, err
-			}
+			waited := documentRetryWaited(*previous)
 			p.Selection.Reason += fmt.Sprintf(" Attempt %d of %d: run %s stopped without judging the document (%s); %s.", attempt+1, runstate.MaxDocumentAttempts, previous.RunID, documentStopSays(*previous), waited)
 			if err := p.recordDocumentRetry(ctx, previous.RunID, func(retry *runstate.DocumentRetry) {
 				retry.WaitedFor, retry.Next = waited, document.RunIDFor(attempt)
@@ -223,18 +220,6 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	}
 	if !retryable(saved) {
 		return documentDelivery(saved), nil
-	}
-	// The run this call made stopped without judging the document. Where its
-	// checks ran out of time, how many developer runs were going when it stopped
-	// is recorded, so the next attempt can wait for fewer.
-	if saved.DocumentStoppedOnTime() {
-		if active, err := p.Store.Incomplete(); err == nil {
-			if recordErr := p.recordDocumentRetry(ctx, saved.RunID, func(retry *runstate.DocumentRetry) {
-				retry.DevelopersAtStop = runstate.HoldingDeveloperSlots(active) + 1
-			}); recordErr != nil {
-				return runstate.DocumentDelivery{}, recordErr
-			}
-		}
 	}
 	if attempt+1 >= runstate.MaxDocumentAttempts {
 		saved, err = p.Store.Load(saved.RunID)
@@ -364,33 +349,18 @@ func (p Pipeline) documentAttempt(document runstate.DocumentPublication) (int, *
 	return runstate.MaxDocumentAttempts, previous, nil
 }
 
-// awaitDocumentRetry decides whether the attempt after a stopped run may start
-// now. After a check time limit it may not while as many developer runs are
-// going as were when that run stopped: the same suite under the same load is
-// stopped the same way, and a retry spent on that is an attempt lost. It
-// answers what the conversation is told while it waits, or, once it may start,
-// what it waited for.
-func (p Pipeline) awaitDocumentRetry(previous runstate.State) (waiting, waited string, err error) {
-	at := 0
-	if previous.DocumentRetry != nil {
-		at = previous.DocumentRetry.DevelopersAtStop
+// documentRetryWaited says what the attempt after a stopped run waited for
+// before it started. It waits for nothing but a free document landing, which
+// ReserveDocumentLanding counts against execution.document_landings when the
+// attempt is reserved, and never for developer runs, even after a check time
+// limit: a document run holds no developer slot, and developer runs are nearly
+// always going, so a retry that waited for fewer of them could wait
+// indefinitely.
+func documentRetryWaited(previous runstate.State) string {
+	if previous.DocumentStoppedOnTime() {
+		return "started once a document landing was free after its checks ran out of time; how many developer runs are going is not waited on"
 	}
-	if !previous.DocumentStoppedOnTime() {
-		return "", "started at once, because nothing about the stop depends on how busy the machine is", nil
-	}
-	if at <= 1 {
-		return "", "started at once after its checks ran out of time, because no other developer run was going when they did, so there was no load to wait out", nil
-	}
-	active, err := p.Store.Incomplete()
-	if err != nil {
-		return "", "", fmt.Errorf("count the developer runs a document retry waits on: %w", err)
-	}
-	now := runstate.HoldingDeveloperSlots(active)
-	if now+1 >= at {
-		d := previous.Document
-		return fmt.Sprintf("Document %s (%s) is confirmed, and run %s ran out of check time while %d runs were going, itself among them. The next attempt waits until fewer are going than that; %d developer runs are going now, and with this one it would be %d. It is checked again at the next message, and the document does not need writing again.\n", d.WriteID, d.Candidate.Artifact.Title, previous.RunID, at, now, now+1), "", nil
-	}
-	return "", fmt.Sprintf("started once fewer runs were going: %d when its checks ran out of time, %d with this attempt", at, now+1), nil
+	return "started once a document landing was free, because nothing about the stop depends on how busy the machine is"
 }
 
 // recordDocumentRetry writes what one document run says about the attempt

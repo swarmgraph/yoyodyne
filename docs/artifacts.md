@@ -417,11 +417,12 @@ says nothing about the document — a check stopped by a time limit, a forge or
 network error, the machine or the harness stopping — is not a return. The
 harness starts another run of the same confirmed text at the next message, up
 to three runs in all, and the owner is told it does not need to write anything
-again. After a check time limit the next run waits until fewer developer runs
-are going than when the checks ran out of time, and the run's record says what
-it waited for. A retry that finds every developer slot taken waits
-for a slot the way a first run does, and a watching session starts it as one
-frees. If all three runs stop that way, the last is handed to the
+again. The next run waits only for a free document landing
+(`execution.document_landings`), after a check time limit as after any other
+such stop, and never for developer runs, which a document run does not count
+against; the run's record says what it waited for. A retry that finds every
+document landing taken waits for one the way a first run does, and a watching
+session starts it as one frees. If all three runs stop that way, the last is handed to the
 development manager as a stopped run, with the confirmed text kept on its
 record, rather than back to the owner. A document whose publication had already
 stopped over such runs is published again from its kept text the next time its
