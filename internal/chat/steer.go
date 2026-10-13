@@ -58,6 +58,9 @@ const commandHelp = `Commands the harness carries out for you:
   /exit                       end the conversation, stopping anything it is running
 
 Anything that does not begin with a slash is said to the agent you are talking to.
+What you send while it is answering goes once the answer has arrived; on a
+terminal it waits on screen, and up on an empty line takes it back to change or
+withdraw.
 `
 
 // IsCommand reports whether what the operator said is a command the harness
@@ -187,6 +190,41 @@ func (s *Session) command(ctx context.Context, line string, out io.Writer) (bool
 	// what forgets there was one.
 	s.reportMilestones(out)
 	s.reportFinishedWork(out)
+	return s.dispatch(ctx, line, out)
+}
+
+// afterTurn is the commands that wait for a turn being answered to end, and
+// why each cannot run beside it. Every other command runs at once, its record in
+// the conversation kept until the turn ends (turncommand.go), because what the
+// operator typed it for — a hold on intake, a run stopped, a directive in force
+// — is something that cannot wait for an answer to finish being written.
+var afterTurn = map[string]string{
+	// It reads the repository and the tracker again into the picture the agent
+	// is given, and the turn in flight is delivering the picture it has.
+	"/refresh": "it replaces the picture the answer is being written from",
+	// It waits for the run this conversation started to finish, and nothing
+	// could be typed while it did.
+	"/wait": "it would stop you typing until the run finished",
+	// Ending the conversation at once would cut off the answer being written and
+	// its record; it ends as soon as the answer has arrived.
+	"/exit": "it ends the conversation once the answer has arrived",
+	"/quit": "it ends the conversation once the answer has arrived",
+}
+
+// waitsForTurn reports whether a command waits for the turn being answered to
+// end, and why, read the way the dispatcher reads it.
+func waitsForTurn(line string) (string, bool) {
+	name, _ := splitCommand(line)
+	why, waits := afterTurn[name]
+	return why, waits
+}
+
+// dispatch carries out one command, with nothing said first about a run this
+// conversation started. A command run while a turn is being answered comes in
+// here directly, because collecting a finished run records it in the
+// conversation, which is the turn's to write until it ends; the run is reported
+// as soon as it does.
+func (s *Session) dispatch(ctx context.Context, line string, out io.Writer) (bool, error) {
 	// The line is read the way Session.Command reads it, so what a single
 	// message refuses and what the conversation carries out are decisions about
 	// the same command rather than about two readings of one line.

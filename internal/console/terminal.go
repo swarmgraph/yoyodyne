@@ -98,6 +98,11 @@ type terminal struct {
 
 	prompting  bool
 	promptText string
+	// besideTurn says the operator is typing while a turn is being answered
+	// (BesideTurn, in waiting.go): a line sent is not written into the
+	// transcript, because whoever asked for it shows it themselves, and the keys
+	// that stop a turn stop it.
+	besideTurn bool
 	// line is the message being composed, which may be more than one line of it:
 	// a newline in here is a newline the operator typed, and it reaches the
 	// message they send exactly as it is drawn.
@@ -139,8 +144,13 @@ type terminal struct {
 	status  string
 	resting string
 
+	// waiting is what the operator sent while an answer was being worked on,
+	// oldest first, kept on screen until the conversation takes it (waiting.go).
+	waiting []string
+
 	// drawn says whether a region is on screen, drawnStatus is the status line it
-	// was drawn with, drawnChoices is the list of answers it was drawn with,
+	// was drawn with, drawnWaiting is the rows of waiting messages it was drawn
+	// with, drawnChoices is the list of answers it was drawn with,
 	// drawnComposed is the prompt and the message as they were drawn, and
 	// drawnCursor is where the cursor was left in that text, counted in runes.
 	// The rows the status and the list occupy and the row the cursor is on are
@@ -149,6 +159,7 @@ type terminal struct {
 	// erasing is erased at the size the terminal has rewrapped it to.
 	drawn         bool
 	drawnStatus   string
+	drawnWaiting  []string
 	drawnChoices  []string
 	drawnComposed string
 	drawnCursor   int
@@ -293,12 +304,13 @@ func (t *terminal) eraseRegion() string {
 		return ""
 	}
 	var out strings.Builder
-	if rows := t.statusRows() + t.choiceRows() + cursorRow(t.drawnComposed, t.drawnCursor, t.columns()); rows > 0 {
+	if rows := t.statusRows() + t.waitingRows() + t.choiceRows() + cursorRow(t.drawnComposed, t.drawnCursor, t.columns()); rows > 0 {
 		fmt.Fprintf(&out, "\x1b[%dA", rows)
 	}
 	out.WriteString("\r\x1b[J")
 	t.drawn = false
 	t.drawnStatus = ""
+	t.drawnWaiting = nil
 	t.drawnChoices = nil
 	t.drawnComposed = ""
 	t.drawnCursor = 0
@@ -318,6 +330,16 @@ func statusHeight(text string, width int) int {
 		return 0
 	}
 	return (visibleWidth(text)-1)/width + 1
+}
+
+// waitingRows is how many rows the waiting messages took at the width the
+// terminal has now, measured as the status line is.
+func (t *terminal) waitingRows() int {
+	rows := 0
+	for _, line := range t.drawnWaiting {
+		rows += statusHeight(line, t.columns())
+	}
+	return rows
 }
 
 // choiceRows is how many rows the list of answers took at the width the
@@ -359,7 +381,7 @@ func (t *terminal) rows() int {
 // cannot be erased again from where it began.
 func (t *terminal) drawRegion() string {
 	status := t.statusLine()
-	if !t.prompting && !t.choosing && status == "" {
+	if !t.prompting && !t.choosing && status == "" && len(t.waiting) == 0 {
 		return ""
 	}
 	width := t.columns()
@@ -379,6 +401,16 @@ func (t *terminal) drawRegion() string {
 		rows -= statusHeight(status, width)
 	}
 	t.drawnStatus = status
+	// What the operator sent while an answer was being worked on sits between
+	// what the harness is doing and what they are typing, because it is theirs
+	// and is not said yet: it goes out once the answer above it has arrived.
+	waiting := t.waitingRegion(width, rows)
+	for _, line := range waiting {
+		out.WriteString(line)
+		out.WriteString("\n")
+		rows -= statusHeight(line, width)
+	}
+	t.drawnWaiting = waiting
 	// The answers on offer sit under the status, and are redrawn under whatever
 	// the harness writes exactly as the composing line is: the operator is
 	// picking from a list rather than typing into one, so the list has to stay
@@ -960,6 +992,13 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 			raised = append(raised, pressed.signal)
 			continue
 		}
+		if t.stopsTurn(pressed) {
+			t.ending = time.Time{}
+			if err := t.redraw(); err != nil {
+				return "", false, raised, err
+			}
+			return "", false, raised, ErrStopTurn
+		}
 		if pressed.code == keyInterrupt {
 			if err := t.interrupted(); err != nil {
 				return "", false, raised, err
@@ -996,7 +1035,11 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 		// The finished message joins the transcript above, so who said what is
 		// still legible after it scrolls: the terminal echoed nothing, because
 		// the region is drawn rather than typed into.
-		if err := t.render([]string{t.promptText + line}); err != nil {
+		echo := []string{t.promptText + line}
+		if t.besideTurn {
+			echo = nil
+		}
+		if err := t.render(echo); err != nil {
 			return "", false, raised, err
 		}
 		return line, true, raised, nil
@@ -1051,7 +1094,9 @@ func (t *terminal) apply(pressed key) {
 			t.cursor++
 		}
 	case keyUp:
-		t.up()
+		if !t.takeBackWaiting() {
+			t.up()
+		}
 	case keyDown:
 		t.down()
 	case keyHome:
@@ -1228,6 +1273,11 @@ func (t *terminal) beginChoice(prompt string, choices []string) (int, bool, erro
 	}
 	t.choices = choices
 	t.choosing = true
+	// A list takes the place of a prompt that was interrupted rather than
+	// answered, which is a prompt left open while a turn was answered: what was
+	// typed under it stays in the line for the next prompt, and only the list is
+	// drawn meanwhile.
+	t.prompting = false
 	t.promptText = prompt
 	t.mu.Unlock()
 	return t.feedChoice(nil, false)
@@ -1391,6 +1441,13 @@ func (t *terminal) Close() error {
 		out.WriteString("\n")
 		t.pending = nil
 	}
+	// A message still waiting when the conversation ends was never sent, and is
+	// written into the scrollback as exactly that rather than erased with the
+	// region: the operator typed it, and the screen is the only place it exists.
+	for _, message := range t.waiting {
+		out.WriteString("not sent: " + message + "\n")
+	}
+	t.waiting = nil
 	_, err := io.WriteString(t.out, out.String())
 	t.mu.Unlock()
 	if t.restore != nil {
