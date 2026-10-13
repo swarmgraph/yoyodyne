@@ -147,6 +147,12 @@ execution:
 # exist. Publishing is opted in to separately and for the same reason: pushing a
 # branch and opening a pull request is visible outside the machine the harness
 # runs on, so a project says so rather than inheriting it.
+#
+# Releases are the same again. Under "human" a release the Lead Product Manager
+# decided is cut, and its tag pushed, by a person with make release. Under
+# "automatic" the supervisor's maintenance pass cuts it once the release item's
+# reviewed run has landed the notes and their readiness stamp, behind the gates
+# a person's cut holds, and pushes the tag itself.
 approvals:
   brief: human
   goals: human
@@ -154,6 +160,7 @@ approvals:
   work_items: human
   integration: human
   publishing: human
+  releases: human
 
 # Every executable agent declares its own model selector; there is no implicit
 # harness default. The "opus" family alias intentionally floats to the backend's

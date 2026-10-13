@@ -68,8 +68,14 @@ item the operator asked for through the Lead Product Manager carries no such lin
 The three releases here today — [`v0.3.0.md`](v0.3.0.md),
 [`v0.4.0.md`](v0.4.0.md), and [`v0.5.0.md`](v0.5.0.md) — were drafted before
 this shape existed and carry titles and goals only; the next draft is the first
-written this way. [Redrafting one](../developing-yoyo.md#every-cut-writes-its-notes)
+written this way. [Redrafting one of those three](../developing-yoyo.md#every-cut-writes-its-notes)
 is a person's commit rather than a run's.
+
+A release the Lead Product Manager decides has a work item of its own, titled
+for its version, and drafting and curating its notes is that item's reviewed
+run. The run's change lands the file on `main` through review like any other
+change. A person writes and commits the file only for a release they cut by
+hand.
 
 Only what the tracker calls **closed** reaches the notes. An id in a commit
 message says work touched that item, not that the item is done — a parent epic
@@ -85,7 +91,7 @@ file, then commit it.
 
 ## The readiness section
 
-One section is not the Lead Product Manager's and is written by the cut itself: the
+One section is not the Lead Product Manager's: the
 **Release readiness** result, between the markers
 `<!-- yoyodyne:release-readiness -->` and `<!-- /yoyodyne:release-readiness -->`
 at the end of the file. It is what
@@ -95,9 +101,15 @@ links, the invariants, the goal every admitted item serves, and what a change
 upstream left unanswered downstream — so a published release says what was
 true of the tree it names rather than only that its tests passed.
 
-The cut does not write it to `main` itself: it commits the stamped notes on a
-branch and opens a pull request, which is how the result reaches this file,
-and the cut after the merge tags. It replaces what is between those two
+For a release the Lead Product Manager decided, the release item's reviewed run
+writes it: it puts the section `yoyo conformance --notes` prints between those
+markers and lands it with the notes. For a release a person cuts with
+`make release`, the cut writes it. The cut does not write it to `main` itself:
+it commits the stamped notes on a branch and opens a pull request, which is how
+the result reaches this file, and the cut after the merge tags. The harness's
+own cut, under `approvals.releases: automatic`, opens nothing. A result that is
+missing or no longer current refuses that cut, and the release goes back to
+the Lead Product Manager for its run to stamp again. It replaces what is between those two
 markers and leaves everything around them alone, so a second stamp does not
 leave two results that disagree, and a result already here with the same
 verdict from the same definition is left alone rather than rewritten for its
@@ -112,3 +124,12 @@ release page is published. The notes commit has to reach `origin/main` before
 the cut will go through, because the cut refuses a `HEAD` the remote does not
 have; and then the readiness result has to reach it too, through the pull
 request the cut opens, before the cut tags.
+
+The notes and their stamp on `main` are the preparation, not the release. A
+release is its tag on origin. When the harness cuts one, the tag's push is
+recorded on the release item, naming the commit the tag names and the gates
+that passed on it. That note, not the notes file, is what the Lead Product
+Manager closes the item on.
+[Cutting a decided release](../operations.md#cutting-a-decided-release) is the
+harness's path, and [cutting a release](../developing-yoyo.md#cutting-a-release)
+is the manual one.

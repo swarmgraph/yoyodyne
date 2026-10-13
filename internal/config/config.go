@@ -860,6 +860,16 @@ type Approvals struct {
 	// `human` leaves pushing and pull requests to the operator, which is what a
 	// project gets until it opts in.
 	Publishing domain.ApprovalMode `yaml:"publishing" json:"publishing"`
+	// Releases decides who cuts a release the Lead Product Manager has decided.
+	// `human` leaves the cut and the tag push to a person, which is what a
+	// project gets until it opts in. `automatic` has the supervisor's
+	// maintenance pass cut it once the release item's reviewed run has landed
+	// the notes and their readiness stamp, and push the tag under the harness's
+	// own identity (internal/releasecut). It is an opt-in for the reason
+	// publishing is one: a tag is visible outside the machine. It grants no
+	// role anything: the cut is the harness's, never an agent's, and its gates
+	// are the ones a person's cut already holds.
+	Releases domain.ApprovalMode `yaml:"releases" json:"releases"`
 }
 
 type AgentConfig struct {
@@ -1165,6 +1175,7 @@ func (c Config) Validate() error {
 		{name: "work_items", mode: c.Approvals.WorkItems},
 		{name: "integration", mode: c.Approvals.Integration},
 		{name: "publishing", mode: c.Approvals.Publishing},
+		{name: "releases", mode: c.Approvals.Releases},
 	}
 	for _, approval := range approvalValues {
 		if !approval.mode.Valid() {

@@ -805,6 +805,46 @@ execution:
 	}
 }
 
+// Cutting a release is opted in to the way publishing is: a project that says
+// nothing about it leaves the cut to a person, and opting in is one line.
+func TestReleasesAreOptedIntoBesidePublishing(t *testing.T) {
+	t.Parallel()
+
+	inherited := loadProject(t, minimalProjectConfig, nil)
+	if inherited.Config.Approvals.Releases != domain.ApprovalHuman {
+		t.Fatalf("inherited releases = %q, want %q", inherited.Config.Approvals.Releases, domain.ApprovalHuman)
+	}
+	if origin := inherited.Origins["approvals.releases"]; origin != BuiltinV1 {
+		t.Errorf("releases origin = %q, want %q", origin, BuiltinV1)
+	}
+
+	opted := loadProject(t, minimalProjectConfig+`approvals:
+  releases: automatic
+`, nil)
+	if opted.Config.Approvals.Releases != domain.ApprovalAutomatic {
+		t.Fatalf("releases = %q, want %q", opted.Config.Approvals.Releases, domain.ApprovalAutomatic)
+	}
+	if opted.Config.Approvals.Publishing != domain.ApprovalHuman {
+		t.Errorf("publishing = %q, want the inherited value", opted.Config.Approvals.Publishing)
+	}
+
+	if _, err := DecodeResolved(strings.NewReader(`version: 1
+product:
+  id: example
+  repository: .
+approvals:
+  releases: sometimes
+agents:
+  developer:
+    role: developer
+    backend: claude-code
+    model: opus
+    instances: 1
+`)); err == nil || !strings.Contains(err.Error(), "approval releases") {
+		t.Fatalf("DecodeResolved() error = %v, want one refusing an unknown releases mode", err)
+	}
+}
+
 // A configuration written before publishing existed still loads and still means
 // what it meant: the harness publishes nothing.
 func TestConfigurationWithoutPublishingKeepsItsBehavior(t *testing.T) {

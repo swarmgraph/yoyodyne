@@ -289,7 +289,11 @@ func newResolution() *resolution {
 			// could walk around by taking the other door — and it costs the work
 			// nothing, because what is refused is proposed instead and the operator
 			// decides. A project that wants the old behaviour sets `automatic`.
-			Approvals: Approvals{Publishing: domain.ApprovalHuman, WorkItems: domain.ApprovalHuman},
+			//
+			// Releases joined them later still and for the same reason, and its
+			// default is behaviour-preserving: a person cut every release before
+			// the harness could.
+			Approvals: Approvals{Publishing: domain.ApprovalHuman, WorkItems: domain.ApprovalHuman, Releases: domain.ApprovalHuman},
 			// One account, named, is what every project has until pooling exists, so
 			// it is a harness default rather than something a project states: a file
 			// that says nothing about accounts still has runs that say which account
@@ -317,6 +321,7 @@ func newResolution() *resolution {
 			"product.designs":                                     OriginDefault,
 			"product.decisions":                                   OriginDefault,
 			"approvals.publishing":                                OriginDefault,
+			"approvals.releases":                                  OriginDefault,
 			"approvals.work_items":                                OriginDefault,
 			"execution.max_concurrent_developers":                 OriginDefault,
 			"execution.document_landings":                         OriginDefault,
@@ -455,6 +460,7 @@ func (r *resolution) apply(applied layer) error {
 		}
 		setValue(r.origins, "approvals.integration", approvals.Integration, &r.config.Approvals.Integration, applied.origin)
 		setValue(r.origins, "approvals.publishing", approvals.Publishing, &r.config.Approvals.Publishing, applied.origin)
+		setValue(r.origins, "approvals.releases", approvals.Releases, &r.config.Approvals.Releases, applied.origin)
 	}
 	if slack := document.Slack; slack != nil {
 		setValue(r.origins, "slack.enabled", slack.Enabled, &r.config.Slack.Enabled, applied.origin)

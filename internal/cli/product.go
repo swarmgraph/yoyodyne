@@ -39,6 +39,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/doctor"
@@ -50,6 +51,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/maintenancejob"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/redeploy"
+	"github.com/mason-bryant/yoyodyne/internal/releasecut"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
@@ -731,7 +733,49 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 	if rebuilder != nil {
 		pass.Rebuild = rebuilder
 	}
+	if p.runner != nil {
+		cutter, err := p.releaseCutter(repository, reports)
+		if err != nil {
+			return nil, nil, err
+		}
+		pass.Release = cutter
+	}
 	return append(residents, pass), pass, nil
+}
+
+// releaseCutter is the maintenance pass's release step: a release the Lead
+// Product Manager decided, cut under approvals.releases and its tag pushed
+// under the harness's identity. Under the default of human it says so on each
+// pass and does nothing else. Its worktree for the gates is made under the
+// product's state, outside the repository and the run worktrees.
+func (p *product) releaseCutter(repository string, reports *runstate.ReportStore) (*releasecut.Cutter, error) {
+	cfg := p.resolved.Config
+	cuts, err := runstate.NewReleaseCutStore(p.stateRoot, cfg.Product.ID)
+	if err != nil {
+		return nil, err
+	}
+	holds, err := runstate.NewOperatorHoldStore(p.stateRoot)
+	if err != nil {
+		return nil, err
+	}
+	host, _ := os.Hostname()
+	return &releasecut.Cutter{
+		Product:      cfg.Product.ID,
+		RepositoryID: string(cfg.Product.RepositoryID),
+		Build:        buildinfo.Commit(),
+		Mode:         cfg.Approvals.Releases,
+		Repository:   repository,
+		Remote:       cfg.Execution.Remote,
+		WorkRoot:     filepath.Join(home.ProductDirectory(p.stateRoot, string(cfg.Product.ID)), "release-cut"),
+		Environ:      execution.WithStartedBy(slack.WithoutSecrets(p.environ), maintain.StartedByMaintenance),
+		CutBy:        fmt.Sprintf("%s, process %d on %s", maintain.StartedByMaintenance, os.Getpid(), host),
+		Runner:       p.runner,
+		Tracker:      beads.Client{Runner: p.runner, Dir: repository, Timeout: chatTrackerTimeout},
+		Cuts:         cuts,
+		Reports:      reports,
+		Holds:        holds,
+		Now:          p.now,
+	}, nil
 }
 
 // factoryWatch is the supervisor's reading of whether the factory has stalled:
