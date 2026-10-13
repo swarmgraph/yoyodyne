@@ -113,13 +113,14 @@ func TestAnItemLeftTwiceIsAskedAboutAsOneQuestionAfterTheTurnIsSentBack(t *testi
 		leftAgainTurn("Took nothing."), leftAgainTurn("Took nothing."),
 		{result: other, actedOn: []string{"yoyodyne-gtx"}, admitted: []string{"yoyodyne-new"}},
 		{result: asked},
-		leftAgainTurn("Waiting on the answer."),
+		leftAgainTurn("Waiting on the answer."), leftAgainTurn("Still waiting on the answer."),
+		{result: settledBy(sweep.Settled{Item: capacityDesign, Decision: "two heavy checks at once", Assumptions: []string{"the answer will not change the limit"}})},
 	}}
 	notes := &itemNotes{}
-	recorded := fireArchitectPasses(t, capacityQueue(""), role, notes, sweepStore(t), 4)
+	recorded := fireArchitectPasses(t, capacityQueue(""), role, notes, sweepStore(t), 6)
 
-	if len(role.messages) != 5 {
-		t.Fatalf("turns = %d, want 5: the third pass is sent back once past its one-turn bound", len(role.messages))
+	if len(role.messages) != 7 {
+		t.Fatalf("turns = %d, want 7: the third pass is sent back once past its one-turn bound", len(role.messages))
 	}
 	if back := role.messages[3]; !strings.Contains(back, "This pass is ending having left "+capacityDesign+" again") || !strings.Contains(back, "Everything else this pass did stands") {
 		t.Errorf("sent-back message = %q", back)
@@ -138,13 +139,29 @@ func TestAnItemLeftTwiceIsAskedAboutAsOneQuestionAfterTheTurnIsSentBack(t *testi
 		t.Errorf("problem = %q, want the send-back said", third.Problem)
 	}
 	written := notes.notes[capacityDesign]
-	if len(written) != 4 || !strings.Contains(written[2], "Asked about by the architect's recurring pass") || !strings.Contains(written[2], "put one question to the Lead Product Manager: May a project ask") {
+	if len(written) < 3 || !strings.Contains(written[2], "Asked about by the architect's recurring pass") || !strings.Contains(written[2], "put one question to the Lead Product Manager: May a project ask") {
 		t.Fatalf("notes = %v, want the question written on the item", written)
 	}
-	// The pass after the question is waiting on its answer, and is not pressed.
-	if strings.Contains(role.messages[4], "This pass does not leave it again") || recorded[3].Delivered[0].LeftInARow != 1 {
-		t.Errorf("the pass after the question was pressed or counted on: %+v\n%s", recorded[3].Delivered[0], role.messages[4])
+	// A question excuses the item for two passes at most: the leaves after it
+	// are counted again from one, and the pass after two of them is told again.
+	if strings.Contains(role.messages[4], "This pass does not leave it again") || strings.Contains(role.messages[5], "This pass does not leave it again") {
+		t.Errorf("a pass within two of the question was told to settle the item again:\n%s", role.messages[4])
 	}
+	if got := []int{recorded[3].Delivered[0].LeftInARow, recorded[4].Delivered[0].LeftInARow}; got[0] != 1 || got[1] != 2 {
+		t.Errorf("left in a row after the question = %v, want 1 then 2", got)
+	}
+	if told := role.messages[6]; !strings.Contains(told, "first in your order, 2 times in a row") {
+		t.Errorf("the pass after two leaves following the question was not told again:\n%s", told)
+	}
+	if first := recorded[5].Delivered[0]; first.Settled != runstate.SettledDecided {
+		t.Errorf("sixth pass first = %+v, want it decided", first)
+	}
+}
+
+func settledBy(settled sweep.Settled) *sweep.Result {
+	result := complete("Settled the capacity design.")
+	result.Settled = []sweep.Settled{settled}
+	return result
 }
 
 func TestAPassThatStillLeavesTheItemIsRecordedAndTheDevelopmentManagerTold(t *testing.T) {

@@ -4886,7 +4886,7 @@ in a row have left it, this one included, and the reason each gave is in its
 note on the item. Only an item nothing outside the role holds is counted: one
 the tracker says depends on an unfinished item, or records as blocked, carries
 what holds it on the pass's record instead, may be left for as long as it is
-held, and is never pressed; a parked item is never handed to a pass at all. The
+held, and its passes are never told to decide it or ask about it; a parked item is never handed to a pass at all. The
 count is of passes, not of identical reasons, so a role that rewords its reason
 has still left the same item. Once two passes in a row have left it, the next
 pass is told so at its start, with their reasons, and asked to do one of two
@@ -4899,8 +4899,9 @@ sent back once, in one more turn of the same pass even where that is past the
 task's turn bound, with everything else it did kept. A pass that still leaves
 it is not failed: its record says it left the item again, the note on the item
 says so, and the development manager's passes are told of the item until a
-later pass takes it. After a question, the passes that leave the item are
-waiting on the answer and are not counted. The status line says `DECIDED` or
+later pass takes it. A decision or a question ends the count as taking the
+item does; passes that go on leaving it afterwards are counted again from one,
+so two more leaves after a question bring the same demand again. The status line says `DECIDED` or
 `ASKED` beside an item taken that way, and the count beside an item left more
 than once in a row, in capitals from the third.
 

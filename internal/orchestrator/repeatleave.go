@@ -24,10 +24,11 @@ package orchestrator
 // left the item again, and the development manager's next pass is told
 // (leftAgainMessage).
 //
-// A question put about the item ends the count, and the passes after it that
-// leave the item are waiting on the answer, which is a wait on another role or
-// person rather than the role's own; they are not counted until a pass takes
-// the item some other way.
+// A decision or a question about the item ends the count, as taking it any
+// other way does. Passes that go on leaving it afterwards are counted again
+// from there, so a question excuses the item for two passes at most: the
+// role's own word that it waits on an answer is not something the tracker
+// records, and the next pass after two more leaves is told again.
 
 import (
 	"context"
@@ -64,10 +65,6 @@ func earlierLeaves(earlier []runstate.Sweep, id string) (int, []string) {
 			continue
 		}
 		first, handed := pass.FirstDelivered()
-		if handed && first.ID == id && first.Settled == runstate.SettledAsked {
-			// Waiting on the answer to the question that pass put.
-			return 0, nil
-		}
 		if !handed || first.ID != id || first.HeldOutside != "" || first.Taken {
 			break
 		}
