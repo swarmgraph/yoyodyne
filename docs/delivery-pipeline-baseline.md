@@ -537,7 +537,8 @@ is unmeasured. Most of these are asserted somewhere in
   merge. One trace publishes, and only as far as a merge the forge could not
   confirm: it holds the pull request and the outstanding publication, and none
   of the rest. The rest has its own assertions in
-  `internal/orchestrator/publish_test.go`.
+  `internal/orchestrator/publicationtests`, and those that reach the package's
+  unexported code in `internal/orchestrator/publish_test.go`.
 - **Four of the ten `retries` boundaries.** The boundaries are the ten
   `runstate.Retry*` constants, counted as constants rather than as call sites —
   `reading the remote target branch` is one boundary with three call sites and

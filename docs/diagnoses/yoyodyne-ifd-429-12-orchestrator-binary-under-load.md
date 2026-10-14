@@ -322,3 +322,99 @@ The 304 shared helpers split two ways:
 Moved tests also have to go into a directory of their own. A `package
 orchestrator_test` file in `internal/orchestrator` compiles into the same test
 binary as the package's own tests, so it would split nothing.
+
+## The first group moved (yoyodyne-ifd.429.14)
+
+Step 2 has begun. The census is no longer taken by hand:
+[`scripts/movetests`](../../scripts/movetests/main.go) type-checks the package's
+test variant, follows every test through the helpers it calls, and prints each
+test file with how many of its tests reach an unexported identifier of the
+package. Given a group of files, it moves the tests that reach none into a new
+package and writes the shared helpers they need into
+`internal/orchestrator/testharness`.
+
+That answers the decision the section above left to each group. A shared helper
+that names something `orchestrator` declares is kept in two copies: unexported
+in the package's own test files, where the tests that stay use it, and exported
+in `testharness`, which the moved packages import. The first copy goes once the
+last test using it has moved. One copy per moved package would have been the
+alternative, and it would put the same pipeline helpers in every one of them.
+
+### The census on 2026-10-14
+
+Taken on the base of this change (f4a1d55c), by `go run ./scripts/movetests`:
+
+- 1,453 tests, up from 834 in the census above.
+- 418 of them reach internals. 1,035 reach none and can move.
+
+A plain `go test -count=1 -json ./internal/orchestrator` on the same tree took
+699 seconds of wall time from 10:37 to 10:48 PDT, at a one-minute load between
+9 and 16 on sixteen cores. The tests' own elapsed times add up to 8,136 seconds,
+because they run in parallel. The 1,035 tests that can move account for 6,836
+of them, 84 percent. The heaviest files by what their movable tests take are:
+
+| file | movable tests | their seconds |
+| --- | --- | --- |
+| `pipeline_test.go` | 86 of 101 | 1,276 |
+| `publish_test.go` | 31 of 39 | 799 |
+| `mergequeueworker_test.go` | 15 of 15 | 377 |
+| `protectedpath_test.go` | 14 of 19 | 320 |
+| `reconcile_test.go` | 19 of 23 | 246 |
+| `publication_test.go` | 6 of 6 | 220 |
+| `publication_settle_test.go` | 7 of 8 | 210 |
+| `mergequeuerecovery_test.go` | 11 of 14 | 171 |
+| `queuedchecks_test.go` | 10 of 12 | 132 |
+
+The rest are under 125 seconds each.
+
+### What this change moved
+
+Publication, the second-heaviest subject: the 43 tests of `publish_test.go`,
+`publication_test.go`, and `publication_settle_test.go` that reach no
+internals, into `internal/orchestrator/publicationtests`. Together they took
+about 1,200 of the 8,136 seconds above, about 15 percent. Each test keeps its
+name and its assertions; the only differences are the package qualifiers and
+the capitalized names of the helpers `testharness` exports.
+
+Nine tests stay in the package, because they reach `pullRequestBody`,
+`pullRequestTitle`, `resolvePublishing`, `environmentalStop`,
+`mergeConfirmationDelays`, or `settledPublicationDecision`. One more,
+`TestPipelineClosesTheItemWhenTheRemoteSweptThePromotionIn`, stays although it
+could move. Moving it made Git render the test after it in `publish_test.go` as
+removed and added again, so the file's diff was no longer removals alone and
+the change no longer fitted the review bound. It moves with the next group that
+touches that file.
+
+The review bound decides how big a group can be. A change's whole patch is
+held to 256 KB, and a new file to 64 KB. Lines taken out of a file cost little,
+because a diff that only removes is described rather than shown once the bound
+is reached. New files cost their whole size, and this group's new tests and
+helpers come to about 165 KB. The moved `publish_test.go` was 83 KB, so its
+queued-merge and settled-merge tests are in `publish_queue_test.go`.
+
+### What the move did to the binaries
+
+FIGURES
+
+### What is left
+
+About 990 tests that can move, in groups of the size above. By subject and by
+what they cost, a plan the development manager can take or change:
+
+1. `pipeline_test.go`'s 86 movable tests, in two or three changes, because the
+   file is 340 KB.
+2. The merge queue: `mergequeueworker_test.go`, `mergequeuerecovery_test.go`,
+   `mergequeuepromotion_test.go`, and `queuedchecks_test.go`.
+3. Protection and landing: `protectedpath_test.go`, `protectedtarget_test.go`,
+   `redtarget_test.go`, `landingstop_test.go`, `landingchecks_test.go`, and
+   `landing_test.go`.
+4. Reconciliation and recovery: `reconcile_test.go`, `recovery_test.go`,
+   `converge_test.go`, `runretirement_test.go`, `supersession_test.go`, and
+   `integrationresume_test.go`.
+5. `schedule_test.go`'s 103 movable tests, in two changes, and `rerun_test.go`
+   and `triage_test.go` beside them.
+6. The rest, a few files a change.
+
+The 418 tests that reach internals take about 1,300 of the 8,136 seconds, so
+once everything movable has moved the package's own binary carries about a
+sixth of what it carries today.

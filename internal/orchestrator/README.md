@@ -284,4 +284,9 @@ context bundle come from `internal/contextbundle`.
 
 `pipeline_test.go` and `schedule_test.go` mirror the two big files. Shared
 fakes are in `orchestratortest/`. Prefer `rg -n 'func Test.*<Topic>'` over
-reading the test files from the top.
+reading the test files from the top, and search the subdirectories too: tests
+that reach nothing unexported here are moving out, a subject at a time, into
+packages of their own so they run as separate test binaries —
+`publicationtests/` first — with the helpers they share exported in
+`testharness/`. `go run ./scripts/movetests` lists which tests can move, and
+moves a group.
