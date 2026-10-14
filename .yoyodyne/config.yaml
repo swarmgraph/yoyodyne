@@ -411,6 +411,25 @@ agents:
       # under $1. Shrinking the context itself is yoyodyne-ifd.430.13.8.
       every: 45m
       on: [admissions, stoppages]
+  # The second program manager, for technical health: code quality as a very
+  # senior engineer judges it, in the harness's own code. Pinned to Codex
+  # gpt-6-astra at high effort with no alternate, and given no triggers by the
+  # operator's direction of 2026-10-13, so it takes a pass only when the
+  # operator or the Lead Product Manager asks for one. "The technical-health
+  # program manager" in docs/designs/program-manager.md is this block.
+  technical-health-pm:
+    role: program-manager
+    backend: codex
+    model: gpt-6-astra
+    effort: high
+    instances: 1
+    persona:
+      version: v3
+      path: personas/program-manager.md
+    lane: technical-health
+    remit:
+      version: r1
+      path: remits/technical-health.md
   development-manager:
     role: development-manager
     backend: claude-code
