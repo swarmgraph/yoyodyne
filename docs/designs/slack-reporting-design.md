@@ -37,13 +37,22 @@ revisions:
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'approved amendment 8eb60865 from yoyodyne-ifd.441 - the degraded class stops enumerating shipped states, which had gone stale at two while five shipped; the admitting rule is what the design owns'
+      reason: approved amendment 8eb60865 from yoyodyne-ifd.441 - the degraded class stops enumerating shipped states, which had gone stale at two while five shipped; the admitting rule is what the design owns
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'approved amendment ee80baf9 from yoyodyne-ifd.363 - the 2026-09-07 entry''s reason reworded from a gendered pronoun to ''the operator''s'', no other word of it changed and nothing in the prose changed; shipped documents say nothing about the operator''s pronouns'
+      reason: approved amendment ee80baf9 from yoyodyne-ifd.363 - the 2026-09-07 entry's reason reworded from a gendered pronoun to 'the operator's', no other word of it changed and nothing in the prose changed; shipped documents say nothing about the operator's pronouns
+    - action: amended
+      by: architect
+      at: 2026-10-14T11:55:10.336664Z
+      reason: 'Part 7 of renaming the product manager role to the Lead Product Manager where a person reads it: the inbound vocabulary''s default receiver of a plain thread reply now names the Lead Product Manager. Nothing else in the design changes.'
+approvals:
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-10-14T11:55:10.336664Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 929, for document-929.1 under the automatic approval policy
 ---
-
 # Slack reporting: events out, directives in, one thread per topic
 
 ## Status
@@ -131,7 +140,7 @@ The topic-to-`thread_ts` map is durable at the state root, per product, owned by
 
 A message in a topic's thread maps onto the existing directive surface and nothing else:
 
-- A plain reply records an **operational directive**, scoped to the thread's work item, `received-by` the persona it @-mentions or the product manager by default.
+- A plain reply records an **operational directive**, scoped to the thread's work item, `received-by` the persona it @-mentions or the Lead Product Manager by default.
 - The pausing kinds are **stated, never inferred**, exactly as the CLI requires: a reply opening `ambiguous:` or `artifact: <name>` records that kind, and must state what is unresolved or be refused — the same rule, because a pause nobody can name a reason for is a pause nobody can lift, and a classifier guessing which sentences pause work is the failure the CLI already refused.
 - `resolve <directive-id> <how>` resolves, with the existing unique-prefix rule.
 
@@ -163,4 +172,3 @@ Every message the harness or an agent sends to a person follows four rules, whet
 2. **Post on importance or on an ask; otherwise do not post.** Severity is importance, not actionability: important breakage posts even without an ask. Brief periodic status is fine — "*{item title}* has merged" is ok; the prohibition is walls and useless text, not short factual posts. Routine narration goes to the durable record, with an item's milestones in its own thread.
 3. **Never bare id lists.** Aggregate with meaning — "31 items wait on triage decisions; the architect holds 8 rulings; next mover: the architect" — naming an item title-first only when the reader must act on it.
 4. **Every message answers "why is the reader reading this" or is not sent** — with a generous reading of why: "so the operator knows a feature merged and can test it" is a legitimate answer. The test kills pointless text, not useful awareness.
-
