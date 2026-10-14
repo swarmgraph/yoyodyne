@@ -1,7 +1,7 @@
 ---
 id: machine-home
 kind: design
-title: "The machine home: where the harness keeps everything that is not the repository"
+title: 'The machine home: where the harness keeps everything that is not the repository'
 supports:
     - v1-goals
 status: active
@@ -10,8 +10,17 @@ revisions:
       by: architect
       at: 2026-09-29T02:00:00Z
       reason: 'yoyodyne-ifd.434 - Mason''s direction of 2026-09-28: one home under ~/.yoyodyne, project directories named by product id and bound to a repository, a companion intent repository allowed and not required, and a migration from the platform default with a harness running'
+    - action: amended
+      by: architect
+      at: 2026-10-14T03:32:17.478925Z
+      reason: 'yoyodyne-ifd.434.23 and yoyodyne-ifd.434.24: the move section now states what the landed move command does (the old-home warning appears once on each command''s error output and in yoyo doctor, and each moved worktree is repaired from inside it), and a new Validation section states seven checks derived from this design''s requirements, each with its requirement, setup, observed result and kept evidence, plus the first-use measurements; the earlier reference to seven checks named a list this design never held. No requirement or safety boundary is changed.'
+approvals:
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-14T03:32:17.478925Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 873, for document-873.1 under the automatic approval policy
 ---
-
 # The machine home
 
 Serves the configurability goal (roles, policies, and provider selection
@@ -162,11 +171,14 @@ once the Lead Product Manager records the goal it serves and releases it.
 ## The migration, with a harness running
 
 The new build moves nothing on its own. Where the platform's old default home
-exists and `~/.yoyodyne` does not, the harness keeps using the old home, and
-says so on the session's line, on `yoyo status`, and on every pass's report,
-naming the one command that moves it. So a build deployed over a watching
-session restarts into a harness that finds its state where it left it, and
-nothing breaks on the deploy.
+exists and `~/.yoyodyne` does not, the harness keeps using the old home and
+says so once on every command it runs, on standard error, and in `yoyo doctor`,
+naming the one command that moves it. The warning is not repeated in
+`yoyo status` or in any pass's report: which home the machine uses is a fact
+about the machine, every command can say it, and `yoyo doctor` is where a
+person looks for a fault in setup. So a build deployed over a watching session
+restarts into a harness that finds its state where it left it, and nothing
+breaks on the deploy.
 
 `yoyo home migrate` moves it, and refuses before touching anything while any
 run is in flight, any session holds the watch lease, or any conversation has a
@@ -174,17 +186,103 @@ turn in flight, naming each. It then, in order: creates the home; moves each
 `products/<id>/` to `projects/<id>/state/` and writes the project's binding
 from the checkout the state names; moves each hashed external configuration to
 `projects/<id>/config.yaml`, reading the id from the file; moves the worktrees
-under their project and runs `git worktree repair` from the bound repository so
-each preserved worktree is registered at its new path; rewrites the recorded
-worktree path on every run record that names one, as a migration note on the
-record with the old path kept beside it, which is the one write to a run record
-the harness makes outside a run; moves `operator-hold.json`, `accounts/`, and
-the logs to the top; and leaves a marker in the old home naming the new one, so
-an older `yoyo` started there says where the state went rather than making an
-empty root. A migration that fails part-way says what moved and what did not
-and is safe to run again, because every step is a move that is either done or
-not. Setting `YOYODYNE_STATE_HOME` to the old home defers the migration for as
-long as anybody likes; precedence is unchanged.
+under their project and runs `git worktree repair` inside each moved worktree,
+so both the worktree's own link to the repository and the repository's list of
+worktrees name its new path; rewrites the recorded worktree path on every run
+record that names one, as a migration note on the record with the old path kept
+beside it, which is the one write to a run record the harness makes outside a
+run; moves `operator-hold.json`, `accounts/`, and the logs to the top; and
+leaves a marker in the old home naming the new one, so an older `yoyo` started
+there says where the state went rather than making an empty root, and the
+two-roots guard refuses it as it refuses any second home. A migration that
+fails part way says what moved and what did not and is safe to run again,
+because every step is a move that is either done or not. Setting
+`YOYODYNE_STATE_HOME` to the old home defers the migration for as long as
+anybody likes; precedence is unchanged.
+
+## Validation
+
+The validation project (yoyodyne-ifd.434.14) proves this design on a machine
+that has never run Yoyodyne. An earlier reference to seven checks in this
+design named a list it never held; the seven below are derived from the
+requirements above and are the list from this revision on.
+
+Every check starts from the same setup: a temporary directory as the home
+directory, with `YOYODYNE_STATE_HOME` and `XDG_STATE_HOME` unset, and a fresh
+git repository holding none of the harness's files. A check whose part of this
+design has not been built is recorded as not taken, naming the build it waits
+on, and never as passed. Evidence is kept with the validation project's record.
+
+1. **One home.** Requirement: One home. Setup: `yoyo init` and a first start in
+   the fresh repository; then a second start with `YOYODYNE_STATE_HOME` set to
+   another temporary directory. Observed: after the first start, everything the
+   harness wrote outside the repository is under `~/.yoyodyne`, and nothing is
+   under `~/.config` or the platform's application folder; after the second,
+   state is under the directory the variable named. Evidence: a listing of the
+   temporary home before and after each start.
+2. **A safe product id.** Requirement: The project directory. Setup: a
+   configuration whose `product.id` contains a capital letter or a slash.
+   Observed: the load is refused, naming the id, and no project directory is
+   made. Evidence: the command's output and exit status, and a listing of
+   `~/.yoyodyne/projects/`.
+3. **The first start binds.** Requirement: Identity. Setup: a first start, then
+   a start from a second worktree of the same clone. Observed: the first start
+   says it bound the project, and `repository.json` holds the absolute git
+   common directory, the remote's URL where there is one, the time, and what
+   bound it; the second start uses the same project directory and makes no
+   other. Evidence: both outputs, `repository.json`, and `yoyo project list`.
+4. **The binding refusals.** Requirement: Identity. Setup: three cases against
+   a bound project: a second clone with the same remote, a different
+   repository whose configuration carries the same id, and the bound
+   repository moved away from its recorded path. Observed: each start is
+   refused with the message this design gives for its case, naming the paths
+   and the one command that remedies it, and `repository.json` is unchanged in
+   all three. Evidence: the three outputs and `repository.json` before and
+   after.
+5. **The project commands.** Requirement: The commands. Setup: `yoyo project
+   bind` while the recorded repository still exists, with and without
+   `--replace`, and while a run is in flight; `yoyo project rename` with the
+   configuration under the project directory and again with a committed id
+   that does not read the new name. Observed: each refusal this design names
+   happens and changes nothing; each command that succeeds says what it did;
+   and each is recorded in the project's state as an act naming who ran it.
+   Evidence: the outputs, the project directory before and after, and the
+   recorded acts.
+6. **The move.** Requirement: The migration, with a harness running. Setup: an
+   old platform home holding one product's state, an external configuration,
+   one preserved worktree, and a run record naming that worktree. Observed: the
+   new build moves nothing and warns once on each command's standard error and
+   in `yoyo doctor`; `yoyo home migrate` refuses while a run is in flight; once
+   nothing is in flight it moves everything to the places this design names; a
+   git command inside the moved worktree succeeds and `git worktree list` from
+   the bound repository shows its new path; the run record carries a migration
+   note with the old path beside the new; the old home holds a marker naming
+   the new one; an older build started on the old home says where the state
+   went; and running the move a second time changes nothing. Evidence:
+   listings of both homes before and after, the outputs, the run record, and
+   the output of `git worktree list`.
+7. **The companion intent repository.** Requirement: The companion intent
+   repository. Setup: `yoyo init --intent` and the intent repository chosen in
+   the configuration under the project directory. Observed: the governed
+   homes and the tracker export are in the intent repository and the project's
+   repository holds no `.yoyodyne/`; a document revision lands in the intent
+   repository's target branch under the promotion lease; a run's write into a
+   governed home without a grant is refused; the configuration the harness puts
+   in a worktree is untracked and listed in that worktree's exclude file; and
+   the record of a landed change names both commits. Evidence: `git status` of
+   both repositories, the landed commit in the intent repository, the refusal,
+   and the record naming both commits. Until the contributor-mode epic
+   (yoyodyne-ifd.78) builds this, the check is recorded as not taken.
+
+The validation also records three measurements of first use, with no target set
+for any of them:
+
+- the time from the empty repository to its first change that an independent
+  reviewer accepted and the harness integrated;
+- how many decisions were asked of the person on the way, each named;
+- every setup failure, with the step it happened at and the message shown.
+
+A measurement that was not taken is recorded as not taken, never as zero.
 
 ## What is enforced in code
 
@@ -220,3 +318,7 @@ long as anybody likes; precedence is unchanged.
 - **Copying intent into the project repository at run time** instead of a
   companion repository. It would make the harness the source of truth, which
   the decision record forbids.
+- **Warning about the old home in `yoyo status` and in every pass's report**,
+  as this design first said. The build warns on each command and in
+  `yoyo doctor` instead, which reaches the person at every use without putting
+  a fact about the machine into reports read for other things.
