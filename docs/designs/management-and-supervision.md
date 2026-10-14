@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-10-14T05:56:47.374736Z
       reason: 'yoyodyne-ifd.430.37 - an exchange between roles carries the records its question names, resolved by the harness from its own stores at each round''s delivery, bounded, redacted, stamped with when they were observed, and stating plainly what could not be supplied; an amendment''s proposed, decided and published states are reported separately, and an exchange''s closure certifies nothing. Reconciled with tool-interface: no new tool is needed, and the evidence moves with exchange.ask when that block is migrated. Built by yoyodyne-ifd.430.38.'
+    - action: amended
+      by: architect
+      at: 2026-10-14T08:07:04.65419Z
+      reason: 'Lead Product Manager rename, part 1 of 10, under yoyodyne-ifd.437.10: the role''s display name changes from product manager to Lead Product Manager where a person reads it (conflict handling, the service shape, the supervision tree, recovery). Identifiers, configuration keys and quoted history are unchanged, and no other wording changes.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -53,6 +57,11 @@ approvals:
       by: harness
       at: 2026-10-14T05:56:47.374736Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 892, for document-892.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-10-14T08:07:04.65419Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 918, for document-918.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -140,15 +149,15 @@ Readiness records — product, architecture, delivery — are advisory and opera
 
 ## Conflict handling
 
-A role resolves what its own authority covers, and requests the role that owns what it does not. The product manager escalates to the operator only for approved intent, priority, material risk, budget, or an authority boundary — in plain language, naming both sides, the impact, the options, and a recommendation. Unrelated work continues; a conflict pauses what it touches, never the line.
+A role resolves what its own authority covers, and requests the role that owns what it does not. The Lead Product Manager escalates to the operator only for approved intent, priority, material risk, budget, or an authority boundary — in plain language, naming both sides, the impact, the options, and a recommendation. Unrelated work continues; a conflict pauses what it touches, never the line.
 
 ## Process residency and the service shape
 
-The long-term shape is **one durable interaction and state service**, with local chat, Slack, and the CLI as conversational clients and the dashboard as a projection whose only acts are the operator's own decisions, carried out by the same code the command line runs — "one pane" means shared state and supervision, not one literal interface. The residency direction: `yoyo chat` is the single entry point; the **product manager supervises the resident subprocesses, the Slack sink included**; today's chat-spawns-subprocesses shape is explicitly interim, on the way to a headless product-manager service — under launchd on macOS, the tested platform — with chat as a thin attach-detach client. The supervising process holds the Slack tokens and **constructs every child's environment by allowlist, never inheritance**, so no provider subprocess ever receives them; that construction is the enforced boundary and is covered by a test. Separately started services are acceptable while they keep clean service boundaries and health/readiness hooks; model sessions are execution details and are never the durable conversation record. Process separation now must not force a new state model later.
+The long-term shape is **one durable interaction and state service**, with local chat, Slack, and the CLI as conversational clients and the dashboard as a projection whose only acts are the operator's own decisions, carried out by the same code the command line runs — "one pane" means shared state and supervision, not one literal interface. The residency direction: `yoyo chat` is the single entry point; the **Lead Product Manager supervises the resident subprocesses, the Slack sink included**; today's chat-spawns-subprocesses shape is explicitly interim, on the way to a headless Lead Product Manager service — under launchd on macOS, the tested platform — with chat as a thin attach-detach client. The supervising process holds the Slack tokens and **constructs every child's environment by allowlist, never inheritance**, so no provider subprocess ever receives them; that construction is the enforced boundary and is covered by a test. Separately started services are acceptable while they keep clean service boundaries and health/readiness hooks; model sessions are execution details and are never the durable conversation record. Process separation now must not force a new state model later.
 
 A watch session takes up a build installed over it by itself: between runs, never interrupting one. The takeover happens only at a boundary where the process has nothing in flight; the new process reattaches through the normal lease machinery; and pinned workflow instances continue on their pinned definitions and authority — a new binary changes the executor, never in-flight work's contract. This is settled here rather than deferred: a later headless supervisor inherits this behavior rather than re-deciding it.
 
-**The supervision tree.** One supervisor per product: the product-manager service (interim: the chat process). Its children: the Slack reporter, the scheduler/watch loop, the triage dispatcher, the management-loop dispatcher, and — where started — the dashboard command. The supervisor owns start, stop, restart, and the health/readiness of children; each child owns its own domain and none owns workflow truth, per the standing invariants. **Children survive supervisor death**: they are independent processes with recorded presence, and a returning supervisor reattaches through those records and the lease machinery rather than killing and respawning — the same rule a returning chat client already follows. A child that crashes is restarted with backoff; a child that fails repeatedly is not restarted indefinitely — it is left down and reported as **degraded**, reaching the operator through the standing ladder rather than a restart loop. **The escalation ladder is the governed one and the supervisor invents no new verb**: report, then status banners, then a direct message in the degraded class. Operator stopping remains the three existing verbs — hold intake, pause spending, stop everything — and the supervisor is their executor, never a fourth path.
+**The supervision tree.** One supervisor per product: the Lead Product Manager service (interim: the chat process). Its children: the Slack reporter, the scheduler/watch loop, the triage dispatcher, the management-loop dispatcher, and — where started — the dashboard command. The supervisor owns start, stop, restart, and the health/readiness of children; each child owns its own domain and none owns workflow truth, per the standing invariants. **Children survive supervisor death**: they are independent processes with recorded presence, and a returning supervisor reattaches through those records and the lease machinery rather than killing and respawning — the same rule a returning chat client already follows. A child that crashes is restarted with backoff; a child that fails repeatedly is not restarted indefinitely — it is left down and reported as **degraded**, reaching the operator through the standing ladder rather than a restart loop. **The escalation ladder is the governed one and the supervisor invents no new verb**: report, then status banners, then a direct message in the degraded class. Operator stopping remains the three existing verbs — hold intake, pause spending, stop everything — and the supervisor is their executor, never a fourth path.
 
 The supervisor also takes one request from a role: a program manager's bounded restart request, per [program-manager](program-manager.md), executed by the periodic pass as it executes a restart after a death, under the same backoff, the same degraded bound, and the provider-outage guard, and never by the requesting role or by any surface that noticed. The instance itself is a conversation and is never restarted; its staleness is a non-model derivation the supervisor reads once yoyodyne-ifd.413 lands.
 
@@ -156,7 +165,7 @@ Detection of nothing-running lives in non-model machinery that keeps running thr
 
 ## Recovery
 
-Restart reclaims expired leases without duplicating a completed response; degraded state is explicit rather than silent. A later restricted maintenance mode may take an exclusive lock for diagnostics, validation, stale-lease cleanup, and restarts — it is deferred, and one property of it is decided now: it is never a second path for normal product-manager or backlog mutations.
+Restart reclaims expired leases without duplicating a completed response; degraded state is explicit rather than silent. A later restricted maintenance mode may take an exclusive lock for diagnostics, validation, stale-lease cleanup, and restarts — it is deferred, and one property of it is decided now: it is never a second path for normal Lead Product Manager or backlog mutations.
 
 ## The first slice *(yoyodyne-ifd.142)*
 
