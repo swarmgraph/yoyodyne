@@ -38,12 +38,21 @@ revisions:
       by: architect
       at: 2026-10-13T12:14:17.907726Z
       reason: 'yoyodyne-ifd.437.44: the dashboard is no longer described as read-only. Under the operator''s change to the v1 non-goals of 11 October (amendment-a7dfcc49), the page may take the operator''s own decisions, first approving or declining what waits on him and later further command line acts named one at a time, each recorded as the command line records it; it stays local, unhosted, and keeps no work state. Rewritten whole after the earlier copy (document-773.1) was refused by the word check for one joined word.'
+    - action: amended
+      by: architect
+      at: 2026-10-14T05:07:05.014937Z
+      reason: 'yoyodyne-ifd.414.1, for the supervised dashboard (yoyodyne-ifd.414): how the token generated for a loopback dashboard reaches a person under the supervisor, and when the supervisor takes up a dashboard on a new build. With it: the team at work replacing the live cards (yoyodyne-ifd.432.30), the backlog page and its query (yoyodyne-ifd.432.31), and the delivery page after DORA (yoyodyne-ifd.432.34), each as ruled and summarised on its item. Everything else in the design is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 7
       by: harness
       at: 2026-10-13T12:14:17.907726Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 794, for document-794.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-10-14T05:07:05.014937Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 883, for document-883.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -65,6 +74,8 @@ A shared Go package, independent of HTTP and of any rendering, reading only the 
 - factory problems: everything the line is not doing that the goals say it should, where nothing in the ordinary flow fixes it by itself, derived from the records above and from nothing a role writes. Each problem carries a kind from a closed set of four — **broken**, the harness failed at its own doing: a firing refused before its first turn, a listing the tracker returned undecodable, a part the supervisor left down, a page that cannot build; **stalled**, nothing moving that should: a stall record, slots idle over ready work, a recorded decision unattempted, an approved change awaiting its resume, a queued merge whose checks cannot be read; **blocked**, a decision somebody owes is unmade: stoppages awaiting the development manager, amendments awaiting their owner, rulings made and not landed, items the docket window has not shown; **degraded**, running but worse: a stage the bound stopped under load, a provider window or a capacity-blocked run, lost races replaying, a part on a stale build. A deep queue, a run in progress, and a green queued merge are not problems. Each problem has an identity — its kind, its cause, and its subject — onto which every occurrence folds, and carries: what is wrong, in a sentence; since when, and the latest occurrence; its count; its cost so far as the records hold it — runs spent on it, decisions waiting behind it, hours the line has stood, and money where the run logs price it, each figure classified known or unknown as every cost is; its mover, in the vocabulary the attention line already uses; the admitted item that fixes it, found by the item's own citation of the problem's source record, or the plain statement that none is admitted yet; and the source records it was derived from. The stop cause every stopped run records (yoyodyne-ifd.428.32) and the run-stop inventory (yoyodyne-ifd.429.28) are what classify a stopped run into a kind; until they land, a stopped run is classified by the fields it has, and one nothing classifies is a problem of kind stalled with its cause named as unclassified, which is itself a finding.
 - **Who owns each entry.** The read model calls the resolver of [ownership and the operator](ownership-and-the-operator.md) once per entry and carries its owner, reason, remedy, capability, and hand; the dashboard, the Slack sink, `yoyo status`, and every conversation's context project that answer and derive no owner of their own, and the needs-a-human line prints its two heads, yours to decide and a role's decision that needs your hand, from it.
 - program managers: per configured instance, its name, lane, the status derived as [program-manager](program-manager.md) specifies — blocked from an open cited request, stale from the pass records against the instance's schedule, working otherwise — its open restart requests, and its current lane report, served whole one instance at a time. Where an instance's lane report cites a problem by id, the read model joins the instance's judgment onto the problem — its remedy, its account of the cause, the count it corrected, and the item it admitted in its lane — and the instance's own status and blockers are problems of kind blocked or stalled with the instance as subject.
+- the team at work and one piece of work, the `team` and `work` queries described under the team at work below;
+- the backlog and the delivery measures, the `/api/backlog` and `/api/delivery` queries described under the backlog page and the delivery page below.
 
 The model also serves what Slack's governed behavior already needs — per-item status for thread reactions, directive lifecycle marks, item titles for thread openers — so the sink presents these derivations instead of computing them.
 
@@ -74,17 +85,70 @@ The model also serves what Slack's governed behavior already needs — per-item 
 
 ## The dashboard *(the sections yoyodyne-ifd.141 builds)*
 
-A locally hosted page with seven visually distinct sections: a top status band (active agents, queued work, attention count, throughput, landed today and this week); a spend box directly under it, showing the last 24 hours rolling and the last seven local days by kind — runs, conversations, branch reviews, exchanges, side threads — with a 30-day daily listing behind it, every figure classified and every floor marked; live agent and work cards (role, item title and id, phase, provider and model, elapsed time); a compact pipeline view showing where work accumulates or blocks; throughput over the same two windows, reporting endings only in the run history's own words, with cost left to the spend box; the factory problems from the model's problems query, grouped by kind with broken first, each entry its sentence, its age and count, its cost with every unknown marked, its mover as a word, its fixing item as a link or the words `none admitted yet`, and the factory-flow program manager's remedy where its report cites the entry, with that instance's lane-report summary as the section's own summary; provider capacity is folded in as entries of kind degraded and has no section of its own; and the program managers, each instance with its name in full, its lane, its status as blocked, stale, or working, and a link opening its lane report, from the model's `program_managers` query per [program-manager](program-manager.md). Attractiveness is an acceptance requirement — hierarchy, typography, spacing, accessible color, responsive layout, useful empty, loading, and error states, a small amount of purposeful motion — and polish must never imply precision the model did not claim. Simple polling; push infrastructure is deferred unless polling proves inadequate. A degraded source gets a prominent indicator while the page stays usable. Restarting the dashboard changes no workflow state and loses no history, because the history lives in the durable records, not in the page.
+A locally hosted page with seven visually distinct sections: a top status band (active agents, queued work, attention count, throughput, landed today and this week); a spend box directly under it, showing the last 24 hours rolling and the last seven local days by kind — runs, conversations, branch reviews, exchanges, side threads — with a 30-day daily listing behind it, every figure classified and every floor marked; the team at work, one row per role and developer slot, as described under the team at work below; a compact pipeline view showing where work accumulates or blocks; throughput over the same two windows, reporting endings only in the run history's own words, with cost left to the spend box; the factory problems from the model's problems query, grouped by kind with broken first, each entry its sentence, its age and count, its cost with every unknown marked, its mover as a word, its fixing item as a link or the words `none admitted yet`, and the factory-flow program manager's remedy where its report cites the entry, with that instance's lane-report summary as the section's own summary; provider capacity is folded in as entries of kind degraded and has no section of its own; and the program managers, each instance with its name in full, its lane, its status as blocked, stale, or working, and a link opening its lane report, from the model's `program_managers` query per [program-manager](program-manager.md). Attractiveness is an acceptance requirement — hierarchy, typography, spacing, accessible color, responsive layout, useful empty, loading, and error states, a small amount of purposeful motion — and polish must never imply precision the model did not claim. Simple polling; push infrastructure is deferred unless polling proves inadequate. A degraded source gets a prominent indicator while the page stays usable. Restarting the dashboard changes no workflow state and loses no history, because the history lives in the durable records, not in the page.
 
-The dashboard is a projection, never an engine: it owns no workflow, conversation, provider, or configuration state, and keeps no work state of its own. The only writes it makes are the operator's own decisions, described under acting from the dashboard below, each taken through the same code the command line uses and recorded exactly as the same act from the command line is recorded. The page adds no decision of its own and offers no act the command line does not already offer. This is the boundary [the v1 non-goals](../product/goals/v1-non-goals.md) record since the operator's change of 11 October, and this design binds to it.
+Two further pages sit beside the main page: the backlog page and the delivery page, each reached from a link in the top status band and each linking back. They are pages of their own rather than sections, so the main page stays one screen of what is happening now.
+
+The dashboard is a projection, never an engine: it owns no workflow, conversation, provider, or configuration state, and keeps no work state of its own. The only writes it makes are the operator's own decisions, described under acting from the dashboard below, each taken through the same code the command line uses and recorded exactly as the same act from the command line is recorded. The page adds no decision of its own and offers no act the command line does not already offer. This is the boundary [the v1 non-goals](../product/goals/v1-non-goals.md) record since the operator's change of 11 October, and this design binds to it. The team section, the backlog page, and the delivery page are reading only, and add no act.
+
+## The team at work
+
+The main page's live section shows the team working: whether each role and each developer slot is doing something, what, and whether it is moving. It replaces the live agent and work cards, and it is built from records the harness already writes; it adds none.
+
+**One row per worker.** The read model's `team` query returns one row for each role conversation the harness runs — the Lead Product Manager, the architect, the development manager, and each program manager instance — one for each configured developer slot, and one for each review in progress. A row carries: who it is, by role and slot; the work item it holds, by title and id, or none; the phase of that work as the run record names it; when that phase began; the latest recorded activity, in a few words taken from the event log, and its time; and how fresh the reading is.
+
+**Five states, decided from the records.** Every row is in exactly one:
+
+- **working**: an invocation is recorded running and its event log has recorded activity in the last five minutes;
+- **waiting**: it is held on something that will arrive without anybody deciding — a provider's reset, a check in progress, a free slot, a queued merge — and the row names what it waits on and, where recorded, until when;
+- **blocked**: it is held on a decision somebody owes; the row links to the factory problems entry for it and shows the owner that entry carries, choosing none of its own;
+- **idle**: nothing is assigned and nothing is running;
+- **stale**: the records support none of the four — a running invocation's last recorded activity is older than five minutes, or a source the row needs is unhealthy.
+
+A reading the model is unsure of is stale, never working. Motion on the page is shown only for a row whose event log has recorded something since the last poll.
+
+**Activity is not progress.** A row shows recorded activity — turns, tool use, files touched — apart from verified progress — checks passed, a review approved, a change merged. They are separate columns and never combined into one figure, so a busy run that has verified nothing reads as busy and not as nearly done.
+
+**Handoffs.** Below the rows, the last day's handoffs from the records: a run sent to review, a review sent back for repair, a stopped run put on the development manager's list, a decision carried out, a change merged. Each names both sides, the item, and the time in the operator's local zone with the zone named.
+
+**One piece of work.** The `work` query, opened from any row or handoff, shows one work item in four parts: what was requested — the item's description and the goal it serves; what changed — the commits and files its run produced; why it was accepted — the checks that passed on the reviewed revision and the reviewer's verdict; and what is uncertain — checks that could not run, findings the review left, cost not reported, sources missing. A part with nothing recorded says `not recorded` rather than being left out.
+
+**What it leaves to the factory problems.** The team section says who is doing what; the factory problems section says what is wrong and who moves it. A blocked row links to its problem and never restates it.
+
+## The backlog page
+
+A page of its own, reached from the top status band, that charts the backlog over time, so the operator can see whether work arrives faster than it lands.
+
+**The query.** The read model serves `/api/backlog`: for every work item, open or closed, its id, filed time, closed time or none, priority, labels, kind, who does the work — a developer run, the architect, or a named manager conversation — whether it is ready now or waiting and on what, who filed it where the admission records it, and its parent where it was split from an existing item. Times come from the item's own record, never from its dependency records, whose timestamps are not trusted until the tracker's time zone defect is fixed. An origin that was not recorded is returned as `not recorded`, never guessed. The answer carries the tracker's read time and health as every answer does.
+
+**Parts split from an item.** A part split from an existing item is counted under its parent by default: splitting one item into five is not four new filings. The page shows splits as a series of their own beside the filed series, and one control counts them as filings instead, so the operator can see both readings.
+
+**The page.** Show filed, open, or closed; split by priority, who does the work, label, ready or waiting, or who filed it; time scale hourly, daily, or weekly. Every window is in the operator's local zone and the zone is named on the page. The page works at phone width and in dark mode, and every series is told apart by more than color.
+
+**The chart library.** The page draws with `Chart.js` at one exact version, vendored into `internal/dashboard/assets` and served by the dashboard itself, which keeps the content-security policy at `script-src 'self'` with no CDN. Beside the library a file records its version, where it came from, its checksum, and its MIT license text; changing the version is a reviewed change like any other. No other script from outside this project is admitted by this ruling: another needs a revision of this design naming it.
+
+**The deferral.** Rich timelines stay deferred in general. The backlog chart and the delivery charts are the two exceptions, each because the operator asked for it by name.
+
+## The delivery page
+
+Beside the backlog page, sharing its chart library and layout, a page of the factory's delivery measures after DORA. Each is served by `/api/delivery` as daily and weekly figures in the operator's local zone, says which records it was read from, and shows `not recorded` where its source holds nothing, never zero. Durations are shown as the median and the 90th percentile.
+
+- **Deployments.** A deployment is a change merged to main. Merges per day and per week, from the forge and the run records.
+- **Lead time.** From the item's filing to its merge, broken into queued (filing to first run), developing, checks, review and repair rounds, and merging, from the run records. Stage times are never taken from dependency records.
+- **Change failure rate.** The share of merged changes followed by any of: a revert of the change; main failing its checks on the merge commit; or a defect filed within 48 hours that cites the change by item or pull request.
+- **Recovery time.** How long the factory itself stays broken: from a problem's first occurrence to the record that cleared it, for factory problems of kind broken or stalled, read from the same source records as the factory problems.
+- **Rework rate.** The share of merges whose item is a bug rather than a feature, with the share of merges whose item has no kind shown beside it rather than dropped.
+- **Hand steps.** Interventions by the operator per merged change, from the recorded hand steps. Steps taken by hand outside the harness are not recorded, so the figure is shown as at least the recorded count, and says so.
+- **First pass.** The share of merged changes whose first check run and first review both passed.
+- **Tokens per merged change**, by model, from the normalized usage records, with changes whose usage was not recorded counted and shown apart.
 
 ## Web security *(the repository's web-service conventions, established here)*
 
 The bind address and the allowed hosts are configuration; the defaults are loopback and the loopback Host, and a project that says nothing gets exactly the behavior it had. An explicit non-loopback bind is an operator opt-in that keeps every other rule intact:
 
-- **A token is required on every request**, presented in a header or cookie and never in a URL or a log; a request without one, or with a wrong one, fails closed. Under the loopback default the token is generated per start and printed where the operator can read it. **Under a non-loopback bind the token must be supplied** — from the per-project secret store or the environment, never from `.yoyodyne` — because a generated token printed to one terminal is unusable from another device; a non-loopback bind with no supplied token, or a supplied token below the minimum entropy, is refused at load.
+- **A token is required on every request**, presented in a header or cookie and never in a URL or a log; a request without one, or with a wrong one, fails closed. Under the loopback default the token is generated per start and reaches the operator as described under the generated token below. **Under a non-loopback bind the token must be supplied** — from the per-project secret store or the environment, never from `.yoyodyne` — because a generated token printed to one terminal is unusable from another device; a non-loopback bind with no supplied token, or a supplied token below the minimum entropy, is refused at load.
 - **Host and Origin are validated against the configured address and allowed hosts**, not hard-wired to loopback. A request naming a host outside the configured set fails closed exactly as it did before.
-- The content-security policy stays restrictive and CDN-free; all user-, model-, repository-, and Slack-supplied text stays untrusted and escaped; nothing secret, credential, or private-identifier enters the read model or the page.
+- The content-security policy stays restrictive and CDN-free; the vendored chart library, served by the dashboard itself, keeps it so. All user-, model-, repository-, and Slack-supplied text stays untrusted and escaped; nothing secret, credential, or private-identifier enters the read model or the page.
 - **A wider bind widens who can read, never who can act.** The shared token reads and acts on nothing. An act needs the operator's own bound token, described below, and the grant the act requires, at any bind address; a request to act that carries only the shared token is refused.
 - **Transport is plain HTTP in V1.** A non-loopback bind sends the token and the page in clear over the operator's network; TLS termination is deferred, and the opt-in is for networks the operator trusts. Binding to a specific interface address is preferred over a wildcard, which reaches every interface the machine has.
 
@@ -110,8 +174,30 @@ An act records the resolved human — name, the `dashboard` namespace, a digest 
 
 ## Process shape
 
-A standalone dashboard command is the V1 shape. It reads the durable service, exposes health and readiness, and is adoptable by the later supervisor for start, stop, and observation without redesign; it remains useful afterwards for inspection and recovery, and never becomes a second control plane. Its acts are the operator's own decisions, taken through the same code and recorded as the command line records them, which is why taking them from the page does not make it one. Browser availability is never a prerequisite for harness operation.
+A standalone dashboard command is the V1 shape. It reads the durable service, exposes health and readiness, and is adopted by the supervisor for start, stop, and observation as described below; it remains useful afterwards for inspection and recovery, and never becomes a second control plane. Its acts are the operator's own decisions, taken through the same code and recorded as the command line records them, which is why taking them from the page does not make it one. Browser availability is never a prerequisite for harness operation.
+
+### Under the supervisor
+
+The dashboard is one part of the product: started, stopped, restarted, and moved onto a new build with the rest of it by the supervisor, as the operating rules require. Because a dashboard left on an old build has read records a newer build wrote and refused them, the supervisor takes up a dashboard only when its build identity matches the product's build and its start identity matches the supervisor's own record of that start. Moving onto a new build starts the new dashboard, waits for it to be ready as defined below, and only then stops the old one. A dashboard whose build differs from the product's is a factory problem of kind degraded, a part on a stale build, until it is replaced.
+
+### The generated token
+
+This governs only the token generated for a loopback bind. A token supplied for a non-loopback bind, and every person's `dashboard_token`, are never written here and are unchanged by it.
+
+- **Where.** The file `dashboard/token` under the product's state root; never a worktree, `.yoyodyne`, a run record, a log, or anything the harness hands an agent.
+- **Permissions.** The `dashboard` directory is created with mode `0700` and the file with mode `0600`, both owned by the user the dashboard runs as.
+- **Unsafe files.** The directory and the file are opened without following a symbolic link. An existing directory or file that is a link, is not of the expected type, is owned by another user, or is more widely readable than these modes is refused, never repaired in place.
+- **Writing.** The token is written to a new file created exclusively in the same directory, flushed to disk, renamed over `token`, and the directory flushed, so a reader sees the old token or the new one and never part of one.
+- **Before ready.** The dashboard reports ready only after the file is published and the supervisor has made one request authenticated with that token and had it accepted. Until then it serves nothing but its health answer.
+- **Rotation.** A new token is generated only when a new dashboard process starts. The supervisor reattaching to a dashboard that survived keeps its token.
+- **Cleanup.** A clean stop removes the file. A start replaces any file left by a stop that was not clean.
+- **When it cannot be done safely.** If the file cannot be written as above, the dashboard does not become ready, serves nothing, and is a factory problem of kind broken naming the path and the reason. It never falls back to printing the token in a log, in status, or anywhere else.
+- **Reading it.** `yoyo dashboard token` prints it for a person and is refused to agent processes, as `yoyo operator token` is. `yoyo status` names the file and that command, never the value.
+- **A dashboard started by hand.** A dashboard a person starts from a terminal prints its token to that terminal, which is that person's own, and also publishes the file. A dashboard the supervisor starts prints none, because its output goes to logs.
+- **Alternatives rejected.** Showing the value in `yoyo status` was rejected because status output reaches conversations and agents. Posting it to Slack was rejected because a channel is read by others and keeps the message after the token has rotated.
+
+**What a reviewer can check.** No log, status output, run record, conversation, channel post, or URL contains the token value. A symbolic link, a wrong owner, or wider permissions at the path stop the dashboard becoming ready and raise a factory problem of kind broken. Readiness is never reported before the file exists and an authenticated request has succeeded. Restarting the supervisor while the dashboard keeps running keeps the token; replacing the dashboard changes it. A build change replaces the dashboard with no moment at which no dashboard is ready. A configured token never appears in the file.
 
 ## Deferred, deliberately
 
-Deep drilldowns; rich timelines and custom historical windows; readiness and conflict visualizations; push infrastructure; multi-account pool controls; automatic lifecycle ownership by the supervisor; acts beyond those named under acting from the dashboard, each to be added by its own revision.
+Deep drilldowns; rich timelines and custom historical windows, beyond the backlog and delivery charts above; readiness and conflict visualizations; push infrastructure; multi-account pool controls; acts beyond those named under acting from the dashboard, each to be added by its own revision.
