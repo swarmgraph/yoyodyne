@@ -1,7 +1,7 @@
 ---
 id: architect-loop
 kind: design
-title: "The architect loop: a windowed pass over what landed, reconciling decisions against documents first"
+title: 'The architect loop: a windowed pass over what landed, reconciling decisions against documents first'
 supports:
     - v1-goals
 status: active
@@ -10,8 +10,17 @@ revisions:
       by: architect
       at: 2026-09-25T10:00:00Z
       reason: yoyodyne-ifd.339 - the architect's recurring pass designed on the operator's four shaping constraints; decided-versus-landed reconciliation as the first shipment, the pass windowed to landings since the last, findings naming instances, proposals through existing gates, and the one derivation the harness supplies so the pass reads rather than reconstructs
+    - action: amended
+      by: architect
+      at: 2026-10-14T10:23:39.213147Z
+      reason: 'Part of renaming the product manager role to Lead Product Manager where a person reads it (yoyodyne-ifd.437.10): two places in ''What a pass is'' and the third binding constraint. Nothing else changes; the stale ''daily'' cadence is left to its own item, yoyodyne-ifd.434.18.'
+approvals:
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-14T10:23:39.213147Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 924, for document-924.1 under the automatic approval policy
 ---
-
 # The architect loop: a windowed pass over what landed, reconciling decisions against documents first
 
 ## What this is for
@@ -20,13 +29,13 @@ The per-item roles cannot see drift that lives in the accumulation: a decision m
 
 ## What a pass is
 
-A recurring task on the architect's own conversation, daily or oftener as the project configures, under every rule the recurring-task design states: the same authority as a turn the operator opens, the spending pause gating it, a durable pass record, at most one firing per scheduler pull. It proposes and never fixes: revisions to its own documents are stated landing-ready and recorded by the operator; work is put to the product manager as a report she handles; changes to product documents are amendment proposals. A pass with nothing to say files no report, per the communication rule.
+A recurring task on the architect's own conversation, daily or oftener as the project configures, under every rule the recurring-task design states: the same authority as a turn the operator opens, the spending pause gating it, a durable pass record, at most one firing per scheduler pull. It proposes and never fixes: revisions to its own documents are stated landing-ready and recorded by the operator; work is put to the Lead Product Manager as a report she handles; changes to product documents are amendment proposals. A pass with nothing to say files no report, per the communication rule.
 
 ## The four constraints, binding
 
 1. **Windowed.** A pass reads what landed since the previous pass — the runs integrated, the documents revised, the amendments decided — and never the corpus. The window is the pass record's own cursor over the run records and the artifact revision logs, the two the freshness measurement already reads.
 2. **Instances, not impressions.** Every finding names the concrete records it generalizes from: two files, two items, two revisions. A finding that names one instance is an observation and is left in the pass record; a finding that names none is not filed.
-3. **Through the gates.** A design revision is landing text; work is a report to the product manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant is the architect's own act, stated for the operator to record. The pass admits nothing, edits nothing, and directs nothing.
+3. **Through the gates.** A design revision is landing text; work is a report to the Lead Product Manager naming the goal it would serve; a product-document change is an amendment proposal; an invariant is the architect's own act, stated for the operator to record. The pass admits nothing, edits nothing, and directs nothing.
 4. **Silent when empty.** A pass that reconciled nothing and found nothing says so in its record and posts nothing.
 
 ## The first shipment: decided against landed
