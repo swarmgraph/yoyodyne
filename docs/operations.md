@@ -3147,9 +3147,25 @@ than to a run, so the same dead dispatch is one entry however many sessions meet
 it. Once its item is dispatched again and a run is recorded for it, the next
 build of the docket — the sweep's or a conversation's — closes the attempt with a
 note naming that run, so it is not put to the development manager again; an
-attempt whose item has not been dispatched since stays. **The sweep also closes the entries of closed items**: every entry still
+attempt whose item has not been dispatched since stays. **A stopped run whose
+record carries no reason for stopping** — no blocker on its item, no failure the
+harness classified, no check time limit, and, for a document publication, no
+account of why its document stopped — is still put on the development
+manager's list, with its entry saying in plain words that no reason was
+recorded and what the run's record does say about how it ended; the sweep names
+each one (`unrecorded` in `--json`). A run whose entry cannot be written at
+all is named with why (`not_docketed` in `--json`) and the sweep carries on:
+like a run it could not settle, it is about that one run, so it does not fail
+the command or the maintenance pass. **The sweep also closes the entries of closed items**: every entry still
 standing for an item the tracker holds as closed or retired is closed with it,
 with the reason, and the sweep says how many (`closed_with_item` in `--json`).
+Where bd will not lift its default limit on the listing of closed work, the
+items the listing does show closed are closed as usual, the standing entries'
+items it left out are read one at a time, and the sweep says the listing was
+cut (`listing_cut` in `--json`) rather than failing; the development manager's
+list reads which entries are on closed work the same way, and an item that
+could not be read either is listed with that said rather than taken for open
+or closed.
 It also tells the item of each escalation to you that has ended — the item
 parked, retired, or closed, or the escalated run's branch and worktree both
 gone — once, and records the ending on the run (`escalations_ended` in

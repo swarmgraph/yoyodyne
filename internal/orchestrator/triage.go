@@ -266,6 +266,33 @@ type DocketBuild struct {
 	// comes to: they are still open, and a decision about the entry above them
 	// settles them with it.
 	Folded int `json:"folded,omitempty"`
+	// Unrecorded names each run this build put on the docket whose record
+	// carries no reason it stopped, so the sweep that built it can say so; the
+	// entry itself says so to the development manager (triage.Entry.StopUnrecorded).
+	Unrecorded []string `json:"unrecorded,omitempty"`
+	// NotDocketed is each run whose record could not supply an entry, or whose
+	// entry could not be written, with why. It is kept apart from the build's
+	// error because it is about one run rather than the docket: the runs beside
+	// it were docketed and are listed, so a sweep names it and carries on rather
+	// than failing over it. Incomplete is the same problems as one error, for a
+	// reader that says the docket is partial.
+	NotDocketed []NotDocketed `json:"not_docketed,omitempty"`
+}
+
+// NotDocketed is one run a docket build could not put on the docket, and why.
+type NotDocketed struct {
+	RunID   string `json:"run_id"`
+	Problem string `json:"problem"`
+}
+
+// Incomplete is every run this build could not docket, as one error, and nil
+// where it docketed every run it found.
+func (b DocketBuild) Incomplete() error {
+	problems := make([]error, 0, len(b.NotDocketed))
+	for _, missed := range b.NotDocketed {
+		problems = append(problems, errors.New(missed.Problem))
+	}
+	return errors.Join(problems...)
 }
 
 // Listed is what the development manager's docket is rendered from: the open
@@ -286,7 +313,10 @@ func (b DocketBuild) Listed() []triage.Entry {
 //
 // A run whose record cannot supply an entry is skipped rather than failing the
 // build: a docket that refuses to be read because one run is odd is a docket
-// nobody sees, and the runs beside it are exactly the ones somebody needs.
+// nobody sees, and the runs beside it are exactly the ones somebody needs. It is
+// named in NotDocketed rather than returned as the build's error, so the sweep
+// that builds the docket names it and finishes; a conversation reading the
+// docket says it is partial from Incomplete.
 //
 // What comes back is joined to the triage record as it stands now, not as it
 // stood when each entry was written. An entry is recorded once, as the work
@@ -316,20 +346,26 @@ func (d Docketer) Build() (DocketBuild, error) {
 	copies := documentCopiesOf(recorded)
 	added := 0
 	var problems []error
+	var missed []NotDocketed
+	var unrecorded []string
 	for _, state := range recorded {
+		// A run whose record supplies some entries and refuses another has the
+		// ones it supplied docketed: entriesFor returns both.
 		entries, err := d.entriesFor(state, now, already, copies)
 		if err != nil {
-			problems = append(problems, err)
-			continue
+			missed = append(missed, NotDocketed{RunID: state.RunID, Problem: err.Error()})
 		}
 		for _, entry := range entries {
 			created, err := d.Docket.RecordOnce(entry)
 			if err != nil {
-				problems = append(problems, fmt.Errorf("docket %s of run %s: %w", entry.Class, state.RunID, err))
+				missed = append(missed, NotDocketed{RunID: state.RunID, Problem: fmt.Errorf("docket %s of run %s: %w", entry.Class, state.RunID, err).Error()})
 				continue
 			}
 			if created {
 				added++
+				if entry.StopUnrecorded != "" {
+					unrecorded = append(unrecorded, state.RunID)
+				}
 			}
 		}
 	}
@@ -351,7 +387,7 @@ func (d Docketer) Build() (DocketBuild, error) {
 	entries, err := d.Docket.List()
 	if err != nil {
 		problems = append(problems, fmt.Errorf("read the triage docket: %w", err))
-		return DocketBuild{Added: added}, errors.Join(problems...)
+		return DocketBuild{Added: added, Unrecorded: unrecorded, NotDocketed: missed}, errors.Join(problems...)
 	}
 	// A decided entry leaves the docket here rather than in each reader of it. The
 	// entry stays on the log, which is what stops the same stoppage being docketed
@@ -379,7 +415,8 @@ func (d Docketer) Build() (DocketBuild, error) {
 	// Where a run a product decision is about stands now, which is what she
 	// decides between stopping it and letting it finish from.
 	joinProductDecisions(live, byID, now)
-	return DocketBuild{Entries: live, Waiting: waitingDocket(waiting, live), Added: added, Closed: closed + unlisted, Folded: len(open) - len(live)}, errors.Join(problems...)
+	return DocketBuild{Entries: live, Waiting: waitingDocket(waiting, live), Added: added, Closed: closed + unlisted, Folded: len(open) - len(live),
+		Unrecorded: unrecorded, NotDocketed: missed}, errors.Join(problems...)
 }
 
 // lookAgain puts what the repository holds now onto every open entry whose run
@@ -779,9 +816,6 @@ func (d Docketer) RecordStoppedRun(state runstate.State) (bool, error) {
 	entry, err := d.stoppedRunEntry(state, d.now(), found)
 	if err != nil {
 		return false, err
-	}
-	if state.Document != nil {
-		entry.Document = documentCopies{}.document(state)
 	}
 	return d.Docket.RecordOnce(entry)
 }
@@ -1880,10 +1914,35 @@ func (d Docketer) stoppedRunEntryCarrying(state runstate.State, now time.Time, f
 		ReplayConflict:        docketReplayConflict(state.ReplayConflict),
 		Counters:              counters,
 	}
+	// A document publication has no work item to carry a blocker, so the reason
+	// it stopped is carried on its document, which is joined here rather than by
+	// the caller: validated without it, the entry carries no reason and is
+	// refused. What the other copies say is joined where the docket is built.
+	if state.Document != nil {
+		entry.Document = documentCopies{}.document(state)
+	}
+	entry.StopUnrecorded = stopUnrecorded(entry, state)
 	if err := entry.Validate(); err != nil {
 		return triage.Entry{}, fmt.Errorf("docket the stoppage of run %s: %w", state.RunID, err)
 	}
 	return entry, nil
+}
+
+// stopUnrecorded is what a stopped run's entry says where the record carries
+// none of the reasons an entry is docketed on, and empty where it carries one.
+// Such a run is listed saying so, in the record's own words where it has any,
+// rather than refused: a stoppage left off the list is one nobody can see or
+// decide, and a refusal failed the whole reconcile it was found in.
+func stopUnrecorded(entry triage.Entry, state runstate.State) string {
+	if strings.TrimSpace(entry.Blocker) != "" || strings.TrimSpace(entry.Failure) != "" || strings.TrimSpace(entry.CheckStageFailure) != "" ||
+		(entry.Document != nil && strings.TrimSpace(entry.Document.Stopped) != "") {
+		return ""
+	}
+	ended := fmt.Sprintf("it ended %s at its %s step, with no blocker on its work item and no failure the harness classified", state.Status, nonEmpty(string(state.Phase), "unrecorded"))
+	if said := strings.TrimSpace(runstate.StopReason(state.RecordedStopClass(), state.Failure)); said != "" {
+		ended += "; its record says: " + said
+	}
+	return oneline.Fold(ended, triage.MaxMessageBytes)
 }
 
 // resumesAtOf is the step a resumable stall past its developer attempt is

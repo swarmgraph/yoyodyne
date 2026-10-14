@@ -1239,6 +1239,13 @@ type Entry struct {
 	// CheckStageFailure is the bound's own account of where it stopped the stage,
 	// in the words the run ended on.
 	CheckStageFailure string `json:"check_stage_failure,omitempty"`
+	// StopUnrecorded says, in plain words, that the run's record carries none of
+	// the reasons a stopped run is docketed on — no blocker on its item, no
+	// failure of a death, no check stage bound, no document stop — and what the
+	// record does say about how it ended. It is what puts such a run on the list
+	// rather than leaving it off: a stoppage the list refused is one nobody can
+	// see or decide. Empty on every entry that carries a reason.
+	StopUnrecorded string `json:"stop_unrecorded,omitempty"`
 	// HarnessContinuesChecks reports a stoppage the harness continues itself at
 	// its checks, on the change the run already has, with no decision asked of
 	// anybody: the stage bound stopped it, and the harness's own continuations
@@ -1571,6 +1578,9 @@ func (e Entry) Validate() error {
 	if len(e.CheckStageStop) > MaxMessageBytes {
 		problems = append(problems, fmt.Errorf("check_stage_stop is %d bytes, limit is %d", len(e.CheckStageStop), MaxMessageBytes))
 	}
+	if len(e.StopUnrecorded) > MaxMessageBytes {
+		problems = append(problems, fmt.Errorf("stop_unrecorded is %d bytes, limit is %d", len(e.StopUnrecorded), MaxMessageBytes))
+	}
 	if len(e.CheckStageFailure) > MaxBlockerBytes {
 		problems = append(problems, fmt.Errorf("check_stage_failure is %d bytes, limit is %d", len(e.CheckStageFailure), MaxBlockerBytes))
 	}
@@ -1675,6 +1685,9 @@ func (e Entry) Validate() error {
 	if e.ProductDecision != nil && e.Class != ClassProductDecision {
 		problems = append(problems, fmt.Errorf("product_decision: only a product decision entry carries one, and this entry is a %s", e.Class))
 	}
+	if strings.TrimSpace(e.StopUnrecorded) != "" && e.Class != ClassStoppedRun {
+		problems = append(problems, fmt.Errorf("stop_unrecorded: only a stopped run is listed without a recorded reason, and this entry is a %s", e.Class))
+	}
 	if e.StopRequested != nil {
 		if strings.TrimSpace(e.StopRequested.By) == "" {
 			problems = append(problems, errors.New("stop_requested: who asked is required, because a stop nobody is named for is one nobody can answer for"))
@@ -1694,13 +1707,18 @@ func (e Entry) Validate() error {
 	// which is worse than no entry: it looks like coverage.
 	switch e.Class {
 	case ClassStoppedRun:
-		// Either says what stopped the run, and one of them has to. A stoppage the
+		// Each says what stopped the run, and one of them has to. A stoppage the
 		// harness classified carries the blocker the work item carries; a run that
 		// died before anything could classify it carries the reason it gave for
 		// dying; a run the check stage bound stopped carries where the bound
-		// stopped it.
-		if strings.TrimSpace(e.Blocker) == "" && strings.TrimSpace(e.Failure) == "" && strings.TrimSpace(e.CheckStageFailure) == "" {
-			problems = append(problems, errors.New("a stopped run entry carries the durable blocker that stopped it, the failure of a death that recorded none, or where the check stage bound stopped it"))
+		// stopped it; a document publication, which has no work item to carry a
+		// blocker, carries why it stopped on its document; and a run whose record
+		// says none of those carries that it says none of them, so it is listed
+		// saying so rather than refused.
+		documentStopped := e.Document != nil && strings.TrimSpace(e.Document.Stopped) != ""
+		if strings.TrimSpace(e.Blocker) == "" && strings.TrimSpace(e.Failure) == "" && strings.TrimSpace(e.CheckStageFailure) == "" &&
+			!documentStopped && strings.TrimSpace(e.StopUnrecorded) == "" {
+			problems = append(problems, errors.New("a stopped run entry carries the durable blocker that stopped it, the failure of a death that recorded none, where the check stage bound stopped it, why its document publication stopped, or that its record says none of these"))
 		}
 		if e.Publication != nil {
 			problems = append(problems, errors.New("a stopped run entry describes a run rather than a publication"))
@@ -1896,6 +1914,9 @@ func (e Entry) Render() string {
 	stoppedByRequest := e.StopRequested != nil && e.StopRequested.Landed
 	if e.Blocker == "" && e.Failure != "" && e.Class != ClassUnstartedRun && e.Class != ClassUnstartedAttempt && !stoppedByRequest && e.Document == nil {
 		rendered.WriteString(indented("Died holding its change; the work item carries no blocker for it", e.Failure))
+	}
+	if e.StopUnrecorded != "" {
+		rendered.WriteString(indented("No reason for this stop was recorded; read the run's record before deciding it", e.StopUnrecorded))
 	}
 	rendered.WriteString(e.renderStopRequested())
 	if e.CheckStageStop != "" {

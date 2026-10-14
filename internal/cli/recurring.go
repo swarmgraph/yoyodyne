@@ -448,6 +448,7 @@ func (p *sweepDocketPass) remember(window contextbundle.DocketWindow, complete b
 func (p *sweepDocketPass) read() (contextbundle.DocketWindow, string, bool) {
 	d := p.source
 	built, err := d.docketer.Build()
+	err = errors.Join(err, built.Incomplete())
 	listed := built.Listed()
 	if err != nil && len(listed) == 0 {
 		window := contextbundle.TriageDocketWindow(contextbundle.ProductRequest{TriageDocketUnavailable: err.Error()}, nil, nil)
@@ -462,10 +463,14 @@ func (p *sweepDocketPass) read() (contextbundle.DocketWindow, string, bool) {
 	if len(listed) > 0 {
 		if d.items == nil {
 			request.TriageDocketItemsUnavailable = "no tracker was given to this pass"
-		} else if items, listErr := d.items.List(context.Background(), ""); listErr != nil {
+		} else if read, listErr := readDocketItems(context.Background(), d.items, "", docketItemIDs(listed)); listErr != nil {
 			request.TriageDocketItemsUnavailable = listErr.Error()
 		} else {
-			request.TriageDocketItems = items
+			request.TriageDocketItems = read.items
+			request.TriageDocketItemsUnavailable = docketItemsUnknown(read)
+			if read.cut != "" {
+				problems = append(problems, "which docket entries are on closed work: "+read.cut)
+			}
 		}
 		if d.window != nil {
 			if position, readErr := d.window.WindowPosition(); readErr != nil {

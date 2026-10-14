@@ -63,9 +63,9 @@ func TestTheReconcileSweepClosesTheEntriesOfClosedItems(t *testing.T) {
 	}
 	tracker := &closedListing{items: []beads.WorkItem{{ID: closedItem.WorkItemID, Status: "closed"}}}
 
-	closed, err := sweepClosedItems(context.Background(), orchestrator.Docketer{Docket: store}, tracker)
-	if err != nil {
-		t.Fatalf("sweepClosedItems() error = %v", err)
+	closed, cut, err := sweepClosedItems(context.Background(), orchestrator.Docketer{Docket: store}, tracker)
+	if err != nil || cut != "" {
+		t.Fatalf("sweepClosedItems() = %q, %v; want a whole listing read", cut, err)
 	}
 	if closed != 1 {
 		t.Fatalf("closed = %d, want the closed item's stopped run", closed)
@@ -113,7 +113,7 @@ func TestTheSweepOverAnEmptyDocketAsksTheTrackerNothing(t *testing.T) {
 		t.Fatalf("runstate.NewDocketStore() error = %v", err)
 	}
 	tracker := &closedListing{err: errors.New("no beads database found")}
-	closed, err := sweepClosedItems(context.Background(), orchestrator.Docketer{Docket: store}, tracker)
+	closed, _, err := sweepClosedItems(context.Background(), orchestrator.Docketer{Docket: store}, tracker)
 	if err != nil || closed != 0 || tracker.asked {
 		t.Fatalf("sweep = %d, %v, asked = %t, want nothing done and nothing asked", closed, err, tracker.asked)
 	}
