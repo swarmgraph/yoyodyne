@@ -248,6 +248,11 @@ func recoveringTrackerValue[T any](ctx context.Context, s *Session, attempt func
 // rather than a second opinion about it. A `bd` the harness stopped waiting on
 // is in the first class, which is the whole of what yoyodyne-ifd.142 met.
 func (s *Session) recoveringTrackerCall(ctx context.Context, attempt func(context.Context) error) error {
+	// A recurring pass has already named itself on ctx, which says more than
+	// the conversation the pass's turn is taken in.
+	if beads.Caller(ctx) == "" {
+		ctx = beads.OnBehalfOf(ctx, "the "+s.state.Role.Title()+"'s conversation")
+	}
 	for {
 		err := attempt(ctx)
 		if err == nil || !recovery.Recoverable(err) {

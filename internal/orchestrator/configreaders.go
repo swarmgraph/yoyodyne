@@ -125,7 +125,7 @@ func (r configFindingRecorder) name(ctx context.Context, state *runstate.State, 
 	if !record.Pending {
 		return comparison, nil
 	}
-	noteCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	noteCtx, cancel := trackerCallContext(ctx)
 	_, deliveryErr := r.tracker.RecordOutcome(noteCtx, state.WorkItemID, comparison.notes())
 	cancel()
 	if deliveryErr != nil {

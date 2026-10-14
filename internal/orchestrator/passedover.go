@@ -204,7 +204,7 @@ func (t Trigger) notePassedOver(ctx context.Context, pass string, role domain.Ag
 	if t.ItemNotes == nil {
 		return ""
 	}
-	write, stopWriting := recordContext(ctx)
+	write, stopWriting := trackerRecordContext(ctx)
 	defer stopWriting()
 	if err := t.ItemNotes.AppendNote(write, first.ID, passedOverNote(pass, role, recorded, first)); err != nil {
 		return fmt.Sprintf("%s was first in the order this pass was handed and the pass did not take it, and the note saying so could not be written on the item: %v", first.ID, err)

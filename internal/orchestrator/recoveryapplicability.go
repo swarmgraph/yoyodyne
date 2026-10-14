@@ -272,8 +272,6 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		Problem: fmt.Sprintf("the %q recorded about run %s was not carried out because it no longer applies: %s. %s",
 			task.Decision, task.RunID, strings.TrimSpace(account), noLongerAppliesClears),
 	}
-	write, stopWriting := recordContext(ctx)
-	defer stopWriting()
 	if harnessOwnTask(task.Decision) {
 		// Nobody decided a harness continuation, so there is no decision on the
 		// triage record to write a finding against. The explanation goes onto the
@@ -283,15 +281,19 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		}
 		note := fmt.Sprintf("Yoyodyne did not continue run %s itself, because continuing it no longer applies: %s. %s",
 			task.RunID, strings.TrimSpace(account), noLongerAppliesClears)
-		item, err := c.Notes.Show(write, task.WorkItemID)
+		noting, stopNoting := trackerRecordContext(ctx)
+		defer stopNoting()
+		item, err := c.Notes.Show(noting, task.WorkItemID)
 		if err == nil && !strings.Contains(item.Notes, note) {
-			_, err = c.Notes.RecordOutcome(write, task.WorkItemID, note)
+			_, err = c.Notes.RecordOutcome(noting, task.WorkItemID, note)
 		}
 		if err != nil {
 			carried.RecordProblem = fmt.Sprintf("and that could not be noted on %s, so the next pass finds it again: %v", task.WorkItemID, err)
 		}
 		return carried
 	}
+	write, stopWriting := recordContext(ctx)
+	defer stopWriting()
 	if _, err := c.Decisions.RecordCarryOutRefusal(write, task.WorkItemID, runstate.TriageCarryOut{
 		Cause:     triage.CarryOutNoLongerApplies,
 		DecidedAt: task.DecidedAt,
@@ -305,7 +307,9 @@ func (c CarryOut) recordNoLongerApplies(ctx context.Context, task CarryOutTask, 
 		return carried
 	}
 	if c.Notes != nil {
-		if err := c.deliverItemNotes(write, task.WorkItemID); err != nil {
+		noting, stopNoting := trackerRecordContext(ctx)
+		defer stopNoting()
+		if err := c.deliverItemNotes(noting, task.WorkItemID); err != nil {
 			carried.RecordProblem = fmt.Sprintf("the finding is on the triage record but could not be appended to the item's notes; its note remains pending for a later pull: %v", err)
 		}
 	}

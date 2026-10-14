@@ -157,7 +157,7 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain) (Outcome, error) {
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderRedeployStopNotes(a.outcome)); err != nil {
 		// The stop is already durable, so a note that could not be written costs

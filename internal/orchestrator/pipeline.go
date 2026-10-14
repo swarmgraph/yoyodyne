@@ -1201,7 +1201,24 @@ func refusedByEnvironment(condition string, err error) error {
 	return EnvironmentRefusedError{Condition: condition, Err: err}
 }
 
+// runTrackerCaller is who a run's tracker calls are for, as a tracker call that
+// does not answer in time says it.
+func runTrackerCaller(runID, workItemID string) string {
+	if runID == "" {
+		return "the developer run for " + workItemID
+	}
+	return "developer run " + runID + " for " + workItemID
+}
+
+// runTrackerContext is the context a run's tracker call is made under where it
+// deliberately starts from none of the run's own: bounded by the tracker's
+// limits (trackerCallContext) and naming the run.
+func runTrackerContext(runID, workItemID string) (context.Context, context.CancelFunc) {
+	return trackerCallContext(beads.OnBehalfOf(context.Background(), runTrackerCaller(runID, workItemID)))
+}
+
 func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
+	ctx = beads.OnBehalfOf(ctx, runTrackerCaller("", workItemID))
 	if err := p.validateDispatch(); err != nil {
 		return Outcome{}, err
 	}
@@ -1777,7 +1794,7 @@ func (p Pipeline) Continue(ctx context.Context, workItemID, runID string) (Outco
 // is already durable. state is the run as it stood paused, naming what it waited
 // on.
 func (p Pipeline) recordDependencyContinued(ctx context.Context, state runstate.State) {
-	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	recordCtx, cancel := trackerCallContext(ctx)
 	defer cancel()
 	_, _ = p.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderDependencyContinuedNotes(state, p.Selection, p.clock().Now()))
 }
@@ -2887,7 +2904,7 @@ func (a *activeRun) recordRebase(rebase gitworktree.Rebase) error {
 // outcome this must never produce. The text is durable on the run only when the
 // tracker took it, so a blocker the item never carried is never claimed here.
 func (a *activeRun) block(notes string) error {
-	blockCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	blockCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.Block(blockCtx, a.state.WorkItemID, notes); err != nil {
 		return err
@@ -5174,7 +5191,7 @@ func (a *activeRun) endOnUsageWindow(stopped usageWindowStop) (Outcome, error) {
 		problems = append(problems, err)
 	}
 	if a.claimed {
-		releaseCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		releaseCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 		_, releaseErr := a.pipeline.Tracker.Release(releaseCtx, a.state.WorkItemID, renderUsageWindowReleaseNotes(outcome))
 		cancel()
 		if releaseErr != nil {
@@ -6657,7 +6674,7 @@ func (a *activeRun) runLandingChecks(ctx context.Context) {
 	// closed item is the one write to it that is still right. The write is
 	// bounded rather than recovered: the run is over, and a `bd` too busy to
 	// take a note is recorded as such rather than waited out.
-	noteCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	noteCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := p.Tracker.RecordOutcome(noteCtx, a.state.WorkItemID, "Landing checks: "+landed.Describe(p.clock().Now())); err != nil {
 		landed.Problem = strings.Join(append(problems, fmt.Sprintf("the item could not be told: %v", err)), "; ")
@@ -7283,7 +7300,7 @@ func (a *activeRun) pause(paused usageLimitPause) (Outcome, error) {
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderUsageLimitPauseNotes(a.outcome)); err != nil {
 		// The pause itself is already durable, so a note that could not be
@@ -7311,7 +7328,7 @@ func (a *activeRun) pauseForProviderStop(stopped providerStop) (Outcome, error) 
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderProviderStopNotes(a.outcome)); err != nil {
 		// The stop is already durable, so a note that could not be written costs
@@ -7340,7 +7357,7 @@ func (a *activeRun) pauseForDirective(paused directivePause) (Outcome, error) {
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderDirectivePauseNotes(a.outcome, held)); err != nil {
 		// The pause is already durable, so a note that could not be written costs
@@ -7371,7 +7388,7 @@ func (a *activeRun) pauseForDependency(paused dependencyPause) (Outcome, error) 
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderDependencyPauseNotes(a.outcome, waiting)); err != nil {
 		// The pause is already durable, so a note that could not be written costs
@@ -7402,7 +7419,7 @@ func (a *activeRun) pauseForTracker(paused trackerPause) (Outcome, error) {
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderTrackerPauseNotes(a.outcome, unanswered)); err != nil {
 		// The park is already durable, so a note that could not be written costs
@@ -7434,7 +7451,7 @@ func (a *activeRun) pauseForOperatorHold(paused operatorHoldPause) (Outcome, err
 	if !a.claimed {
 		return a.outcome, nil
 	}
-	recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 	defer cancel()
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderOperatorHoldNotes(a.outcome, held)); err != nil {
 		// The park is already durable, so a note that could not be written costs
@@ -7546,7 +7563,7 @@ func (a *activeRun) fail(cause error, status runstate.Status) (Outcome, error) {
 	// promise a checkout on the strength of no removal having been recorded.
 	a.outcome.Preservation = a.verifyPreservation()
 	if a.claimed {
-		recordCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		recordCtx, cancel := runTrackerContext(a.state.RunID, a.state.WorkItemID)
 		_, recordErr := p.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderFailureNotes(a.outcome))
 		cancel()
 		if recordErr != nil {
@@ -7667,7 +7684,7 @@ func (a *activeRun) recordPrice() {
 	// wait would leave every attempt after the first with no time to be made in.
 	var cost *beads.Cost
 	err := a.recovering(context.Background(), runstate.RetryTrackerWrite, func(ctx context.Context) error {
-		priceCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		priceCtx, cancel := trackerCallContext(ctx)
 		defer cancel()
 		priced, priceErr := a.pipeline.Prices.Record(priceCtx, a.state.WorkItemID)
 		if priced != nil {
@@ -7852,7 +7869,7 @@ func (p Pipeline) reportCompletionRecordingFailure(state runstate.State, outcome
 	if err := p.Store.Save(state); err != nil {
 		outcome.CompletionRecordingFailure = errors.Join(cause, fmt.Errorf("record the completion problem in the run record: %w", err)).Error()
 	}
-	notesCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	notesCtx, cancel := runTrackerContext(state.RunID, state.WorkItemID)
 	defer cancel()
 	if _, err := p.Tracker.RecordOutcome(notesCtx, outcome.WorkItemID, renderCompletionRecordingNotes(outcome)); err != nil {
 		outcome.CompletionRecordingFailure = errors.Join(cause, fmt.Errorf("record the completion problem on the work item: %w", err)).Error()
@@ -7873,7 +7890,7 @@ func (p Pipeline) reportOutstandingCleanup(state runstate.State, outcome Outcome
 	if err := p.Store.Save(state); err != nil {
 		outcome.CleanupFailure = errors.Join(cause, fmt.Errorf("record outstanding cleanup: %w", err)).Error()
 	}
-	notesCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	notesCtx, cancel := runTrackerContext(state.RunID, state.WorkItemID)
 	defer cancel()
 	if _, err := p.Tracker.RecordOutcome(notesCtx, outcome.WorkItemID, renderCleanupNotes(outcome)); err != nil {
 		outcome.CleanupFailure = errors.Join(errors.New(outcome.CleanupFailure), fmt.Errorf("record outstanding cleanup on the work item: %w", err)).Error()

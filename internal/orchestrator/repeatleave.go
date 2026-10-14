@@ -162,7 +162,7 @@ func (t Trigger) noteSettled(ctx context.Context, pass string, recorded runstate
 		if !found {
 			continue
 		}
-		write, stopWriting := recordContext(ctx)
+		write, stopWriting := trackerRecordContext(ctx)
 		err := t.ItemNotes.AppendNote(write, item.ID, settledNote(pass, recorded.Role, recorded.StartedAt, settled))
 		stopWriting()
 		if err != nil {

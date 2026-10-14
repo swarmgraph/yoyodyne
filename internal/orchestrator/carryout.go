@@ -1459,7 +1459,9 @@ func (c CarryOut) stopped(ctx context.Context, task CarryOutTask, carried Carrie
 			task.WorkItemID, err)
 	}
 	if err == nil && carried.Cause != "" && c.Notes != nil {
-		if noteErr := c.deliverItemNotes(write, task.WorkItemID); noteErr != nil {
+		noting, stopNoting := trackerRecordContext(ctx)
+		defer stopNoting()
+		if noteErr := c.deliverItemNotes(noting, task.WorkItemID); noteErr != nil {
 			carried.RecordProblem = fmt.Sprintf("the permanent refusal is on the triage record but could not be appended to the item's notes; its note remains pending for a later pull: %v", noteErr)
 		}
 	}

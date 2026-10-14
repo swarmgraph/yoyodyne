@@ -829,7 +829,7 @@ func (r documentItemRecorder) note(ctx context.Context, note string) {
 	if r.tracker == nil || id == "" {
 		return
 	}
-	bounded, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	bounded, cancel := trackerRecordContext(ctx)
 	defer cancel()
 	if _, err := r.tracker.Show(bounded, id); err != nil {
 		return

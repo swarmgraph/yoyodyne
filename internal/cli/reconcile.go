@@ -181,6 +181,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	if err != nil {
 		return reportReconcileResult(stdout, stderr, *jsonOutput, reconcileSweep{}, err)
 	}
+	ctx = beads.OnBehalfOf(ctx, "yoyo reconcile, which settles stopped and finished runs and runs in every maintenance pass")
 	// Typed by a person, this is the operator settling runs by hand; run by the
 	// supervisor's maintenance pass it is the harness's own sweep, and the pass
 	// marks it so nothing is recorded (see intervention.go).

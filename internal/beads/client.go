@@ -1895,6 +1895,8 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	if args[0] == "export" {
 		command.RawStdout = &raw
 	}
+	started := time.Now()
+	deadline, deadlined := ctx.Deadline()
 	result, err := runner.Run(ctx, command, nil)
 	if err != nil {
 		return nil, fmt.Errorf("run bd %s: %w", args[0], err)
@@ -1913,6 +1915,12 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 		message := strings.TrimSpace(result.Stderr)
 		if message == "" {
 			message = strings.TrimSpace(result.Stdout)
+		}
+		if result.Status == execution.ProcessTimedOut {
+			// bd's own words come after the account, so the account is never lost
+			// to however much bd printed before it was stopped.
+			account := timeoutAccount(args, Caller(ctx), time.Since(started), c.timeout(), deadline, deadlined, started)
+			message = strings.TrimSuffix(account+": "+message, ": ")
 		}
 		return nil, processFailure{verb: args[0], status: result.Status, exitCode: result.ExitCode, message: message}
 	}
@@ -1940,6 +1948,82 @@ type processFailure struct {
 
 func (f processFailure) Error() string {
 	return fmt.Sprintf("bd %s failed with status %s and exit code %d: %s", f.verb, f.status, f.exitCode, f.message)
+}
+
+type callerKey struct{}
+
+// OnBehalfOf is ctx carrying who the tracker calls made under it are for — a
+// role's recurring pass, a run, a conversation — in words a person reads, such
+// as "the development manager's recurring pass development-manager-sweep#804".
+// A call that does not answer in time names it, so a report of a slow tracker
+// can be traced to whatever was waiting on it. The innermost name is the one a
+// call carries.
+func OnBehalfOf(ctx context.Context, who string) context.Context {
+	return context.WithValue(ctx, callerKey{}, strings.TrimSpace(who))
+}
+
+// Caller is who ctx says its tracker calls are for, and empty where nothing
+// named one.
+func Caller(ctx context.Context) string {
+	who, _ := ctx.Value(callerKey{}).(string)
+	return who
+}
+
+// timeoutAccount says what a bd that was stopped for time was asked, for whom,
+// how long it ran, and which of the two limits stopped it. The two are told
+// apart because they are opposite findings. A call stopped at the client's own
+// limit waited that long for the store, which is the tracker being slow. A call
+// stopped by its caller's shorter deadline may have waited only a few seconds,
+// which is the caller asking for less time than the tracker is given; the
+// runner reports both as timed_out, so without this they read the same.
+func timeoutAccount(args []string, who string, ran, limit time.Duration, deadline time.Time, deadlined bool, started time.Time) string {
+	account := describeCall(args)
+	if who != "" {
+		account += " for " + who
+	}
+	allowed := deadline.Sub(started)
+	switch {
+	case deadlined && allowed <= 0:
+		return account + " never started: its caller's own deadline had already passed"
+	case deadlined && allowed < limit:
+		return fmt.Sprintf("%s was stopped after %s, when its caller's own deadline of %s ran out before the %s limit each tracker call is given",
+			account, roundedSpan(ran), roundedSpan(allowed), limit)
+	}
+	return fmt.Sprintf("%s was stopped after %s, at the %s limit each tracker call is given", account, roundedSpan(ran), limit)
+}
+
+// roundedSpan is a span to the second, or to the millisecond under a second so
+// a short deadline does not read as none.
+func roundedSpan(span time.Duration) time.Duration {
+	if span < time.Second {
+		return span.Round(time.Millisecond)
+	}
+	return span.Round(time.Second)
+}
+
+// describeCall says in words what one bd invocation was asked for, naming the
+// work item where the invocation names one.
+func describeCall(args []string) string {
+	// A subcommand such as `dep add` has the shape of an id as well, and an id
+	// always carries its prefix's hyphen.
+	target := ""
+	if len(args) > 1 && ValidIssueID(args[1]) && strings.Contains(args[1], "-") {
+		target = args[1]
+	}
+	switch verb := args[0]; {
+	case verb == "show" && target != "":
+		return "reading work item " + target
+	case verb == "list" || verb == "ready":
+		return "listing the work items"
+	case verb == "export":
+		return "exporting every work item"
+	case verb == "create":
+		return "creating a work item"
+	case target != "":
+		return "changing work item " + target + " (bd " + verb + ")"
+	default:
+		return "bd " + verb
+	}
 }
 
 type rawWorkItem struct {
