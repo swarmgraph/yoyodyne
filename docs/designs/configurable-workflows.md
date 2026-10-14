@@ -1,7 +1,7 @@
 ---
 id: configurable-workflows
 kind: design
-title: "Configurable workflows: a declarative runtime over trusted actions"
+title: 'Configurable workflows: a declarative runtime over trusted actions'
 supports:
     - v1-goals
 status: active
@@ -54,8 +54,17 @@ revisions:
       by: architect
       at: 2026-09-26T16:00:00Z
       reason: yoyodyne-ifd.432.7 companion - the operators mapping's fourth namespace and the decide-amendments grant recorded beside the bundles they never reach
+    - action: amended
+      by: architect
+      at: 2026-10-14T09:39:02.047187Z
+      reason: 'Part 3 of renaming the product manager role to Lead Product Manager where a person reads it (yoyodyne-ifd.437.10): four places in the authority model and the recurring tasks now say Lead Product Manager. The revision log is history and is unchanged, and nothing else in the design changes.'
+approvals:
+    - policy: approvals.designs
+      revision: 12
+      by: harness
+      at: 2026-10-14T09:39:02.047187Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 922, for document-922.1 under the automatic approval policy
 ---
-
 # Configurable workflows: a declarative runtime over trusted actions
 
 ## What this is for
@@ -88,11 +97,11 @@ A resumed run re-earns the gate, and the definitions say so. A run interrupted a
 
 Sequenced as the brief's authority workstream, with its guard binding: the authority inventory and the capability registry land before anything is configurable; the five roles are expressed as shipped default bundles that reproduce current behavior exactly, checked against the inventory; authorization call sites convert from role names to capability-and-scope checks, with separation policy (reviewer independence, no self-approval, no evidence self-minting) as runtime rules a static bundle cannot prove; only then do protected operator-defined bundles load; and the closed role-name type is removed last, with compatibility decoding for durable records. Every invocation pins the role-contract revision and digest that authorized it; **authority changes never apply to an in-flight step attempt** — new invocations only, no exceptions, no migration of authority ever.
 
-The shipped default bundles for the management roles carry acting authority, not merely recording authority. The development manager holds `run.cause`, `run.repair-continue`, `publication.merge-repeat`, and a bounded `budget.cross-cap`, each scoped to work it may act on, each gated by the intake hold and the spending pause, each bounded by durable per-item counters incremented before the act, and each recording what was done and why. The product manager holds `work-item.repair-state` over her own backlog — terminal-run blockers, dead dependency links, attributions — which is state hygiene and never a substitute for closing or retiring. Neither bundle carries gate-evidence minting, approval of work it caused, integration, or writes to protected role definitions; the separation policy and the integration evidence rule refuse those whatever a bundle says. Broad authority is visible authority: every act is recorded and reported under the communication rule.
+The shipped default bundles for the management roles carry acting authority, not merely recording authority. The development manager holds `run.cause`, `run.repair-continue`, `publication.merge-repeat`, and a bounded `budget.cross-cap`, each scoped to work it may act on, each gated by the intake hold and the spending pause, each bounded by durable per-item counters incremented before the act, and each recording what was done and why. The Lead Product Manager holds `work-item.repair-state` over her own backlog — terminal-run blockers, dead dependency links, attributions — which is state hygiene and never a substitute for closing or retiring. Neither bundle carries gate-evidence minting, approval of work it caused, integration, or writes to protected role definitions; the separation policy and the integration evidence rule refuse those whatever a bundle says. Broad authority is visible authority: every act is recorded and reported under the communication rule.
 
 Role definitions may live in the repository under `.yoyodyne/roles/` with two hard properties: the protected-path gate refuses any grant naming that directory — an absolute exception to the grant mechanism, with no decided-change override — and no definition is effective until operator-authorized activation records its digest, so the *activated digest* is the authority and a file changed by anyone is inert until a person activates it. Audit history is a CLI surface, never an agent one.
 
-The management bundles — product manager, development manager, architect — hold `repository.read` and `repository.list`: the harness resolves a named path, or one directory's names, against the tree of a recorded commit, never the working tree, bounded per turn by count and bytes, redacted, recorded on the conversation as commit, path, and time, and returned as evidence framed as untrusted. Confinement holds by construction, because a committed tree contains no traversable link. Content returned to the product manager is labeled as description of the implementation, never intent. The reviewer holds neither; its evidence is the change. This is a distinct action from research, which is evidence from outside the repository.
+The management bundles — Lead Product Manager, development manager, architect — hold `repository.read` and `repository.list`: the harness resolves a named path, or one directory's names, against the tree of a recorded commit, never the working tree, bounded per turn by count and bytes, redacted, recorded on the conversation as commit, path, and time, and returned as evidence framed as untrusted. Confinement holds by construction, because a committed tree contains no traversable link. Content returned to the Lead Product Manager is labeled as description of the implementation, never intent. The reviewer holds neither; its evidence is the change. This is a distinct action from research, which is evidence from outside the repository.
 
 The operators mapping gains a fourth identifier namespace, `dashboard_token`, and a grant, `decide-amendments`, for a person acting from the dashboard as [observability-and-dashboard](observability-and-dashboard.md) specifies; both are properties of the person, and no token or configuration key grants either to a role.
 
@@ -108,7 +117,7 @@ A recurring task is a schedule-triggered instance of a named agent's bounded tas
 
 Runtime behavior, from the proven interim shim: an instance **skips when a turn is in flight** on the agent's conversation — the conversation lease is the test — rather than queueing behind it; each run produces a **durable dated report**; and anything the task decides to do is a **carry-out listed for execution through the agent's existing typed action paths** — the tracker actions, proposals, and requests that role already has — never a new mutation path. One instance per task per window, deduplicated durably; every instance passes the standing gates — intake hold where it applies, the spending pause always, budgets committed before spend.
 
-First consumers: the development manager's hourly sweep (find, fix, file, report, under its item's constraints), the product manager's twice-daily coherence scan, and the architect's daily pass, specified in [architect-loop](architect-loop.md).
+First consumers: the development manager's hourly sweep (find, fix, file, report, under its item's constraints), the Lead Product Manager's twice-daily coherence scan, and the architect's daily pass, specified in [architect-loop](architect-loop.md).
 
 ### Agent memory
 
