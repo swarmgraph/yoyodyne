@@ -572,8 +572,9 @@ Product Manager, the architect, the development manager, or the program
 manager. That is the role whose move it asks for, and the report is that
 role's whatever its severity. It is listed under that role on `yoyo status` and
 the dashboard as a `report for a role` entry (`addressed-report` in `--json`,
-with the report whole under `report`), and the role's next scheduled pass is
-put it under `Reports addressed to you`. A report that names no role is the Lead
+with the report whole under `report`), and the role's next scheduled pass lists
+it under `Reports addressed to you` — for the program manager, every instance's
+next pass. A report that names no role is the Lead
 Product Manager's, since she handles the pile; a critical one is listed under
 her by name as well as reaching her pass at once. Either way it leaves the list
 when a handling of it is recorded.

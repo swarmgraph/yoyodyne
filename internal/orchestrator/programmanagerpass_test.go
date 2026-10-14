@@ -606,3 +606,36 @@ func TestAnInstancesTriggersAreCoveredByTheMissedCadence(t *testing.T) {
 		t.Errorf("filed = %+v, want each miss said as the harness's report", filed.filed)
 	}
 }
+
+// A report addressed to the program manager role is put in front of an
+// instance's pass, as a report addressed to any other role is put in front of
+// that role's: the instance's scheduled pass lists it under "Reports addressed
+// to you", and not a report addressed to another role.
+func TestAReportAddressedToTheProgramManagerIsPutInFrontOfAnInstancesPass(t *testing.T) {
+	t.Parallel()
+
+	const (
+		forUs    = "report-00000000000000000000000000000b01"
+		forOther = "report-00000000000000000000000000000b02"
+	)
+	addressed := filedReport(forUs, domain.RoleDevelopmentManager, report.SeverityWarning, "the reliability lane has three items nobody can start", recurringNow.Add(-time.Hour))
+	addressed.For = domain.RoleProgramManager
+	other := filedReport(forOther, domain.RoleProgramManager, report.SeverityCritical, "four ready P0 fixes have no run", recurringNow.Add(-time.Hour))
+	other.For = domain.RoleDevelopmentManager
+
+	h := newPassHarness(t, instance(2*time.Hour))
+	h.trigger.Pile = &memoryPile{reports: []report.Report{addressed, other}}
+	h.role.answers = []scriptedTurn{{result: complete("the lane is moving")}}
+	if fired := h.fire(t, recurringNow); len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the instance's scheduled pass", fired.Fired)
+	}
+	message := h.role.messages[0]
+	for _, want := range []string{"## Reports addressed to you", forUs, "the reliability lane has three items nobody can start", "none of them is the operator's"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("the instance's message is missing %q:\n%s", want, message)
+		}
+	}
+	if strings.Contains(message, forOther) {
+		t.Fatalf("the instance's message names a report for the development manager:\n%s", message)
+	}
+}
