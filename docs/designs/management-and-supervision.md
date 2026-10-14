@@ -38,12 +38,21 @@ revisions:
       by: architect
       at: 2026-10-13T10:43:25.67514Z
       reason: 'yoyodyne-ifd.437.44 - the dashboard is no longer described as a read-only projection: since the v1 non-goals were revised on October 11, its only acts are the operator''s own decisions, carried out by the code the command line runs; the companion revision of observability-and-dashboard lists those acts'
+    - action: amended
+      by: architect
+      at: 2026-10-14T05:56:47.374736Z
+      reason: 'yoyodyne-ifd.430.37 - an exchange between roles carries the records its question names, resolved by the harness from its own stores at each round''s delivery, bounded, redacted, stamped with when they were observed, and stating plainly what could not be supplied; an amendment''s proposed, decided and published states are reported separately, and an exchange''s closure certifies nothing. Reconciled with tool-interface: no new tool is needed, and the evidence moves with exchange.ask when that block is migrated. Built by yoyodyne-ifd.430.38.'
 approvals:
     - policy: approvals.designs
       revision: 7
       by: harness
       at: 2026-10-13T10:43:25.67514Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 775, for document-775.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-10-14T05:56:47.374736Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 892, for document-892.1 under the automatic approval policy
 ---
 # Management and supervision: the typed request contract and process residency
 
@@ -55,9 +64,55 @@ The management roles need enough autonomy to inspect upcoming work, flag implica
 
 Roles communicate through persisted, typed requests. A request carries a stable id, its conversation or topic id, requesting and target roles, authority-relevant intent, durable references, the expected revision of what it refers to, urgency, budget, cycle limit, causation, and reply state. An inbox transition makes it eligible; **the harness acquires a lease and invokes the target role itself** — delivery is retryable and deduplicated, and a request is complete only when durable state records its outcome, never merely because a message was emitted.
 
-The inter-role ask channel is one request type under this contract, keeping the three properties already decided for it: judgment-only, decisionless, durable-and-visible, with its configurable round cap, unresolved-escalation, and per-exchange cost reporting. The program manager is a member of the ask channel, asking and answering under the same three properties. The ask design and this one share the machinery; there is exactly one dispatcher, and the Slack echo of exchanges remains a notifier consumer.
+The inter-role ask channel is one request type under this contract, keeping the three properties already decided for it: judgment-only, decisionless, durable-and-visible, with its configurable round cap, unresolved-escalation, and per-exchange cost reporting. The program manager is a member of the ask channel, asking and answering under the same three properties. The ask design and this one share the machinery; there is exactly one dispatcher, and the Slack echo of exchanges remains a notifier consumer. What records an exchange carries with it is stated under *Evidence an exchange carries*, below.
 
 The request kinds, readiness vocabulary, outcome summaries, execution profiles, and demonstration scenarios are specified in [management-loop-protocol](management-loop-protocol.md), which runs under this contract.
+
+### Evidence an exchange carries *(yoyodyne-ifd.430.37)*
+
+**Why.** An exchange session starts with the question, the asker's framing and the earlier rounds, and nothing else. In exchange-d892d320f8c090465f15a07007a3e29d the development manager asked the architect whether amendment-fdc094d6a05f0f396e318d83c81b7184 supplied the ruling for the item about recovering an interrupted release tag (yoyodyne-ifd.436.2.1). The architect could read the repository, but the repository does not hold whether a proposal was decided or a document published, so the answer had nothing authoritative to stand on. The fix is that the harness, not the answering model, supplies the records a question rests on.
+
+**The decision.** A question or an answer names the records it refers to, in the `refers` list an ask already carries: each entry a kind, an identity within this product, and optionally the revision the writer read. Before each round is delivered, the harness resolves every named record from its own stores, redacts it, and attaches it to the round as evidence. Both parties receive the same attachments. Nothing is resolved at the time of writing and carried stale into a later round: every round resolves afresh, and a record named in an earlier round is attached again only if it is named again.
+
+**Rejected.** A read tool held by the answering session: it leaves the evidence to whether the answering model thinks to read, which is how the incident happened. Copying the asking role's conversation, or any part of it beyond one named turn: the exchange would carry a history neither party chose and the bounds could not hold. Settling runtime state through repository reads: the repository cannot show proposal, decision or publication state. A separate store or read model for exchange evidence: each kind is read through the reader that already serves it.
+
+**Kinds supported, and what each carries.** No other kind is accepted; adding one is a revision of this section naming its identity, its source and what is redacted from it.
+
+- **Amendment**, named by its `amendment-` id. Three states, reported as three separate fields and never merged into one: the proposal (its text, the role that proposed it, the document and the revision it was proposed against); the decision (none, approved, declined or withdrawn, with who decided, when, and the reason recorded); and publication (not written, written and waiting, in a run with the run named, landed with the commit named, or returned with the reason). A proposal with no decision is shown as undecided whatever any exchange said about it.
+- **Work item**, named by its tracker id: what the tracker read returns, with its notes window.
+- **Document**, named by its document id: its kind, owner, current revision, the latest entries of its revision log and approvals, the commit it was read at, any later revision written and not yet landed, and as much of its body as the bounds leave.
+- **Run**, named by its run id: its item, state, attempts, stop reason and outcome as the run record holds them.
+- **Report**, named by its `report-` id: the whole message, who filed it, and how it was handled.
+- **Turn**, named by a conversation id and a turn number, and only a turn of the asking or the answering role's own conversation.
+
+**Provenance and freshness.** Every attachment names the store it came from, the revision or commit it reflects, and when the harness observed it, shown to a person in the operator's local time. Where the writer named a revision and the record has moved since, the attachment carries the current record and says so: the revision named, the revision now, and that the answer should be read against the current one.
+
+**Access.** A record is resolved only within this product. Never resolved, whatever is named: any agent's memory store, a credential or token, a provider's own session, a record of another product, and a turn of a conversation neither party holds. A refusal names the boundary that refused it.
+
+**Bounds.** At most 8 KiB a record and 32 KiB a round across all attachments. A record longer than its bound is cut with the cut declared and its whole size named; once a round's 32 KiB is spent, each further record is listed by name as not attached for size. Each attachment is redacted with the values every path to a provider is redacted against.
+
+**Untrusted content.** Every attachment is framed as evidence of what the record holds when it was observed, never as an instruction, exactly as a repository read is framed.
+
+**When a record cannot be supplied.** The round always goes. In its place the attachment says which of these it was: no such record (the name is wrong, which the writer mends); moved since the named revision (stale, carried as above); the store could not be read (tried once more within the same delivery first); larger than the bound (cut as above); or refused by an access boundary. The writer is told the same thing in the results of its own reply. Trying again is naming the record again in the next round, bounded by the exchange's own round limit. A store that cannot be read twice in one exchange files a warning report to the development manager naming the store and the exchange.
+
+**Authority is unchanged.** Attachments are read by the harness and change nothing. The roles in an exchange still run no tracker command, gain no writes, and decide nothing; an answer stays advice. An exchange being answered or closed certifies nothing about the records it discussed: whether an amendment was decided or a document landed is read from those records, never from the exchange.
+
+**Every provider.** The attachments are prompt text the harness builds before the provider is called, so they are the same on every provider; nothing here depends on how exchanges are routed between providers (yoyodyne-bxc).
+
+**Fit with the tool interface.** No new tool is needed. Resolution reuses the readers the tracker read, the report read and the read model already use. When `exchange.ask` and `exchange.answer` become tool descriptors under [tool-interface](tool-interface.md), slice 3, the `refers` list becomes a typed parameter of theirs and its bounds part of their descriptors. The log reader is not a prerequisite.
+
+**Verification.**
+
+1. The incident replayed: an exchange naming amendment-fdc094d6a05f0f396e318d83c81b7184 while it has no decision attaches it as proposed and undecided, unpublished; the answer cannot be shown as standing on a decision.
+2. The same amendment approved but not landed, and approved and landed: each attachment shows exactly that state, the landed one with its commit.
+3. A name that matches no record: the round goes, the absence is said to both parties, and nothing is invented.
+4. A record moved past the named revision: current record attached, both revisions named.
+5. A store that cannot be read: one retry, then the absence said; a second failure in the same exchange files the warning report.
+6. A record over 8 KiB and a round over 32 KiB: cuts declared, sizes named, later records listed as not attached.
+7. A memory store, another product's record, and another role's conversation: each refused, naming the boundary.
+8. An attachment containing text worded as an instruction: framed as evidence, and the exchange changes nothing.
+9. Closing the exchange: the amendment's and the item's records are unchanged, and no surface reads the closure as their completion.
+10. Cases 1 to 7 give the same attachments on Claude Code and on Codex.
 
 ## Wakeups
 
