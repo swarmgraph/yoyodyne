@@ -5940,7 +5940,7 @@ development manager conversation opens, and every firing of a
 [recurring task](#recurring-tasks) of hers, which carries the docket in the
 message that wakes her — and beside it the "Needs a human" entries whose move is
 the operator's, each with its age
-([operations](operations.md#reading-what-the-recurring-tasks-found)). Only that last is scheduled, and only where a project
+([operations](operations.md#where-the-harness-stands-the-four-lines)). Only that last is scheduled, and only where a project
 configures one, so `stuck_merge_age` is a floor rather than a promise — a
 publication becomes docketable at that age and is docketed the next time one of
 those happens.
@@ -7659,7 +7659,7 @@ an hour. That observation is a reason for the setting, not a provider guarantee.
 | `every` | the cadence, measured from the last firing rather than against a wall-clock grid. The shortest accepted is `5m`, which is what keeps `1m` written where `1h` was meant from becoming sixty times the spend. |
 | `enabled` | the switch. It is explicit so a task can be turned off for a week without deleting its prompt and cadence. |
 | `prompt` | what the role is told. It is the task, not a personality. |
-| `max_turns` | how many work turns one firing may take, defaulting to 3 and capped at 10. One request for a missing closing report is outside this bound. |
+| `max_turns` | how many work turns one firing may take, defaulting to 3 and capped at 10. Two turns are outside this bound: one request for a missing closing report, and one turn sending the pass back to decide or ask about an item its passes keep leaving ([operations](operations.md#where-the-harness-stands-the-four-lines)). |
 | `model` | the model this task's turns ask for. Optional: leave it out and the turns ask for the role's own configured `model`, which is what every task did before the key existed. See [a task's own model](#a-tasks-own-model). |
 
 ### A task's own model
@@ -7787,7 +7787,10 @@ plainly: to stop paying for a cadence, pause rather than hold.
 
 **A heavy pass iterates rather than truncating.** A role that has more to do than
 one turn holds says so in its account, and the harness gives it another turn up
-to `max_turns`. A pass that still had more to do when the bound ran out is
+to `max_turns`. The one work turn past that bound is the turn that sends a pass
+back when it ends having left an item it was told to decide or ask about,
+because its passes have left that item twice in a row with nothing outside the
+role holding it. A pass that still had more to do when the bound ran out is
 recorded as partial, so a truncated pass and a finished one are never the same
 short report.
 

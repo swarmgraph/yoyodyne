@@ -187,7 +187,7 @@ func TestTheAccountsFindingsSayWhatWasTakenAndWhy(t *testing.T) {
 	recorded := firePassedOver(t, threeTopItems(), role, notes)
 
 	want := []runstate.DeliveredWork{
-		{ID: "yoyodyne-ifd.414.1", Priority: 0, Reason: "yoyodyne-ifd.414.1 needs the operator's secret store first"},
+		{ID: "yoyodyne-ifd.414.1", Priority: 0, Reason: "yoyodyne-ifd.414.1 needs the operator's secret store first", LeftInARow: 1},
 		{ID: "yoyodyne-ab2", Priority: 0, Taken: true},
 		{ID: "yoyodyne-ifd.428.75.1", Priority: 0},
 		{ID: "yoyodyne-gtx", Priority: 1, Taken: true},

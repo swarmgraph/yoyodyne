@@ -94,3 +94,27 @@ func TestAnItemSaysWhenAPassLastConsideredIt(t *testing.T) {
 		t.Error("an item no pass was handed has no last consideration")
 	}
 }
+
+// What a pass told it kept leaving an item did with it, and how many passes in
+// a row left it, are said in capitals where they need noticing.
+func TestStatusSaysAnItemDecidedAskedOrLeftInARow(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		item runstate.DeliveredWork
+		want string
+	}{
+		{runstate.DeliveredWork{ID: "x-1", Taken: true, Settled: runstate.SettledDecided}, "taken: DECIDED, with the assumptions it made written on the item"},
+		{runstate.DeliveredWork{ID: "x-1", Taken: true, Settled: runstate.SettledAsked}, "taken: ASKED one question about it"},
+		{runstate.DeliveredWork{ID: "x-1", Reason: "spread over replies", LeftInARow: 2}, "NOT TAKEN — spread over replies (left 2 times in a row; the next pass is told to decide it or ask one question)"},
+		{runstate.DeliveredWork{ID: "x-1", Reason: "spread over replies", LeftInARow: 3}, "(LEFT 3 TIMES IN A ROW, after being told to decide it or ask; the development manager is told)"},
+	} {
+		passes := ConversationPasses([]runstate.Sweep{answeredPass("architect-pass", passesAt, test.item)})
+		if said := passes[0].Says(); !strings.Contains(said, test.want) {
+			t.Errorf("line = %q, want %q", said, test.want)
+		}
+		considered, _ := LastConsidered([]runstate.Sweep{answeredPass("architect-pass", passesAt, test.item)}, "x-1")
+		if sentence := considered.Sentence(); test.item.LeftInARow > 1 && !strings.Contains(strings.ToLower(sentence), "in a row") {
+			t.Errorf("sentence = %q, want the count", sentence)
+		}
+	}
+}

@@ -448,6 +448,104 @@ func (r Result) LeftReason(item string) (string, bool) {
 	return reason, found
 }
 
+// MaxAssumptions bounds how many assumptions one decision writes down. A
+// decision resting on more than this is resting on a question, and the
+// question is what to put.
+const (
+	MaxAssumptions     = 10
+	maxAssumptionsText = "10"
+)
+
+// Settled is what a pass did about an item it was told it had left twice in a
+// row with nothing outside the role holding it: it decided it, writing down the
+// assumptions the decision rests on, or it put one question to whoever can
+// answer it. Exactly one of the two. The harness reads it as the pass having
+// taken the item, and writes on the item which of the two the pass did.
+type Settled struct {
+	// Item is the work item, by identifier.
+	Item string `json:"item"`
+	// Decision is what the role decided, and Assumptions what it took to be
+	// true in deciding it, each in a sentence.
+	Decision    string   `json:"decision,omitempty"`
+	Assumptions []string `json:"assumptions,omitempty"`
+	// Question is the one question the role put instead, and AskedOf who it was
+	// put to: another role, or the operator where the decision is his.
+	Question string `json:"question,omitempty"`
+	AskedOf  string `json:"asked_of,omitempty"`
+}
+
+// Decided reports a settled item the role decided, rather than asked about.
+func (s Settled) Decided() bool {
+	return strings.TrimSpace(s.Decision) != ""
+}
+
+// Validate reports every contract violation in the entry at once.
+func (s Settled) Validate() error {
+	var problems []error
+	switch item := strings.TrimSpace(s.Item); {
+	case item == "":
+		problems = append(problems, errors.New("item is required"))
+	case len(item) > MaxTextBytes:
+		problems = append(problems, fmt.Errorf("item is %d bytes, limit is %d", len(item), MaxTextBytes))
+	}
+	decision, question := strings.TrimSpace(s.Decision), strings.TrimSpace(s.Question)
+	switch {
+	case decision == "" && question == "":
+		problems = append(problems, errors.New("a settled item carries the decision made or the one question asked"))
+	case decision != "" && question != "":
+		problems = append(problems, errors.New("a settled item was decided or asked about, not both"))
+	case decision != "":
+		if len(s.Assumptions) == 0 {
+			problems = append(problems, errors.New("a decision writes down the assumptions it made"))
+		}
+		if strings.TrimSpace(s.AskedOf) != "" {
+			problems = append(problems, errors.New("a decision is put to nobody, so it names no one it asked"))
+		}
+	default:
+		if strings.TrimSpace(s.AskedOf) == "" {
+			problems = append(problems, errors.New("a question names who it was put to"))
+		}
+		if len(s.Assumptions) > 0 {
+			problems = append(problems, errors.New("assumptions belong to a decision, not to a question"))
+		}
+	}
+	for field, text := range map[string]string{"decision": decision, "question": question, "asked_of": strings.TrimSpace(s.AskedOf)} {
+		if len(text) > maxLeftBytes {
+			problems = append(problems, fmt.Errorf("%s is %d bytes, limit is %d", field, len(text), maxLeftBytes))
+		}
+	}
+	if len(s.Assumptions) > MaxAssumptions {
+		problems = append(problems, fmt.Errorf("%d assumptions, limit is %d", len(s.Assumptions), MaxAssumptions))
+	}
+	for i, assumption := range s.Assumptions {
+		switch trimmed := strings.TrimSpace(assumption); {
+		case trimmed == "":
+			problems = append(problems, fmt.Errorf("assumptions[%d] is blank", i))
+		case len(trimmed) > maxLeftBytes:
+			problems = append(problems, fmt.Errorf("assumptions[%d] is %d bytes, limit is %d", i, len(trimmed), maxLeftBytes))
+		}
+	}
+	if err := errors.Join(problems...); err != nil {
+		return fmt.Errorf("invalid settled item: %w", err)
+	}
+	return nil
+}
+
+// SettledItem is what the account says the pass did about one item it was
+// told to settle, and false where it says nothing. A later entry stands over an
+// earlier one, as LeftReason reads the last.
+func (r Result) SettledItem(item string) (Settled, bool) {
+	item = strings.TrimSpace(item)
+	var settled Settled
+	found := false
+	for _, entry := range r.Settled {
+		if strings.TrimSpace(entry.Item) == item {
+			settled, found = entry, true
+		}
+	}
+	return settled, found
+}
+
 // Result is one turn's account of a recurring pass.
 type Result struct {
 	Status  Status `json:"status"`
@@ -480,6 +578,10 @@ type Result struct {
 	// against the documents the conversation actually keeps held, so an item
 	// named here with no such document reads as not taken.
 	Held []string `json:"held,omitempty"`
+	// Settled are the items the pass was told it had left twice in a row with
+	// nothing outside the role holding them, and what it did about each. Empty
+	// on every pass told of none.
+	Settled []Settled `json:"settled,omitempty"`
 }
 
 // HeldItem reports whether the account says the item's finished document is
@@ -565,6 +667,14 @@ func (r Result) Validate() error {
 			problems = append(problems, fmt.Errorf("held[%d] is %d bytes, limit is %d", i, len(item), MaxTextBytes))
 		}
 	}
+	if len(r.Settled) > MaxPassLeft {
+		problems = append(problems, fmt.Errorf("%d settled items in one pass, limit is %d", len(r.Settled), MaxPassLeft))
+	}
+	for i, settled := range r.Settled {
+		if err := settled.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("settled[%d]: %w", i, err))
+		}
+	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
 	}
@@ -607,6 +717,9 @@ func (r Result) validateTurn() error {
 	}
 	if len(r.Held) > MaxLeft {
 		problems = append(problems, fmt.Errorf("%d held items in one turn, limit is %d", len(r.Held), MaxLeft))
+	}
+	if len(r.Settled) > MaxLeft {
+		problems = append(problems, fmt.Errorf("%d settled items in one turn, limit is %d", len(r.Settled), MaxLeft))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid sweep result: %w", err)
@@ -680,8 +793,13 @@ func (r Result) Merge(next Result) Result {
 	merged.Questions = questions
 	merged.Recommendations = recommendations
 	merged.Audits = audits
+	settled := append(append([]Settled(nil), r.Settled...), next.Settled...)
+	if len(settled) > MaxPassLeft {
+		settled = settled[len(settled)-MaxPassLeft:]
+	}
 	merged.Left = left
 	merged.Held = held
+	merged.Settled = settled
 	merged.Summary = noteDropped(merged.Summary, dropped)
 	return merged
 }
@@ -840,9 +958,9 @@ func ReportRequest() string {
 	return strings.Join([]string{
 		"Your previous reply omitted its closing report block. This is the only request for it on this pass. Reply with the block alone, accounting for that reply's findings and actions already taken. Do not repeat any action or perform new work; all earlier writes, reports, admissions and costs remain recorded.",
 		Fence,
-		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"]}`,
+		`{"status":"complete|more","summary":"what the preceding reply found","findings":[{"issue":"what you found","disposition":"fixed|filed|consulted|left","detail":"what you already did and why","filed":["work already filed"]}],"questions":["what only a person can settle"],"recommendations":[{"proposal":"amendment-id already considered","verdict":"approve|decline|merge","reason":"why","into":"amendment-id (a merge only)"}],"audits":[{"item":"closed beads-id already audited","goals":["standing goal checked"],"finding":"met|broken","detail":"where it breaks the goal","correction":"beads-id admitted or widened","deferred":false}],"left":[{"item":"beads-id of waiting work not taken","reason":"why"}],"held":["beads-id whose finished document is held for sending"],"settled":[{"item":"beads-id already decided or asked about","decision":"what was decided","assumptions":["what the decision took to be true"],"question":"or the one question already asked","asked_of":"who it was put to"}]}`,
 		"```",
-		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, and left only for waiting work it did not take.",
+		"Omit empty lists. Include recommendations only for proposals already considered in the preceding reply, audits only for closed items it already audited, left only for waiting work it did not take, and settled only for an item it already decided or asked about.",
 	}, "\n")
 }
 
@@ -898,5 +1016,43 @@ func LeftContract() string {
 		`The harness judges which items you took from the tracker actions you took on them and from this block. Where the first item in the order is not taken, the harness writes a note on that item naming this pass and the time, with your reason or, where you gave none, "no reason given". A person reads that note, so write the reason for them.`,
 		"",
 		`Where you finished an item's design or ruling and its document is held for sending, list the item under "held" rather than calling it ruled: "held":["beads-id"]. A hold delays only the sending, so an item whose design is unfinished is never held and never ruled; take it and finish the design. The harness checks each held item against the documents your conversation keeps held, naming the item in their "answers", and an item listed here with no such document is recorded as not taken.`,
+	}, "\n")
+}
+
+// SettleContract is what a pass is told about an item its role's passes have
+// left the given number of times in a row with nothing outside the role
+// holding it, beside the contract above. The reasons are what those passes
+// gave, oldest first. It is said plainly and once, at the head of the pass,
+// and again in SentBack where the pass leaves the item anyway.
+func SettleContract(item string, times int, reasons []string) string {
+	lines := []string{
+		fmt.Sprintf("Your passes have left %s, first in your order, %d times in a row, and nothing outside your role holds it: it has no unfinished dependency, it is not parked, and the tracker records no wait on another item or person. The reasons they gave:", item, times),
+	}
+	for _, reason := range reasons {
+		if strings.TrimSpace(reason) == "" {
+			reason = "no reason given"
+		}
+		lines = append(lines, "- "+reason)
+	}
+	lines = append(lines,
+		"",
+		"This pass does not leave it again. Do one of two things with it, and say which in your block's \"settled\":",
+		"",
+		`- decide it, writing down the assumptions your decision makes where an open point is not settled anywhere: "settled":[{"item":"`+item+`","decision":"what you decided, in a sentence or two","assumptions":["what you took to be true, one per entry, at most `+maxAssumptionsText+`"]}]`,
+		`- or put one question to whoever can answer it, and nothing else: another role, asked the way you ask any role, or the operator only where the decision is a change of what the product is for or something only a person can do, in your block's "questions": "settled":[{"item":"`+item+`","question":"the one question","asked_of":"who you put it to"}]`,
+		"",
+		"Do the decision's own work as you would any item's, in the tracker and the documents it needs. The harness writes on the item which of the two you did. A pass that ends having left it again is sent back once to decide or ask, with everything else it did kept; if it still leaves the item, that is written on the item and the development manager is told.",
+	)
+	return strings.Join(lines, "\n")
+}
+
+// SentBack is what a pass is told when it ended having left the item it was
+// told to settle. Everything else the pass did stands; this turn is for the one
+// item.
+func SentBack(item string, times int) string {
+	return strings.Join([]string{
+		fmt.Sprintf("This pass is ending having left %s again, and it was told at its start not to: your passes have already left it %d times in a row with nothing outside your role holding it. Everything else this pass did stands and is recorded as you gave it.", item, times),
+		"",
+		fmt.Sprintf(`Decide %s now, writing down the assumptions you made, or put one question about it to whoever can answer, and give your block again with that entry in "settled". Nothing else is asked of this turn. If you leave it again, that is written on the item, and the development manager is told at that role's next pass.`, item),
 	}, "\n")
 }

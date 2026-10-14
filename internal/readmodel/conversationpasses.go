@@ -158,13 +158,37 @@ func takenSays(item runstate.DeliveredWork) string {
 		return "taken, finished and HELD FOR SENDING as " + item.HeldForSending + ", not yet ruled"
 	}
 	if item.Taken {
-		return "taken"
+		return "taken" + settledSays(item.Settled)
 	}
 	reason := item.Reason
 	if reason == "" {
 		reason = "no reason given"
 	}
-	return "NOT TAKEN — " + reason
+	return "NOT TAKEN — " + reason + leftInARowSays(item.LeftInARow)
+}
+
+// settledSays is which of the two a pass told it kept leaving an item did with
+// it (orchestrator/repeatleave.go).
+func settledSays(settled string) string {
+	switch settled {
+	case runstate.SettledDecided:
+		return ": DECIDED, with the assumptions it made written on the item"
+	case runstate.SettledAsked:
+		return ": ASKED one question about it, written on the item"
+	}
+	return ""
+}
+
+// leftInARowSays is how many passes in a row have left an item with nothing
+// outside the role holding it, where more than one has.
+func leftInARowSays(times int) string {
+	switch {
+	case times > runstate.LeftInARowBeforeSettling:
+		return fmt.Sprintf(" (LEFT %d TIMES IN A ROW, after being told to decide it or ask; the development manager is told)", times)
+	case times > 1:
+		return fmt.Sprintf(" (left %d times in a row; the next pass is told to decide it or ask one question)", times)
+	}
+	return ""
 }
 
 // RenderConversationPasses is the passes' entries under the four lines, and
@@ -201,6 +225,10 @@ type ItemConsideration struct {
 	// HeldForSending is the document that holds the item's finished design or
 	// ruling under a hold on sending it, where the pass took it that way.
 	HeldForSending string `json:"held_for_sending,omitempty"`
+	// Settled is what a pass told it kept leaving the item did with it, and
+	// LeftInARow how many passes in a row had left it (runstate.DeliveredWork).
+	Settled    string `json:"settled,omitempty"`
+	LeftInARow int    `json:"left_in_a_row,omitempty"`
 	// Says is the line every surface prints, so the card and the terminal say
 	// one thing about one pass.
 	Says string `json:"says"`
@@ -224,6 +252,7 @@ func LastConsidered(recorded []runstate.Sweep, id string) (ItemConsideration, bo
 				Position: index + 1, Of: len(pass.Delivered),
 				Taken: item.Taken, Answered: pass.Turns > 0 && pass.Result != nil, Reason: item.Reason,
 				HeldForSending: item.HeldForSending,
+				Settled:        item.Settled, LeftInARow: item.LeftInARow,
 			}
 			ok = true
 			break
@@ -263,11 +292,11 @@ func (c ItemConsideration) Sentence() string {
 	case c.Taken && c.HeldForSending != "":
 		return said + "; it took this item, and its finished design or ruling is HELD FOR SENDING as " + c.HeldForSending + ", not yet ruled"
 	case c.Taken:
-		return said + "; it took this item"
+		return said + "; it took this item" + settledSays(c.Settled)
 	case !c.Answered:
 		return said + "; the pass gave no account, so whether it took this item is not recorded"
 	}
-	return said + "; it did NOT take this item — " + takenReason(c.Reason)
+	return said + "; it did NOT take this item — " + takenReason(c.Reason) + leftInARowSays(c.LeftInARow)
 }
 
 func takenReason(reason string) string {

@@ -1122,7 +1122,8 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// would otherwise write the same memories and report a second time.
 	// And the findings the last pass that took a turn left no trace of are named
 	// in this one's, so the role can write the trace now rather than lose them.
-	if earlier, unread, recovery, problem := t.earlierPasses(name, task.Role, f.agent); problem != "" {
+	earlier, unread, recovery, stuck, problem := t.earlierPasses(name, task.Role, f.agent)
+	if problem != "" {
 		problems = append(problems, problem)
 	} else {
 		pending = unread
@@ -1133,6 +1134,13 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		message += wordingMessage(earlier)
 		if untraced, found := lastUntracedPass(earlier); found {
 			message += "\n\n" + untracedMessage(untraced)
+		}
+		// The items other roles' passes keep leaving are the development
+		// manager's to decide about (repeatleave.go).
+		if task.Role == domain.RoleDevelopmentManager {
+			if said := leftAgainMessage(stuck); said != "" {
+				message += "\n\n" + said
+			}
 		}
 	}
 	var docket RecurringDocketPass
@@ -1160,7 +1168,12 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	deliveredRead := false
 	var actedOn []string
 	var heldForSending map[string]string
-	for turn := 0; turn < task.Turns(); turn++ {
+	// How many passes in a row have left the item first in the order, and
+	// whether this one is told to decide it or ask (repeatleave.go). A pass sent
+	// back to do that is given one turn past the task's bound where it needs it.
+	var streak *leaveStreak
+	limit := task.Turns()
+	for turn := 0; turn < limit; turn++ {
 		if t.ConversationWork != nil && f.agent == "" {
 			work, err := t.ConversationWork.Read(ctx, task.Role)
 			if err != nil {
@@ -1176,6 +1189,10 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				delivered = boundedDelivery(work.Items)
 				if len(delivered) > 0 {
 					message += "\n\n" + sweep.LeftContract()
+				}
+				streak = streakFor(earlier, delivered)
+				if said := streak.message(); said != "" {
+					message += "\n\n" + said
 				}
 			}
 		}
@@ -1336,17 +1353,23 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				problems = append(problems, problem)
 			}
 			if len(standing) == 0 {
+				if back := streak.sendBack(actedOn, heldForSending, merged); back != "" {
+					limit = max(limit, turn+2)
+					problems = append(problems, sentBackProblem(name, turn+1, streak.item))
+					message = back
+					continue
+				}
 				break
 			}
 			// The account said complete, and a critical it was shown is still
 			// undecided. That is refused rather than recorded: the pass is marked as
 			// having more to do, and the next turn is asked for the criticals by name.
 			merged.Status = sweep.StatusMore
-			if turn+1 >= task.Turns() {
+			if turn+1 >= limit {
 				fired.Truncated = true
 				problems = append(problems, fmt.Sprintf(
 					"the pass of the recurring task %s said it was complete while the critical report(s) %s it was shown stand unhandled, and all %d of its turns are spent, so it is recorded as partial and they wait on the next pass",
-					name, strings.Join(standing, ", "), task.Turns()))
+					name, strings.Join(standing, ", "), limit))
 				break
 			}
 			problems = append(problems, fmt.Sprintf(
@@ -1355,14 +1378,20 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 			message = criticalsOutstandingMessage(name, standing)
 			continue
 		}
-		if turn+1 >= task.Turns() {
+		if turn+1 >= limit {
+			if back := streak.sendBack(actedOn, heldForSending, merged); back != "" {
+				limit++
+				problems = append(problems, sentBackProblem(name, turn+1, streak.item))
+				message = back
+				continue
+			}
 			// The bound ended the pass rather than the work. Said out loud in both
 			// places, because a truncated pass and a finished one produce the same
 			// short report and nothing else distinguishes them.
 			fired.Truncated = true
 			problems = append(problems, fmt.Sprintf(
 				"the recurring task %s still had more to do after all %d of its turns, so its pass is partial and the rest waits for the next firing",
-				name, task.Turns()))
+				name, limit))
 			break
 		}
 		message = continueMessage(name)
@@ -1428,7 +1457,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	// What the pass was handed and which of it it took, and the note on the item
 	// first in its order where it did not take that one.
 	recorded.Delivered = judgeDelivered(delivered, actedOn, heldForSending, merged)
+	problems = append(problems, streak.record(&recorded, name))
 	problems = append(problems, t.notePassedOver(ctx, pass, task.Role, recorded))
+	problems = append(problems, t.noteSettled(ctx, pass, recorded))
 	// Bounded, because the record's own bound on this prose refuses a record that
 	// carries too much of it — and every one of these sentences ends with a
 	// provider's error message, whose length nothing here controls. Losing a whole
@@ -1859,17 +1890,19 @@ func describeSavedBeforeFailing(name string, saved []runstate.SavedWrite) string
 
 // earlierPasses is this task's recorded passes, in the order they were
 // written, read once for everything the next pass is told about the ones
-// before it, and the unread docket entries from the product's latest pass.
+// before it, the unread docket entries from the product's latest pass, and the
+// items any task's passes keep leaving that a development manager's pass is
+// told of.
 // It reports what stopped it reading them as a problem for the
 // record, and then lists nothing, since a pass told nothing reads the same as
 // one told there was nothing.
-func (t Trigger) earlierPasses(name string, role domain.AgentRole, agent string) ([]runstate.Sweep, []triage.WindowPosition, RecurringTurnOptions, string) {
+func (t Trigger) earlierPasses(name string, role domain.AgentRole, agent string) ([]runstate.Sweep, []triage.WindowPosition, RecurringTurnOptions, []leftAgain, string) {
 	if t.Reports == nil {
-		return nil, nil, RecurringTurnOptions{}, ""
+		return nil, nil, RecurringTurnOptions{}, nil, ""
 	}
 	recorded, _, err := t.Reports.List()
 	if err != nil {
-		return nil, nil, RecurringTurnOptions{}, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told which docket entries were never delivered, what an unfinished one had already saved or which findings an earlier one left no trace of, and its missing-report count is unknown: %v", name, err)
+		return nil, nil, RecurringTurnOptions{}, nil, fmt.Sprintf("the earlier passes of %s could not be read, so this pass was not told which docket entries were never delivered, what an unfinished one had already saved or which findings an earlier one left no trace of, and its missing-report count is unknown: %v", name, err)
 	}
 	var passes []runstate.Sweep
 	var pending []triage.WindowPosition
@@ -1888,7 +1921,7 @@ func (t Trigger) earlierPasses(name string, role domain.AgentRole, agent string)
 		}
 	}
 	previous, reason := missingReportReplacement(conversations, t.MissingReportLimit)
-	return passes, pending, RecurringTurnOptions{FreshAfter: previous, FreshReason: reason}, ""
+	return passes, pending, RecurringTurnOptions{FreshAfter: previous, FreshReason: reason}, itemsLeftAgain(recorded), ""
 }
 
 func missingReportReplacement(earlier []runstate.Sweep, limit int) (string, string) {
