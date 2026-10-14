@@ -382,7 +382,7 @@ func (s *Session) renderDocumentRefusal(problem error) string {
 // which for a single message is immediately — and the operator's approval then
 // arrived at a conversation that had never heard of what they were approving,
 // which is the failure that put the transcription back in a person's hands.
-func (s *Session) recordWrites(writes []artifact.Write) ([]PendingWrite, error) {
+func (s *Session) recordWritesWithoutToolAudit(writes []artifact.Write) ([]PendingWrite, error) {
 	pending := make([]PendingWrite, 0, len(writes))
 	for index, write := range writes {
 		record := &writeRecord{pending: PendingWrite{

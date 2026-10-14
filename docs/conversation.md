@@ -107,7 +107,7 @@ and what it cost, in the
 It changes nothing itself. On Claude Code it has no tools: no filesystem, no
 commands, no network. On Codex it can read the repository under Codex's
 read-only sandbox, with network access and outside integrations turned off, and
-can write nothing. What it has instead are
+can write nothing. What it has instead are [tools](#tools-and-the-program-managers-log-reads):
 capabilities the harness performs on its behalf — the tracker below, [a read of
 one repository path at a recorded commit](#reading-the-repository-at-a-recorded-commit),
 and [research](#bringing-it-an-idea-rather-than-a-work-item) where you have
@@ -1064,6 +1064,10 @@ directions written onto `yoyodyne-ifd.283` came to read as writes that never
 landed — both were durable, and both were outside the window this rendering
 showed. The runs section above is outside that cut.
 
+A conversation tool returns at most 32 KiB for each tracker read, including
+the item and its runs together, and declares any further cut. `/show` is a
+direct operator command and does not spend this tool's prompt budget.
+
 ## Directives, and the work they pause
 
 A redirection is about one item. A directive is about the product: it is
@@ -1533,7 +1537,7 @@ happens:
 ```
 
 **The reviewer and the developer are unchanged.** Neither holds the capability:
-the reviewer's evidence is the change, and it stays tool-less and diff-scoped;
+the reviewer's inspection evidence is the change, and it stays diff-scoped;
 the developer's is the worktree it is given inside a run. A conversation with
 either that names a path is refused by the harness, and nothing is read.
 
@@ -1667,6 +1671,61 @@ to you as a proposal instead. Close and retire are refused everywhere. An
 instance configured with no lane has nothing inside one, so every one of its
 tracker writes is refused.
 
+### Tools and the program manager's log reads
+
+A tool is a registered action the harness performs on a role's behalf from a
+typed reply block. It is described once in trusted code: its parameters, bounds,
+scope, gates and evidence framing. Each role's contract includes a generated
+list of its granted tools before its configured persona and remit. Neither a
+persona nor a remit grants a tool, and existing handler authority and admission
+checks still apply. These are harness actions; provider inspection access stays
+subject to its existing sandbox. A developer's or a reviewer's run is sent a shorter
+list: only the tools a run carries out, which are filing a report and, for the
+developer, proposing a change to a document. Reading or surveying work items is
+part of a conversation and is not offered inside a run.
+
+The program manager holds `log.read`. It may request pass records, watch
+transitions or scheduler output, the docket, a named run record, the usage-limit
+log, and the provider-outage record of this product. It cannot request arbitrary
+paths, tokens, memory, another agent's conversation records, or repository
+content. Repository content uses the existing repository block.
+
+````text
+```yoyodyne-log
+{"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}
+```
+````
+
+Use `record` as `pass`, `watch`, `docket`, `run`, `usage-limit`, or
+`provider-outage`. A run also requires its plain run identifier in `name`.
+For the watch's process output, use `record: "watch"` and `name: "output"`:
+the supervisor writes it at
+`<state root>/projects/<product id>/state/scheduler.log`. An unnamed watch read
+returns its recorded transitions in `watch.jsonl`. Pass reads return
+`sweeps/sweeps.jsonl` under the same product directory. A home still laid out the
+earlier way is read under `products/<product id>/` instead. None of these paths
+is something a request can name: the kind chooses the file.
+
+Every request supplies `max_bytes` from 1 to 49152 and either a nonnegative byte
+`cursor` at a record boundary or RFC3339 `since` and `until` values spanning at
+most 24 hours. The time window includes `since` and excludes `until`; records
+without a readable timestamp require a cursor. A reply may name six records,
+return at most 96 KiB in total, and retrieve logs in at most two rounds of one
+message. Each request scans at most 8 MiB. Results include `next_cursor`, bytes
+returned, the record's whole `size` when it was read, and any truncation, so a
+cut says how much of the record was left unread. If a byte cap cuts inside a record, the cursor
+repeats that record; request a larger cap within the limit to read it whole.
+Single JSON records accept cursor zero or their end, rather than an offset
+inside the JSON. Missing records, forbidden names and symlinks are refused.
+
+The harness redacts the returned records before handing them back as untrusted
+evidence in the same message. Each invocation records `tool.requested` followed
+by `tool.performed` or `tool.refused`, with role, tool, bounds and measured bytes,
+without copying returned content or request prose into the tool events. Scheduled
+turns also name their pass so its tool use is discoverable in the conversation
+record. A failed request audit prevents a read, and a failed result audit
+withholds the evidence.
+
 ### A program manager's lane report
 
 A [program manager](designs/program-manager.md) keeps one report on its lane: a
@@ -1769,9 +1828,9 @@ for:
   no-side-conversations property traceability implies. The conversation that
   asked tells you at the time as well, and where the project reports to Slack
   each round arrives in a thread of its own.
-- **It is judgment-only.** Both halves are toolless: the role being asked has no
-  filesystem, no commands, and nothing to check anything against, so an ask moves
-  opinion and never evidence. An answer reaching for any harness block at all is
+- **It is judgment-only.** The answering role receives bounded evidence and may
+  inspect through its backend's read-only tools where supported. Its advice
+  grants no verification or authority. An answer reaching for any harness block at all is
   refused whole and the asker is told its question went unanswered. Work that
   needs something verified is still commissioned as bounded developer work.
 - **It is decisionless.** No authority moves through an ask. Nothing an answering

@@ -23,6 +23,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -31,6 +32,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
+	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
 	"github.com/mason-bryant/yoyodyne/internal/protectedpath"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -380,6 +382,7 @@ type Options struct {
 	// refuses the block plainly and says so in the turn, rather than leaving the
 	// role to advise from its briefing believing it had looked.
 	RepositoryReader RepositoryReader
+	LogReader        LogReader
 	// Memories is what this agent knows. A management role's turns are briefed
 	// from it and write what they conclude back into it, through the context
 	// actions; every role's turns read from it the side conversations it held
@@ -623,6 +626,7 @@ type Session struct {
 	options             Options
 	state               runstate.Conversation
 	resumed             bool
+	toolUses            map[capability.Capability]*toolUse
 	// pass names the recurring-task firing whose turns this session is taking,
 	// where one is, so a lane report it writes is stamped with it. It is empty on
 	// an operator's own conversation.
@@ -992,6 +996,7 @@ type Reply struct {
 	// research is: a read already happened and is recorded, and what a reply's
 	// advice rests on is something the operator reading it is owed.
 	RepositoryReads []RepositoryRound `json:"repository_reads,omitempty"`
+	LogReads        []LogRound        `json:"log_reads,omitempty"`
 	// Picture is how old the picture of the repository this reply was answered
 	// from was, in landings on the target branch, and what the harness did about
 	// it: nothing where it was current, a re-read before the turn where it was
@@ -1513,6 +1518,8 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	// for the same reason.
 	repositoryRounds := 0
 	documentHandedBack := false
+	logRounds := 0
+	s.toolUses = make(map[capability.Capability]*toolUse)
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
 	// what that round asked for, and record nothing as the operator's.
@@ -1563,6 +1570,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// turn and the wakeup the harness owes it.
 		var refused *TrackerError
 		if errors.As(err, &refused) {
+			if auditErr := s.refuseToolBlocks(answer, parsed); auditErr != nil {
+				return reply, errors.Join(err, auditErr)
+			}
 			trackerRounds++
 			handBack := s.state.RefusedBlock == nil && trackerRounds < maxTrackerRounds
 			if problem := s.recordRefusedTrackerBlock(refused, handBack); problem != nil || !handBack {
@@ -1585,7 +1595,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			return reply, errors.Join(err, settled)
 		}
 		if err != nil {
-			return reply, err
+			return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
 		}
 		// A question put to a role this one may not ask is refused alone: it is
 		// handed back to the role below, and the reply's other blocks are judged
@@ -1604,7 +1614,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// recorded or carried out. The answer is readable and the turn was paid
 		// for, so both are returned; what the role asked for is simply not done.
 		if err := s.authorize(parsed); err != nil {
-			return reply, err
+			return reply, errors.Join(err, s.refuseToolBlocks(answer, parsed))
 		}
 
 		// A refused document is an action result, not a failed turn. Keep the
@@ -1612,6 +1622,9 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// another refusal waits durably for its next turn instead of looping.
 		var documentResult string
 		if err := s.refuseWrites(ctx, parsed.Writes); err != nil {
+			if auditErr := s.auditRefusedWrites(ctx, len(parsed.Writes), err); auditErr != nil {
+				return reply, auditErr
+			}
 			documentResult = s.renderDocumentRefusal(err)
 			parsed.Writes = nil
 			reply.DocumentRefusals = append(reply.DocumentRefusals, documentResult)
@@ -1638,19 +1651,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 		// does not exist, and the approval is spent by the time the creation
 		// refuses it.
 		if err := s.verifyProposalGoals(parsed.Proposals); err != nil {
-			return reply, &ProposalGoalError{Err: err}
+			return reply, errors.Join(&ProposalGoalError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
 		}
 		// What a proposal says done means is checked next, for the same reason
 		// and at the same cost: a done-condition naming a document no run may
 		// write is work no run can finish, and the operator would be approving it.
 		if err := s.verifyProposalConditions(parsed.Proposals); err != nil {
-			return reply, &ProposalConditionError{Err: err}
+			return reply, errors.Join(&ProposalConditionError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
 		}
 		// What a proposal is placed against is confirmed to exist before the
 		// operator is asked about any of it. A block naming an item nobody created
 		// proposes nothing, exactly as an unreadable one does.
 		if err := s.verifyProposalReferences(ctx, parsed.Proposals); err != nil {
-			return reply, &ProposalPlacementError{Err: err}
+			return reply, errors.Join(&ProposalPlacementError{Err: err}, s.refuseToolBlocks(answer, parsed, capability.ConcernRaise))
 		}
 		// What each proposal looks like among the work already admitted is judged
 		// before any of it is recorded, so a proposal that is work the tracker
@@ -1744,6 +1757,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				undelivered += "# Repository content\n\nNothing was read: " + problem + "\n\n"
 			} else {
 				undelivered += repositoryread.Render(results, s.repositoryFraming())
+			}
+		}
+		if len(parsed.LogReads) > 0 {
+			round := s.performLogReads(ctx, parsed.LogReads, &logRounds)
+			reply.LogReads = append(reply.LogReads, round)
+			if round.Problem != "" {
+				// A spent bound ends log retrieval for this message. A refusal
+				// is visible on the reply and cannot start an endless loop.
+				if logRounds < logread.MaxRoundsPerMessage {
+					undelivered += "# Operational records\n\nNothing was read: " + round.Problem + "\n\n"
+				}
+			} else {
+				undelivered += logread.Render(round.Results)
 			}
 		}
 		// What this reply concluded about an operator's idea, written down where it
@@ -1856,11 +1882,8 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				// One message has asked as much as it may. The exchange itself is
 				// untouched — nothing was opened and nothing was spent — so this
 				// bounds the reply rather than the thread.
-				reply.Exchanges = append(reply.Exchanges, ExchangeRound{
-					Asked:    parsed.Ask.Role,
-					Question: oneLineAsk(*parsed.Ask),
-					Problem:  fmt.Sprintf("one message asks at most %d round(s), and this one has", s.options.askRounds()),
-				})
+				reply.Exchanges = append(reply.Exchanges, s.refuseAsk(ctx, *parsed.Ask,
+					fmt.Sprintf("one message asks at most %d round(s), and this one has", s.options.askRounds())))
 				// This round is the last one, so whatever was retrieved was about to be
 				// handed back and now never will be. It is written down for the next
 				// turn, because results the role never sees are the exact loss the
@@ -2656,7 +2679,8 @@ type parsedReply struct {
 	Evaluation *evaluation.Entry
 	// Reads are the repository paths this reply asked the harness to read or list
 	// at a recorded commit. Most replies name none.
-	Reads []repositoryread.Request
+	Reads    []repositoryread.Request
+	LogReads []logread.Request
 	// Ask is the one question this reply puts to another role, where it puts
 	// one. Most replies put none, which is not an empty ask.
 	Ask *exchange.Ask
@@ -2733,6 +2757,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, &RepositoryError{Err: err}
 	}
+	prose, logs, err := logread.Extract(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, fmt.Errorf("log read block refused: %w", err)
+	}
 	prose, ask, err := exchange.Extract(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2770,6 +2799,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Queries = queries
 	parsed.Evaluation = evaluated
 	parsed.Reads = reads
+	parsed.LogReads = logs
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
@@ -2784,6 +2814,10 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 // nothing it does can change what the turn did.
 func (s *Session) collectReply(reply *Reply, parsed parsedReply) {
 	if parsed.ReportProblem != nil {
+		_, auditErr := auditTool(context.Background(), s, capability.ReportFile, nil, 1, func() (struct{}, error) { return struct{}{}, errors.New("unreadable report block") }, nil)
+		if auditErr != nil && strings.Contains(auditErr.Error(), "audit failed") {
+			reply.ReportProblem = appendProblem(reply.ReportProblem, auditErr.Error())
+		}
 		reply.ReportProblem = appendProblem(reply.ReportProblem, s.noteUnreadableReport(parsed.ReportProblem))
 		return
 	}
@@ -2908,7 +2942,7 @@ func (s *Session) awaitingAnswer(concernID string) (*concernRecord, error) {
 // recordConcerns gives each concern an identity within the conversation and
 // makes it durable before the operator is asked, so a question they answer is
 // always one that was written down first.
-func (s *Session) recordConcerns(concerns []Concern) ([]PendingConcern, error) {
+func (s *Session) recordConcernsWithoutToolAudit(concerns []Concern) ([]PendingConcern, error) {
 	raised := make([]PendingConcern, 0, len(concerns))
 	for i, concern := range concerns {
 		record := &concernRecord{pending: PendingConcern{
@@ -3072,7 +3106,7 @@ type rejection struct {
 // resembling is what each proposal looks like among the work already admitted,
 // judged by the caller against one reading of the tracker, and empty for the
 // proposals that look like nothing — which is nearly all of them.
-func (s *Session) recordProposals(proposals []Proposal, resembling []string) ([]PendingProposal, error) {
+func (s *Session) recordProposalsWithoutToolAudit(proposals []Proposal, resembling []string) ([]PendingProposal, error) {
 	pending := make([]PendingProposal, 0, len(proposals))
 	for i, proposal := range proposals {
 		record := &proposalRecord{pending: PendingProposal{
@@ -3458,6 +3492,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// reply that rests on a file is one the operator should be able to hold
 		// against the commit the file was read at.
 		s.reportRepositoryReads(out, reply)
+		s.reportLogReads(out, reply)
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
 		s.reportMemories(out, reply)
@@ -4040,6 +4075,16 @@ func (s *Session) reportRepositoryReads(out io.Writer, reply Reply) {
 		return
 	}
 	for _, round := range reply.RepositoryReads {
+		fmt.Fprint(out, round.Render())
+	}
+	fmt.Fprintln(out)
+}
+
+func (s *Session) reportLogReads(out io.Writer, reply Reply) {
+	if len(reply.LogReads) == 0 {
+		return
+	}
+	for _, round := range reply.LogReads {
 		fmt.Fprint(out, round.Render())
 	}
 	fmt.Fprintln(out)

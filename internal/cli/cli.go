@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 
 	"go.yaml.in/yaml/v3"
@@ -19,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 func Run(args []string, stdout, stderr io.Writer, version string) int {
@@ -685,6 +687,11 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		}
 		if showEffective {
 			payload["effective"] = resolved.Config
+			tools := map[string][]string{}
+			for name, agent := range resolved.Config.Agents {
+				tools[name] = toolcatalog.Names(agent.Role)
+			}
+			payload["tools"] = tools
 		}
 		if *origins {
 			payload["origins"] = resolved.Origins
@@ -708,6 +715,14 @@ func runConfigShow(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "# state root: %s (from %s)\n", stateRoot.Path, stateRoot.Origin)
 	}
 	if showEffective {
+		names := make([]string, 0, len(resolved.Config.Agents))
+		for name := range resolved.Config.Agents {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		for _, name := range names {
+			fmt.Fprintf(stdout, "# tools for %s: %s\n", name, strings.Join(toolcatalog.Names(resolved.Config.Agents[name].Role), ", "))
+		}
 		encoded, err := yaml.Marshal(resolved.Config)
 		if err != nil {
 			fmt.Fprintf(stderr, "render effective configuration: %v\n", err)

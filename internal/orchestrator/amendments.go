@@ -32,7 +32,7 @@ type AmendmentRecorder interface {
 // failure here is noted and swallowed, for the same reason a report's is: a run
 // that failed because an agent argued with the design would teach every agent to
 // stop arguing with it.
-func (a *activeRun) collectAmendments(role domain.AgentRole, entries []amendment.Entry) {
+func (a *activeRun) collectAmendmentsWithoutToolAudit(role domain.AgentRole, entries []amendment.Entry) {
 	if len(entries) == 0 {
 		return
 	}

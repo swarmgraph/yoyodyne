@@ -107,11 +107,8 @@ func TestWhatTellsTheRolesApart(t *testing.T) {
 	}
 }
 
-// TestTheRunGatedBundlesAreUnchangedByTheRepositoryRead pins the developer's
-// and the reviewer's bundles verbatim. The architect's ruling that gave the
-// management roles a named repository read left both of these alone — the
-// reviewer stays tool-less and diff-scoped, the developer is unchanged — and a
-// capability arriving in either of them is a widening nobody ruled on.
+// The run bundles keep their repository boundary. Reports and developer
+// amendments describe the reply blocks these roles already hold in runs.
 func TestTheRunGatedBundlesAreUnchangedByTheRepositoryRead(t *testing.T) {
 	t.Parallel()
 
@@ -125,6 +122,8 @@ func TestTheRunGatedBundlesAreUnchangedByTheRepositoryRead(t *testing.T) {
 			capability.ChecksExecute,
 			capability.ForgePublish,
 			capability.RunStateMutate,
+			capability.ReportFile,
+			capability.AmendmentPropose,
 		},
 		domain.RoleReviewer: {
 			capability.WorkItemRead,
@@ -132,6 +131,7 @@ func TestTheRunGatedBundlesAreUnchangedByTheRepositoryRead(t *testing.T) {
 			capability.ProviderInvoke,
 			capability.RunStateMutate,
 			capability.ReviewVerdict,
+			capability.ReportFile,
 		},
 	} {
 		bundle, described := registry.Bundle(role)
@@ -162,7 +162,7 @@ func TestTheProgramManagerHoldsItsDesignsSetExactly(t *testing.T) {
 		t.Fatal("no bundle describes the program manager")
 	}
 	want := []capability.Capability{
-		"work-item.read", "repository.read", "repository.list", "readmodel.read",
+		"work-item.read", "repository.read", "repository.list", "log.read", "readmodel.read",
 		"work-item.admit", "work-item.attribute", "work-item.update", "work-item.label",
 		"work-item.reprioritize", "work-item.park", "work-item.unpark", "work-item.link",
 		"work-item.unlink", "work-item.reparent",
