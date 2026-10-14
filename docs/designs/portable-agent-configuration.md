@@ -22,12 +22,21 @@ revisions:
       by: architect
       at: 2026-10-07T15:09:27.091741Z
       reason: 'yoyodyne-ifd.434.8: section 6 added. Values the harness recommends (checks, landing checks, developer models and slots, recurring task schedules and models, numeric limits) are decided by the development manager and applied by a typed write refused for anything naming an agent, role, persona, remit, role definition, account, or approval policy; the value reaches the committed file through the reviewed path documents use, bound to the value the role saw, written safely with its baseline in one change, and an uncertain outcome is settled before any retry; drift and doctor say who applied it; race check narrowing is ruled under the operator''s October 3 conditions; the closing question to the operator is decided rather than left open. Resubmitted unchanged after the previous runs judged nothing: one check stopped by its time limit, one push refused by the forge''s own server error.'
+    - action: amended
+      by: architect
+      at: 2026-10-14T06:43:09.156035Z
+      reason: 'yoyodyne-ifd.437.36: section 3 said the conversion commands land ''the way approved artifact writes already do'', meaning by the operator''s own commit; approved documents now land through a reviewed run, as the artifact contract states. The paragraph now says the conversion output stays in the operator''s working tree because the operator ran the command there, that runs still refuse to start over it uncommitted, and that a value a role applies lands through the reviewed run of section 6 instead. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 3
       by: harness
       at: 2026-10-07T15:09:27.091741Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 567, for document-567.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-10-14T06:43:09.156035Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 903, for document-903.1 under the automatic approval policy
 ---
 # Portable agent configuration
 
@@ -183,11 +192,13 @@ runs differently from the one it replaced.
 Neither command is destructive without saying so: both refuse to overwrite
 without `--force`, both fail before writing anything, and both go through the
 shared safe-write primitive under the project root, so neither can be walked out
-of the repository by a symlink in `.yoyodyne`. Both commands' output is subject
-to the same working-tree rule as every other harness write to the primary
-checkout — the operator commits it, and runs refuse over the uncommitted
-change — so conversions land the way approved artifact writes already do rather
-than inventing a third publication shape.
+of the repository by a symlink in `.yoyodyne`. Both are commands the operator
+runs at their own terminal, so their output is written to the operator's
+working tree, where they ran it, and the operator commits it under their own
+identity. Until it is committed, runs refuse to start over the uncommitted
+change, the same rule the [artifact contract](artifact-contract.md) keeps for a
+project that cannot land a document through a reviewed run. A value a role
+applies never takes this path: it lands through the reviewed run of section 6.
 
 ## 4. How a bundle improvement reaches a project that materialized
 
