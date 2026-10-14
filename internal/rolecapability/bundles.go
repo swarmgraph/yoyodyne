@@ -80,6 +80,11 @@ func bundles() []Bundle {
 				// itself — remember nothing between invocations, and what a run learned
 				// stays in that run's own record where the review can see it.
 				capability.AgentContextMutate,
+				// Asking a program manager instance for a pass is hers and the
+				// operator's alone ("Passes on request" in the program manager
+				// design): another role that wants a pass asks her for one. It records
+				// a request the scheduler takes, and invokes nothing.
+				capability.PassRequest,
 			},
 		},
 		{

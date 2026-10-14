@@ -446,6 +446,10 @@ type Trigger struct {
 	// neither. See programmanagerpass.go.
 	Cursors PassCursors
 	Events  PassEvents
+	// Requests is where requests for an instance's pass are kept. Optional: a
+	// trigger wired without it takes no pass anybody asked for, and an instance
+	// whose triggers say nothing is never woken.
+	Requests PassRequests
 	// Conversations says whether a turn is in flight on an instance's
 	// conversation, so an unfinished pass is not mistaken for a dead one.
 	// A due pass queues when it opens the conversation, as a recurring task does.
@@ -1066,6 +1070,9 @@ type firing struct {
 	agent string
 	// events counts what the pass was handed, by class.
 	events map[string]int
+	// request is the pass request a program manager's pass was taken from, and
+	// nil for every pass a request did not fire.
+	request *runstate.PassRequest
 	// criticals are the critical reports the firing was made to deliver, and
 	// empty on every firing a critical report did not make.
 	criticals []string
@@ -1093,6 +1100,9 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 		Agent:     f.agent,
 		Events:    f.events,
 		Criticals: f.criticals,
+	}
+	if f.request != nil {
+		recorded.Request, recorded.AskedBy = f.request.ID, f.request.AskedBy
 	}
 	// Whoever fired this pass is told it has begun, before its first turn, so a
 	// watch session can say which pass it is in for as long as the pass runs.

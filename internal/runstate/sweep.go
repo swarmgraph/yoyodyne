@@ -379,6 +379,11 @@ type Sweep struct {
 	// reads as one pass carrying the burst rather than as a pass nobody can
 	// account for.
 	Events map[string]int `json:"events,omitempty"`
+	// Request is the pass request this pass was taken from, and AskedBy who made
+	// it, where a request is what fired it: the record a request's asker reads to
+	// learn which pass answered them. Both are absent on every other pass.
+	Request string    `json:"request,omitempty"`
+	AskedBy PassAsker `json:"asked_by,omitempty"`
 	// Missed marks a record that is a missed pass rather than a pass: a trigger
 	// fired and no pass followed it, or a pass was taken and cancelled before it
 	// completed, or its wait behind a held conversation ended before its turn.
@@ -607,19 +612,21 @@ func (s Sweep) Unfinished() bool {
 }
 
 // PassTrigger is what fires a pass: the cadence, the events a program manager
-// instance watches, or the intake brake's summons.
+// instance watches, the intake brake's summons, or a request for an instance's
+// pass.
 type PassTrigger string
 
 const (
 	PassTriggerSchedule PassTrigger = "schedule"
 	PassTriggerEvents   PassTrigger = "events"
 	PassTriggerSummons  PassTrigger = "summons"
+	PassTriggerRequest  PassTrigger = "request"
 )
 
 // Valid reports whether a trigger is one of the vocabulary's.
 func (t PassTrigger) Valid() bool {
 	switch t {
-	case PassTriggerSchedule, PassTriggerEvents, PassTriggerSummons:
+	case PassTriggerSchedule, PassTriggerEvents, PassTriggerSummons, PassTriggerRequest:
 		return true
 	}
 	return false
@@ -634,6 +641,8 @@ func (t PassTrigger) Describe() string {
 		return "pass its events woke"
 	case PassTriggerSummons:
 		return "summoned pass"
+	case PassTriggerRequest:
+		return "requested pass"
 	default:
 		return "pass"
 	}
@@ -883,6 +892,12 @@ func (s Sweep) Validate() error {
 	}
 	if len(s.Summoned) > MaxSweepTextBytes {
 		problems = append(problems, fmt.Errorf("summoned is %d bytes, limit is %d", len(s.Summoned), MaxSweepTextBytes))
+	}
+	if (s.Request == "") != (s.AskedBy == "") {
+		problems = append(problems, errors.New("a pass taken from a request names both the request and who made it"))
+	}
+	if s.AskedBy != "" && !s.AskedBy.Valid() {
+		problems = append(problems, fmt.Errorf("a pass is asked for by %q or %q, not %q", PassAskerOperator, PassAskerProductManager, s.AskedBy))
 	}
 	classes := make([]string, 0, len(s.Events))
 	for class := range s.Events {

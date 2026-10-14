@@ -130,12 +130,14 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 	trigger.ClosedWork = closedWork{
 		items: withListingRecord(chatTracker(parts.runner, parts.repository), parts.trackerListings),
 	}
-	// The program manager instances their triggers wake, with the cursor each
-	// keeps over the streams it watches and the streams themselves, and whether a
+	// The program manager instances, with the cursor each keeps over the
+	// streams its triggers watch and the streams themselves, the requests for
+	// their passes the operator and the Lead Product Manager make, and whether a
 	// turn is already in flight on an instance's conversation, which prevents
 	// an unfinished pass being mistaken for one whose process died.
 	if len(instances) > 0 {
 		trigger.Instances = instances
+		trigger.Requests = parts.store.PassRequests()
 		trigger.Cursors = parts.store.PassCursors()
 		trigger.Events = passEvents{runs: parts.store, repository: parts.repository, refresh: parts.tracker().RefreshExportIfDue}
 		if conversations, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID); err == nil {

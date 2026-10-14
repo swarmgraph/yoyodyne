@@ -47,6 +47,19 @@ package orchestrator
 // nothing and would be recorded once a pull; the schedule, which the claim
 // paces, is what records the wait.
 //
+// # A pass may be asked for
+//
+// An open request for the instance's pass — the operator's, from `yoyo agent
+// pass`, or the Lead Product Manager's, from her conversation — is taken at the
+// next pull whatever the instance's triggers say, and an instance whose
+// triggers say nothing is woken by nothing else ("Passes on request" in the
+// design). The request is taken as a summoned pass is, so the schedule runs on
+// from it, and it is handed whatever events stand past the cursor as a
+// scheduled pass would be. The pass's record names the request and who made
+// it, and closes it, completed or failed, once the pass is over. A request the
+// provider's outage keeps from being taken waits, with that reason recorded on
+// it, and is never dropped.
+//
 // # The model
 //
 // A pass asks for the agent's own model: an instance's triggers name none, and
@@ -114,6 +127,14 @@ type PassEvents interface {
 type PassCursors interface {
 	Load(agent string) (runstate.PassCursor, bool, error)
 	Advance(ctx context.Context, agent string, positions map[string]time.Time, carried map[string]map[string]time.Time, now time.Time) (runstate.PassCursor, error)
+}
+
+// PassRequests is where requests for an instance's pass are kept. It is
+// satisfied by *runstate.PassRequestStore.
+type PassRequests interface {
+	Open(agent string) (runstate.PassRequest, bool, error)
+	Wait(agent, id, reason string, at time.Time) (runstate.PassRequest, error)
+	Close(agent, id, pass string, outcome runstate.PassRequestOutcome, problem string, at time.Time) (runstate.PassRequest, error)
 }
 
 // InstanceConversations says whether a turn is in flight on an instance's
@@ -193,12 +214,13 @@ func (t Trigger) instanceNames() []string {
 // caller knows, and it rides the pass's record.
 func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentConfig, outage runstate.ProviderOutage, away bool, dueAt time.Time) (claimedFiring, bool, error) {
 	triggers := instance.Triggers
-	if !triggers.Defined() {
-		return claimedFiring{}, false, nil
+	request, requested, requestProblem := t.openRequest(agent)
+	if !triggers.Defined() && !requested {
+		return claimedFiring{}, false, requestProblem
 	}
 	// A pass that was claimed and never ended is recorded as missed before the
 	// next one is claimed over it.
-	unfinished := t.unfinished(ctx, agent)
+	unfinished := errors.Join(requestProblem, t.unfinished(ctx, agent, request, requested))
 	now := t.now()
 	wake, err := t.readWake(ctx, agent, triggers, now)
 	if err != nil {
@@ -207,6 +229,9 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 	readProblem := unfinished
 	if len(wake.problems) > 0 {
 		readProblem = errors.Join(readProblem, errors.New(strings.Join(wake.problems, "; ")))
+	}
+	if requested {
+		return t.requestedPass(ctx, agent, instance, request, wake, outage, away, now, unfinished, readProblem)
 	}
 
 	var claimed runstate.SweepClaim
@@ -264,7 +289,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			pass:    passName(claimed),
 			task:    task,
 			trigger: trigger,
-			message: instanceMessage(agent, instance, due, wake),
+			message: instanceMessage(agent, instance, due, nil, wake),
 			agent:   agent,
 			events:  wake.counts(),
 			due:     dueAt,
@@ -277,6 +302,93 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 		fired.Problem = appendProblem(fired.Problem, unrecorded)
 		return fired
 	}}, true, nil
+}
+
+// openRequest is the instance's open pass request, where requests are wired and
+// it has one. A log that cannot be read is said beside the pull and wakes
+// nothing, so a broken record never turns into a pass every pull.
+func (t Trigger) openRequest(agent string) (runstate.PassRequest, bool, error) {
+	if t.Requests == nil {
+		return runstate.PassRequest{}, false, nil
+	}
+	request, found, err := t.Requests.Open(agent)
+	if err != nil {
+		return runstate.PassRequest{}, false, fmt.Errorf("read whether a pass of the program manager instance %s was asked for, so no request is taken until it can be: %w", agent, err)
+	}
+	return request, found, nil
+}
+
+// requestedPass takes the pass an open request asks for. It is claimed as a
+// summons is, so the schedule runs on from it, and it is not held to the
+// recurring minimum: somebody asked for it, and the pass taken from a request
+// closes it, so a failure is not retried pull after pull. A provider answering
+// nobody leaves the request open with that recorded as what it waits on, and
+// claims nothing.
+func (t Trigger) requestedPass(ctx context.Context, agent string, instance config.AgentConfig, request runstate.PassRequest, wake passWake, outage runstate.ProviderOutage, away bool, now time.Time, unfinished, readProblem error) (claimedFiring, bool, error) {
+	if away {
+		// Said from the outage's cause and start rather than its whole sentence,
+		// which counts refusals, so a long outage is one wait on the request
+		// rather than one a pull.
+		reason := fmt.Sprintf("the provider has answered nobody since %s (%s), so the pass is taken once it answers again",
+			outage.Since.UTC().Format(time.RFC3339), outage.Cause)
+		if _, err := t.Requests.Wait(agent, request.ID, reason, now); err != nil {
+			readProblem = errors.Join(readProblem, fmt.Errorf("record what the pass request %s of %s waits on: %w", request.ID, agent, err))
+		}
+		return claimedFiring{}, false, readProblem
+	}
+	claimed, err := t.Claims.Summon(ctx, agent, now)
+	if err != nil {
+		return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the requested pass of the program manager instance %s: %w", agent, err))
+	}
+	task := config.RecurringTask{
+		Role:    domain.RoleProgramManager,
+		Every:   instance.Triggers.Every,
+		Enabled: true,
+	}
+	var unrecorded string
+	if unfinished != nil {
+		unrecorded = unfinished.Error()
+	}
+	pass := passName(claimed)
+	return claimedFiring{take: func(ctx context.Context) Fired {
+		fired := t.run(ctx, firing{
+			name:    agent,
+			pass:    pass,
+			task:    task,
+			trigger: runstate.PassTriggerRequest,
+			message: instanceMessage(agent, instance, false, &request, wake),
+			agent:   agent,
+			events:  wake.counts(),
+			request: &request,
+			due:     request.RequestedAt,
+			finish: func(answered bool) string {
+				problems := append([]string(nil), wake.problems...)
+				problems = append(problems, t.advance(ctx, agent, wake, answered, now))
+				problems = append(problems, t.closeRequest(ctx, agent, request, pass, answered, boundedProblem(problems)))
+				return boundedProblem(problems)
+			},
+		})
+		fired.Problem = appendProblem(fired.Problem, unrecorded)
+		return fired
+	}}, true, nil
+}
+
+// closeRequest closes the request a pass was taken from: completed where every
+// turn the pass asked for was answered, failed otherwise. What it returns is a
+// problem for the pass's record; a request that could not be closed stays open,
+// and the next pull takes it again.
+func (t Trigger) closeRequest(ctx context.Context, agent string, request runstate.PassRequest, pass string, answered bool, problem string) string {
+	outcome := runstate.PassRequestCompleted
+	if !answered {
+		outcome = runstate.PassRequestFailed
+		if problem == "" {
+			problem = "a turn of the pass was not answered with its account"
+		}
+	}
+	if _, err := t.Requests.Close(agent, request.ID, pass, outcome, problem, t.now()); err != nil {
+		return fmt.Sprintf("the pass request %s of %s could not be closed, so it stays open and the next pull takes it again: %v", request.ID, agent, err)
+	}
+	return ""
 }
 
 // readWake reads what each stream the instance watches holds past its cursor.
@@ -388,7 +500,7 @@ const UnfinishedPassGrace = config.MinRecurringInterval
 // ending is also a pass another process is carrying; this must find no turn in
 // flight there. It reports what stopped it recording, and
 // never stops the pass being considered.
-func (t Trigger) unfinished(ctx context.Context, agent string) error {
+func (t Trigger) unfinished(ctx context.Context, agent string, request runstate.PassRequest, requested bool) error {
 	if t.Conversations == nil {
 		return nil
 	}
@@ -417,7 +529,12 @@ func (t Trigger) unfinished(ctx context.Context, agent string) error {
 		}
 	}
 	trigger := runstate.PassTriggerSchedule
-	if claimed.Summoned {
+	switch {
+	case claimed.Summoned && requested && !claimed.FiredAt.Before(request.RequestedAt):
+		// The request it was taken from is still open, so the next pull takes it
+		// again.
+		trigger = runstate.PassTriggerRequest
+	case claimed.Summoned:
 		trigger = runstate.PassTriggerEvents
 	}
 	problem := boundedProblem([]string{fmt.Sprintf(
@@ -469,7 +586,7 @@ func (t Trigger) advance(ctx context.Context, agent string, wake passWake, answe
 // pass: who woke it and why, the standing constraints every recurring turn
 // carries, the events since its cursor grouped by stream, and the account
 // contract.
-func instanceMessage(agent string, instance config.AgentConfig, due bool, wake passWake) string {
+func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake) string {
 	lane := strings.TrimSpace(instance.Lane)
 	who := fmt.Sprintf("The harness woke you, the program manager instance %q", agent)
 	if lane != "" {
@@ -479,6 +596,8 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, wake p
 	}
 	why := "."
 	switch {
+	case request != nil:
+		why = fmt.Sprintf(": %s asked for this pass, as the pass request %s, at %s.", request.AskedBy.Describe(), request.ID, request.RequestedAt.UTC().Format(time.RFC3339))
 	case due:
 		why = fmt.Sprintf(": your schedule is due, and you pass every %s.", instance.Triggers.Every)
 	case wake.armed():
@@ -489,6 +608,9 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, wake p
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule or by an event widens what you may decide or change.",
 		"Before you file anything, check it against the work already admitted. A duplicate admission costs a whole run and the reviews after it, and a pass that runs on a schedule files the same duplicate every time it runs.",
 		"",
+	}
+	if request != nil {
+		lines = append(lines, describeRequest(*request)...)
 	}
 	lines = append(lines, describeWake(instance.Triggers, wake)...)
 	lines = append(lines, "", sweep.Contract())
@@ -503,6 +625,9 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, wake p
 // describeWake lists the events since the cursor, grouped by stream in the
 // order the streams are read.
 func describeWake(triggers config.Triggers, wake passWake) []string {
+	if !triggers.Defined() {
+		return []string{"You have no schedule and watch no events: you pass only when the operator or the Lead Product Manager asks."}
+	}
 	if len(triggers.On) == 0 {
 		return []string{"You are woken on your schedule alone; your triggers watch no events."}
 	}
@@ -535,6 +660,21 @@ func describeWake(triggers config.Triggers, wake passWake) []string {
 		lines = append(lines, wake.problems...)
 	}
 	return lines
+}
+
+// describeRequest says what the request asked the pass to look at: its focus,
+// in place of the next area the remit's rotation names, or that rotation.
+func describeRequest(request runstate.PassRequest) []string {
+	var lines []string
+	if request.Focus.Empty() {
+		lines = append(lines, "The request names no focus, so inspect the next area your remit's rotation names.")
+	} else {
+		lines = append(lines, fmt.Sprintf("The request asks you to inspect %s, in place of the next area your remit's rotation names; it does not move the rotation.", request.Focus.Describe()))
+	}
+	if len(request.Joined) > 0 {
+		lines = append(lines, fmt.Sprintf("Later requests joined this one while it was open (%s); this pass answers them too.", strings.Join(request.Joined, ", ")))
+	}
+	return append(lines, "")
 }
 
 func describeStream(stream string) string {
