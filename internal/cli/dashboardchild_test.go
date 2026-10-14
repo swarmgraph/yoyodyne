@@ -41,7 +41,19 @@ type fakeDashboards struct {
 }
 
 func newFakeDashboards(t *testing.T, store *runstate.DashboardStore) *fakeDashboards {
-	return &fakeDashboards{t: t, store: store, next: 7000, alive: map[int]*runstate.Lease{}, tokens: map[string]string{}}
+	fakes := &fakeDashboards{t: t, store: store, next: 7000, alive: map[int]*runstate.Lease{}, tokens: map[string]string{}}
+	// The leases stand for running dashboards, so they are held until the test
+	// ends: a fake nothing refers to any more is collected, and collecting a
+	// lease's file closes it and lets its lock go, which reads as the dashboard
+	// having stopped in the middle of the test.
+	t.Cleanup(func() {
+		fakes.mu.Lock()
+		defer fakes.mu.Unlock()
+		for _, lease := range fakes.alive {
+			_ = lease.Release()
+		}
+	})
+	return fakes
 }
 
 func (f *fakeDashboards) Launch(spec slack.Launch) (int, error) {
@@ -252,8 +264,8 @@ func TestADashboardIsReplacedOnlyOnceItsReplacementIsReady(t *testing.T) {
 	if slices.Contains(events, "stop "+strconv.Itoa(elsewhere.PID)) {
 		t.Errorf("events = %v, the dashboard on another port was stopped", events)
 	}
-	if instance, running, _ := child.current(); !running || instance.PID != replaced.PID {
-		t.Errorf("current() = %+v, %v, want the replacement", instance, running)
+	if instance, running, err := child.current(); err != nil || !running || instance.PID != replaced.PID {
+		t.Errorf("current() = %+v, %v, %v, want the replacement", instance, running, err)
 	}
 }
 
