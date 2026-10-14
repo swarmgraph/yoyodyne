@@ -58,7 +58,7 @@ func TestAWriteStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	t.Parallel()
 	runner := &deadlineRunner{}
 	client := Client{Runner: runner}
-	ctx, cancel := context.WithTimeout(OnBehalfOf(context.Background(), "the architect's recurring pass architect-pass#313"), 200*time.Millisecond)
+	ctx, cancel := context.WithTimeout(OnBehalfOf(context.Background(), "the architect's recurring pass architect-pass#313"), 2*time.Second)
 	defer cancel()
 
 	_, err := client.RecordOutcome(ctx, "yoyodyne-ifd.429.43", "Passed over.")
@@ -68,7 +68,7 @@ func TestAWriteStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	for _, want := range []string{
 		"bd update failed with status timed_out and exit code -1: ",
 		"changing work item yoyodyne-ifd.429.43 (bd update) for the architect's recurring pass architect-pass#313",
-		"when its caller's own deadline of 200ms ran out before the 30s limit each tracker call is given",
+		"when its caller's own deadline of 2s ran out before the 30s limit each tracker call is given",
 	} {
 		if !strings.Contains(err.Error(), want) {
 			t.Fatalf("RecordOutcome() error = %q, want it to say %q", err, want)
