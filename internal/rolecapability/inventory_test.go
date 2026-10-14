@@ -80,7 +80,7 @@ var expresses = map[string]expression{
 			capability.ProposalRaise, capability.ConcernRaise, capability.ResearchCommission,
 			capability.EvaluationRecord, capability.ExchangeAsk, capability.WorkItemMutate,
 			capability.RepositoryRead, capability.RepositoryList, capability.AgentContextMutate,
-			capability.LaneReportWrite, capability.ServiceRequestRestart,
+			capability.LaneReportWrite, capability.ServiceRequestRestart, capability.PassRequest,
 		},
 		gap: "the repository block is refused unless the role holds both the read and the list; that the named read is the pair is a rule of the derivation rather than a capability either half states",
 	},

@@ -446,7 +446,9 @@ agents:
   the same reason — every pass is a conversation turn — and `on`, a list drawn
   from the closed set `landings`, `admissions`, and `stoppages`. An `every` under
   the floor, an `on` entry outside the set, and an entry named twice are refused
-  when the file loads; leaving `every` out is no scheduled pass. A later layer's
+  when the file loads; leaving `every` out is no scheduled pass. Leaving the block
+  out altogether is an instance that passes only when the operator or the Lead
+  Product Manager asks for a pass — on no timer and on no event. A later layer's
   block replaces an inherited one whole, as the failover block does.
 
 **The lane is enforced, and the triggers take passes.** The keys load, are
@@ -6919,8 +6921,8 @@ These are all errors, reported before any work is claimed:
   a `lane` the tracker would not carry, or one two agents name; a
   `triggers.every` under `5m`; and a `triggers.on` entry outside `landings`,
   `admissions`, and `stoppages`, or named twice; and a `recurring_tasks` entry
-  named for a program manager instance its triggers wake, since an instance's
-  passes are recorded and paced under its own name;
+  named for a program manager instance, since an instance's passes are recorded
+  and paced under its own name;
 - a `recurring_tasks` entry named `maintenance`, which is the name the
   supervisor's maintenance pass records its passes and paces its cadence under;
 - a persona path that is absolute, traverses upward, is not Markdown, is missing,
@@ -8206,8 +8208,8 @@ firings in flight is reached it waits its turn by how long it has stood due like
 a task's; a provider answering nobody is recorded as the wait; and every pass
 ends in a durable record [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found)
 reads, filed under the instance's name — `yoyo sweeps --task reliability-pm` —
-with the model its turns ran on. A recurring task named for an instance its
-triggers wake is refused when the file loads, because the two would share one
+with the model its turns ran on. A recurring task named for a program manager
+instance is refused when the file loads, because the two would share one
 cadence and one record.
 
 An instance whose lane is a standing goal audits the work that closed in its
@@ -8288,6 +8290,27 @@ rather than being recorded as a refusal on every pull; the schedule, which its
 cadence paces, is what records the wait. A pass taken for events moves the
 cadence as a scheduled one does, so the scheduled pass is not taken a minute
 later over the same ground.
+
+**A pass may be asked for.** Any instance may be asked for a pass, and one with
+no `triggers` block passes only when asked — never on a timer and never because
+work landed. Two people ask, and nobody else: the operator, with
+`yoyo agent pass <agent>`, and the Lead Product Manager, from her conversation
+(another role that wants a pass asks her). A request may name a focus — one area
+the instance's remit lists, or up to ten repository paths — which the pass
+inspects in place of the next area in its rotation; `--focus` takes a value
+naming a file or directory in the repository as a path and anything else as an
+area, and is repeated for each path. Each request is appended to
+`projects/<product id>/state/program-managers/<agent>/requests.jsonl` with who
+asked and when, and the scheduler takes it at its next pull under every rule
+above: the pause holds it, a turn in flight on the instance's conversation goes
+first, and a provider answering nobody leaves it waiting with that reason
+written on it. At most one request per instance is open; one made while another
+is open is recorded as joined to it, its focus is added to the open one's, and
+the one pass answers both. The pass's record in `yoyo sweeps` names the request
+and who asked, and the pass closes the request, completed or failed — a failed
+one is not retried, and whoever asked may ask again. A request is never dropped
+for age. A requested pass is not held to the `5m` minimum, and it moves the
+cadence as an events pass does.
 
 **A pass asks for the agent's own model.** The triggers block names none, and the
 [`model`](#a-tasks-own-model) a recurring task names is that task's key rather

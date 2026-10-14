@@ -1274,6 +1274,7 @@ comes from. Every other configured agent is reachable the same way:
 ./bin/yoyo agent memory architect          # what it remembers, with each memory's history
 ./bin/yoyo agent chat architect            # talk to it
 ./bin/yoyo agent chat development-manager --message "Decompose ifd.4." --json
+./bin/yoyo agent pass technical-health-pm --focus "test quality"   # ask a program manager for a pass
 ```
 
 The name is either the agent's configured name or the role it fills, and a role
@@ -1720,6 +1721,31 @@ its version number. Neither event copies the report's text.
 in any other role's reply is refused like any block a role has no authority
 for: the turn fails, and nothing is written. No other contract describes the
 block.
+
+### Asking a program manager for a pass
+
+A program manager instance with no `triggers` passes only when asked, and any
+instance may be asked between its own passes. The operator asks with
+`yoyo agent pass <agent>`; the Lead Product Manager asks by ending a reply with
+one block:
+
+```text
+{"agent":"technical-health-pm","focus":{"area":"test quality"}}
+```
+
+under a `yoyodyne-pass-request` fence. `focus` is optional: one `area` the
+instance's remit lists, or up to ten repository `paths`, never both. The harness
+records the request as hers, with her conversation and turn, and tells her on
+her next turn that nothing has run yet. The scheduler takes the request at its
+next pull, and the pass it takes records the request and who asked
+([a program manager instance's passes](configuration.md#a-program-manager-instances-passes)).
+An agent that is not a configured program manager instance, or a focus naming
+both an area and paths, is refused and nothing is recorded.
+
+**Only the Lead Product Manager may ask from a conversation.** Asking is
+`pass.request`, which only her bundle holds. The block in any other role's reply
+is refused like any block a role has no authority for, and a role that wants a
+pass asks her for one.
 
 ### Roles asking each other things
 

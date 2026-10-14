@@ -46,7 +46,7 @@ const issuesExport = beads.ExportPath
 const maxIssuesExportBytes = 256 << 20
 
 // programManagerPasses is the program manager instances a pull considers for a
-// pass.
+// pass: every one, since any may be asked for a pass.
 func programManagerPasses(parts components) map[string]config.AgentConfig {
 	passes := parts.config.ProgramManagerPasses()
 	if len(passes) == 0 {

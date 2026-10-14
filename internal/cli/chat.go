@@ -1027,6 +1027,11 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// is decided in the chat package's table, and the only thing that acts on
 		// a request is the supervisor's maintenance pass.
 		RestartRequests: parts.restartRequests,
+		// Where the Lead Product Manager's request for a program manager
+		// instance's pass is recorded, refused for an agent that is not one. It
+		// is wired for every role because the authority to ask is decided in the
+		// chat package's table, and the scheduler is what takes a request.
+		PassRequests: programManagerPassRequests{store: parts.store.PassRequests(), instances: parts.config.ProgramManagerPasses()},
 		// Where the operator's hand steps are recorded: the ones he takes through
 		// this conversation's commands and answers, and, for a role holding
 		// report.file, the ones it noticed him take outside the harness.

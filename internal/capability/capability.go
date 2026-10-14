@@ -265,6 +265,11 @@ const (
 	// the supervisor's pass is the only executor, and the harness the only
 	// invoker.
 	ServiceRequestRestart Capability = "service.request-restart"
+	// PassRequest is recording one request for a program manager instance's
+	// pass, which the scheduler takes at its next pull. It invokes nothing
+	// itself: the scheduler is what wakes the instance, and the harness the only
+	// invoker.
+	PassRequest Capability = "pass.request"
 )
 
 // declared is every capability this repository has, in the order above. It is
@@ -314,6 +319,7 @@ var declared = []Capability{
 	ReportFile,
 	AmendmentPropose,
 	ServiceRequestRestart,
+	PassRequest,
 }
 
 // All is every capability this repository declares, in declaration order.

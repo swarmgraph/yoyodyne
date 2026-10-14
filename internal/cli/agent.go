@@ -163,6 +163,8 @@ func runAgentCommand(ctx context.Context, args []string, stdin io.Reader, stdout
 		return showAgentMemory(args[1:], stdout, stderr)
 	case "cut-replies":
 		return auditCutReplies(args[1:], stdout, stderr)
+	case "pass":
+		return askAgentPass(args[1:], stdout, stderr)
 	default:
 		fmt.Fprintf(stderr, "unknown agent command %q\n\n", args[0])
 		printAgentUsage(stderr)
@@ -550,8 +552,11 @@ func renderAgent(report agentReport) string {
 	if report.RemitPath != "" {
 		fmt.Fprintf(&rendered, "  remit %s (%s)\n", report.RemitPath, report.RemitVersion)
 	}
-	if report.Triggers != nil {
+	switch {
+	case report.Triggers != nil:
 		fmt.Fprintf(&rendered, "  %s\n", describeTriggers(*report.Triggers))
+	case report.Role == domain.RoleProgramManager:
+		fmt.Fprintln(&rendered, "  passes over its lane only when asked, with `yoyo agent pass` or by the Lead Product Manager")
 	}
 	if !report.Addressable {
 		fmt.Fprintln(&rendered, "  the harness holds no conversation with this role")
@@ -606,18 +611,27 @@ func appendProblem(existing, addition string) string {
 }
 
 func printAgentUsage(writer io.Writer) {
-	fmt.Fprintln(writer, `Usage: yoyo agent <list|show|memory|chat|cut-replies> [options] [<name>]
+	fmt.Fprintln(writer, `Usage: yoyo agent <list|show|memory|chat|pass|cut-replies> [options] [<name>]
 
   list                       the configured agents, and what each is in the middle of
   show [options] <name>      one agent in full, with the work its role is executing
   memory [options] <name>    what one agent remembers, each memory with its history
   chat [options] <name>      talk to one agent; <name> is its name or its role
+  pass [options] <name>      ask a program manager instance for a pass over its
+                             lane, taken at the scheduler's next pull
   cut-replies [options]      every recorded reply the conversation logs hold only
                              the beginning of, across every conversation
 
 Options:
   --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
   --json            emit machine-readable JSON
+
+agent pass options:
+  --focus <area or path>
+                    what the pass inspects in place of the next area its remit's
+                    rotation names: one area, or up to ten repository paths, the
+                    flag repeated for each; a value naming a file or directory
+                    in the repository is a path, and anything else an area
 
 agent chat options:
   --message <text>  send one message and print the reply instead of conversing

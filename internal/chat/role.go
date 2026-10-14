@@ -123,6 +123,10 @@ type Authority struct {
 	// part of the product: the program manager's service.request-restart, which
 	// writes a durable request and restarts nothing itself.
 	RestartRequests bool
+	// PassRequests is whether this role may ask a program manager instance for a
+	// pass: the Lead Product Manager's pass.request, which records a request the
+	// scheduler takes and invokes nothing itself.
+	PassRequests bool
 	// Interventions is whether this role may write down a hand step it noticed
 	// the operator take outside the harness (intervention.go).
 	Interventions bool
@@ -209,6 +213,7 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			Memory:          registry.Holds(role, capability.AgentContextMutate),
 			LaneReport:      registry.Holds(role, capability.LaneReportWrite),
 			RestartRequests: registry.Holds(role, capability.ServiceRequestRestart),
+			PassRequests:    registry.Holds(role, capability.PassRequest),
 			Interventions:   registry.Holds(role, capability.ReportFile),
 		}
 	}
@@ -366,6 +371,13 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Role:    authority.Role,
 			Refused: "a part of the product to be restarted",
 			Reason:  "asking the supervisor to restart a part is the program manager's, and this role says what it found in prose instead",
+		}
+	}
+	if parsed.PassRequest != nil && !authority.PassRequests {
+		return &AuthorityError{
+			Role:    authority.Role,
+			Refused: "a program manager instance to be asked for a pass",
+			Reason:  "asking a program manager for a pass is the operator's and the Lead Product Manager's, and this role asks the Lead Product Manager for one instead",
 		}
 	}
 	if parsed.Observed != nil && !authority.Interventions {

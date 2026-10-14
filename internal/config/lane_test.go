@@ -224,10 +224,10 @@ func TestEditingARemitMovesTheConfigurationRevision(t *testing.T) {
 	}
 }
 
-// The instances a pull considers for a pass are the program manager agents
-// whose triggers say something; an instance with no triggers is woken by
-// nobody.
-func TestProgramManagerPassesAreTheInstancesTheirTriggersWake(t *testing.T) {
+// The instances a pull considers for a pass are every program manager agent:
+// one with triggers is woken by them, and one with none only by a request for
+// its pass, which the pull must consider to take.
+func TestProgramManagerPassesAreEveryInstanceTriggeredOrNot(t *testing.T) {
 	t.Parallel()
 
 	quiet := `  quiet-pm:
@@ -239,8 +239,8 @@ func TestProgramManagerPassesAreTheInstancesTheirTriggersWake(t *testing.T) {
 	resolved := loadProject(t, minimalProjectConfig+"agents:\n"+programManagerAgent("reliability-pm", "reliability", "remits/reliability.md")+quiet,
 		map[string]string{"remits/reliability.md": laneRemit})
 	passes := resolved.Config.ProgramManagerPasses()
-	if len(passes) != 1 || passes["reliability-pm"].Lane != "reliability" {
-		t.Fatalf("passes = %+v, want the triggered instance alone", passes)
+	if len(passes) != 2 || passes["reliability-pm"].Lane != "reliability" || passes["quiet-pm"].Triggers.Defined() {
+		t.Fatalf("passes = %+v, want the triggered instance and the one that runs only when asked", passes)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestARecurringTaskNamedForATriggeredInstanceIsRefused(t *testing.T) {
     enabled: true
     prompt: watch the lane
 `, map[string]string{"remits/reliability.md": laneRemit})
-	if err == nil || !strings.Contains(err.Error(), `recurring task "reliability-pm" has the name of the program manager instance`) {
+	if err == nil || !strings.Contains(err.Error(), `recurring task "reliability-pm" has the name of a program manager instance`) {
 		t.Fatalf("LoadResolved() error = %v, want the shared name refused", err)
 	}
 }

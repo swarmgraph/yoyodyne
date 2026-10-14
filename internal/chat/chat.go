@@ -404,6 +404,11 @@ type Options struct {
 	// conversation without one refuses a request as having nowhere to go rather
 	// than appearing to have recorded it.
 	RestartRequests RestartRequests
+	// PassRequests is where the Lead Product Manager's requests for a program
+	// manager instance's pass are recorded. It is optional like the rest, and a
+	// conversation without one refuses a request as having nowhere to go rather
+	// than appearing to have recorded it.
+	PassRequests PassRequests
 	// Interventions is where the operator's hand steps are recorded: the ones he
 	// takes through this conversation's commands and answers, and the ones a
 	// role holding report.file noticed him take outside the harness. It is
@@ -1084,6 +1089,9 @@ type Reply struct {
 	// refused. It is recorded and nothing more, so it is reported rather than put
 	// to anybody.
 	Restart *RestartOutcome `json:"restart,omitempty"`
+	// PassRequest is the pass this reply asked a program manager instance for,
+	// as recorded or refused.
+	PassRequest *PassRequestOutcome `json:"pass_request,omitempty"`
 	// Observed is the hand step this reply wrote down as taken outside the
 	// harness, as recorded or refused.
 	Observed *ObservedOutcome `json:"observed,omitempty"`
@@ -1797,6 +1805,18 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if undelivered != "" {
 				undelivered += renderRestartResult(outcome)
 			} else if err := s.carryResults(renderRestartResult(outcome)); err != nil {
+				return reply, err
+			}
+		}
+		// A pass the role asked a program manager instance for, recorded and
+		// nothing more, carried back the way a restart request is: the scheduler
+		// takes it, never this turn.
+		if parsed.PassRequest != nil {
+			outcome := s.performPassRequest(*parsed.PassRequest)
+			reply.PassRequest = &outcome
+			if undelivered != "" {
+				undelivered += renderPassRequestResult(outcome)
+			} else if err := s.carryResults(renderPassRequestResult(outcome)); err != nil {
 				return reply, err
 			}
 		}
@@ -2654,6 +2674,9 @@ type parsedReply struct {
 	// Restart is the one part this reply asked the supervisor to restart, where
 	// it asked. Only a role holding service.request-restart may.
 	Restart *RestartAsk
+	// PassRequest is the one program manager instance this reply asked for a
+	// pass, where it asked. Only a role holding pass.request may.
+	PassRequest *PassAsk
 	// Observed is the one hand step this reply asked to have recorded as taken
 	// outside the harness, where it asked. Only a role holding report.file may.
 	Observed *ObservedAsk
@@ -2725,6 +2748,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, &RestartError{Err: err}
 	}
+	prose, passRequest, err := extractPassRequest(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, &PassRequestError{Err: err}
+	}
 	prose, observed, err := extractIntervention(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2745,6 +2773,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
+	parsed.PassRequest = passRequest
 	parsed.Observed = observed
 	parsed.Writes = writes
 	return parsed, nil
@@ -3440,6 +3469,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// and shown on the standing, and the operator should hear it from here
 		// first rather than find it there.
 		s.reportRestart(out, reply)
+		// What it asked a program manager instance for, because the request is
+		// durable and the pass it asks for runs at the scheduler's next pull.
+		s.reportPassRequest(out, reply)
 		// What it wrote down about the operator's own hand, because the record is
 		// of him and he should hear it from here first.
 		s.reportObserved(out, reply)
@@ -3543,6 +3575,11 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		var unreadableRestart *RestartError
 		if errors.As(err, &unreadableRestart) {
 			fmt.Fprintf(out, "%v\nNothing was requested and nothing was restarted; ask it what it meant to request.\n\n", unreadableRestart)
+			continue
+		}
+		var unreadablePassRequest *PassRequestError
+		if errors.As(err, &unreadablePassRequest) {
+			fmt.Fprintf(out, "%v\nNothing was requested and no pass was asked for; ask it what it meant to request.\n\n", unreadablePassRequest)
 			continue
 		}
 		var unreadableObserved *InterventionError
@@ -5037,6 +5074,8 @@ A handling that says a report is covered by work maps every request the report m
 ` + memoryContract + `
 
 ` + exchange.AskingContract + `
+
+` + passRequestContract + `
 
 ` + report.Contract + `
 

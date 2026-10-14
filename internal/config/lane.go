@@ -174,15 +174,16 @@ func laneProblems(agents map[string]AgentConfig) []string {
 	return problems
 }
 
-// ProgramManagerPasses is every program manager instance its triggers wake,
-// keyed by the agent's name: the instances a pull considers for a pass. An
-// instance whose block says nothing is left out, because nothing wakes it — it
-// reads, asks, and reports when somebody opens its conversation, and not
-// otherwise.
+// ProgramManagerPasses is every program manager instance, keyed by the agent's
+// name: the instances a pull considers for a pass. One whose triggers say
+// something is woken by them; every one, those included, may be asked for a
+// pass by the operator or the Lead Product Manager, and one whose block says
+// nothing is woken by that request and by nothing else ("Passes on request" in
+// docs/designs/program-manager.md).
 func (c Config) ProgramManagerPasses() map[string]AgentConfig {
 	passes := make(map[string]AgentConfig)
 	for name, agent := range c.Agents {
-		if agent.Role == domain.RoleProgramManager && agent.Triggers.Defined() {
+		if agent.Role == domain.RoleProgramManager {
 			passes[name] = agent
 		}
 	}
@@ -190,16 +191,16 @@ func (c Config) ProgramManagerPasses() map[string]AgentConfig {
 }
 
 // passNameProblems refuses a recurring task named for a program manager
-// instance its triggers wake. An instance's passes are recorded and paced under
-// the agent's own name — it is what `yoyo sweeps --task` finds them by — so a
-// task written under the same name would share one cadence and one record with
-// it, and each would fire the other's schedule.
+// instance. An instance's passes — on its triggers or on request — are recorded
+// and paced under the agent's own name — it is what `yoyo sweeps --task` finds
+// them by — so a task written under the same name would share one cadence and
+// one record with it, and each would fire the other's passes.
 func passNameProblems(c Config) []string {
 	var problems []string
 	for _, name := range c.RecurringTaskNames() {
 		agent, isAgent := c.Agents[name]
-		if isAgent && agent.Role == domain.RoleProgramManager && agent.Triggers.Defined() {
-			problems = append(problems, fmt.Sprintf("recurring task %q has the name of the program manager instance whose triggers wake it, and an instance's passes are recorded and paced under that name; name the task something else",
+		if isAgent && agent.Role == domain.RoleProgramManager {
+			problems = append(problems, fmt.Sprintf("recurring task %q has the name of a program manager instance, and an instance's passes are recorded and paced under that name; name the task something else",
 				name))
 		}
 	}
