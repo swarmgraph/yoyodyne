@@ -147,7 +147,7 @@ type Entry struct {
 	Severity Severity `json:"severity"`
 	Message  string   `json:"message"`
 	// For is the role the reporter addressed the report to, where it named one:
-	// the role whose move the report asks for. A report that names none is the
+	// the role the report asks to act. A report that names none is the
 	// Lead Product Manager's, who handles the pile. It is never the operator,
 	// who is not a role: what only a person can do is recorded as such by the
 	// handling of the report, not asserted by whoever filed it.
@@ -851,6 +851,6 @@ To report, end what you say with exactly one block of this shape:
 
 "critical" is something already wrong that will cost somebody if nobody looks at it. "warning" is a real risk or a fragile assumption that has not cost anything yet. "note" is worth knowing and asks for nothing. One block carries at most ` + maxEntriesPerReplyText + ` reports, and each one takes a severity, a message, and optionally "for", and nothing else. Leave the block out entirely when you have nothing to report.
 
-"for" names the role whose move the report asks for, where you know it: "product-manager", "architect", "development-manager", or "program-manager". The report is put on that role's list and in front of its next pass, whatever its severity. Leave it out where you do not know whose move it is, and the Lead Product Manager, who handles every report, takes it. A report is never addressed to the operator: where only a person can act — a credential, a repository setting, a file the harness may not write — say so in the message, and the Lead Product Manager records it as his when she handles the report.
+"for" names the role the report is waiting on — the one that has to act on it — where you know it: "product-manager", "architect", "development-manager", or "program-manager". The report is put on that role's list and in front of its next pass, whatever its severity. Leave it out where you do not know which role has to act, and the Lead Product Manager, who handles every report, takes it. A report is never addressed to the operator: where only a person can act — a credential, a repository setting, a file the harness may not write — say so in the message, and the Lead Product Manager records it as his when she handles the report.
 
 The severity is how important this is and not how loudly you want it read. A critical report is put in front of the role it is for at once, and shown to the operator wherever he is as being with that role; the rest land in the durable record, are said in their work item's thread, and reach him in the regular summaries built from that record. So a severity you reached for to be noticed does not get the report read sooner — it spends the attention the genuinely broken ones need, which is the whole reason this scale is three words and not five.`
