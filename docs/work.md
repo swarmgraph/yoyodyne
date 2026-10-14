@@ -1715,10 +1715,15 @@ recorded is fired by the pass itself, oldest decision first, as many per pull as
 there are developer slots free for them — and as a session's `--limit` leaves,
 since each is a run started — against a developer slot exactly as a pulled item
 is. **A decision about a stopped run whose branch or worktree is still there
-takes the first free developer slot ahead of fresh pulls of any priority**,
+takes the first free developer slot ahead of fresh pulls**,
 because finishing reviewed, preserved work is cheaper than starting new work, the
 decision to continue it is already made, and a preserved worktree left waiting
-behind the order ages into conflicts. Whether the change is still there is the
+behind the order ages into conflicts. Ready priority-0 work is the one
+exception, as it is for a slot's label preference: where its item is below
+priority 0, the decision waits while a priority-0 item stands ready, takes the
+first slot the walk of the order has left once it is past priority 0, ahead of
+every other fresh pull, and the pull that gave it none writes onto the item
+which priority-0 items went first. Whether the change is still there is the
 same look in the repository the hold and the docket take; a look that fails
 proves nothing and leaves the decision where the order puts it. The run's
 reason, on the run and on the item, names the ready work of higher priority it
