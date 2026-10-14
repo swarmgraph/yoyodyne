@@ -525,7 +525,8 @@ var StopWords = []StopWord{
 // began. Deciding one takes it off this list: an ordinary compound goes on the
 // register's list of ordinary compounds, a term worth keeping gets a row in
 // the register, a term worth replacing is reworded wherever it is written —
-// and a word nothing writes any more is refused here until it is taken off.
+// and a word nothing writes any more is reported by the check as ready to be
+// taken off, without failing the change that stopped writing it.
 var Unread = []string{
 	"account-pooling", "account-selection", "action-count", "activation-digest",
 	"admission-trigger", "advisory-once", "agent-context", "agent-continuity",

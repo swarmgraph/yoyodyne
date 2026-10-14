@@ -541,7 +541,8 @@ Deciding one takes it off the list in `internal/terms/inventory`: an
 ordinary compound goes on the register's list of ordinary compounds, a term
 worth keeping gets a row in the register, and a term worth replacing is added
 above with its meaning and its plain words. A word nothing writes any more is
-refused by the check until it is taken off.
+reported by the check as ready to be taken off, and the change that stopped
+writing it still passes.
 
 - `account-pooling`
 - `account-selection`

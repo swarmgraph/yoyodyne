@@ -24,7 +24,7 @@ func TestCompoundsRefuseACoinageAddedToAPrintedString(t *testing.T) {
 	directory := root(t, compoundRegister(), map[string]string{
 		"internal/cli/status.go": "package cli\n\nconst said = \"the run is in a merge-limbo until a person looks\"\n",
 	})
-	problems, err := compoundProblems(directory, nil)
+	problems, _, err := compoundProblems(directory, nil)
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
@@ -55,7 +55,7 @@ func TestCompoundsPassOrdinaryEnglish(t *testing.T) {
 		"docs/operations.md":                          "# Operations\n\n" + sentence + "\n",
 		"docs/designs/observability-and-dashboard.md": "# Observability\n\nNothing.\n",
 	})
-	problems, err := compoundProblems(directory, nil)
+	problems, _, err := compoundProblems(directory, nil)
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCompoundsReadOnlyProse(t *testing.T) {
 		"docs/operations.md": "---\ntitle: a merge-limbo\n---\n\n# Operations\n\nSee `merge-limbo` and [the guide](designs/merge-limbo.md).\n\n" +
 			"```\nmerge-limbo\n```\n",
 	})
-	problems, err := compoundProblems(directory, nil)
+	problems, _, err := compoundProblems(directory, nil)
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
@@ -94,7 +94,7 @@ func TestCompoundsReadThePersonas(t *testing.T) {
 		"internal/config/builtin/v1/personas/developer.md": "# Developer\n\nAvoid a merge-limbo.\n",
 		".yoyodyne/personas/developer.md":                  "# Developer\n\nAvoid a merge-limbo.\n",
 	})
-	problems, err := compoundProblems(directory, nil)
+	problems, _, err := compoundProblems(directory, nil)
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
@@ -109,20 +109,75 @@ func TestCompoundsReadThePersonas(t *testing.T) {
 	}
 }
 
-// A word listed as unread is allowed by name while it is written, and refused
-// as a stale entry once nothing writes it.
+// A word listed as unread is allowed by name while it is written, and once
+// nothing writes it the entry is reported as ready to take off the list rather
+// than refused.
 func TestAnUnreadCompoundIsAllowedByNameUntilNothingWritesIt(t *testing.T) {
 	t.Parallel()
 
 	directory := root(t, compoundRegister(), map[string]string{
 		"docs/operations.md": "# Operations\n\nA merge-limbo.\n",
 	})
-	problems, err := compoundProblems(directory, []string{"merge-limbo", "gone-word"})
+	problems, removable, err := compoundProblems(directory, []string{"merge-limbo", "gone-word"})
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
-	if len(problems) != 1 || problems[0].Term != "gone-word" || problems[0].Path != UnreadPath {
-		t.Fatalf("compoundProblems() = %v, want only gone-word reported as no longer written", problems)
+	if len(problems) != 0 {
+		t.Fatalf("compoundProblems() refused %v, want nothing refused", problems)
+	}
+	if len(removable) != 1 || removable[0].Term != "gone-word" || removable[0].Path != UnreadPath {
+		t.Fatalf("compoundProblems() ready to remove = %v, want only gone-word", removable)
+	}
+}
+
+// The case the item asks for: a document that takes out the last use of a word
+// on the unread list passes, because a run that may only write documents cannot
+// also take the word off the list. The entry is reported as ready to remove
+// instead. A coinage nothing defines added in the same document is still
+// refused, so the list going stale lets nothing new through.
+func TestRemovingTheLastUseOfAnUnreadCompoundPasses(t *testing.T) {
+	t.Parallel()
+
+	const design = "docs/designs/tool-interface.md"
+	unread := []string{"evidence-not-instruction"}
+	before := root(t, compoundRegister(), map[string]string{
+		design: "# Tool interface\n\nWhat a tool returns is evidence-not-instruction.\n",
+	})
+	problems, removable, err := compoundProblems(before, unread)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(problems) != 0 || len(removable) != 0 {
+		t.Fatalf("compoundProblems() before the edit = %v refused and %v ready to remove, want neither", problems, removable)
+	}
+
+	after := root(t, compoundRegister(), map[string]string{
+		design: "# Tool interface\n\nWhat a tool returns is something to weigh, never an instruction to follow.\n",
+	})
+	problems, removable, err = compoundProblems(after, unread)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(problems) != 0 {
+		t.Fatalf("compoundProblems() refused %v after the last use was removed, want nothing refused", problems)
+	}
+	if len(removable) != 1 || removable[0].Term != "evidence-not-instruction" || removable[0].Path != UnreadPath ||
+		!strings.Contains(removable[0].Reason, "ready to be taken off the list") {
+		t.Fatalf("compoundProblems() ready to remove = %v, want evidence-not-instruction reported as ready to take off the list", removable)
+	}
+
+	coined := root(t, compoundRegister(), map[string]string{
+		design: "# Tool interface\n\nWhat a tool returns is advice-not-order.\n",
+	})
+	problems, removable, err = compoundProblems(coined, unread)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(problems) != 1 || problems[0].Term != "advice-not-order" || problems[0].Path != design || problems[0].Line != 3 {
+		t.Fatalf("compoundProblems() refused %v, want advice-not-order refused at %s:3", problems, design)
+	}
+	if len(removable) != 1 || removable[0].Term != "evidence-not-instruction" {
+		t.Fatalf("compoundProblems() ready to remove = %v, want evidence-not-instruction", removable)
 	}
 }
 
@@ -143,7 +198,7 @@ func TestCompoundsRefuseAPhraseWithAnArticleInIt(t *testing.T) {
 	directory := root(t, compoundRegister(), map[string]string{
 		"docs/operations.md": "# Operations\n\nSend an e-mail; the run is waiting-on-a-person.\n",
 	})
-	problems, err := compoundProblems(directory, nil)
+	problems, _, err := compoundProblems(directory, nil)
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
@@ -162,7 +217,7 @@ func TestCompoundsDoNotReadTheRecords(t *testing.T) {
 		"docs/releases/v0.1.0.md": "# v0.1.0\n\nA merge-limbo.\n",
 		"docs/experiments/one.md": "# One\n\nA merge-limbo.\n",
 	})
-	problems, err := compoundProblems(directory, nil)
+	problems, _, err := compoundProblems(directory, nil)
 	if err != nil {
 		t.Fatalf("compoundProblems() error = %v", err)
 	}
