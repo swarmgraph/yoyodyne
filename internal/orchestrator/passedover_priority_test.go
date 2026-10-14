@@ -285,6 +285,26 @@ func TestAReadyPriorityZeroItemTakesTheFreeSlotAheadOfLowerPriorityPreservedWork
 				t.Fatalf("started = %v, want %s: the ready priority-0 item first, then the preserved repair ahead of the fresh priority-1 item", got, want)
 			}
 			if capacity == 2 {
+				// Fired by the walk once it is past priority 0, the repair is
+				// still marked as preserved work and names the fresh priority-1
+				// work it went ahead of, and not the priority-0 work that went
+				// ahead of it.
+				var repair *CarryOutTask
+				for index := range harness.carried {
+					if harness.carried[index].WorkItemID == "yoyodyne-99z" {
+						repair = &harness.carried[index]
+					}
+				}
+				if repair == nil || !repair.Preserved {
+					t.Fatalf("carried = %#v, want the repair carried out marked as preserved work", harness.carried)
+				}
+				ahead := strings.Join(repair.AheadOf, ",")
+				if !strings.Contains(ahead, "Fresh priority-1 work (yoyodyne-fresh-p1)") || strings.Contains(ahead, "yoyodyne-ifd.428.94") {
+					t.Fatalf("ahead of = %q, want the fresh priority-1 work named and the priority-0 item not", ahead)
+				}
+				if reason := carryingOutReason(*repair); !strings.Contains(reason, "yoyodyne-fresh-p1") {
+					t.Fatalf("pass reason = %q, want it to name the priority-1 work it went ahead of", reason)
+				}
 				return
 			}
 			// The decision the slot did not go to is written onto its item, naming

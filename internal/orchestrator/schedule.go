@@ -3067,7 +3067,15 @@ pulling:
 			if chosen < 0 {
 				return "", false
 			}
-			task := pendingCarryOuts[chosen].task
+			held := pendingCarryOuts[chosen]
+			task := held.task
+			// Preserved work fired once the walk is past priority 0 still goes
+			// ahead of the ready work between there and its own priority, and its
+			// reason names that work as a decision fired before the walk does.
+			if held.preserved {
+				task.Preserved = true
+				task.AheadOf = held.namedBelowTop
+			}
 			pendingCarryOuts = append(pendingCarryOuts[:chosen:chosen], pendingCarryOuts[chosen+1:]...)
 			fireCarryOut(task)
 			flight.take(read.items[task.WorkItemID], "")
@@ -4886,6 +4894,10 @@ type outrankedCarryOut struct {
 	// top is the ready work in ahead at priority 0, which is the only work that
 	// holds back a decision about preserved work.
 	top []string
+	// namedBelowTop is named without the priority-0 work: what a held-back
+	// decision about preserved work goes ahead of when the walk of the order,
+	// past priority 0, fires it.
+	namedBelowTop []string
 	// preserved says the stopped run's change is still there, so the decision is
 	// held back by nothing in the order below priority 0, and ahead is the work
 	// it goes ahead of.
@@ -4954,6 +4966,9 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 			named = fmt.Sprintf("%s (%s)", title, entry.ID)
 		}
 		held.named = append(held.named, named)
+		if entry.Priority != 0 {
+			held.namedBelowTop = append(held.namedBelowTop, named)
+		}
 	}
 	return held, len(held.ahead) > 0
 }
