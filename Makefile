@@ -45,7 +45,7 @@ PLATFORMS ?= darwin/arm64 darwin/amd64 linux/amd64
 # outgrows it is a package to split.
 TEST_TIMEOUT ?= 43m
 
-.PHONY: build test race vet fmt fmtcheck cachecheck check adoption codex-resume dist dist-verify clean-dist release release-notes
+.PHONY: build test race vet fmt fmtcheck cachecheck check doccheck adoption codex-resume dist dist-verify clean-dist release release-notes
 .NOTPARALLEL: check
 
 # Every Go command below writes what it compiles to the build cache before it
@@ -164,6 +164,47 @@ fmtcheck:
 	fi
 
 check: fmtcheck test race vet
+
+# The tests whose result depends on this repository's governed documents -- the
+# product specifications, designs, and decisions homes, with the invariants and
+# each home's README.md -- or on the shipped documentation the Lead Product
+# Manager is given, and nothing else. It is what a confirmed document's landing
+# runs in place of the full checks (document_checks in .yoyodyne/config.yaml):
+# such a landing changes nothing but those homes, so the rest of the suite and
+# the race check judge code it cannot have touched.
+#
+# Each entry is a package and the -run pattern naming its tests; `.` runs the
+# whole package. Every entry runs even after one fails, so a landing is told
+# every test its document broke, and the target fails if any did. A test that
+# reads those documents and is not listed here is one to add:
+# docs/developing-yoyo.md says which these are and why each is here, and
+# internal/composition fails when a name below matches no test in its package.
+DOCCHECK_TESTS = \
+	./internal/terms=. \
+	./scripts/vocabulary=. \
+	./internal/doclink=. \
+	./internal/artifact=. \
+	./internal/conformance=. \
+	./internal/cli='^(TestThisRepositoryOwnArtifactsAreReadableByTheHarness|TestThisRepositoryOwnArtifactsRecordAnOwnerForEveryKind|TestThisRepositoryOwnArtifactsAreAllReadByTheLoader|TestThisRepositoryOwnInvariantsAreAllReadByTheLoader|TestThisRepositoryOwnOperatingRulesLoadAsAnArtifact|TestThisRepositoryOwnGoalsAreReadableByTheHarness|TestThisRepositoryOwnGoalsResolveAsAttributions|TestEveryWrappedGoalInThisRepositoryIsReportedWithAPlaceToOpen|TestEveryDuplicatedGoalIdentityInThisRepositoryIsReportedWithAPlaceToOpen|TestTheSetupSkillIsReachableFromTheReadme)$$' \
+	./internal/goal='^(TestYoyodynesOwnArtifactsLoadAndItsGoalsAreReadFromThem|TestNoDocumentUnderDocsCarriesIdentityOutsideAConfiguredHome)$$' \
+	./internal/invariant='^TestThisRepositorysInvariantsHomeLoadsWithNoGapToReport$$' \
+	./internal/doctor='^(TestThisRepositoryReportsItsOwnArtifactHomesDocumented|TestTheIndexesThisRepositoryCarriesAreNotReadAsGovernedDocuments)$$' \
+	./internal/contextbundle='^(TestShippedDocumentationNamesDocumentsThisRepositoryHas|TestShippedDocumentationFitsTheBriefingBesideEverythingElse)$$' \
+	./internal/composition='^TestThisRepositoryIsAllAccountedFor$$' \
+	./internal/beads='^(TestEveryBeadsHomeThisRepositoryNamesIsTheCanonicalOne|TestTheReadmeAndTheInstallScriptAgreeOnTheBeadsHome|TestTheDocumentsStateTheRemedyDoctorPrints)$$' \
+	./internal/orchestrator='^(TestNonGoFixtureVerifiesTheLanguageAgnosticInvariant|TestThisRepositoryDeliversThePromotionInvariantToEveryRoleThatCouldBreakIt|TestRunAgainstAProjectRepositoryWithNoneOfTheHarnessFiles|TestTheReliabilitySlotPullsReliabilityWorkFirstAndFallsBackWhenNoneRemains)$$'
+
+doccheck: cachecheck
+	@failed=; \
+	for entry in $(DOCCHECK_TESTS); do \
+		package=$${entry%%=*}; pattern=$${entry#*=}; \
+		echo "$(GO) test -timeout $(TEST_TIMEOUT) -run '$$pattern' $$package"; \
+		$(GO) test -timeout $(TEST_TIMEOUT) -run "$$pattern" "$$package" || failed="$$failed $$package"; \
+	done; \
+	if [ -n "$$failed" ]; then \
+		echo "doccheck: tests that read the governed or shipped documents failed in$$failed" >&2; \
+		exit 1; \
+	fi
 
 # The README's "Getting started" executed against a throwaway project that is
 # neither this one nor written in Go, so that section is verified rather than
