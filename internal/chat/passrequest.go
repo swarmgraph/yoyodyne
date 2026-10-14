@@ -112,7 +112,7 @@ func decodePassRequest(payload string) (PassAsk, error) {
 // Product Manager's. A refusal — an agent that is not a program manager
 // instance, a focus naming both an area and paths, a store that would not take
 // it — is an outcome the role is told, and never a failed turn.
-func (s *Session) performPassRequest(ask PassAsk) PassRequestOutcome {
+func (s *Session) performPassRequestWithoutToolAudit(ask PassAsk) PassRequestOutcome {
 	outcome := PassRequestOutcome{Ask: ask}
 	var focus runstate.PassFocus
 	if ask.Focus != nil {

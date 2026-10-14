@@ -140,7 +140,7 @@ func extractIntervention(reply string) (string, *ObservedAsk, error) {
 // performObserved records the step a reply asked to have recorded. A step the
 // record refuses — an unknown kind, nobody named as having taken it, a time in
 // the future — is an outcome the role is told, never a failed turn.
-func (s *Session) performObserved(ask ObservedAsk) ObservedOutcome {
+func (s *Session) performObservedWithoutToolAudit(ask ObservedAsk) ObservedOutcome {
 	outcome := ObservedOutcome{Ask: ask}
 	if s.options.Interventions == nil {
 		outcome.Failure = "no record of hand steps is wired to this conversation, so nothing was recorded"

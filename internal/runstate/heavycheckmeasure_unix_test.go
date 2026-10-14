@@ -76,6 +76,56 @@ func TestAHeavyCheckLaunchIsMeasuredFromLaunchToExit(t *testing.T) {
 	}
 }
 
+// A check whose processes have all gone can have its place given back by
+// another run's request for one before its own harness writes its end. The end
+// is still measured, so the launch does not read as one that never finished.
+func TestAHeavyCheckReleasedBeforeItFinishesIsStillMeasuredToItsExit(t *testing.T) {
+	t.Parallel()
+	store := newHeavyCheckStoreForTest(t)
+
+	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
+	command := launchHeld(t, grant, "exit 0")
+	_ = command.Wait()
+	// The next request for a place settles the record first, and finds every
+	// process of this check gone.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		record, err := store.Settle(t.Context())
+		if err != nil {
+			t.Fatal(err)
+		}
+		released := false
+		for _, permit := range record.Permits {
+			released = released || permit.ID == grant.Permit.ID && permit.State == HeavyCheckReleased
+		}
+		if released {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("record = %#v, want the exited check's place given back", record)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	grant.Measure(HeavyCheckPassed, 20*time.Minute)
+	if _, err := grant.Finish("succeeded, exit code 0"); err != nil {
+		t.Fatal(err)
+	}
+	if grant.MeasureProblem != nil {
+		t.Fatalf("measure problem = %v", grant.MeasureProblem)
+	}
+	measurements, err := store.Measurements()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(measurements.Measurements) != 1 {
+		t.Fatalf("measurements = %#v, want the one launch", measurements)
+	}
+	measured := measurements.Measurements[0]
+	if _, ended := measured.Ran(); !ended || measured.Outcome != HeavyCheckPassed || measured.Budget() != 20*time.Minute {
+		t.Fatalf("measurement = %#v, want it finished as passed with its 20m time limit", measured)
+	}
+}
+
 // A launch whose harness stopped before writing its end down is kept as
 // launched with no end, so it is read as unknown rather than as a pass; and
 // the measurements keep only the last few launches.

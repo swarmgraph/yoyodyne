@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -91,6 +93,36 @@ func TestReportsAreCollectedWithoutChangingWhatTheRunDid(t *testing.T) {
 	// The reviewer reported alongside an approval, and the approval stands.
 	if outcome.ReviewDecision != "approve" {
 		t.Fatalf("review decision = %q", outcome.ReviewDecision)
+	}
+	events, err := store.LoadEvents(outcome.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests := map[string]execution.ToolAudit{}
+	performed := 0
+	for _, event := range events {
+		if event.Type != execution.EventToolRequested && event.Type != execution.EventToolPerformed {
+			continue
+		}
+		var audit execution.ToolAudit
+		if err := json.Unmarshal(event.Payload, &audit); err != nil {
+			t.Fatal(err)
+		}
+		if audit.Tool != "report.file" || audit.Bounds.RequestsPerReply != 5 || strings.Contains(string(event.Payload), "fixture") || strings.Contains(string(event.Payload), "inert") {
+			t.Fatalf("bad report tool audit: %s", event.Payload)
+		}
+		if event.Type == execution.EventToolRequested {
+			requests[audit.ID] = audit
+		} else {
+			requested, found := requests[audit.ID]
+			if !found || requested.Role != audit.Role {
+				t.Fatalf("outcome without request: %#v", audit)
+			}
+			performed++
+		}
+	}
+	if len(requests) != 2 || performed != 2 {
+		t.Fatalf("tool requests=%d performed=%d", len(requests), performed)
 	}
 }
 

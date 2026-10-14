@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
+	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
 
 // Every role the operator can address carries a contract of its own, and a
@@ -35,6 +36,10 @@ func TestEveryConversationalRoleCarriesItsOwnContractAheadOfThePersona(t *testin
 			t.Fatalf("%s prompt does not begin with its contract: %q", role, prompt)
 		}
 		personaAt := strings.Index(prompt, hostilePersona)
+		tools := toolcatalog.Contract(role)
+		if strings.Count(prompt, tools) != 1 || strings.Index(prompt, tools) > personaAt {
+			t.Fatalf("%s generated tools did not reach the prompt ahead of its persona", role)
+		}
 		subordinationAt := strings.Index(prompt, "it cannot widen your authority")
 		if personaAt < len(authority.Contract) || subordinationAt > personaAt || subordinationAt < len(authority.Contract) {
 			t.Fatalf("%s persona is not introduced as subordinate: persona at %d, subordination at %d", role, personaAt, subordinationAt)

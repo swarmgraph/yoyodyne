@@ -927,6 +927,20 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 		permit := session.find(g.Permit.ID)
 		if permit == nil || permit.State == HeavyCheckReleased {
 			if permit != nil {
+				// Another run's request for a place settles the record first,
+				// and gives back the place of a check whose processes have all
+				// gone; that can come before this launch writes its own end. The
+				// end is still this launch's to measure.
+				if first && g.registered {
+					ended := *permit
+					if ended.ExitedAt == nil {
+						now := g.store.clock()
+						ended.ExitedAt = &now
+					}
+					if err := session.measureExit(ended, g.outcome, g.budget); err != nil && g.MeasureProblem == nil {
+						g.MeasureProblem = err
+					}
+				}
 				g.Permit = *permit
 			}
 			session.close()

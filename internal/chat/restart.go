@@ -114,7 +114,7 @@ func decodeRestart(payload string) (RestartAsk, error) {
 // a part the services section does not declare, a request already open for the
 // part, a store that would not take it — is an outcome the role is told, and
 // never a failed turn.
-func (s *Session) performRestartRequest(ask RestartAsk) RestartOutcome {
+func (s *Session) performRestartRequestWithoutToolAudit(ask RestartAsk) RestartOutcome {
 	outcome := RestartOutcome{Ask: ask}
 	if err := runstate.ValidateRestartPart(strings.TrimSpace(ask.Part)); err != nil {
 		outcome.Failure = singleLine(err.Error(), maxTrackerFailureBytes)

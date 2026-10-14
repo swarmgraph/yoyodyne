@@ -52,6 +52,9 @@ func TestEveryReadingRoleCanReachAllDescriptionAndAcceptanceText(t *testing.T) {
 					if err := session.authorize(parsedReply{Actions: actions}); err != nil {
 						t.Fatalf("authorize continuation: %v", err)
 					}
+					// Each part is asked for in a reply of its own, so the tool's
+					// per-reply bound starts again with every read.
+					session.toolUses = nil
 					outcomes, err := session.performTrackerActions(context.Background(), actions)
 					if err != nil || len(outcomes) != 1 || !outcomes[0].Applied {
 						t.Fatalf("read = %#v, %v", outcomes, err)

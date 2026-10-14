@@ -206,8 +206,8 @@ func TestARefusedHandStepIsToldToTheRole(t *testing.T) {
 	}
 }
 
-// Only a role holding report.file may write down a hand step: every other
-// role's block is refused before anything is recorded.
+// Only a role holding report.file and lane-report.write may write down a hand
+// step: every other role's block is refused before anything is recorded.
 func TestOnlyAReportFilingRoleMayRecordAHandStep(t *testing.T) {
 	t.Parallel()
 
