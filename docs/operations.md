@@ -2342,6 +2342,21 @@ long — `bd list did not answer within its 30s bound on any of 3 attempts over
 1m40s: …` — so what reads it says the tracker did not answer rather than that
 one listing timed out.
 
+**A tracker call that runs out of time says what it was doing, for whom, and
+which limit stopped it.** A call stopped at its own limit reads
+`bd show failed with status timed_out and exit code -1: reading work item
+yoyodyne-7my for the development manager's recurring pass
+development-manager-sweep#804 was stopped after 30s, at the 30s limit each
+tracker call is given`; that is the store being slow. A call its caller gave
+less time says `… was stopped after 5s, when its caller's own deadline of 5s ran
+out before the 30s limit each tracker call is given`; that is the caller not
+waiting for the store, and is a defect in the caller rather than a sign of a
+slow tracker. Calls are named for a role's recurring pass, a developer run, a
+role's conversation, or `yoyo reconcile`. The notes, blockers, and findings the
+harness writes on items itself are given the tracker's own limits rather than
+five or ten seconds; [the diagnosis](diagnoses/yoyodyne-6u7-tracker-timeouts.md)
+found those shorter deadlines behind most of the timeouts reported in October.
+
 **A pass carries on with what it could read and names what it could not.** The
 development manager's docket still lists every stoppage; it says that whether
 each entry's item is still open could not be read, that this is the harness's

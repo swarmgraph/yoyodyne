@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -261,6 +262,53 @@ func TestAPassThatDidNotRunOrWasHandedNothingNotesNothing(t *testing.T) {
 			t.Errorf("notes = %v, delivered = %+v, want neither", notes.notes, recorded.Delivered)
 		}
 	})
+}
+
+// busyItemNotes is the tracker as a busy store answers a note: after answersAfter,
+// so a caller that allowed less time than that is stopped first, as the process
+// runner stops bd when a caller's deadline runs out. It records who the write
+// said it was for.
+type busyItemNotes struct {
+	itemNotes
+	answersAfter time.Duration
+	callers      []string
+}
+
+func (n *busyItemNotes) AppendNote(ctx context.Context, id, note string) error {
+	n.callers = append(n.callers, beads.Caller(ctx))
+	if deadline, bounded := ctx.Deadline(); bounded && time.Until(deadline) < n.answersAfter {
+		return errors.New("bd update failed with status timed_out and exit code -1: ")
+	}
+	return n.itemNotes.AppendNote(ctx, id, note)
+}
+
+// The note on a passed-over item lands when the tracker takes seconds to answer,
+// as a busy store does. It was written under the five seconds a pass gives one of
+// its own small files, so on a busy store it was stopped before bd answered and
+// recorded as a tracker timeout; it is now bounded by the tracker's own limit.
+func TestAPassedOverNoteLandsWhenTheTrackerIsSlowToAnswer(t *testing.T) {
+	t.Parallel()
+	role := &wokenRole{answers: []scriptedTurn{{result: complete("Took nothing.")}}}
+	notes := &busyItemNotes{answersAfter: 8 * time.Second}
+	store := sweepStore(t)
+	trigger := Trigger{Tasks: architectPass(), Claims: store, Reports: store, Roles: role,
+		ConversationWork: threeTopItems(), ItemNotes: notes, Clock: recurringClock{}}
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatalf("Fire() error = %v", err)
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 1 {
+		t.Fatalf("recorded = %+v (%v), want one pass", recorded, err)
+	}
+	if recorded[0].Problem != "" {
+		t.Fatalf("problem = %q, want the note written", recorded[0].Problem)
+	}
+	if written := notes.notes["yoyodyne-ifd.414.1"]; len(written) != 1 {
+		t.Fatalf("notes = %v, want the note on the first item", notes.notes)
+	}
+	if len(notes.callers) != 1 || notes.callers[0] != "the architect's recurring pass architect-pass#1" {
+		t.Fatalf("the note was written for %q, want the pass named", notes.callers)
+	}
 }
 
 // A note that could not be written costs the note and not the pass's record,

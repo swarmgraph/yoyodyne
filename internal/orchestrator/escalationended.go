@@ -54,7 +54,7 @@ func (r Reconciler) EndEscalations(ctx context.Context) ([]EscalationSettlement,
 	}
 	itemProblems := make(map[string]string)
 	items := func(workItemID string) readmodel.EscalatedItem {
-		showCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		showCtx, cancel := trackerCallContext(ctx)
 		defer cancel()
 		item, err := r.Tracker.Show(showCtx, workItemID)
 		if err != nil {
@@ -111,7 +111,7 @@ func (r Reconciler) endEscalation(ctx context.Context, ending readmodel.EndedEsc
 		return EscalationSettlement{}, false
 	}
 	now := r.clock().Now()
-	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	recordCtx, cancel := trackerCallContext(ctx)
 	defer cancel()
 	if _, err := r.Tracker.RecordOutcome(recordCtx, ending.WorkItemID, renderEscalationEnded(state.RunID, settlement.Why)); err != nil {
 		settlement.Failure = fmt.Sprintf("the escalation of run %s to the operator has ended and %s could not be told so: %v", state.RunID, ending.WorkItemID, err)

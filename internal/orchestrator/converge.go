@@ -583,7 +583,7 @@ func (r Reconciler) recordSweptWorktree(state *runstate.State, preservedWork str
 // record problem beside it does not: the capture happened, the ref is a
 // garbage-collection root, and what is missing is somebody being told.
 func (r Reconciler) recordPreservedWork(ctx context.Context, state *runstate.State, preservedWork string) string {
-	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	recordCtx, cancel := trackerCallContext(ctx)
 	defer cancel()
 	note := renderPreservedWorkNotes(*state, preservedWork)
 	// Delivery can succeed just before its marker save fails. The item is the
@@ -803,7 +803,7 @@ func (r Reconciler) correctRelease(ctx context.Context, state runstate.State, re
 	if release.Found != nil && release.Found.Looked() && release.Found.BranchThere {
 		return false, ""
 	}
-	recordCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	recordCtx, cancel := trackerCallContext(ctx)
 	defer cancel()
 	if _, err := r.Tracker.RecordOutcome(recordCtx, state.WorkItemID, renderReleaseCorrection(state, release, removal, r.clock().Now())); err != nil {
 		return false, fmt.Sprintf(

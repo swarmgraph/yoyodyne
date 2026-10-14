@@ -91,6 +91,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -1091,6 +1092,7 @@ type firing struct {
 // record and beside the pass, rather than something that stops the pull.
 func (t Trigger) run(ctx context.Context, f firing) Fired {
 	name, pass, task, message, batch := f.name, f.pass, f.task, f.message, f.batch
+	ctx = beads.OnBehalfOf(ctx, "the "+task.Role.Title()+"'s recurring pass "+pass)
 	fired := Fired{Task: name, Role: task.Role, Summoned: f.summoned, Events: f.events}
 	recorded := runstate.Sweep{
 		Task:      name,

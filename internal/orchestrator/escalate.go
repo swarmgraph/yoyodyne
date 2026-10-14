@@ -299,6 +299,35 @@ func recordContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.WithoutCancel(ctx), recordGrace)
 }
 
+// trackerRecordGrace bounds a tracker write that is deliberately outliving the
+// pass or decision it belongs to. recordGrace is sized for one small file, and
+// a tracker write is not one: the tracker client gives each bd call thirty
+// seconds and, where one is stopped, reads the item back and asks again
+// (beads.Client), and a busy store takes several seconds to answer even a call
+// that succeeds. Five seconds decided those writes before the tracker had had
+// its turn and reported them timed out. This is longer than the most a write
+// can take with the client's own retries — three calls and two read-backs at
+// thirty seconds each, the waits between them, and the write lock before each
+// call — so the client's limits are what decide, and this only keeps a
+// detached write from outliving them.
+const trackerRecordGrace = 5 * time.Minute
+
+// trackerRecordContext is recordContext for a write that goes to the work
+// tracker, for the reason recordContext detaches and bounded by
+// trackerRecordGrace rather than recordGrace.
+func trackerRecordContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.WithoutCancel(ctx), trackerRecordGrace)
+}
+
+// trackerCallContext bounds one tracker call, or one read and the write that
+// follows it, that is given a deadline of its own: by trackerRecordGrace, so
+// the tracker client's limits decide when it has failed rather than a deadline
+// shorter than a busy store takes to answer. Unlike trackerRecordContext it
+// keeps ctx's cancellation.
+func trackerCallContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, trackerRecordGrace)
+}
+
 // Escalator delivers docketed stoppages to the development manager. It has no
 // tracker, no worktree access, and no forge access, and it starts nothing: what
 // it does is put evidence somebody already recorded in front of the role whose

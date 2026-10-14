@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -134,7 +133,7 @@ func (r Reconciler) deliverReconcileFinding(ctx context.Context, state *runstate
 	note := "Settlement finding: " + refusal.CitedWhat() + "\nRun: " + state.RunID + "\nNext move: " + refusal.CitedWhose()
 	// A previous delivery may have succeeded just before its marker save failed.
 	// The item's existing notes are the other durable copy of that delivery.
-	readCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	readCtx, cancel := trackerCallContext(ctx)
 	item, readErr := r.Tracker.Show(readCtx, state.WorkItemID)
 	cancel()
 	if readErr != nil {
