@@ -135,6 +135,94 @@ func TestTwoRunsAtARaceSuiteWithOnePlaceRunInTurnEachOnItsOwnTime(t *testing.T) 
 	if len(record.Holding("")) != 0 || len(record.Waiting()) != 0 {
 		t.Fatalf("record = %#v, want every place given back", record)
 	}
+	// Each launch is measured: one at a time, each passed, each with the time
+	// limit it launched with, and the one that waited with its wait.
+	measurements, err := mustHeavyStore(t, stateRoot).Measurements()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(measurements.Measurements) != 2 {
+		t.Fatalf("measurements = %#v, want both launches", measurements)
+	}
+	var measuredWaits []time.Duration
+	for _, measured := range measurements.Measurements {
+		if measured.Outcome != runstate.HeavyCheckPassed || measured.Budget() <= 3*time.Second || measured.Budget() > 3500*time.Millisecond || measured.Running[command] != 1 || measured.Limit != 1 {
+			t.Fatalf("measurement = %#v, want a pass, the 3.5s limit or what its stage had left of it, and itself the one running", measured)
+		}
+		if ran, ended := measured.Ran(); !ended || ran < time.Second {
+			t.Fatalf("measurement = %#v, want the two seconds it ran", measured)
+		}
+		measuredWaits = append(measuredWaits, measured.Waited())
+	}
+	sort.Slice(measuredWaits, func(first, second int) bool { return measuredWaits[first] < measuredWaits[second] })
+	if measuredWaits[1] < time.Second {
+		t.Fatalf("measured waits = %v, want the run that waited out the other measured waiting", measuredWaits)
+	}
+}
+
+// listingRunner answers the process listing with fixed lines, or fails.
+type listingRunner struct {
+	lines  []string
+	fail   bool
+	called []execution.Command
+}
+
+func (r *listingRunner) Run(_ context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	r.called = append(r.called, command)
+	if r.fail {
+		return execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1}, nil
+	}
+	for _, line := range r.lines {
+		observer(execution.Output{Stream: execution.StreamStdout, Text: line})
+	}
+	return execution.ProcessResult{Status: execution.ProcessSucceeded}, nil
+}
+
+// The machine is read as a heavy check launches: every process running a heavy
+// check's command, the program read by its own name, and nothing else; and a
+// listing that fails leaves the count unknown rather than zero.
+func TestTheMachineReadingFindsEveryProcessRunningAHeavyCheck(t *testing.T) {
+	t.Parallel()
+	heavy := config.Execution{HeavyChecks: map[string]int{"make race": 1, "make test": 2}}
+	runner := &listingRunner{lines: []string{
+		"  101   100 make test",
+		"  201   200 /Library/Developer/CommandLineTools/usr/bin/make race RACE_PACKAGES=./internal/x",
+		"  301   300 make check",
+		"  401   400 /bin/sh -c make race",
+		"  501   500 vim make test",
+		"garbage",
+	}}
+	reading := HeavyCheckMachine(runner, heavy)()
+	if !reading.Listed || len(reading.Seen) != 2 {
+		t.Fatalf("reading = %#v, want the test and race suites and nothing else", reading)
+	}
+	if reading.Seen[0] != (runstate.HeavyCheckProcessSeen{PID: 101, ProcessGroup: 100, Check: "make test"}) || reading.Seen[1].Check != "make race" || reading.Seen[1].ProcessGroup != 200 {
+		t.Fatalf("seen = %#v", reading.Seen)
+	}
+	if reading.Cores < 1 || len(runner.called) != 1 || runner.called[0].Timeout <= 0 {
+		t.Fatalf("reading = %#v, calls = %#v, want cores and one bounded listing", reading, runner.called)
+	}
+	failed := HeavyCheckMachine(&listingRunner{fail: true}, heavy)()
+	if failed.Listed || failed.Seen != nil {
+		t.Fatalf("reading = %#v, want a failed listing left unknown", failed)
+	}
+}
+
+// A check's end is measured in the outcomes a person reads.
+func TestAHeavyCheckOutcomeIsReadFromHowItsProcessEnded(t *testing.T) {
+	t.Parallel()
+	for status, want := range map[execution.ProcessStatus]runstate.HeavyCheckOutcome{
+		execution.ProcessSucceeded: runstate.HeavyCheckPassed,
+		execution.ProcessFailed:    runstate.HeavyCheckFailed,
+		execution.ProcessTimedOut:  runstate.HeavyCheckTimedOut,
+		execution.ProcessStalled:   runstate.HeavyCheckStalled,
+		execution.ProcessCancelled: runstate.HeavyCheckStopped,
+		"":                         "",
+	} {
+		if got := heavyCheckOutcome(status); got != want {
+			t.Fatalf("heavyCheckOutcome(%q) = %q, want %q", status, got, want)
+		}
+	}
 }
 
 func mustHeavyStore(t *testing.T, root string) *runstate.HeavyCheckStore {

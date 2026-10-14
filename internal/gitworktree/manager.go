@@ -4042,6 +4042,13 @@ func MachineLoad() (load float64, cores int, ok bool) {
 	return load, runtime.NumCPU(), ok
 }
 
+// MachineFreeMemory is the memory the operating system reports free, in bytes,
+// read where the load is so every reading of the machine is taken in one
+// place; ok is false where the platform does not say.
+func MachineFreeMemory() (free uint64, ok bool) {
+	return freeMemory()
+}
+
 // ScaleForLoad is a budget scaled for the machine's load exactly as a local Git
 // command's is: unchanged at or below one load per core, grown in proportion
 // past that, and capped at maxLoadFactor times. It is exported so a bound kept

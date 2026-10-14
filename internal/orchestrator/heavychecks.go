@@ -4,12 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -23,6 +28,9 @@ type HeavyCheckPermits struct {
 	Store     *runstate.HeavyCheckStore
 	Product   domain.ProductID
 	Execution config.Execution
+	// Machine, where set, reads the machine as each heavy check launches, for
+	// the measurements its limit is set from (runstate's heavycheckmeasure.go).
+	Machine func() runstate.HeavyCheckReading
 }
 
 // Acquire asks for a place for a heavy command, waiting for it.
@@ -37,7 +45,7 @@ func (h HeavyCheckPermits) Acquire(ctx context.Context, ask checks.PermitAsk, wa
 	}
 	grant, err := h.Store.Acquire(ctx, runstate.HeavyCheckAsk{
 		Product: string(h.Product), RunID: ask.RunID, WorkItemID: ask.WorkItemID, Commit: ask.Commit,
-		Check: name, Command: ask.Command, Limit: limit, Priority: priority,
+		Check: name, Command: ask.Command, Limit: limit, Priority: priority, Read: h.Machine,
 	}, func(permit runstate.HeavyCheckPermit) {
 		if waiting != nil {
 			waiting(permit.Check, permit.AskedAt)
@@ -82,13 +90,100 @@ func (p heavyCheckPermit) Register(process execution.StartedProcess) error {
 
 // Finish records how the check ended, in the words a process result is read
 // in, and gives its place back once its processes are gone.
-func (p heavyCheckPermit) Finish(result execution.ProcessResult) error {
+func (p heavyCheckPermit) Finish(result execution.ProcessResult, budget time.Duration) error {
 	ended := "not started"
 	if result.Status != "" {
 		ended = fmt.Sprintf("%s, exit code %d", result.Status, result.ExitCode)
 	}
+	p.grant.Measure(heavyCheckOutcome(result.Status), budget)
 	_, err := p.grant.Finish(ended)
 	return err
+}
+
+// heavyCheckOutcome is a process's end as a heavy check's measurement records
+// it.
+func heavyCheckOutcome(status execution.ProcessStatus) runstate.HeavyCheckOutcome {
+	switch status {
+	case execution.ProcessSucceeded:
+		return runstate.HeavyCheckPassed
+	case execution.ProcessFailed:
+		return runstate.HeavyCheckFailed
+	case execution.ProcessTimedOut:
+		return runstate.HeavyCheckTimedOut
+	case execution.ProcessStalled:
+		return runstate.HeavyCheckStalled
+	case execution.ProcessCancelled:
+		return runstate.HeavyCheckStopped
+	}
+	return ""
+}
+
+// machineListingTimeout bounds the one process listing a heavy check's launch
+// reads; a listing that takes longer is left out of the measurement.
+const machineListingTimeout = 5 * time.Second
+
+// HeavyCheckMachine reads the machine as a heavy check launches: the load, the
+// free memory, and every process whose command is one of the project's heavy
+// checks, from the machine's process listing taken through runner. Those
+// processes are what tells a suite run in its place from one a developer runs
+// inside its own session, which asks for none: the record of places tells them
+// apart by process group. A suite started under a name execution.heavy_checks
+// does not give — a make target that runs the race suite among others — is not
+// in the listing's count, and shows only in the load.
+func HeavyCheckMachine(runner execution.ProcessRunner, heavy config.Execution) func() runstate.HeavyCheckReading {
+	return func() runstate.HeavyCheckReading {
+		var reading runstate.HeavyCheckReading
+		if load, cores, ok := gitworktree.MachineLoad(); ok {
+			reading.Load, reading.Cores = &load, cores
+		} else {
+			reading.Cores = runtime.NumCPU()
+		}
+		if free, ok := gitworktree.MachineFreeMemory(); ok {
+			reading.FreeMemory = &free
+		}
+		if runner == nil {
+			return reading
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), machineListingTimeout)
+		defer cancel()
+		var seen []runstate.HeavyCheckProcessSeen
+		result, err := runner.Run(ctx, execution.Command{
+			Name: "ps", Args: []string{"-axo", "pid=,pgid=,command="}, Timeout: machineListingTimeout,
+		}, func(output execution.Output) {
+			if output.Stream != execution.StreamStdout {
+				return
+			}
+			if process, ok := heavyCheckProcess(output.Text, heavy); ok {
+				seen = append(seen, process)
+			}
+		})
+		if err == nil && result.Status == execution.ProcessSucceeded {
+			reading.Listed, reading.Seen = true, seen
+		}
+		return reading
+	}
+}
+
+// heavyCheckProcess reads one line of the process listing — its process, its
+// process group, and its command line — as a process running a heavy check,
+// where its command is one. The program is read by its own name, so a make
+// the shell found at a full path is the same make.
+func heavyCheckProcess(line string, heavy config.Execution) (runstate.HeavyCheckProcessSeen, bool) {
+	fields := strings.Fields(line)
+	if len(fields) < 3 {
+		return runstate.HeavyCheckProcessSeen{}, false
+	}
+	pid, pidErr := strconv.Atoi(fields[0])
+	group, groupErr := strconv.Atoi(fields[1])
+	if pidErr != nil || groupErr != nil {
+		return runstate.HeavyCheckProcessSeen{}, false
+	}
+	command := append([]string{filepath.Base(fields[2])}, fields[3:]...)
+	name, _, ok := heavy.HeavyCheck(strings.Join(command, " "))
+	if !ok {
+		return runstate.HeavyCheckProcessSeen{}, false
+	}
+	return runstate.HeavyCheckProcessSeen{PID: pid, ProcessGroup: group, Check: name}, true
 }
 
 // heavyCheckPriority is the order this run's gate checks wait for places in: a

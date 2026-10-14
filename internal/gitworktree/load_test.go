@@ -125,3 +125,20 @@ func (r *budgetRecordingRunner) Run(ctx context.Context, command execution.Comma
 	r.timeout = command.Timeout
 	return r.delegate.Run(ctx, command, observer)
 }
+
+// Linux reports its free memory, which is what a heavy check's measurement
+// records beside the load as it launches. macOS reports it too, except inside
+// a sandbox that refuses the reading, as a developer's own session does; the
+// harness reading it is not in one, and a refused reading leaves the figure
+// out of the measurement rather than recording nothing as zero.
+func TestFreeMemoryIsReadWhereThePlatformSaysIt(t *testing.T) {
+	t.Parallel()
+
+	free, ok := MachineFreeMemory()
+	if !ok && runtime.GOOS == "linux" {
+		t.Fatalf("MachineFreeMemory() read nothing on %s", runtime.GOOS)
+	}
+	if ok && free == 0 {
+		t.Fatalf("MachineFreeMemory() = 0 bytes, want what the machine has free")
+	}
+}

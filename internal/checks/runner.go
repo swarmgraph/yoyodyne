@@ -257,7 +257,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		// ran, which is the one thing a stopped stage must not record.
 		remaining := stageTimeout - stageElapsed
 		if stageTimeout > 0 && remaining <= 0 {
-			finishPermit(permit, execution.ProcessResult{})
+			finishPermit(permit, execution.ProcessResult{}, 0)
 			now := clock.Now()
 			result := Result{
 				Command: safeCommand,
@@ -294,7 +294,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		if request.Gate != nil {
 			var gateErr error
 			if gate, gateErr = request.Gate(safeCommand); gateErr != nil {
-				finishPermit(permit, execution.ProcessResult{})
+				finishPermit(permit, execution.ProcessResult{}, 0)
 				return results, lastAccepted, fmt.Errorf("prepare the launch of check %q: %w", safeCommand, gateErr)
 			}
 		}
@@ -329,7 +329,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		})
 		// The place is given back before anything else is made of the result,
 		// whatever the result is, once every process the check started is gone.
-		if finishErr := finishPermit(permit, processResult); finishErr != nil && err == nil {
+		if finishErr := finishPermit(permit, processResult, budget); finishErr != nil && err == nil {
 			if emitErr := emit(request.RunID, sequence, clock, sink, execution.EventProcessOutput, map[string]any{
 				"kind": "check", "command": safeCommand, "stream": execution.StreamStderr,
 				"text": fmt.Sprintf("the end of %s could not be written to the record of heavy check places, so its place is given back by the next run that asks once its processes are gone: %v", safeCommand, finishErr),
@@ -441,7 +441,7 @@ func (r Runner) acquire(ctx context.Context, request Request, command, safeComma
 		return nil, took, false, fmt.Errorf("ask for a place to run check %q: %w", safeCommand, err)
 	}
 	if observerErr != nil {
-		finishPermit(permit, execution.ProcessResult{})
+		finishPermit(permit, execution.ProcessResult{}, 0)
 		return nil, took, false, observerErr
 	}
 	if permit != nil && request.Permit.Granted != nil {
@@ -451,11 +451,11 @@ func (r Runner) acquire(ctx context.Context, request Request, command, safeComma
 }
 
 // finishPermit gives a heavy check's place back, where it had one.
-func finishPermit(permit Permit, result execution.ProcessResult) error {
+func finishPermit(permit Permit, result execution.ProcessResult, budget time.Duration) error {
 	if permit == nil {
 		return nil
 	}
-	return permit.Finish(result)
+	return permit.Finish(result, budget)
 }
 
 // emitCompleted records what a check spent against what it was allowed, not
