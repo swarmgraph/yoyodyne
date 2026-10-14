@@ -15,7 +15,10 @@
 // read: the terms check in internal/terms reads their string literals, and a
 // failure message naming a replaced term is reworded on the way here; the
 // authority sweep in internal/authority reads their names, and a helper that
-// looks like an authorization site is excused in docs/authority-inventory.md.
+// looks like an authorization site is excused in docs/authority-inventory.md;
+// and the run-stop inventory in internal/orchestrator reads them for run
+// endings, and a fixture that writes an ended run is listed in docs/run-stops.md
+// as a site that ends none.
 //
 // scripts/movetests moves a group of tests and writes what they need here;
 // docs/diagnoses/yoyodyne-ifd-429-12-orchestrator-binary-under-load.md says why

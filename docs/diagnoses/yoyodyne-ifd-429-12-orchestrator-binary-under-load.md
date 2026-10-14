@@ -389,12 +389,32 @@ The review bound decides how big a group can be. A change's whole patch is
 held to 256 KB, and a new file to 64 KB. Lines taken out of a file cost little,
 because a diff that only removes is described rather than shown once the bound
 is reached. New files cost their whole size, and this group's new tests and
-helpers come to about 165 KB. The moved `publish_test.go` was 83 KB, so its
+helpers come to about 167 KB. The moved `publish_test.go` was 83 KB, so its
 queued-merge and settled-merge tests are in `publish_queue_test.go`.
 
 ### What the move did to the binaries
 
-FIGURES
+Measured as the developing guide records it: `GOFLAGS=-count=1 make race`, with
+a second one beside it on the same tree, started at 10:54 PDT on 2026-10-14.
+The one-minute load was near 10 for the first twenty minutes, then rose with
+other runs on the machine to between 120 and 268, and stayed above 100 to the
+end.
+
+| package | first `make race` | second `make race` |
+| --- | --- | --- |
+| `internal/orchestrator` | stopped at the 43-minute `TEST_TIMEOUT`, 2,584s | stopped at the 43-minute `TEST_TIMEOUT`, 2,581s |
+| `internal/orchestrator/publicationtests` | passed, 267s | passed, 270s |
+
+A second pair, started at 11:04 PDT with the load already past 100 for most of
+it, ended the same way: `internal/orchestrator` stopped at the timeout in both
+(2,584s each), and `publicationtests` passed in 433s and 468s.
+
+So the moved tests now finish in under eight minutes in a binary of their own,
+at a load far above the item's 40. The package's own binary still does not
+finish at that load: one group takes about 15 percent of its work away, and at
+a load past 100 it needs more than that. The item's measure, no binary past half
+of `TEST_TIMEOUT` at a load above 40, is for the end of the move rather than
+for this first group, and it is not met yet.
 
 ### What is left
 

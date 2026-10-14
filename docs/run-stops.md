@@ -369,6 +369,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/schedule.go` | `(Scheduler).Schedule` | `call:stop` | 2 | Stops the drain and watch session or delivers escalations; no developer-run ending. |
 | `internal/orchestrator/schedule.go` | `(Scheduler).Schedule` | `call:escalate` | 1 | Stops the drain and watch session or delivers escalations; no developer-run ending. |
 | `internal/orchestrator/stallcontinue.go` | `continuedAfterStall` | `status-write` | 1 | Re-enters the same attempt after a stall with running status; no terminal outcome. |
+| `internal/orchestrator/testharness/supersession.go` | `(QueuedFixture).DeadRun` | `terminal-literal` | 1 | A test fixture: it writes the durable record of a run that had already ended, for a reconciliation test to read. Only tests import the package, and no run ends there. |
 ```
 
 ## Bound source values
