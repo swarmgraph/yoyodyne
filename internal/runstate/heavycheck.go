@@ -337,6 +337,11 @@ type HeavyCheckAsk struct {
 	// configuration says. The record keeps the last one asked with.
 	Limit    int
 	Priority domain.HeavyCheckPriority
+	// Read, where set, reads the machine as the check launches, for the
+	// measurements kept beside the record (heavycheckmeasure.go). It is read
+	// before the record's lock is taken, so a slow reading holds up nobody
+	// else's place.
+	Read func() HeavyCheckReading
 }
 
 func (a HeavyCheckAsk) validate() error {
@@ -637,6 +642,12 @@ type HeavyCheckGrant struct {
 	Waited     time.Duration
 	registered bool
 	finished   bool
+	read       func() HeavyCheckReading
+	outcome    HeavyCheckOutcome
+	budget     time.Duration
+	// MeasureProblem is why this launch's measurement could not be written,
+	// where it could not. The check ran exactly as it would have regardless.
+	MeasureProblem error
 }
 
 // Hold is the permit's file, locked, for the check's process to inherit.
@@ -757,7 +768,7 @@ func (s *HeavyCheckStore) Acquire(ctx context.Context, ask HeavyCheckAsk, waitin
 				return nil, err
 			}
 			session.close()
-			return &HeavyCheckGrant{store: s, Permit: granted, hold: hold, Waited: granted.Waited(now)}, nil
+			return &HeavyCheckGrant{store: s, Permit: granted, hold: hold, Waited: granted.Waited(now), read: ask.Read}, nil
 		}
 		waitingOn := permit
 		reported := *waitingOn
@@ -852,6 +863,10 @@ func (s *HeavyCheckStore) held(root *repowrite.PinnedRoot, permit HeavyCheckPerm
 // and before it does any work. A failure leaves the gate shut, so a check that
 // could not be written down never ran.
 func (g *HeavyCheckGrant) Register(process execution.StartedProcess) error {
+	var reading HeavyCheckReading
+	if g.read != nil {
+		reading = g.read()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	session, err := g.store.open(ctx)
@@ -875,6 +890,9 @@ func (g *HeavyCheckGrant) Register(process execution.StartedProcess) error {
 	}
 	g.registered = true
 	g.Permit = *permit
+	if err := session.measureLaunch(*permit, reading); err != nil {
+		g.MeasureProblem = err
+	}
 	return nil
 }
 
@@ -919,6 +937,9 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 			permit.State = HeavyCheckExited
 			permit.ExitedAt = &now
 			permit.Result = boundedReason(result)
+			if err := session.measureExit(*permit, g.outcome, g.budget); err != nil && g.MeasureProblem == nil {
+				g.MeasureProblem = err
+			}
 		}
 		// The reason a place is kept is written only once the watch is over, so
 		// a check whose last process takes a moment to go is never shown as one

@@ -88,9 +88,18 @@ the machine-wide effect, because they measure only the checks they start.
 
 - Measure on a machine doing nothing else, and with the real suites
   (`make race`, `make test`) rather than stand-ins, before setting the numbers
-  under measured limits (yoyodyne-ifd.429.48).
+  under measured limits (yoyodyne-ifd.429.48). The harness now measures every
+  real launch of a heavy check as it runs — its wait, its time against its
+  limit, how it ended, and the machine's load, free memory, places held, and
+  suites run outside every place as it launched — and
+  `yoyo heavy-checks measurements` proposes each check's number from them
+  ([setting a heavy check's number from what it cost](../configuration.md#setting-a-heavy-checks-number-from-what-it-cost)).
+  It measures only a project that names its heavy checks, so the figures start
+  once `execution.heavy_checks` is set.
 - Measure the machine-wide effect: what the other runs beside a limited suite
-  gain, which is what the limit is for and what these cases cannot see.
+  gain, which is what the limit is for and what these cases cannot see. The
+  machine's load against how many heavy checks were running is the part of
+  that the launches' measurements carry.
 
 ## Test coverage of the change
 

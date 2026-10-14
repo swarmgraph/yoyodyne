@@ -3127,10 +3127,56 @@ resets the count.
 records what a place costs — about a sixth of a second per heavy check — and
 what a limit of one did to wall time, CPU time, and waiting on a busy machine.
 
-What this does not cover: a suite a developer runs inside its own session is
-its own, and takes no place; and a [suite the forge runs](#where-the-whole-suite-runs)
-takes none either, while a fallback to running it here does. The places count
-one machine's state root: two state roots on one machine count separately.
+#### Setting a heavy check's number from what it cost
+
+**Every launch of a heavy check is measured**, beside the record of places, in
+`heavy-checks/measurements.json`: how long it waited for its place, how long it
+ran against the time limit it launched with, and how it ended — passed, failed,
+stopped by its time limit, stopped for going silent, or stopped by its run. As
+it launches the harness also reads the machine: the one-minute load, the memory
+the operating system reports free, how many of each heavy check hold places, and
+every process whose command is one of the heavy checks but holds no place —
+which is a developer running `make test` inside its own session, where no place
+is asked for. Only the last 512 launches are kept. A measurement that cannot be
+written never stops a check, and a launch whose harness stopped before its end
+was written down is kept with no end rather than read as a pass.
+
+`yoyo heavy-checks measurements` reads them. For each heavy check it gives how
+its launches ended, how long they waited, the load they started under, how many
+started beside a suite run outside every place, and, for each number of it
+running at once, how long the launches ran against their time limits. For the
+machine it gives the load and free memory against how many heavy checks of
+every name were running. And it proposes a number for each check:
+
+- A number of the check running at once **holds** where at least five launches
+  finished at it and none was stopped by its time limit, and the longest took
+  no more than three quarters of its limit, which leaves room for a slower day.
+  One launch stopped by its time limit is enough to say a number does not hold.
+- The number proposed is the one below the lowest number that does not hold. A
+  check that does not hold even alone is told that fewer at once cannot help:
+  its time limit, or the suite, is what has to change.
+- Where everything measured holds, the number proposed is the one it ran under,
+  and **never more**: a check limited to two has never been seen running three
+  at once, so nothing measured says three would hold.
+- Too few launches at the configured number propose nothing, and say so.
+
+The command proposes and changes nothing. The development manager applies a
+proposed number through the reviewed path a configuration change takes. Until
+then the numbers above stand.
+
+What the measurements do not see: a suite run under a name `heavy_checks` does
+not give — `make check`, which runs the race suite among the others — is not in
+the count of suites outside every place, and shows only in the load. Where the
+machine's processes cannot be listed, the count is left unknown for that launch
+rather than counted as none, and the command says for how many. Inside a sandbox
+that refuses the reading, as a developer's own session on macOS does, free
+memory is left out; the harness reading it is not in one.
+
+What the places do not cover: a suite a developer runs inside its own session is
+its own, and takes no place, though the measurements count it; and a
+[suite the forge runs](#where-the-whole-suite-runs) takes none either, while a
+fallback to running it here does. The places count one machine's state root: two
+state roots on one machine count separately.
 
 ### Checks a change runs only when it touches what they vouch for
 

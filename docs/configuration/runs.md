@@ -453,7 +453,9 @@ has no free place waits for one, keeping its developer slot, with the check's
 time starting only when it launches.
 [How many of a heavy check may run at once](../configuration.md#how-many-of-a-heavy-check-may-run-at-once)
 is the whole of it: how a command is matched to a name, the order waiting
-checks start in, and what a restart does to a place.
+checks start in, what a restart does to a place, and how
+`yoyo heavy-checks measurements` proposes each check's number from what its
+launches cost.
 
 ### A check that could not run
 

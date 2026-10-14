@@ -49,9 +49,10 @@ type Permit interface {
 	Hold() *os.File
 	// Register writes the check's process down before it does any work.
 	Register(execution.StartedProcess) error
-	// Finish records how the check ended and gives the place back once every
-	// process it started is gone.
-	Finish(execution.ProcessResult) error
+	// Finish records how the check ended, and the time limit it launched with
+	// where it launched, and gives the place back once every process it
+	// started is gone.
+	Finish(result execution.ProcessResult, budget time.Duration) error
 }
 
 // PermitRequest is what one stage's checks ask their places with. A request

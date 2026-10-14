@@ -56,6 +56,7 @@ type fakePermit struct {
 	hold       *os.File
 	registered bool
 	finished   *execution.ProcessResult
+	budget     time.Duration
 }
 
 func (p *fakePermit) Check() string         { return p.check }
@@ -65,8 +66,9 @@ func (p *fakePermit) Register(execution.StartedProcess) error {
 	p.registered = true
 	return nil
 }
-func (p *fakePermit) Finish(result execution.ProcessResult) error {
+func (p *fakePermit) Finish(result execution.ProcessResult, budget time.Duration) error {
 	p.finished = &result
+	p.budget = budget
 	return nil
 }
 
@@ -138,6 +140,9 @@ func TestAHeavyChecksWaitIsNotCountedAgainstItsBudgetOrItsStage(t *testing.T) {
 	permit := permits.granted[0]
 	if !permit.registered || permit.finished == nil || permit.finished.Status != execution.ProcessSucceeded {
 		t.Fatalf("permit = %#v: it is registered before the check works and finished with its result", permit)
+	}
+	if permit.budget != 5*time.Minute {
+		t.Fatalf("permit finished with budget %s, want the 5m the check launched with, for its measurement", permit.budget)
 	}
 }
 

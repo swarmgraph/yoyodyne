@@ -853,7 +853,7 @@ Commands:
   review            review what a branch accumulated over a base, as one change
   cost              price work items from the runs made for them, and record it
   reconcile         settle interrupted runs, then converge local state on the forge
-  heavy-checks      read the places among this machine's heavy checks, and give a kept one back
+  heavy-checks      read the places among this machine's heavy checks and what each cost, and give a kept one back
   slack             report what the harness is doing into a Slack channel
   doctor            check this installation, and say what would fix what is wrong
   dashboard         serve the read model to a browser on this machine, read-only

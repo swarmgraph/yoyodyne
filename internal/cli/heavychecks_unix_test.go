@@ -91,6 +91,28 @@ func TestAKeptHeavyCheckPlaceIsListedAndGivenBackByHand(t *testing.T) {
 	if stdout, _, _ := runCLI(t, "heavy-checks", "--config", configPath); !strings.Contains(stdout, "no heavy check is running or waiting") {
 		t.Fatalf("list after release = %q", stdout)
 	}
+
+	// The launch was measured, and one launch is too few to propose a limit
+	// from: the command says so, and changes nothing.
+	stdout, stderr, code = runCLI(t, "heavy-checks", "measurements", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "make race: 1 launches, limit 1 at once") || !strings.Contains(stdout, "no limit proposed: only 0 launches finished") ||
+		!strings.Contains(stdout, "nothing here changes one") {
+		t.Fatalf("measurements code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
+	stdout, _, code = runCLI(t, "heavy-checks", "measurements", "--json", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, `"limits"`) || !strings.Contains(stdout, `"check":"make race"`) {
+		t.Fatalf("measurements --json code = %d, stdout = %q", code, stdout)
+	}
+}
+
+// A machine with no heavy check measured says so.
+func TestHeavyCheckMeasurementsSayWhenNothingWasMeasured(t *testing.T) {
+	t.Setenv("YOYODYNE_STATE_HOME", t.TempDir())
+	configPath := writeConfig(t, validConfig)
+	stdout, stderr, code := runCLI(t, "heavy-checks", "measurements", "--config", configPath)
+	if code != 0 || !strings.Contains(stdout, "no heavy check launch has been measured on this machine yet") {
+		t.Fatalf("code = %d, stdout = %q, stderr = %q", code, stdout, stderr)
+	}
 }
 
 func mustRecord(t *testing.T, store *runstate.HeavyCheckStore) runstate.HeavyCheckRecord {
