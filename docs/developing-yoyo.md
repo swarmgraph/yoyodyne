@@ -103,6 +103,53 @@ last recorded walk, kept from the README split as a readable record of what the
 walkthrough actually prints; CI is what re-runs it now, so the file is a
 snapshot rather than the evidence anything rests on.
 
+## What a document landing runs: `make doccheck`
+
+A design, a decision, or the goals a role writes in conversation lands through a
+run of its own that changes nothing outside the governed homes —
+`docs/product`, `docs/designs`, `docs/decisions` and its invariants, with each
+home's `README.md` — and that run applies this project's
+[document checks](configuration.md#the-document-checks) in place of the four
+above. Here those are `make doccheck` and nothing else: the tests whose result
+depends on those homes, or on the documentation the Lead Product Manager is
+shown as what the product ships, and none whose result does not. `make race` is
+not among them, because a change made only of Markdown in those homes cannot
+introduce a data race, and the race detector would run the same tests again
+several times slower.
+
+| Package | Tests | What they read |
+| --- | --- | --- |
+| `internal/terms` | all | the governed documents and the guides, held to [the register](terms.md) of coined terms |
+| `scripts/vocabulary` | all | the vocabulary inventory the terms check reads, beside the register |
+| `internal/doclink` | all | every Markdown link and `#fragment` in the repository, the governed documents' among them, and the selection rules three guides list |
+| `internal/artifact` | all | the artifact loader, and this repository's homes through it |
+| `internal/conformance` | all | the release-readiness assessment, which reads the artifacts, invariants, and goals |
+| `internal/cli` | `TestThisRepositoryOwnArtifacts…`, `TestThisRepositoryOwnInvariantsAreAllReadByTheLoader`, `TestThisRepositoryOwnOperatingRulesLoadAsAnArtifact`, `TestThisRepositoryOwnGoals…`, `TestEveryWrappedGoal…`, `TestEveryDuplicatedGoalIdentity…`, `TestTheSetupSkillIsReachableFromTheReadme` | every artifact and invariant in the homes as the loader reads them, their chain and owners, and the goals; and the README |
+| `internal/goal` | `TestYoyodynesOwnArtifactsLoadAndItsGoalsAreReadFromThem`, `TestNoDocumentUnderDocsCarriesIdentityOutsideAConfiguredHome` | the goals read from the artifacts, and every document under `docs` for identity outside a home |
+| `internal/invariant` | `TestThisRepositorysInvariantsHomeLoadsWithNoGapToReport` | `docs/decisions/invariants` |
+| `internal/doctor` | `TestThisRepositoryReportsItsOwnArtifactHomesDocumented`, `TestTheIndexesThisRepositoryCarriesAreNotReadAsGovernedDocuments` | each home's `README.md`, and the homes loaded around them |
+| `internal/contextbundle` | `TestShippedDocumentationNamesDocumentsThisRepositoryHas`, `TestShippedDocumentationFitsTheBriefingBesideEverythingElse` | the shipped documentation's size against its ceiling, and `docs/product` beside it in the briefing |
+| `internal/composition` | `TestThisRepositoryIsAllAccountedFor` | every file the repository carries, the homes' included, held to a content class, so a file in a home that is not Markdown is caught |
+| `internal/beads` | `TestEveryBeadsHomeThisRepositoryNamesIsTheCanonicalOne`, `TestTheReadmeAndTheInstallScriptAgreeOnTheBeadsHome`, `TestTheDocumentsStateTheRemedyDoctorPrints` | every file the repository tracks, the homes' included, for the address of the tracker's home; the README and `docs/operations.md` |
+| `internal/orchestrator` | `TestNonGoFixtureVerifiesTheLanguageAgnosticInvariant`, `TestThisRepositoryDeliversThePromotionInvariantToEveryRoleThatCouldBreakIt`, `TestRunAgainstAProjectRepositoryWithNoneOfTheHarnessFiles`, `TestTheReliabilitySlotPullsReliabilityWorkFirstAndFallsBackWhenNoneRemains` | a sentence of `docs/designs/v1-harness-design.md`, the one-promotion invariant under `docs/decisions/invariants`, and an example in `docs/configuration.md` |
+
+The `DOCCHECK_TESTS` list in the `Makefile` is where they are named, by package
+and `-run` pattern, and it is the only list:
+`.yoyodyne/config.yaml` names the target rather than repeating it. Every entry
+runs even after one fails, so a landing hears of every test its document broke,
+and the target fails if any did. `internal/composition` fails when a name there
+matches no test in its package, because `go test -run` passes when its pattern
+matches nothing.
+
+**A new test that reads the governed homes or the shipped documentation is
+added to that list in the same change**, and to the table above. A test missing
+from it still runs in every ordinary run's `make test`, so it is found, but only
+after a document that breaks it has landed. Everything else GitHub runs on a
+pull request — the build, the release archives, the release and install
+scripts' suites, and the adoption walk — works on this repository's code or on
+scratch projects of its own, so a document landing that passes `make doccheck`
+does not then fail there on account of its document.
+
 ## What a checkout needs besides Go
 
 **Node**, for the dashboard. The page is drawn by its own script, which a Go

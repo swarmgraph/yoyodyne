@@ -341,15 +341,19 @@ checks:
   - make race
   - make vet
 
-# What a confirmed document's landing runs in place of the checks above: the
-# tests that read the governed documents -- their wording, their links, their
-# identity and ownership, and the release-readiness assessment that reads them
-# too -- and not the whole suite or the race check, which judge Go code a
-# document landing cannot change. docs/configuration.md, "The document
-# checks", says what the list does. A test that reads the documents and is
-# missing here is one to add.
+# What a confirmed document's landing runs in place of the checks above: every
+# test whose result depends on the governed documents -- the product
+# specifications, designs, and decisions homes with their invariants and
+# directory indexes -- or on the shipped documentation, and nothing else. The
+# list of those tests is the Makefile's doccheck target, so it is written in one
+# place; docs/developing-yoyo.md, "What a document landing runs", says which
+# tests it holds, and a test that reads the documents and is missing there is
+# one to add. The race check is absent on purpose: a document landing changes
+# only Markdown in those homes, so it cannot introduce a data race, and the
+# race detector would rerun the same document tests several times slower.
+# docs/configuration.md, "The document checks", says what the list does.
 document_checks:
-  - go test ./internal/terms ./scripts/vocabulary ./internal/doclink ./internal/artifact ./internal/conformance
+  - make doccheck
 
 path_checks:
   - command: make adoption
