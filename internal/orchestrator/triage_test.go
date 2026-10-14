@@ -1513,8 +1513,17 @@ func TestABuildThatCannotDocketEverythingStillReturnsWhatItFound(t *testing.T) {
 	published.RunID = "run-fedcba9876543210fedcba9876543210"
 	docket := &memoryDocket{failOn: string(triage.ClassPublication)}
 	built, err := docketerOver([]runstate.State{stopped, published}, docket).Build()
-	if err == nil || !strings.Contains(err.Error(), "unwritable") {
-		t.Fatalf("Build() error = %v, want the refusal named", err)
+	// The run that could not be docketed is named rather than failing the build,
+	// so the sweep that built it finishes; a reader that says the docket is
+	// partial still has it as one error.
+	if err != nil {
+		t.Fatalf("Build() error = %v, want the one run's refusal named rather than failing the build", err)
+	}
+	if len(built.NotDocketed) != 1 || built.NotDocketed[0].RunID != published.RunID || !strings.Contains(built.NotDocketed[0].Problem, "unwritable") {
+		t.Fatalf("not docketed = %#v, want the publication's run and the refusal named", built.NotDocketed)
+	}
+	if incomplete := built.Incomplete(); incomplete == nil || !strings.Contains(incomplete.Error(), "unwritable") {
+		t.Fatalf("Incomplete() = %v, want the refusal", incomplete)
 	}
 	if built.Added != 1 || len(built.Entries) != 1 || built.Entries[0].Class != triage.ClassStoppedRun {
 		t.Fatalf("build = %#v, want the stoppage it could docket", built)

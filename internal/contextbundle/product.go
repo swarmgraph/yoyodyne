@@ -330,8 +330,9 @@ type ProductRequest struct {
 	TriageDocketUnavailable string
 	// TriageDocketItems is the tracker's listing of every work item, closed ones
 	// included, which is what says whether the work a docket entry stopped is
-	// still open. TriageDocketItemsUnavailable is why it is missing when it is;
-	// then no entry is taken for dead, and the window says whether their items are
+	// still open. TriageDocketItemsUnavailable is why it is missing, or why some
+	// of it is, when it is; then no entry is taken for dead on an item the
+	// listing does not show closed, and the window says whether their items are
 	// open could not be read.
 	TriageDocketItems            []beads.WorkItem
 	TriageDocketItemsUnavailable string
@@ -1780,8 +1781,11 @@ func TriageDocketWindow(request ProductRequest, delivered, pending []triage.Wind
 	}
 	now = now.UTC()
 	itemsUnknown := strings.TrimSpace(request.TriageDocketItemsUnavailable)
+	// The items read decide which entries are on closed work even where some
+	// could not be read: an item they show closed is closed, and one they leave
+	// out is live (triage.Live), so a partial reading hides nothing it should not.
 	var closed func(string) bool
-	if itemsUnknown == "" {
+	if itemsUnknown == "" || len(request.TriageDocketItems) > 0 {
 		closedItems := make(map[string]bool, len(request.TriageDocketItems))
 		for _, item := range request.TriageDocketItems {
 			if strings.TrimSpace(item.Status) == "closed" {

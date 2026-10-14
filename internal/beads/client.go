@@ -748,13 +748,28 @@ func (c Client) workListing(ctx context.Context, verb string, filter []string) (
 			if decodeErr != nil {
 				return nil, decodeErr
 			}
-			return nil, fmt.Errorf("bd %s could not lift its default limit: read %d work item(s), but the list may be cut and work may be missing", verb, len(items))
+			return nil, &ListingCut{Verb: verb, Items: items}
 		}
 	}
 	if err != nil {
 		return nil, err
 	}
 	return decodeWorkListing(data, verb)
+}
+
+// ListingCut is a listing bd would not lift its default limit for. It is
+// refused as a listing, because a reading over the whole set would decide
+// wrongly for whatever fell past the cut, and it carries the rows bd did return
+// for a caller that can use them as far as they go: an item the rows show as
+// closed is closed however many rows are missing, and an item they leave out is
+// one whose state is unknown rather than open. Taken with errors.As.
+type ListingCut struct {
+	Verb  string
+	Items []WorkItem
+}
+
+func (c *ListingCut) Error() string {
+	return fmt.Sprintf("bd %s could not lift its default limit: read %d work item(s), but the list may be cut and work may be missing", c.Verb, len(c.Items))
 }
 
 // Create records a new work item. Unlike every other call here it brings work

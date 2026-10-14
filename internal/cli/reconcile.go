@@ -51,10 +51,22 @@ type reconcileOutput struct {
 	// is acted on, which is the development manager's conversation; what this
 	// command reports is that the sweep found something, not what it found.
 	Docketed int `json:"docketed"`
+	// Unrecorded names each run this sweep docketed whose record carries no
+	// reason it stopped. Each is on the development manager's list saying so.
+	Unrecorded []string `json:"unrecorded,omitempty"`
+	// NotDocketed is each run this sweep could not put on the docket, and why.
+	// One run that cannot be docketed is named and does not fail the sweep: the
+	// runs beside it were docketed, and a failed sweep over one record is what
+	// left every stopped run undecided while it stood.
+	NotDocketed []orchestrator.NotDocketed `json:"not_docketed,omitempty"`
 	// ClosedWithItem is how many docket entries this sweep closed because the item
 	// each is about is one the tracker holds as closed. A count, for the reason
 	// Docketed is one.
 	ClosedWithItem int `json:"closed_with_item"`
+	// ListingCut says, in plain words, that the tracker's listing of closed
+	// work stopped at bd's default limit, and that the items it left out were
+	// read one at a time. Empty where the listing was whole.
+	ListingCut string `json:"listing_cut,omitempty"`
 	// EscalationsEnded is each escalation to the operator this sweep found had
 	// ended — its item parked, retired, or closed, or its run's branch and
 	// worktree both gone — with the item it told and what ended it.
@@ -106,8 +118,15 @@ type reconcileSweep struct {
 	RedTargets     []orchestrator.RedTargetResumption
 	Convergence    orchestrator.Convergence
 	Docketed       int
+	// Unrecorded names the runs the sweep docketed whose record carries no
+	// reason they stopped, and NotDocketed the runs it could not docket.
+	Unrecorded  []string
+	NotDocketed []orchestrator.NotDocketed
 	// ClosedWithItem is how many docket entries the sweep closed with their item.
 	ClosedWithItem int
+	// ListingCut says the tracker's listing of closed work was cut, and what the
+	// sweep did about it.
+	ListingCut string
 	// EscalationsEnded is each escalation to the operator the sweep ended.
 	EscalationsEnded []orchestrator.EscalationSettlement
 	Supervision      []orchestrator.SupervisionResult
@@ -225,7 +244,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// conversation. The places that close an item close its entries as they do,
 	// and this is what catches the ones they missed and the ones left standing
 	// from before any of them did.
-	closedWithItem, closedErr := closeEntriesOfClosedItems(ctx, parts)
+	closedWithItem, listingCut, closedErr := closeEntriesOfClosedItems(ctx, parts)
 	err = errors.Join(err, closedErr)
 	// An escalation to the operator whose item has since been parked, retired,
 	// or closed, or whose run's change is gone, is told to its item once and
@@ -260,7 +279,10 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		RedTargets:       redTargets,
 		Convergence:      convergence,
 		Docketed:         docketed.Added,
+		Unrecorded:       docketed.Unrecorded,
+		NotDocketed:      docketed.NotDocketed,
 		ClosedWithItem:   closedWithItem,
+		ListingCut:       listingCut,
 		EscalationsEnded: escalationsEnded,
 		Supervision:      supervision,
 		Stall:            stall,
@@ -486,44 +508,43 @@ func checkForStall(ctx context.Context, parts components, threshold time.Duratio
 // closeEntriesOfClosedItems closes every docket entry standing for an item the
 // tracker holds as closed, and reports how many it closed. A tracker that could
 // not be listed closes nothing and is an error of the sweep's: an unread listing
-// says nothing about which items are closed. A docket with nothing standing is
-// not listed against at all, so a product with no entries asks the tracker
-// nothing.
-func closeEntriesOfClosedItems(ctx context.Context, parts components) (int, error) {
+// says nothing about which items are closed. A listing bd cut at its default
+// limit is not that: the items it shows closed are closed, and the standing
+// entries' items it left out are read one at a time, so the sweep closes what
+// it can and says the listing was cut rather than failing (readDocketItems). A
+// docket with nothing standing is not listed against at all, so a product with
+// no entries asks the tracker nothing.
+func closeEntriesOfClosedItems(ctx context.Context, parts components) (int, string, error) {
 	if parts.docket == nil {
-		return 0, nil
+		return 0, "", nil
 	}
 	return sweepClosedItems(ctx, *docketerFrom(parts), parts.tracker())
 }
 
-// closedItemLister is the one tracker reading the sweep over closed items makes.
-// It is satisfied by beads.Client.
-type closedItemLister interface {
-	List(ctx context.Context, status string) ([]beads.WorkItem, error)
-}
-
-// sweepClosedItems is that sweep over a docket and a tracker it is handed.
-func sweepClosedItems(ctx context.Context, docketer orchestrator.Docketer, tracker closedItemLister) (int, error) {
+// sweepClosedItems is that sweep over a docket and a tracker it is handed. The
+// string it returns says, in plain words, that the tracker's listing was cut,
+// and is empty where it was whole.
+func sweepClosedItems(ctx context.Context, docketer orchestrator.Docketer, tracker itemLister) (int, string, error) {
 	entries, err := docketer.Docket.List()
 	if err != nil {
-		return 0, fmt.Errorf("read the triage docket to close the entries of closed items: %w", err)
+		return 0, "", fmt.Errorf("read the triage docket to close the entries of closed items: %w", err)
 	}
 	now := time.Now()
-	standing := false
+	var standing []string
 	for _, entry := range entries {
 		if entry.Closed == nil || !entry.Closed.Holds(now) {
-			standing = true
-			break
+			standing = append(standing, entry.WorkItemID)
 		}
 	}
-	if !standing {
-		return 0, nil
+	if len(standing) == 0 {
+		return 0, "", nil
 	}
-	closed, err := tracker.List(ctx, "closed")
+	read, err := readDocketItems(ctx, tracker, "closed", standing)
 	if err != nil {
-		return 0, fmt.Errorf("list the closed work items to close their docket entries: %w", err)
+		return 0, "", fmt.Errorf("list the closed work items to close their docket entries: %w", err)
 	}
-	return docketer.SettleClosedItems(orchestrator.ClosedItemReasons(closed, "a reconcile sweep"))
+	closed, err := docketer.SettleClosedItems(orchestrator.ClosedItemReasons(read.items, "a reconcile sweep"))
+	return closed, read.cut, err
 }
 
 // sweepSupervision takes one voice-less pass of the management loop. A product
@@ -567,7 +588,10 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			RedTargets:       sweep.RedTargets,
 			Convergence:      convergence,
 			Docketed:         docketed,
+			Unrecorded:       sweep.Unrecorded,
+			NotDocketed:      sweep.NotDocketed,
 			ClosedWithItem:   sweep.ClosedWithItem,
+			ListingCut:       sweep.ListingCut,
 			EscalationsEnded: sweep.EscalationsEnded,
 			Supervision:      sweep.Supervision,
 			Stall:            sweep.Stall,
@@ -651,8 +675,17 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if docketed > 0 {
 			fmt.Fprintf(stdout, "%d stopped item(s) added to the triage docket for the development manager\n", docketed)
 		}
+		for _, runID := range sweep.Unrecorded {
+			fmt.Fprintf(stdout, "run %s is on the development manager's list with no recorded reason for its stop; its entry says so\n", runID)
+		}
+		for _, missed := range sweep.NotDocketed {
+			fmt.Fprintf(stderr, "run %s not put on the development manager's list: %s\n", missed.RunID, missed.Problem)
+		}
 		if sweep.ClosedWithItem > 0 {
 			fmt.Fprintf(stdout, "%d triage docket entry(s) closed because the tracker holds their item as closed\n", sweep.ClosedWithItem)
+		}
+		if sweep.ListingCut != "" {
+			fmt.Fprintf(stderr, "closing the docket entries of closed work: %s\n", sweep.ListingCut)
 		}
 		for _, ended := range sweep.EscalationsEnded {
 			if ended.Failure != "" {
@@ -1114,10 +1147,14 @@ outstanding and says so.
 It then builds the triage docket: the runs that ended on a durable blocker and
 the approved publications the forge has not merged, put where the development
 manager reads them. Docketing is keyed to what stopped, so sweeping twice
-dockets nothing twice. Every entry standing for an item the tracker holds as
-closed is closed with its item, with the reason, and the count is reported; an
-unfinished publication's entry is left, since its merge can still be
-outstanding after the item closed.
+dockets nothing twice. A stopped run whose record carries no reason for
+stopping is docketed saying so, and named; a run whose entry cannot be written
+is named with why, and the sweep carries on. Every entry standing for an item
+the tracker holds as closed is closed with its item, with the reason, and the
+count is reported; an unfinished publication's entry is left, since its merge
+can still be outstanding after the item closed. Where the tracker's listing
+stops at bd's default limit, the items it left out are read one at a time and
+the sweep says the listing was cut.
 
 It also recovers the exchanges the roles have put to each other. Each one is
 taken under its own lease, so one a live process is carrying is left alone: a

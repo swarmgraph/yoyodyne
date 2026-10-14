@@ -2,6 +2,7 @@ package beads
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -35,6 +36,12 @@ func TestEveryWholeWorkListingRefusesAnUnknownCapAndRecordsTheCount(t *testing.T
 			}
 			if len(record.failed) != 1 || record.failed[0] != err.Error() || record.answered != 0 {
 				t.Fatalf("record = %+v, want one failure carrying the count", record)
+			}
+			// The rows bd did return travel with the refusal, for a caller that
+			// can use them as far as they go.
+			var cut *ListingCut
+			if !errors.As(err, &cut) || cut.Verb != verb || len(cut.Items) != 2 || cut.Items[1].ID != "yoyodyne-2" {
+				t.Fatalf("refusal = %#v, want the two rows read carried with it", err)
 			}
 		})
 	}

@@ -736,13 +736,18 @@ func (g conversationGround) docketWindowFor(ctx context.Context, docket []triage
 	if len(docket) == 0 {
 		return inputs
 	}
-	items, err := chatTracker(g.runner, g.repository).List(ctx, "")
-	if err != nil {
+	read, err := readDocketItems(ctx, chatTracker(g.runner, g.repository), "", docketItemIDs(docket))
+	switch {
+	case err != nil:
 		inputs.itemsUnavailable = err.Error()
 		briefing.Problems = append(briefing.Problems,
 			fmt.Sprintf("which docket entries are on closed work could not be read, so the docket lists them all: %v", err))
-	} else {
-		inputs.items = items
+	default:
+		inputs.items = read.items
+		inputs.itemsUnavailable = docketItemsUnknown(read)
+		if read.cut != "" {
+			briefing.Problems = append(briefing.Problems, "which docket entries are on closed work: "+read.cut)
+		}
 	}
 	if g.docketWindow != nil {
 		position, err := g.docketWindow.WindowPosition()
@@ -772,6 +777,7 @@ func (g conversationGround) triageDocket() (entries []triage.Entry, unavailable,
 		return nil, "", ""
 	}
 	built, err := g.docket.Build()
+	err = errors.Join(err, built.Incomplete())
 	listed := built.Listed()
 	if err == nil {
 		return listed, "", ""
