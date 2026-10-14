@@ -284,81 +284,58 @@ func TestADocumentWhoseEveryAttemptJudgedNothingIsHandedToTheDevelopmentManager(
 	}
 }
 
-// A retry after a check time limit does not start under the load that caused
-// it: while as many developer runs are going as were when the checks ran out of
-// time it waits, and the record says what it waited for once it starts.
-func TestADocumentRetryAfterATimeLimitWaitsForFewerDeveloperRuns(t *testing.T) {
-	_, _, provider, pipeline, runs := automaticFixture(t)
-	retryDesign(provider, "loaded-design")
-	pipeline.Config.Execution.MaxConcurrentDevelopers = 4
-	developer := pipeline.Config.Agents["developer"]
-	developer.Instances = 4
-	pipeline.Config.Agents["developer"] = developer
+// A retry after a check time limit waits for nothing but a free document
+// landing: with the one developer slot held by development work, the stopped
+// run's next attempt starts at the next offer, lands, and records that how many
+// developer runs were going was not waited on.
+func TestADocumentRetryAfterATimeLimitStartsWhileEveryDeveloperSlotIsTaken(t *testing.T) {
+	repository, _, provider, pipeline, store := documentPipeline(t)
+	developer := holdTheDeveloperSlot(t, store, pipeline)
 	pipeline.Config.Execution.CheckTimeout = config.Duration(time.Second)
 	pipeline.Checks = checks.Runner{Process: execution.OSProcessRunner{}, Timeout: time.Second}
 	pipeline.Config.Checks = []string{slowOnce(t)}
-	var others []string
-	for index, id := range []string{"other-one", "other-two"} {
-		state := runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: fmt.Sprintf("run-%032x", index+1), ProductID: "yoyodyne", RepositoryID: "yoyodyne", WorkItemID: id, Backend: domain.BackendClaudeCode, Status: runstate.StatusPending, StartedAt: time.Now(), UpdatedAt: time.Now()}
-		lease, err := runs.Reserve(context.Background(), state, 4)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := lease.Release(); err != nil {
-			t.Fatal(err)
-		}
-		others = append(others, state.RunID)
-	}
-	options, store := publicationConversation(t, pipeline, provider)
+	options, conversations := publicationConversation(t, pipeline, provider)
 	session, err := chat.Open(options)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := session.Send(context.Background(), "Write it."); err != nil {
+	if _, err := session.Send(context.Background(), "Write the design."); err != nil {
 		t.Fatal(err)
 	}
 	if err := session.PublishDocuments(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	stopped := documentRuns(t, runs)
-	var first runstate.State
-	for _, state := range stopped {
+	var document *runstate.DocumentPublication
+	for _, state := range documentRuns(t, store) {
 		if state.Document != nil {
-			first = state
+			document = state.Document
 		}
 	}
-	if first.DocumentRetry == nil || first.DocumentRetry.DevelopersAtStop != 3 {
-		t.Fatalf("retry record = %+v, want three developer runs counted at the stop; told %s", first.DocumentRetry, toldArchitect(provider, conversationRecord(t, store)))
+	if document == nil {
+		t.Fatal("no run was recorded for the design")
 	}
-	if _, err := runs.Load(first.Document.RunIDFor(1)); err == nil {
-		t.Fatal("the retry started under the load that stopped the first run")
+	first := runByID(t, store, document.RunIDFor(0))
+	if first.RecordedStopClass() != runstate.StopCheckTimeout {
+		t.Fatalf("first run = %s %s, want it stopped on its check time limit", first.Status, first.RecordedStopClass())
 	}
-	if told := toldArchitect(provider, conversationRecord(t, store)); !strings.Contains(told, "waits until fewer are going") {
-		t.Fatalf("the architect was not told the retry is waiting:\n%s", told)
-	}
-	// One of the other runs finishes, and the next message starts the retry.
-	finished, lease, err := runs.AdoptRun(context.Background(), others[0])
+	second, err := store.Load(document.RunIDFor(1))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("the retry did not start while the developer slot was held: %v; told %s", err, toldArchitect(provider, conversationRecord(t, conversations)))
 	}
-	completed := time.Now()
-	finished.Status, finished.CompletedAt, finished.Failure, finished.StopClass = runstate.StatusCancelled, &completed, "stopped by the test", runstate.StopCancelled
-	if err := runs.Save(finished); err != nil {
-		t.Fatal(err)
+	if second.Status != runstate.StatusSucceeded || second.Integration == nil {
+		t.Fatalf("retry = %s %q, want it landed beside the development run", second.Status, second.Failure)
 	}
-	if err := lease.Release(); err != nil {
-		t.Fatal(err)
+	if first.DocumentRetry == nil || first.DocumentRetry.DevelopersAtStop != 0 || !strings.Contains(first.DocumentRetry.WaitedFor, "how many developer runs are going is not waited on") {
+		t.Fatalf("first run's retry record = %+v, want it to say developer runs were not waited on", first.DocumentRetry)
 	}
-	if err := session.PublishDocuments(context.Background()); err != nil {
-		t.Fatal(err)
+	if second.Selection == nil || !strings.Contains(second.Selection.Reason, "document landing was free") {
+		t.Fatalf("retry's selection = %+v, want it to say it waited only for a document landing", second.Selection)
 	}
-	second := runByID(t, runs, first.Document.RunIDFor(1))
-	if second.Status != runstate.StatusSucceeded {
-		t.Fatalf("retry = %s %q, want it landed once the load fell", second.Status, second.Failure)
+	if held, err := store.Load(developer); err != nil || !held.HoldsDeveloperSlot() {
+		t.Fatalf("development run = %+v, %v; want it still holding its slot", held, err)
 	}
-	first = runByID(t, runs, first.RunID)
-	if !strings.Contains(first.DocumentRetry.WaitedFor, "fewer runs were going: 3 when its checks ran out of time, 2 with this attempt") {
-		t.Fatalf("waited for = %q", first.DocumentRetry.WaitedFor)
+	if publicationGit(t, repository, "show", "main:docs/designs/recovery-design.md") != strings.TrimSpace(second.Document.Candidate.Content) {
+		t.Fatal("the target holds something other than the confirmed text")
 	}
 }
 

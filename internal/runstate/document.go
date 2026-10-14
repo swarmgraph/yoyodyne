@@ -61,11 +61,11 @@ const MaxDocumentAttempts = 3
 // document records about the run after it.
 type DocumentRetry struct {
 	// DevelopersAtStop is how many runs held a developer slot when this run's
-	// checks were stopped by a time limit, plus this run, which holds a
-	// document landing rather than a slot. Zero where
-	// the stop was not a time limit or the count could not be taken. The next
-	// attempt waits until fewer are running, because the same suite under the
-	// same load would be stopped the same way.
+	// checks were stopped by a time limit, plus this run, as builds that made
+	// the next attempt wait for fewer developer runs recorded it. Nothing writes
+	// or reads it now — the next attempt waits only for a free document landing
+	// (see orchestrator's documentRetryWaited) — and it is kept so a record that
+	// carries it still loads.
 	DevelopersAtStop int `json:"developers_at_stop,omitempty"`
 	// WaitedFor says what the next attempt waited for before it started, in
 	// the words the owning conversation was told.

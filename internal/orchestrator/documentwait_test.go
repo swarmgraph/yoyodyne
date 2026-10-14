@@ -647,3 +647,56 @@ func TestARetryOfADocumentThatFindsEveryLandingTakenWaitsAndLandsWhenOneFrees(t 
 		t.Fatalf("a third run of the document was recorded: %v", err)
 	}
 }
+
+// A document whose first run's checks ran out of time finds the one document
+// landing taken by another document's run when its retry is offered. The retry
+// waits for that landing, as the document's wait for slot says, and for nothing
+// else: once the landing frees, the scheduler's start lands it while the one
+// developer slot is still held by development work.
+func TestARetryAfterATimeLimitWaitsWhileEveryLandingIsTaken(t *testing.T) {
+	fixture := waitingForALanding(t)
+	waits := fixture.waits(t, fixture.store)
+	if len(waits) != 1 || waits[0].Attempt != 0 {
+		t.Fatalf("waits = %+v, want the design's first run waiting", waits)
+	}
+	document := waits[0].Document
+	first := runstate.State{SchemaVersion: runstate.StateSchemaVersion, RunID: document.RunIDFor(0), ProductID: fixture.pipeline.Config.Product.ID, RepositoryID: string(fixture.pipeline.Config.Product.RepositoryID), WorkItemID: document.RunIDFor(0), WorkItemTitle: "Publishing " + document.Candidate.Artifact.Title, Backend: domain.BackendClaudeCode, Status: runstate.StatusPending, Document: &document, StartedAt: newScheduleHarness().now, UpdatedAt: newScheduleHarness().now}
+	lease, err := fixture.store.ReserveDocumentLanding(context.Background(), first, 2)
+	if err != nil {
+		t.Fatalf("Reserve() the document's first run: %v", err)
+	}
+	stopped := newScheduleHarness().now
+	first.Status, first.Failure, first.CompletedAt, first.StopClass = runstate.StatusFailed, "check 1 was stopped at its 1s execution.check_timeout budget", &stopped, runstate.StopCheckTimeout
+	if err := fixture.store.Save(first); err != nil {
+		t.Fatalf("Save() the first run as stopped by its check time limit: %v", err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatal(err)
+	}
+	if saved, err := fixture.store.Load(first.RunID); err != nil || !saved.DocumentStoppedOnTime() || saved.DocumentJudged() {
+		t.Fatalf("first run = %+v, %v; want it stopped on time without judging the document", saved, err)
+	}
+
+	delivery, err := fixture.pipeline.PublishDocument(context.Background(), document)
+	if err != nil || delivery.WaitingForSlot == nil || !delivery.WaitingForSlot.Landings || delivery.RunID != document.RunIDFor(1) {
+		t.Fatalf("PublishDocument() = %+v, %v; want the retry waiting for a document landing as run %s", delivery, err, document.RunIDFor(1))
+	}
+	if _, err := fixture.store.Load(document.RunIDFor(1)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the retry was recorded while every landing was taken: %v", err)
+	}
+	if retrying := fixture.waits(t, fixture.store); len(retrying) != 1 || retrying[0].RunID() != document.RunIDFor(1) {
+		t.Fatalf("waits = %+v, want the one wait naming the retry", retrying)
+	}
+
+	fixture.freeTheLanding(t)
+	outcome, err := fixture.pipeline.PublishWaitingDocument(context.Background(), document)
+	if err != nil || outcome.RunID != document.RunIDFor(1) || outcome.Status != runstate.StatusSucceeded {
+		t.Fatalf("scheduler's start = %+v, %v; want the retry landed as run %s", outcome, err, document.RunIDFor(1))
+	}
+	if held, err := fixture.store.Load(fixture.developer); err != nil || !held.HoldsDeveloperSlot() {
+		t.Fatalf("development run = %+v, %v; want it still holding the only developer slot the retry landed beside", held, err)
+	}
+	if recorded, err := fixture.store.Load(first.RunID); err != nil || recorded.DocumentRetry == nil || !strings.Contains(recorded.DocumentRetry.WaitedFor, "document landing was free after its checks ran out of time") {
+		t.Fatalf("first run's retry record = %+v, %v; want it to say the retry waited for a document landing", recorded.DocumentRetry, err)
+	}
+}
