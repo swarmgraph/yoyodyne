@@ -202,7 +202,6 @@ func (l *recordingLauncher) Launch(spec slack.Launch) (int, error) {
 		Records:  l.store,
 		Product:  "yoyodyne",
 		Children: l.children,
-		NotYet:   []supervise.NotYet{{Name: config.ServiceDashboard, Reason: "its adoption is yoyodyne-ifd.414"}},
 		Off:      []config.ServiceName{config.ServiceMaintenance},
 		Poll:     time.Millisecond,
 		PID:      4242,
@@ -231,8 +230,8 @@ func (c *startedChild) Stop(context.Context) (supervise.Stopped, error) {
 }
 
 // What `yoyo start` says is what the supervisor recorded: each part by name,
-// running as the process it was started as, not yet a child where its
-// adoption has not landed, off where the section leaves it off. The
+// running as the process it was started as, off where the section leaves it
+// off. The
 // supervisor is started with the Slack variables taken out of its environment
 // and told which configuration to read.
 func TestStartSaysWhatTheSupervisorRecordedAboutEachPart(t *testing.T) {
@@ -249,6 +248,7 @@ func TestStartSaysWhatTheSupervisorRecordedAboutEachPart(t *testing.T) {
 	}
 	launcher := &recordingLauncher{store: store, children: []supervise.Child{
 		&startedChild{name: config.ServiceSlack},
+		&startedChild{name: config.ServiceDashboard},
 		&startedChild{name: config.ServiceScheduler},
 	}}
 	p := &product{
@@ -271,7 +271,7 @@ func TestStartSaysWhatTheSupervisorRecordedAboutEachPart(t *testing.T) {
 	for _, want := range []string{
 		"started the supervisor for yoyodyne as pid 4242",
 		"slack: running as pid 77, logging to /state/slack.log",
-		"dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414",
+		"dashboard: running as pid 77, logging to /state/dashboard.log",
 		"scheduler: running as pid 77",
 		"maintenance: off",
 	} {
@@ -295,8 +295,9 @@ func TestStartSaysWhatTheSupervisorRecordedAboutEachPart(t *testing.T) {
 }
 
 // The real parts are assembled from the services section: a part that is off
-// is off, the sink and the scheduler are children, and the dashboard, whose
-// adoption has not landed, is named as such with the work that adopts it.
+// is off, and the dashboard and the scheduler are children, the dashboard on
+// the configured port with the token source the section names. No enabled part
+// is left waiting to be adopted.
 func TestTheRealPartsFollowTheServicesSection(t *testing.T) {
 	t.Parallel()
 
@@ -318,10 +319,15 @@ func TestTheRealPartsFollowTheServicesSection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("realChildren() error = %v", err)
 	}
-	if len(children) != 1 || children[0].Name() != config.ServiceScheduler {
-		t.Fatalf("children = %v, want the scheduler alone", children)
+	if len(children) != 2 || children[0].Name() != config.ServiceDashboard || children[1].Name() != config.ServiceScheduler {
+		t.Fatalf("children = %v, want the dashboard and then the scheduler", children)
 	}
-	scheduler := children[0].(schedulerChild)
+	dashboardPart := children[0].(dashboardChild)
+	if dashboardPart.port != config.DefaultDashboardPort || dashboardPart.source != config.DashboardTokenGenerated ||
+		dashboardPart.log != "projects/yoyodyne/state/dashboard.log" || dashboardPart.program != "/opt/yoyo/bin/yoyo" {
+		t.Errorf("dashboard child = port %d, token %q, log %q, program %q", dashboardPart.port, dashboardPart.source, dashboardPart.log, dashboardPart.program)
+	}
+	scheduler := children[1].(schedulerChild)
 	if scheduler.logRoot != p.stateRoot || scheduler.log != "projects/yoyodyne/state/scheduler.log" {
 		t.Fatalf("watch output = %q under %q", scheduler.log, scheduler.logRoot)
 	}
@@ -339,16 +345,17 @@ func TestTheRealPartsFollowTheServicesSection(t *testing.T) {
 		t.Fatalf("log.read of watch output = %v, %v", results, err)
 	}
 	// The maintenance pass is the supervisor's own rather than a process, so it
-	// is neither a child nor a part waiting to be adopted.
-	if len(notYet) != 1 || notYet[0].Name != config.ServiceDashboard || !strings.Contains(notYet[0].Reason, "yoyodyne-ifd.414") {
-		t.Errorf("notYet = %+v, want the dashboard alone, with its adopting work named", notYet)
+	// is neither a child nor a part waiting to be adopted, and nothing else is
+	// waiting either.
+	if len(notYet) != 0 {
+		t.Errorf("notYet = %+v, want nothing left waiting to be adopted", notYet)
 	}
 	if len(off) != 1 || off[0] != config.ServiceSlack {
 		t.Errorf("off = %v, want slack", off)
 	}
 
 	// A scheduler that is not running is nothing to stop, and says so.
-	stopped, err := children[0].Stop(context.Background())
+	stopped, err := children[1].Stop(context.Background())
 	if err != nil || stopped.WasRunning {
 		t.Errorf("Stop() of a scheduler that is not running = %+v, %v, want nothing stopped and no failure", stopped, err)
 	}
@@ -633,9 +640,9 @@ func TestTheRealChildrenSayWhichBuildTheyRunAndWhatTheyAreDoing(t *testing.T) {
 
 // Every part the supervisor starts has to say which build it runs, or a deploy
 // never reaches it — which is how the dashboard served a day and a half from a
-// stale build. So a part adopted as a child (the dashboard's adoption,
-// yoyodyne-ifd.414, first among them) cannot land without it: this fails for any
-// child that does not.
+// stale build. So a part adopted as a child cannot land without it: this fails
+// for any child that does not. The dashboard is moved by replacement, ready
+// before the old one stops, and says where it serves and how its health stands.
 func TestEveryPartTheSupervisorStartsIsMovedOntoADeployedBuild(t *testing.T) {
 	t.Parallel()
 
@@ -677,6 +684,14 @@ services:
 		}
 		if child.Name() == config.ServiceScheduler && !self {
 			t.Error("the scheduler does not say it restarts itself, so the supervisor would stop it and cancel its runs")
+		}
+		if child.Name() == config.ServiceDashboard {
+			if _, replaces := child.(supervise.Replaces); !replaces {
+				t.Error("the dashboard is not a supervise.Replaces, so a deploy would stop it before its replacement was ready")
+			}
+			if _, serves := child.(supervise.Serves); !serves {
+				t.Error("the dashboard is not a supervise.Serves, so `yoyo status` could not say its port and health")
+			}
 		}
 	}
 }

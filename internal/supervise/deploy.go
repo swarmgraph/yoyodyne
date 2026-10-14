@@ -63,6 +63,15 @@ type Passes interface {
 	HoldBetweenPasses(ctx context.Context) (release func(), pass string, err error)
 }
 
+// Replaces is a child moved onto a deployed build by starting its replacement
+// first: the new process is started from the binary and confirmed ready, and
+// only then is the old one stopped, so there is no moment at which neither
+// serves. The dashboard is one. What it returns is the replacement, as Ensure
+// reports a start.
+type Replaces interface {
+	Replace(ctx context.Context) (Ensured, error)
+}
+
 // RestartsItself is a child that takes a deployed build up on its own, in its
 // own time, so the supervisor waits for it rather than stopping it. What it
 // returns says how, in the words the record carries.
@@ -226,6 +235,11 @@ func (s *Supervisor) restart(ctx context.Context, child Child, state *runstate.S
 	}
 	state.RestartingInto = s.deployed
 	state.Redeploy = fmt.Sprintf("restarting from build %s into the deployed %s", short(from), short(s.deployed))
+	if replacer, ok := child.(Replaces); ok {
+		release()
+		s.replace(ctx, child, replacer, state, now, from)
+		return
+	}
 	s.log("the %s service is on build %s and %s was deployed over it; restarting it into the deployed build", child.Name(), short(from), short(s.deployed))
 	stopped, err := child.Stop(ctx)
 	// Let go once the part is stopped, so the part started in its place can take
@@ -244,6 +258,32 @@ func (s *Supervisor) restart(ctx context.Context, child Child, state *runstate.S
 	// Gone, by the lease's own answer: started again now rather than at the next
 	// look, so the part is down for as little as the stop took.
 	s.start(ctx, child, state, now)
+}
+
+// replace moves a child that starts its replacement first onto the deployed
+// build. A replacement that could not be made ready leaves the old process
+// serving, as it was, and is tried again at the next look at builds; it is
+// never counted against the restart bound, because the part never stopped.
+func (s *Supervisor) replace(ctx context.Context, child Child, replacer Replaces, state *runstate.SupervisedChild, now time.Time, from string) {
+	s.log("the %s service is on build %s and %s was deployed over it; starting its replacement from the deployed build, and stopping it once the replacement is ready", child.Name(), short(from), short(s.deployed))
+	ensured, err := replacer.Replace(ctx)
+	if err != nil {
+		state.RestartingInto = ""
+		state.Redeploy = fmt.Sprintf("on build %s, behind the deployed %s; its replacement could not be made ready, so it is left serving and the replacement is tried again at the next look at builds: %v", short(from), short(s.deployed), err)
+		s.log("the %s service %s", child.Name(), state.Redeploy)
+		return
+	}
+	state.State = runstate.ChildRunning
+	state.Reason = ""
+	state.PID = ensured.PID
+	if ensured.Log != "" {
+		state.Log = ensured.Log
+	}
+	state.Reattached = false
+	state.StartedAt = now
+	state.Starts++
+	s.serving(ctx, child, state)
+	s.restarted(child, state, now, "was replaced by one started from the deployed binary, ready before the old one was stopped")
 }
 
 // restarted records a child's move onto the deployed build as the restart it

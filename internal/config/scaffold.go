@@ -661,9 +661,11 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # widens what any part may do; a part started from this section holds exactly
 # what it holds when started by hand.
 #
-# The dashboard binds loopback and generates its token at each start, printed
-# once where you can read it; set token to "keychain" or "file" and it reads
-# the stored one instead, which outlives a restart and is never printed.
+# The dashboard binds loopback on its port and generates its token at each
+# start. Started with the product, it prints none: it writes the token to a
+# file only you can read, and "yoyo dashboard token" prints it. Set token to
+# "keychain" or "file" and it reads the stored one instead, which outlives a
+# restart and is never printed.
 # Binding an interface address instead lets another device on your network
 # open the page, and is an opt-in with a condition: a token printed to one
 # terminal is unusable from another device, so a bind outside loopback has to

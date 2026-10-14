@@ -20,7 +20,9 @@ product, detached into a session of its own so it outlives the terminal — and
 the supervisor reads that section and starts every enabled part the way that
 part is started alone: the Slack sink exactly as
 [`yoyo slack ensure`](#checking-the-installation) starts it, from this product's
-own stored tokens into that one process and nowhere else; the scheduler as
+own stored tokens into that one process and nowhere else; the dashboard as
+[`yoyo dashboard`](#the-dashboard-under-the-product) on
+`services.dashboard.port`; the scheduler as
 [`yoyo work --watch`](work.md#letting-the-harness-choose-the-work) under its own
 watch lease. Each start is lease-checked, so a part that is already running is
 taken as it is rather than started twice, and a part started here holds exactly
@@ -30,16 +32,16 @@ came up and says so, one line per part:
 ```text
 started the supervisor for yoyodyne as pid 48211, logging to …/projects/yoyodyne/state/supervisor/supervisor.log
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log
-  dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
+  dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-29 10:00 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log
   scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log
   maintenance: the supervisor's own pass, every 10m0s; next at 2026-09-29T17:10:00Z
 stop it with `yoyo stop`; `yoyo status` says how each part stands
 ```
 
-The dashboard is declared and not yet started by the supervisor, and the line
-says which work adopts it — adopting the dashboard as a supervised part
-(yoyodyne-ifd.414); until that lands `yoyo dashboard` is yours, and the supervisor says so rather than starting a part it does not
-know how to. The maintenance pass is no process at all: it is
+The dashboard is counted as started only once it has accepted a request
+carrying its token, and its line says where it serves, whether it is ready,
+and where a person reads its token — never the token itself; [the dashboard
+under the product](#the-dashboard-under-the-product) says how. The maintenance pass is no process at all: it is
 [the supervisor's own periodic pass](#the-supervisors-maintenance-pass), and its
 line says its cadence and what its last pass came to.
 
@@ -99,8 +101,8 @@ backoff its failures earned, so a stream of requests leaves a part degraded
 rather than bouncing it without end. Four things are answered with nothing
 done, saying why: a part that is down or degraded is left as it stands; the
 scheduler is never stopped, because stopping it cancels the runs it hosts; a
-part that is not a process the supervisor starts — the dashboard until it is
-adopted, the maintenance pass itself, a part that is off — is named as such;
+part that is not a process the supervisor starts — the maintenance pass
+itself, or a part that is off — is named as such;
 and nothing is restarted while the provider cannot be reached or is not logged
 in. The program manager is told at the time it asks that a request is recorded
 and not yet acted on, so it never reports a part as restarted. A request waits
@@ -203,15 +205,14 @@ moves. What takes the build up is the paragraph below: a deploy reaches every
 part the supervisor hosts. The job's other steps are not carried: its
 bounce-when-idle compared a process's start time with the binary's, which is
 wrong for a watch that re-executes itself in place. What the job did for
-reconcile is [the supervisor's maintenance pass](#the-supervisors-maintenance-pass);
-until adopting the dashboard as a supervised part (yoyodyne-ifd.414) lands, the
-dashboard is still started by hand.
+reconcile is [the supervisor's maintenance pass](#the-supervisors-maintenance-pass),
+and what it did for the dashboard is the supervisor's dashboard child.
 
 **A deploy reaches every part, with nobody restarting anything.** Every thirty
 seconds the supervisor reads which build the binary it starts the parts from is
 — the revision Go stamped into the file — and asks each part which build it is
 running: the sink from its presence record, the scheduler from the watch
-session's holder stamp. Where the binary has moved past a part, the supervisor
+session's holder stamp, the dashboard from the record it writes as it starts. Where the binary has moved past a part, the supervisor
 moves the part onto it, one part at a time, and never in the middle of what
 the part is doing:
 
@@ -231,13 +232,17 @@ the part is doing:
   before the sink is started again from the binary. A stop landing inside a
   pass could post a message whose cursor was never written, and the sink in its
   place would post it again; waiting the pass out is what rules that out.
-- **The dashboard** is moved the same way as soon as it is a child of the
-  supervisor, which is adopting the dashboard as a supervised part
-  (yoyodyne-ifd.414); until then it is started by hand and
-  restarted by hand. A part can only become a child by saying which build it
-  runs and what it is in the middle of — a test over the parts the supervisor
-  starts fails for one that does not — so the dashboard cannot be adopted
-  without a deploy reaching it.
+- **The dashboard is replaced rather than restarted.** The supervisor starts a
+  new dashboard from the binary on the same port, waits until that one has
+  accepted a request carrying its token, and only then stops the old one, so
+  there is no moment at which no dashboard is ready
+  ([the dashboard under the product](#the-dashboard-under-the-product)). A
+  replacement that cannot be made ready is stopped, the old dashboard goes on
+  serving, and the next look at builds tries again; the record's `redeploy`
+  line says why. A part can only become a child by saying which build it runs
+  and what it is in the middle of — a test over the parts the supervisor
+  starts fails for one that does not — which is what keeps a dashboard from
+  serving a stale build for days again.
 
 A part somebody started by hand, and the supervisor took back, is moved exactly
 as one the supervisor started. Every move is recorded as a restart and not as
@@ -291,7 +296,7 @@ deploy is moving one:
 ```text
 Services (supervisor running as pid 48211; the binary on disk is build 3d3d367a1b2c):
   slack: running as pid 48214, logging to …/projects/yoyodyne/state/slack/sink.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
-  dashboard: enabled, and not yet a child of the supervisor: its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`
+  dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-09-28 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-09-28 09:40 PDT (restarted into a deployed build once)
   scheduler: running as pid 48215, logging to …/projects/yoyodyne/state/scheduler.log, on build 1a2b3c4d5e6f since 2026-09-27 20:56 PDT; on build 1a2b3c4d5e6f, behind the deployed 3d3d367a1b2c; the watch restarts itself into it between runs, waiting out the runs it hosts under execution.redeploy_drain_limit
   maintenance: the supervisor's own pass, every 10m0s; last pass at 2026-09-28T16:30:00Z (4 step(s) ran, 2 skipped, 0 failed); next at 2026-09-28T16:40:00Z
 ```
@@ -353,8 +358,10 @@ stopped and will not stop one it cannot account for, so what is left is
 finding what started it and having that fixed, which is the reliability work
 she resolves. It is among the dashboard's **Factory problems** too. The entry
 clears once only the supervisor's own copy runs. Parts the supervisor does not
-start, the dashboard until it is adopted, are not counted: two dashboards
-started by hand are allowed.
+start are not counted. A dashboard started by hand beside the product's is
+counted as a copy, and is left running; for the moment a deploy replaces the
+product's dashboard, the old and the new one are both counted until the old
+one stops.
 
 ### The supervisor's maintenance pass
 
@@ -793,7 +800,7 @@ refuse, with the part, its build, and its process:
 
 ```text
 warning  config-readers:dashboard  the dashboard service, running build 0364141b2c3d as pid 4242 since 2026-09-26 16:36 PDT, cannot read agents.developer.effort in …/.yoyodyne/config.yaml, so every read it makes of the configuration fails
-                                nothing restarts the dashboard onto a newer build until the supervisor adopts it (the dashboard's adoption, yoyodyne-ifd.414), so stop it and start it again with `yoyo dashboard`
+                                the supervisor replaces the dashboard it runs with one started from the deployed build, ready before the old one stops, once the binary on disk is one that reads every key; a dashboard started by hand is stopped and started again with `yoyo dashboard`, and `yoyo stop` and `yoyo start` restart the product's now
                                 fix: kill 4242 && yoyo dashboard
 ```
 
@@ -803,10 +810,12 @@ cannot read is named once, as the key the decoder stops on, and nothing under
 it is looked at. A mismatch on the scheduler is a problem, because a watch that
 cannot read the configuration chooses nothing; on any other part it is a
 warning, for the reason every service finding is. The remedy restarts the part
-now; the watch restarts itself into a deployed build between runs, and the
-supervisor restarts the sink between its passes and takes up the deployed
-build itself after its maintenance pass is recorded, so on those parts the
-command is for not waiting. With nothing mismatched the finding is healthy and names
+now; the watch restarts itself into a deployed build between runs, the
+supervisor restarts the sink between its passes, replaces the dashboard it
+runs, and takes up the deployed build itself after its maintenance pass is
+recorded, so on those parts the command is for not waiting. The `kill … &&
+yoyo dashboard` remedy above is for a dashboard started by hand; for the one
+the supervisor started, the remedy is `yoyo stop && yoyo start`. With nothing mismatched the finding is healthy and names
 each running part and its build. A part started from a build older than the
 record writes none, and the comparison says nothing about it rather than
 calling it current. `yoyo config validate` says the same on its standard error
@@ -1069,8 +1078,10 @@ deferred: the command refuses rather than move a home that shell chose.
 cannot see a dashboard started with `yoyo dashboard`, because it holds nothing
 the in-flight check reads, and one left running goes on reading the earlier home
 after its records have moved. The command says so before it moves anything.
-Until adopting the dashboard as a supervised part (yoyodyne-ifd.414) lands, stopping it is
-yours to do; start it again afterwards and it reads the machine home.
+The product's own dashboard is a part of the product: the supervisor is in
+flight while it runs, so `yoyo stop` stops both before the migration moves
+anything. A dashboard you started by hand is yours to stop; start it again
+afterwards and it reads the machine home.
 
 **Do not create `~/.yoyodyne` by hand before migrating.** The harness uses the
 earlier home only while `~/.yoyodyne` does not exist, or holds nothing but
@@ -5618,25 +5629,28 @@ serving it until you stop it:
 
 The configuration's [`services.dashboard`](configuration.md#services) entry
 declares the dashboard as a part of the product — its port, the address it
-binds, the hosts a request may name, and where a supplied token comes from —
-for the supervisor that will start it with the rest. The supervisor is here
-([`yoyo start`](#starting-the-product-and-stopping-it)) and the dashboard is
-not yet its child: with the entry enabled, `yoyo start` says so and names the
-work that adopts it, adopting the dashboard as a supervised part
-(yoyodyne-ifd.414). Until that lands, this command is
-started by hand and still binds loopback and serves on `--port`, exactly as
-below; the one thing it reads from the entry is `token`, and it reads that
-whether or not the entry is enabled.
+binds, the hosts a request may name, and where a supplied token comes from.
+With the entry enabled, [`yoyo start`](#starting-the-product-and-stopping-it)
+starts the dashboard with the rest of the product, on the entry's port, and
+`yoyo stop` stops it; [the dashboard under the
+product](#the-dashboard-under-the-product) is how. Started by hand, as below, it
+still binds loopback and serves on `--port`; the one thing it reads from the
+entry is `token`, and it reads that whether or not the entry is enabled.
 
-With `services.dashboard.token` at its `generated` default it prints two things
-when it starts, and the second of them once:
+With `services.dashboard.token` at its `generated` default, started by hand, it
+prints the token to your terminal when it starts:
 
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
 the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>
-it is printed here and nowhere else, and a restarted dashboard prints a new one; stop with ctrl-c
+a restarted dashboard prints a new one; stop with ctrl-c
+it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 ```
+
+It also writes the token to the token file described below, except while the
+product's own dashboard is running, whose token the file then keeps; it says
+so in place of the last line.
 
 **A configured token outlives a restart.** Set `services.dashboard.token` to
 `keychain` or `file` and the command reads the token from the store the
@@ -5716,6 +5730,91 @@ which is what the page's [card on a report](#opening-a-program-managers-report)
 reads. A name the read model knows no instance under is refused as not found,
 in fixed words that do not name it back, and a name that is not an agent's
 shape is refused before anything is read.
+
+### The dashboard under the product
+
+With `services.dashboard.enabled` set, the dashboard is one of the parts the
+[supervisor](#starting-the-product-and-stopping-it) starts, keeps running,
+moves onto each new build, and stops with the product. Nobody starts or
+restarts it by hand. This follows the design's rules for the dashboard under
+the supervisor and for the generated token
+([observability and dashboard](designs/observability-and-dashboard.md#under-the-supervisor)).
+
+**It is started, and counted as started, only once it is confirmed.** The
+supervisor runs `yoyo dashboard --port <services.dashboard.port> --start-id
+<id>` detached, logging to `projects/<product>/state/dashboard.log`, and writes
+down the start identity it handed it, with the process and the build, in
+`projects/<product>/state/dashboard/supervised.json`. The dashboard records
+itself under that identity in `dashboard/instances/`, holding a lease for as
+long as it runs, publishes its token, and then serves nothing but its health
+answer, at `/api/health`, until the supervisor has made one request carrying
+the token, at `/api/ready`, and had it accepted. That request is made on a
+second loopback port the dashboard opens for it alone, so it reaches the
+dashboard just started and no other. A dashboard that does not become ready
+within a minute is stopped and the start counted as failed, against the same
+backoff and bound as a death. A dashboard is taken up as the product's only
+where its record carries the start identity the supervisor wrote down and its
+process is the one that start launched.
+
+**Where the token is.** A generated token is written to
+`projects/<product>/state/dashboard/token`, in a directory of mode 0700 and a
+file of mode 0600 owned by you, by writing a new file and renaming it over the
+old one, so a reader sees one whole token. A link, another owner, or wider
+permissions at either path is refused and left as it is: the dashboard then
+never becomes ready, serves nothing, and the supervisor leaves it down as
+degraded with the path and the reason on the "Needs a human" line. It never
+falls back to writing the token anywhere else. `yoyo dashboard token` prints
+it, for you; it is refused from a process the harness started for a role.
+`yoyo status` names the file and that command and never the value, and so do
+the dashboard's log, its records, and the supervisor's. A token from
+`services.dashboard.token: keychain` or `file` is never written there; the
+supervisor reads it from its store to make the readiness request, and the
+dashboard serves under it as before.
+
+**When the token changes.** Only a new dashboard process makes a new one. A
+supervisor that is restarted, or that takes up a new build itself, reattaches
+to the dashboard still running and keeps its token. A dashboard that is
+replaced — moved onto a new build, or started again after it died — makes a
+new one, and the page asks for it again; `yoyo dashboard token` prints the new
+one. A dashboard that stops cleanly removes the file it wrote, and never one a
+later dashboard wrote over it.
+
+**Moving onto a new build has no gap.** The new dashboard is started on the
+same port while the old one still serves it — a supervised dashboard binds its
+port so that the dashboard replacing it can bind it too — and the old one is
+stopped only once the new one has been confirmed ready. A dashboard somebody
+started by hand on the same port is stopped at the same moment; one on another
+port is left alone. A dashboard from a build before this, which cannot share
+its port, is stopped first where the new one's log says the port is held, and
+the new one is started again once; that is the one move with a moment of no
+dashboard, and it happens once, as the product takes the dashboard over.
+
+**What `yoyo status` says.** The dashboard's line under **Services** says the
+process, the address it serves at, whether it is ready and since when, where
+its token is, its log, and its build:
+
+```text
+  dashboard: running as pid 48216, serving at http://127.0.0.1:8765/ (ready since 2026-10-14 09:40 PDT), its token in …/projects/yoyodyne/state/dashboard/token, which `yoyo dashboard token` prints, logging to …/projects/yoyodyne/state/dashboard.log, on build 3d3d367a1b2c since 2026-10-14 09:40 PDT
+```
+
+`--json` carries the same under `standing.services.record.children` as the
+dashboard's `url`, `health`, and `token_file`.
+
+**A record its build does not know.** A dashboard reads the same run records
+every other part reads, and a value a newer build wrote is one an older build
+refuses. Validation stays strict: a record that does not validate is refused,
+never skipped or repaired. The refusal says which record, which field, and
+which value, and which builds bear on it — the build reading it, the build on
+disk, and the build that made the record:
+
+```text
+the record …/runs/run-4f2a….json was refused: invalid run state: stop_class is invalid: "process-vanished" is not a value this build knows. This process runs build 0364141b2c3d, the binary on disk is build 3d3d367a1b2c, the record was made by build 3d3d367a1b2c. This process is older than the build deployed over it, so stop_class "process-vanished" is most likely a value the deployed build writes and this one predates: an incompatibility between builds, not damaged data. Restarting this process onto the deployed build reads it.
+```
+
+A reader that is itself the build on disk and still refuses a value says the
+record holds invalid data instead. Under the supervisor, a dashboard behind the
+build on disk is replaced within thirty seconds of the build landing, so the
+first kind does not last.
 
 ### What the page presents
 

@@ -4,8 +4,8 @@
 //
 // It is the management-and-supervision design's supervision tree, and the
 // rules it holds are that design's. One supervisor per product. Its children
-// are the Slack sink, the scheduler, and — once adopted — the dashboard, each a
-// process of its own with recorded presence and a lease. The supervisor owns
+// are the Slack sink, the dashboard, and the scheduler, each a process of its
+// own with recorded presence and a lease. The supervisor owns
 // start, stop, restart, and whether each child is up; each child owns its own
 // domain and none owns workflow truth. Children survive the supervisor's
 // death: a supervisor that comes back finds them through their leases and
@@ -290,8 +290,12 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 			state.PID = identified.HolderPID(ctx)
 		}
 		s.deploy(ctx, child, state, now, returned)
+		s.serving(ctx, child, state)
 		return
 	}
+	// Where a part that is not running served, and how it stood, is no longer
+	// true of anything.
+	state.URL, state.Health, state.TokenFile = "", "", ""
 	switch state.State {
 	case runstate.ChildDegraded:
 		// Left down, on purpose, until somebody acts. A degraded child somebody
@@ -345,6 +349,31 @@ func (s *Supervisor) up(child Child, state *runstate.SupervisedChild, now time.T
 	if state.Failures > 0 && (state.StartedAt.IsZero() || !now.Before(state.StartedAt.Add(StableAfter))) {
 		state.Failures = 0
 	}
+}
+
+// Serves is a child that serves at an address: where, and how its own health
+// answer stands. The dashboard is one.
+type Serves interface {
+	Serving(ctx context.Context) Serving
+}
+
+// Serving is where a child serves and how it stands, in the words the record
+// carries. None of it is a secret: the token a dashboard requires is named by
+// the file it is in and the command that prints it, never by its value.
+type Serving struct {
+	URL       string
+	Health    string
+	TokenFile string
+}
+
+// serving notes where a running child serves and how its health stands.
+func (s *Supervisor) serving(ctx context.Context, child Child, state *runstate.SupervisedChild) {
+	serves, ok := child.(Serves)
+	if !ok {
+		return
+	}
+	serving := serves.Serving(ctx)
+	state.URL, state.Health, state.TokenFile = serving.URL, serving.Health, serving.TokenFile
 }
 
 // died is a child that was running at the last look and is not now.
@@ -401,6 +430,7 @@ func (s *Supervisor) start(ctx context.Context, child Child, state *runstate.Sup
 	if ensured.Log != "" {
 		state.Log = ensured.Log
 	}
+	s.serving(ctx, child, state)
 	if ensured.Started {
 		state.Reattached = false
 		state.StartedAt = now
@@ -642,6 +672,15 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		}
 		if child.PID > 0 {
 			fmt.Fprintf(&said, " as pid %d", child.PID)
+		}
+		if child.URL != "" {
+			fmt.Fprintf(&said, ", serving at %s", child.URL)
+		}
+		if child.Health != "" {
+			fmt.Fprintf(&said, " (%s)", child.Health)
+		}
+		if child.TokenFile != "" {
+			fmt.Fprintf(&said, ", its token in %s, which `yoyo dashboard token` prints", child.TokenFile)
 		}
 		if child.Log != "" {
 			fmt.Fprintf(&said, ", logging to %s", child.Log)

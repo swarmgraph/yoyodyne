@@ -120,8 +120,9 @@ func migrateHome(args []string, stdout, stderr io.Writer) int {
 // handStartedDashboardWarning is what the migration says before it moves
 // anything. A dashboard started by hand holds no lease the in-flight check can
 // see, so one left running goes on reading the earlier home after its records
-// have moved; until the dashboard runs under the supervisor (yoyodyne-ifd.414),
-// stopping it is the person's to do.
+// have moved. The dashboard the supervisor runs is in flight with the
+// supervisor and stops with the product under `yoyo stop`; one started by hand
+// is the person's to stop.
 const handStartedDashboardWarning = "before anything moves: stop any dashboard you started by hand with `yoyo dashboard`; " +
 	"this command cannot see one, and one left running goes on reading the earlier home after its records have moved"
 
