@@ -627,7 +627,7 @@ Options:
   --json            emit machine-readable JSON
 
 agent pass options:
-  --focus <area-or-path>
+  --focus <area or path>
                     what the pass inspects in place of the next area its remit's
                     rotation names: one area, or up to ten repository paths, the
                     flag repeated for each; a value naming a file or directory
