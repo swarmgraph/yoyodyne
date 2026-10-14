@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
+	"github.com/mason-bryant/yoyodyne/internal/documentcheck"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -206,19 +207,27 @@ func (s *Session) confirmDocument(record *writeRecord, publishes bool) (bool, er
 	reason := fmt.Sprintf("confirmed by the harness in conversation %s, turn %d, for %s under the automatic approval policy", record.pending.ConversationID, record.pending.Turn, record.pending.ID)
 	candidate, automatic, err := preparer.PrepareConfirmation(s.state.Role, record.pending.Write, s.options.DocumentPolicy, reason, s.options.clock().Now())
 	if err != nil {
-		// Keep the complete old draft in the durable event account before
-		// releasing its pending slot and returning the refusal to its owner.
-		if saved := s.emit(execution.EventDocumentDrafted, record.pending); saved != nil {
-			return false, saved
-		}
-		record.decided = true
-		return false, s.carryResults(fmt.Sprintf("Document %s (%s) could not be confirmed: %v. The %s must correct this saved submission in this conversation.\n", record.pending.ID, record.pending.Write.ID, err, s.state.Role.Title()))
+		return false, s.returnUnconfirmed(record, fmt.Sprintf("Document %s (%s) could not be confirmed: %v. The %s must correct this saved submission in this conversation.\n", record.pending.ID, record.pending.Write.ID, err, s.state.Role.Title()))
 	}
 	// A confirmation saved where nothing can land it would hold the document
 	// out of the operator's reach with no run to settle it, so the integration
 	// setting is decided before anything is confirmed.
 	if !automatic || !publishes {
 		return false, nil
+	}
+	// The document checks are applied when a document is written
+	// (refuseWrites), but a document can wait from a build older than them, or
+	// from before the repository it lands in changed, and a run landing it would
+	// then fail on what they find there. So they are applied again here, and a
+	// document they refuse goes back to its owner rather than to a run.
+	var refused *documentcheck.Refusal
+	if err := s.checkDocument(record.pending.Write); errors.As(err, &refused) {
+		var told strings.Builder
+		fmt.Fprintf(&told, "Document %s (%s) was not confirmed and no run was opened for it: it fails the checks the run landing it would run, which were not applied when it was written. The %s must correct each line below and write it again; lines are counted in the body it wrote:", record.pending.ID, record.pending.Write.ID, s.state.Role.Title())
+		for _, problem := range refused.Problems {
+			fmt.Fprintf(&told, "\n- line %d, %s: %s", problem.Line, problem.Rule, problem.Reason)
+		}
+		return false, s.returnUnconfirmed(record, told.String()+"\n")
 	}
 	if s.state.DocumentReturns[candidate.Artifact.ID] >= runstate.MaxDocumentReturns {
 		record.decided = true
@@ -229,6 +238,17 @@ func (s *Session) confirmDocument(record *writeRecord, publishes bool) (bool, er
 		return false, err
 	}
 	return true, nil
+}
+
+// returnUnconfirmed settles a waiting document that is not to be confirmed and
+// tells its owner why. The complete draft is kept in the durable event account
+// before its waiting place is released.
+func (s *Session) returnUnconfirmed(record *writeRecord, told string) error {
+	if saved := s.emit(execution.EventDocumentDrafted, record.pending); saved != nil {
+		return saved
+	}
+	record.decided = true
+	return s.carryResults(told)
 }
 
 // publicationFor is the handoff that lands one confirmed or approved document,

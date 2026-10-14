@@ -9,7 +9,9 @@
 // findings was already decidable from the document and the repository it is
 // written into. So the same rules are applied when the document is written, and
 // what fails one is refused straight back to the role in the turn that wrote
-// it, naming each word or link and the line it is on.
+// it, naming each word or link and the line it is on. They are applied once
+// more when the harness confirms a waiting document, which may have been
+// written by a build without them (internal/chat, confirmDocument).
 //
 // It is the same check rather than a second one: the terms and doclink packages
 // read the document exactly as they read it once it is filed. The landing run

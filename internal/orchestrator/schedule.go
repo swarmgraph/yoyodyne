@@ -1444,7 +1444,7 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// every pull and waited out when the session ends, like its runs.
 	firings := newRecurringFirings(session.passingBeside(ctx))
 	firings.taken = s.besideTurns
-	defer firings.cancel()
+	defer firings.cancel(nil)
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
 	// reading: nothing is ever removed, because a run that ends without moving the
@@ -2141,7 +2141,7 @@ pulling:
 				break
 			}
 			if running == 0 && drain.expired(s.now()) {
-				firings.cancel()
+				firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
 			}
 			// Past the bound the session hosts nothing more. The runs still going
 			// are stopped where they are — each at a phase the session that comes
@@ -3374,7 +3374,7 @@ collecting:
 	// their turns first, as it stopped its runs, so the restart waits only for
 	// each to record itself as a missed pass rather than for its turns to end.
 	if schedule.Stopped == ScheduleRedeployed && drain.boundReached {
-		firings.cancel()
+		firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
 	}
 	s.collectFirings(&schedule, firings, &cadence, true)
 	drain.stop()

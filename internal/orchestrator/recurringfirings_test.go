@@ -296,7 +296,7 @@ func TestAMissSaysWhichFiringKeptTheTaskBehindIt(t *testing.T) {
 	due := now.Add(-61 * time.Minute)
 	tasks := &cadencedTasks{clock: func() time.Time { return now }, every: time.Hour, firedAt: due.Add(-time.Hour)}
 	firings := newRecurringFirings(context.Background())
-	defer firings.cancel()
+	defer firings.cancel(nil)
 	firings.inFlight[roleConversationKey(domain.RoleDevelopmentManager)] = StartedFiring{Task: "development-manager-sweep-deep"}
 	why := waitingReason(WaitingFiring{Task: "development-manager-sweep", Conversation: roleConversationKey(domain.RoleDevelopmentManager), Due: due}, firings)
 	watch := recurringWatch{
@@ -344,7 +344,7 @@ func TestABrakeSummonsWaitsForTheDevelopmentManagersOwnPass(t *testing.T) {
 		t.Fatalf("Brake() error = %v", err)
 	}
 	firings := newRecurringFirings(context.Background())
-	defer firings.cancel()
+	defer firings.cancel(nil)
 	dm := roleConversationKey(domain.RoleDevelopmentManager)
 	pass := make(chan struct{})
 	firings.launch(StartedFiring{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Conversation: dm, take: func(context.Context) Fired {
@@ -469,7 +469,7 @@ func TestACorrectionWaitsForAPassHoldingItsConversationAndIsTakenBesideThePull(t
 	roles := &gatedCorrections{entered: make(chan struct{}, 2), gate: make(chan struct{})}
 	pull := Pull{Corrections: Corrector{Conversations: store, Claims: store, Roles: roles, Clock: correctionClock{}}}
 	firings := newRecurringFirings(context.Background())
-	defer firings.cancel()
+	defer firings.cancel(nil)
 	dm := roleConversationKey(domain.RoleDevelopmentManager)
 	firings.inFlight[dm] = StartedFiring{Task: "development-manager-sweep", Role: domain.RoleDevelopmentManager, Conversation: dm}
 	scheduler := Scheduler{Now: func() time.Time { return correctionNow }}
@@ -535,4 +535,40 @@ func TestACorrectionWaitsForAPassHoldingItsConversationAndIsTakenBesideThePull(t
 	if schedule.CorrectionProblem != "" {
 		t.Fatalf("correction problem = %q, want none", schedule.CorrectionProblem)
 	}
+}
+
+// A firing stopped at the restart past the drain bound carries the restart as
+// its cause, as a stopped run does. A document publication runs inside the
+// architect's firing, and the cause is what lets its run record the restart as
+// what stopped it rather than a cancellation with no reason given.
+func TestAFiringStoppedForARedeployCarriesTheRestartToWhatRunsInsideIt(t *testing.T) {
+	t.Parallel()
+
+	firings := newRecurringFirings(context.Background())
+	defer firings.cancel(nil)
+	inside := make(chan context.Context, 1)
+	firings.launch(StartedFiring{Task: "architect-pass", Role: domain.RoleArchitect, Conversation: roleConversationKey(domain.RoleArchitect), take: func(ctx context.Context) Fired {
+		// What a publication inside the pass is handed: the pass's
+		// cancellation without its deadline, as internal/chat's
+		// withoutDeadline passes it on.
+		detached, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+		stop := context.AfterFunc(ctx, func() { cancel(context.Cause(ctx)) })
+		defer stop()
+		<-detached.Done()
+		inside <- detached
+		return Fired{Task: "architect-pass", Role: domain.RoleArchitect}
+	}}, time.Now)
+
+	restart := RedeployDrain{At: time.Now(), Bound: 15 * time.Minute, SessionID: "watch-1"}
+	firings.cancel(restart)
+	select {
+	case ctx := <-inside:
+		drained, ok := drainedForRedeploy(ctx)
+		if !ok || drained != restart {
+			t.Fatalf("cause = %v, want the restart %+v", context.Cause(ctx), restart)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the firing was not stopped")
+	}
+	<-firings.done
 }

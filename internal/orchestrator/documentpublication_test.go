@@ -22,6 +22,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 func publicationConversation(t *testing.T, pipeline Pipeline, provider chat.Backend) (chat.Options, *runstate.ConversationStore) {
@@ -133,6 +134,58 @@ func TestAlreadyWaitingAutomaticDocumentsKeepTheirStoredIdentityAndContent(t *te
 				t.Fatal(status)
 			}
 		})
+	}
+}
+
+// A document saved by a build older than the document checks was never held to
+// them when it was written. It is held to them when the harness confirms it, so
+// a coined word in it goes back to its owner instead of failing the run that
+// would have landed it.
+func TestAWaitingDocumentTheDocumentChecksRefuseGoesBackToItsOwnerWithNoRun(t *testing.T) {
+	repository, _, provider, pipeline, runs := automaticFixture(t)
+	register := "# Terms\n\n" + terms.RegisterHeading + "\n\n| Term | In plain words | Where it is used |\n| --- | --- | --- |\n"
+	if err := os.WriteFile(filepath.Join(repository, filepath.FromSlash(terms.RegisterPath)), []byte(register), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	publicationGit(t, repository, "add", ".")
+	publicationGit(t, repository, "commit", "-m", "register")
+	options, store := publicationConversation(t, pipeline, provider)
+	identity := runstate.ConversationIdentity{Role: domain.RoleArchitect, Agent: "architect"}
+	if _, err := chat.Open(options); err != nil {
+		t.Fatal(err)
+	}
+	prior, err := store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prior.PendingWrites = []runstate.PendingWrite{{ID: "document-773.1", Turn: 773, Action: "create", Artifact: "waiting-design", Kind: "design", Title: "Saved design", Directory: "docs/designs", Body: "# Saved\n\nWritten before this build.\n\nThe run is wedged.", Reason: "the architect's saved decision"}}
+	if err := store.Save(prior); err != nil {
+		t.Fatal(err)
+	}
+	session, err := chat.Open(options)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := session.PublishDocuments(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if records, err := runs.Recorded(); err != nil || len(records) != 0 {
+		t.Fatalf("runs = %+v, %v, want none opened for a document the checks refuse", records, err)
+	}
+	saved, err := store.Load(identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(saved.PendingWrites) != 0 || len(session.Writes()) != 0 {
+		t.Fatalf("waiting = %+v, want the refused document settled", saved.PendingWrites)
+	}
+	for _, want := range []string{"document-773.1 (waiting-design) was not confirmed", `line 5, coined words: "wedged"`} {
+		if !strings.Contains(saved.PendingTrackerResults, want) {
+			t.Errorf("the architect was told %q, want it to say %q", saved.PendingTrackerResults, want)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(repository, "docs", "designs", "waiting-design.md")); !os.IsNotExist(err) {
+		t.Fatalf("a refused document reached the checkout: %v", err)
 	}
 }
 

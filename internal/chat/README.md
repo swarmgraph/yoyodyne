@@ -176,8 +176,10 @@ role to save memories first, built by `memorySaveRequest` and
 (`internal/documentcheck`) after the filing checks; a refusal is
 rendered by `renderDocumentRefusal` and handed back to the role with
 `carryResults` in `Send`. Accepted writes become `PendingWrite` through
-`recordWrites`. `documentpublication.go` confirms automatic-policy writes,
-saves the complete
+`recordWrites`. `documentpublication.go` confirms automatic-policy writes
+(`confirmDocument`, which holds a waiting document to `checkDocument` again,
+since it may have been written by a build without the check, and returns a
+refused one to its owner with no run), saves the complete
 candidate, and calls the ordinary delivery pipeline before any prompt, under
 the message's cancellation but not its deadline (`withoutDeadline`). Its
 `PublishDocuments` also resumes saved handoffs and carries failures to the owner,
