@@ -37,18 +37,27 @@ revisions:
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'approved amendment 8eb60865 from yoyodyne-ifd.441 - the degraded class stops enumerating shipped states, which had gone stale at two while five shipped; the admitting rule is what the design owns'
+      reason: approved amendment 8eb60865 from yoyodyne-ifd.441 - the degraded class stops enumerating shipped states, which had gone stale at two while five shipped; the admitting rule is what the design owns
     - action: amended
       by: architect
       at: 2026-09-25T04:00:00Z
-      reason: 'approved amendment ee80baf9 from yoyodyne-ifd.363 - the 2026-09-07 entry''s reason reworded from a gendered pronoun to ''the operator''s'', no other word of it changed and nothing in the prose changed; shipped documents say nothing about the operator''s pronouns'
+      reason: approved amendment ee80baf9 from yoyodyne-ifd.363 - the 2026-09-07 entry's reason reworded from a gendered pronoun to 'the operator's', no other word of it changed and nothing in the prose changed; shipped documents say nothing about the operator's pronouns
+    - action: amended
+      by: architect
+      at: 2026-10-14T22:36:45.771217Z
+      reason: 'yoyodyne-ifd.431.7: names what has to be built before roles answer in Slack threads - how a thread question reaches the named role''s own conversation through the interaction service and its recorded reply is posted under the role''s name, what is already designed and built, and the two items the Lead Product Manager admits before yoyodyne-ifd.68.25 runs again; the default receiver is written as the Lead Product Manager, and the setup line says the tokens go in the project''s secret store as decision 2 already requires'
+approvals:
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-10-14T22:36:45.771217Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 967, for document-967.1 under the automatic approval policy
 ---
-
 # Slack reporting: events out, directives in, one thread per topic
 
 ## Status
 
-This design serves epic yoyodyne-ifd.68 and is the deliverable of yoyodyne-ifd.68.1. Its implementation children are yoyodyne-ifd.68.2 (notifier and voice), yoyodyne-ifd.68.3 (sink, manifest, setup), and yoyodyne-ifd.68.4 (two-way steering, deferred in implementation and first-class here). Each child names below the sections it builds.
+This design serves epic yoyodyne-ifd.68 and is the deliverable of yoyodyne-ifd.68.1. Its implementation children are yoyodyne-ifd.68.2 (notifier and voice), yoyodyne-ifd.68.3 (sink, manifest, setup), and yoyodyne-ifd.68.4 (two-way steering, deferred in implementation and first-class here). Each child names below the sections it builds. Agents speaking in Slack threads (yoyodyne-ifd.68.25) waits on the two items named in *Roles answering in threads: what has to be built first*.
 
 ## What this is for
 
@@ -71,7 +80,33 @@ A sink starting with no cursor for a stream initializes that cursor at now and r
 - **Harness facts** — a run starting, checks passing, a verdict, a promotion — are rendered from the event by per-role voice templates shipped alongside the personas (68.2's deliverable), with each persona given its own Slack display name and avatar on the message. No provider invocation per event. Rejected: voicing events through a model. It prices visibility at a model call per event, makes the channel nondeterministic, and puts a model between a fact and its reporting — a model paraphrasing "checks failed" is a model that can misstate it.
 - **Agent-authored text** — a report, a proposal's summary, an ask-exchange turn — is posted as the agent wrote it, attributed to its persona, already redacted (decision 7). This is where the genuine voice lives, at no added cost and no added risk: it is text the agent already said, in a channel that already carries agent text to operators.
 
-**What prose the channel carries.** Decision 1 stands: the source is the durable record, and the reporter additionally never invokes a provider, because the process that holds the tokens must never be the process that runs an agent. What widens is what gets durably recorded. Prose posts only when a durable record holds it: the verbatim kinds above, and a role's recorded conversation turns when routed through the durable interaction service. It is attributed to the persona whose record it is, with the display identity every speaker already has. Every role gets a voice through exactly this mechanism — its durable conversation and records; no record, no voice. An @role question in a thread is answered today by the harness from the read model, per the stated exception; once the conversational client lands, gated on the durable service, it routes as a turn into that role's durable conversation through the service, and the recorded reply posts in-thread.
+**What prose the channel carries.** Decision 1 stands: the source is the durable record, and the reporter additionally never invokes a provider, because the process that holds the tokens must never be the process that runs an agent. What widens is what gets durably recorded. Prose posts only when a durable record holds it: the verbatim kinds above, and a role's recorded conversation turns when routed through the durable interaction service. It is attributed to the persona whose record it is, with the display identity every speaker already has. Every role gets a voice through exactly this mechanism — its durable conversation and records; no record, no voice. How a question in a thread reaches the role it names, and what has to be built before it does, is the section that follows.
+
+**Roles answering in threads: what has to be built first.** This section names what must land before agents speaking in Slack threads (yoyodyne-ifd.68.25) can run again, so that item waits on named work rather than on nothing.
+
+A reply in a work item's thread that @-mentions a role, or names none and so goes to the Lead Product Manager, is a question to that role's own conversation. The path has four steps, and each is done by the one process allowed to do it:
+
+1. The sink reads the reply from the thread, checks the sender against the operator list, and hands it to the durable interaction service as a turn addressed to the named role, with the thread's topic and the reply's Slack message reference. That is all the sink does with it.
+2. The harness, which is the only process that starts a role ([harness-is-the-only-role-invoker](../decisions/invariants/harness-is-the-only-role-invoker.md)), runs that turn in the role's own conversation, as it runs a turn the operator types.
+3. The role's reply is recorded in that conversation, redacted like every other turn, before anything is posted.
+4. The sink reads the recorded reply from the conversation's durable record, as it reads every other stream, and posts it in the same thread under the role's display name and picture.
+
+A role with no conversation of its own gets no voice from this: the sink answers in the thread that the role named cannot take questions. A turn that fails posts nothing in the role's name; the harness posts that the question was not answered and why.
+
+*Already designed:* each role's own display name and picture (decision 5); the sink alone holding the Slack tokens (decision 2); every agent process given an environment built from an allowed list with the token pair removed (decision 2); no prose posted unless a durable record holds it (decision 1).
+
+*Already built, according to the development manager's inspections at commits 4ffa688948c6 and e3d93b7cdde7:* attribution of a reply to the role it @-mentions, for directives; and a question in a thread that is not a directive, routed to the Lead Product Manager's conversation only. The architect has not read `internal/slack` or `internal/chat`; this rests on those inspections.
+
+*Not built, and to be admitted by the Lead Product Manager before yoyodyne-ifd.68.25 runs again.* The developer item waits on both:
+
+- **A question in a thread reaches the conversation of the role it names.** Steps 1 to 4 above, for every role that has a conversation and not only the Lead Product Manager; the sink never starts a role and never calls a provider; the reply posts only once recorded. Done when a reply mentioning the architect in a work item's thread produces a turn in the architect's conversation, that turn's recorded reply is posted in the thread under the architect's name, and the sink's process started no provider.
+- **No agent process holds a Slack token, tested for every provider.** A test, run under the project's checks, that starts a role through each provider the harness supports — Claude Code and Codex today — with both tokens set in the harness's own environment, and finds neither `SLACK_BOT_TOKEN` nor `SLACK_APP_TOKEN` in the role's environment. Done when the test exists, runs for each supported provider, and fails if either token is let through.
+
+Nothing else must land first. The ruling on roles' voices (yoyodyne-ifd.68.25.1) is recorded in decision 5 and needs nothing further.
+
+*Rejected.* The sink starting the role itself, because the process holding the tokens would then run an agent, which decision 5 forbids, and because the harness is the only process that starts a role. A role posting with a token of its own, because it puts a Slack credential in an agent process. Posting a role's reply as it streams, before it is recorded, because Slack would then carry words no durable record holds (decision 1).
+
+*What a reviewer checks.* No code path in the sink starts a role or calls a provider. A thread reply naming a role produces a turn in that role's conversation, not the Lead Product Manager's. Nothing is posted under a role's name that its conversation's record does not hold. The token test covers every supported provider and fails when a token is passed through.
 
 **What may arrive as a direct message.** A direct message is admitted only by naming its class, and a state fitting neither class does not DM — that is the gate a developer must not widen silently, stated here rather than in `heartbeat.go`:
 
@@ -131,7 +166,7 @@ The topic-to-`thread_ts` map is durable at the state root, per product, owned by
 
 A message in a topic's thread maps onto the existing directive surface and nothing else:
 
-- A plain reply records an **operational directive**, scoped to the thread's work item, `received-by` the persona it @-mentions or the product manager by default.
+- A plain reply records an **operational directive**, scoped to the thread's work item, `received-by` the persona it @-mentions or the Lead Product Manager by default.
 - The pausing kinds are **stated, never inferred**, exactly as the CLI requires: a reply opening `ambiguous:` or `artifact: <name>` records that kind, and must state what is unresolved or be refused — the same rule, because a pause nobody can name a reason for is a pause nobody can lift, and a classifier guessing which sentences pause work is the failure the CLI already refused.
 - `resolve <directive-id> <how>` resolves, with the existing unique-prefix rule.
 
@@ -143,7 +178,7 @@ Every inbound message gets an in-thread acknowledgment that is itself an outboun
 
 - `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in the sink's environment only. Never in `.yoyodyne`, never in Beads, never in any prompt or context bundle — and structurally never in a run process (decision 2).
 - In `.yoyodyne`: the Slack section — enabled flag, channel, the operator allow-list — validated like everything else, with a project that enables Slack but lacks a channel refused at load, before anything runs.
-- The checked-in app manifest (68.3) declares the least scopes the design needs: posting, per-message display-identity override, Socket Mode connectivity, and reading thread replies in the configured channel. Setup is: create the app from the manifest, install, export two tokens, start the sink. The setup document is held to the readme's newcomer standard.
+- The checked-in app manifest (68.3) declares the least scopes the design needs: posting, per-message display-identity override, Socket Mode connectivity, and reading thread replies in the configured channel. Setup is: create the app from the manifest, install, put the two tokens in the project's secret store, start the sink. The setup document is held to the readme's newcomer standard.
 
 ## What each child builds
 
@@ -153,7 +188,7 @@ Every inbound message gets an in-thread acknowledgment that is itself an outboun
 
 ## Invariants and existing constraints
 
-`one-promotion-per-target-branch` is untouched: this design performs no Git operation and no promotion. `selected-work-passes-intake-and-records-why` binds nothing here — this design schedules nothing and claims nothing — but the run-started message deliberately surfaces the selection reason that invariant makes durable. No agent acquires a credential or a new capability anywhere in this design; every post and every directive recording is the harness's own act.
+`one-promotion-per-target-branch` is untouched: this design performs no Git operation and no promotion. `selected-work-passes-intake-and-records-why` binds nothing here — this design schedules nothing and claims nothing — but the run-started message deliberately surfaces the selection reason that invariant makes durable. `harness-is-the-only-role-invoker` decides who starts a role answering in a thread: the harness, never the sink. No agent acquires a credential or a new capability anywhere in this design; every post and every directive recording is the harness's own act.
 
 ## The communication rule
 
@@ -163,4 +198,3 @@ Every message the harness or an agent sends to a person follows four rules, whet
 2. **Post on importance or on an ask; otherwise do not post.** Severity is importance, not actionability: important breakage posts even without an ask. Brief periodic status is fine — "*{item title}* has merged" is ok; the prohibition is walls and useless text, not short factual posts. Routine narration goes to the durable record, with an item's milestones in its own thread.
 3. **Never bare id lists.** Aggregate with meaning — "31 items wait on triage decisions; the architect holds 8 rulings; next mover: the architect" — naming an item title-first only when the reader must act on it.
 4. **Every message answers "why is the reader reading this" or is not sent** — with a generous reading of why: "so the operator knows a feature merged and can test it" is a legitimate answer. The test kills pointless text, not useful awareness.
-
