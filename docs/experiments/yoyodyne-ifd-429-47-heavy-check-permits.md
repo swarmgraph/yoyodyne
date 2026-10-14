@@ -94,8 +94,10 @@ the machine-wide effect, because they measure only the checks they start.
   suites run outside every place as it launched — and
   `yoyo heavy-checks measurements` proposes each check's number from them
   ([setting a heavy check's number from what it cost](../configuration.md#setting-a-heavy-checks-number-from-what-it-cost)).
-  It measures only a project that names its heavy checks, so the figures start
-  once `execution.heavy_checks` is set.
+  It measures only a project that names its heavy checks. This repository named
+  them on October 14 2026, at the architect's ruled starting numbers of one
+  `make race` and two `make test` at a time, so its figures start with the
+  launches after that change reached the running harness.
 - Measure the machine-wide effect: what the other runs beside a limited suite
   gain, which is what the limit is for and what these cases cannot see. The
   machine's load against how many heavy checks were running is the part of
