@@ -127,8 +127,8 @@ when it answers again. The second is **advisory-once** — a
 fact said exactly once and never repeated: a value the project's template has
 improved that this project never edited, and
 [a finding that needs your hand](../reporting.md#a-finding-that-needs-your-hand)
-— a report the Lead Product Manager handled as yours, one filed at critical
-severity, a stopped run the development manager escalated to you, or the batch
+— a report the Lead Product Manager handled as yours, a stopped run the
+development manager escalated to you, or the batch
 of recommendations an owning role argued on a recurring pass over the changes
 proposed to its documents — which is
 tagged to you by member id as well, since it is yours to act on. The stale build, the

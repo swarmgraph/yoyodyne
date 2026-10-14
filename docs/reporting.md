@@ -565,6 +565,32 @@ attention is a later question, and nothing here does it. The severities are
 deliberately not the reviewer's `blocker`/`major`/`minor`: a finding decides
 whether a change is repaired, and a report decides nothing.
 
+### Whom a report is for
+
+A report may also name the role it is for, with `"for"` in its block: the Lead
+Product Manager, the architect, the development manager, or the program
+manager. That is the role whose move it asks for, and the report is that
+role's whatever its severity. It is listed under that role on `yoyo status` and
+the dashboard as a `report for a role` entry (`addressed-report` in `--json`,
+with the report whole under `report`), and the role's next scheduled pass is
+put it under `Reports addressed to you`. A report that names no role is the Lead
+Product Manager's, since she handles the pile; a critical one is listed under
+her by name as well as reaching her pass at once. Either way it leaves the list
+when a handling of it is recorded.
+
+A report is never addressed to you, and a critical report is never shown to you
+as needing your hand. A critical one still reaches the channel, so you see it,
+and it says whose it is:
+
+> :rotating_light: Critical — Noticed while watching the line, about
+> yoyodyne-ifd.420: Four ready P0 fixes have no run. Next: the development manager's — the report is addressed to the
+> development manager and is with that role, not the operator; a handling of
+> the report records what became of it.
+
+Only the Lead Product Manager's handling of a report can make it yours, and only
+for something a person must do: see
+[a finding that needs your hand](#a-finding-that-needs-your-hand).
+
 ### Which build a report is about
 
 A report is a claim about the build that filed it, not about the tree as it is
@@ -1630,8 +1656,7 @@ once, directly, tagged by member id** — the communication rule's own test for 
 tag, since it is both important and yours — the pass after it is recorded.
 [Operations](operations.md#where-a-finding-that-needs-your-hand-goes) says what
 makes one: the Lead Product Manager handling a report with `"needs":
-"operator"`, a report filed at critical severity that nobody has handled, a
-stopped run the development manager escalated to you, and the batch of
+"operator"`, a stopped run the development manager escalated to you, and the batch of
 recommendations an owning role argued on a recurring pass over the changes
 proposed to its documents — one message per pass, listing each proposal with
 what its owner recommends and why, for you to decide with `yoyo amendment`. The message says what is

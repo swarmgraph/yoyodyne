@@ -209,16 +209,34 @@ func TestReportsAndProposalsAreSaidOnceInTheOrderTheyWereRecorded(t *testing.T) 
 		notify.KindReportFiled, notify.KindProposalRaised)
 	harness.poll(t, cursors)
 
-	// A critical report is also a finding for the operator until somebody handles
-	// it, said to him beside the report.
+	// A critical report is said once, as being with the role it waits on, and
+	// is not a finding for the operator: only a handling records that a person
+	// must act.
 	harness.file(t, "report-0123456789abcdef0123456789abcde1", report.SeverityCritical, moment.Add(time.Minute))
-	harness.poll(t, cursors, notify.KindReportFiled, notify.KindOperatorAction)
+	batch, err := harness.feed.Poll(context.Background(), cursors)
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	for _, delivery := range batch.Deliveries {
+		if !delivery.Posts() {
+			continue
+		}
+		message, err := notify.Render(delivery.Notification.Topic, delivery.Notification.Speaker, delivery.Notification.Event)
+		if err != nil {
+			t.Fatalf("render %s: %v", delivery.Notification.Event.Kind, err)
+		}
+		if strings.Contains(message.Body, "needs your hand") || strings.Contains(message.Body, "only a person can act on this") ||
+			!strings.Contains(message.Body, "Next: the Lead Product Manager's — the report names no role, so it is with the Lead Product Manager") {
+			t.Fatalf("a critical report nobody handled reads as %q", message.Body)
+		}
+	}
+	harness.poll(t, cursors, notify.KindReportFiled)
 }
 
 // A finding that needs the operator's own hand is said to him once — directly,
 // and tagged by member id — the pass after it is recorded, and never again while
-// it stands: `yoyo status` names it. Two records make one: a report handled as
-// needing him, and a critical report nobody has handled. A later handling of the
+// it stands: `yoyo status` names it. One record makes one: a report handled as
+// needing him. A later handling of the
 // same report that says nothing of the kind ends it, silently; and the same
 // report handled as needing him again is a second finding, said once more.
 func TestAFindingForTheOperatorIsSaidToHimOnceDirectly(t *testing.T) {
@@ -435,11 +453,12 @@ func TestAFindingFromBeforeTheWatermarkIsReadPast(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, moment)
-	harness.file(t, "report-0123456789abcdef0123456789abcde0", report.SeverityCritical, moment.Add(-2*time.Hour))
+	harness.file(t, "report-0123456789abcdef0123456789abcde0", report.SeverityWarning, moment.Add(-2*time.Hour))
 	harness.file(t, "report-0123456789abcdef0123456789abcde1", report.SeverityNote, moment.Add(-time.Hour))
+	harness.handle(t, "report-0123456789abcdef0123456789abcde0", "only the operator can renew that login", true, moment.Add(-90*time.Minute))
 	cursors := harness.poll(t, harness.start())
 	if !cursors.Streams[operatorActionStream].Has(findingMark + "report:report-0123456789abcdef0123456789abcde0") {
-		t.Fatalf("cursor = %#v, want the old critical marked without being said", cursors.Streams[operatorActionStream])
+		t.Fatalf("cursor = %#v, want the old finding marked without being said", cursors.Streams[operatorActionStream])
 	}
 	harness.handle(t, "report-0123456789abcdef0123456789abcde1", "only the operator can rotate that token", true, moment.Add(time.Hour))
 	harness.poll(t, cursors, notify.KindOperatorAction)
@@ -640,9 +659,8 @@ func TestARecordFiledWhileTheSinkWasDownIsStillPosted(t *testing.T) {
 	// An hour of downtime, and a critical filed in the middle of it.
 	harness.file(t, "report-0123456789abcdef0123456789abcde0", report.SeverityCritical, moment.Add(time.Hour))
 
-	// The restart reads the same watermark it wrote, so the report is news — and
-	// so is the finding a critical report is until somebody handles it.
-	harness.poll(t, cursors, notify.KindReportFiled, notify.KindOperatorAction)
+	// The restart reads the same watermark it wrote, so the report is news.
+	harness.poll(t, cursors, notify.KindReportFiled)
 }
 
 // The same thing for a run: one that both started and finished while the sink

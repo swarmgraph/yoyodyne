@@ -427,9 +427,11 @@ func (s survivingExcept) Survives(_ context.Context, worktree gitworktree.Worktr
 
 // A finding only the operator can act on is named on the attention line, by
 // name, ahead of the undecided proposals, and is never folded into "and N
-// things not named here". Two records make one: a critical report nobody has
-// handled, and a handling that says the report needs the operator's hand. A
-// later handling of the same report that says nothing of the kind ends it.
+// things not named here". One record makes one: a handling that says the
+// report needs the operator's hand. A later handling of the same report that
+// says nothing of the kind ends it. A critical report nobody has handled is
+// not one: it is named as well, but as the Lead Product Manager's, since she
+// handles the pile.
 func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 	t.Parallel()
 
@@ -462,7 +464,7 @@ func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 		}
 	}
 	if len(named) != 2 {
-		t.Fatalf("NeedsHuman = %#v, want the two findings named", standing.NeedsHuman)
+		t.Fatalf("NeedsHuman = %#v, want the finding and the critical report named", standing.NeedsHuman)
 	}
 	if proposal < 0 {
 		t.Fatalf("NeedsHuman = %#v, want the undecided proposal listed", standing.NeedsHuman)
@@ -472,26 +474,27 @@ func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 			t.Fatalf("finding %q is listed after the proposal at %d", waiting.What(), proposal)
 		}
 	}
-	// Oldest first, in the order the pile was filed: the handled report was
-	// filed before the critical one.
 	handling, critical := named[0], named[1]
-	if !strings.Contains(critical.What(), "report-00000000000000000000000000000001 needs your hand: something was noticed") ||
-		!strings.Contains(critical.What(), "found by the developer, in a critical report") {
-		t.Fatalf("critical finding = %q", critical.What())
-	}
 	if !strings.Contains(handling.What(), "report-00000000000000000000000000000002 needs your hand: the operator has to add the hook to .claude/settings.json by hand") ||
 		!strings.Contains(handling.What(), "found by the Lead Product Manager, handling the report") ||
 		!strings.Contains(handling.What(), "about yoyodyne-ifd.383") {
 		t.Fatalf("handling finding = %q", handling.What())
 	}
-	for _, waiting := range named {
-		if !strings.HasPrefix(waiting.Whose(), "the operator's") {
-			t.Fatalf("finding %q is %q, want the operator's move", waiting.What(), waiting.Whose())
+	if !strings.HasPrefix(handling.Whose(), "the operator's — only a person can act on this") {
+		t.Fatalf("finding %q is %q, want the operator's move", handling.What(), handling.Whose())
+	}
+	if critical.Kind != AttentionAddressedReport || critical.Mover != MoverProductManager ||
+		!strings.Contains(critical.What(), "report-00000000000000000000000000000001, a critical report from the developer: something was noticed") {
+		t.Fatalf("critical report = %+v, %q, want it named as the Lead Product Manager's", critical, critical.What())
+	}
+	for _, said := range []string{critical.What(), critical.Whose()} {
+		if strings.Contains(said, "needs your hand") || strings.Contains(said, "only a person can act on this") {
+			t.Fatalf("an unhandled critical report says %q, as if it needed the operator", said)
 		}
 	}
 
-	// Rendered, the findings are listed by name however many other entries there
-	// are: eleven proposals would fold the eleventh, and never a finding.
+	// Rendered, the named entries are listed by name however many other entries
+	// there are: eleven proposals would fold the eleventh, and never a finding.
 	var proposals []amendment.Record
 	for index := 0; index < maxListed+1; index++ {
 		proposals = append(proposals, undecidedChange(fmt.Sprintf("proposal-%d", index), moment.Add(-4*time.Hour)))
@@ -499,12 +502,81 @@ func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 	sources.Amendments = fakeAmendments{records: proposals}
 	rendered := ReadStanding(context.Background(), sources).Render()
 	for _, want := range []string{
-		"report-00000000000000000000000000000001 needs your hand",
+		"report-00000000000000000000000000000001, a critical report from the developer",
 		"report-00000000000000000000000000000002 needs your hand",
 		"and 1 thing waiting on somebody not named here",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered standing lacks %q:\n%s", want, rendered)
+		}
+	}
+	if strings.Contains(rendered, "report-00000000000000000000000000000001 needs your hand") {
+		t.Fatalf("rendered standing puts the unhandled critical report to the operator:\n%s", rendered)
+	}
+}
+
+// A critical report addressed to a role is that role's: listed under it by
+// name, said as being with it, and never shown to the operator as needing his
+// hand. The program manager's critical report for the development manager is
+// the case: four ready fixes with no run, which is her re-run to make.
+func TestACriticalReportAddressedToARoleIsThatRolesAndNotTheOperators(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	addressed := filedReport("report-00000000000000000000000000000004", report.SeverityCritical, moment.Add(-time.Hour))
+	addressed.Role = domain.RoleProgramManager
+	addressed.For = domain.RoleDevelopmentManager
+	addressed.Message = "four ready P0 fixes have no run"
+	// A warning addressed to a role is that role's too, whatever its severity,
+	// though it is not named ahead of everything else.
+	warned := filedReport("report-00000000000000000000000000000005", report.SeverityWarning, moment.Add(-30*time.Minute))
+	warned.For = domain.RoleArchitect
+	// An unaddressed warning is left to the pile.
+	unaddressed := filedReport("report-00000000000000000000000000000006", report.SeverityWarning, moment.Add(-20*time.Minute))
+	sources.Reports = fakeReports{reports: []report.Report{addressed, warned, unaddressed}}
+	standing := ReadStanding(context.Background(), sources)
+
+	byID := map[string]Attention{}
+	for _, waiting := range standing.NeedsHuman {
+		if waiting.Mover == MoverOperator {
+			t.Fatalf("NeedsHuman puts %q to the operator: %q", waiting.What(), waiting.Whose())
+		}
+		if waiting.Kind == AttentionAddressedReport {
+			byID[waiting.ID] = waiting
+		}
+	}
+	critical, ok := byID[addressed.ID]
+	if !ok || critical.Mover != MoverDevelopmentManager || !critical.Named() {
+		t.Fatalf("addressed critical = %+v, want it named under the development manager", critical)
+	}
+	if want := "the development manager's — the report is addressed to the development manager and is with that role, not the operator; a handling of the report records what became of it"; critical.Whose() != want {
+		t.Fatalf("whose = %q, want %q", critical.Whose(), want)
+	}
+	if !strings.Contains(critical.What(), "a critical report from the program manager: four ready P0 fixes have no run") {
+		t.Fatalf("what = %q", critical.What())
+	}
+	if warning, ok := byID[warned.ID]; !ok || warning.Mover != MoverArchitect || warning.Named() {
+		t.Fatalf("addressed warning = %+v, want it listed under the architect without being named ahead", warning)
+	}
+	if _, listed := byID[unaddressed.ID]; listed {
+		t.Fatalf("an unaddressed warning is listed on its own: %+v", byID[unaddressed.ID])
+	}
+	rendered := standing.Render()
+	if strings.Contains(rendered, "needs your hand") || strings.Contains(rendered, "only a person can act on this") {
+		t.Fatalf("rendered standing puts a report for a role to the operator:\n%s", rendered)
+	}
+	if !strings.Contains(rendered, "Waiting on the development manager") {
+		t.Fatalf("rendered standing lacks the development manager's head:\n%s", rendered)
+	}
+
+	// Handled, it leaves the role's list.
+	sources.Reports = fakeReports{
+		reports:   []report.Report{addressed},
+		handlings: []report.Handling{{ReportID: addressed.ID, Role: domain.RoleProductManager, RunID: "chat-1", Reason: "the development manager re-ran them", RecordedAt: moment}},
+	}
+	for _, waiting := range ReadStanding(context.Background(), sources).NeedsHuman {
+		if waiting.Kind == AttentionAddressedReport {
+			t.Fatalf("a handled report is still listed: %+v", waiting)
 		}
 	}
 }

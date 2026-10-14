@@ -349,7 +349,7 @@ func (t Trigger) claimTask(ctx context.Context, name string, task config.Recurri
 		batch := t.amendmentBatch(task)
 		return t.run(ctx, firing{
 			name: name, pass: passName(claimed), task: task, trigger: runstate.PassTriggerSchedule,
-			message: wakeMessage(name, task, "", t.overdueFor(task), batch), batch: batch, due: due,
+			message: wakeMessage(name, task, "", t.overdueFor(task), t.addressedTo(task), batch), batch: batch, due: due,
 		})
 	}}, true, nil
 }

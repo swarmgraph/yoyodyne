@@ -866,8 +866,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// and this is where a surface finds out that it is asleep.
 	standing.CapacityBlocked = CapacityBlockedOf(sources, now)
 
-	// The pile is read once and used twice: for how it stands, and for the
-	// findings in it that need the operator. Two readings of one pile a moment
+	// The pile is read once and used three times: for how it stands, for the
+	// findings in it that need the operator, and for the reports waiting on a
+	// role. Two readings of one pile a moment
 	// apart could disagree about whether a report is handled.
 	reports, handlings, pileProblem := readPile(sources)
 	standing.Reports, standing.ReportsProblem = summarizePile(reports, handlings, pileProblem, now)
@@ -888,6 +889,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		items = func(id string) EscalatedItem { return inQueue[id] }
 	}
 	actions, actionsProblem := readOperatorActions(reports, handlings, pileProblem, sources, items, Looking(ctx, sources.Remains, nil))
+	// The reports waiting on a role by name follow the operator's findings: a
+	// critical one stands out under its role's head, never under his.
+	actions = append(actions, readAddressedReports(reports, handlings, pileProblem)...)
 	// The proposed changes are read once and used three times, as the switches
 	// are: they are the queue's count and age, each undecided one is a thing
 	// waiting on a person, and the batches their owners argued on a recurring

@@ -1984,6 +1984,15 @@ var standingWarningAgeSeconds = 5 * 60;
           add("Since", named(entry.operator_action.since) ? dayAndClock(entry.operator_action.since) : "");
         }
         break;
+      case "addressed-report":
+        if (entry.report) {
+          add("Severity", entry.report.severity);
+          add("Filed by", entry.report.role);
+          add("For", entry.report["for"] || "names no role");
+          add("Says", entry.report.message, "card-field-prose");
+          add("Filed", named(entry.report.recorded_at) ? dayAndClock(entry.report.recorded_at) : "");
+        }
+        break;
       default:
         break;
     }

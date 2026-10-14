@@ -1025,10 +1025,11 @@ func nextMove(event Event) (string, bool) {
 	// the two cannot disagree. The waiting line is the same shape over the
 	// intake hold: the brake's is the development manager's while she decides
 	// and the operator's once she has escalated it, and the line is repeated to
-	// the operator exactly when it is his.
+	// the operator exactly when it is his. A report waiting on a role names that
+	// role, where the table's clause says the work carried on.
 	if strings.TrimSpace(event.Detail.Mover) != "" {
 		switch event.Kind {
-		case KindStallNoticed, KindRunEnded, KindBlockerRecorded, KindCapacityHold, KindProviderOutage, KindRecurringTaskFailing, KindWatchBraked, KindIntakeHeld, KindLineWaiting, KindOperatorAction:
+		case KindStallNoticed, KindRunEnded, KindBlockerRecorded, KindCapacityHold, KindProviderOutage, KindRecurringTaskFailing, KindWatchBraked, KindIntakeHeld, KindLineWaiting, KindOperatorAction, KindReportFiled:
 			return ended(strings.TrimSpace(event.Detail.Mover)), true
 		}
 	}

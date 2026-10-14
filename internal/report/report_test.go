@@ -172,6 +172,44 @@ func TestCollectAttributesEveryReportToTheInvocationThatMadeIt(t *testing.T) {
 	}
 }
 
+// A report may name the role it is for, and that role is who it waits on
+// whatever its severity. One naming none is the Lead Product Manager's. It is
+// never the operator's: he is not a role, and naming him is refused, as is a
+// role that holds no standing conversation to put the report in front of.
+func TestAReportIsAddressedToARoleAndNeverToTheOperator(t *testing.T) {
+	t.Parallel()
+
+	entries, err := Decode(`{"reports":[{"severity":"critical","message":"four ready P0 fixes have no run","for":"development-manager"},{"severity":"critical","message":"the tracker is unreadable"}]}`)
+	if err != nil {
+		t.Fatalf("Decode() error = %v", err)
+	}
+	collected, err := Collect(entries, Attribution{
+		Role: "program-manager", Agent: "factory-flow", RunID: "sweep-factory-flow",
+		ProductID: "yoyodyne", RepositoryID: "yoyodyne",
+	}, time.Date(2026, 10, 13, 16, 10, 0, 0, time.UTC))
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+	if collected[0].For != "development-manager" || collected[0].Addressee() != "development-manager" {
+		t.Fatalf("addressed report = %#v, addressee %q", collected[0], collected[0].Addressee())
+	}
+	if collected[1].For != "" || collected[1].Addressee() != "product-manager" {
+		t.Fatalf("unaddressed report = %#v, addressee %q, want the Lead Product Manager", collected[1], collected[1].Addressee())
+	}
+	if !strings.Contains(collected[0].Render(), "for the development manager") {
+		t.Fatalf("render = %q, want it to say whom the report is for", collected[0].Render())
+	}
+	for _, to := range []string{"operator", "developer", "reviewer", "harness"} {
+		if _, err := Decode(`{"reports":[{"severity":"critical","message":"x","for":"` + to + `"}]}`); err == nil ||
+			!strings.Contains(err.Error(), "never addressed to the operator") {
+			t.Fatalf("Decode() of a report for %q = %v, want it refused", to, err)
+		}
+	}
+	if !strings.Contains(Contract, `"for"`) || !strings.Contains(Contract, "never addressed to the operator") {
+		t.Fatal("the contract does not tell a role how to address a report")
+	}
+}
+
 func TestCollectedReportsAreRefusedWithoutTheirAttribution(t *testing.T) {
 	t.Parallel()
 
