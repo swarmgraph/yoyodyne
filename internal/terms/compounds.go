@@ -307,32 +307,40 @@ func (known accounted) covers(word string) bool {
 
 // Compounds is the refusal for every compound word the harness uses where a
 // person or a role reads it that nothing accounts for — in the string literals
-// of the program, the personas, the guides, and the governed documents — and
-// for every word the inventory lists as unread that nothing writes any more.
-// Each compound is reported once per line it is written on, in the order the
-// files are walked.
-func Compounds(root string) ([]Problem, error) {
+// of the program, the personas, the guides, and the governed documents. Each
+// compound is reported once per line it is written on, in the order the files
+// are walked.
+//
+// Its second answer is every word the inventory lists as unread that nothing
+// writes any more, which is ready to be taken off the list and is not a
+// problem. Taking the last use of a coined word out of a document is the
+// reason the list exists, and the run doing it may be one that cannot edit the
+// list: a document-only run may not write internal/terms/inventory. Refusing
+// it there would refuse the change for doing what was asked, so the entry is
+// reported for whoever next changes the list, and allowing a word by name
+// that nothing writes allows nothing new.
+func Compounds(root string) (problems []Problem, removable []Problem, err error) {
 	return compoundProblems(root, inventory.Unread)
 }
 
 // compoundProblems is Compounds with the unread words given, so a test can
 // hold a fixture to a list of its own.
-func compoundProblems(root string, unread []string) ([]Problem, error) {
+func compoundProblems(root string, unread []string) ([]Problem, []Problem, error) {
 	entries, err := Register(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	replacements, err := Replaced(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	ordinary, err := Ordinary(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	documentNames, err := documentNames(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	found := newCompoundScan(accountFor(entries, replacements, ordinary, documentNames), unread)
 
@@ -343,12 +351,12 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 
 	files, err := compoundSourceFiles(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, file := range files {
 		stretches, err := stringsIn(root, file)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var read []passage
 		for _, stretch := range stretches {
@@ -361,35 +369,36 @@ func compoundProblems(root string, unread []string) ([]Problem, error) {
 
 	personas, err := PersonaFiles(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	guides, err := GuideFiles(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	documents, err := Documents(root)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for _, group := range [][]string{personas, guides, documents} {
 		for _, file := range group {
 			content, err := read(filepath.Join(root, filepath.FromSlash(file)))
 			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", file, err)
+				return nil, nil, fmt.Errorf("read %s: %w", file, err)
 			}
 			report(file, passages(strings.Split(content, "\n")), true)
 		}
 	}
 
+	var removable []Problem
 	for _, word := range unread {
 		if !found.written[strings.ToLower(word)] {
-			problems = append(problems, Problem{
+			removable = append(removable, Problem{
 				Path: UnreadPath, Term: word,
-				Reason: fmt.Sprintf("%q is listed as still to be decided and nothing writes it any more; take it off the list", word),
+				Reason: fmt.Sprintf("%q is listed as still to be decided and nothing writes it any more; it is ready to be taken off the list", word),
 			})
 		}
 	}
-	return problems, nil
+	return problems, removable, nil
 }
 
 // compoundScan is the compound half of the check as it reads one file after
