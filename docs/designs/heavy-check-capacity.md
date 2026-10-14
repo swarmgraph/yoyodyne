@@ -10,12 +10,21 @@ revisions:
       by: architect
       at: 2026-10-13T13:00:28.052475Z
       reason: 'yoyodyne-ifd.429.43: the first copy (document-779.1) was refused by the word check for two words I wrote, a joined name for the measurement build and a figurative word for a run never granted a permit. This copy writes both in plain words, states that a run holds one permit at a time, and records the alternatives rejected. The rules are unchanged from the ruling already recorded on the permits build (yoyodyne-ifd.429.47) and the measurement build (yoyodyne-ifd.429.48).'
+    - action: amended
+      by: architect
+      at: 2026-10-14T21:50:12.195604Z
+      reason: 'yoyodyne-ifd.437.51: the configuration example named the heavy checks race and test, which the configuration loader refuses because they match no declared check. The example now names them make race and make test, as this repository declares them, quoted because each contains a space; the setting section says in one sentence that the keys are the declared check commands written exactly as the project declares them; the reviewer''s first check uses the same name. No rule changes.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-13T13:00:28.052475Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 797, for document-797.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-14T21:50:12.195604Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 964, for document-964.1 under the automatic approval policy
 ---
 # Capacity for heavy checks: one count per machine home, durable waiting, and recovery
 
@@ -25,16 +34,16 @@ It serves the v1 goal to isolate implementation tasks in harness-managed Git wor
 
 ## The setting
 
-`execution.heavy_checks` names a declared check and how many copies of it may run at once on this machine home. This repository declares:
+`execution.heavy_checks` names a declared check and how many copies of it may run at once on this machine home. Each key is a check command exactly as the project declares it, so in this repository the keys are `make race` and `make test`, not shortened names. This repository declares:
 
 ```yaml
 execution:
   heavy_checks:
-    race: 1
-    test: 2
+    "make race": 1
+    "make test": 2
 ```
 
-A check not named there is not heavy and runs as it does today. Each count must be a whole number of at least one, and each name must be a check the project declares; anything else is refused when the configuration is read. The setting is the development manager's to change, under section 6 of the portable agent configuration design, through the reviewed path. It is separate from developer slots: changing one never changes the other, and a check waiting for capacity does not count as an idle slot or a busy one.
+The keys are quoted because each contains a space; quoting keeps them unambiguous whatever characters a project's check commands use. A check not named there is not heavy and runs as it does today. Each count must be a whole number of at least one, and each key must match a check the project declares, character for character; anything else is refused when the configuration is read. The setting is the development manager's to change, under section 6 of the portable agent configuration design, through the reviewed path. It is separate from developer slots: changing one never changes the other, and a check waiting for capacity does not count as an idle slot or a busy one.
 
 ## The capacity record
 
@@ -98,6 +107,7 @@ The numbers are the measurement build's (yoyodyne-ifd.429.48), not this design's
 - **Counting checks within developer slots.** Rejected because it ties two different limits together: lowering slots to protect checks leaves runs idle that could be writing code, and raising them brings the overload back.
 - **A count held in one process's memory.** Rejected because two harness processes on one machine would each grant places, and a restart would forget who holds what.
 - **An operating system semaphore.** Rejected because it does not survive a restart with its holders known, and cannot show a person which run is waiting and for how long.
+- **Short names for checks, such as `race` for `make race`.** Rejected because they would need a second list mapping each short name to a command, kept beside the checks the project already declares, and could drift from it.
 
 ## Builds
 
@@ -106,7 +116,8 @@ The numbers are the measurement build's (yoyodyne-ifd.429.48), not this design's
 
 ## How a reviewer checks an implementation
 
-- With `race: 1` declared, two runs reaching `make race` at once run it one after the other, and the second shows as waiting.
+- With `"make race": 1` declared, two runs reaching `make race` at once run it one after the other, and the second shows as waiting.
+- A key that matches no declared check command, such as `race` where the project declares `make race`, is refused when the configuration is read, and the refusal names the key.
 - A check's time limit is measured from its launch, not from when it asked for a permit.
 - A check whose child process survives the main process keeps its permit and shows as a problem.
 - A landing run waiting for a permit already holds the landing lease, and is granted before a development run that asked earlier.
