@@ -273,10 +273,11 @@ type CarryOutTask struct {
 	Recover bool `json:"recover,omitempty"`
 	// Preserved says the pass found the stopped run's branch or worktree still
 	// there when it chose this decision, which is what puts it ahead of fresh
-	// pulls of any priority; AheadOf is the ready work of higher priority it was
-	// put ahead of, each by its title with its identifier after it, which the
-	// run's reason and the item's notes name. Both are the pass's to set and
-	// empty on a decision carried out any other way.
+	// pulls unless ready priority-0 work outranks its item; AheadOf is the ready
+	// work of higher priority it was put ahead of, each by its title with its
+	// identifier after it, which the run's reason and the item's notes name.
+	// Both are the pass's to set and empty on a decision carried out any other
+	// way.
 	Preserved bool     `json:"preserved,omitempty"`
 	AheadOf   []string `json:"ahead_of,omitempty"`
 }
@@ -1096,7 +1097,7 @@ func aheadOfQueue(task CarryOutTask) string {
 	if further := len(task.AheadOf) - len(named); further > 0 {
 		listed += fmt.Sprintf(", and %d further", further)
 	}
-	return fmt.Sprintf("It went ahead of %s of higher priority in the Lead Product Manager's order that stood ready (%s), because the stopped run's change is still there: a decided repair or re-run of preserved work takes the first free developer slot ahead of fresh pulls of any priority.",
+	return fmt.Sprintf("It went ahead of %s of higher priority in the Lead Product Manager's order that stood ready (%s), because the stopped run's change is still there: a decided repair or re-run of preserved work takes the first free developer slot ahead of fresh pulls, unless ready priority-0 work outranks its item.",
 		plural(len(task.AheadOf), "item", "items"), listed)
 }
 
@@ -1122,7 +1123,7 @@ func nextSlot(task CarryOutTask) string {
 	if !task.Preserved {
 		return ""
 	}
-	return "; the stopped run's change is still there, so it is next: the first developer slot that frees is its, ahead of fresh pulls of any priority"
+	return "; the stopped run's change is still there, so it is next: the first developer slot that frees is its, ahead of fresh pulls, unless ready priority-0 work outranks its item"
 }
 
 // continueChecks continues a run the check stage bound stopped, at its checks.

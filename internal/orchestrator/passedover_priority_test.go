@@ -203,30 +203,21 @@ func TestAPriorityZeroItemPassedOverOnItsProseNamesTheSentenceItRead(t *testing.
 }
 
 // The case yoyodyne-ifd.428.81 was admitted for: two developer slots, a deep
-// queue of ready work at priorities 0 and 1, and one decided re-run on a
-// priority-2 item whose stopped run's branch is still there. The decision takes
-// the first free slot ahead of all of it, and says what it was put ahead of.
+// queue of ready work at priority 1, and one decided re-run on a priority-2 item
+// whose stopped run's branch is still there. The decision takes the first free
+// slot ahead of all of it, and says what it was put ahead of.
 func TestADecisionAboutPreservedWorkTakesTheNextFreeSlotAheadOfHigherPriorityWork(t *testing.T) {
 	t.Parallel()
 
 	var items []beads.WorkItem
 	for index := 0; index < 6; index++ {
-		items = append(items,
-			beads.WorkItem{ID: fmt.Sprintf("yoyodyne-p0-%d", index), Title: "Fresh priority-0 work", Status: "open", Priority: 0},
-			beads.WorkItem{ID: fmt.Sprintf("yoyodyne-p1-%d", index), Title: "Fresh priority-1 work", Status: "open", Priority: 1})
+		items = append(items, beads.WorkItem{ID: fmt.Sprintf("yoyodyne-p1-%d", index), Title: "Fresh priority-1 work", Status: "open", Priority: 1})
 	}
 	items = append(items, beads.WorkItem{ID: "yoyodyne-ifd.363", Title: "Neutral operator wording", Status: "blocked", Priority: 2})
 	harness := newScheduleHarness(items...)
 	harness.capacity = 2
 	harness.ReadyItems["yoyodyne-ifd.363"] = false
-	harness.stoppages = haltedWork{runs: []runstate.State{{
-		RunID:        docketedRunID,
-		WorkItemID:   "yoyodyne-ifd.363",
-		Status:       runstate.StatusFailed,
-		Branch:       "yoyodyne/yoyodyne-ifd-363/01234567",
-		WorktreePath: "/state/worktrees/yoyodyne-ifd-363-01234567",
-		Blocker:      "Yoyodyne stopped this item: its independent reviewer still required repair after every permitted attempt.",
-	}}}
+	harness.stoppages = preservedStoppage("yoyodyne-ifd.363")
 	fired := map[string]bool{}
 	harness.outstanding = outstandingUntilFired(fired, decidedTask("yoyodyne-ifd.363"))
 	harness.carry = carriedWhenASlotIsFree(fired)
@@ -235,14 +226,9 @@ func TestADecisionAboutPreservedWorkTakesTheNextFreeSlotAheadOfHigherPriorityWor
 	if err != nil {
 		t.Fatalf("Schedule() error = %v", err)
 	}
-	var order []string
-	for _, started := range schedule.Started {
-		if started.Declined == "" {
-			order = append(order, started.WorkItemID)
-		}
-	}
+	order := runsStarted(schedule)
 	if len(order) == 0 || order[0] != "yoyodyne-ifd.363" {
-		t.Fatalf("started = %v, want the decided re-run of preserved work first, ahead of every ready priority-0 and priority-1 item", order)
+		t.Fatalf("started = %v, want the decided re-run of preserved work first, ahead of every ready priority-1 item", order)
 	}
 	if len(harness.carried) == 0 || !harness.carried[0].Preserved {
 		t.Fatalf("carried = %#v, want the decision carried out marked as preserved work", harness.carried)
@@ -250,17 +236,103 @@ func TestADecisionAboutPreservedWorkTakesTheNextFreeSlotAheadOfHigherPriorityWor
 	// What it went ahead of is named: on the task the action records the run's
 	// reason from, and on the pass's own account of the start.
 	ahead := strings.Join(harness.carried[0].AheadOf, ",")
-	for _, want := range []string{"Fresh priority-0 work (yoyodyne-p0-0)", "Fresh priority-1 work (yoyodyne-p1-0)"} {
-		if !strings.Contains(ahead, want) {
-			t.Fatalf("ahead of = %q, want it to name %s", ahead, want)
-		}
+	if want := "Fresh priority-1 work (yoyodyne-p1-0)"; !strings.Contains(ahead, want) {
+		t.Fatalf("ahead of = %q, want it to name %s", ahead, want)
 	}
 	reason := carryingOutReason(harness.carried[0])
-	for _, want := range []string{"went ahead of 12 items of higher priority", "yoyodyne-p0-0", "still there"} {
+	for _, want := range []string{"went ahead of 6 items of higher priority", "yoyodyne-p1-0", "still there"} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("pass reason = %q, want it to contain %q", reason, want)
 		}
 	}
+}
+
+// The case yoyodyne-ifd.428.95 was admitted for: a decided repair of preserved
+// work on a priority-1 item took the first free slot ahead of seven ready
+// priority-0 fixes, and then held it for a day. A ready priority-0 item and a
+// free slot start that item; the preserved decision waits, says on its item
+// which priority-0 work went first, and still goes ahead of fresh work at its
+// own priority once the walk of the order is past priority 0.
+func TestAReadyPriorityZeroItemTakesTheFreeSlotAheadOfLowerPriorityPreservedWork(t *testing.T) {
+	t.Parallel()
+
+	for _, capacity := range []int{1, 2} {
+		t.Run(fmt.Sprintf("%d-slots", capacity), func(t *testing.T) {
+			t.Parallel()
+			harness := newScheduleHarness(
+				beads.WorkItem{ID: "yoyodyne-ifd.428.94", Title: "The re-run fix", Status: "open", Priority: 0},
+				beads.WorkItem{ID: "yoyodyne-fresh-p1", Title: "Fresh priority-1 work", Status: "open", Priority: 1},
+				beads.WorkItem{ID: "yoyodyne-99z", Title: "Queued messages in yoyo chat", Status: "blocked", Priority: 2},
+			)
+			harness.capacity = capacity
+			harness.ReadyItems["yoyodyne-99z"] = false
+			harness.stoppages = preservedStoppage("yoyodyne-99z")
+			fired := map[string]bool{}
+			task := decidedTask("yoyodyne-99z")
+			task.Decision = runstate.TriageDecisionRepair
+			harness.outstanding = outstandingUntilFired(fired, task)
+			harness.carry = carriedWhenASlotIsFree(fired)
+
+			schedule, err := (Scheduler{Open: harness.open, Limit: capacity}).Schedule(context.Background())
+			if err != nil {
+				t.Fatalf("Schedule() error = %v", err)
+			}
+			want := "yoyodyne-ifd.428.94"
+			if capacity == 2 {
+				want += ",yoyodyne-99z"
+			}
+			if got := strings.Join(runsStarted(schedule), ","); got != want {
+				t.Fatalf("started = %v, want %s: the ready priority-0 item first, then the preserved repair ahead of the fresh priority-1 item", got, want)
+			}
+			if capacity == 2 {
+				return
+			}
+			// The decision the slot did not go to is written onto its item, naming
+			// the priority-0 work that took it.
+			var said string
+			for _, passed := range harness.passedOver {
+				if why, named := passed[docketedRunID]; named {
+					said = why
+					break
+				}
+			}
+			for _, want := range []string{"priority 2", "at priority 0", "yoyodyne-ifd.428.94", "still there"} {
+				if !strings.Contains(said, want) {
+					t.Fatalf("what the pull said of the repair = %q, want it to name %q", said, want)
+				}
+			}
+			if strings.Contains(said, "yoyodyne-fresh-p1") {
+				t.Fatalf("what the pull said of the repair = %q, want only the priority-0 work named as going first", said)
+			}
+		})
+	}
+}
+
+// preservedStoppage is a stopped run of the item whose branch and worktree are
+// still there.
+func preservedStoppage(workItemID string) haltedWork {
+	slug := strings.ReplaceAll(strings.TrimPrefix(workItemID, "yoyodyne-"), ".", "-")
+	return haltedWork{runs: []runstate.State{{
+		RunID:        docketedRunID,
+		WorkItemID:   workItemID,
+		Status:       runstate.StatusFailed,
+		Branch:       "yoyodyne/" + slug + "/01234567",
+		WorktreePath: "/state/worktrees/" + slug + "-01234567",
+		Blocker:      "Yoyodyne stopped this item: its independent reviewer still required repair after every permitted attempt.",
+	}}}
+}
+
+// runsStarted is the items a schedule started, leaving out attempts a gate
+// refused, which are on the schedule so the refusal has somewhere to be
+// recorded.
+func runsStarted(schedule Schedule) []string {
+	var order []string
+	for _, started := range schedule.Started {
+		if started.Declined == "" {
+			order = append(order, started.WorkItemID)
+		}
+	}
+	return order
 }
 
 // The same decision about a stopped run whose branch and worktree are gone keeps

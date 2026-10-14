@@ -669,8 +669,9 @@ nothing about the backlog rather than reporting zeroes it never looked up.
 
 A decided repair or re-run is fired by the same pass, oldest decision first, and
 one about a stopped run whose branch or worktree is still there takes the first
-free developer slot ahead of fresh pulls of any priority, naming in its reason
-the ready work it went ahead of. Every other decision waits behind ready work of
+free developer slot ahead of fresh pulls, naming in its reason the ready work it
+went ahead of, unless ready priority-0 work outranks its item, which goes first.
+Every other decision waits behind ready work of
 a higher priority than its item. A confirmed document waiting to land takes no
 developer slot at all: it is counted against `execution.document_landings`
 rather than `max_concurrent_developers`, and starts as soon as a document
