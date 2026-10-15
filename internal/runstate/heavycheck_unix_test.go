@@ -157,6 +157,18 @@ func expectStillWaiting(t *testing.T, granted <-chan *HeavyCheckGrant, failed <-
 	}
 }
 
+// heldUntil is a script that runs until release is called, or for at most
+// sixty seconds, so the place it holds is taken for as long as the test needs
+// it however slowly a loaded machine reaches the next step, and the script ends
+// by itself however the test ends.
+func heldUntil(t *testing.T) (script string, release func()) {
+	t.Helper()
+	marker := filepath.Join(t.TempDir(), "release")
+	release = func() { _ = os.WriteFile(marker, nil, 0o600) }
+	t.Cleanup(release)
+	return "end=$(( $(date +%s) + 60 )); while [ ! -e '" + marker + "' ] && [ \"$(date +%s)\" -lt \"$end\" ]; do sleep 0.05; done", release
+}
+
 // Two runs at the race suite with one place run one after the other: the
 // second is recorded as waiting before it waits, and is let start only once
 // the first has exited and its processes are gone.
@@ -165,13 +177,15 @@ func TestTwoRunsAtOneHeavyCheckWithOnePlaceRunOneAfterTheOther(t *testing.T) {
 	store := newHeavyCheckStoreForTest(t)
 
 	first := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	command := launchHeld(t, first, "sleep 0.3")
+	held, release := heldUntil(t)
+	command := launchHeld(t, first, held)
 	granted, waiting, failed := acquireLater(store, heavyAsk("run-b", "make race", 1, domain.HeavyCheckOrdinary))
 	waited := expectWaiting(t, waiting, failed)
 	if stored, ok := recordOf(t, store).Permit(waited.ID); !ok || stored.State != HeavyCheckWaiting {
 		t.Fatalf("waiting permit = %#v, want it on the record as waiting", stored)
 	}
 	expectStillWaiting(t, granted, failed)
+	release()
 	_ = command.Wait()
 	ended, err := first.Finish("succeeded, exit code 0")
 	if err != nil {
