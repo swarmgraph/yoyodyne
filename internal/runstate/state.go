@@ -3268,6 +3268,10 @@ type State struct {
 	// Absent is every run whose replay did not conflict, which is nearly all of
 	// them. See integrationresume.go.
 	ReplayConflict *ReplayConflict `json:"replay_conflict,omitempty"`
+	// DocumentConflict is a document run finding the target branch's copy of
+	// its document changed after the text was written, which is never tried
+	// again. Absent on every other run. See documentconflict.go.
+	DocumentConflict *DocumentConflict `json:"document_conflict,omitempty"`
 	// IntegrationResumptions are the continuations of this run's integration
 	// after an environmental stop: the run made live again at the promotion, with
 	// its approval standing and no attempt, round, or grant charged. Absent is
@@ -3633,6 +3637,16 @@ func (s State) Validate() error {
 	if s.Document != nil {
 		if err := s.Document.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("document publication: %w", err))
+		}
+	}
+	if s.DocumentConflict != nil {
+		if s.Document == nil {
+			problems = append(problems, errors.New("only a document run carries a document conflict"))
+		} else if err := s.DocumentConflict.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("document conflict: %w", err))
+		}
+		if s.Integration != nil {
+			problems = append(problems, errors.New("document_conflict cannot be recorded beside a promotion, which is what it says did not happen"))
 		}
 	}
 	if s.DocumentDecision != nil {

@@ -218,6 +218,11 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 		}
 		return documentDelivery(saved), err
 	}
+	if saved.DocumentConflict != nil {
+		// Nothing starts this text again, so it is not waiting for a slot either.
+		p.clearDocumentWait(document)
+		return p.handOverDocument(ctx, docket, record, saved)
+	}
 	if !retryable(saved) {
 		return documentDelivery(saved), nil
 	}
@@ -322,9 +327,12 @@ func documentItem(document runstate.DocumentPublication, attempt int) beads.Work
 }
 
 // retryable reports a document run that ended without landing and without
-// judging its document: the one ending that is followed by another attempt.
+// judging its document: the one ending that is followed by another attempt. A
+// run that found the target's copy of its document changed is not one, because
+// another run of the same text meets the same copy; it goes to the development
+// manager instead (see handOverDocument).
 func retryable(state runstate.State) bool {
-	return state.Status.Terminal() && state.Status != runstate.StatusSucceeded && !state.DocumentJudged()
+	return state.Status.Terminal() && state.Status != runstate.StatusSucceeded && !state.DocumentJudged() && state.DocumentConflict == nil
 }
 
 // documentAttempt finds where a handoff's runs stand: the attempt to start or
@@ -379,15 +387,25 @@ func (p Pipeline) recordDocumentRetry(ctx context.Context, runID string, change 
 }
 
 // handOverDocument puts the last of a document's runs to the development
-// manager once every attempt stopped without judging it. The confirmed text
-// stays on each run's record, so whatever she decides starts from it rather
-// than from the owner writing it again; the owner is told so, and nothing is
-// counted against the document.
+// manager once every attempt stopped without judging it, or at once where the
+// run found the target's copy of the document changed after the text was
+// written, which no further attempt can get past. The confirmed text stays on
+// each run's record, so whatever she decides starts from it rather than from
+// the owner writing it again; the owner is told so, and nothing is counted
+// against the document.
 func (p Pipeline) handOverDocument(ctx context.Context, docket *Docketer, record documentItemRecorder, last runstate.State) (runstate.DocumentDelivery, error) {
 	d := last.Document
 	delivery := documentDelivery(last)
 	delivery.HandedOver = true
-	delivery.Detail = fmt.Sprintf("Document %s (%s) did not land: %d runs in a row stopped without judging it, the last being run %s (%s). It is handed to the development manager as a stopped run, with the confirmed text kept on the run's record; the %s does not need to write it again, and nothing is counted against it.\n", d.WriteID, d.Candidate.Artifact.Title, runstate.MaxDocumentAttempts, last.RunID, documentStopSays(last), d.Owner.Title())
+	why := fmt.Sprintf("%d runs in a row stopped without judging it, the last being run %s (%s)", runstate.MaxDocumentAttempts, last.RunID, documentStopSays(last))
+	blocker := fmt.Sprintf("Publishing document %s (%s) from conversation %s stopped %d times without anything judging the document; the last stop: %s. The confirmed text is on this run's record.", d.WriteID, d.Candidate.Artifact.Title, d.ConversationID, runstate.MaxDocumentAttempts, documentStopSays(last))
+	noted := fmt.Sprintf("%d runs stopped without anything judging the document, the last being run %s", runstate.MaxDocumentAttempts, last.RunID)
+	if conflict := last.DocumentConflict; conflict != nil {
+		why = fmt.Sprintf("run %s stopped because %s, so the harness does not start it again", last.RunID, conflict.Says())
+		blocker = fmt.Sprintf("Publishing document %s (%s) from conversation %s stopped because %s. The confirmed text is on this run's record; retrying it lands nothing while that copy stands, and retiring it is the other decision.", d.WriteID, d.Candidate.Artifact.Title, d.ConversationID, conflict.Says())
+		noted = fmt.Sprintf("run %s found the copy of %s on %s changed after the text was written", last.RunID, conflict.Path, conflict.TargetBranch)
+	}
+	delivery.Detail = fmt.Sprintf("Document %s (%s) did not land: %s. It is handed to the development manager as a stopped run, with the confirmed text kept on the run's record; the %s does not need to write it again, and nothing is counted against it.\n", d.WriteID, d.Candidate.Artifact.Title, why, d.Owner.Title())
 	if last.DocumentRetry != nil && last.DocumentRetry.HandedOver {
 		return delivery, nil
 	}
@@ -401,7 +419,7 @@ func (p Pipeline) handOverDocument(ctx context.Context, docket *Docketer, record
 	}
 	state.DocumentRetry.HandedOver = true
 	if strings.TrimSpace(state.Blocker) == "" {
-		state.Blocker = fmt.Sprintf("Publishing document %s (%s) from conversation %s stopped %d times without anything judging the document; the last stop: %s. The confirmed text is on this run's record.", d.WriteID, d.Candidate.Artifact.Title, d.ConversationID, runstate.MaxDocumentAttempts, documentStopSays(state))
+		state.Blocker = blocker
 	}
 	if err := p.Store.Save(state); err != nil {
 		return runstate.DocumentDelivery{}, err
@@ -411,7 +429,7 @@ func (p Pipeline) handOverDocument(ctx context.Context, docket *Docketer, record
 			return runstate.DocumentDelivery{}, fmt.Errorf("hand the stopped document run %s to the development manager: %w", state.RunID, err)
 		}
 	}
-	record.note(ctx, fmt.Sprintf("Yoyodyne handed the publishing of document %s (%s) to the development manager: %d runs stopped without anything judging the document, the last being run %s. The confirmed text is kept on that run's record.", d.WriteID, d.Candidate.Artifact.Title, runstate.MaxDocumentAttempts, state.RunID))
+	record.note(ctx, fmt.Sprintf("Yoyodyne handed the publishing of document %s (%s) to the development manager: %s. The confirmed text is kept on that run's record.", d.WriteID, d.Candidate.Artifact.Title, noted))
 	return delivery, nil
 }
 
@@ -724,8 +742,9 @@ func (a *activeRun) prepareDocument(ctx context.Context) error {
 	}
 	if string(current) != candidate.Content {
 		if (err == nil && artifact.DocumentIdentity(current) != candidate.Before) || (errors.Is(err, os.ErrNotExist) && candidate.Before != "") {
-			a.state.ReplayConflict = &runstate.ReplayConflict{Paths: []string{candidate.Artifact.Path}, TargetBranch: a.worktree.TargetBranch, Detail: "the target document changed after confirmation"}
-			return fmt.Errorf("document conflicts with target branch at %s", candidate.Artifact.Path)
+			conflict := a.documentConflict(ctx)
+			a.state.DocumentConflict = &conflict
+			return errors.New(conflict.Says())
 		}
 		root, err := repowrite.NewRoot(a.worktree.Path)
 		if err != nil {
@@ -747,6 +766,39 @@ func (a *activeRun) prepareDocument(ctx context.Context) error {
 	}
 	a.recordChanges(summary)
 	return a.publishAttempt(ctx)
+}
+
+// maxDocumentHistory bounds how many of a document's changes on the target
+// branch are read back for the copy its text was written against, and
+// maxDocumentHistoryBytes how large a copy is read. A copy older than that is
+// recorded as not found rather than searched for without end.
+const (
+	maxDocumentHistory      = 50
+	maxDocumentHistoryBytes = 8 << 20
+)
+
+// documentConflict is the record of a document run whose target copy is not
+// the copy its text was written against. The commit that made that copy is
+// looked for among the document's recent changes on the target branch; a
+// history that cannot be read leaves it unnamed rather than losing the stop.
+func (a *activeRun) documentConflict(ctx context.Context) runstate.DocumentConflict {
+	candidate := a.state.Document.Candidate
+	conflict := runstate.DocumentConflict{Path: candidate.Artifact.Path, TargetBranch: a.worktree.TargetBranch, TargetCommit: a.worktree.BaseCommit, NewDocument: candidate.Before == "", RecordedAt: a.pipeline.clock().Now().UTC()}
+	if conflict.NewDocument {
+		return conflict
+	}
+	commits, err := a.pipeline.Worktrees.CommitsChanging(ctx, a.worktree.BaseCommit, candidate.Artifact.Path, maxDocumentHistory)
+	if err != nil {
+		return conflict
+	}
+	for _, commit := range commits {
+		copied, err := a.pipeline.Worktrees.FileAtCommit(ctx, commit, candidate.Artifact.Path, maxDocumentHistoryBytes)
+		if err == nil && copied.Content != nil && artifact.DocumentIdentity(copied.Content) == candidate.Before {
+			conflict.WrittenAgainst = commit
+			break
+		}
+	}
+	return conflict
 }
 
 func documentDelivery(state runstate.State) runstate.DocumentDelivery {

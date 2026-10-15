@@ -403,9 +403,9 @@ What is left undecided when a conversation ends is named on the way out.
 
 **A document that something judged returns to its owner.** When a check ran
 and failed, the independent reviewer refused the document, the change touched
-a path it may not, or the target document changed after confirmation, the
-owning conversation receives the review findings, failing check and its output,
-or conflicting paths. The owning role is named as the one to revise it; no
+a path it may not, or the target branch moved under the approved document
+before it could be promoted, the owning conversation receives the review
+findings, failing check and its output, or conflicting paths. The owning role is named as the one to revise it; no
 developer or operator is asked to repair it. A revised submission opens a fresh
 run for that content. After three such returned runs for the same document in
 that conversation, automatic publication stops. The owner receives that reason
@@ -428,6 +428,16 @@ record, rather than back to the owner. A document whose publication had already
 stopped over such runs is published again from its kept text the next time its
 conversation is opened.
 
+**A document whose copy on the target branch changed is not run again.** A run
+cuts its checkout from the target branch, and if that branch's copy of the
+document is no longer the copy the text was written against — usually because
+a later revision of the same document landed meanwhile — the run stops there
+and goes straight to the development manager as a stopped run. Running the same
+text again would meet the same copy, so nothing starts it again on its own:
+not the conversation, and not the harness after a retry. The run's record names
+the document, the commit whose copy the text was written against, and the
+commit the target branch now has.
+
 **A stopped document publication is the development manager's to decide.** It
 has no work item behind it, so it is put on her list of stopped runs as a run
 that names the document, its pull request, and whether a newer stopped copy of
@@ -442,7 +452,10 @@ text again through a fresh run, which the harness starts as a document landing
 frees, under the same checks and independent review, and whose record says it
 was started on her decision; the stopped run's pull request is closed, since the
 fresh run opens its own, and a fresh run that stops again without judging the
-document is continued by the harness. `retire` closes the pull request with her
+document is continued by the harness. A retry is refused before any run
+starts when the target branch already carries a later confirmed revision of the
+same document, and the refusal names that revision and when it was confirmed;
+retiring the run is what answers it. `retire` closes the pull request with her
 reason and lands nothing. Both are recorded on the stopped run, and the closed
 pull request carries a comment saying who decided what and why. Each run's start and end is also noted on the work item
 named at the start of the document's revision reason, where the tracker holds

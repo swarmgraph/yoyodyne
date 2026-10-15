@@ -113,3 +113,7 @@ func (PartialWorktreeManager) DeleteRemoteBranch(context.Context, gitworktree.Wo
 func (PartialWorktreeManager) CatchUpTarget(context.Context, string) (gitworktree.Catchup, error) {
 	return gitworktree.Catchup{}, errors.New("partial worktree has no remote to catch up to")
 }
+
+func (PartialWorktreeManager) CommitsChanging(context.Context, string, string, int) ([]string, error) {
+	return nil, errors.New("partial worktree has no history")
+}

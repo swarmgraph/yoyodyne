@@ -100,6 +100,10 @@ type WorktreeManager interface {
 	// the checkout holds by the time the review is asked for.
 	FileAtCommit(ctx context.Context, commit, path string, maxBytes int64) (gitworktree.FileAt, error)
 	FilesAtCommit(ctx context.Context, commit string, maxFiles, maxBytes int) (gitworktree.CommitListing, error)
+	// CommitsChanging lists, newest first, the commits reachable from a ref that
+	// changed one path. A document run whose target copy changed reads it to name
+	// the commit its text was written against.
+	CommitsChanging(ctx context.Context, ref, path string, maxCommits int) ([]string, error)
 	// ChangedPaths names every path the change touches. It is what the gate in
 	// front of the checks decides on, so it is separate from the summary and the
 	// patch above: those are bounded for a reader, and a gate that saw a bounded

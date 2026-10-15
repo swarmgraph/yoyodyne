@@ -769,6 +769,13 @@ func parse(content string) (Artifact, error) {
 	}, nil
 }
 
+// ParseDocument reads one artifact's identity and revision record from a copy
+// of its file that is not in the store's checkout — a copy as a commit holds
+// it. Path is left empty, since the bytes do not say where they were read from.
+func ParseDocument(content []byte) (Artifact, error) {
+	return parse(string(content))
+}
+
 // splitDocument separates the fenced metadata at the top of a file from the
 // document below it. Only the metadata is parsed — this package identifies
 // documents rather than reading what they say — and the body is returned
