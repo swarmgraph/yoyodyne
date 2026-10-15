@@ -21,7 +21,7 @@ type MemoryDocket struct {
 	FailOn  string
 }
 
-// close settles one entry the way the store does: the entry stays on the log
+// CloseKey settles one entry the way the store does: the entry stays on the log
 // and the decision is recorded beside it, at a moment the caller names because
 // what a build does about a settled key turns on when it was settled.
 func (d *MemoryDocket) CloseKey(key, decision string, at time.Time) {

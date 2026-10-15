@@ -1,6 +1,7 @@
 package testharness
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -511,4 +513,66 @@ func WritePipelineFile(t *testing.T, root, relative, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("WriteFile(%s) error = %v", relative, err)
 	}
+}
+
+// InterruptingStore fails saves at a chosen phase, either once (an interrupted
+// step that recovers) or for good (persistence lost at that boundary).
+type InterruptingStore struct {
+	orchestrator.StateStore
+	FailPhase  runstate.Phase
+	FailAlways bool
+	Failed     bool
+}
+
+func (s *InterruptingStore) Save(state runstate.State) error {
+	if state.Phase == s.FailPhase && (s.FailAlways || !s.Failed) {
+		s.Failed = true
+		return errors.New("state store is unavailable")
+	}
+	return s.StateStore.Save(state)
+}
+
+// HookedWorktrees lets a test observe or replace the destructive cleanup step
+// while the rest of the manager stays real.
+type HookedWorktrees struct {
+	orchestrator.WorktreeManager
+	BeforeCleanup func() error
+	// Cleanup replaces the real removal entirely, which is how a partial
+	// cleanup (one artifact gone, one left) is exercised end to end.
+	Cleanup func(gitworktree.CleanupRequest) (gitworktree.Cleanup, error)
+}
+
+func (w *HookedWorktrees) CleanupIntegrated(ctx context.Context, request gitworktree.CleanupRequest) (gitworktree.Cleanup, error) {
+	if w.BeforeCleanup != nil {
+		if err := w.BeforeCleanup(); err != nil {
+			return gitworktree.Cleanup{}, err
+		}
+	}
+	if w.Cleanup != nil {
+		return w.Cleanup(request)
+	}
+	return w.WorktreeManager.CleanupIntegrated(ctx, request)
+}
+
+// AutomaticFixture is the standard approved-and-integrated setup: a developer
+// that writes one file, a passing check, and an approving reviewer.
+func AutomaticFixture(t *testing.T) (string, *orchestratortest.Tracker, *orchestratortest.Backend, orchestrator.Pipeline, *runstate.Store) {
+	t.Helper()
+	repository := PipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, ApproveVerdict)
+	pipeline, store := NewAutomaticPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	return repository, tracker, provider, pipeline, store
+}
+
+func CountCalls(calls []string, name string) int {
+	matching := 0
+	for _, call := range calls {
+		if call == name {
+			matching++
+		}
+	}
+	return matching
 }

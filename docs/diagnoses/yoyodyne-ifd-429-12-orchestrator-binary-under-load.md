@@ -342,7 +342,8 @@ alternative, and it would put the same pipeline helpers in every one of them.
 
 ### The census on 2026-10-14
 
-Taken on the base of this change (f4a1d55c), by `go run ./scripts/movetests`:
+Taken on commit f4a1d55c of the main branch, before the first group moved, by
+`go run ./scripts/movetests`:
 
 - 1,453 tests, up from 834 in the census above.
 - 418 of them reach internals. 1,035 reach none and can move.
@@ -388,14 +389,16 @@ touches that file.
 The review bound decides how big a group can be. A change's whole patch is
 held to 256 KB, and a new file to 64 KB. Lines taken out of a file cost little,
 because a diff that only removes is described rather than shown once the bound
-is reached. New files cost their whole size, and this group's new tests and
-helpers come to about 167 KB. The moved `publish_test.go` was 83 KB, so its
+is reached. New files cost their whole size, and this group's new files come to
+about 200 KB: 167 KB of tests and helpers, and 32 KB of the move tool. The moved `publish_test.go` was 83 KB, so its
 queued-merge and settled-merge tests are in `publish_queue_test.go`.
 
 ### What the move did to the binaries
 
 Measured as the developing guide records it: `GOFLAGS=-count=1 make race`, with
 a second one beside it on the same tree, started at 10:54 PDT on 2026-10-14.
+The tree was the change itself, committed as fae36536 at 11:04 PDT; nothing
+committed to it after that touched either package's tests.
 The one-minute load was near 10 for the first twenty minutes, then rose with
 other runs on the machine to between 120 and 268, and stayed above 100 to the
 end.

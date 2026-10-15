@@ -7,7 +7,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 )
 
-// recover is the sweep that looks a promotion's request up by branch, records
+// Recover is the sweep that looks a promotion's request up by branch, records
 // it, and arms the merge.
 func (f QueuedFixture) Recover(t *testing.T) []orchestrator.PublicationRecovery {
 	t.Helper()

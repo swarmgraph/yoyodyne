@@ -10,7 +10,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 )
 
-// sweep is the reconciler the reconcile verb builds: the forge's checks read,
+// Sweep is the reconciler the reconcile verb builds: the forge's checks read,
 // a free slot, and — where hosts is set — the run it makes
 // live continued through the same pipeline a run is.
 func (f QueuedFixture) Sweep(t *testing.T, forge *orchestratortest.CheckedForge, hosts bool) orchestrator.Reconciler {

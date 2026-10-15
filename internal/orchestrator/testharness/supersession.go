@@ -11,7 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// orphan records the run a relaunch left behind: an earlier attempt at the same
+// Orphan records the run a relaunch left behind: an earlier attempt at the same
 // item that published a branch and opened a pull request, and then died without
 // integrating anything.
 func (f QueuedFixture) Orphan(t *testing.T, landed orchestrator.Outcome, number int) runstate.State {
