@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -96,7 +98,7 @@ func TestAQueuedMergePastItsLimitIsWithdrawnAndHandedOnWithTheForgesReason(t *te
 		want       []string
 		personStep bool
 	}{
-		{status: "DIRTY", want: []string{"conflicts with main", "a repair of this run can do from its kept branch"}},
+		{status: "DIRTY", want: []string{"conflicts with main", "and the conflict resolved"}},
 		{status: "BEHIND", want: []string{"main has moved ahead of the pull request", "brought up to date with main"}},
 		{status: "UNSTABLE", want: []string{"a check the forge runs on the pull request has not succeeded"}},
 		{status: "BLOCKED", want: []string{"a protection rule of main is not satisfied", "approve pull request 1 on GitHub"}, personStep: true},
@@ -121,7 +123,7 @@ func TestAQueuedMergePastItsLimitIsWithdrawnAndHandedOnWithTheForgesReason(t *te
 			want := append([]string{
 				"has not merged after 13 hours 31 minutes, which is past the 2 hours a queued merge may wait",
 				"the harness withdrew it",
-				"The change is not merged; the run's branch and worktree are kept",
+				"The change is not merged. The run's branch and worktree are kept, so a repair decided on this run brings it up to date without rebuilding it",
 				"checks passing",
 			}, test.want...)
 			for _, phrase := range want {
@@ -138,19 +140,100 @@ func TestAQueuedMergePastItsLimitIsWithdrawnAndHandedOnWithTheForgesReason(t *te
 	}
 }
 
-// A repair decided on a merge handed on this way has nothing to hand the
-// developer, and is refused once, on the item, naming what the record supports.
-func TestARepairOfAStuckMergeIsRefusedOnceNamingTheReRun(t *testing.T) {
+// A repair decided on a merge handed on this way brings the kept change up to
+// date with the target: the run is put back at its merge, the change replayed
+// onto where main went, checked and reviewed again, and its merge queued again,
+// with no developer invoked and no repair attempt counted.
+func TestARepairOfAStuckMergeBringsTheKeptChangeUpToDateAndQueuesItAgain(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	fixture, forge, reconciler := queuedFor(t, 3*time.Hour)
+	driftRemoteTarget(t, fixture.remote, "main")
+	forge.Reading = publish.CheckReading{Files: []string{"feature.txt"}, Passing: 3, BehindBy: 1}
+	forge.Removal = publish.QueueRemoval{MergeStatus: "BEHIND"}
+	stopped, _ := settledStuck(t, fixture, reconciler)
+	if !replaysDroppedMerge(stopped, triage.Found{BranchThere: true, WorktreeThere: true}) {
+		t.Fatalf("a stuck merge with its branch, worktree, approval and session kept is not replayable: %s", dropReplayRefusal(stopped))
+	}
+
+	intake, err := runstate.NewIntakeHoldStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := orchestratortest.RoleBackend(func(backend.RunRequest) error {
+		t.Error("the developer was invoked for a replay that did not conflict")
+		return nil
+	}, approveVerdict)
+	pipeline := publishing(automatic(newSharedPipeline(t, fixture.repository, fixture.worktreeRoot, fixture.store, fixture.tracker, provider, []string{"exit 0"}), provider), forge)
+	pipeline.Publisher = forge
+	continuer := RepairContinuer{
+		Docket: fixture.docket, Runs: fixture.store, Intake: intake, Decisions: fixture.store.Triage(),
+		Items: fixture.tracker, Worktrees: pipeline.Worktrees.(RepairWorktrees),
+		ConfiguredAttempts: 2, Capacity: 1, Clock: fixedClock{at: stopped.UpdatedAt},
+		Start: func(ctx context.Context, item, run string) (Outcome, error) {
+			continued, err := fixture.store.Load(run)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !resumableIntegration(continued) || !continued.UpdatingQueuedHead() || continued.MergeDrop != nil || continued.PublishFailure != "" {
+				t.Fatalf("continued record = status %q, phase %q, drop %#v; want the run back at its merge to be brought up to date", continued.Status, continued.Phase, continued.MergeDrop)
+			}
+			return pipeline.Continue(ctx, item, run)
+		},
+	}
+	if _, err := fixture.store.Triage().GrantRepair(ctx, stopped.WorkItemID,
+		triageDecided(runstate.TriageDecisionRepair, stopped.RunID), continueGrantRounds, docketedNow, continueCaps); err != nil {
+		t.Fatal(err)
+	}
+	carrying := CarryOut{
+		Docket: fixture.docket, Decisions: fixture.store.Triage(), Reruns: fixture.store.Reruns(),
+		Runs: fixture.store, Repairer: continuer, Clock: fixedClock{at: stopped.UpdatedAt},
+	}
+	carried, replayed, err := carrying.Carry(ctx, theOneOutstanding(t, carrying))
+	if err != nil || !carried.Carried || replayed.RunID != stopped.RunID {
+		t.Fatalf("carry-out = %#v, outcome = %#v, %v", carried, replayed, err)
+	}
+	if len(provider.RequestsForRole(domain.RoleReviewer)) == 0 {
+		t.Fatal("the replayed change was queued without a fresh independent review")
+	}
+	settled, err := fixture.store.Load(stopped.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if settled.PullRequest == nil || !settled.PullRequest.MergeQueued || settled.Integration == nil || settled.MergeDrop != nil || settled.PublishFailure != "" || settled.Blocker != "" {
+		t.Fatalf("record = %#v; want the replayed change's merge queued again with the drop gone", settled)
+	}
+	if settled.BaseCommit == stopped.BaseCommit || settled.PullRequest.Number != stopped.PullRequest.Number || settled.PullRequest.HeadCommit == stopped.PullRequest.HeadCommit {
+		t.Errorf("base %s head %s; want the same pull request carrying the change replayed onto the target", settled.BaseCommit, settled.PullRequest.HeadCommit)
+	}
+	if settled.RepairAttempts != stopped.RepairAttempts || len(forge.MergeRequests()) != 2 {
+		t.Errorf("repair attempts = %d (was %d), merges = %d; want no attempt counted and the merge asked for again", settled.RepairAttempts, stopped.RepairAttempts, len(forge.MergeRequests()))
+	}
+}
+
+// Where the replay is impossible — here, the pull request was closed — a
+// repair is refused once, on the item, saying why and naming the re-run.
+func TestARepairOfAStuckMergeThatCannotBeReplayedIsRefusedNamingTheReRun(t *testing.T) {
 	t.Parallel()
 	fixture, forge, reconciler := queuedFor(t, 3*time.Hour)
 	forge.Removal = publish.QueueRemoval{MergeStatus: "DIRTY"}
 	settled, _ := settledStuck(t, fixture, reconciler)
-	err := continuableRepair(settled, triage.Found{BranchThere: true, WorktreeThere: true})
-	if carryOutCause(err) != triage.CarryOutMergeDropped || !strings.Contains(err.Error(), "conflicts with main") {
-		t.Fatalf("continuableRepair() = %v, want a refusal of cause %q carrying the forge's reason", err, triage.CarryOutMergeDropped)
+	closed := *settled.PullRequest
+	closed.State = "CLOSED"
+	settled.PullRequest = &closed
+	found := triage.Found{BranchThere: true, WorktreeThere: true}
+	if replaysDroppedMerge(settled, found) {
+		t.Fatal("a merge whose pull request is closed was taken as replayable")
+	}
+	err := continuableRepair(settled, found)
+	if carryOutCause(err) != triage.CarryOutMergeDropped || !strings.Contains(err.Error(), "conflicts with main") || !strings.Contains(err.Error(), "pull request 1 is closed") {
+		t.Fatalf("continuableRepair() = %v, want a refusal of cause %q carrying the forge's reason and why it cannot be replayed", err, triage.CarryOutMergeDropped)
 	}
 	if _, clears := carryOutGate(err); !strings.Contains(clears, "re-run") {
 		t.Errorf("clears = %q, want the re-run the record supports named", clears)
+	}
+	if line := stuckMerge(closed, "main", time.Now(), 3*time.Hour, stuckLimit, false, "", dropReplayRefusal(settled), publish.QueueRemoval{MergeStatus: "DIRTY"}, ""); !strings.Contains(line, "a repair cannot bring it up to date because pull request 1 is closed, so a re-run of the item") {
+		t.Errorf("the item line for an unreplayable merge does not name the re-run:\n%s", line)
 	}
 }
 

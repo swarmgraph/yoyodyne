@@ -24,8 +24,17 @@ package orchestrator
 //     the development manager decides.
 //   - The run is then settled as a dropped merge (settleDroppedMerge): not
 //     merged, its branch and worktree kept, the reason on the item as its
-//     blocker, and the run on the development manager's docket of stopped runs,
-//     where she repairs it, runs it again, or re-arms the merge.
+//     blocker, and the run on the development manager's docket of stopped runs.
+//
+// What she can decide there is said on the same line. A repair brings the kept
+// change up to date with the target: the run is put back at its promotion from
+// its kept branch, checked and reviewed again, and its merge queued again, as
+// the sweep does for a merge that fell behind (replaysDroppedMerge in this file,
+// carried out by RepairContinuer.Continue). Where that replay is impossible — a
+// local promotion, a closed pull request, a branch or session gone — the line
+// says why and names a re-run instead, and a repair is refused once, on the
+// item, with cause merge-dropped. A re-arm repeats the same merge, which only
+// helps where the forge's reason has passed.
 //
 // Where what the forge reports can only be cleared by somebody with access to
 // the repository on GitHub — an approving review a protection rule requires, or
@@ -44,6 +53,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // queuedSince is when the run's merge was last taken by the forge, as far as
@@ -80,7 +90,7 @@ func (r Reconciler) settleStuckMerge(ctx context.Context, state runstate.State, 
 	}
 	removal, unread := r.readQueueRemoval(ctx, published.Number)
 	target := state.Integration.TargetBranch
-	reason := stuckMerge(published, target, queuedSince(state), waited, r.StuckMergeAge, held, waitedOn, removal, unread)
+	reason := stuckMerge(published, target, queuedSince(state), waited, r.StuckMergeAge, held, waitedOn, dropReplayRefusal(state), removal, unread)
 	published.MergeQueued = false
 	published.TargetRed = nil
 	state.PullRequest = &published
@@ -92,7 +102,10 @@ func (r Reconciler) settleStuckMerge(ctx context.Context, state runstate.State, 
 // stuckMerge is what the record and the item say about a merge that waited
 // past the limit: how long, what the forge says is holding it in words, what
 // would let it land, the forge's own account, and who moves next.
-func stuckMerge(published runstate.PullRequest, target string, since time.Time, waited, limit time.Duration, held bool, waitedOn string, removal publish.QueueRemoval, unread string) string {
+//
+// cannotReplay is why a repair cannot bring this run's change up to date, and
+// empty where it can.
+func stuckMerge(published runstate.PullRequest, target string, since time.Time, waited, limit time.Duration, held bool, waitedOn, cannotReplay string, removal publish.QueueRemoval, unread string) string {
 	sentences := []string{fmt.Sprintf("Pull request %d was queued to merge into %s at %s and has not merged after %s, which is past the %s a queued merge may wait (triage.stuck_merge_age).",
 		published.Number, target, since.Local().Format("2006-01-02 15:04 MST"), waitedFor(waited), waitedFor(limit))}
 	if held {
@@ -103,7 +116,11 @@ func stuckMerge(published runstate.PullRequest, target string, since time.Time, 
 	if waitedOn != "" {
 		sentences = append(sentences, fmt.Sprintf("Its head had fallen behind %s, and bringing it up to date waited because %s, so the harness stopped waiting.", target, waitedOn))
 	}
-	sentences = append(sentences, "The change is not merged; the run's branch and worktree are kept, so it can be brought up to date and merged without being rebuilt.")
+	if cannotReplay == "" {
+		sentences = append(sentences, fmt.Sprintf("The change is not merged. The run's branch and worktree are kept, so a repair decided on this run brings it up to date without rebuilding it: the harness puts the run back at its merge, brings the kept change up to date with %s, checks and reviews it again, and queues the merge again, handing any conflict to the developer.", target))
+	} else {
+		sentences = append(sentences, fmt.Sprintf("The change is not merged, and a repair cannot bring it up to date because %s, so a re-run of the item is what builds it again on %s.", cannotReplay, target))
+	}
 	sentences = append(sentences, stuckMergeCause(removal, unread, published.Number, target))
 	sentences = append(sentences, forgeDropAccount(removal, unread, published, target))
 	return strings.Join(sentences, " ") + " The harness does not merge past a requirement of " + target + ", so " + developmentManagerMovesNext
@@ -118,9 +135,9 @@ func stuckMergeCause(removal publish.QueueRemoval, unread string, number int, ta
 	}
 	switch strings.ToUpper(strings.TrimSpace(removal.MergeStatus)) {
 	case "DIRTY":
-		return fmt.Sprintf("What is holding it: the forge says the pull request conflicts with %s. The change has to be brought up to date with %s and the conflict resolved, which a repair of this run can do from its kept branch.", target, target)
+		return fmt.Sprintf("What is holding it: the forge says the pull request conflicts with %s. The change has to be brought up to date with %s and the conflict resolved.", target, target)
 	case "BEHIND":
-		return fmt.Sprintf("What is holding it: %s has moved ahead of the pull request and requires it to be up to date. The change has to be brought up to date with %s, which a repair of this run can do from its kept branch.", target, target)
+		return fmt.Sprintf("What is holding it: %s has moved ahead of the pull request and requires it to be up to date. The change has to be brought up to date with %s.", target, target)
 	case "UNSTABLE":
 		return "What is holding it: a check the forge runs on the pull request has not succeeded. The checks below say which."
 	case "BLOCKED":
@@ -133,6 +150,81 @@ func stuckMergeCause(removal publish.QueueRemoval, unread string, number int, ta
 		return "What is holding it: the forge has not decided whether the pull request can merge, so it says nothing about what is in the way."
 	}
 	return fmt.Sprintf("What is holding it: the forge reports the merge state %q, which the harness does not recognize.", removal.MergeStatus)
+}
+
+// dropReplayRefusal says why a repair cannot bring a run's change up to date
+// onto its target, and nothing where it can: its approved change landed through
+// an open pull request whose branch, worktree, approval and developer session
+// the run still has, with a resumption left to spend (unreplayable).
+func dropReplayRefusal(state runstate.State) string {
+	switch {
+	case state.Integration == nil:
+		return "its record carries no approved change awaiting the merge"
+	case state.PullRequest == nil:
+		return "its record names no pull request"
+	case state.PullRequest.Closed():
+		return fmt.Sprintf("pull request %d is closed", state.PullRequest.Number)
+	}
+	return unreplayable(state)
+}
+
+// replaysDroppedMerge reports a repair decided on a run whose approved change
+// the forge did not merge, and that nothing returned to a developer: what it
+// carries out is the replay, not a developer attempt. The branch and the
+// checkout have to be there as the repository shows them, because the replay is
+// made from them; a run without them is refused as any repair is.
+func replaysDroppedMerge(prior runstate.State, found triage.Found) bool {
+	if prior.MergeDrop == nil || handedBackRepair(prior) || continuableStall(prior) || prior.StoppedAtStageBound() {
+		return false
+	}
+	// A merge withdrawn over a check failing on the change itself is the
+	// change's failure, not a race: replaying it would queue the same red change
+	// again. Its own refusal names the supported alternative (oldForgeRepairAlternative).
+	if oldForgeRepairAlternative(prior) != nil || (prior.PullRequest != nil && prior.PullRequest.Checks != nil && prior.PullRequest.Checks.ChangeFails()) {
+		return false
+	}
+	if found.Unknown || !found.BranchThere || !found.WorktreeThere {
+		return false
+	}
+	return dropReplayRefusal(prior) == ""
+}
+
+// putBackAtPromotion is the record of a run made live again at its promotion to
+// bring its approved change up to date onto its target: the resumption that
+// says why, the promotion and the dropped merge taken off the record because
+// what is promoted and queued next is the replayed change, and the reading of
+// the old head's checks with them. It is the record updateQueuedHead writes for
+// a queued head that fell behind, which is what the pipeline resumes from.
+func putBackAtPromotion(continued *runstate.State, prior runstate.State, reason string, now time.Time) {
+	continued.IntegrationResumptions = append(append([]runstate.IntegrationResumption{}, prior.IntegrationResumptions...),
+		runstate.IntegrationResumption{
+			Cause:             runstate.CauseQueuedHeadBehind,
+			Reason:            boundedReason(reason),
+			ResumedAt:         now,
+			SupersededFailure: prior.Failure,
+			SupersededBlocker: prior.Blocker,
+		})
+	continued.Integration = nil
+	if prior.PullRequest != nil {
+		published := *prior.PullRequest
+		published.MergeQueued = false
+		published.Checks = nil
+		published.TargetRed = nil
+		continued.PullRequest = &published
+	}
+	continued.PublishFailure = ""
+	continued.MergeDrop = nil
+	continued.Phase = runstate.PhaseIntegrating
+}
+
+// replayReason is what the run and the item record as why a repair put the run
+// back at its promotion rather than invoking its developer.
+func replayReason(entry triage.Entry, granted repairGrant, prior runstate.State) string {
+	reason := fmt.Sprintf(
+		"Triaged: the development manager's triage decided a repair of run %s, %s, whose approved change the forge did not merge (pull request %d). Nothing was returned to its developer, so the harness put the run back at its merge to bring the kept change up to date with %s, check it and have it reviewed again, and queue its merge again; a conflict goes to the developer under a grant of %d further repair attempt(s) recorded against %s's durable triage budget. The reasoning that decision was recorded with: ",
+		entry.RunID, granted.decision.Cite(), prior.PullRequest.Number, prior.TargetBranch, granted.attempts, entry.WorkItemID)
+	room := max(runstate.MaxSelectionReasonBytes-len(reason), 0)
+	return singleLine(reason+singleLine(strings.TrimSpace(granted.decision.Reason), room), runstate.MaxSelectionReasonBytes)
 }
 
 // waitedFor says a wait the way somebody reads it: "13 hours 31 minutes", not

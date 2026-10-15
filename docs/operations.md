@@ -3473,14 +3473,21 @@ worktree kept, and the item blocked with a line that says how long it waited,
 what the forge's merge state means in words — a conflict with the target, a
 target that moved ahead, a check that has not passed, an unmet protection rule,
 a draft, or nothing reported — what would let it land, and the forge's own
-account. The run goes on the development manager's docket of stopped runs,
-where she runs it again or re-arms the merge. Where what holds it is something
+account. The run goes on the development manager's docket of stopped runs.
+A repair she decides there brings the kept change up to date: the run is put
+back at its merge, the change is brought up to date with the target from its
+kept branch, checked and reviewed again, and its merge queued again, with a
+conflict handed to the developer under the repair's grant and no attempt
+counted otherwise. A re-arm repeats the same merge, which helps only where the
+forge's reason has passed, and a re-run builds the change again from the
+target. Where what holds it is something
 only somebody with access to the repository on GitHub can clear — an approving
 review a protection rule requires, or a draft to mark ready — the line names
-that step exactly, so she can pass it on as it stands. A repair decided on such
-a run is refused once, on the item, with cause `merge-dropped`
-([run stops](run-stops.md)): nothing was returned to its developer for a repair
-to hand back. A sweep that cannot read the forge's state for the request at all
+that step exactly, so she can pass it on as it stands. Where the change cannot
+be brought up to date from the run — a local promotion, a closed pull request,
+or a branch, worktree, approval or developer session gone — the line says so
+and names the re-run, and a repair decided on it is refused once, on the item,
+with cause `merge-dropped` ([run stops](run-stops.md)). A sweep that cannot read the forge's state for the request at all
 decides nothing: the merge stays queued and the failed read is reported for the
 run. A merge that lands before the limit is settled exactly as before.
 
