@@ -7,6 +7,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
+	"github.com/mason-bryant/yoyodyne/internal/terms"
 )
 
 func TestEveryCapabilityIsAToolOrExplicitlyExcluded(t *testing.T) {
@@ -52,7 +53,48 @@ func TestRoleToolsAreExactlyTheGrantedDescriptors(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(Contract(domain.RoleProgramManager), "## log.read (read)") || strings.Contains(Contract(domain.RoleDeveloper), "## log.read (") {
+	if !strings.Contains(Contract(domain.RoleProgramManager), "## log.read (reads") || strings.Contains(Contract(domain.RoleDeveloper), "## log.read (") {
 		t.Fatal("log.read grants drifted")
+	}
+}
+
+// A role copies its instructions' wording into what people read, so the tools
+// section says what each tool's limits and checks mean in ordinary words: no
+// word the register of terms does not permit, and none of the harness's own
+// names for the descriptor's fields that the section used to print.
+func TestTheToolsSectionUsesOrdinaryWords(t *testing.T) {
+	t.Parallel()
+	checker, err := terms.ReadTextChecker("../..")
+	if err != nil {
+		t.Fatal(err)
+	}
+	replaced := []string{
+		"descriptor", "bypasses", "Gates:", "Scope:", "redacted", "evidence", "typed",
+		"trusted harness actions", "remit", "handler", "audited", "canonical", "slice",
+		"dispatch", "request(s)", "round(s)", "prompt space", "prompt bytes", "provider turns",
+		"(read)", "(speak)", "(act)", "exchange.answer", "Git tree", "state root",
+	}
+	for _, role := range domain.Roles() {
+		for name, section := range map[string]string{"conversation": Contract(role), "run": RunContract(role)} {
+			for _, finding := range checker.Find(section) {
+				t.Errorf("%s %s tools section: %s", role, name, finding.Warning())
+			}
+			lower := strings.ToLower(section)
+			for _, word := range replaced {
+				if strings.Contains(lower, strings.ToLower(word)) {
+					t.Errorf("%s %s tools section still says %q:\n%s", role, name, word, section)
+				}
+			}
+		}
+	}
+	// The limits are said as a sentence, and a tool that returns nothing says so.
+	run := RunContract(domain.RoleDeveloper)
+	for _, want := range []string{
+		"Limits: at most 5 requests in one reply, and at most 4 rounds of requests and results for one message. It returns nothing for you to read.",
+		"What the harness still checks: the same things it checks without the tool",
+	} {
+		if !strings.Contains(run, want) {
+			t.Errorf("developer run tools section does not say %q:\n%s", want, run)
+		}
 	}
 }

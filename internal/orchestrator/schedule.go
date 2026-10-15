@@ -4894,6 +4894,8 @@ type outrankedCarryOut struct {
 	// top is the ready work in ahead at priority 0, which is the only work that
 	// holds back a decision about preserved work.
 	top []string
+	// namedTop is top by what it is, as named is ahead.
+	namedTop []string
 	// namedBelowTop is named without the priority-0 work: what a held-back
 	// decision about preserved work goes ahead of when the walk of the order,
 	// past priority 0, fires it.
@@ -4958,15 +4960,15 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 			continue
 		}
 		held.ahead = append(held.ahead, entry.ID)
-		if entry.Priority == 0 {
-			held.top = append(held.top, entry.ID)
-		}
 		named := entry.ID
 		if title := strings.TrimSpace(read.items[entry.ID].Title); title != "" {
 			named = fmt.Sprintf("%s (%s)", title, entry.ID)
 		}
 		held.named = append(held.named, named)
-		if entry.Priority != 0 {
+		if entry.Priority == 0 {
+			held.top = append(held.top, entry.ID)
+			held.namedTop = append(held.namedTop, named)
+		} else {
 			held.namedBelowTop = append(held.namedBelowTop, named)
 		}
 	}
@@ -4978,10 +4980,10 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 func (o outrankedCarryOut) reason() string {
 	if o.preserved {
 		return fmt.Sprintf("its item is at priority %d and %s at priority 0 in the Lead Product Manager's order stood ready (%s), so a free developer slot goes to that work first; the stopped run's change is still there, so this decision goes ahead of every other fresh pull, and takes the first slot left once the walk of the order is past priority 0",
-			o.priority, plural(len(o.top), "item", "items"), listedIDs(o.top))
+			o.priority, plural(len(o.namedTop), "item", "items"), listedNames(o.namedTop))
 	}
 	return fmt.Sprintf("its item is at priority %d and %s of higher priority in the Lead Product Manager's order stood ready (%s), so a free developer slot goes to that work first; a decision goes ahead of the queue only where nothing ready outranks its item, and this one takes the first slot left once the walk of the order reaches priority %d",
-		o.priority, plural(len(o.ahead), "item", "items"), listedIDs(o.ahead), o.priority)
+		o.priority, plural(len(o.named), "item", "items"), listedNames(o.named), o.priority)
 }
 
 // firesAt is the priority the walk of the order has to reach before a held-back
@@ -4994,15 +4996,16 @@ func (o outrankedCarryOut) firesAt() int {
 	return o.priority
 }
 
-// listedIDs names work items for a sentence a person reads, up to the bound the
+// listedNames lists work items, each already named by its title with its
+// identifier after it, for a sentence a person reads, up to the bound the
 // passed-over account names, and counts the rest.
-func listedIDs(ids []string) string {
-	named := ids
+func listedNames(names []string) string {
+	named := names
 	if len(named) > readmodel.MaxPassedOverNamed {
 		named = named[:readmodel.MaxPassedOverNamed]
 	}
 	listed := strings.Join(named, ", ")
-	if further := len(ids) - len(named); further > 0 {
+	if further := len(names) - len(named); further > 0 {
 		listed += fmt.Sprintf(", and %d further", further)
 	}
 	return listed
