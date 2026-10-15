@@ -165,6 +165,17 @@ execution:
   # changes touching many packages need more than 30 minutes for tests and race
   # tests to finish together. Keep every check and gate in place.
   check_stage_timeout: 60m
+  # How many of each heavy check may run at once on this machine, across every
+  # run and landing: the architect's ruling of 2026-10-12 on the heavy-check
+  # capacity design (yoyodyne-ifd.429.43), applied by yoyodyne-ifd.429.48. A
+  # check waiting for a place keeps its developer slot and spends none of its
+  # time limit. These are the ruled starting numbers, not measured ones: once
+  # "yoyo heavy-checks measurements" proposes numbers from enough real launches,
+  # the development manager applies them here through a reviewed change.
+  # docs/configuration.md, "How many of a heavy check may run at once".
+  heavy_checks:
+    make race: 1
+    make test: 2
 
 # Conservative by default: integration and publishing are opted in to
 # separately. Automatic integration is refused unless it is actually gated by
