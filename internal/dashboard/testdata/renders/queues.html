@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>yoyodyne — yoyo dashboard</title>
+    <link rel="stylesheet" href="../../assets/dashboard.css">
+  </head>
+  <body>
+    <header>
+      <div class="brand">
+        <span class="mark" aria-hidden="true">yoyo</span>
+        <h1>yoyodyne</h1>
+      </div>
+      <p class="observed">
+        observed
+        <time id="observed-at" datetime="2026-09-19T14:05:09Z">14:05:09</time>
+        <span id="freshness" class="freshness">asks again every 10 s</span>
+      </p>
+    </header>
+    <main id="page" data-state="ready">
+      <div class="state state-ready">
+        <p id="stale" class="stale" role="status" hidden></p>
+        <p id="banner" class="banner" role="status" hidden></p>
+        <section id="band" class="panel band" data-state="empty" aria-labelledby="band-heading">
+          <div class="panel-head">
+            <h2 id="band-heading">Where the harness stands</h2>
+            <p class="panel-note">
+              each account's provider usage as last reported, the four lines
+              <code>yoyo status</code>
+              prints, and what landed
+            </p>
+          </div>
+          <ul id="usage-limits" class="usage-limits" hidden></ul>
+          <div class="section-empty">
+            <p id="band-empty" class="empty">The harness is idle: nothing is running, no conversation has a turn in flight, nothing is admitted, and nothing waits on anybody.</p>
+          </div>
+        </section>
+        <section id="spend" class="panel spend" data-state="empty" aria-labelledby="spend-heading">
+          <div class="panel-head">
+            <h2 id="spend-heading">What the harness is spending</h2>
+            <p class="panel-note">the last 24 hours, rolling from this reading, and the last 7 local days, each split by kind</p>
+          </div>
+          <div class="section-empty">
+            <p id="spend-empty" class="empty">Nothing is recorded as spent: no run, conversation, branch review, side thread, or exchange here has a priced record.</p>
+          </div>
+        </section>
+        <section id="live" class="panel live" data-state="empty" aria-labelledby="live-heading">
+          <div class="panel-head">
+            <h2 id="live-heading">Running now</h2>
+            <p class="panel-note">each developer run and each conversation with a turn in flight</p>
+          </div>
+          <div class="section-empty">
+            <p id="live-empty" class="empty">Nothing is running, and no conversation has a turn in flight.</p>
+          </div>
+        </section>
+        <section id="pipeline" class="panel pipeline" data-state="empty" aria-labelledby="pipeline-heading">
+          <div class="panel-head">
+            <h2 id="pipeline-heading">Where the work stands</h2>
+            <p class="panel-note">admitted work, what holds it, what is running, and what landed</p>
+          </div>
+          <div class="section-empty">
+            <p id="pipeline-empty" class="empty">The backlog is empty: nothing is admitted, and nothing is running.</p>
+          </div>
+        </section>
+        <section id="throughput" class="panel throughput" data-state="empty" aria-labelledby="throughput-heading">
+          <div class="panel-head">
+            <h2 id="throughput-heading">Throughput</h2>
+            <p class="panel-note">
+              local calendar days, today counting as the first; the endings
+              <code>yoyo status</code>
+              prints, and what each cost is in the spend box above
+            </p>
+          </div>
+          <div class="section-empty">
+            <p id="throughput-empty" class="empty">Nothing ran in the last 7 days, from 2026-09-13.</p>
+          </div>
+        </section>
+        <section id="capacity" class="panel capacity" data-state="empty" aria-labelledby="capacity-heading">
+          <div class="panel-head">
+            <h2 id="capacity-heading">Provider capacity</h2>
+            <p class="panel-note">what is parked or held on the provider's usage limits, and what to do about it</p>
+          </div>
+          <div class="section-empty">
+            <p id="capacity-empty" class="empty">No run or conversation is waiting on provider capacity, and no provider usage limit is holding every role.</p>
+          </div>
+        </section>
+        <section id="factory" class="panel factory" data-state="empty" aria-labelledby="factory-heading">
+          <div class="panel-head">
+            <h2 id="factory-heading">Factory problems</h2>
+            <p class="panel-note">product passes that keep failing, a watch session that has stopped restarting into a deployed build, and a provider usage limit past its threshold, with who watches and who resolves the cause</p>
+          </div>
+          <div class="section-empty">
+            <p id="factory-empty" class="empty">No product pass has failed three times in a row, no watch session is stuck draining past its bound, and no provider usage limit is past its threshold.</p>
+          </div>
+        </section>
+        <section id="managers" class="panel managers" data-state="empty" aria-labelledby="managers-heading">
+          <div class="panel-head">
+            <h2 id="managers-heading">Program managers</h2>
+            <p class="panel-note">
+              each instance with its lane and its status, as
+              <code>yoyo status</code>
+              lists them under the four lines; each opens its current lane report
+            </p>
+          </div>
+          <div class="section-empty">
+            <p id="managers-empty" class="empty">No instance of the program manager role is configured, and none has a restart request open.</p>
+          </div>
+        </section>
+        <section id="queues" class="panel queues" data-state="ready" aria-labelledby="queues-heading">
+          <div class="panel-head">
+            <h2 id="queues-heading">Merge queues</h2>
+            <p class="panel-note">
+              each change waiting to land on its target branch, in the order it is worked, as
+              <code>yoyo status</code>
+              lists them; a change reads as landed only once the queue confirmed it on the target
+            </p>
+          </div>
+          <div class="section-ready">
+            <ul id="queues-problems" class="degraded" hidden></ul>
+            <ul id="queues-list" class="held-list">
+              <li class="held">
+                <h3 class="held-title">Merge queue for main: 3 waiting to land, 1 finished</h3>
+                <p class="held-reason">Last pass: waiting — landing waits for the target promotion lease another process holds</p>
+                <ul class="held-list">
+                  <li class="held-reason">3. yoyodyne-ifd.230 Say on the run which check the stage is on — verified, not landed yet, harness queue — candidate 1 passed its checks and its independent review and has not begun to land</li>
+                  <li class="held-reason">4. yoyodyne-ifd.231 Name the target branch in the landing line — uncertain whether it landed, harness queue — the move-target of landing attempt 1 was asked for and nothing has established what became of it yet</li>
+                  <li class="held-reason">5. yoyodyne-ifd.232 Keep the reviewer's summary on the card — waiting, harness queue — waiting for its turn; no candidate has been built for it yet</li>
+                  <li class="held-reason">2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, harness queue — landed on main as 4b825dc642cb, confirmed on the target</li>
+                </ul>
+              </li>
+            </ul>
+          </div>
+        </section>
+      </div>
+    </main>
+    <script src="about:blank" data-note="the script ran once to produce this render; it is not loaded again here"></script>
+  </body>
+</html>

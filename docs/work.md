@@ -2458,3 +2458,19 @@ request and stops: nothing is merged, the run branch survives on the remote, and
 the worktree is preserved for you — which is what a `human` integration policy
 means. See the
 [configuration guide](configuration.md#publishing-through-pull-requests).
+
+## Merge queues on `yoyo status` and the dashboard
+
+Where a product has a merge queue record, `yoyo status` prints each queue under
+the four lines, and the dashboard shows it in a **Merge queues** panel: the
+target branch, how many changes wait to land and how many have finished, what
+the queue's worker last found, why the queue last refused a change where it
+did, and one line per change naming the work item by identifier and title, the
+queue mode it was admitted in, where it stands, and why. A change reads as
+landed only once the queue confirmed the landing on the target; one that is
+approved, verified, or held by the forge says so and says it has not landed,
+and one whose landing nothing has confirmed yet reads as uncertain. A queue
+record that cannot be read is said, never left out. A product with no queue
+record prints nothing and the dashboard shows no panel, so both read as they
+did before queues existed. Nothing in the harness admits a change to a queue
+yet; the switch that does is still to come.

@@ -46,6 +46,13 @@ var updateRenders = flag.Bool("update-renders", false, "rewrite the rendered pag
 // factory problems and program managers under Provider capacity.
 var sections = []string{"band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"}
 
+// shownWhenPresent are the sections the page shows only where the product has
+// what they list, and hides otherwise, so a page without them is the page it
+// was before they existed: the merge queues. Each opens hidden in its loading
+// state, carries the same four states as the rest, and is left out of a
+// scenario's render and matrix while it is hidden.
+var shownWhenPresent = []string{"queues"}
+
 // popups are the three dialogs the page opens over the sections: a grouping —
 // of the pipeline listed by title, or of the attention line listed by what
 // waits — one thing's card, a work item's or an attention entry's, and one
@@ -100,8 +107,18 @@ func TestTheShellCarriesEverySectionEachWithItsStates(t *testing.T) {
 			}
 		}
 	}
-	if strings.Count(body, `class="panel `) != len(sections) {
-		t.Fatalf("the shell carries %d panels, not %d:\n%s", strings.Count(body, `class="panel `), len(sections), body)
+	for _, id := range shownWhenPresent {
+		if !strings.Contains(body, `<section id="`+id+`" class="panel `+id+`" data-state="loading" aria-labelledby="`+id+`-heading" hidden>`) {
+			t.Fatalf("the shell lacks section %q opening hidden in its loading state:\n%s", id, body)
+		}
+		for _, line := range []string{"-problem", "-remedy", "-empty"} {
+			if !strings.Contains(body, `id="`+id+line+`"`) {
+				t.Fatalf("section %q lacks its %s line:\n%s", id, line, body)
+			}
+		}
+	}
+	if panels := len(sections) + len(shownWhenPresent); strings.Count(body, `class="panel `) != panels {
+		t.Fatalf("the shell carries %d panels, not %d:\n%s", strings.Count(body, `class="panel `), panels, body)
 	}
 	// The two pop-ups are dialogs, closed to begin with, each with the same four
 	// states a section has and a button that closes it.
@@ -622,6 +639,16 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			}
 			reached[id][state] = true
 		}
+		for _, id := range shownWhenPresent {
+			state, present := result.Sections[id]
+			if !present {
+				state = "hidden"
+			}
+			if reached[id] == nil {
+				reached[id] = map[string]bool{}
+			}
+			reached[id][state] = true
+		}
 		for _, id := range popups {
 			state, present := result.Popups[id]
 			if !present {
@@ -637,6 +664,21 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		for _, state := range sectionStates {
 			if !reached[id][state] {
 				t.Errorf("no scenario renders section %s in its %s state", id, state)
+			}
+		}
+	}
+	// A section shown only where there is something to list is hidden, ready,
+	// or unreadable; it is never shown loading or empty, because then there is
+	// nothing it could say that the page does not already.
+	for _, id := range shownWhenPresent {
+		for _, state := range []string{"hidden", "error", "ready"} {
+			if !reached[id][state] {
+				t.Errorf("no scenario leaves section %s %s", id, state)
+			}
+		}
+		for _, state := range []string{"loading", "empty"} {
+			if reached[id][state] {
+				t.Errorf("a scenario shows section %s %s, which it never is while shown", id, state)
 			}
 		}
 	}
@@ -666,6 +708,19 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	for scenario, expectations := range map[string][]string{
 		"pass-failures":            {"Factory problems", "maintenance has failed 5 times", "factory-flow program manager factory-flow-pm", "development manager resolves the cause"},
 		"pass-failures-unreadable": {"product pass failures could not be read whole: permission denied"},
+		// Each queued change by identifier and title, in the read model's words
+		// for where it stands: a change verified but not landed, and one whose
+		// landing nothing has confirmed, never read as landed.
+		"queues": {
+			"Merge queues",
+			"Merge queue for main: 3 waiting to land, 1 finished",
+			"Last pass: waiting — landing waits for the target promotion lease another process holds",
+			"3. yoyodyne-ifd.230 Say on the run which check the stage is on — verified, not landed yet, harness queue",
+			"4. yoyodyne-ifd.231 Name the target branch in the landing line — uncertain whether it landed, harness queue",
+			"5. yoyodyne-ifd.232 Keep the reviewer's summary on the card — waiting, harness queue",
+			"2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, harness queue — landed on main as 4b825dc642cb, confirmed on the target",
+		},
+		"queues-unreadable": {"Could not be read: the merge queues could not all be listed: decode the merge queue 7d2f0c41: unexpected end of JSON input"},
 		"busy": {
 			// Each account's provider usage at the top of the band, in the
 			// model's own sentence, and an account with none said in words.

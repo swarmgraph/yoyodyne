@@ -328,6 +328,8 @@ type Sources struct {
 	// instance was first seen in the loaded configuration, which is what an
 	// instance that has never completed a pass is measured from.
 	ProgramManagers []ProgramManagerInstance
+	// MergeQueues is the product's merge queues; nil reads none.
+	MergeQueues     MergeQueues
 	RestartRequests RestartRequests
 	LaneReports     LaneReports
 	Passes          Passes
@@ -749,6 +751,10 @@ type Standing struct {
 	ConversationPasses        []ConversationPass `json:"conversation_passes,omitempty"`
 	ConversationPassesProblem string             `json:"conversation_passes_problem,omitempty"`
 
+	// MergeQueues is each merge queue and where each change in it stands.
+	MergeQueues        []MergeQueueStanding `json:"merge_queues,omitempty"`
+	MergeQueuesProblem string               `json:"merge_queues_problem,omitempty"`
+
 	// Titles is what the tracker calls every item it holds, which is what the
 	// rendered lines put beside each number they carry. It is nil where the
 	// tracker could not be listed, and the lines then carry the numbers as the
@@ -966,6 +972,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Services, standing.ServicesProblem = readServices(sources)
 	standing.ProgramManagers, standing.ProgramManagersProblem = ReadProgramManagers(sources)
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
+	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
 	needs = append(needs, standing.Services.Attention()...)
 	needsProblem = joinProblems(needsProblem, standing.ServicesProblem)
 	// A running part whose build cannot read a key the configuration now

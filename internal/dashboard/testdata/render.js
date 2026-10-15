@@ -331,6 +331,8 @@ failingPasses.factory_problems[0].whose = "the program manager's — the factory
 const pages = [
   { name: "pass-failures", token: "t", standing: ok(failingPasses), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "pass-failures-unreadable", token: "t", standing: ok(fixture("standing-pass-failures-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "queues", token: "t", standing: ok(fixture("standing-queues")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
+  { name: "queues-unreadable", token: "t", standing: ok(fixture("standing-queues-unreadable")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "run-steps", token: "t", standing: ok(fixture("standing-run-steps")), throughput: ok(fixture("throughput-quiet")), spend: ok(fixture("spend-quiet")) },
   { name: "signin", token: "", standing: pending, throughput: pending, spend: pending },
   { name: "loading", token: "t", standing: pending, throughput: pending, spend: pending },
@@ -550,10 +552,23 @@ async function run(scenario) {
 
   const page = document.getElementById("page");
   const sections = ["band", "spend", "live", "pipeline", "throughput", "capacity", "factory", "managers"];
+  // A section shown only where the product has what it lists is dropped from
+  // the render and the matrix while it is hidden, so a page without it renders
+  // exactly as it did before the section existed.
+  const shownWhenPresent = ["queues"];
   const popups = ["grouping", "card", "report"];
   const matrix = { page: page.getAttribute("data-state"), sections: {}, popups: {} };
   sections.forEach((id) => {
     matrix.sections[id] = document.getElementById(id).getAttribute("data-state");
+  });
+  shownWhenPresent.forEach((id) => {
+    const panel = document.getElementById(id);
+    if (panel.getAttribute("hidden") !== null) {
+      panel.parentNode.removeChild(panel);
+      return;
+    }
+    sections.push(id);
+    matrix.sections[id] = panel.getAttribute("data-state");
   });
   // A pop-up that is hidden is closed, whatever state it was last drawn in.
   popups.forEach((id) => {
