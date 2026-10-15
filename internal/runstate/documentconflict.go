@@ -3,9 +3,14 @@ package runstate
 import (
 	"errors"
 	"fmt"
+	"path"
 	"strings"
 	"time"
 )
+
+// maxDocumentConflictPathBytes bounds the recorded path, which is structured
+// rather than free text and so is refused rather than cut when it is longer.
+const maxDocumentConflictPathBytes = 4096
 
 // DocumentConflict is a document run finding, as it cut its checkout from the
 // target branch, that the branch's copy of the document is no longer the copy
@@ -43,6 +48,8 @@ func (c DocumentConflict) Validate() error {
 	var problems []error
 	if strings.TrimSpace(c.Path) == "" {
 		problems = append(problems, errors.New("path is required, because it is the document that conflicts"))
+	} else if clean := path.Clean(c.Path); clean != c.Path || path.IsAbs(c.Path) || clean == ".." || strings.HasPrefix(clean, "../") || len(c.Path) > maxDocumentConflictPathBytes {
+		problems = append(problems, errors.New("path must be a clean repository-relative path"))
 	}
 	if strings.TrimSpace(c.TargetBranch) == "" {
 		problems = append(problems, errors.New("target_branch is required, because it is what the document conflicts with"))
