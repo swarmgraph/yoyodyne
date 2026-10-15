@@ -23,7 +23,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -46,7 +49,17 @@ type DocumentDecider struct {
 	Runs         DocumentDecisionRuns
 	Publications SupersededPublications
 	Branches     SupersededBranches
-	Clock        execution.Clock
+	// Copies reads the document as the run's target branch now holds it, which
+	// is what a retry is refused on where that copy is a later confirmed
+	// revision. A decider without it does not ask.
+	Copies DocumentCopies
+	Clock  execution.Clock
+}
+
+// DocumentCopies reads one file as a commit or branch holds it. It is
+// satisfied by gitworktree.Manager.
+type DocumentCopies interface {
+	FileAtCommit(ctx context.Context, commit, path string, maxBytes int64) (gitworktree.FileAt, error)
 }
 
 // DocumentRun reports whether the named run is a document publication, which
@@ -68,6 +81,11 @@ func (d DocumentDecider) RetryDocument(ctx context.Context, runID string, decisi
 		return said, err
 	}
 	defer lease.Release()
+	if refusal, err := d.laterRevision(ctx, state); err != nil {
+		return "", fmt.Errorf("read %s as %s holds it, which a retry is checked against, so nothing was recorded: %w", state.Document.Candidate.Artifact.Path, state.TargetBranch, err)
+	} else if refusal != "" {
+		return "", errors.New(refusal)
+	}
 	decision.DecidedAt = d.now()
 	fresh := state.Document.RetryOf(state.RunID, runstate.DocumentRetried{FromRun: state.RunID, Reason: decision.Reason, DecidedBy: decision.DecidedBy, DecidedAt: decision.DecidedAt})
 	if err := fresh.Validate(); err != nil {
@@ -86,6 +104,50 @@ func (d DocumentDecider) RetryDocument(ctx context.Context, runID string, decisi
 	}
 	return fmt.Sprintf("document %s (%q) waits for a document landing as handoff %s, first published by run %s, which the scheduler starts as one frees; %s",
 		state.Document.Candidate.Artifact.ID, state.Document.Candidate.Artifact.Title, fresh.WriteID, decision.RetriedAs, publicationClause(state, decision)), nil
+}
+
+// laterRevision is why a retry of the stopped run is refused, or empty where it
+// is not: the run's target branch already carries a revision of the same
+// document that was confirmed and written after the text the run carries. A
+// fresh run of that text would find the same changed copy and stop the same
+// way, so the retry is refused before any run is started, naming the revision
+// that stands. A copy that is absent, unreadable as a document, or not a later
+// confirmed revision refuses nothing; a copy that cannot be read at all is an
+// error, so no retry is recorded on an answer nobody got.
+func (d DocumentDecider) laterRevision(ctx context.Context, state runstate.State) (string, error) {
+	candidate := state.Document.Candidate
+	if d.Copies == nil || strings.TrimSpace(state.TargetBranch) == "" || len(candidate.Artifact.Revisions) == 0 {
+		return "", nil
+	}
+	copied, err := d.Copies.FileAtCommit(ctx, state.TargetBranch, candidate.Artifact.Path, maxDocumentHistoryBytes)
+	if errors.Is(err, gitworktree.ErrNotAtCommit) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	if copied.Content == nil {
+		return "", fmt.Errorf("the copy is %d bytes, more than the %d read", copied.Size, maxDocumentHistoryBytes)
+	}
+	if artifact.DocumentIdentity(copied.Content) == artifact.DocumentIdentity([]byte(candidate.Content)) {
+		return "", nil
+	}
+	standing, err := artifact.ParseDocument(copied.Content)
+	if err != nil || standing.ID != candidate.Artifact.ID {
+		return "", nil
+	}
+	approval, approved := standing.LatestApproval()
+	if !approved || approval.Revision < 0 || approval.Revision >= len(standing.Revisions) {
+		return "", nil
+	}
+	confirmed := standing.Revisions[approval.Revision]
+	written := candidate.Artifact.Revisions[len(candidate.Artifact.Revisions)-1]
+	if !confirmed.At.After(written.At) {
+		return "", nil
+	}
+	when := func(at time.Time) string { return at.Local().Format("2006-01-02 15:04 MST") }
+	return fmt.Sprintf("run %s is not retried: %s already carries a later confirmed revision of %s (%s), revision %d, written by the %s at %s (%s) and confirmed by the %s at %s, after the text this run carries was written at %s. A fresh run of that text would stop on the same changed copy, so nothing was recorded; retiring the run is the decision that fits",
+		state.RunID, state.TargetBranch, candidate.Artifact.Title, candidate.Artifact.ID, approval.Revision, confirmed.By.Title(), when(confirmed.At), oneline.Fold(confirmed.Reason, 300), approval.By, when(approval.At), when(written.At)), nil
 }
 
 // RetireDocument closes a stopped document run's pull request and records why.

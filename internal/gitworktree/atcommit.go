@@ -93,3 +93,24 @@ func (m *Manager) FileAtCommit(ctx context.Context, commit, path string, maxByte
 	file.Content = []byte(content)
 	return file, nil
 }
+
+// CommitsChanging lists, newest first, up to maxCommits commits reachable from
+// ref that changed path. Read with FileAtCommit, each names a copy of the file
+// the branch once held, which is how a document run finds the commit whose copy
+// its text was written against.
+func (m *Manager) CommitsChanging(ctx context.Context, ref, path string, maxCommits int) ([]string, error) {
+	if strings.TrimSpace(ref) == "" {
+		return nil, errors.New("a commit is required to list the changes to a file from")
+	}
+	if maxCommits <= 0 {
+		return nil, nil
+	}
+	result, err := m.run(ctx, "-C", m.repositoryRoot, "log", "--format=%H", "--max-count="+strconv.Itoa(maxCommits), ref, "--", path)
+	if err != nil {
+		return nil, err
+	}
+	if result.Status != execution.ProcessSucceeded {
+		return nil, fmt.Errorf("list the changes to %s from %s failed with exit code %d: %s", path, ref, result.ExitCode, strings.TrimSpace(result.Stderr))
+	}
+	return strings.Fields(result.Stdout), nil
+}

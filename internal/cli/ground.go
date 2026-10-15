@@ -426,7 +426,7 @@ func conversationPublications(parts components, role domain.AgentRole) chat.Stop
 	if role != domain.RoleDevelopmentManager || parts.store == nil {
 		return nil
 	}
-	return orchestrator.DocumentDecider{
+	decider := orchestrator.DocumentDecider{
 		Runs: parts.store,
 		Publications: publish.GitHub{
 			Runner:       parts.runner,
@@ -438,6 +438,12 @@ func conversationPublications(parts components, role domain.AgentRole) chat.Stop
 		Branches: parts.worktrees,
 		Clock:    execution.RealClock{},
 	}
+	// A nil manager is kept as no reader rather than as an interface holding
+	// nil, for the reason remainsOf gives.
+	if parts.worktrees != nil {
+		decider.Copies = parts.worktrees
+	}
+	return decider
 }
 
 // conversationInFlight wires the hand that dockets the Lead Product Manager's
