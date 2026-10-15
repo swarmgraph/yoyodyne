@@ -872,6 +872,14 @@ func (r Reconciler) settleQueuedMerge(ctx context.Context, state runstate.State)
 	var catchup *gitworktree.Catchup
 	var comparison configComparison
 	if failure := r.confirmQueuedPublication(ctx, state, &published, observed.MergeCommit); failure != nil {
+		// A landing through the pull request moved no local branch, so a merge
+		// the target branch was not found to carry is not recorded as merged: the
+		// run stays at its queued merge, with the forge's state written on it, and
+		// the next sweep asks and reads again. A local promotion is already on the
+		// authoritative branch and settles with its publication outstanding.
+		if state.Integration.ThroughPullRequest {
+			return r.recordUnconfirmedMerge(state, published, observed.State, failure)
+		}
 		state.PublishFailure = failure.Error()
 		detail = failure.Error()
 	} else {
@@ -1263,20 +1271,18 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 
 	switch {
 	case observed.Merged:
-		var comparison configComparison
 		if failure := r.confirmQueuedPublication(ctx, state, &published, observed.MergeCommit); failure != nil {
-			// The forge says merged and nothing could check what the merge left; the
-			// change is closed on the forge's word, as a settled queued merge is, and
-			// the unconfirmed publication stays outstanding for a person and the
-			// sweeps that finish publications.
-			state.PublishFailure = failure.Error()
-		} else {
-			r.catchUp(ctx, target)
-			var compareErr error
-			comparison, compareErr = r.nameConfigReaders(ctx, &state, published.MergeCommit)
-			if compareErr != nil {
-				return reconciliationOf(state, ActionUnsettled), compareErr
-			}
+			// The forge says merged and the target branch was not found to carry
+			// it. A landing moved no local branch, so the remote target is the only
+			// place the change can be, and the run is not recorded as merged on the
+			// forge's word: it stays at its merge, with what the forge said written
+			// on it, and the next sweep asks and reads again.
+			return r.recordUnconfirmedMerge(state, published, observed.State, failure)
+		}
+		r.catchUp(ctx, target)
+		comparison, compareErr := r.nameConfigReaders(ctx, &state, published.MergeCommit)
+		if compareErr != nil {
+			return reconciliationOf(state, ActionUnsettled), compareErr
 		}
 		state.PullRequest = &published
 		if failure := r.deleteMergedBranch(ctx, &state, published); failure != "" {

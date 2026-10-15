@@ -410,6 +410,60 @@ func (m *Manager) ConfirmRemoteTarget(ctx context.Context, integration Integrati
 	return m.mergeOf(ctx, integration.TargetCommit, published)
 }
 
+// TargetReading is what one read of a remote target branch found: where the
+// branch was, and which of the commits asked about it carries, if any.
+type TargetReading struct {
+	TargetBranch string `json:"target_branch"`
+	// Exists is false where the remote has no such branch, and Tip is then
+	// empty.
+	Exists bool   `json:"exists"`
+	Tip    string `json:"tip,omitempty"`
+	// Found is the first of the commits asked about that is on the branch, and
+	// empty where none of them is.
+	Found string `json:"found,omitempty"`
+}
+
+// RemoteTargetCarries reads the remote target branch and reports whether any
+// of the commits named is in its history. It is the read a run recorded as
+// merged is checked against: the run's own commit and, where the forge named
+// one, its pull request's merge commit. It reads and moves nothing but the
+// scratch ref the fetch writes, and a commit this repository has never seen is
+// answered after the fetch, when everything on the branch is here, so not having
+// it is the answer that it is not there.
+func (m *Manager) RemoteTargetCarries(ctx context.Context, targetBranch string, commits ...string) (TargetReading, error) {
+	reading := TargetReading{TargetBranch: targetBranch}
+	if err := validateTargetBranch(targetBranch); err != nil {
+		return reading, err
+	}
+	for _, commit := range commits {
+		if commit != "" && !commitPattern.MatchString(commit) {
+			return reading, fmt.Errorf("commit %q is invalid", commit)
+		}
+	}
+	tip, exists, err := m.remoteCommit(ctx, m.remote, targetBranch)
+	if err != nil || !exists {
+		return reading, err
+	}
+	reading.Exists, reading.Tip = true, tip
+	if err := m.fetchRemoteBranch(ctx, targetBranch, tip); err != nil {
+		return reading, err
+	}
+	for _, commit := range commits {
+		if commit == "" {
+			continue
+		}
+		carried, err := m.descendsFrom(ctx, commit, tip)
+		if err != nil {
+			return reading, err
+		}
+		if carried {
+			reading.Found = commit
+			return reading, nil
+		}
+	}
+	return reading, nil
+}
+
 // mergedBy reports whether a commit the forge named is the merge of this
 // promotion into the branch: on the branch, with the promoted commit as one of
 // its parents. Containment alone would accept every later merge on the branch

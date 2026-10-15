@@ -1549,6 +1549,21 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 			entries = append(entries, entry)
 		}
 	}
+	// A merge disagreement is listed under its own key, whatever else the
+	// publication was docketed for, and once that entry stands it is what the
+	// docket says of the publication: a stuck-publication entry beside it would
+	// list the same request twice. See mergedisagreement.go.
+	if state.MergeDisagreement != nil {
+		if _, docketed := already[triage.DisagreementKey(state.RunID, publicationNumber(state))]; !docketed {
+			entry, err := d.disagreementEntry(state, now)
+			if err != nil {
+				problems = append(problems, err)
+			} else {
+				entries = append(entries, entry)
+			}
+		}
+		return entries, errors.Join(problems...)
+	}
 	if publicationDocketed(state, already) {
 		return entries, errors.Join(problems...)
 	}
