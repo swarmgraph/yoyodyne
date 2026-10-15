@@ -2085,7 +2085,11 @@ func alreadySavedMessage(saved []runstate.SavedWrite) string {
 // account's, for the reason the summons puts the brake's entries there: what the
 // role has to look at is what arrived with the message. A role with nothing
 // undecided against its documents is told nothing about any of this.
-func wakeMessage(name string, task config.RecurringTask, docket, overdue string, batch amendmentBatch) string {
+//
+// A role other than the Lead Product Manager is put the reports addressed to it
+// beside the overdue ones, for the same reason: a report is said to the role
+// whose move it asks for, and its pass is where that role reads it.
+func wakeMessage(name string, task config.RecurringTask, docket, overdue, addressed string, batch amendmentBatch) string {
 	lines := []string{
 		fmt.Sprintf("The harness woke you for the recurring task %q, which runs every %s. Nobody is waiting at a terminal for this: what you produce is recorded and read later.", name, task.Every),
 		"Your authority here is exactly the authority your role already holds — this turn grants you nothing extra, and nothing about being woken on a schedule widens what you may decide or change.",
@@ -2093,6 +2097,7 @@ func wakeMessage(name string, task config.RecurringTask, docket, overdue string,
 	}
 	lines = append(lines, docketLines(docket)...)
 	lines = append(lines, overdueLines(overdue)...)
+	lines = append(lines, addressedLines(addressed)...)
 	lines = append(lines,
 		"",
 		batch.section(task.Role)+strings.TrimSpace(task.Prompt),

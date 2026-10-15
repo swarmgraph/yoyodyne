@@ -139,12 +139,19 @@ func (s Severity) rank() int {
 	}
 }
 
-// Entry is one report exactly as an agent wrote it: a severity and the text.
-// Everything else about a report — which role, which run, which work item — is
-// what the harness knows and the agent does not get to assert.
+// Entry is one report exactly as an agent wrote it: a severity, the text, and
+// optionally the role it is for. Everything else about a report — which role,
+// which run, which work item — is what the harness knows and the agent does not
+// get to assert.
 type Entry struct {
 	Severity Severity `json:"severity"`
 	Message  string   `json:"message"`
+	// For is the role the reporter addressed the report to, where it named one:
+	// the role the report asks to act. A report that names none is the
+	// Lead Product Manager's, who handles the pile. It is never the operator,
+	// who is not a role: what only a person can do is recorded as such by the
+	// handling of the report, not asserted by whoever filed it.
+	For domain.AgentRole `json:"for,omitempty"`
 }
 
 // Validate reports every contract violation in the entry at once.
@@ -159,6 +166,9 @@ func (e Entry) Validate() error {
 		problems = append(problems, errors.New("message is required"))
 	case len(message) > MaxMessageBytes:
 		problems = append(problems, fmt.Errorf("message is %d bytes, limit is %d", len(message), MaxMessageBytes))
+	}
+	if e.For != "" && !addressable(e.For) {
+		problems = append(problems, fmt.Errorf("for %q must be one of %v; a report is never addressed to the operator", e.For, Addressees()))
 	}
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid report: %w", err)
@@ -204,7 +214,40 @@ type Report struct {
 	RepositoryID string           `json:"repository_id"`
 	Severity     Severity         `json:"severity"`
 	Message      string           `json:"message"`
-	RecordedAt   time.Time        `json:"recorded_at"`
+	// For is the role the report was addressed to, as the entry named it, and
+	// empty where it named none; see Entry.For and Addressee.
+	For        domain.AgentRole `json:"for,omitempty"`
+	RecordedAt time.Time        `json:"recorded_at"`
+}
+
+// Addressees is the roles a report may be addressed to: the ones that hold a
+// standing conversation and a recurring pass, so there is a list of theirs to
+// put it on and a turn of theirs to put it in front of. A developer and a
+// reviewer exist only inside one item's run, and a report for that work goes to
+// the development manager, who decides what becomes of the run.
+func Addressees() []domain.AgentRole {
+	return []domain.AgentRole{domain.RoleProductManager, domain.RoleArchitect, domain.RoleDevelopmentManager, domain.RoleProgramManager}
+}
+
+func addressable(role domain.AgentRole) bool {
+	for _, known := range Addressees() {
+		if role == known {
+			return true
+		}
+	}
+	return false
+}
+
+// Addressee is the role a report waits on until somebody handles it: the role
+// it was addressed to, or the Lead Product Manager, who handles the pile, where
+// it named none. It is never the operator, whatever the severity: a critical
+// report is the most urgent thing a role can say, and it is said to a role. The
+// operator is named only by a handling that records a person must act.
+func (r Report) Addressee() domain.AgentRole {
+	if addressable(r.For) {
+		return r.For
+	}
+	return domain.RoleProductManager
 }
 
 // HarnessReporter is the role a report is attributed to when no agent wrote it:
@@ -276,7 +319,7 @@ func (r Report) Validate() error {
 	if r.RecordedAt.IsZero() {
 		problems = append(problems, errors.New("recorded_at is required"))
 	}
-	problems = append(problems, Entry{Severity: r.Severity, Message: r.Message}.Validate())
+	problems = append(problems, Entry{Severity: r.Severity, Message: r.Message, For: r.For}.Validate())
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid collected report: %w", err)
 	}
@@ -391,6 +434,7 @@ func Collect(entries []Entry, attribution Attribution, now time.Time) ([]Report,
 			RepositoryID:  attribution.RepositoryID,
 			Severity:      entry.Severity,
 			Message:       strings.TrimSpace(entry.Message),
+			For:           entry.For,
 			RecordedAt:    now.UTC(),
 		}
 		if err := reported.Validate(); err != nil {
@@ -776,6 +820,9 @@ func (r Report) RenderAgainst(gauge *Gauge) string {
 	if r.WorkItemID != "" {
 		fmt.Fprintf(&rendered, " on %s", r.WorkItemID)
 	}
+	if r.For != "" {
+		fmt.Fprintf(&rendered, " for the %s", r.For.Title())
+	}
 	fmt.Fprintf(&rendered, " (%s)\n", r.provenance(gauge))
 	for _, line := range strings.Split(strings.TrimSpace(r.Message), "\n") {
 		fmt.Fprintf(&rendered, "      %s\n", strings.TrimSpace(line))
@@ -802,6 +849,8 @@ To report, end what you say with exactly one block of this shape:
 {"reports":[{"severity":"critical|warning|note","message":"what you noticed, what it affects, and what somebody would have to look at"}]}
 ` + "```" + `
 
-"critical" is something already wrong that will cost somebody if nobody looks at it. "warning" is a real risk or a fragile assumption that has not cost anything yet. "note" is worth knowing and asks for nothing. One block carries at most ` + maxEntriesPerReplyText + ` reports, and each one takes a severity and a message and nothing else. Leave the block out entirely when you have nothing to report.
+"critical" is something already wrong that will cost somebody if nobody looks at it. "warning" is a real risk or a fragile assumption that has not cost anything yet. "note" is worth knowing and asks for nothing. One block carries at most ` + maxEntriesPerReplyText + ` reports, and each one takes a severity, a message, and optionally "for", and nothing else. Leave the block out entirely when you have nothing to report.
 
-The severity is how important this is and not how loudly you want it read. A critical report is put in front of the operator wherever he is; the rest land in the durable record, are said in their work item's thread, and reach him in the regular summaries built from that record. So a severity you reached for to be noticed does not get the report read sooner — it spends the attention the genuinely broken ones need, which is the whole reason this scale is three words and not five.`
+"for" names the role the report is waiting on — the one that has to act on it — where you know it: "product-manager", "architect", "development-manager", or "program-manager". The report is put on that role's list and in front of its next pass, whatever its severity. Leave it out where you do not know which role has to act, and the Lead Product Manager, who handles every report, takes it. A report is never addressed to the operator: where only a person can act — a credential, a repository setting, a file the harness may not write — say so in the message, and the Lead Product Manager records it as his when she handles the report.
+
+The severity is how important this is and not how loudly you want it read. A critical report is put in front of the role it is for at once, and shown to the operator wherever he is as being with that role; the rest land in the durable record, are said in their work item's thread, and reach him in the regular summaries built from that record. So a severity you reached for to be noticed does not get the report read sooner — it spends the attention the genuinely broken ones need, which is the whole reason this scale is three words and not five.`

@@ -14,11 +14,13 @@ package readmodel
 // Two of those surfaces working it out separately is the disagreement one read
 // model exists to prevent.
 //
-// Several things make a finding. Two are read from the report pile: a report
-// filed at critical severity is one until somebody handles it — critical is the
-// severity that means action, in the reporting contract's own words — and a
-// handling that says the report needs the operator is one until a later
-// handling of the same report says otherwise. The third is a run stopping on a
+// Several things make a finding. One is read from the report pile: a handling
+// that says the report needs the operator is one until a later handling of the
+// same report says otherwise. A report itself never is, whatever its severity:
+// a critical report nobody has handled is with the role it was addressed to, or
+// with the Lead Product Manager who handles the pile, and is listed as that
+// role's in addressedreports.go. Only a handling records that a person must
+// act. The second is a run stopping on a
 // condition only a person can clear, which the harness records as the
 // development manager's escalation of that stoppage to the operator: her
 // decision is the one typed record that says a stopped run needs a person
@@ -28,7 +30,7 @@ package readmodel
 // is his, and it is read from the intake hold beside the switches and named on
 // the attention line there, as the held intake it is.
 //
-// The fifth is read from the amendment log and the recurring passes: an owning
+// The third is read from the amendment log and the recurring passes: an owning
 // role's batch of recommendations on the changes proposed to its documents, one
 // finding per pass, standing while any proposal in it is undecided. It is
 // derived in amendments.go and joins the others at the read model's reading and
@@ -97,9 +99,10 @@ const (
 )
 
 // OperatorActions is every finding that needs the operator, read from the pile
-// and what became of it, oldest first. It is the one derivation of the two
-// report-derived shapes; EscalatedOperatorActions is the third, and readOperatorActions
-// puts them together for the attention line.
+// and what became of it, oldest first: each report a handling recorded as
+// needing his hand. It is the one derivation of the report-derived shape;
+// EscalatedOperatorActions is the stoppages', and readOperatorActions puts them
+// together for the attention line.
 func OperatorActions(reports []report.Report, handlings []report.Handling) []OperatorAction {
 	handled := report.Handled(handlings)
 	var actions []OperatorAction
@@ -110,8 +113,7 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 			continue
 		}
 		handling, done := handled[reported.ID]
-		switch {
-		case done && handling.NeedsOperator:
+		if done && handling.NeedsOperator {
 			actions = append(actions, OperatorAction{
 				Key:        operatorActionKey(reported.ID),
 				Subject:    reported.ID,
@@ -123,18 +125,6 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 				FoundBy: fmt.Sprintf("the %s, handling the report", handling.Role.Title()),
 				Ends:    reportFindingEnds,
 				Since:   handling.RecordedAt,
-			})
-		case !done && reported.Severity == report.SeverityCritical:
-			actions = append(actions, OperatorAction{
-				Key:        operatorActionKey(reported.ID),
-				Subject:    reported.ID,
-				ReportID:   reported.ID,
-				WorkItemID: reported.WorkItemID,
-				Needs:      strings.Join(strings.Fields(reported.Message), " "),
-				RecordedIn: fmt.Sprintf("%s, the %s's report from %s", reported.ID, reported.Role.Title(), reported.RunID),
-				FoundBy:    fmt.Sprintf("the %s, in a critical report", reported.Role.Title()),
-				Ends:       reportFindingEnds,
-				Since:      reported.RecordedAt,
 			})
 		}
 	}

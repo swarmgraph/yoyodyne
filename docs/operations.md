@@ -1177,8 +1177,8 @@ them, and the finding it produced reached you a month after the first of them
 was filed, because you asked why.
 
 **A finding that needs your hand is a class the harness reads, and it goes to
-three places the moment it is recorded.** Four things make one, and the
-brake's hold becomes a fifth once it is yours:
+three places the moment it is recorded.** Three things make one, and the
+brake's hold becomes a fourth once it is yours:
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is a change only you can make,
@@ -1188,10 +1188,6 @@ brake's hold becomes a fifth once it is yours:
   again as unhandled, so her turns list the findings she has handed you, with
   their identifiers, until she records each one done — tell her when you have
   made the change, or she will see it.
-- **A report filed at critical severity** by any role, until somebody handles it.
-  Critical is the severity that means action, in the reporting contract's own
-  words; a critical report the Lead Product Manager then handles as yours is the same
-  finding, and one she handles any other way ends it.
 - **A run stopping on a condition only a person can clear.** The harness does
   not judge a stoppage itself; the development manager does, on
   [her docket](conversation.md#deciding-what-becomes-of-stopped-work), and her
@@ -1242,6 +1238,12 @@ brake's hold becomes a fifth once it is yours:
   many times — and its one line on `yoyo status` names you as the one to move.
   [The configuration guide](configuration.md#watching-instead-of-draining) says
   what the brake counts, what it does not, and how it is worked.
+
+A report is not one of these, whatever its severity. A critical report nobody
+has handled is the role's it was addressed to, or the Lead Product Manager's
+where it names none: it is listed under that role, reaches the channel saying
+whose it is, and becomes yours only if her handling records that a person must
+act. See [whom a report is for](reporting.md#whom-a-report-is-for).
 
 Two stops a run makes on its own are named to you elsewhere and are not
 findings of this class: a run the provider refused and the harness would not

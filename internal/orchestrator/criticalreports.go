@@ -39,6 +39,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -363,6 +364,68 @@ func (t Trigger) overdueReports() ([]report.Report, map[string]int, error) {
 		}
 	}
 	return overdue, passes, nil
+}
+
+// addressedTo is the unhandled reports addressed to the role a task wakes,
+// rendered for its pass, and nothing for the Lead Product Manager, who is put
+// the whole pile, or where none is addressed to the role. The derivation is the
+// read model's, so what the pass is shown is what its list on `yoyo status`
+// names. A pile that cannot be read is said rather than left out, because a
+// pass told nothing is addressed to it when nothing could be read would
+// conclude nothing was.
+func (t Trigger) addressedTo(task config.RecurringTask) string {
+	if t.Pile == nil || task.Role == domain.RoleProductManager {
+		return ""
+	}
+	reports, err := t.Pile.List()
+	if err != nil {
+		return "Whether any report is addressed to you could not be read on this pass: " + err.Error()
+	}
+	handlings, err := t.Pile.Handlings()
+	if err != nil {
+		return "Whether any report addressed to you has been handled could not be read on this pass: " + err.Error()
+	}
+	addressed := readmodel.ReportsAddressedTo(readmodel.MoverOf(task.Role), reports, handlings)
+	if len(addressed) == 0 {
+		return ""
+	}
+	var rendered strings.Builder
+	rendered.WriteString("These reports are addressed to your role and nobody has recorded what became of them. Each asks for a move of yours: act on what it asks within the authority your role already holds, and say in your account what you did about each, naming it. The Lead Product Manager records the handling that takes it off your list; none of them is the operator's.\n\n")
+	listed := addressed
+	if len(listed) > maxOverdueListed {
+		listed = listed[:maxOverdueListed]
+	}
+	for _, reported := range listed {
+		reporter := string(reported.Role)
+		if reported.Agent != "" {
+			reporter = reported.Agent
+		}
+		on := ""
+		if reported.WorkItemID != "" {
+			on = " on " + reported.WorkItemID
+		}
+		text := strings.Join(strings.Fields(reported.Message), " ")
+		preview := clip(text, overdueTextBytes)
+		if len(text) > overdueTextBytes {
+			preview += fmt.Sprintf(" [message cut; full message is %d bytes]", len(reported.Message))
+		}
+		fmt.Fprintf(&rendered, "- %s [%s] from %s%s, filed %s: %s\n",
+			reported.ID, reported.Severity, reporter, on, reported.RecordedAt.UTC().Format(time.RFC3339), preview)
+	}
+	if len(addressed) > len(listed) {
+		fmt.Fprintf(&rendered, "\n%d further report(s) addressed to your role are not listed here.\n", len(addressed)-len(listed))
+	}
+	return rendered.String()
+}
+
+// addressedLines is the section of reports addressed to the role a pass
+// carries, introduced as what it is. Nothing is added where there is none.
+func addressedLines(addressed string) []string {
+	addressed = strings.TrimSpace(addressed)
+	if addressed == "" {
+		return nil
+	}
+	return []string{"", "## Reports addressed to you", "", addressed}
 }
 
 // overdueLines is the overdue section a pass carries, introduced as what it

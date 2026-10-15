@@ -1580,6 +1580,62 @@ func TestSomethingConcerningNoItemIsAddressedToTheProduct(t *testing.T) {
 	}
 }
 
+// A critical report reaches the channel the operator reads, and it is said as
+// being with the role it is addressed to, never as needing his hand: what it
+// asks for is that role's move. A warning addressed to a role names the role
+// too, and a note addressed to nobody says only that the work carried on.
+func TestACriticalReportIsSaidAsWithItsRoleAndNotAsTheOperators(t *testing.T) {
+	filed := report.Report{
+		SchemaVersion: report.SchemaVersion,
+		ID:            "report-" + strings.Repeat("c", 32),
+		Role:          domain.RoleProgramManager,
+		Agent:         "factory-flow",
+		RunID:         "sweep-factory-flow",
+		WorkItemID:    "yoyodyne-ifd.420",
+		ProductID:     "yoyodyne",
+		RepositoryID:  "yoyodyne",
+		Severity:      report.SeverityCritical,
+		Message:       "Four ready P0 fixes have no run.",
+		For:           domain.RoleDevelopmentManager,
+		RecordedAt:    moment,
+	}
+	for _, test := range []struct {
+		name     string
+		severity report.Severity
+		to       domain.AgentRole
+		reach    Reach
+		next     string
+	}{
+		{name: "critical, addressed", severity: report.SeverityCritical, to: domain.RoleDevelopmentManager, reach: ReachChannel,
+			next: "Next: the development manager's — the report is addressed to the development manager and is with that role, not the operator"},
+		{name: "critical, addressed to nobody", severity: report.SeverityCritical, reach: ReachChannel,
+			next: "Next: the Lead Product Manager's — the report names no role, so it is with the Lead Product Manager"},
+		{name: "warning, addressed", severity: report.SeverityWarning, to: domain.RoleArchitect, reach: ReachThread,
+			next: "Next: the architect's — the report is addressed to the architect"},
+		{name: "note, addressed to nobody", severity: report.SeverityNote, reach: ReachThread,
+			next: "Next: nobody's — the work carried on."},
+	} {
+		filed.Severity, filed.For = test.severity, test.to
+		notification, err := FromReport(filed)
+		if err != nil {
+			t.Fatalf("%s: select: %v", test.name, err)
+		}
+		if notification.Reach() != test.reach {
+			t.Fatalf("%s: reach = %q, want %q", test.name, notification.Reach(), test.reach)
+		}
+		message, err := Render(notification.Topic, notification.Speaker, notification.Event)
+		if err != nil {
+			t.Fatalf("%s: render: %v", test.name, err)
+		}
+		if !strings.Contains(message.Body, test.next) {
+			t.Fatalf("%s: body = %q, want it to say %q", test.name, message.Body, test.next)
+		}
+		if strings.Contains(message.Body, "needs your hand") || strings.Contains(message.Body, "only a person can act on this") {
+			t.Fatalf("%s: body = %q puts the report to the operator", test.name, message.Body)
+		}
+	}
+}
+
 // A report nobody's agent wrote — the pull's refusal of an item whose own
 // sentence holds it back — is said in the harness's voice, which is the one
 // speaker that is not a persona. A role nobody configured would be refused.

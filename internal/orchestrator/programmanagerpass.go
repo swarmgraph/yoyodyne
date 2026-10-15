@@ -289,7 +289,7 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			pass:    passName(claimed),
 			task:    task,
 			trigger: trigger,
-			message: instanceMessage(agent, instance, due, nil, wake),
+			message: instanceMessage(agent, instance, due, nil, wake, t.addressedTo(task)),
 			agent:   agent,
 			events:  wake.counts(),
 			due:     dueAt,
@@ -356,7 +356,7 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 			pass:    pass,
 			task:    task,
 			trigger: runstate.PassTriggerRequest,
-			message: instanceMessage(agent, instance, false, &request, wake),
+			message: instanceMessage(agent, instance, false, &request, wake, t.addressedTo(task)),
 			agent:   agent,
 			events:  wake.counts(),
 			request: &request,
@@ -584,9 +584,11 @@ func (t Trigger) advance(ctx context.Context, agent string, wake passWake, answe
 
 // instanceMessage is what the harness says when it wakes an instance for a
 // pass: who woke it and why, the standing constraints every recurring turn
-// carries, the events since its cursor grouped by stream, and the account
-// contract.
-func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake) string {
+// carries, the events since its cursor grouped by stream, the reports addressed
+// to the program manager role as addressedTo renders them, and the account
+// contract. Every instance is put the same reports: a report names the role,
+// not one instance of it.
+func instanceMessage(agent string, instance config.AgentConfig, due bool, request *runstate.PassRequest, wake passWake, addressed string) string {
 	lane := strings.TrimSpace(instance.Lane)
 	who := fmt.Sprintf("The harness woke you, the program manager instance %q", agent)
 	if lane != "" {
@@ -613,6 +615,7 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, reques
 		lines = append(lines, describeRequest(*request)...)
 	}
 	lines = append(lines, describeWake(instance.Triggers, wake)...)
+	lines = append(lines, addressedLines(addressed)...)
 	lines = append(lines, "", sweep.Contract())
 	// An instance whose lane is a standing goal audits the closed work in its
 	// lane, and the Lead Product Manager's sweep is handed those audits rather

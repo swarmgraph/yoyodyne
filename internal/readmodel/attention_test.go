@@ -132,6 +132,11 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			Since:      moment.Add(-time.Hour),
 		}),
 			"report-1 needs your hand: add the hook to .claude/settings.json by hand (found by the Lead Product Manager, handling the report; recorded in the handling of report-1 recorded in chat-1, about yoyodyne-ifd.383)"},
+		AttentionAddressedReport: {addressedReportAttention(report.Report{
+			ID: "report-2", Role: domain.RoleProgramManager, WorkItemID: "yoyodyne-ifd.420", Severity: report.SeverityCritical,
+			For: domain.RoleDevelopmentManager, Message: "four ready P0 fixes have no run", RecordedAt: moment.Add(-time.Hour),
+		}),
+			"report-2, a critical report from the program manager about yoyodyne-ifd.420: four ready P0 fixes have no run"},
 		AttentionProductDecision: {productDecisionAttention(triage.Entry{
 			RunID: "run-superseded", WorkItemID: "yoyodyne-ifd.428.34",
 			ProductDecision: &triage.ProductDecision{
@@ -244,6 +249,7 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 		AttentionAmendmentQueue:    "",
 		AttentionHeldWork:          "",
 		AttentionProductDecision:   "run-superseded",
+		AttentionAddressedReport:   "report-2",
 		AttentionHumanGate:         "soak-reviewed",
 		AttentionUntracedPass:      "factory-watch",
 		AttentionFactoryStall:      "2026-08-30T06:00:00Z",

@@ -329,3 +329,50 @@ func TestAnOverdueReportDeclaresItsCutAndHowToReadTheWholeMessage(t *testing.T) 
 		t.Fatalf("the preview exceeded its bound or cut through a rune: %s", listed)
 	}
 }
+
+// A report addressed to a role is put in front of that role's own pass,
+// whatever its severity: the development manager's scheduled pass is told the
+// program manager's critical for her, and her warning, and not a report for
+// another role, an unaddressed one, or one already handled. The Lead Product
+// Manager is put the whole pile, so her pass carries no such section.
+func TestAReportAddressedToARoleIsPutInFrontOfThatRolesPass(t *testing.T) {
+	t.Parallel()
+
+	const (
+		critical    = "report-00000000000000000000000000000a01"
+		warning     = "report-00000000000000000000000000000a02"
+		forOther    = "report-00000000000000000000000000000a03"
+		unaddressed = "report-00000000000000000000000000000a04"
+		handled     = "report-00000000000000000000000000000a05"
+	)
+	addressed := func(id string, severity report.Severity, message string, to domain.AgentRole) report.Report {
+		reported := filedReport(id, domain.RoleProgramManager, severity, message, recurringNow.Add(-time.Hour))
+		reported.For = to
+		return reported
+	}
+	pile := &memoryPile{reports: []report.Report{
+		addressed(critical, report.SeverityCritical, "four ready P0 fixes have no run", domain.RoleDevelopmentManager),
+		addressed(warning, report.SeverityWarning, "reviews wait an hour for a slot", domain.RoleDevelopmentManager),
+		addressed(forOther, report.SeverityCritical, "the design is silent on retries", domain.RoleArchitect),
+		addressed(unaddressed, report.SeverityCritical, "nobody's in particular", ""),
+		addressed(handled, report.SeverityCritical, "already re-run", domain.RoleDevelopmentManager),
+	}}
+	pile.handle(handled)
+	trigger := Trigger{Reports: sweepStore(t), Pile: pile}
+
+	sweep := config.RecurringTask{Role: domain.RoleDevelopmentManager, Every: config.Duration(time.Hour), Enabled: true, Prompt: "work the docket", MaxTurns: 3}
+	message := wakeMessage("development-manager-sweep", sweep, "", "", trigger.addressedTo(sweep), amendmentBatch{})
+	for _, want := range []string{"## Reports addressed to you", critical, "four ready P0 fixes have no run", warning, "none of them is the operator's"} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("the pass's message is missing %q:\n%s", want, message)
+		}
+	}
+	for _, unwanted := range []string{forOther, unaddressed, handled} {
+		if strings.Contains(message, unwanted) {
+			t.Fatalf("the pass's message names %s:\n%s", unwanted, message)
+		}
+	}
+	if listed := trigger.addressedTo(reportTriageTask()["report-triage"]); listed != "" {
+		t.Fatalf("the Lead Product Manager's pass is put a section of its own: %s", listed)
+	}
+}

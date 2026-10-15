@@ -446,6 +446,12 @@ func endingSeverity(outcome runstate.RunOutcome) report.Severity {
 // speaker is the reporting role itself, because a report is the one outbound
 // message that is entirely the agent's own words, and the severity is the one
 // the agent chose rather than one derived from anything here.
+//
+// A critical report reaches the channel, where the operator reads it, and one
+// addressed to a role reaches its item's thread; either is said as being with
+// the role it waits on, in the read model's own words, so nobody reading it
+// takes it for his to act on. Only a handling that records a person must act
+// is said to him as his (FromOperatorAction).
 func FromReport(reported report.Report) (Notification, error) {
 	topic, err := topicForItem(reported.WorkItemID)
 	if err != nil {
@@ -457,6 +463,10 @@ func FromReport(reported report.Report) (Notification, error) {
 	if reported.Role == report.HarnessReporter {
 		speaker = Speaker{}
 	}
+	var detail Detail
+	if reported.For != "" || reported.Severity == report.SeverityCritical {
+		detail.Mover = readmodel.AddressedReportWhose(reported)
+	}
 	return Notification{
 		Topic:   topic,
 		Speaker: speaker,
@@ -465,6 +475,7 @@ func FromReport(reported report.Report) (Notification, error) {
 			At:       reported.RecordedAt,
 			Severity: reported.Severity,
 			Refs:     Refs{RunID: reported.RunID, WorkItemID: reported.WorkItemID},
+			Detail:   detail,
 			Text:     reported.Message,
 		},
 	}, nil

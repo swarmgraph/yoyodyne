@@ -92,10 +92,16 @@ const (
 	// by whose move it is rather than named item by item.
 	AttentionHeldWork AttentionKind = "held-work"
 	// AttentionOperatorAction is a finding only the operator can act on: a
-	// report handled as needing his hand, a critical report nobody has handled,
-	// or a stopped run the development manager escalated to him. It is always
-	// named and never counted into the remainder; see Named.
+	// report handled as needing his hand, or a stopped run the development
+	// manager escalated to him. It is always named and never counted into the
+	// remainder; see Named.
 	AttentionOperatorAction AttentionKind = "operator-action"
+	// AttentionAddressedReport is one report nobody has handled that waits on a
+	// role: one addressed to a role, whatever its severity, or a critical one
+	// addressed to none, which is the Lead Product Manager's. The report's
+	// identifier is the ID and the role it waits on the mover, never the
+	// operator; see addressedreports.go.
+	AttentionAddressedReport AttentionKind = "addressed-report"
 	// AttentionProductDecision is the Lead Product Manager's decision that an
 	// item whose run is in flight is superseded, narrowed, or to be retired,
 	// which the development manager has not yet answered by stopping the run or
@@ -152,6 +158,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionStall,
 		AttentionHeldWork,
 		AttentionOperatorAction,
+		AttentionAddressedReport,
 		AttentionProductDecision,
 		AttentionHumanGate,
 		AttentionUntracedPass,
@@ -206,6 +213,7 @@ func (a Attention) Label() string {
 		AttentionStall:             "work not starting",
 		AttentionHeldWork:          "work waiting",
 		AttentionOperatorAction:    "person needed",
+		AttentionAddressedReport:   "report for a role",
 		AttentionProductDecision:   "work decision waiting",
 		AttentionHumanGate:         "person's step waiting",
 		AttentionUntracedPass:      "findings not recorded",
@@ -364,6 +372,9 @@ type Attention struct {
 	// OperatorAction is the finding whole, on an AttentionOperatorAction entry;
 	// its key is the ID.
 	OperatorAction *OperatorAction `json:"operator_action,omitempty"`
+	// Report is the report whole, on an AttentionAddressedReport entry; its
+	// identifier is the ID.
+	Report *report.Report `json:"report,omitempty"`
 	// ProductDecision is the Lead Product Manager's decision whole, on an
 	// AttentionProductDecision entry; the run it is about is the ID and its item
 	// is WorkItemID.
@@ -413,14 +424,16 @@ func (a Attention) CitedWhose() string {
 
 // Named reports an entry the attention line prints by name wherever it falls
 // and never counts into "and N things not named here": a finding only the
-// operator can act on, a repeatedly failing product pass, and a hold the brake
-// placed. A line that folds those into a remainder has told him nothing, and
+// operator can act on, a critical report waiting on a role, a repeatedly
+// failing product pass, and a hold the brake placed. A line that folds those into a remainder has told him nothing, and
 // nothing telling him is the month
 // one class of finding once waited and the two hours the brake once stood.
 func (a Attention) Named() bool {
 	switch a.Kind {
 	case AttentionOperatorAction:
 		return true
+	case AttentionAddressedReport:
+		return a.Report != nil && a.Report.Severity == report.SeverityCritical
 	case AttentionFailingTask:
 		return a.FailingTask != nil && a.FailingTask.ProductPass
 	case AttentionHold:
@@ -668,6 +681,10 @@ func (a Attention) What() string {
 		if a.OperatorAction != nil {
 			return a.OperatorAction.Says()
 		}
+	case AttentionAddressedReport:
+		if a.Report != nil {
+			return addressedReportSays(*a.Report)
+		}
 	case AttentionHumanGate:
 		if a.HumanGate != nil {
 			if a.HumanGate.Unreadable != "" {
@@ -837,6 +854,10 @@ func (a Attention) Whose() string {
 	case AttentionOperatorAction:
 		if a.OperatorAction != nil {
 			return a.Mover.Possessive() + " — only a person can act on this; " + a.OperatorAction.Ends
+		}
+	case AttentionAddressedReport:
+		if a.Report != nil {
+			return AddressedReportWhose(*a.Report)
 		}
 	case AttentionHumanGate:
 		if a.HumanGate != nil {
