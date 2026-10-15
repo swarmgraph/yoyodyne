@@ -118,6 +118,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -292,6 +293,11 @@ type RepairContinueResult struct {
 	Stall bool `json:"stall,omitempty"`
 	// Checks says a stage stopped at its bound was continued at the checks.
 	Checks bool `json:"checks,omitempty"`
+	// Replay says the run's approved change, which the forge did not merge, was
+	// put back at its promotion to be brought up to date onto its target from its
+	// kept branch, checked, reviewed and queued again, with no developer invoked
+	// unless that conflicts.
+	Replay bool `json:"replay,omitempty"`
 	// FreshSession says the run recorded no developer session to re-enter, so the
 	// repair starts a fresh one on the preserved change, and is why it recorded
 	// none. Empty where the repair re-enters the session the run recorded.
@@ -477,7 +483,14 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// the continuation below, and not at all where this carry-out is refused.
 	result.RestoredSession = c.Backends.restoreSession(c.Events, &prior)
 	result.RestoredModel = c.Backends.restoreModel(&prior)
-	if err := continuableRepair(prior, found); err != nil {
+	// A repair of an approved change the forge did not merge is the change
+	// brought up to date onto its target from its kept branch, checked, reviewed
+	// and queued again: the replay a merge that fell behind gets, decided here
+	// because nothing was returned to a developer to repair (replaysDroppedMerge).
+	replay := replaysDroppedMerge(prior, found)
+	if replay {
+		result.Replay = true
+	} else if err := continuableRepair(prior, found); err != nil {
 		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
 			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch", err, prior.RunID)
 		}
@@ -493,6 +506,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	result.Checks = prior.StoppedAtStageBound()
 	result.Stall = !result.Checks && continuableStall(prior)
 	result.ResumesAt = continuedPhase(prior, result.Stall)
+	if replay {
+		result.ResumesAt = runstate.PhaseIntegrating
+	}
 	result.FreshSession = freshSessionWhy(prior)
 	// A continuation that invokes the developer invokes it on the backend the run
 	// recorded, so one this harness cannot start is refused here, before the
@@ -582,7 +598,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 			return result, err
 		}
 		result.WorktreeRestored = true
-		result.ResumesAt = continuedPhase(prior, result.Stall)
+		if !replay {
+			result.ResumesAt = continuedPhase(prior, result.Stall)
+		}
 		if err := preservedChangeHeld(ctx, c.Worktrees, prior); err != nil {
 			return result, MissingPreservedChangeError{RunID: prior.RunID, WorktreePath: prior.WorktreePath, Cause: err}
 		}
@@ -595,6 +613,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 
 	reason := continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
+	if replay {
+		reason = replayReason(entry, granted, prior)
+	}
 	if result.FreshSession != "" {
 		reason = fmt.Sprintf("Fresh developer session: %s. ", result.FreshSession) + reason
 	}
@@ -616,7 +637,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	if err := c.supersedeOnItem(ctx, item, prior, granted); err != nil {
 		return c.unconfirmedContinuation(ctx, result, err)
 	}
-	continued, err := c.supersedeOnRun(prior, granted, reason, result.Stall, result.FreshSession)
+	continued, err := c.supersedeOnRun(prior, granted, reason, result.Stall, result.FreshSession, replay)
 	if err != nil {
 		return c.unconfirmedContinuation(ctx, result, fmt.Errorf("record the continuation on run %s, whose item claim was confirmed: %w", prior.RunID, err))
 	}
@@ -1058,6 +1079,21 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	// A stall or a check-stage timeout owes the run the step the harness stopped,
 	// rather than a repair of a change nobody complained about.
 	if !handedBackRepair(prior) && !continuableStall(prior) && !prior.StoppedAtStageBound() {
+		// An approved change the forge did not merge is the case this is decided on
+		// most, and the record answers it the same way on every pass, so it is
+		// refused once, on the item, with what the record supports instead.
+		// A repair of one is the replay that brings it up to date
+		// (replaysDroppedMerge), so what reaches here is one that cannot be
+		// replayed, and the record answers it the same way on every pass: it is
+		// refused once, on the item, saying why.
+		if prior.MergeDrop != nil {
+			why := dropReplayRefusal(prior)
+			if why == "" {
+				why = fmt.Sprintf("the repository does not show its branch and checkout to replay it from: %s", found.Describe())
+			}
+			return permanentCarryOut(triage.CarryOutMergeDropped, fmt.Errorf("run %s's change was approved and handed to the forge to merge, and the forge did not merge it: %s. Nothing was ever returned to its developer, and the change cannot be brought up to date from the run because %s",
+				prior.RunID, oneline.Bound(prior.MergeDrop.Reason, 1200), why))
+		}
 		return fmt.Errorf("run %s recorded no reviewer findings, failing check, refused paths, or replay conflict, and is not a provider the harness stopped with its session preserved, so no failure was ever returned to its developer and there is no attempt to carry on with: %s stopped for something a repair budget does not answer",
 			prior.RunID, prior.RunID)
 	}
@@ -1209,7 +1245,12 @@ func (c RepairContinuer) supersedeOnItem(ctx context.Context, item beads.WorkIte
 // has not made yet. What is still spent is the item's grant: the continuation
 // records what it was worth, so the decision that authorized it is carried out
 // once and a second is a second decision.
-func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGrant, reason string, stalled bool, fresh string) (runstate.State, error) {
+//
+// A replay of a dropped merge counts no attempt either: nothing was returned to
+// a developer, and what it does first is bring the change up to date, which is
+// a lost race and costs nothing. The grant pays for what follows — a conflict
+// the replay hands the developer is repaired under it.
+func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGrant, reason string, stalled bool, fresh string, replay bool) (runstate.State, error) {
 	continued := prior
 	// Also correct stale flags when a process restored and verified the checkout
 	// but died before its final save. Captured work still keeps its ref and sweep
@@ -1235,7 +1276,7 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 			DispatchPending:        true,
 			SuccessNotePending:     true,
 		})
-	if !stalled && !prior.StoppedAtStageBound() {
+	if !stalled && !prior.StoppedAtStageBound() && !replay {
 		continued.RepairAttempts = prior.RepairAttempts + 1
 	}
 	// The blocker is cleared onto the continuation that supersedes it. A terminal
@@ -1274,6 +1315,9 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	}
 	continued.Status = runstate.StatusRunning
 	continued.Phase = continuedPhase(prior, stalled)
+	if replay {
+		putBackAtPromotion(&continued, prior, reason, c.now())
+	}
 	continued.CompletedAt = nil
 	continued.SettledQuietSince = nil
 	continued.UpdatedAt = c.now()
@@ -1459,6 +1503,8 @@ func (result RepairContinueResult) Render() string {
 		return rendered.String()
 	}
 	switch {
+	case result.Replay:
+		fmt.Fprintf(&rendered, "put run %s back at its merge to bring its approved change, which the forge did not merge, up to date with its target from its kept branch, check it and review it again, and queue its merge again; no developer attempt is counted unless that conflicts\n", result.RunID)
 	case result.Checks:
 		fmt.Fprintf(&rendered, "continued run %s at its checks after the check-stage bound stopped it, on the change it already has, with no developer attempt\n", result.RunID)
 	case result.Stall && result.ResumesAt != "" && result.ResumesAt != runstate.PhaseDeveloping:

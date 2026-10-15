@@ -879,6 +879,10 @@ func reconcilerFrom(parts components) orchestrator.Reconciler {
 		// leaves the merge queued.
 		Intake:   parts.intake,
 		Capacity: parts.config.Execution.MaxConcurrentDevelopers,
+		// A merge the forge has held, or dropped and nothing has replayed, for
+		// longer than a publication may sit unmerged is asked about and handed to
+		// the development manager with GitHub's reason.
+		StuckMergeAge: parts.config.Triage.StuckMergeAge.Duration(),
 		// The operator's pause, read before a run parked on it is settled: while
 		// it stands the park is theirs, and only a lifted one nothing continued is
 		// settled as a run with no process behind it.

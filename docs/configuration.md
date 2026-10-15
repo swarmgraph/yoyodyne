@@ -6413,6 +6413,13 @@ offers no event to hang a deadline on. It must be positive: an age of no time at
 all dockets every publication the instant it is made, which is a docket of
 everything and a triage of nothing.
 
+It is also how long a merge may wait with the forge. A merge still queued, or
+dropped and waiting to be brought up to date, this long after it was queued is
+asked about by `yoyo reconcile`, withdrawn where the forge still holds it, and
+recorded as not merged with the forge's reason, on the development manager's
+docket of stopped runs
+([operations](operations.md#recovering-interrupted-runs)).
+
 It is also how long a decision to `wait` leaves that entry alone, whether the
 entry is a publication or a stopped run. Waiting says "not yet" rather than
 deciding anything, so the entry comes back once it has been sitting there this

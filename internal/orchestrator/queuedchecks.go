@@ -131,6 +131,12 @@ func (r Reconciler) settleStillQueued(ctx context.Context, state runstate.State)
 	result.Detail = fmt.Sprintf("the forge still has the merge of pull request %d into %s queued; %s", published.Number, target, checks.Describe(target))
 	switch {
 	case !checks.Red():
+		// Checks that are not red say nothing against the merge, and a merge that
+		// has waited past its limit anyway is asked about and handed on
+		// (stuckmerge.go).
+		if waited, past := r.queuedPastLimit(state); past {
+			return r.settleStuckMerge(ctx, state, waited, true, "")
+		}
 		return result, nil
 	case rerun:
 		result.Detail += fmt.Sprintf("; the forge ended the failed jobs before any step failed, so the harness asked it to run them again (%d of %d on this head) and left the merge queued",
@@ -374,6 +380,11 @@ func (r Reconciler) updateQueuedHead(ctx context.Context, state runstate.State, 
 	// the integration budget is enforced, against a replay that stops on the
 	// change.
 	waiting := func(why string) (Reconciliation, error) {
+		// A wait for the moment to replay is still a merge not landing, and one
+		// past the limit is handed on rather than waited on again (stuckmerge.go).
+		if waited, past := r.queuedPastLimit(state); past {
+			return r.settleStuckMerge(ctx, state, waited, !dropped, why)
+		}
 		left := "it is left queued for the next sweep"
 		if dropped {
 			left = "it is left for the next sweep, which asks the forge again"
@@ -493,6 +504,12 @@ func (r Reconciler) replayDroppedLanding(ctx context.Context, state *runstate.St
 	result := reconciliationOf(*state, ActionQueued)
 	reading, err := r.Checks.Checks(ctx, published.Number, target)
 	if err != nil {
+		// The forge has said the merge is dropped, and only its checks went unread.
+		// Past the limit that is not a reason to wait again: the drop is recorded
+		// with what could be read.
+		if _, past := r.queuedPastLimit(*state); past {
+			return Reconciliation{}, false, nil
+		}
 		result.Detail = fmt.Sprintf("the forge holds no merge for pull request %d any more, and its checks could not be read (%v), so whether its head can be brought up to date is not known; the record is left as it stands and the next sweep asks again",
 			published.Number, err)
 		return result, true, r.recordUnreadChecks(*state, err)

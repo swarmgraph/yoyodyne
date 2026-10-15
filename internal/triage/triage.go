@@ -1061,13 +1061,18 @@ const (
 	// decide, and only reopening the item and recording a new decision makes a
 	// recovery of the run apply again.
 	CarryOutNoLongerApplies CarryOutCause = "no-longer-applies"
+	// CarryOutMergeDropped is a repair decided on a run whose approved change the
+	// forge did not merge, where nothing was ever returned to its developer: a
+	// repair has nothing to hand back, and the same record answers it the same way
+	// every time. A re-run or a re-arm is what the record supports.
+	CarryOutMergeDropped CarryOutCause = "merge-dropped"
 )
 
 // CarryOutCauses is the closed list the record and the inventory share.
 func CarryOutCauses() []CarryOutCause {
 	return []CarryOutCause{CarryOutWorktreeGone, CarryOutBranchGone, CarryOutHeadMoved,
 		CarryOutDecisionSuperseded, CarryOutDecisionMissing, CarryOutStoppageMissing,
-		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable, CarryOutNoLongerApplies}
+		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable, CarryOutNoLongerApplies, CarryOutMergeDropped}
 }
 
 func (c CarryOutCause) Valid() bool {

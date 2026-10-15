@@ -492,6 +492,8 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	// merge. Reconciliation is what settles the queue afterwards.
 	if result.Queued {
 		published.MergeQueued = true
+		queuedAt := a.pipeline.clock().Now()
+		published.QueuedAt = &queuedAt
 		a.state.PullRequest = &published
 		a.outcome.PullRequest = &published
 		a.state.UpdatedAt = a.pipeline.clock().Now()

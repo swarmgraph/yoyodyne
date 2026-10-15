@@ -2041,7 +2041,12 @@ failed and on what files, and how far behind its target the head is — or says
 that no sweep has read them yet. A red one rarely stays queued long enough to
 be docketed at all, because the sweep brings a head that fell behind its target
 up to date and hands back one whose own change fails
-([operations](operations.md#recovering-interrupted-runs)).
+([operations](operations.md#recovering-interrupted-runs)). Nor does any other
+merge stay queued past that age: the sweep then asks the forge why it has not
+merged, withdraws it, and dockets the run as a stopped run whose line says what
+the forge reports holding it and what would let it land. A repair decided on it
+brings the kept change up to date with the target and queues the merge again,
+where the run can be replayed; the line names the re-run where it cannot.
 
 Each entry carries the evidence rather than a summary of it: the blocker in the
 words it was recorded in — or, for a death that recorded none, the failure the

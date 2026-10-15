@@ -269,6 +269,7 @@ context bundle come from `internal/contextbundle`.
 | `scheduledocuments.go` | `ScheduleDocuments`, `nextDocuments`: each pull starts the documents waiting for a document landing as landings free, counted apart from the developer slots (`documentLandings` in `schedule.go` takes landings out of what the slots are counted against) |
 | `publish.go`, `publication.go` | pushing branches, pull requests, merge waits, re-asking the forge later |
 | `reconcile.go`, `reconcilewait.go`, `reconcilefinding.go` | settling what stopped runs left on disk and on the forge |
+| `stuckmerge.go` | the limit on a queued merge's wait: `queuedPastLimit` (measured from `PullRequest.QueuedAt`, or the run's end on an older record, against `Reconciler.StuckMergeAge`), and `settleStuckMerge`, which reads the forge's merge state, withdraws a merge still held, and settles the run as a dropped merge with `stuckMerge`'s account; asked from `settleStillQueued`, `updateQueuedHead`'s wait and `replayDroppedLanding` in `queuedchecks.go`. A repair decided on such a run is the replay (`replaysDroppedMerge`, `dropReplayRefusal`, `putBackAtPromotion`, carried out by `RepairContinuer.Continue` in `repaircontinue.go`); one that cannot be replayed is refused with cause `merge-dropped` |
 | `selfcheck.go` | `gateSelfVerification`, `missingVerification`, `verificationRepairPrompt` |
 | `declarative.go`, `workflow.go` | the delivery definition stepped beside a run (`observe`, `beginDeliveryTrial`) |
 | `landing.go` | developer's closure claims, `arrangeUndischarged` |
