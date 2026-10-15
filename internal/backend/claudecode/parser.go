@@ -56,12 +56,16 @@ type streamParser struct {
 	// above; a plain line after it is the decode error it always was.
 	sawEnvelope bool
 	// duplicateTerminal is what to say about an invocation the provider ended
-	// more than once, and empty when it ended once. It is held rather than
-	// applied because what a duplicate asks the caller for depends on the whole
-	// stream: a refusal can be reported after it, and a refusal already carries
-	// its own answer. Result decides between them when there is nothing left to
-	// arrive.
+	// more than once whose first ending could not be trusted, and empty
+	// otherwise. It is held rather than applied because what a duplicate asks
+	// the caller for depends on the whole stream: a refusal can be reported
+	// after it, and a refusal already carries its own answer. Result decides
+	// between them when there is nothing left to arrive.
 	duplicateTerminal string
+	// answered says the first terminal was this invocation's own answer, by the
+	// test terminalAnswersTheInvocation makes. It decides what a later terminal
+	// costs: a line in the event log, or that and a relaunch.
+	answered bool
 	// reportedCostUSD is the last figure a terminal of this invocation reported,
 	// and duplicateCostUSD what every terminal after the first added to it by the
 	// session-increment rule. They are kept beside the result rather than in it
@@ -609,6 +613,7 @@ func nestedAgentResult(envelope streamEnvelope) bool {
 
 func (p *streamParser) parseResult(envelope streamEnvelope) error {
 	p.sawResult = true
+	p.answered = terminalAnswersTheInvocation(envelope)
 	p.result.SessionID = envelope.SessionID
 	// A terminal result names the model only when no init event did; the model
 	// the run started on stays authoritative.
@@ -668,29 +673,55 @@ func (p *streamParser) parseResult(envelope streamEnvelope) error {
 // anomaly event, whichever answer the invocation ends up carrying.
 const duplicateTerminalReason = execution.DuplicateTerminalAnomaly
 
+// terminalAnswersTheInvocation reports a terminal that can be taken as the
+// invocation's own answer, which is what decides whether a later terminal costs
+// a relaunch. Three things together say so: the provider reported no failure,
+// it named how the invocation ended, and it carried the text it ended with.
+// The last two are the invocation's own marks — the ones nestedAgentResult
+// finds missing on a subagent's completion — and every genuine terminal on
+// record carries both.
+//
+// A terminal that fails any of the three is not thereby a duplicate's; it is an
+// ending nothing can tell from one, which is the case the relaunch is for.
+func terminalAnswersTheInvocation(envelope streamEnvelope) bool {
+	if envelope.IsError {
+		return false
+	}
+	reason := envelope.TerminalReason
+	if reason == "" {
+		reason = envelope.StopReason
+	}
+	return strings.TrimSpace(reason) != "" && strings.TrimSpace(envelope.Result) != ""
+}
+
 // recordDuplicateTerminal records a second terminal result and what it makes of
-// the invocation. The answer it leads to is a relaunch against the run's own
-// budget, in the same worktree and the same session — the way every other
-// provider death that judged nothing is answered — but that is settled in
-// Result rather than here, because a refusal reported later carries an answer
-// of its own.
+// the invocation. The decided result stands either way — nothing off the second
+// envelope is written into it, so the guarded invariant that a duplicate cannot
+// replace the first terminal holds — and what the duplicate costs is added to
+// what the invocation cost, since the provider charged for it either way. What
+// the duplicate decides is only whether that result is still trusted as the
+// invocation's outcome.
 //
-// The decided result still stands — nothing off the second envelope is written
-// into it, so the guarded invariant that a duplicate cannot replace the first
-// terminal holds — but it stops being trusted as the invocation's outcome, and
-// what the duplicate cost is added to what the invocation cost. The
-// nested-agent case above is why: a subagent completion that carries a
-// terminal's marks is read as this invocation's terminal, and the real terminal
-// then arrives as the duplicate, so the result already recorded may be a
-// subagent's rather than the run's.
+// Where the first terminal answered the invocation, by the test above, a later
+// one is the provider saying something after it had already said what it came
+// to say — a session woken after its terminal by work it left running in the
+// background, answering a second time. The duplicate is recorded as an anomaly
+// and nothing else happens: relaunching would ask a finished developer for an
+// attempt that can only repeat the account it already gave.
 //
-// This used to fail the stream, which failed the run. Run run-e2b8d016,
-// developing yoyodyne-ifd.117.1 on 2026-08-23, died that way mid-development and
-// its near-complete change had to be recovered by a triage rerun at triage-grant
-// price — for an anomaly that judged nothing about the work and that one
-// relaunch in the same session absorbs. A provider's dialect drifting is a
-// relaunch condition, not a fatality; a stream this parser genuinely cannot read
-// still fails the run with the parse error it always did.
+// Where the first terminal did not answer it — it reported a failure, named no
+// ending, or carried no text — neither ending can be told from the other, and
+// the second is quite often the real one: a subagent's completion carrying a
+// terminal's marks is read as the invocation's, so the run's own ending arrives
+// as the duplicate. Then the invocation is not trusted to have produced an
+// answer at all, and the answer is a relaunch against the run's own budget, in
+// the same worktree and the same session, the way every other provider death
+// that judged nothing is answered. That is settled in Result rather than here,
+// because a refusal reported later carries an answer of its own.
+//
+// Neither reading fails the stream: a provider's dialect drifting judges nothing
+// about the work, and a stream this parser genuinely cannot read still fails the
+// run with the parse error it always did.
 func (p *streamParser) recordDuplicateTerminal(envelope streamEnvelope) error {
 	duplicate := envelope.TerminalReason
 	if duplicate == "" {
@@ -703,18 +734,21 @@ func (p *streamParser) recordDuplicateTerminal(envelope streamEnvelope) error {
 	// The role and the session are recorded on it for the reason they are on a
 	// terminal: the pricing in internal/runstate reads the cost here as more of
 	// this invocation's, and the session is what says which running total the
-	// figure is an increment over.
+	// figure is an increment over. Which way the duplicate was read goes in
+	// beside it, because an anomaly that cost a relaunch and one that cost
+	// nothing are otherwise the same record.
 	if err := p.emit(execution.EventProcessOutput, map[string]any{
-		"provider_type":    envelope.Type,
-		"provider_subtype": envelope.Subtype,
-		"anomaly":          duplicateTerminalReason,
-		"role":             string(p.role),
-		"session_id":       envelope.SessionID,
-		"is_error":         envelope.IsError,
-		"result":           truncate(envelope.Result),
-		"terminal_reason":  envelope.TerminalReason,
-		"total_cost_usd":   envelope.TotalCostUSD,
-		"usage":            json.RawMessage(envelope.Usage),
+		"provider_type":              envelope.Type,
+		"provider_subtype":           envelope.Subtype,
+		"anomaly":                    duplicateTerminalReason,
+		"answered_by_first_terminal": p.answered,
+		"role":                       string(p.role),
+		"session_id":                 envelope.SessionID,
+		"is_error":                   envelope.IsError,
+		"result":                     truncate(envelope.Result),
+		"terminal_reason":            envelope.TerminalReason,
+		"total_cost_usd":             envelope.TotalCostUSD,
+		"usage":                      json.RawMessage(envelope.Usage),
 	}); err != nil {
 		return err
 	}
@@ -731,6 +765,9 @@ func (p *streamParser) recordDuplicateTerminal(envelope streamEnvelope) error {
 		p.duplicateCostUSD += envelope.TotalCostUSD - p.reportedCostUSD
 	}
 	p.reportedCostUSD = envelope.TotalCostUSD
+	if p.answered {
+		return nil
+	}
 	// The decided terminal's own reason is read off the result rather than kept
 	// beside it, which it can be because nothing here writes to the result: a
 	// third terminal names the ending the first one gave, not the anomaly the
@@ -782,19 +819,23 @@ func (p *streamParser) emit(eventType execution.EventType, payload any) error {
 // duplicate that arrives beside either of them leaves the answer to it, and adds
 // only what it alone knows — that this invocation is not to be trusted to have
 // produced one.
+//
+// A duplicate the first terminal already answered adds only its cost: the
+// result is otherwise the first terminal's, exactly as it would have been had
+// the provider stopped there.
 func (p *streamParser) Result() backend.RunResult {
 	result := p.result
-	if p.duplicateTerminal == "" {
-		return result
-	}
-	result.IsError = true
-	result.StopReason = duplicateTerminalReason
 	// The figure the meter prices against the session's last one is the first
 	// terminal's plus what every later terminal added. Where the provider's total
 	// only rose, which is every duplicate recorded so far, that is exactly the
 	// last terminal's figure, so the session's next invocation is priced against
 	// the total the provider last reported.
 	result.CostUSD += p.duplicateCostUSD
+	if p.duplicateTerminal == "" {
+		return result
+	}
+	result.IsError = true
+	result.StopReason = duplicateTerminalReason
 	if result.UsageLimit == nil && result.ServerOverload == nil {
 		result.TransientFailure = &backend.TransientFailure{Detail: p.duplicateTerminal}
 	}

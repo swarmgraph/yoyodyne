@@ -571,13 +571,9 @@ func TestRunHonorsTheParentTerminalWhenANestedAgentFinishesFirst(t *testing.T) {
 // what the record holds of the duplicate is its existence. It is therefore
 // written in the shape a genuine terminal has.
 //
-// That is not the only shape that reaches this path. What the guard passes on is
-// any result envelope after the first that carries a terminal reason or result
-// text — one with neither is a nested agent's and is recorded as stream noise
-// before the guard sees it — so a subagent whose completion carries result text
-// reaches it too, and spends one relaunch on an invocation that had in fact
-// finished. That is the same trade the nested-agent discrimination makes, with a
-// consequence one relaunch cheaper than the one it replaces: the run used to end.
+// Its first terminal is clean and carries the invocation's own marks, so this
+// stream is the answered case: the first terminal is the invocation's answer and
+// the second is recorded without relaunching anything.
 func duplicateTerminalStream() string {
 	terminal := `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"Reconciled the disposition table.","total_cost_usd":7.5,"usage":{"input_tokens":10},"terminal_reason":"completed"}`
 	return strings.Join([]string{
@@ -588,55 +584,73 @@ func duplicateTerminalStream() string {
 	}, "\n") + "\n"
 }
 
-// A provider that ends one invocation twice has drifted, and drift is a relaunch
-// condition rather than a fatality. The invocation is reported as a transient
-// death — the class the harness already relaunches within a durable budget, in
-// the same worktree and the same session — instead of failing the whole run on a
-// parse error.
-func TestRunRelaunchesRatherThanFailingOnADuplicateTerminalResult(t *testing.T) {
-	t.Parallel()
-
+// runStream drives one provider stream through the backend and returns what the
+// invocation answered with and everything it recorded on the way.
+func runStream(t *testing.T, stream string, prompt string) (backendapi.RunResult, []execution.Event) {
+	t.Helper()
 	var events []execution.Event
 	result, err := (Backend{
-		Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: duplicateTerminalStream()}}},
+		Runner: &fakeRunner{results: []execution.ProcessResult{{Status: execution.ProcessSucceeded, ExitCode: 0, Stdout: stream}}},
 		Clock:  fixedClock{},
 	}).Run(context.Background(), backendapi.RunRequest{
 		RunID:            testRunID,
 		Role:             domain.RoleDeveloper,
 		WorkingDirectory: "/worktree",
-		Prompt:           "reconcile the disposition table",
+		Prompt:           prompt,
 		EventSink: func(event execution.Event) error {
 			events = append(events, event)
 			return nil
 		},
 	})
-	// The parse error is what threw the change away. Nothing about a duplicate
-	// terminal is unreadable, so nothing about it may end the run.
+	// Nothing about a duplicate terminal is unreadable, so nothing about it may
+	// end the run with a parse error.
 	if err != nil {
 		t.Fatalf("Run() error = %v, want a duplicate terminal to be reported rather than to fail the stream", err)
 	}
-	if result.TransientFailure == nil {
-		t.Fatalf("Run() reported no transient failure, so nothing would relaunch: %#v", result)
+	return result, events
+}
+
+// findAnomaly returns the one event recording a duplicate terminal, and fails
+// where there is not exactly one: an anomaly recorded twice and an anomaly
+// recorded not at all are both answers this behaviour must not give.
+func findAnomaly(t *testing.T, events []execution.Event) execution.Event {
+	t.Helper()
+	var found []execution.Event
+	for _, event := range events {
+		if strings.Contains(string(event.Payload), `"anomaly":"`+duplicateTerminalReason+`"`) {
+			found = append(found, event)
+		}
 	}
-	// Both endings travel with the death, because which of them was this
-	// invocation's is exactly what the duplicate makes unanswerable.
-	wantDetail := `the provider ended this invocation twice, first with "completed" and again with "completed"`
-	if result.TransientFailure.Detail != wantDetail {
-		t.Fatalf("transient failure detail = %q, want %q", result.TransientFailure.Detail, wantDetail)
+	if len(found) != 1 {
+		t.Fatalf("duplicate terminal anomalies recorded = %d, want exactly one", len(found))
 	}
-	// Neither of the provider's own reasons is the recorded one: the harness
-	// names the anomaly rather than picking an ending it cannot tell apart.
-	if !result.IsError || result.StopReason != duplicateTerminalReason {
-		t.Fatalf("Run() result = %#v, want a failed invocation stopped by %q", result, duplicateTerminalReason)
+	if found[0].Type != execution.EventProcessOutput {
+		t.Fatalf("duplicate terminal recorded as %q, want stream noise rather than a second completion", found[0].Type)
 	}
-	// The decided result still stands. The duplicate replaces nothing, so the
-	// attempt's session — which is what the relaunch continues in — and the
-	// evidence of what it cost are both intact.
+	return found[0]
+}
+
+// An invocation whose first terminal was a clean result carrying its own marks
+// has been answered, and the answer is that terminal. A second one is the
+// provider saying something after it had already said what it came to say: it is
+// recorded as the anomaly it is, and nothing is asked again.
+func TestADuplicateTerminalAfterACleanOneIsRecordedWithoutRelaunching(t *testing.T) {
+	t.Parallel()
+
+	result, events := runStream(t, duplicateTerminalStream(), "reconcile the disposition table")
+	// The whole of what the relaunch path reads: internal/orchestrator takes a
+	// death only where a transient failure is reported beside an invocation that
+	// failed, so an answered invocation is asked again by nothing.
+	if result.TransientFailure != nil || result.IsError {
+		t.Fatalf("Run() asked for a relaunch of an invocation that had answered: %#v", result)
+	}
+	// The first terminal is the answer: its text, its reason, and the session a
+	// later round of this run continues in.
+	if result.FinalText != "Reconciled the disposition table." || result.StopReason != "completed" {
+		t.Fatalf("Run() result = %#v, want the first terminal's own answer", result)
+	}
 	if result.SessionID != "session-1" || result.ResolvedModel != "claude-opus-5" || result.CostUSD != 7.5 {
 		t.Fatalf("the duplicate terminal displaced the decided result: %#v", result)
-	}
-	if result.FinalText != "Reconciled the disposition table." {
-		t.Fatalf("FinalText = %q, want the decided terminal's own text", result.FinalText)
 	}
 	// Nothing about this is a refusal, and reading it as one would park the run
 	// waiting for a condition nobody named.
@@ -644,18 +658,143 @@ func TestRunRelaunchesRatherThanFailingOnADuplicateTerminalResult(t *testing.T) 
 		t.Fatalf("a duplicate terminal became a refusal: overload=%#v limit=%#v", result.ServerOverload, result.UsageLimit)
 	}
 	// The anomaly is recorded whole, because a dialect that drifted cannot be
-	// diagnosed from a record that kept only the fact that it drifted.
+	// diagnosed from a record that kept only the fact that it drifted, and it
+	// says which way it was read.
 	if len(events) != 4 {
 		t.Fatalf("events = %d, want the duplicate recorded beside the three the invocation produced", len(events))
 	}
-	anomaly := string(events[3].Payload)
-	if events[3].Type != execution.EventProcessOutput {
-		t.Fatalf("duplicate terminal recorded as %q, want stream noise rather than a second completion", events[3].Type)
-	}
-	for _, want := range []string{`"anomaly":"duplicate_terminal_result"`, `"terminal_reason":"completed"`, `"total_cost_usd":7.5`} {
+	anomaly := string(findAnomaly(t, events).Payload)
+	for _, want := range []string{`"answered_by_first_terminal":true`, `"terminal_reason":"completed"`, `"total_cost_usd":7.5`} {
 		if !strings.Contains(anomaly, want) {
 			t.Fatalf("duplicate terminal payload is missing %s: %s", want, anomaly)
 		}
+	}
+}
+
+// TestAFinishedDeveloperIsNotInvokedAgainOnASecondTerminal replays the stream
+// shape run-f3755e3fb4f8148277ed7bcae48b2fc0 recorded while developing
+// yoyodyne-ifd.425. The developer finished its round, the CLI's leftover
+// background watchers woke the session after its terminal, the agent answered a
+// second time, and the harness read the second terminal as an invocation it
+// could not trust and relaunched a developer that had nothing left to do.
+//
+// The fixture is rebuilt from the normalized events the run recorded, because
+// the provider's raw stdout is deliberately not retained (see Backend.Run).
+// Every envelope carries the field values the record holds, including each
+// result's usage object; what is elided is the tools list on the init events,
+// which nothing here reads.
+func TestAFinishedDeveloperIsNotInvokedAgainOnASecondTerminal(t *testing.T) {
+	t.Parallel()
+
+	stream, err := os.ReadFile("testdata/run-f3755e3f-second-terminal.jsonl")
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	result, events := runStream(t, string(stream), "resolve the review findings")
+
+	// No relaunch. The relaunch is asked for by a transient failure beside a
+	// failed invocation, and this is neither.
+	if result.TransientFailure != nil || result.IsError {
+		t.Fatalf("Run() asked for a relaunch of a developer that had finished: %#v", result)
+	}
+	if result.ServerOverload != nil || result.UsageLimit != nil || result.ProviderOutage != nil {
+		t.Fatalf("a second terminal became a refusal: %#v", result)
+	}
+	// The answer is the first terminal's. Its cost carries what the second
+	// terminal added, since the provider charged for that turn too.
+	if result.StopReason != "completed" || math.Abs(result.CostUSD-44.8557805000001) > 1e-9 {
+		t.Fatalf("Run() result = %#v, want the first terminal's own answer priced with the second's increment", result)
+	}
+	if !strings.HasPrefix(result.FinalText, "`make check` passed on the finished tree") {
+		t.Fatalf("FinalText = %q, want the first terminal's own text", result.FinalText)
+	}
+	if result.SessionID != "6c07cbe3-a25d-4c89-a6a4-e62c3ab9b437" || result.ResolvedModel != "claude-opus-5" {
+		t.Fatalf("the second terminal displaced the decided result: %#v", result)
+	}
+	// One invocation in the log. The bare result envelope between the two
+	// terminals is a nested agent's and is stream noise; the second terminal is
+	// the anomaly.
+	var completions int
+	for _, event := range events {
+		if event.Type == execution.EventRunCompleted || event.Type == execution.EventRunFailed {
+			completions++
+		}
+	}
+	if completions != 1 {
+		t.Fatalf("invocations recorded as ending = %d, want the one the stream answered with", completions)
+	}
+	anomaly := string(findAnomaly(t, events).Payload)
+	for _, want := range []string{`"answered_by_first_terminal":true`, `"terminal_reason":"completed"`, `"total_cost_usd":44.8557805000001`} {
+		if !strings.Contains(anomaly, want) {
+			t.Fatalf("second terminal payload is missing %s: %s", want, anomaly)
+		}
+	}
+}
+
+// Where the first terminal did not answer the invocation, neither ending can be
+// told from the other and the invocation is not trusted to have produced one at
+// all. That is the relaunch the harness has always made: a transient death
+// reissued in the same worktree and the same session, against the run's own
+// budget, rather than a parse error that ends the run.
+func TestADuplicateTerminalStillRelaunchesWhenTheFirstEndingCannotBeTrusted(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		name  string
+		first string
+		want  string
+	}{
+		{
+			// The provider reported a failure. What the second terminal then
+			// contradicts is a verdict, so which of the two this invocation ended
+			// on decides whether anything went wrong at all.
+			name:  "the first terminal reported a failure",
+			first: `{"type":"result","subtype":"error","session_id":"session-1","is_error":true,"result":"something went wrong","terminal_reason":"api_error","total_cost_usd":7.5,"usage":{}}`,
+			want:  `the provider ended this invocation twice, first with "api_error" and again with "completed"`,
+		},
+		{
+			// No ending named. An ending without one is an ending whose
+			// provenance is exactly what the duplicate puts in question.
+			name:  "the first terminal named no ending",
+			first: `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"Reconciled the disposition table.","total_cost_usd":7.5,"usage":{}}`,
+			want:  `the provider ended this invocation twice, first with no terminal reason and again with "completed"`,
+		},
+		{
+			// No text. A terminal that said nothing is the shape a subagent's
+			// completion arrives in, one mark short of the nested-agent test.
+			name:  "the first terminal carried no text",
+			first: `{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"","terminal_reason":"completed","total_cost_usd":7.5,"usage":{}}`,
+			want:  `the provider ended this invocation twice, first with "completed" and again with "completed"`,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			stream := strings.Join([]string{
+				`{"type":"system","subtype":"init","session_id":"session-1","model":"claude-opus-5"}`,
+				testCase.first,
+				`{"type":"result","subtype":"success","session_id":"session-1","is_error":false,"result":"Reconciled the disposition table.","total_cost_usd":7.5,"usage":{},"terminal_reason":"completed"}`,
+			}, "\n") + "\n"
+			result, events := runStream(t, stream, "reconcile the disposition table")
+			if result.TransientFailure == nil {
+				t.Fatalf("Run() reported no transient failure, so nothing would relaunch: %#v", result)
+			}
+			// Both endings travel with the death, because which of them was this
+			// invocation's is exactly what the duplicate makes unanswerable.
+			if result.TransientFailure.Detail != testCase.want {
+				t.Fatalf("transient failure detail = %q, want %q", result.TransientFailure.Detail, testCase.want)
+			}
+			// Neither of the provider's own reasons is the recorded one: the
+			// harness names the anomaly rather than picking an ending it cannot
+			// tell apart. The session the relaunch continues in is intact.
+			if !result.IsError || result.StopReason != duplicateTerminalReason || result.SessionID != "session-1" {
+				t.Fatalf("Run() result = %#v, want a failed invocation stopped by %q", result, duplicateTerminalReason)
+			}
+			anomaly := string(findAnomaly(t, events).Payload)
+			if !strings.Contains(anomaly, `"answered_by_first_terminal":false`) {
+				t.Fatalf("duplicate terminal payload does not say it was not answered: %s", anomaly)
+			}
+		})
 	}
 }
 
@@ -856,8 +995,9 @@ func TestRunRejectsMalformedOrIncompleteStream(t *testing.T) {
 		{name: "no result", stream: `{"type":"system","subtype":"init","session_id":"session-1"}` + "\n", want: "without a result"},
 		// A second terminal result is deliberately not in this class. It is a
 		// stream this parser can read perfectly well, saying something the
-		// provider's dialect should not say, and it is answered by a relaunch —
-		// TestRunRelaunchesRatherThanFailingOnADuplicateTerminalResult.
+		// provider's dialect should not say, and it is answered by its first
+		// terminal or by a relaunch —
+		// TestADuplicateTerminalStillRelaunchesWhenTheFirstEndingCannotBeTrusted.
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
