@@ -57,7 +57,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `workItemEvidence`, `grantEvidence`, `refuseProviderGrant`.
 7. **The gate.** `verifyReviewAndFinish` → `repairLoop` → `promoteApproved` →
    `integrate` → `finish`. Promotion races: `contendedIntegration`,
-   `prepareIntegrationRetry`, `recordRebase`, `continueOnRebaseConflict`,
+   `prepareIntegrationRetry`, `lostRacesBeforeGivingBackTheSlot` and
+   `blockOnLostRaces` (a run that keeps losing gives back its slot with its
+   work kept), `recordRebase`, `continueOnRebaseConflict`,
    `moveOntoTargetForRepair`, `blockOnRebaseConflict`, `blockOnDivergedTarget`,
    `blockOnPromotedDivergence`. Budget: `repairBudget`, `repair`,
    `chargeReplayStop`, `blockOnChargedReplay`.

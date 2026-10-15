@@ -5605,13 +5605,21 @@ the change no longer sits on, and an approval that survived a replay would be
 authorizing a promotion nobody judged. Nothing is handed back to the developer,
 so a replay spends no repair attempt — the change is not what went wrong.
 
-**Losing the race spends nothing, and never stops the run.** The change
-standing at a refused promotion passed its checks and was approved, so a lost
-race always replays, and a replay that passes its checks and is approved is
-charged nothing: a run whose replays keep passing keeps replaying until it
-lands, however busy the target is and whatever the budget says. Every lost race
-is recorded on the run before its replay begins and is said in the item's
-thread at note severity; it is never docketed and never blocks the item.
+**Losing the race spends no budget.** The change standing at a refused
+promotion passed its checks and was approved, so a lost race replays, and a
+replay that passes its checks and is approved is charged nothing, whatever the
+budget says. Every lost race is recorded on the run before its replay begins and
+is said in the item's thread at note severity.
+
+What a lost race does cost is the developer slot the run holds while it
+replays, so a run gives the slot back at its **fifth lost race**. That race is
+not replayed: the run stops with its branch and worktree kept, and the item is
+blocked with a note saying how many races the change lost and that its work is
+kept, which puts it on the development manager's list to decide when it is
+replayed again. Five is four replays, over three hours of one slot re-earning an
+approval the change already had; the number is fixed in the harness
+(`lostRacesBeforeGivingBackTheSlot` in `internal/orchestrator/pipeline.go`) and
+is not a configuration key.
 
 The budget bounds replays that stop on the change instead: one that conflicts,
 and one whose replayed change is handed back for a failing check, a refused
@@ -6557,10 +6565,9 @@ person to unstick.
 rounds. An approval sends the change to promotion rather than back to the
 developer, so the only thing that asks for another verdict inside the same run is
 a promotion that lost its race and replayed. A replay that passes spends no
-budget, so those approvals are bounded by how often other work lands on the
-target rather than by a number: each one is a race another promotion caused,
-and `execution.integration_retries_before_reconciliation` bounds the replays
-that stop on the change instead. A trivial residue
+budget; those approvals are bounded by the run giving back its slot at its
+fifth lost race, and `execution.integration_retries_before_reconciliation`
+bounds the replays that stop on the change. A trivial residue
 does send the change back, and `execution.repair_attempts_before_replan` bounds
 that: an attempt is spent by the attempt, whether or not the verdict that asked
 for it cost a round. How many runs an item gets is bounded in turn by the repair

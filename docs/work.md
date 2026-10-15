@@ -556,9 +556,12 @@ and it may not be: the run ahead of it in the queue can have promoted into it,
 and committing to it yourself while a run is working moves it just as
 effectively. The promotion fails closed either way, and the run then replays its
 change onto where the target went, re-runs the checks, and gets a fresh
-independent review before trying again. Losing the race spends nothing: a run
-whose replays keep passing keeps replaying until it lands, each lost race said
-in the item's thread as a note and never docketed.
+independent review before trying again. Losing the race spends no budget: each
+lost race is said in the item's thread as a note, and a run whose replays keep
+passing keeps replaying until it lands or loses its fifth race. At the fifth it
+stops replaying and gives back its developer slot, with its branch and worktree
+kept and the item blocked for the development manager, saying how many races it
+lost.
 `execution.integration_retries_before_reconciliation` bounds only the replays
 that stop on the change — one that conflicts, or is handed back for a failing
 check or a repair verdict — and the replay that takes the count past it stops

@@ -252,6 +252,7 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).endPromotion` | `call:fail` | 1 | Settles promotion failure or redeploy cancellation; any promotion already made stands. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).endPromotion` | `call:stop` | 1 | Settles promotion failure or redeploy cancellation; any promotion already made stands. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnChargedReplay` | `classified-stop` | 2 | Blocks on the charged replay budget, including a blocker write that failed. |
+| `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnLostRaces` | `classified-stop` | 2 | Blocks at the lost race that reaches the bound, giving back the developer slot with branch and worktree kept, including a failed blocker write. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnRebaseConflict` | `classified-stop` | 2 | Blocks on replay conflict after repairs are unavailable, including a failed blocker write. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnDivergedTarget` | `classified-stop` | 2 | Blocks before promotion on target disagreement, including a failed blocker write. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).blockOnPromotedDivergence` | `classified-stop` | 2 | Blocks on target disagreement after local promotion; the promotion stands. |
