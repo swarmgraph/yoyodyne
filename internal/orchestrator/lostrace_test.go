@@ -225,3 +225,117 @@ func TestAtBudgetZeroTheFirstReplayThatFailsItsChecksStopsTheRun(t *testing.T) {
 		t.Fatalf("durable record: races %d, charged %d", state.IntegrationRetries, state.ChargedReplays)
 	}
 }
+
+// A run whose change keeps losing the race stops at the race that makes
+// lostRacesBeforeGivingBackTheSlot rather than replaying it: the run is no
+// longer in flight, so its developer slot is free; its branch and worktree are
+// kept with the change in them; and the item is blocked and listed for the
+// development manager with how many races it lost and that its work is kept.
+// One race short of the bound, the same change lands as it always did.
+func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T) {
+	t.Parallel()
+
+	t.Run("loses more races than the bound", func(t *testing.T) {
+		t.Parallel()
+
+		repository := pipelineRepository(t)
+		tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+		provider := orchestratortest.RoleBackend(implementsFeature, approveVerdict)
+		movingTargetReviewer(t, repository, provider, lostRacesBeforeGivingBackTheSlot+2)
+		pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+		docket, err := runstate.NewDocketStore(t.TempDir(), "yoyodyne")
+		if err != nil {
+			t.Fatalf("NewDocketStore() error = %v", err)
+		}
+		pipeline.Docket = docketerOverStore(docket, store, pipeline.Config)
+
+		outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+		lost := strconv.Itoa(lostRacesBeforeGivingBackTheSlot) + " times"
+		if err == nil || !strings.Contains(err.Error(), runstate.ContendedIntegrationFailure+" "+lost) {
+			t.Fatalf("Run() error = %v, want the run stopped at its lost race number %d", err, lostRacesBeforeGivingBackTheSlot)
+		}
+		if outcome.Integration != nil || tracker.Closed {
+			t.Fatalf("Run() outcome = %#v, want nothing promoted", outcome)
+		}
+		assertSavedStopClass(t, store, outcome.RunID, runstate.StopIntegration)
+		// The race at the bound is not replayed: one review per race lost, and the
+		// developer never asked for anything.
+		if reviews := provider.RequestsForRole(domain.RoleReviewer); len(reviews) != lostRacesBeforeGivingBackTheSlot {
+			t.Fatalf("reviewer invocations = %d, want one per race lost and no replay after the last", len(reviews))
+		}
+		if developers := provider.RequestsForRole(domain.RoleDeveloper); len(developers) != 1 {
+			t.Fatalf("developer invocations = %d, want 1", len(developers))
+		}
+
+		// The slot: the run is terminal and nothing is left in flight to hold one.
+		state, err := store.Load(outcome.RunID)
+		if err != nil {
+			t.Fatalf("Load() error = %v", err)
+		}
+		if state.Status.InFlight() || state.CompletedAt == nil {
+			t.Fatalf("status = %q, want a terminal run holding no slot", state.Status)
+		}
+		incomplete, err := store.Incomplete()
+		if err != nil {
+			t.Fatalf("Incomplete() error = %v", err)
+		}
+		if len(incomplete) != 0 {
+			t.Fatalf("runs in flight = %d, want the run's slot given back", len(incomplete))
+		}
+		if !state.LostItsRace() {
+			t.Fatalf("failure = %q, want it read as a run that lost its race", state.Failure)
+		}
+		if state.IntegrationRetries != lostRacesBeforeGivingBackTheSlot-1 || state.ChargedReplays != 0 {
+			t.Fatalf("durable record: replays %d, charged %d", state.IntegrationRetries, state.ChargedReplays)
+		}
+
+		// The work: the branch and worktree are kept, with the change in them.
+		if state.WorktreeRemoved || state.BranchRemoved {
+			t.Fatalf("worktree removed %t, branch removed %t; want both kept", state.WorktreeRemoved, state.BranchRemoved)
+		}
+		if _, err := os.Stat(filepath.Join(state.WorktreePath, "feature.txt")); err != nil {
+			t.Fatalf("the change is not in the kept worktree: %v", err)
+		}
+		if shown := gitOutput(t, repository, "show", state.Branch+":feature.txt"); !strings.Contains(shown, "implemented") {
+			t.Fatalf("branch %s does not carry the change: %q", state.Branch, shown)
+		}
+
+		// The listing: the item is blocked, and the development manager's list
+		// carries the run with the reason in plain words.
+		reason := "lost the race to land on main " + lost
+		if !tracker.Blocked || !strings.Contains(tracker.BlockReason, reason) || !strings.Contains(tracker.BlockReason, "Its work is kept.") {
+			t.Fatalf("blocked = %t, blocker = %q; want the races lost and the work kept", tracker.Blocked, tracker.BlockReason)
+		}
+		entries, err := docket.List()
+		if err != nil {
+			t.Fatalf("List() error = %v", err)
+		}
+		if len(entries) != 1 || entries[0].RunID != outcome.RunID {
+			t.Fatalf("docket = %#v, want the run listed once", entries)
+		}
+		if !strings.Contains(entries[0].Blocker, reason) || !strings.Contains(entries[0].Blocker, "Its work is kept.") {
+			t.Fatalf("listed reason = %q, want the races lost and the work kept", entries[0].Blocker)
+		}
+	})
+
+	t.Run("wins within the bound", func(t *testing.T) {
+		t.Parallel()
+
+		repository := pipelineRepository(t)
+		tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+		provider := orchestratortest.RoleBackend(implementsFeature, approveVerdict)
+		movingTargetReviewer(t, repository, provider, lostRacesBeforeGivingBackTheSlot-1)
+		pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+
+		outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+		if outcome.Status != runstate.StatusSucceeded || outcome.Integration == nil || !outcome.WorkItemClosed || tracker.Blocked {
+			t.Fatalf("Run() outcome = %#v, want the change landed and the item closed", outcome)
+		}
+		if outcome.IntegrationRetries != lostRacesBeforeGivingBackTheSlot-1 {
+			t.Fatalf("lost races = %d, want %d", outcome.IntegrationRetries, lostRacesBeforeGivingBackTheSlot-1)
+		}
+	})
+}

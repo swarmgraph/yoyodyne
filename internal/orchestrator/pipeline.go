@@ -2784,6 +2784,40 @@ func contendedIntegration(err error) bool {
 	return errors.Is(err, gitworktree.ErrTargetDrift) || errors.Is(err, gitworktree.ErrNotFastForward)
 }
 
+// lostRacesBeforeGivingBackTheSlot is how many times one run may lose the race
+// for its target branch before it stops replaying and gives its developer slot
+// back. Every replay runs the checks and a fresh independent review again, about
+// fifty minutes on a loaded machine, and the run holds one of the few developer
+// slots throughout, so five lost races is four replays — over three hours of a
+// slot spent re-earning an approval the change already had once. Most changes
+// that lose races land within that; a run past it is one main keeps outpacing,
+// and the slot is worth more to the ready work waiting for it than to a fifth
+// replay. Stopping costs the change nothing it could keep: the branch and
+// worktree stay, and the approval was going to be re-earned on the next replay
+// anyway.
+const lostRacesBeforeGivingBackTheSlot = 5
+
+// blockOnLostRaces ends a run whose change has lost the race for its target
+// branch lostRacesBeforeGivingBackTheSlot times. It is not a verdict on the
+// change: the change passed its checks and was approved each time, and other
+// work landing first is what refused it. The item is blocked so the stoppage
+// reaches the development manager's list with the reason beside it, and the
+// branch and worktree are kept, as every failed run's are, for whichever of the
+// development manager's decisions picks the change up again.
+//
+// The failure opens with runstate.ContendedIntegrationFailure, which is how
+// every surface recognizes a run that lost its race (State.LostItsRace) and
+// says it as the routine stoppage it is rather than as a change in trouble.
+func (a *activeRun) blockOnLostRaces(cause error) error {
+	lost := a.state.IntegrationRetries + 1
+	blocked := fmt.Errorf("%s %d times, so the run stopped replaying and gave back its developer slot with its work kept: %w",
+		runstate.ContendedIntegrationFailure, lost, cause)
+	if err := a.block(renderLostRacesBlockerNotes(a.outcome, a.worktree.TargetBranch, lost, blocked.Error())); err != nil {
+		return stoppedBy(runstate.StopIntegration, withFailedRecord(blocked, fmt.Errorf("record the lost races as a blocker: %w", err)))
+	}
+	return stoppedBy(runstate.StopIntegration, blocked)
+}
+
 // prepareIntegrationRetry re-prepares a change whose promotion lost its race,
 // and reports whether the run may try again. The retry is recorded before any
 // of it happens, so a process that dies part-way through cannot come back to a
@@ -2800,14 +2834,22 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	if !contendedIntegration(cause) {
 		return false, nil
 	}
-	// Losing the race is not what the budget bounds, and it never stops the run.
-	// The change standing here passed its checks and was approved, so a replay
-	// that passes again is charged nothing and the run replays for as long as the
-	// target keeps moving. What the budget bounds is a replay that stops on the
+	// Losing the race is not what the budget bounds. The change standing here
+	// passed its checks and was approved, so a replay that passes again is
+	// charged nothing. What the budget bounds is a replay that stops on the
 	// change — conflicting, or handed back for a failing check or a repair
 	// verdict — and it is enforced where that happens (chargeReplayStop), not
 	// here. The replay being prepared is marked unjudged until its gate says
 	// which it was.
+	//
+	// What a lost race does spend is the developer slot the run holds while it
+	// replays, and that is bounded here: the race that makes
+	// lostRacesBeforeGivingBackTheSlot ends the run with its work kept rather
+	// than replaying it again.
+	if a.state.IntegrationRetries+1 >= lostRacesBeforeGivingBackTheSlot {
+		a.observe(ctx, deliveryIntegrate, "contended")
+		return false, a.blockOnLostRaces(cause)
+	}
 	a.state.IntegrationRetries++
 	a.state.ReplayUnjudged = true
 	a.outcome.IntegrationRetries = a.state.IntegrationRetries
@@ -8101,10 +8143,9 @@ func (a *activeRun) reviewChange(ctx context.Context) (review.Decision, error) {
 // generous, and what holds that is other budgets rather than the rounds. An
 // approval sends the change to promotion rather than back to the developer, so
 // the only thing that asks for another verdict inside one run is a promotion
-// that lost its race and replayed. A replay that passes spends nothing, so
-// those approvals are bounded by how often other work lands on the target
-// rather than by a budget: each one is a race somebody else's promotion caused.
-// A replay that stops on the change is what
+// that lost its race and replayed. A replay that passes spends no budget, so
+// those approvals are bounded by lostRacesBeforeGivingBackTheSlot, at which the
+// run stops replaying with its work kept. A replay that stops on the change is what
 // execution.integration_retries_before_reconciliation bounds. A trivial
 // residue does send the change back, and what bounds that is the run's own repair
 // budget, which is spent by the attempt whether or not the verdict that asked for
@@ -9413,6 +9454,25 @@ func renderChargedReplayBlockerNotes(outcome Outcome, failure string, limit int)
 		"Worktree: " + outcome.WorktreePath,
 		"Base commit: " + outcome.BaseCommit,
 		"What stopped the replay is about the change on its new base: a failing check, a refused path, missing verification, or a repair verdict. The branch and worktree are preserved with the replayed change in them.",
+	}
+	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
+}
+
+// renderLostRacesBlockerNotes describes a run that stopped replaying after its
+// change lost the race for the target branch too many times. Its first line is
+// the reason the development manager's list shows, so it says in plain
+// words how many races were lost and that the work is kept.
+func renderLostRacesBlockerNotes(outcome Outcome, target string, lost int, failure string) string {
+	lines := []string{
+		fmt.Sprintf("Yoyodyne stopped this item: its approved change lost the race to land on %s %d times, because other work landed first each time, so the run stopped replaying it and gave back its developer slot. Its work is kept.",
+			target, lost),
+		fmt.Sprintf("Races lost: %d of %d before the slot is given back", lost, lostRacesBeforeGivingBackTheSlot),
+		"Failure: " + failure,
+		"Run: " + outcome.RunID,
+		"Branch: " + outcome.Branch,
+		"Worktree: " + outcome.WorktreePath,
+		"Base commit: " + outcome.BaseCommit,
+		"Nothing here says the change is wrong: it passed its checks and was approved before every race it lost. The branch and worktree are preserved with the change in them, and it needs replaying onto the target branch, checking, and reviewing again before it can land.",
 	}
 	return strings.Join(append(lines, renderReviewNotes(outcome)...), "\n")
 }

@@ -292,10 +292,12 @@ type Execution struct {
 	// replayed change failed its checks or drew a repair verdict. Each replay
 	// re-runs the deterministic checks and obtains a fresh independent review,
 	// because the reviewed change is not the change that would now be promoted,
-	// and a replay that passes both is charged nothing, so a run whose replays
-	// keep passing keeps replaying until it lands. The replay that takes the
+	// and a replay that passes both is charged nothing. The replay that takes the
 	// count past the bound stops the run there, on the change; zero means no
-	// replay may stop on the change. A lost race itself never stops a run.
+	// replay may stop on the change. Lost races themselves are bounded by a fixed
+	// number rather than by this setting: the run gives back its developer slot
+	// at its fifth, with its work kept (lostRacesBeforeGivingBackTheSlot in the
+	// orchestrator).
 	IntegrationRetriesBeforeReconciliation int `yaml:"integration_retries_before_reconciliation" json:"integration_retries_before_reconciliation"`
 	// TransientRelaunchesBeforeBlocking bounds how many times a run reissues a
 	// provider invocation that died without judging the work — an API error the

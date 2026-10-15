@@ -395,13 +395,21 @@ the change no longer sits on, and an approval that survived a replay would be
 authorizing a promotion nobody judged. Nothing is handed back to the developer,
 so a replay spends no repair attempt — the change is not what went wrong.
 
-**Losing the race spends nothing, and never stops the run.** The change
-standing at a refused promotion passed its checks and was approved, so a lost
-race always replays, and a replay that passes its checks and is approved is
-charged nothing: a run whose replays keep passing keeps replaying until it
-lands, however busy the target is and whatever the budget says. Every lost race
-is recorded on the run before its replay begins and is said in the item's
-thread at note severity; it is never docketed and never blocks the item.
+**Losing the race spends no budget.** The change standing at a refused
+promotion passed its checks and was approved, so a lost race replays, and a
+replay that passes its checks and is approved is charged nothing, whatever the
+budget says. Every lost race is recorded on the run before its replay begins and
+is said in the item's thread at note severity.
+
+What a lost race does cost is the developer slot the run holds while it
+replays, so a run gives the slot back at its **fifth lost race**. That race is
+not replayed: the run stops with its branch and worktree kept, and the item is
+blocked with a note saying how many races the change lost and that its work is
+kept, which puts it on the development manager's list to decide when it is
+replayed again. Five is four replays, over three hours of one slot re-earning an
+approval the change already had; the number is fixed in the harness
+(`lostRacesBeforeGivingBackTheSlot` in `internal/orchestrator/pipeline.go`) and
+is not a configuration key.
 
 The budget bounds replays that stop on the change instead: one that conflicts,
 and one whose replayed change is handed back for a failing check, a refused
