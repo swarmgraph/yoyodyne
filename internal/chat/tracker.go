@@ -2134,6 +2134,14 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		outcome.applied("removed the label %s from %s; it now carries%s", change.RemoveLabels[0], id, labelsClause(labelled.Labels))
 	case actionReparent:
 		parent := action.parent()
+		// Placing work under an item that already waits on it leaves both waiting
+		// on each other; see circularWaitRefusal. Detaching an item cannot.
+		if parent != "" {
+			if refusal := s.circularWaitRefusal(ctx, id, beads.WaitStep{ID: parent, Via: beads.WaitViaParent}); refusal != "" {
+				outcome.Failure = refusal
+				return
+			}
+		}
 		if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{Parent: &parent}); err != nil {
 			outcome.fail(err)
 			return
@@ -2190,6 +2198,12 @@ func (s *Session) carryOutTrackerAction(ctx context.Context, outcome *TrackerOut
 		outcome.applied("released %s back into the queue, where it is selected in the order its priority puts it%s", id, ended)
 	case actionLink:
 		dependsOn := strings.TrimSpace(action.DependsOn)
+		// A parent made to wait on work broken out of it waits for ever; see
+		// circularWaitRefusal.
+		if refusal := s.circularWaitRefusal(ctx, id, beads.WaitStep{ID: dependsOn, Via: beads.WaitViaLink}); refusal != "" {
+			outcome.Failure = refusal
+			return
+		}
 		if err := s.options.Tracker.AddBlocker(ctx, id, dependsOn); err != nil {
 			outcome.fail(err)
 			return

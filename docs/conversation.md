@@ -1044,6 +1044,28 @@ slice of automatic document publication (`yoyodyne-ifd.433.21.1`) went about
 nineteen hours without a run this way, read as ready by three roles while its
 parent waited on the architect's design.
 
+The same holding back is why a link or a reparent that would make an item wait
+on its own work is refused before anything is written. An item linked to wait on
+something broken out of it — a design created under the implementation that
+needs it, or a closing measure under the item coordinating it — waits on work
+the tracker holds back until that item stops waiting, so neither is ever
+offered, and nor is any sibling the held work waits on. The harness walks what
+the item would come to wait on, through each link and each parent that holds
+work back, and where that leads back to the item or to work broken out of it,
+the action fails naming every step and nothing changes:
+
+```text
+refused, and nothing was changed: 'Move the orchestrator tests' (yoyodyne-ifd.429.14) would wait on 'Re-take the race-binary measure' (yoyodyne-ifd.429.14.3), which was broken out of 'Move the orchestrator tests' (yoyodyne-ifd.429.14). The tracker holds work broken out of an item back until that item stops waiting, so 'Move the orchestrator tests' (yoyodyne-ifd.429.14) would never stop waiting and that work would never be offered. A prerequisite an item waits on goes beside it, under the same parent, rather than under it; place it there and link that, or link the work that actually needs it
+```
+
+A reparent under a parent that already waits on the item is refused the same
+way. A wait on work outside the item's own decomposition is carried out as
+asked, however long its chain, and a tracker that cannot be read well enough
+to settle it refuses the write and says so. Before this, design work broken out
+of the implementation that waited for it was found stranded four times, and on
+2026-10-15 a closing measure (`yoyodyne-ifd.429.14.3`) and both groups it
+waited on were held behind the item coordinating them.
+
 An item read carries at most 8 KiB before the separate runs section. Long text
 before the notes is returned in parts: each part names its starting byte, how
 many bytes it returns, and how many remain. It gives the next tracker read
