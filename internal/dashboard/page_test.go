@@ -714,11 +714,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"queues": {
 			"Merge queues",
 			"Merge queue for main: 3 waiting to land, 1 finished",
-			"Last pass: waiting — landing waits for the target promotion lease another process holds",
-			"3. yoyodyne-ifd.230 Say on the run which check the stage is on — verified, not landed yet, harness queue",
-			"4. yoyodyne-ifd.231 Name the target branch in the landing line — uncertain whether it landed, harness queue",
-			"5. yoyodyne-ifd.232 Keep the reviewer's summary on the card — waiting, harness queue",
-			"2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, harness queue — landed on main as 4b825dc642cb, confirmed on the target",
+			"Last pass: waiting — landing waits while another process lands a change on main",
+			"3. yoyodyne-ifd.230 Say on the run which check the stage is on — verified, not landed yet, in the harness's own queue",
+			"4. yoyodyne-ifd.231 Name the target branch in the landing line — uncertain whether it landed, in the harness's own queue — landing attempt 1 asked for moving main onto the candidate",
+			"5. yoyodyne-ifd.232 Keep the reviewer's summary on the card — waiting, in the harness's own queue",
+			"2. yoyodyne-ifd.222 Name the stale program managers on the channel — landed, in the harness's own queue — landed on main as 4b825dc642cb, confirmed on the target",
 		},
 		"queues-unreadable": {"Could not be read: the merge queues could not all be listed: decode the merge queue 7d2f0c41: unexpected end of JSON input"},
 		"busy": {

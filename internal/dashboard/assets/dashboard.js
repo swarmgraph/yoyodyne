@@ -1287,11 +1287,11 @@ var standingWarningAgeSeconds = 5 * 60;
         row.appendChild(el("p", "held-reason", "Not in use: " + queue.refusal.requirement + " What would let it be used: " + queue.refusal.step + "."));
       }
       if (queue.last_pass && queue.last_pass.says) {
-        row.appendChild(el("p", "held-reason", "Last pass: " + queue.last_pass.outcome + " \u2014 " + queue.last_pass.says));
+        row.appendChild(el("p", "held-reason", "Last pass: " + queue.last_pass_label + " \u2014 " + queue.last_pass.says));
       }
       var entries = el("ul", "held-list");
       (queue.entries || []).forEach(function (entry) {
-        entries.appendChild(el("li", "held-reason", entry.place + ". " + entry.work_item_id + " " + entry.title + " \u2014 " + entry.label + ", " + entry.mode + " queue \u2014 " + entry.why));
+        entries.appendChild(el("li", "held-reason", entry.place + ". " + entry.work_item_id + " " + entry.title + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why));
       });
       row.appendChild(entries);
       list.appendChild(row);

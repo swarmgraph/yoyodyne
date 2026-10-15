@@ -103,6 +103,84 @@ func (s QueueEntryState) Label() string {
 	return string(s)
 }
 
+// stepWords is one step of a landing in ordinary words.
+func stepWords(step runstate.MergeQueueMutation, target string, pullRequest int) string {
+	switch step {
+	case runstate.MergeQueueMoveTarget:
+		return "moving " + target + " onto the candidate"
+	case runstate.MergeQueuePushCandidate:
+		return "pushing the candidate to the forge"
+	case runstate.MergeQueueOpenPullRequest:
+		return "opening the pull request that carries the candidate"
+	case runstate.MergeQueueRequestMerge:
+		if pullRequest > 0 {
+			return fmt.Sprintf("asking the forge to merge pull request %d", pullRequest)
+		}
+		return "asking the forge to merge the candidate's pull request"
+	case runstate.MergeQueueFollowTarget:
+		return "bringing the local " + target + " up to the forge's"
+	}
+	return "a step this build does not know"
+}
+
+// pathWords is how a landing attempt lands, in ordinary words.
+func pathWords(path runstate.MergeQueueLandingPath, target string) string {
+	switch path {
+	case runstate.MergeQueueLandLocally:
+		return "moving " + target + " here"
+	case runstate.MergeQueueLandLocallyThenPullRequest:
+		return "moving " + target + " here and then merging its pull request"
+	case runstate.MergeQueueLandThroughPullRequest:
+		return "through a pull request the forge merges"
+	case runstate.MergeQueueLandThroughForgeQueue:
+		return "through the forge's own merge queue"
+	}
+	return "by a way this build does not know"
+}
+
+// handbackWords is what became of a change handed back, in ordinary words.
+func handbackWords(continuation runstate.MergeQueueContinuation) string {
+	switch continuation {
+	case runstate.MergeQueueContinueRepair:
+		return "sent back to its run for repair"
+	case runstate.MergeQueueBudgetExhausted:
+		return "sent back with its repair attempts used up"
+	case runstate.MergeQueueMissingPrerequisite:
+		return "sent back, but its run no longer has what a repair starts from"
+	case runstate.MergeQueueUnattributed:
+		return "sent back, but no single change can be named as the cause"
+	}
+	return "sent back"
+}
+
+// modeWords is a queue mode in ordinary words.
+func modeWords(mode runstate.MergeQueueMode) string {
+	switch mode {
+	case runstate.MergeQueueHarness:
+		return "the harness's own queue"
+	case runstate.MergeQueueForge:
+		return "the forge's merge queue"
+	}
+	return "a queue this build does not know"
+}
+
+// passWords is what a pass of the queue's worker came to, in ordinary words.
+func passWords(outcome runstate.MergeQueuePassOutcome) string {
+	switch outcome {
+	case runstate.MergeQueuePassIdle:
+		return "found nothing waiting"
+	case runstate.MergeQueuePassWaiting:
+		return "waiting"
+	case runstate.MergeQueuePassLanded:
+		return "landed a change"
+	case runstate.MergeQueuePassHandedBack:
+		return "handed a change back"
+	case runstate.MergeQueuePassStopped:
+		return "stopped on something somebody has to look at"
+	}
+	return "an outcome this build does not know"
+}
+
 // QueueEntryStanding is one queued change.
 type QueueEntryStanding struct {
 	EntryID    string                  `json:"entry_id"`
@@ -112,6 +190,8 @@ type QueueEntryStanding struct {
 	Title      string                  `json:"title"`
 	RunID      string                  `json:"run_id"`
 	Mode       runstate.MergeQueueMode `json:"mode"`
+	// ModeLabel is Mode in the words every surface prints for it.
+	ModeLabel string `json:"mode_label"`
 	// ModeWhy is why the entry is in its mode, as recorded when it was admitted.
 	ModeWhy string          `json:"mode_why,omitempty"`
 	State   QueueEntryState `json:"state"`
@@ -151,6 +231,9 @@ type MergeQueueStanding struct {
 	Refusal *runstate.MergeQueueRefusal `json:"refusal,omitempty"`
 	// LastPass is what the queue's worker last found.
 	LastPass *runstate.MergeQueuePass `json:"last_pass,omitempty"`
+	// LastPassLabel is the last pass's outcome in the words every surface
+	// prints for it.
+	LastPassLabel string `json:"last_pass_label,omitempty"`
 }
 
 // recentlyFinishedShown bounds the finished entries a queue shows.
@@ -190,7 +273,7 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey) (MergeQueueS
 	if pass, found, err := queues.LastPass(key); err != nil {
 		problems = append(problems, fmt.Sprintf("the last pass of the queue for %s could not be read: %v", key.TargetBranch, err))
 	} else if found {
-		standing.LastPass = &pass
+		standing.LastPass, standing.LastPassLabel = &pass, passWords(pass.Outcome)
 	}
 	entries, err := queues.Entries(key)
 	if err != nil {
@@ -200,7 +283,7 @@ func readMergeQueue(queues MergeQueues, key runstate.MergeQueueKey) (MergeQueueS
 	var open, finished []QueueEntryStanding
 	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
 		read, problem := readQueueEntry(queues, key, entry)
-		read.Label = read.State.Label()
+		read.Label, read.ModeLabel = read.State.Label(), modeWords(read.Mode)
 		if problem != "" {
 			problems = append(problems, problem)
 		}
@@ -258,11 +341,11 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 		if handback.Continuation == runstate.MergeQueueReleased {
 			read.State, read.Why = QueueEntryReleased, handback.Reason
 			if handback.TransferTo != "" {
-				read.Why = fmt.Sprintf("moved to the %s queue; %s", handback.TransferTo, handback.Reason)
+				read.Why = fmt.Sprintf("moved to %s; %s", modeWords(handback.TransferTo), handback.Reason)
 			}
 			return true
 		}
-		read.State, read.Why = QueueEntryHandedBack, fmt.Sprintf("handed back (%s), %s to move next: %s", handback.Continuation, handback.Mover, handback.Reason)
+		read.State, read.Why = QueueEntryHandedBack, fmt.Sprintf("%s; the next move is %s: %s", handbackWords(handback.Continuation), handback.Mover.Possessive(), handback.Reason)
 		return true
 	}
 	attempt, attempted := landing.Current()
@@ -271,7 +354,7 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 	}
 	read.Generation = attempt.Generation
 	if record, unsettled := attempt.Unsettled(); unsettled {
-		read.State, read.Why = QueueEntryUncertain, fmt.Sprintf("the %s of landing attempt %d was asked for and nothing has established what became of it yet", record.Mutation, attempt.Number)
+		read.State, read.Why = QueueEntryUncertain, fmt.Sprintf("landing attempt %d asked for %s, and nothing has established what became of it yet", attempt.Number, stepWords(record.Mutation, landing.TargetBranch, attempt.PullRequest))
 		return true
 	}
 	if withdrawal := attempt.Withdrawal; withdrawal != nil && withdrawal.Settled == nil {
@@ -286,7 +369,7 @@ func placedByLanding(read *QueueEntryStanding, landing runstate.MergeQueueLandin
 		read.State, read.Why = QueueEntryForgeHolds, fmt.Sprintf("the forge holds the merge of pull request %d until its own requirements are met; nothing has landed yet", attempt.PullRequest)
 		return true
 	}
-	read.State, read.Why = QueueEntryLanding, fmt.Sprintf("landing attempt %d is under way (%s)", attempt.Number, attempt.Path)
+	read.State, read.Why = QueueEntryLanding, fmt.Sprintf("landing attempt %d is under way, %s", attempt.Number, pathWords(attempt.Path, landing.TargetBranch))
 	return true
 }
 
@@ -361,10 +444,10 @@ func (s Standing) RenderMergeQueues() string {
 			fmt.Fprintf(&rendered, "  not in use: %s What would let it be used: %s.\n", refusal.Requirement, refusal.Step)
 		}
 		if pass := queue.LastPass; pass != nil && pass.Says != "" {
-			fmt.Fprintf(&rendered, "  last pass: %s — %s\n", pass.Outcome, pass.Says)
+			fmt.Fprintf(&rendered, "  last pass: %s — %s\n", queue.LastPassLabel, pass.Says)
 		}
 		for _, entry := range queue.Entries {
-			fmt.Fprintf(&rendered, "  %d. %s %s — %s, %s queue — %s\n", entry.Place, entry.WorkItemID, entry.Title, entry.Label, entry.Mode, entry.Why)
+			fmt.Fprintf(&rendered, "  %d. %s %s — %s, in %s — %s\n", entry.Place, entry.WorkItemID, entry.Title, entry.Label, entry.ModeLabel, entry.Why)
 		}
 	}
 	if s.MergeQueuesProblem != "" {

@@ -97,6 +97,11 @@ func TestTheQueueIsShownWithoutReadingApprovalAsALanding(t *testing.T) {
 			t.Fatalf("rendered queues lack %q:\n%s", line, rendered)
 		}
 	}
+	// What a landing asked for is said in words, never as the record's own
+	// value for it.
+	if !strings.Contains(rendered, "landing attempt 1 asked for moving main onto the candidate") || strings.Contains(rendered, string(runstate.MergeQueueMoveTarget)) {
+		t.Fatalf("the uncertain landing is not said in ordinary words:\n%s", rendered)
+	}
 	if strings.Contains(rendered, "— landed") || strings.Contains(rendered, "landed on") {
 		t.Fatalf("nothing has landed, and the queue says something has:\n%s", rendered)
 	}
@@ -227,12 +232,17 @@ func TestTheReadModelProjectsEachQueueEntryFromItsRecords(t *testing.T) {
 		t.Fatalf("queue = %#v, want one finished and the waiting pass", queue)
 	}
 	rendered := standing.RenderMergeQueues()
+	for _, raw := range []string{"(repair)", "harness queue", "forge queue", "developer to move"} {
+		if strings.Contains(rendered, raw) {
+			t.Fatalf("rendered queues carry the record's own value %q rather than words:\n%s", raw, rendered)
+		}
+	}
 	for _, line := range []string{
 		"Merge queue for main: 3 waiting to land, 1 finished",
 		"last pass: waiting — the review is not asked for while the operator's pause stands",
-		"yoyodyne-ifd.2 Handed back — handed back, harness queue — handed back (repair), developer to move next: make test failed on the candidate",
-		"yoyodyne-ifd.3 Waiting its turn — waiting, forge queue",
-		"yoyodyne-ifd.1 Landed already — landed, harness queue — landed on main as 999999999999, confirmed on the target",
+		"yoyodyne-ifd.2 Handed back — handed back, in the harness's own queue — sent back to its run for repair; the next move is the developer's: make test failed on the candidate",
+		"yoyodyne-ifd.3 Waiting its turn — waiting, in the forge's merge queue",
+		"yoyodyne-ifd.1 Landed already — landed, in the harness's own queue — landed on main as 999999999999, confirmed on the target",
 		"decode generations",
 	} {
 		if !strings.Contains(rendered, line) {

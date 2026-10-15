@@ -31,6 +31,7 @@
           "title": "Say on the run which check the stage is on",
           "run_id": "run-7e2c19d4a0b34f6e9c1d5a8b2f7e3c90",
           "mode": "harness",
+          "mode_label": "the harness's own queue",
           "mode_why": "The project has no forge that can say whether it has a merge queue. The harness runs the queue itself.",
           "state": "verified",
           "label": "verified, not landed yet",
@@ -45,9 +46,10 @@
           "title": "Name the target branch in the landing line",
           "run_id": "run-8f3d20e5b1c45a7fad2e6b9c3a8f4d01",
           "mode": "harness",
+          "mode_label": "the harness's own queue",
           "state": "uncertain",
           "label": "uncertain whether it landed",
-          "why": "the move-target of landing attempt 1 was asked for and nothing has established what became of it yet",
+          "why": "landing attempt 1 asked for moving main onto the candidate, and nothing has established what became of it yet",
           "generation": 1
         },
         {
@@ -58,6 +60,7 @@
           "title": "Keep the reviewer's summary on the card",
           "run_id": "run-9a4e31f6c2d56b8abe3f7cad4b9a5e12",
           "mode": "harness",
+          "mode_label": "the harness's own queue",
           "state": "waiting",
           "label": "waiting",
           "why": "waiting for its turn; no candidate has been built for it yet"
@@ -70,6 +73,7 @@
           "title": "Name the stale program managers on the channel",
           "run_id": "run-1a2b3c4d5e6f708192a3b4c5d6e7f809",
           "mode": "harness",
+          "mode_label": "the harness's own queue",
           "state": "landed",
           "label": "landed",
           "why": "landed on main as 4b825dc642cb, confirmed on the target",
@@ -84,8 +88,9 @@
         "outcome": "waiting",
         "entry_id": "mqe-4f1c2d9e8a7b6c5d4e3f2a1b0c9d8e7f",
         "work_item_id": "yoyodyne-ifd.230",
-        "says": "landing waits for the target promotion lease another process holds"
-      }
+        "says": "landing waits while another process lands a change on main"
+      },
+      "last_pass_label": "waiting"
     }
   ]
 }
