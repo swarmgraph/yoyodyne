@@ -57,7 +57,7 @@ func TestConfigAcceptsAProgramManagerAndShowsItsSetExactly(t *testing.T) {
 	// Written out rather than read from the registry, so a capability arriving in
 	// the bundle or leaving it fails here as well as there.
 	want := []capability.Capability{
-		"work-item.read", "repository.read", "repository.list", "readmodel.read",
+		"work-item.read", "repository.read", "repository.list", "repository.search", "readmodel.read",
 		"work-item.admit", "work-item.attribute", "work-item.update", "work-item.label",
 		"work-item.reprioritize", "work-item.park", "work-item.unpark", "work-item.link",
 		"work-item.unlink", "work-item.reparent",

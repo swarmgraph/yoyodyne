@@ -38,7 +38,7 @@ func (s *Session) performRepositoryReads(ctx context.Context, requests []reposit
 	}
 	// The single existing reader call retains its aggregate budget and result
 	// order. Mixed read/list blocks audit both grants around that same call.
-	for _, verb := range []string{repositoryread.ActionRead, repositoryread.ActionList} {
+	for _, verb := range []string{repositoryread.ActionRead, repositoryread.ActionList, repositoryread.ActionSearch} {
 		count := 0
 		for _, request := range requests {
 			if request.Action == verb {
@@ -49,10 +49,7 @@ func (s *Session) performRepositoryReads(ctx context.Context, requests []reposit
 			continue
 		}
 		inner := run
-		id := capability.RepositoryRead
-		if verb == repositoryread.ActionList {
-			id = capability.RepositoryList
-		}
+		id := repositoryTool(verb)
 		run = func() ([]repositoryread.Result, error) {
 			return auditTool(ctx, s, id, nil, count, inner, func(results []repositoryread.Result) (int, bool, error) {
 				size := 0
@@ -61,7 +58,7 @@ func (s *Session) performRepositoryReads(ctx context.Context, requests []reposit
 					if result.Action != verb {
 						continue
 					}
-					size += len(result.Content)
+					size += result.ReturnedBytes()
 					truncated = truncated || result.Truncated
 					if result.Problem != "" {
 						return size, truncated, errors.New(result.Problem)
@@ -76,6 +73,19 @@ func (s *Session) performRepositoryReads(ctx context.Context, requests []reposit
 		return nil, err.Error()
 	}
 	return results, problem
+}
+
+// repositoryTool is the tool one action in the repository block is audited
+// and granted under.
+func repositoryTool(verb string) capability.Capability {
+	switch verb {
+	case repositoryread.ActionList:
+		return capability.RepositoryList
+	case repositoryread.ActionSearch:
+		return capability.RepositorySearch
+	default:
+		return capability.RepositoryRead
+	}
 }
 
 func (s *Session) performResearch(ctx context.Context, queries []research.Query, rounds *int) ([]research.Finding, string) {

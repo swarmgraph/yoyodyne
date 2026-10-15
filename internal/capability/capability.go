@@ -55,6 +55,13 @@ const (
 	// reviewer, whose evidence is the change, holds neither in that sense. It is
 	// granted by the configurable-workflows design's authority-model section.
 	RepositoryList Capability = "repository.list"
+	// RepositorySearch is having one pattern searched across the files Git
+	// tracks at a recorded commit, optionally under one path prefix, and being
+	// told each matching path, line number, and line. It is apart from the read
+	// and the list because it answers a question neither does — where something
+	// is, across the tree — and because only the roles whose bundles name it are
+	// given it, per the tool-interface design's "Searching the repository".
+	RepositorySearch Capability = "repository.search"
 	// LogRead reads bounded, redacted operational records under the state root.
 	LogRead Capability = "log.read"
 	// WorktreeMutate is writing inside the run's own isolated worktree and on its
@@ -283,6 +290,7 @@ var declared = []Capability{
 	WorkItemMutate,
 	RepositoryRead,
 	RepositoryList,
+	RepositorySearch,
 	LogRead,
 	WorktreeMutate,
 	TargetBranchMutate,

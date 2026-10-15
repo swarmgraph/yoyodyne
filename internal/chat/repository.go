@@ -115,15 +115,28 @@ func repositoryReadPayload(result repositoryread.Result) map[string]any {
 	if result.Why != "" {
 		payload["why"] = result.Why
 	}
+	// A search is recorded by what it looked for, beside the commit and the
+	// path prefix, so the record says what was searched as well as where.
+	if result.Action == repositoryread.ActionSearch {
+		payload["pattern"] = result.Pattern
+		payload["regexp"] = result.Regexp
+	}
 	if result.Problem != "" {
 		payload["problem"] = result.Problem
 		return payload
 	}
-	payload["size"] = result.Size
 	switch result.Action {
+	case repositoryread.ActionSearch:
+		payload["matches"] = len(result.Matches)
+		payload["searched"] = result.Searched
+		if result.Skipped != "" {
+			payload["skipped"] = result.Skipped
+		}
 	case repositoryread.ActionList:
+		payload["size"] = result.Size
 		payload["entries"] = len(result.Entries)
 	default:
+		payload["size"] = result.Size
 		payload["bytes"] = len(result.Content)
 	}
 	if result.Truncated {

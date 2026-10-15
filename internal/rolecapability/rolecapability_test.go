@@ -162,7 +162,7 @@ func TestTheProgramManagerHoldsItsDesignsSetExactly(t *testing.T) {
 		t.Fatal("no bundle describes the program manager")
 	}
 	want := []capability.Capability{
-		"work-item.read", "repository.read", "repository.list", "log.read", "readmodel.read",
+		"work-item.read", "repository.read", "repository.list", "repository.search", "log.read", "readmodel.read",
 		"work-item.admit", "work-item.attribute", "work-item.update", "work-item.label",
 		"work-item.reprioritize", "work-item.park", "work-item.unpark", "work-item.link",
 		"work-item.unlink", "work-item.reparent",

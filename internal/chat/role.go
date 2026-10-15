@@ -95,7 +95,12 @@ type Authority struct {
 	// the pair: a role told what the tree holds is the role that may ask for one
 	// thing in it.
 	RepositoryReads bool
-	LogReads        bool
+	// RepositorySearch is whether this role may ask, in the same block, for a
+	// pattern to be searched across the tree at that commit. It is held on top
+	// of the named read rather than instead of it, and only by the roles whose
+	// bundles name repository.search.
+	RepositorySearch bool
+	LogReads         bool
 	// Asks is whether this role is on the inter-role ask channel — both ends of
 	// it, because the two are the same judgement: a role worth asking for an
 	// opinion is one whose own opinion is worth asking for. It is not the
@@ -197,6 +202,9 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 		if registry.Holds(role, capability.WorkItemRead) {
 			contract += "\n\n" + reportReadClause
 		}
+		if registry.Holds(role, capability.RepositorySearch) {
+			contract += "\n\n" + repositoryread.SearchContract
+		}
 		contract += "\n\n" + toolcatalog.Contract(role)
 		built[role] = Authority{
 			Role:           role,
@@ -212,6 +220,9 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			Evaluations:    registry.Holds(role, capability.EvaluationRecord),
 			RepositoryReads: registry.Holds(role, capability.RepositoryRead) &&
 				registry.Holds(role, capability.RepositoryList),
+			RepositorySearch: registry.Holds(role, capability.RepositoryRead) &&
+				registry.Holds(role, capability.RepositoryList) &&
+				registry.Holds(role, capability.RepositorySearch),
 			LogReads:        registry.Holds(role, capability.LogRead),
 			Asks:            registry.Holds(role, capability.ExchangeAsk),
 			Answers:         registry.Holds(role, capability.ExchangeAnswer),
@@ -359,6 +370,15 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Role:    authority.Role,
 			Refused: "a repository path to be read",
 			Reason:  "reading the repository by path is the management roles' — the Lead Product Manager, the architect, and the development manager — and this role reasons over the evidence it was given",
+		}
+	}
+	if !authority.RepositorySearch && slices.ContainsFunc(parsed.Reads, func(read repositoryread.Request) bool {
+		return read.Action == repositoryread.ActionSearch
+	}) {
+		return &AuthorityError{
+			Role:    authority.Role,
+			Refused: "the repository to be searched",
+			Reason:  "this role holds no repository.search grant, and names the paths it wants read instead",
 		}
 	}
 	if len(parsed.LogReads) > 0 && !authority.LogReads {

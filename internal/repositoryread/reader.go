@@ -93,7 +93,11 @@ func (r Reader) resolve(ctx context.Context, commit string, request Request, red
 		Commit: commit,
 		ReadAt: r.now(),
 	}
-	cleaned, err := CleanPath(request.Path, action == ActionList)
+	if action == ActionSearch {
+		result.Pattern = redactor.Redact(request.Pattern)
+		result.Regexp = request.Regexp
+	}
+	cleaned, err := CleanPath(request.Path, action != ActionRead)
 	result.Path = cleaned
 	if err != nil {
 		result.Path = strings.TrimSpace(request.Path)
@@ -105,6 +109,8 @@ func (r Reader) resolve(ctx context.Context, commit string, request Request, red
 		r.readFile(ctx, &result, redactor, remaining)
 	case ActionList:
 		r.listDirectory(ctx, &result)
+	case ActionSearch:
+		r.search(ctx, &result, request, redactor, remaining)
 	default:
 		result.Problem = fmt.Sprintf("action %q is not one the harness performs", action)
 	}
@@ -332,16 +338,18 @@ func (r Reader) head(ctx context.Context) (string, error) {
 // git runs one Git command and returns its output, treating anything but a
 // clean exit as the error it is.
 func (r Reader) git(ctx context.Context, maxOutput int, args ...string) (execution.ProcessResult, error) {
-	name := r.Git
-	if strings.TrimSpace(name) == "" {
-		name = defaultGit
-	}
+	return r.gitWithin(ctx, r.timeout(), maxOutput, args...)
+}
+
+// gitWithin is git under a bound of the caller's choosing, which a search
+// needs because its time limit is the search's rather than one command's.
+func (r Reader) gitWithin(ctx context.Context, timeout time.Duration, maxOutput int, args ...string) (execution.ProcessResult, error) {
 	result, err := r.Process.Run(ctx, execution.Command{
-		Name:           name,
+		Name:           r.gitName(),
 		Args:           args,
 		Dir:            r.Directory,
 		Env:            execution.GitEnvironment(nil),
-		Timeout:        r.timeout(),
+		Timeout:        timeout,
 		MaxOutputBytes: maxOutput,
 	}, nil)
 	if err != nil {
@@ -351,7 +359,7 @@ func (r Reader) git(ctx context.Context, maxOutput int, args ...string) (executi
 	case execution.ProcessSucceeded:
 		return result, nil
 	case execution.ProcessTimedOut, execution.ProcessStalled:
-		return result, fmt.Errorf("git %s did not answer within %s", args[0], r.timeout())
+		return result, fmt.Errorf("git %s did not answer within %s", args[0], timeout)
 	case execution.ProcessCancelled:
 		return result, fmt.Errorf("git %s was stopped before it answered", args[0])
 	default:
@@ -361,6 +369,13 @@ func (r Reader) git(ctx context.Context, maxOutput int, args ...string) (executi
 		}
 		return result, fmt.Errorf("git %s failed: %s", args[0], detail)
 	}
+}
+
+func (r Reader) gitName() string {
+	if strings.TrimSpace(r.Git) == "" {
+		return defaultGit
+	}
+	return r.Git
 }
 
 func firstNonEmpty(values ...string) string {
