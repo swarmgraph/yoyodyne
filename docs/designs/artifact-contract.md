@@ -30,6 +30,10 @@ revisions:
       by: architect
       at: 2026-10-15T16:54:26.434698Z
       reason: 'Answers the reviewer''s report on the change for stopped document publications (yoyodyne-4u4): point 5 said a run that conflicts with the target branch goes back to its writer, which that change replaces. Point 5 now covers failing checks and a refusing reviewer, and says a run stopped by something outside the work goes to the development manager once its retries are spent; a new point 6 says a run stopped because the target branch''s copy of the document changed is held for the development manager, never restarted by the harness, and a retry is refused once a later confirmed revision is on the target branch. The enforced list gains that rule.'
+    - action: amended
+      by: architect
+      at: 2026-10-15T18:27:59.222309Z
+      reason: 'Answers the reviewer''s refusal on pull request #1295 (report-4b5da912), whose finding still applies to the copy that later landed through pull request #1296. Points 5 and 6 now say what the publication code does, read at 1ca86a02. Only a copy found changed when the run''s checkout is cut is held for the development manager. A failing check, a refusing reviewer, a conflict found while landing, and a file a document run may not write each return to the writer, and runs stopped for reasons outside the work are tried at most three times before the development manager decides. The enforced list names both rules.'
 approvals:
     - policy: approvals.designs
       revision: 4
@@ -41,6 +45,11 @@ approvals:
       by: harness
       at: 2026-10-15T16:54:26.434698Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1023, for document-1023.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 6
+      by: harness
+      at: 2026-10-15T18:27:59.222309Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1030, for document-1030.1 under the automatic approval policy
 ---
 # The artifact contract: specification shape and identity
 
@@ -83,8 +92,8 @@ The Lead Product Manager's role key in configuration and revision logs is `produ
 2. **Checked before it is recorded.** The body is checked for a coined word or joined word the register of terms does not define, and for a link to a file or heading that is not there. Either refuses the write back to the writer in the same message, naming each one and its line; nothing is recorded.
 3. **Confirmed as its kind's approval policy says.** Where the policy is automatic, the harness confirms the revision without asking the operator and records the policy that confirmed it. Otherwise the operator approves it with the harness's approve command, recorded against that revision; an approval is never recorded by editing a document by hand. A revision of the brief or goals needs the operator's approval unless the Lead Product Manager records it as consistent with intent, with the directing work item opening its reason.
 4. **Landed through a run of its own.** A confirmed or approved document lands through a run that changes exactly that file and nothing else. The project's declared checks for documents run on it, or every configured check where it declares none, and an independent reviewer judges it before it is integrated the way any change is, through the pull request and the merge queue where those are enabled. No developer rewrites it.
-5. **Returned to its writer when the document fails.** A run whose checks fail or whose reviewer refuses it returns the findings to the conversation that wrote the document. Revising it there opens a fresh run. After three returned runs for one document in one conversation, automatic publication of it stops and the writer revises its plan. A run stopped by something outside the work, such as the machine being busy, is kept and tried again and is not a return; once its retries are spent, it is held for the development manager to decide.
-6. **Held for the development manager when the target branch's copy changed.** A run that stops because the target branch's copy of the document differs from the copy its text was written against is not started again by the harness on its own. It is held for the development manager, and its record names the document, the commit the text was written against, and the commit the target branch has now. She decides whether to retry the same text or close its pull request. A retry is refused before any run starts when the target branch already carries a later confirmed revision of the same document, and the refusal names that revision and when it was confirmed. Whatever the writer still has to say is a fresh revision written from the target branch's copy.
+5. **Returned to its writer when the document fails.** The findings go back to the conversation that wrote the document when its run's checks fail, when its reviewer refuses it, or when its change conflicts with the target branch while it is being landed onto a target branch that has moved since the run began; a conflict names the conflicting paths. A document that would change a file a document run may not write is refused and returned the same way. Revising it there opens a fresh run. After three returned runs for one document in one conversation, automatic publication of it stops and the writer revises its plan. A run stopped by something outside the work, such as the machine being busy, is not a return: the same text is tried again, up to three runs in all, and if the last of those stops the same way it is held for the development manager to decide.
+6. **Held for the development manager when the target branch's copy changed before the run began.** When a run's checkout is cut from the target branch, the harness compares the document there with the copy its text was written against. If they differ, the run stops before anything is committed, the harness does not start it again on its own, and it is held for the development manager; its record names the document, the commit the text was written against, and the commit the target branch has now. She either retries it or retires it. A retry starts a fresh run of the same text and closes the earlier run's pull request; it is refused before any run starts when the target branch already carries a later confirmed revision of the same document, and the refusal names that revision and when it was confirmed. Retiring closes the run's pull request and lands nothing. Whatever the writer still has to say is a fresh revision written from the target branch's copy. Only this check holds a run for the development manager: a conflict found later, while the change is being landed, is a return under point 5.
 7. **Bounded while waiting.** Each role has a bounded number of documents waiting to land, set by the harness; a write past that bound is refused with the reason, and nothing is recorded.
 
 This route leaves no uncommitted document in the primary checkout.
@@ -99,8 +108,10 @@ Enforced in code, whatever a configuration or a role's instructions say:
 - the word and link checks, before anything is recorded;
 - confirmation by the kind's approval policy, and the operator's approval for the brief and goals unless consistency is recorded with its directing item;
 - that a landing run changes only the one document;
+- that a failing check, a refusing reviewer, a conflict found while landing, and a file a document run may not write each return the document to its writer, a conflict naming its paths;
 - the bound on documents waiting to land, and the stop after three returned runs;
-- that a run stopped because the target branch's copy of its document changed is not started again by the harness, and that a retry of it is refused when the target branch already carries a later confirmed revision of the same document;
+- that a run stopped by something outside the work is tried again with the same text at most three times in all before it is held for the development manager;
+- that a run whose document's copy on the target branch changed before its checkout was cut stops before anything is committed and is not started again by the harness, and that a retry of it is refused when the target branch already carries a later confirmed revision of the same document;
 - that runs refuse to start over an uncommitted document in an artifact home.
 
 Left to the roles: what a document says, and whether a revision of the brief or goals is consistent with intent, which the Lead Product Manager decides and records.
