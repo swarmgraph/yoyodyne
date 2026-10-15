@@ -842,10 +842,10 @@ func joinProblem(first, second string) string {
 	return first + "; " + second
 }
 
-// realChildren assembles the parts from the services section: the ones this
-// harness can start, in start order — the sink first so it reports the rest
-// coming up, then the scheduler — and the enabled ones it cannot start yet,
-// each naming the work that adopts it.
+// realChildren assembles the parts from the services section, in start order —
+// the sink first so it reports the rest coming up, then the dashboard, then the
+// scheduler — and the enabled ones it cannot start yet, each naming the work
+// that adopts it, of which there are none today.
 func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []config.ServiceName, error) {
 	services := p.resolved.Config.Services
 	productID := p.resolved.Config.Product.ID
@@ -897,16 +897,30 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				log:        home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + schedulerLogFile,
 			})
 		case config.ServiceDashboard:
-			// The dashboard's adoption as a child is yoyodyne-ifd.414; until it
-			// lands the command is started by hand, and the product says so
-			// rather than starting a part it does not know how to.
-			// The child that adoption adds has to be a supervise.Deployable —
-			// saying which build it runs and which request it is serving — or no
-			// deploy reaches it; TestEveryPartTheSupervisorStartsIsMovedOntoADeployedBuild
-			// fails for a child that is not.
-			notYet = append(notYet, supervise.NotYet{
-				Name:   name,
-				Reason: "its adoption is yoyodyne-ifd.414; until that lands, start it with `yoyo dashboard`",
+			// `yoyo dashboard` on the configured port, started and confirmed ready
+			// as dashboardchild.go says.
+			store, err := runstate.NewDashboardStore(p.stateRoot, productID)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			program := p.program
+			children = append(children, dashboardChild{
+				store:    store,
+				product:  productID,
+				launcher: p.launcher,
+				program:  program,
+				config:   p.resolved.Path,
+				dir:      config.ProjectDirectory(p.resolved.Path),
+				environ:  p.environ,
+				logRoot:  p.stateRoot,
+				log:      home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + dashboardLogFile,
+				port:     services.Dashboard.Port,
+				source:   services.Dashboard.Token,
+				tokens:   dashboardTokenStores(p.stateRoot),
+				build: func() string {
+					revision, _ := supervise.Revision(program)
+					return revision
+				},
 			})
 		case config.ServiceMaintenance:
 			// The periodic pass is the supervisor's own rather than a process it
@@ -1132,18 +1146,20 @@ each part by hand.
 
 The supervisor reads the services section and starts each enabled part the way
 that part is started alone -- the Slack sink exactly as `+"`yoyo slack ensure`"+`
-starts it, from this product's own stored tokens; the scheduler as
+starts it, from this product's own stored tokens; the dashboard as
+`+"`yoyo dashboard`"+` on services.dashboard.port, counted as started only once it
+has accepted a request carrying its token; the scheduler as
 `+"`yoyo work --watch`"+` under its own watch lease -- so a part started here holds
-exactly what it holds started by hand. It then keeps each running: a part that
+exactly what it holds started by hand. A dashboard the supervisor starts prints
+no token: it publishes a generated one to a file only its user can read, and
+`+"`yoyo dashboard token`"+` prints it for a person. It then keeps each running: a part that
 dies is started again with backoff, up to five times within two minutes of a
 start, and past that it is left down and shown as degraded by `+"`yoyo status`"+`
 with the reason. The supervisor's own death leaves the parts running, and the
 next `+"`yoyo start`"+` finds them by their leases and takes them back rather than
 starting them again.
 
-A second start while the product is running says so and does nothing. A part the
-section enables that is not yet a child of the supervisor -- the dashboard -- is
-reported as such, with the work that adopts it.
+A second start while the product is running says so and does nothing.
 
 The maintenance pass is the supervisor's own, run as often as
 services.maintenance.every says: `+"`yoyo reconcile`"+`, the restarts program managers

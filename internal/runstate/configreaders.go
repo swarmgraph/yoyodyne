@@ -185,7 +185,7 @@ func ConfigMismatchRemedy(service string) string {
 	case string(config.ServiceSlack):
 		return "the supervisor restarts the sink into the deployed build between its passes, once the binary on disk is one that reads every key; `yoyo stop` and `yoyo start` restart it now"
 	case string(config.ServiceDashboard):
-		return "nothing restarts the dashboard onto a newer build until the supervisor adopts it (the dashboard's adoption, yoyodyne-ifd.414), so stop it and start it again with `yoyo dashboard`"
+		return "the supervisor replaces the dashboard it runs with one started from the deployed build, ready before the old one stops, once the binary on disk is one that reads every key; a dashboard started by hand is stopped and started again with `yoyo dashboard`, and `yoyo stop` and `yoyo start` restart the product's now"
 	case ConfigReaderSupervisor:
 		return "the supervisor takes up the deployed build once its maintenance pass is recorded, leaving its parts running, once the binary on disk is one that reads every key; `yoyo stop` and `yoyo start` restart it now"
 	}

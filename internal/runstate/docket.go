@@ -451,7 +451,7 @@ func decodeDocketEntry(data []byte) (triage.Entry, error) {
 		decoded.StopClass = StopUnknown.Name()
 	}
 	if decoded.StopClass != "" && !StopClass(decoded.StopClass).Valid() {
-		return triage.Entry{}, errors.New("stop_class is invalid")
+		return triage.Entry{}, UnknownValueError{Field: "stop_class", Value: decoded.StopClass}
 	}
 	if err := decoded.Validate(); err != nil {
 		return triage.Entry{}, err
@@ -509,7 +509,7 @@ func encodeDocketClosure(closure triage.Closure) ([]byte, error) {
 
 func (s *DocketStore) validate(entry triage.Entry) error {
 	if entry.StopClass != "" && !StopClass(entry.StopClass).Valid() {
-		return errors.New("stop_class is invalid")
+		return UnknownValueError{Field: "stop_class", Value: entry.StopClass}
 	}
 	if entry.ProductID != s.productID {
 		return fmt.Errorf("docket entry product %q does not match store product %q", entry.ProductID, s.productID)

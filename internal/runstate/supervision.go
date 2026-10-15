@@ -142,6 +142,13 @@ type SupervisedChild struct {
 	// having been deployed to five times in two minutes.
 	Restarts    int       `json:"restarts,omitempty"`
 	RestartedAt time.Time `json:"restarted_at,omitempty"`
+	// URL is where a child that serves is served, Health how its own health
+	// answer stood at the supervisor's last look, and TokenFile the file a
+	// person reads its token from. They are the dashboard's, and the token's
+	// value is never among them.
+	URL       string `json:"url,omitempty"`
+	Health    string `json:"health,omitempty"`
+	TokenFile string `json:"token_file,omitempty"`
 }
 
 // Supervision is the supervisor's record: which process it is, and what it

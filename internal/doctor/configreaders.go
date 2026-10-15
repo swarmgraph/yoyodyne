@@ -23,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -66,7 +67,7 @@ func (d *diagnosis) checkConfigReaders(resolved config.Resolved) []Finding {
 			Status:  status,
 			Summary: mismatch.Says(),
 			Detail:  runstate.ConfigMismatchRemedy(mismatch.Service),
-			Remedy:  configMismatchCommand(mismatch),
+			Remedy:  configMismatchCommand(mismatch, supervisedDashboard(root, resolved.Config.Product.ID)),
 		})
 	}
 	if mismatchErr != nil {
@@ -104,12 +105,27 @@ func (d *diagnosis) checkConfigReaders(resolved config.Resolved) []Finding {
 	}}
 }
 
-// configMismatchCommand is what restarts the part now. The watch and the sink
-// are moved onto a deployed build by the harness in their own time; the
-// command is for not waiting.
-func configMismatchCommand(mismatch runstate.ConfigMismatch) string {
-	if mismatch.Service == string(config.ServiceDashboard) {
+// configMismatchCommand is what restarts the part now. The watch, the sink,
+// and the product's dashboard are moved onto a deployed build by the harness
+// in their own time; the command is for not waiting. A dashboard somebody
+// started by hand is theirs to start again.
+func configMismatchCommand(mismatch runstate.ConfigMismatch, supervised int) string {
+	if mismatch.Service == string(config.ServiceDashboard) && mismatch.PID != supervised {
 		return fmt.Sprintf("kill %d && yoyo dashboard", mismatch.PID)
 	}
 	return "yoyo stop && yoyo start"
+}
+
+// supervisedDashboard is the process of the dashboard the product's supervisor
+// last started, and 0 where none is recorded.
+func supervisedDashboard(root string, productID domain.ProductID) int {
+	store, err := runstate.NewDashboardStore(root, productID)
+	if err != nil {
+		return 0
+	}
+	start, found, err := store.Start()
+	if err != nil || !found {
+		return 0
+	}
+	return start.PID
 }

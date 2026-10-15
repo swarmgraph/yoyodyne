@@ -68,8 +68,7 @@ func (s *Supervisor) settleCopies() {
 		reader := process.Reader
 		running, hosted := current[reader.Service]
 		if !hosted {
-			// A part the supervisor does not start — the dashboard, until it is
-			// adopted — may have several copies by design, and is not its to settle.
+			// A part the supervisor does not start is not its to settle.
 			continue
 		}
 		switch {

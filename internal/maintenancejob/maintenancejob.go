@@ -86,7 +86,7 @@ var knownDuties = []struct {
 }{
 	{regexp.MustCompile(`work --watch`), Duty{Part: "scheduler", Does: "starts, kills, and restarts the scheduler (`yoyo work --watch`), which the supervisor's scheduler child does"}},
 	{regexp.MustCompile(`yoyo slack|slack ensure|slack sink`), Duty{Part: "slack", Does: "starts and restarts the Slack sink, which the supervisor's slack child does"}},
-	{regexp.MustCompile(`yoyo dashboard`), Duty{Part: "dashboard", Does: "starts the dashboard, which is the supervisor's once yoyodyne-ifd.414 adopts it"}},
+	{regexp.MustCompile(`yoyo dashboard`), Duty{Part: "dashboard", Does: "starts the dashboard, which the supervisor's dashboard child does"}},
 	{regexp.MustCompile(`yoyo reconcile`), Duty{Part: "maintenance", Does: "runs `yoyo reconcile`, which is the supervisor's periodic maintenance pass"}},
 	{regexp.MustCompile(`make build|go build`), Duty{Part: "rebuild", Does: "rebuilds bin/yoyo after a landing, which the supervisor does itself"}},
 }

@@ -676,7 +676,12 @@ func (s *Store) load(runID string, tolerateUnknownFields bool) (State, error) {
 	// refusing one old file is a whole history nobody can list.
 	state.boundRecordedTexts()
 	if err := s.validateState(state); err != nil {
-		return State{}, err
+		// Named with the record, the field and value that refused it, and the
+		// builds that bear on whose value it is (refusedrecord.go); the refusal
+		// itself is unchanged and still unwraps to RefusedStateError.
+		builds := ReadingBuilds()
+		builds.Writer = state.Build
+		return State{}, RefusedRecordError{Record: path, Problem: err, Builds: builds}
 	}
 	return state, nil
 }

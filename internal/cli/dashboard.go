@@ -7,8 +7,8 @@ package cli
 // durable records `yoyo status` reads and projects them at a loopback port, for
 // as long as it is left running. It is a projection and nothing else — it owns
 // no state, offers no write, and restarting it changes nothing about the
-// harness — so it is started and stopped freely, and a later supervisor can
-// own its lifecycle without a redesign. It writes two records as it starts,
+// harness — so it is started and stopped freely, by a person or by the
+// product's supervisor (dashboardchild.go), which starts it with --start-id. It writes two records as it starts,
 // never on a request: when each program manager instance was first seen in
 // the configuration, which a never-woken instance's stale reading is measured
 // from, and its own build and the configuration keys that build reads.
@@ -16,7 +16,9 @@ package cli
 // What it prints when it starts is the whole of what an operator needs: the
 // URL, and beside it where the token every request for the read model has to
 // carry comes from. Where the configuration's services.dashboard.token is
-// `generated`, that is the token itself, printed once; where it names the
+// `generated`, that is the token itself, printed once by a dashboard started
+// by hand and never by one the supervisor started, whose output goes to a log;
+// either writes it to the token file `yoyo dashboard token` reads. Where it names the
 // keychain or the file, the token is read from there and is never printed —
 // what is printed is where it was read from, so the same token serves across a
 // restart and nobody pastes a fresh one. The token is never put in the URL,
@@ -27,13 +29,16 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"runtime"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
@@ -44,10 +49,14 @@ import (
 )
 
 func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "token" {
+		return printDashboardToken(ctx, args[1:], stdout, stderr)
+	}
 	flags := flag.NewFlagSet("dashboard", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
 	port := flags.Int("port", 0, "the loopback port to serve on (default: one the operating system chooses)")
+	startID := flags.String("start-id", "", "the start identity the product's supervisor hands a dashboard it starts")
 	positional, err := parseArguments(flags, args)
 	if err != nil {
 		return 2
@@ -55,6 +64,15 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	if len(positional) != 0 {
 		fmt.Fprintln(stderr, "dashboard does not accept positional arguments")
 		printDashboardUsage(stderr)
+		return 2
+	}
+	supervised := *startID != ""
+	if supervised && !runstate.ValidDashboardStartID(*startID) {
+		fmt.Fprintf(stderr, "dashboard: --start-id %q is not a start identity the supervisor makes\n", *startID)
+		return 2
+	}
+	if supervised && *port <= 0 {
+		fmt.Fprintln(stderr, "dashboard: a supervised dashboard serves on the configured port, and --port names none")
 		return 2
 	}
 
@@ -78,6 +96,7 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	productID := resolved.Config.Product.ID
 	// When each program manager instance was first seen, recorded as the
 	// dashboard starts and never on a request, so a new one the scheduler never
 	// wakes still reads stale.
@@ -86,23 +105,98 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// adds one this build does not know is named against this process rather
 	// than shown as the decoder's error on every page.
 	recordConfigReader(resolved, string(config.ServiceDashboard), stderr)
+	records, err := runstate.NewDashboardStore(stateRoot, productID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
 	// The token is read before anything is bound, so a store that does not hold
 	// it refuses at the terminal with the command that stores it rather than
 	// serving under a token nobody has.
-	server, announcement, err := dashboardServer(ctx, resolved.Config.Services.Dashboard.Token, resolved.Config.Product.ID, dashboardTokenStores(stateRoot), reader)
+	source := resolved.Config.Services.Dashboard.Token
+	server, announcement, err := dashboardServer(ctx, source, productID, dashboardTokenStores(stateRoot), reader)
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
-	url, err := server.Listen(*port)
+	var url, readyURL string
+	if supervised {
+		url, err = server.ListenShared(*port)
+		if err == nil {
+			readyURL, err = server.ListenReadiness()
+		}
+	} else {
+		url, err = server.Listen(*port)
+	}
 	if err != nil {
 		fmt.Fprintln(stderr, err)
 		return 1
 	}
+	if !supervised {
+		if *startID, err = runstate.NewDashboardStartID(); err != nil {
+			fmt.Fprintln(stderr, err)
+			return 1
+		}
+	}
+	build := buildinfo.Commit()
+	server.Identify(*startID, build)
+	instance := runstate.DashboardInstance{
+		StartID:    *startID,
+		PID:        os.Getpid(),
+		Build:      build,
+		StartedAt:  time.Now().UTC(),
+		URL:        url,
+		Port:       server.Port(),
+		ReadyURL:   readyURL,
+		Supervised: supervised,
+	}
+	receipt, published := publishDashboardToken(records, source, server, supervised, &instance, stderr)
+	if supervised {
+		server.Supervise(*startID, build, func() {
+			instance.ReadyAt = time.Now().UTC()
+			if err := records.Update(instance); err != nil {
+				fmt.Fprintf(stderr, "the dashboard is ready and could not record that it is: %v\n", err)
+			}
+		})
+		if instance.TokenProblem != "" {
+			server.Block(instance.TokenProblem)
+		}
+	} else {
+		instance.ReadyAt = instance.StartedAt
+	}
+	lease, err := records.Register(instance)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	defer func() {
+		// A clean stop takes the token file with it, where it is still the one
+		// this dashboard published, and then its own record.
+		if err := records.WithdrawToken(receipt); err != nil {
+			fmt.Fprintf(stderr, "the token file %s could not be removed: %v\n", records.TokenPath(), err)
+		}
+		if err := records.Unregister(lease, *startID); err != nil {
+			fmt.Fprintf(stderr, "the dashboard's record could not be removed: %v\n", err)
+		}
+	}()
 
-	fmt.Fprintf(stdout, "dashboard for %s serving at %s\n", resolved.Config.Product.ID, url)
-	for _, line := range announcement {
-		fmt.Fprintln(stdout, line)
+	fmt.Fprintf(stdout, "dashboard for %s serving at %s\n", productID, url)
+	if supervised {
+		// Its output goes to a log, so it says where the token is and never what.
+		fmt.Fprintf(stdout, "started by the product's supervisor as %s; it serves its health answer alone until the supervisor confirms it with its token\n", *startID)
+		if published {
+			fmt.Fprintf(stdout, "the token is in %s, readable by its owner alone, and `yoyo dashboard token` prints it for a person\n", records.TokenPath())
+		}
+		if source != config.DashboardTokenGenerated {
+			fmt.Fprintln(stdout, announcement[0])
+		}
+	} else {
+		for _, line := range announcement {
+			fmt.Fprintln(stdout, line)
+		}
+		if published {
+			fmt.Fprintf(stdout, "it is also in %s while this dashboard runs, and `yoyo dashboard token` prints it\n", records.TokenPath())
+		}
 	}
 
 	if err := server.Serve(ctx); err != nil {
@@ -110,6 +204,99 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 		return 1
 	}
 	fmt.Fprintln(stdout, "dashboard stopped")
+	return 0
+}
+
+// publishDashboardToken writes a generated token to the token file, which is
+// what lets a person read it from a dashboard whose output goes to a log. A
+// configured token is never written there. A dashboard started by hand
+// publishes only where no supervised dashboard is serving, so the file goes on
+// holding the product's dashboard's token; its own is on its terminal. A
+// supervised dashboard that could not publish it safely records why, and is
+// held to serving nothing (dashboardchild.go).
+func publishDashboardToken(records *runstate.DashboardStore, source config.DashboardTokenSource, server *dashboard.Server, supervised bool, instance *runstate.DashboardInstance, stderr io.Writer) (runstate.DashboardTokenReceipt, bool) {
+	if source != config.DashboardTokenGenerated {
+		return runstate.DashboardTokenReceipt{}, false
+	}
+	if !supervised && supervisedDashboardServing(records) {
+		fmt.Fprintf(stderr, "the product's supervised dashboard is serving and its token is the one in %s, so this dashboard's token is printed here and not written there\n", records.TokenPath())
+		return runstate.DashboardTokenReceipt{}, false
+	}
+	receipt, err := records.PublishToken(server.Token())
+	if err != nil {
+		instance.TokenProblem = err.Error()
+		fmt.Fprintf(stderr, "the token could not be published: %v\n", err)
+		return runstate.DashboardTokenReceipt{}, false
+	}
+	instance.TokenPublished = true
+	return receipt, true
+}
+
+// supervisedDashboardServing reports whether the dashboard the supervisor last
+// started is still serving.
+func supervisedDashboardServing(records *runstate.DashboardStore) bool {
+	start, found, err := records.Start()
+	if err != nil || !found {
+		return false
+	}
+	look, found, err := records.Instance(start.StartID)
+	return err == nil && found && look.Live && look.Instance.Supervised
+}
+
+// printDashboardToken is `yoyo dashboard token`: the token the product's
+// dashboard generated and published, printed for a person. It is refused to a
+// process the harness launched for a role, and it prints nothing for a token
+// the configuration supplies, which the person stored themselves and whose
+// store it names instead.
+func printDashboardToken(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("dashboard token", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	configPath := flags.String("config", "", "configuration file path (default: the nearest project configuration)")
+	positional, err := parseArguments(flags, args)
+	if err != nil {
+		return 2
+	}
+	if len(positional) != 0 {
+		fmt.Fprintln(stderr, "dashboard token does not accept positional arguments")
+		return 2
+	}
+	if err := refusedToAgentProcess("yoyo dashboard token", "reading the dashboard's token is a person's"); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	resolved, err := loadConfiguration(*configPath)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	stateRoot, err := productStateRoot(resolved)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	productID := resolved.Config.Product.ID
+	if source := resolved.Config.Services.Dashboard.Token; source != config.DashboardTokenGenerated {
+		where := "the file " + dashboard.TokenFile(stateRoot, productID)
+		if source == config.DashboardTokenKeychain {
+			where = fmt.Sprintf("the keychain item %s under the account %s", dashboard.TokenSecret(productID), dashboard.TokenAccount)
+		}
+		fmt.Fprintf(stderr, "services.dashboard.token is %q, so the dashboard serves the token stored in %s, which this command does not print\n", source, where)
+		return 1
+	}
+	records, err := runstate.NewDashboardStore(stateRoot, productID)
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	token, err := records.ReadToken()
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		if errors.Is(err, runstate.ErrNoDashboardToken) {
+			fmt.Fprintln(stderr, "no dashboard is serving a generated token for this product; `yoyo start` starts the product's, and `yoyo status` says how it stands")
+		}
+		return 1
+	}
+	fmt.Fprintln(stdout, token)
 	return 0
 }
 
@@ -146,7 +333,7 @@ func dashboardServer(ctx context.Context, source config.DashboardTokenSource, pr
 		return server, []string{
 			"token: " + server.Token(),
 			dashboardHeaderLine,
-			"it is printed here and nowhere else, and a restarted dashboard prints a new one; stop with ctrl-c",
+			"a restarted dashboard prints a new one; stop with ctrl-c",
 		}, nil
 	}
 	supplied, err := stores.Read(ctx, source, productID)
@@ -360,6 +547,7 @@ func spendSources(stateRoot string, productID domain.ProductID) readmodel.SpendS
 
 func printDashboardUsage(writer io.Writer) {
 	fmt.Fprintln(writer, `Usage: yoyo dashboard [options]
+       yoyo dashboard token [--config <path>]
 
 Serves the read model -- the same four lines and capacity state `+"`yoyo status`"+`
 reads, what the harness is spending, and what landed -- to a browser on this
@@ -393,7 +581,20 @@ durable state it cannot read each get a refusal and never part of an answer.
 It is a projection. It owns no state, offers no write, and restarting it changes
 nothing about the harness.
 
+With services.dashboard.enabled, `+"`yoyo start`"+` starts it as a part of the product
+on services.dashboard.port, and `+"`yoyo stop`"+` stops it. A dashboard the product
+starts prints no token: a generated one is written to
+<state root>/projects/<product id>/state/dashboard/token, readable by its owner
+alone, and the dashboard serves nothing but /api/health until the supervisor has
+made a request carrying that token. One started by hand writes the same file
+unless the product's dashboard is running.
+
+`+"`yoyo dashboard token`"+` prints the generated token of the dashboard that is
+running, for a person; it is refused from a process the harness started for a
+role, and prints nothing for a token the configuration names a store for.
+
 Options:
-  --config <path>   configuration file (default: the nearest .yoyodyne/config.yaml)
-  --port <n>        the loopback port to serve on (default: one the operating system chooses)`)
+  --config <path>    configuration file (default: the nearest .yoyodyne/config.yaml)
+  --port <n>         the loopback port to serve on (default: one the operating system chooses)
+  --start-id <id>    the start identity the product's supervisor hands a dashboard it starts`)
 }

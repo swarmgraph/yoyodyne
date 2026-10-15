@@ -65,6 +65,8 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
@@ -149,6 +151,18 @@ type Server struct {
 	// Origin header that does. Both are fixed at Listen and read on every request.
 	hosts   map[string]bool
 	origins map[string]bool
+
+	// The supervisor's readiness, which a dashboard it starts holds to
+	// (readiness.go). A dashboard started by hand is ready from the start.
+	gated         bool
+	ready         atomic.Bool
+	blocked       string
+	startID       string
+	build         string
+	onReady       func()
+	readyOnce     sync.Once
+	readyListener net.Listener
+	readyHosts    map[string]bool
 }
 
 // New makes a server holding a fresh token for the read model it is handed. The
@@ -184,6 +198,7 @@ func NewWithToken(product string, reader Reader, token string) (*Server, error) 
 // page's own clocks: the standing every ten seconds, and the throughput and
 // the spend every minute.
 func withSnapshots(s *Server) *Server {
+	s.ready.Store(true)
 	s.standing = newSnapshot(standingInterval, func(ctx context.Context) (any, error) { return s.reader.Standing(ctx) })
 	s.throughput = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Throughput(ctx) })
 	s.spend = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Spend(ctx) })
@@ -207,9 +222,28 @@ func (s *Server) Listen(port int) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("dashboard: bind loopback: %w", err)
 	}
+	return s.listening(listener), nil
+}
+
+// ListenShared binds loopback on the port the way a supervised dashboard does:
+// shared with the dashboard it is replacing, which shares it the same way, so
+// the new one serves before the old one stops (listen_unix.go). A port held by
+// any process that did not share it is refused exactly as Listen refuses it.
+func (s *Server) ListenShared(port int) (string, error) {
+	if port <= 0 || port > 65535 {
+		return "", fmt.Errorf("dashboard: port %d is not a port a supervised dashboard can share", port)
+	}
+	listener, err := listenShared(net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		return "", fmt.Errorf("dashboard: bind loopback: %w", err)
+	}
+	return s.listening(listener), nil
+}
+
+func (s *Server) listening(listener net.Listener) string {
 	s.listener = listener
 	s.bound(listener.Addr().(*net.TCPAddr).Port)
-	return s.URL(), nil
+	return s.URL()
 }
 
 // bound fixes the Host and Origin values that name this server, from the port
@@ -219,6 +253,14 @@ func (s *Server) bound(port int) {
 	bound := strconv.Itoa(port)
 	s.hosts = map[string]bool{"127.0.0.1:" + bound: true, "localhost:" + bound: true}
 	s.origins = map[string]bool{"http://127.0.0.1:" + bound: true, "http://localhost:" + bound: true}
+}
+
+// Port is the port the server is listening on, once it is.
+func (s *Server) Port() int {
+	if s.listener == nil {
+		return 0
+	}
+	return s.listener.Addr().(*net.TCPAddr).Port
 }
 
 // URL is where the server is listening, once it is. It carries no token: the
@@ -249,22 +291,41 @@ func (s *Server) Serve(ctx context.Context) error {
 		// nothing here logs a request: a request line is where a token would
 		// otherwise end up.
 	}
-	stopped := make(chan error, 1)
-	go func() { stopped <- server.Serve(s.listener) }()
+	servers := []*http.Server{server}
+	listeners := []net.Listener{s.listener}
+	if s.readyListener != nil {
+		servers = append(servers, &http.Server{Handler: http.HandlerFunc(s.serveReadiness), ReadHeaderTimeout: 10 * time.Second})
+		listeners = append(listeners, s.readyListener)
+	}
+	stopped := make(chan error, len(servers))
+	for index := range servers {
+		go func() { stopped <- servers[index].Serve(listeners[index]) }()
+	}
+	stop := func() error {
+		grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		var problems []error
+		for _, each := range servers {
+			if err := each.Shutdown(grace); err != nil {
+				problems = append(problems, err)
+			}
+		}
+		if err := errors.Join(problems...); err != nil {
+			return fmt.Errorf("dashboard: stop: %w", err)
+		}
+		return nil
+	}
 	select {
 	case err := <-stopped:
+		// One listener failing is the dashboard failing: the other is stopped
+		// with it rather than left serving half of what it was started for.
+		_ = stop()
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
 	case <-ctx.Done():
-		grace, cancel := context.WithTimeout(context.Background(), shutdownGrace)
-		defer cancel()
-		if err := server.Shutdown(grace); err != nil {
-			return fmt.Errorf("dashboard: stop: %w", err)
-		}
-		<-stopped
-		return nil
+		return stop()
 	}
 }
 
@@ -305,6 +366,21 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 	// Read-only means read-only at the protocol: there is nothing to post.
 	if request.Method != http.MethodGet && request.Method != http.MethodHead {
 		refuse(writer, request, http.StatusMethodNotAllowed, "this dashboard is read-only")
+		return
+	}
+
+	// The health answer is served whatever the dashboard's readiness, and the
+	// readiness request is what makes it ready; everything else waits for it.
+	switch request.URL.Path {
+	case healthPath:
+		s.serveHealth(writer, request)
+		return
+	case readyPath:
+		s.serveReady(writer, request)
+		return
+	}
+	if !s.ready.Load() {
+		refuse(writer, request, http.StatusServiceUnavailable, s.notReady())
 		return
 	}
 

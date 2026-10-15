@@ -7637,14 +7637,14 @@ names Node as the development dependency this is about.
 
 **[`yoyo start`](operations.md#starting-the-product-and-stopping-it) is what
 acts on this section.** It starts the product's supervisor, which reads the
-section and starts every enabled part it knows how to: the Slack sink as
-`yoyo slack ensure` starts it, and the scheduler as `yoyo work --watch` under
-its own watch lease. One part is declared here ahead of the supervisor knowing
-how to start it, the dashboard, and `yoyo start` says so: adopting the dashboard
-as a supervised part is yoyodyne-ifd.414, and until it lands `yoyo dashboard`
-is started by hand and still binds loopback on its `--port` rather than reading
-this entry's `port`, `bind`, or `allowed_hosts` — `token` it does read, whether
-or not the entry is enabled, so that
+section and starts every enabled part: the Slack sink as `yoyo slack ensure`
+starts it, the dashboard as `yoyo dashboard` on this entry's `port`, and the
+scheduler as `yoyo work --watch` under its own watch lease
+([the dashboard under the product](operations.md#the-dashboard-under-the-product)
+says how the dashboard is confirmed and where its token is). The dashboard,
+supervised or started by hand, still binds loopback rather than reading this
+entry's `bind` or `allowed_hosts`; `token` it reads whether or not the entry is
+enabled, so that
 [a stored token outlives a restart](operations.md#watching-from-a-browser-the-dashboard).
 Declaring the whole section now is what lets that command and the resident that
 starts with the machine read one statement rather than two.

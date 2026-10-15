@@ -3682,7 +3682,7 @@ func (s State) Validate() error {
 		problems = append(problems, errors.New("backend is invalid"))
 	}
 	if !s.Status.Valid() {
-		problems = append(problems, errors.New("status is invalid"))
+		problems = append(problems, UnknownValueError{Field: "status", Value: string(s.Status)})
 	}
 	if s.StartedAt.IsZero() || s.UpdatedAt.IsZero() {
 		problems = append(problems, errors.New("started_at and updated_at are required"))
@@ -3784,13 +3784,13 @@ func (s State) Validate() error {
 		problems = append(problems, errors.New("workflow_unobserved is why a run has no instance, and this run names workflow_instance_id"))
 	}
 	if s.Phase != "" && !s.Phase.Valid() {
-		problems = append(problems, errors.New("phase is invalid"))
+		problems = append(problems, UnknownValueError{Field: "phase", Value: string(s.Phase)})
 	}
 	if s.ReviewDecision != "" && !slices.Contains(reviewDecisions, s.ReviewDecision) {
-		problems = append(problems, errors.New("review_decision is invalid"))
+		problems = append(problems, UnknownValueError{Field: "review_decision", Value: string(s.ReviewDecision)})
 	}
 	if s.ReviewApproves != "" && !slices.Contains(reviewApprovals, s.ReviewApproves) {
-		problems = append(problems, errors.New("review_approves is invalid"))
+		problems = append(problems, UnknownValueError{Field: "review_approves", Value: string(s.ReviewApproves)})
 	}
 	// What an approval approves is only recorded against an approval. A repair
 	// closes nothing, so a record carrying both would say the settlement was
@@ -3806,10 +3806,10 @@ func (s State) Validate() error {
 		problems = append(problems, errors.New("review_decision escalate requires the review_summary it was raised with"))
 	}
 	if s.LandingOutcome != "" && !slices.Contains(landingOutcomes, s.LandingOutcome) {
-		problems = append(problems, errors.New("landing_outcome is invalid"))
+		problems = append(problems, UnknownValueError{Field: "landing_outcome", Value: string(s.LandingOutcome)})
 	}
 	if s.StopClass != "" && !s.StopClass.Valid() {
-		problems = append(problems, errors.New("stop_class is invalid"))
+		problems = append(problems, UnknownValueError{Field: "stop_class", Value: string(s.StopClass)})
 	}
 	// A claim with no account of itself is the half of the record that would be
 	// read afterwards, so an outcome without one is refused here rather than
@@ -4004,10 +4004,10 @@ func (s State) Validate() error {
 	}
 	if _, outage := PausedForProviderOutage(s.PauseCause); s.PauseCause != "" && !outage &&
 		s.PauseCause != PauseUsageLimit && s.PauseCause != PauseServerOverload && s.PauseCause != PauseOperatorHold {
-		problems = append(problems, errors.New("pause_cause is invalid"))
+		problems = append(problems, UnknownValueError{Field: "pause_cause", Value: string(s.PauseCause)})
 	}
 	if s.ProviderOutageChannel != "" && !s.ProviderOutageChannel.Valid() {
-		problems = append(problems, errors.New("provider_outage_channel is invalid"))
+		problems = append(problems, UnknownValueError{Field: "provider_outage_channel", Value: string(s.ProviderOutageChannel)})
 	}
 	if s.OperatorHeldSeconds < 0 {
 		problems = append(problems, errors.New("operator_held_seconds cannot be negative"))
