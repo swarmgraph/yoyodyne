@@ -5954,7 +5954,8 @@ no say in it.
 
 **Which roles hold it is the role-capability registry's, in Go.** The three
 management bundles and the program manager's hold `repository.read` and
-`repository.list`; the developer's
+`repository.list`, and the program manager's alone holds `repository.search`
+beside them; the developer's
 and the reviewer's hold `repository.read` alone, which is the harness reading a
 change or a context bundle on their behalf rather than a path they name. `yoyo
 config show` reports both under each agent's `capabilities`, and — as with every

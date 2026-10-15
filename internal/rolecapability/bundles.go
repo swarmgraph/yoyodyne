@@ -188,6 +188,12 @@ func bundles() []Bundle {
 				capability.ReportFile,
 				capability.RepositoryRead,
 				capability.RepositoryList,
+				// Searching the tree at a recorded commit is the program manager's
+				// first, for the technical-health instance: following a function
+				// from its callers to its tests across packages is what reading
+				// named files alone cannot do (docs/designs/tool-interface.md,
+				// "Searching the repository").
+				capability.RepositorySearch,
 				capability.LogRead,
 				capability.ReadModelRead,
 				capability.WorkItemAdmit,

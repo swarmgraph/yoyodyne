@@ -60,6 +60,7 @@ func (a Authority) OnSideStream() Authority {
 	// side thread holds.
 	narrowed.RepositoryReads = a.RepositoryReads && sidestream.Permits(capability.RepositoryRead) &&
 		sidestream.Permits(capability.RepositoryList)
+	narrowed.RepositorySearch = a.RepositorySearch && narrowed.RepositoryReads && sidestream.Permits(capability.RepositorySearch)
 	narrowed.LogReads = a.LogReads && sidestream.Permits(capability.LogRead)
 	narrowed.Asks = a.Asks && sidestream.Permits(capability.ExchangeAsk)
 	narrowed.Answers = a.Answers && sidestream.Permits(capability.ExchangeAnswer)
