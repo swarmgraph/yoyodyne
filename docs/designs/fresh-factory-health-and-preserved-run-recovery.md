@@ -15,6 +15,10 @@ revisions:
       by: architect
       at: 2026-10-13T17:44:18.572813Z
       reason: 'yoyodyne-ab2: adds the callable evidence and recovery contract the development manager asked for, and the development-manager, architect and shared prompt rules the operator assigned on October 4, with the split between prompting and code, six bounded slices and outcome scenarios (a) to (h). Rewritten after the reviewer refused document-827.1: adoption of the prompt rules is a developer item that writes the live persona files and their templates through a reviewed run, never a step handed to the operator; the results section uses plain words only; every item is named by what it is.'
+    - action: amended
+      by: architect
+      at: 2026-10-15T11:37:50.437694Z
+      reason: 'Amendment promised by the stopped-run recovery design (yoyodyne-gtx, closed): the closed list of run.recover actions and of run.verify expected states becomes one list with the development manager''s decisions in stopped-run-recovery step 3, with one carrier, stop binding and the item''s recovery budget; the recovery-policy reconciliation line now says it was folded into stopped-run-recovery.'
 approvals:
     - revision: 0
       by: operator
@@ -25,12 +29,19 @@ approvals:
       by: harness
       at: 2026-10-13T17:44:18.572813Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 832, for document-832.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-15T11:37:50.437694Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1006, for document-1006.1 under the automatic approval policy
 ---
 # Purpose and scope
 
 This design serves the approved management and supervision goals through the management-and-supervision and program-manager designs. It specifies Fresh factory-health evidence and accountable scheduled-pass completion (yoyodyne-3xd). It changes neither product intent nor role authority.
 
 The harness supplies fresh standing health evidence to every scheduled development-manager and factory-flow program-manager pass. Recovery, health reporting and pass completion use one account of a run's lifecycle. Event deltas and cached specification context remain useful inputs, but neither establishes current health.
+
+How a stopped run moves from its stop to going on, step by step, is [stopped-run-recovery](stopped-run-recovery.md). This design supplies the evidence and the one recovery capability those steps use, and the two share one closed list of recovery actions.
 
 These are design requirements enforced in code, not new repository-wide invariants.
 
@@ -114,7 +125,7 @@ Shared health delivery (yoyodyne-e7c) must demonstrate fresh delivery to both ma
 
 Manager coverage validation (yoyodyne-5eu) must reject unsupported healthy or complete claims, missing anomaly dispositions and resolution supported only by owner assignment or memory. It must accept honest complete coverage with unresolved conditions, retain first observation across conversations, expose overdue recurrence and record resolution followed by reopening.
 
-These are acceptance interfaces for already admitted work, not a decomposition or pull order. Immediate preserved-run recovery (yoyodyne-9j7) remains separate operational work. Recovery-policy reconciliation (yoyodyne-ifd.429.42) continues to own finite check-continuation policy; this design does not bypass dependencies or spend limits.
+These are acceptance interfaces for already admitted work, not a decomposition or pull order. Immediate preserved-run recovery (yoyodyne-9j7) remains separate operational work. Bounded reruns of a check stopped by its time limit are those of [recoverable-and-terminal-failures](recoverable-and-terminal-failures.md), applied in steps 1 and 5 of stopped-run-recovery, which folds in the recovery-policy reconciliation (yoyodyne-ifd.429.42); this design does not bypass dependencies or spend limits.
 
 # Evidence and limits
 
@@ -138,15 +149,31 @@ A result larger than the rendering bound returns exact totals, the identities it
 
 `run.inspect`, class read, built by shared health delivery. Request: one run. Result: the run record, cut at 48 KiB with the cut declared; the lease holder; the worker's identity as defined below and whether it is live, absent, or uncertain; whether the branch and worktree exist; the reservation; any wait and its release condition; the last continuation attempt and refusal.
 
-`run.verify`, class read, built by shared health delivery. Request: one run and one expected state, from this closed list: worker live, durable wait recorded, reservation released, continuation started, integration completed, unresolved hold recorded. Result: met, not met, or unknown, with the evidence read and its observation time. Unknown is never reported as met.
+`run.verify`, class read, built by shared health delivery. Request: one run and one expected state, from this closed list: worker live, wait recorded, reservation released, continuation started, repair started, rerun holds the item, integration completed, item given back, question recorded, unresolved hold recorded. Result: met, not met, or unknown, with the evidence read and its observation time. Unknown is never reported as met.
 
-`run.recover`, class act, built by lifecycle recovery (yoyodyne-06m). Request: a request identifier the caller makes up and never reuses, one run, the observation identifier the decision rests on, the saved status and phase the caller expects, one action, and a reason. The actions are a closed list: continue the same run; record a dependency wait; complete the steps after a recorded integration; release the reservation of a terminal run with no worker; record an unresolved hold naming its owner, next action and follow-up. Result: applied, refused, or unknown, as defined below.
+`run.recover`, class act, built by lifecycle recovery (yoyodyne-06m), with the four actions marked below built by the slices of stopped-run-recovery. Request: a request identifier the caller makes up and never reuses, one run, the observation identifier the decision rests on, the saved status and phase the caller expects, the stop it answers by attempt number and stop time where the run is on the development manager's list of stopped runs, one action, and a reason. The actions are one closed list. It is the list of the development manager's decisions in step 3 of stopped-run-recovery, with one action added for a run that has no stop to decide:
+
+- continue the same run from the step it stopped at, spending nothing;
+- repair: the same run goes back to its developer with a stated number of repair attempts (built by stopped-run-recovery);
+- rerun: a fresh run of the item from the current target branch (built by stopped-run-recovery);
+- finish the merge: complete the steps after a recorded or possible integration;
+- wait, naming the release condition and what will look at it again; a dependency wait is a wait whose release condition is the item's dependencies closing, recorded as the preserved-run recovery section says;
+- give the item back: retire the run with its change kept, release the item's claim and developer slot, and return the item to the queue with the stop named in a note (built by stopped-run-recovery);
+- record an unresolved hold naming its owner, next action and follow-up;
+- ask the Lead Product Manager, recording the question and the stop it concerns on the run, when the decision needs a priority or a scope she owns (built by stopped-run-recovery);
+- release the reservation of a terminal run with no worker; this is not a decision on a stop and applies only to a terminal run.
+
+Result: applied, refused, or unknown, as defined below.
+
+There is one carrier. A decision the development manager records on her list of stopped runs is carried out through `run.recover` and nothing else, and a `run.recover` call that answers a stop is that decision. No second path carries a recovery act, so neither can skip a check the other makes.
 
 Dispositions are recorded where they are recorded now, on the pass record, and manager coverage validation (yoyodyne-5eu) checks them. No new capability is added for them.
 
 ## What binds a request
 
-Every `run.recover` request carries the product, the run, the observation identifier and the expected status and phase. The harness takes the run lease, reloads the record strictly and compares. If anything differs from what the caller expected, the request is refused as state moved, nothing is changed, and the result names what differs. An observation older than fifteen minutes is refused for any act.
+Every `run.recover` request carries the product, the run, the observation identifier and the expected status and phase. The harness takes the run lease, reloads the record strictly and compares. If anything differs from what the caller expected, the request is refused as state moved, nothing is changed, and the result names what differs. Where the request answers a stop, the stop is compared too: a request for a stop that a later stop of the same run has replaced is refused as state moved. An observation older than fifteen minutes is refused for any act.
+
+A repair grant or a rerun is taken from the item's recovery budget when the request is recorded, under the lease, in the units stopped-run-recovery sets: repair attempts, and one rerun for each stop. A request for more than the budget holds is refused, naming what is left. No action widens the budget.
 
 The checks that matter for safety are made at the moment the harness acts, under the lease, and not at the moment the caller observed. An action that needs no worker is refused if a worker is live or uncertain when the harness acts, whatever the observation said.
 
@@ -162,13 +189,23 @@ The harness records a `run.recover` request on the run record, under the lease, 
 
 Applied means the change was written, and the harness read the record back afterwards and found the change there.
 
-Refused means nothing was changed. The reason is one of: state moved; observation too old; a worker is live or uncertain; the action is not allowed for the run's saved status and phase; the caller does not hold the capability; the request identifier was used before with different content.
+Refused means nothing was changed. The reason is one of: state moved; observation too old; a worker is live or uncertain; the action is not allowed for the run's saved status and phase; the request asks for more than the item's recovery budget holds; the action is not yet built, naming the slice that builds it; the caller does not hold the capability; the request identifier was used before with different content.
 
 Unknown means the harness tried to write and afterwards could not tell whether the write happened, for example because the file system reported an error after the file may already have been replaced. On unknown, nobody acts on that run again until the harness has reloaded it under the lease and established what it holds. Until then the run carries an unresolved hold that names the development manager, the attempted action and the request identifier, and the next health observation reports it.
 
 ## Checking the outcome
 
-Applied is not the same as recovered. After an applied result, the caller checks the outcome with `run.verify`, using the expected state that matches the action: continue the same run leads to continuation started and then worker live; a dependency wait to durable wait recorded; completing steps after integration to integration completed; releasing a reservation to reservation released; an unresolved hold to unresolved hold recorded.
+Applied is not the same as recovered. After an applied result, the caller checks the outcome with `run.verify`, using the expected state that matches the action:
+
+- continue the same run: continuation started, and then worker live;
+- repair: repair started, and then worker live;
+- rerun: rerun holds the item;
+- finish the merge: integration completed;
+- wait, including a dependency wait: wait recorded;
+- give the item back: item given back;
+- ask the Lead Product Manager: question recorded;
+- record an unresolved hold: unresolved hold recorded;
+- release a reservation: reservation released.
 
 A disposition of verified resolution must cite a `run.verify` result of met from an observation taken after the action. A worker that started, an action that was applied, or a pull request that merged is not enough on its own.
 
@@ -178,7 +215,7 @@ The development manager's bundle holds all five. The factory-flow program manage
 
 ## What is enforced in code and what is left to the prompt
 
-Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation and expected state; the checks made at the moment of acting; worker identity; request identity and repeats; the closed lists of actions and expected states; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
+Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation, expected state and stop; the checks made at the moment of acting; the recovery budget; worker identity; request identity and repeats; the closed lists of actions and expected states; the one carrier; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
 
 Left to the prompt: judgment about which obstruction matters, whether a pattern is recurring, which supported action is smallest, and how a design is ordered. The prompt rules below tell a role how to use what the code guarantees. They grant nothing, and a role that ignores one is held by the checks above, not by the wording.
 
@@ -228,7 +265,7 @@ Each slice can be checked on its own. Decomposing them into items is the develop
 
 1. `health.observe` and `health.follow`, including services, search paths, maintenance delivery and configuration files, with the scheduled pass message carrying a fresh observation and the grants for both. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
 2. Worker identity recorded at worker start, `run.inspect` and `run.verify`, with their grants. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
-3. `run.recover`: binding, the checks at the moment of acting, request identity and repeats, the three results, and the hold on unknown, with its grant. Lifecycle recovery (yoyodyne-06m). Depends on slice 2.
+3. `run.recover`: the request shape with the whole closed list of actions, binding to the observation, expected state and stop, the checks at the moment of acting, the recovery budget check, request identity and repeats, the three results, and the hold on unknown, with its grant. It carries out continue, finish the merge, wait, record an unresolved hold and release a reservation. It refuses repair, rerun, give the item back and ask the Lead Product Manager as not yet built until slices 3, 4 and 6 of stopped-run-recovery build them on top of it. Lifecycle recovery (yoyodyne-06m). Depends on slice 2.
 4. Disposition validation: verified resolution needs a later met result, unknown is never complete, and a start, an applied result or a merge alone is refused as resolution. Manager coverage validation (yoyodyne-5eu). Depends on slices 2 and 3.
 5. The shared rule, the five architect rules and the development manager's rules 1, 3, 4 and 5, written into `internal/chat/role.go`, the two live persona files and their shipped templates, with the delivered prompts checked as the adoption section says. A new item. The developer names the template files before starting. Depends on nothing.
 6. The development manager's rule 2, written into the same two files for her, and checked in the same way. A new item. Depends on slices 2 and 3.
@@ -253,6 +290,12 @@ Each scenario is checked by what happens, in a test home or on the live factory,
 
 (h) Dashboard test state left behind after a restart meant only to restore availability, and stale service copies left running on old builds (yoyodyne-ifd.434.19). A restart leaves an older copy running. The next `health.observe` lists both copies with their builds and reports the older one as an anomaly.
 
+(i) A decision on a replaced stop. A run stops, the development manager decides a repair, and before it is carried out the run stops again. The `run.recover` request for the first stop is refused as state moved, the budget is unchanged, and the second stop stays on her list.
+
+(j) A grant larger than the budget. The development manager asks for more repair attempts than the item's recovery budget holds. The request is refused, naming what is left, and nothing is taken from the budget.
+
 ## Evidence and limits of this addendum
 
 The design above was read at commit 968d33ed. The live persona directory `.yoyodyne/personas` was listed at the same commit and holds the architect and development manager files named here. Where the shipped templates live was not read, which is why slice 5 has its developer name them before starting. The tool interface design was not read again for this addendum. No code was read and no tests were run. No invariant is added: the rules marked as enforced in code are requirements of this design, held by its slices and their tests.
+
+Revised at commit 13841dbd, after reading this design and stopped-run-recovery whole at that commit: the closed lists of `run.recover` actions and `run.verify` expected states were made one with the development manager's decisions in stopped-run-recovery, with one carrier, binding to the stop, and the recovery budget check. No code was read for the revision.
