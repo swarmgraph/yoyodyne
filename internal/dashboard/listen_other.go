@@ -1,4 +1,4 @@
-//go:build !(darwin || dragonfly || freebsd || linux || netbsd || openbsd)
+//go:build !(darwin || dragonfly || freebsd || netbsd || openbsd || (linux && !mips && !mipsle && !mips64 && !mips64le))
 
 package dashboard
 
