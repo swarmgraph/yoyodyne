@@ -290,6 +290,12 @@ func (r Reconciler) recoverPublication(ctx context.Context, answers forgeAnswers
 	// unfinished publication a merge the run could not confirm leaves, said in
 	// the same words so the finishing sweep selects and finishes it as it
 	// finishes those.
+	if published.MergeQueued {
+		// Somebody armed it by hand at a moment nothing recorded, so its wait is
+		// measured from when the harness first saw the forge holding it.
+		queuedAt := r.clock().Now()
+		published.QueuedAt = &queuedAt
+	}
 	switch {
 	case published.Merged:
 		recovery = r.recordRecoveredRequest(state, published, unconfirmedRecoveredMerge(published, state.Integration.TargetBranch), recovery)
@@ -396,6 +402,8 @@ func (r Reconciler) armRecoveredMerge(ctx context.Context, state runstate.State,
 	recovery.Queued = result.Queued
 	published.MergeMethod = string(mergeMethod)
 	published.MergeQueued = true
+	queuedAt := r.clock().Now()
+	published.QueuedAt = &queuedAt
 	// The account of the loss is settled by the request having been made: what
 	// it said was that nothing was asked of the forge, and something now has. A
 	// write that fails here leaves the record as the run wrote it, and the next

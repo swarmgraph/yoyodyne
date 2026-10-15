@@ -1294,6 +1294,9 @@ func carryOutGate(err error) (gate, clears string) {
 	case errors.Is(err, ErrWorktreeNotAsLeft), errors.Is(err, ErrPreservedChangeMissing):
 		return runstate.TriageGatePreservedWork,
 			"somebody saying what became of the worktree the stopped run preserved; what is in it is what a continued developer would be handed back, so this is a person's to look at"
+	case carryOutCause(err) == triage.CarryOutMergeDropped:
+		return runstate.TriageGatePreservedWork,
+			"the development manager recording a re-run, which builds the change again on the current target branch, or a re-arm of the same merge where the forge's reason has passed; the refused repair spent nothing"
 	case errors.Is(err, ErrItemNotStartable):
 		return runstate.TriageGateWorkItem,
 			"the work item being put back in a state a run may start on; nothing was spent, so the same decision is carried out once it is"

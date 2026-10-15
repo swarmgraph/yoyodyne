@@ -420,6 +420,8 @@ func (r Rearmer) repeat(ctx context.Context, runID, targetBranch string, checked
 	// reconciliation's to settle, on what the forge does next — a second drop
 	// writes a fresh one there, and a merge closes the item.
 	published.MergeQueued = true
+	queuedAt := r.now()
+	published.QueuedAt = &queuedAt
 	published.TargetRed = nil
 	state.PullRequest = &published
 	state.PublishFailure = ""

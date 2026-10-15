@@ -118,6 +118,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -1058,6 +1059,13 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	// A stall or a check-stage timeout owes the run the step the harness stopped,
 	// rather than a repair of a change nobody complained about.
 	if !handedBackRepair(prior) && !continuableStall(prior) && !prior.StoppedAtStageBound() {
+		// An approved change the forge did not merge is the case this is decided on
+		// most, and the record answers it the same way on every pass, so it is
+		// refused once, on the item, with what the record supports instead.
+		if prior.MergeDrop != nil {
+			return permanentCarryOut(triage.CarryOutMergeDropped, fmt.Errorf("run %s's change was approved and handed to the forge to merge, and the forge did not merge it: %s. Nothing was ever returned to its developer, so a repair has nothing to hand back",
+				prior.RunID, oneline.Bound(prior.MergeDrop.Reason, 1200)))
+		}
 		return fmt.Errorf("run %s recorded no reviewer findings, failing check, refused paths, or replay conflict, and is not a provider the harness stopped with its session preserved, so no failure was ever returned to its developer and there is no attempt to carry on with: %s stopped for something a repair budget does not answer",
 			prior.RunID, prior.RunID)
 	}

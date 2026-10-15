@@ -1478,6 +1478,12 @@ type PullRequest struct {
 	// and the harness has not confirmed the end of it. Reconciliation asks, finds
 	// it landed, and finishes it.
 	MergeQueued bool `json:"merge_queued,omitempty"`
+	// QueuedAt is when the harness last saw the forge take this merge: the run
+	// queuing it, a re-arm, or a sweep finding it queued. It is what the limit on
+	// a queued merge's wait is measured from (triage.stuck_merge_age), because a
+	// merge re-armed days after its run ended has waited only since the re-arm.
+	// A record written before it existed is measured from the run's end.
+	QueuedAt *time.Time `json:"queued_at,omitempty"`
 	// MergeRearms is how many times the harness has repeated this publication's
 	// merge request after the forge dropped the merge it had queued. It is the
 	// durable once-per-publication counter the re-arm is bounded by, and it lives

@@ -3267,7 +3267,8 @@ the queue was landing them.
   --json` carries what each came to under `updates`. Where the moment is wrong
   rather than the run — intake held, every developer slot taken, or a pass that
   hosts no runs, such as the settle a conversation makes — the merge is left
-  queued with the checks beside it and the reason, for the next `yoyo reconcile`.
+  queued with the checks beside it and the reason, for the next `yoyo reconcile`,
+  until it has waited past `triage.stuck_merge_age` (below).
 - **A job the forge ended itself.** A check the forge reports as cancelled,
   timed out, or never started (`startup_failure`), whose only annotation is the
   forge's own on `.github` or that has none, was ended before any step decided
@@ -3456,6 +3457,32 @@ read asks the operator to decide anything. A later successful reading replaces
 the unread state; a merge nobody has attempted to read the checks of yet is
 docketed saying exactly that rather than as approved and queued with nothing
 beside it.
+
+**A merge that waits past `triage.stuck_merge_age` is handed on.** However it
+is waiting — held by the forge with checks that are not red, or dropped behind
+its target with the update waiting for a free slot, held intake, or a sweep that
+hosts runs — a merge that has not landed `triage.stuck_merge_age` (`2h` unless
+configured) after it was queued is not left saying "queued". The wait is
+measured from when the merge was last queued (`queued_at` under `pull_request`
+in the run record): the run queuing it, a re-arm, or a sweep finding it queued;
+a record from before that field existed is measured from the run's end. The
+sweep asks the forge for the request's merge state and the queue events on its
+timeline, withdraws a merge the forge still holds so nothing lands meanwhile,
+and settles the run as a dropped merge: recorded as not merged, its branch and
+worktree kept, and the item blocked with a line that says how long it waited,
+what the forge's merge state means in words — a conflict with the target, a
+target that moved ahead, a check that has not passed, an unmet protection rule,
+a draft, or nothing reported — what would let it land, and the forge's own
+account. The run goes on the development manager's docket of stopped runs,
+where she runs it again or re-arms the merge. Where what holds it is something
+only somebody with access to the repository on GitHub can clear — an approving
+review a protection rule requires, or a draft to mark ready — the line names
+that step exactly, so she can pass it on as it stands. A repair decided on such
+a run is refused once, on the item, with cause `merge-dropped`
+([run stops](run-stops.md)): nothing was returned to its developer for a repair
+to hand back. A sweep that cannot read the forge's state for the request at all
+decides nothing: the merge stays queued and the failed read is reported for the
+run. A merge that lands before the limit is settled exactly as before.
 
 Three settle-path outcomes leave a publication outstanding, each
 with its own line on the work item. A merge the forge **dropped**, where the

@@ -230,6 +230,12 @@ type Reconciler struct {
 	// sweep verb does. A queued head is put back at its promotion only by a sweep
 	// that will host it; any other pass leaves the merge queued for one that will.
 	HostsRuns bool
+	// StuckMergeAge is how long a merge may wait with the forge before the sweep
+	// asks why it has not landed and hands it to the development manager
+	// (stuckmerge.go). It is the project's triage.stuck_merge_age. Zero sets no
+	// limit, and so does a sweep wired without Checks, which cannot withdraw the
+	// merge it would hand on.
+	StuckMergeAge time.Duration
 	// Forge tallies what this sweep asked the forge about its publications and
 	// how long the forge took, so a pass can say it. Optional: a sweep wired
 	// without it asks exactly the same questions and tallies nothing.
@@ -1065,15 +1071,25 @@ const maxDropAccountBytes = 2 << 10
 // head and the queue events on the request's timeline — so whoever decides
 // about the drop has the evidence on the record rather than on the forge.
 func (r Reconciler) dropAccount(ctx context.Context, published runstate.PullRequest, target string) string {
-	var removal publish.QueueRemoval
-	var unread string
+	removal, unread := r.readQueueRemoval(ctx, published.Number)
+	return forgeDropAccount(removal, unread, published, target)
+}
+
+// readQueueRemoval reads the forge's account of a request's queued merge, and
+// says why it could not where it could not.
+func (r Reconciler) readQueueRemoval(ctx context.Context, number int) (publish.QueueRemoval, string) {
 	if r.Drops == nil {
-		unread = "this sweep has no forge access wired to read them"
-	} else if read, err := r.Drops.QueueRemoval(ctx, published.Number); err != nil {
-		unread = fmt.Sprintf("they could not be read: %v", err)
-	} else {
-		removal = read
+		return publish.QueueRemoval{}, "this sweep has no forge access wired to read them"
 	}
+	removal, err := r.Drops.QueueRemoval(ctx, number)
+	if err != nil {
+		return publish.QueueRemoval{}, fmt.Sprintf("they could not be read: %v", err)
+	}
+	return removal, ""
+}
+
+// forgeDropAccount is dropAccount's sentences from an account already read.
+func forgeDropAccount(removal publish.QueueRemoval, unread string, published runstate.PullRequest, target string) string {
 	var sentences []string
 	reason, requirement := removal.Reason(), removal.Requirement()
 	if reason != "" {
@@ -1273,6 +1289,8 @@ func (r Reconciler) settleInterruptedLanding(ctx context.Context, state runstate
 		return result, err
 	case observed.AutoMerge:
 		published.MergeQueued = true
+		queuedAt := r.clock().Now()
+		published.QueuedAt = &queuedAt
 		state.PullRequest = &published
 		detail := fmt.Sprintf("the run was interrupted while landing through pull request %d, and the forge holds its merge into %s queued", published.Number, target)
 		if _, err := r.Tracker.RecordOutcome(ctx, state.WorkItemID, strings.Join([]string{
