@@ -3300,9 +3300,10 @@ type State struct {
 	// lost: each one a promotion refused because the target moved, answered by
 	// replaying the change onto where the target went, re-checking it, and
 	// re-reviewing it. It is recorded before the replay begins, so a process that
-	// dies mid-replay comes back to the count it had. It is the record of the
-	// races and bounds nothing: a lost race never stops a run, and a run keeps
-	// replaying for as long as its replays keep passing.
+	// dies mid-replay comes back to the count it had. It is also what ends a run
+	// that keeps losing: the race that would make the losses reach
+	// lostRacesBeforeGivingBackTheSlot in the orchestrator is not replayed, and
+	// the run stops with its work kept and gives back its developer slot.
 	IntegrationRetries int `json:"integration_retries,omitempty"`
 	// ChargedReplays counts the replays that stopped on the change rather than on
 	// the target: the replay conflicted, or the replayed change was handed back
