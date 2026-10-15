@@ -165,6 +165,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
@@ -782,6 +783,13 @@ type Pull struct {
 	// restarted inside a window never has.
 	UsageLimits readmodel.UsageLimits
 	Developers  []readmodel.AgentEndpoint
+	// DeveloperModels is execution.developer_models as this pull read it, so a
+	// window that closes some developer models and not others is read against the
+	// model each item's run would ask for. The first of Developers is the
+	// developer agent as configured, which is what an item no rule names takes.
+	// Optional; a pull wired without it reads every item as asking for that agent's
+	// own model.
+	DeveloperModels []config.DeveloperModelRule
 	// CapacityServed and Conversations are what the refusals above are read
 	// against before they hold anything: a refusal the provider has since served
 	// its account and model through, or a refusal of a conversation its role has
@@ -2334,12 +2342,18 @@ pulling:
 		// restarted over and over inside a seven_day window pulled fresh items into
 		// the same refusal each time, and one limit became twelve failed runs. It
 		// lifts at the reset the provider named, with nothing to release.
-		if closed, standing := s.usageWindow(&schedule, pull); standing {
+		//
+		// A window that closes some developer models and not others stops nothing
+		// here: what it closes is read again per item below, so an item whose run
+		// would ask for a closed model waits in its place in the order while work
+		// on a model still served is pulled past it.
+		recordedClosed, closedModels, standing := s.usageWindow(&schedule, pull)
+		if standing {
 			if !s.Watching {
 				schedule.Stopped = ScheduleProviderWindow
 				break
 			}
-			said := account{reason: windowReason(closed.window, closed.found), running: running, window: closed.window}
+			said := account{reason: windowReason(recordedClosed.window, recordedClosed.found), running: running, window: recordedClosed.window}
 			cadence.provider(said.reason)
 			if !awaitProvider(pull, said) {
 				schedule.Stopped = ScheduleCancelled
@@ -2986,7 +3000,7 @@ pulling:
 			}
 			answer, err := s.eligibility(entry, eligibilityReading{
 				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
-				schedule: &schedule, poll: &poll, passOver: passOver,
+				schedule: &schedule, poll: &poll, passOver: passOver, windows: closedModels,
 			})
 			if err == nil {
 				decided[entry.ID] = answer
@@ -4262,24 +4276,49 @@ type recordedWindow struct {
 // does not refuse is one a run could be served on, so a single such endpoint
 // holds nothing.
 //
-// A pull wired without the log or the endpoints reads none, and a record that
-// cannot be read is said on the schedule and read past, for the reason the
-// outage reading gives: a session that stopped choosing work because it could
-// not open one file would be a worse failure than dispatching into a refusal.
-func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, bool) {
+// A third record is read beside those two: the runs the window ended rather
+// than parked, because the reset lay past what a run may wait. Such a run is
+// finished, its claim given back, and its record is the only durable account of
+// the window — so a reading without it pulled a fresh item into the same
+// refusal at every pull, and a restarted session did the same from its first.
+// See readmodel.WindowStoppedRunRefusals.
+//
+// Where the window closes some developer models and not every one, nothing
+// stands for the whole pull, and what is returned instead is the models it
+// closes: an item whose run would ask for one of them is passed over by
+// itself, keeping its place in the order (see windowFor).
+//
+// A pull wired without the endpoints reads none, and a record that cannot be
+// read is said on the schedule and read past, for the reason the outage reading
+// gives: a session that stopped choosing work because it could not open one
+// file would be a worse failure than dispatching into a refusal.
+func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, closedModels, bool) {
 	schedule.UsageWindowResetsAt = nil
-	if pull.UsageLimits == nil || len(pull.Developers) == 0 {
-		return recordedWindow{}, false
+	if len(pull.Developers) == 0 || (pull.UsageLimits == nil && pull.Stoppages == nil) {
+		return recordedWindow{}, nil, false
 	}
-	refusals, err := pull.UsageLimits.List()
-	if err != nil {
-		schedule.UsageWindowProblem = fmt.Sprintf("whether a provider usage limit is reached could not be read, so work was picked as though none were: %v", err)
-		return recordedWindow{}, false
+	var refusals []runstate.UsageLimitExhaustion
+	if pull.UsageLimits != nil {
+		listed, err := pull.UsageLimits.List()
+		if err != nil {
+			schedule.UsageWindowProblem = fmt.Sprintf("whether a provider usage limit is reached could not be read, so work was picked as though none were: %v", err)
+			return recordedWindow{}, nil, false
+		}
+		refusals = listed
 	}
 	var runs []runstate.State
 	if pull.Runs != nil {
 		if incomplete, err := pull.Runs.Incomplete(); err == nil {
 			runs = incomplete
+		}
+	}
+	var stopped []runstate.UsageLimitExhaustion
+	if pull.Stoppages != nil {
+		recorded, err := pull.Stoppages.Recorded()
+		if err != nil {
+			schedule.UsageWindowProblem = fmt.Sprintf("which runs a provider usage limit ended could not be read, so work was picked as though none had: %v", err)
+		} else {
+			stopped = readmodel.WindowStoppedRunRefusals(recorded)
 		}
 	}
 	// Only refusals of a model a developer's turn can end on, or of no model
@@ -4300,6 +4339,7 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, b
 		return kept
 	}
 	parked := relevant(readmodel.ParkedRunRefusals(runs))
+	standing := append(append(parked, relevant(stopped)...), relevant(refusals)...)
 	now := s.now()
 	// The refusals are read against the same evidence every surface reads them
 	// against, so intake is never held on a window a served turn has disproved.
@@ -4308,9 +4348,9 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, b
 	evidence, _ := readmodel.ReadCapacityEvidence(pull.CapacityServed, pull.Conversations)
 	// No unknown-reset pause: only a reset the provider named makes a refusal
 	// stand here.
-	hold := readmodel.ReadCapacityHold(pull.Developers, nil, append(parked, relevant(refusals)...), now, 0, evidence)
+	hold := readmodel.ReadCapacityHold(pull.Developers, nil, standing, now, 0, evidence)
 	if !hold.Holding || hold.ResetsAt.IsZero() || !now.Before(hold.ResetsAt) {
-		return recordedWindow{}, false
+		return recordedWindow{}, closedDeveloperModels(evidence.Standing(standing), now), false
 	}
 	resetsAt := hold.ResetsAt.UTC()
 	schedule.UsageWindowResetsAt = &resetsAt
@@ -4326,7 +4366,99 @@ func (s Scheduler) usageWindow(schedule *Schedule, pull Pull) (recordedWindow, b
 		window: providerWindow{waiting: true, resetsAt: resetsAt},
 		found: fmt.Sprintf("the usage-limit record holds %s closed on %s until %s, which every developer turn ends on, so nothing is chosen until it lifts",
 			limit, strings.Join(models, " and "), resetsAt.Format(time.RFC3339)),
-	}, true
+	}, nil, true
+}
+
+// closedModels is the developer models a recorded usage window holds closed at
+// one pull, each with the window that closes it.
+type closedModels map[string]modelWindow
+
+// modelWindow is one model's closed window: when the provider said it reopens,
+// and the provider's own name for the limit, empty where it named none.
+type modelWindow struct {
+	resetsAt time.Time
+	kind     string
+}
+
+// closedDeveloperModels is the models the standing refusals close, each until
+// the latest reset any of them named. A refusal names a model or closes nothing
+// here: one that named none cannot be told apart from a refusal of a model a
+// run would not ask for, and holding an item on it would hold work the
+// provider is serving. A turn an alternate served for want of capacity still
+// closes the model it moved off; a substitution for any other reason names no
+// window.
+func closedDeveloperModels(standing []runstate.UsageLimitExhaustion, now time.Time) closedModels {
+	closed := closedModels{}
+	for _, refusal := range standing {
+		model := strings.TrimSpace(refusal.Model)
+		if model == "" || refusal.ResetsAt == nil || !refusal.WindowClosed(now, 0) {
+			continue
+		}
+		if refusal.Substituted() && refusal.Reason() != runstate.SubstitutedForCapacity {
+			continue
+		}
+		if window, seen := closed[model]; !seen || refusal.ResetsAt.After(window.resetsAt) {
+			closed[model] = modelWindow{resetsAt: refusal.ResetsAt.UTC(), kind: strings.TrimSpace(refusal.Kind)}
+		}
+	}
+	if len(closed) == 0 {
+		return nil
+	}
+	return closed
+}
+
+// windowFor reports the window an item's developer run would be refused by,
+// where the models its run would ask for are all closed.
+//
+// The run asks for the developer's model, or the one execution.developer_models
+// maps the item's labels to — the same resolution the run makes as it is
+// reserved — and falls over to the developer's alternate where one is
+// configured, so the item waits only where both are closed, and until the
+// earlier of the two reopens. A developer slot with an endpoint pair of its own
+// dispatches onto that pair rather than this resolution, so a pull with any such
+// slot reads nothing per item: holding an item the slot would have served on
+// another endpoint would be idling on a misreading, and the slot's own
+// alternates are the slot routing's business.
+func (Scheduler) windowFor(pull Pull, closed closedModels, item beads.WorkItem) (modelWindow, string, bool) {
+	if len(closed) == 0 || len(pull.Developers) == 0 {
+		return modelWindow{}, "", false
+	}
+	for _, slot := range pull.Slots {
+		if slot.Routing != nil && slot.Routing.Enabled {
+			return modelWindow{}, "", false
+		}
+	}
+	developer := pull.Developers[0]
+	model := strings.TrimSpace(developer.Model)
+	if choice := config.ResolveDeveloperModel(pull.DeveloperModels, item.Labels, model); choice.Chosen() {
+		model = strings.TrimSpace(choice.Model)
+	}
+	window, held := closed[model]
+	if !held {
+		return modelWindow{}, "", false
+	}
+	if alternate := strings.TrimSpace(developer.Alternate); alternate != "" {
+		other, alsoHeld := closed[alternate]
+		if !alsoHeld {
+			return modelWindow{}, "", false
+		}
+		model += " and " + alternate
+		if other.resetsAt.Before(window.resetsAt) {
+			window = other
+		}
+	}
+	return window, model, true
+}
+
+// windowReasonFor is what the report says of an item a closed window holds:
+// the model, the limit, when it reopens, and that the item has kept its place.
+func windowReasonFor(window modelWindow, models string) string {
+	limit := "a usage limit"
+	if window.kind != "" {
+		limit = "the " + window.kind + " usage limit"
+	}
+	return fmt.Sprintf("waiting for provider capacity: its developer run would ask for %s, which %s holds closed until %s; it keeps its place in the order and is pulled again once the window reopens",
+		models, limit, window.resetsAt.UTC().Format(time.RFC3339))
 }
 
 // escalate puts the oldest stopped run the development manager has not been

@@ -3990,6 +3990,9 @@ type scheduleHarness struct {
 	// test's pass reads no recorded window — which is what every pass did before.
 	usageLimits readmodel.UsageLimits
 	developers  []readmodel.AgentEndpoint
+	// developerModels is execution.developer_models, for a test that reads a
+	// window against the model each item's labels map its run to.
+	developerModels []config.DeveloperModelRule
 	// capacityServed is what the provider has served since, read against the
 	// refusals above; nil for every test that does not ask, which lifts nothing.
 	capacityServed readmodel.CapacityServedRecord
@@ -4207,6 +4210,7 @@ func (h *scheduleHarness) open(context.Context) (Pull, error) {
 		OutageProbe:                 h.outageProbe,
 		UsageLimits:                 h.usageLimits,
 		Developers:                  h.developers,
+		DeveloperModels:             h.developerModels,
 		CapacityServed:              h.capacityServed,
 		Divergences:                 h.divergences,
 		LaunchSettings:              h.launchSettings,

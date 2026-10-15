@@ -1545,9 +1545,14 @@ section says what clears a refusal early.
 
 ### A watch session inside a recorded window
 
-The same two records hold intake by themselves. At every pull a watching
-`yoyo work` session reads the usage-limit log and the runs parked on a limit,
-and while a refusal the provider named a future reset for covers the model
+The same two records hold intake by themselves, with a third beside them: the
+runs the window ended rather than parked, because the reset lay past what a run
+may wait (see
+[waiting out a provider that refuses](configuration.md#waiting-out-a-provider-that-refuses)).
+Such a run is finished and its claim given back, so its own record is the only
+durable account of the window. At every pull a watching
+`yoyo work` session reads the usage-limit log, the runs parked on a limit, and
+the runs a limit ended, and while a refusal the provider named a future reset for covers the model
 every developer's turn ends on — the developer's alternate where failover names
 one, and each model `execution.developer_models` maps a label to as well — it
 chooses nothing: no item is pulled and no recorded triage decision is carried
@@ -1565,7 +1570,16 @@ It is never reported as a hold: nothing needs releasing, and the first poll past
 the reset pulls again. A limit with no reset named does not hold intake this
 way; a dispatch is how that one is asked about. A developer model the record
 does not refuse — a label mapped to a model the provider still serves — holds
-nothing, because work can run on it. A pass that is not watching stops on the window
+nothing for the whole pull, because work can run on it. What the window does
+hold then is each item whose run would ask for a closed model — the developer's
+own model for an item no `execution.developer_models` label names, and the
+mapped model otherwise — unless the developer's alternate is still served. Such
+an item is passed over by itself, keeps its priority and its place in the order,
+and is named as waiting for provider capacity with the reset, while work on a
+served model is pulled past it; the first poll past the reset pulls it again. A
+pull with a developer slot that routes to an endpoint pair of its own reads no
+window per item, because that slot dispatches somewhere this reading does not
+see. A pass that is not watching stops on the window
 instead of waiting it out.
 
 **A served turn clears the window before its reset.** A quoted reset is a claim

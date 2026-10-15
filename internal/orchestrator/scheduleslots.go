@@ -75,6 +75,9 @@ type eligibilityReading struct {
 	schedule *Schedule
 	poll     *idlePoll
 	passOver func(workItemID, reason string)
+	// windows is the developer models a recorded usage window holds closed at
+	// this pull, where it closes some and not every one; see usageWindow.
+	windows closedModels
 }
 
 // eligibility asks every question about one entry but the conflict one, and
@@ -148,6 +151,18 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		// is one line in the report rather than one per poll.
 		reading.passOver(entry.ID, "an unresolved directive pauses it: "+pausing[0].Summary())
 		poll.pass(entry.ID, runstate.PassedOverPausedByDirective, "")
+		return passedOver, nil
+	}
+	// A recorded usage window that closes the model this item's run would ask
+	// for, with a reset the provider named still to come, is a refusal the
+	// dispatch would meet. The item is passed over rather than started into it,
+	// and nothing about it changes: it keeps its priority and its place, and the
+	// first pull after the reset reads it as startable again. It is re-read from
+	// the durable records at every pull, so a restarted session holds it too.
+	if window, models, closed := s.windowFor(pull, reading.windows, read.items[entry.ID]); closed {
+		reason := windowReasonFor(window, models)
+		reading.passOver(entry.ID, reason)
+		poll.passWindow(entry.ID, reason)
 		return passedOver, nil
 	}
 	// The last question asked before a slot is spent, and the only one that
