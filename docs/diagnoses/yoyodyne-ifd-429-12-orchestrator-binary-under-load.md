@@ -342,7 +342,8 @@ alternative, and it would put the same pipeline helpers in every one of them.
 
 ### The census on 2026-10-14
 
-Taken on the base of this change (f4a1d55c), by `go run ./scripts/movetests`:
+Taken on commit f4a1d55c of the main branch, before the first group moved, by
+`go run ./scripts/movetests`:
 
 - 1,453 tests, up from 834 in the census above.
 - 418 of them reach internals. 1,035 reach none and can move.
@@ -388,14 +389,16 @@ touches that file.
 The review bound decides how big a group can be. A change's whole patch is
 held to 256 KB, and a new file to 64 KB. Lines taken out of a file cost little,
 because a diff that only removes is described rather than shown once the bound
-is reached. New files cost their whole size, and this group's new tests and
-helpers come to about 167 KB. The moved `publish_test.go` was 83 KB, so its
+is reached. New files cost their whole size, and this group's new files come to
+about 200 KB: 167 KB of tests and helpers, and 32 KB of the move tool. The moved `publish_test.go` was 83 KB, so its
 queued-merge and settled-merge tests are in `publish_queue_test.go`.
 
 ### What the move did to the binaries
 
 Measured as the developing guide records it: `GOFLAGS=-count=1 make race`, with
 a second one beside it on the same tree, started at 10:54 PDT on 2026-10-14.
+The tree was the change itself, committed as fae36536 at 11:04 PDT; nothing
+committed to it after that touched either package's tests.
 The one-minute load was near 10 for the first twenty minutes, then rose with
 other runs on the machine to between 120 and 268, and stayed above 100 to the
 end.
@@ -416,13 +419,50 @@ a load past 100 it needs more than that. The item's measure, no binary past half
 of `TEST_TIMEOUT` at a load above 40, is for the end of the move rather than
 for this first group, and it is not met yet.
 
+### The second group: the first half of `pipeline_test.go` (yoyodyne-ifd.429.14.1)
+
+On commit 7a3ec0c8, `go run ./scripts/movetests` counted 101 tests in
+`pipeline_test.go`, and 86 of them could move. This change moved 43 of them
+into `internal/orchestrator/pipelinetests`. They cover claiming the item, what
+a run records about itself, the developer's checks, the reviewer's verdict, and
+the repair loop. Each keeps its name and its assertions.
+
+The 43 are the first 43 in the file, with two exchanged for two from later in
+the file:
+
+- `TestPipelineNamesADirtyCheckoutBeforeAskingWhetherTheProviderIsInstalled`
+  and `TestPipelineRefusesAutomaticIntegrationThatIsNotGatedByAReviewer` stay.
+- `TestPipelineReportsOutstandingCleanupWithoutRecastingASucceededRun` and
+  `TestPipelineKeepsCompletionOrderingWhenPersistenceOrTheTrackerFails` move
+  in their place.
+
+The reason is the one the first group met. With the first 43 exactly, Git drew
+`pipeline_test.go`'s diff with 89 added lines, because it paired tests that
+stay with tests that moved. The file's diff would then have been shown whole,
+at 128 KB, beside 121 KB of new tests. With the exchange the diff is removals
+alone. The new tests come to 121 KB in three files under the 64 KB bound for a
+new file: `pipeline_test.go`, `review_test.go`, and `repair_test.go`. The
+helpers they added to `testharness` come to 3 KB.
+
+Timed side by side from 08:22 PDT on 2026-10-15, with
+`go test -count=1 -json`, at a one-minute load between 12 and 31:
+
+| tree | `internal/orchestrator` | `internal/orchestrator/pipelinetests` |
+| --- | --- | --- |
+| before, 7a3ec0c8 | passed, 1,173s | |
+| after, this change | passed, 1,142s | passed, 96s |
+
+The 43 tests' own elapsed times add up to 683 seconds, but they run in
+parallel with everything else in the package. Moving them out takes about 30
+seconds off the package's wall time at this load. 43 movable tests remain in
+`pipeline_test.go`.
+
 ### What is left
 
-About 990 tests that can move, in groups of the size above. By subject and by
+About 950 tests that can move, in groups of the size above. By subject and by
 what they cost, a plan the development manager can take or change:
 
-1. `pipeline_test.go`'s 86 movable tests, in two or three changes, because the
-   file is 340 KB.
+1. The other 43 movable tests in `pipeline_test.go`, in one change.
 2. The merge queue: `mergequeueworker_test.go`, `mergequeuerecovery_test.go`,
    `mergequeuepromotion_test.go`, and `queuedchecks_test.go`.
 3. Protection and landing: `protectedpath_test.go`, `protectedtarget_test.go`,
