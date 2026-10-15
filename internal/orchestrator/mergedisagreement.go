@@ -263,7 +263,7 @@ func publicationNumber(state runstate.State) int {
 // the request, the forge's state, what was read of the target branch, and the
 // uncertain cause.
 func (d Docketer) disagreementEntry(state runstate.State, now time.Time) (triage.Entry, error) {
-	entry, err := d.publicationEntry(state, now)
+	entry, err := d.unvalidatedPublicationEntry(state, now)
 	if err != nil {
 		return triage.Entry{}, err
 	}

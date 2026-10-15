@@ -2082,6 +2082,19 @@ func (d Docketer) escalationEntry(state runstate.State, now time.Time) (triage.E
 }
 
 func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.Entry, error) {
+	entry, err := d.unvalidatedPublicationEntry(state, now)
+	if err != nil {
+		return triage.Entry{}, err
+	}
+	if err := entry.Validate(); err != nil {
+		return triage.Entry{}, fmt.Errorf("docket the unmerged publication of run %s: %w", state.RunID, err)
+	}
+	return entry, nil
+}
+
+// unvalidatedPublicationEntry is publicationEntry before it is checked, for an
+// entry that adds to it first (disagreementEntry).
+func (d Docketer) unvalidatedPublicationEntry(state runstate.State, now time.Time) (triage.Entry, error) {
 	counters, err := d.recordedCounters(state, rearmsOf(state))
 	if err != nil {
 		return triage.Entry{}, err
@@ -2129,9 +2142,6 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 			ApprovedAt:  publicationApprovedAt(state).UTC(),
 		},
 		Counters: counters,
-	}
-	if err := entry.Validate(); err != nil {
-		return triage.Entry{}, fmt.Errorf("docket the unmerged publication of run %s: %w", state.RunID, err)
 	}
 	return entry, nil
 }
