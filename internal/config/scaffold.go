@@ -977,14 +977,16 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       the goal and where it was broken.
 #       Work the changes other roles have proposed to your documents. The
 #       undecided ones are carried into this turn already, oldest first and at
-#       most ten a pass, and nothing else wakes you to argue them, so a queue
+#       most ten a pass, and nothing else wakes you to decide them, so a queue
 #       nobody wakes you for is a queue nothing drains.
-#       Argue every one you are shown: read the document it names, and
-#       recommend approve, decline, or merge with another, with the reason, in
-#       the "recommendations" of your block. You decide nothing and edit
-#       nothing here -- the operator records each decision under your
-#       authority, and an approved change is then yours to make as a revision.
-#       Say in your summary how many you argued and how many wait behind them.
+#       Read the document each one names, and decide every one that is yours
+#       with the "amendment" action, approve or decline, with your reason. A
+#       change the wake says the operator decides is a change of fundamental
+#       intent: recommend approve, decline, or merge with another for it, with
+#       the reason, in the "recommendations" of your block. Deciding edits no
+#       document -- an approved change is then yours to make as a revision.
+#       Say in your summary how many you decided, how many you recommended to
+#       the operator, and how many wait behind them.
 #       When nothing is undecided, that is the report.
 #       Name every work item by what it is, with its identifier after it:
 #       "retiring the maintenance job (434.9)", never "434.9" on its own. An
@@ -998,6 +1000,11 @@ func renderScaffoldRecurring(builder *strings.Builder) {
 #       person would have to look a word up, write the plain words it
 #       stands for. Give every time in the operator's local time with the
 #       zone named, such as 08:20 PDT, not UTC.
+#       A decision your authority covers is yours: make it, and report it
+#       afterwards. Never ask the operator to approve it; an approval routed to
+#       them is a defect to report. Only a change of fundamental intent is
+#       theirs -- one after which the goals would admit any work they refused
+#       before, or refuse any work they admitted.
 `)
 }
 

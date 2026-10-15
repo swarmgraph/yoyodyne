@@ -10,11 +10,14 @@ package cli
 // Nothing here edits an artifact, which is what keeps a proposal from being an
 // edit somebody wrote in advance and got approved by another name.
 //
-// Who decides follows the same model as the invariant commands beside these.
-// The owning role decides its own documents where it runs; the architect agent
-// does not execute yet, so the operator decides in its stead, and the record
-// says the operator exercised the architect's authority rather than pretending
-// the architect answered.
+// Who decides is the document's owner: the architect for the designs,
+// specifications, and decision records, and the Lead Product Manager for the
+// product home, each from its own conversation (internal/chat/amendmentdecision.go).
+// What these commands record is the operator's decision: on a change to the
+// brief or the goals that does not say it is consistent with
+// their intent, which is his, and on any other where he overrides the owner. The
+// record says the operator exercised the owner's authority rather than
+// pretending the owner answered.
 
 import (
 	"flag"
@@ -135,10 +138,14 @@ func showAmendment(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprint(stdout, decision.Render())
 		return 0
 	}
-	// Waiting on the operator rather than on the owner, because nothing records an
-	// owner's decision: the owning role argues about a proposal where it runs, and
-	// the decision is made here.
-	fmt.Fprintf(stdout, "      waiting on you, under the %s's authority\n", found.Owner)
+	// Who it is waiting on is said in so many words, because a pending proposal
+	// read as the operator's when its owner decides it is an approval routed to
+	// him for nothing.
+	if found.ReservedForOperator() {
+		fmt.Fprintf(stdout, "      waiting on you, under the %s's authority\n", found.Owner)
+		return 0
+	}
+	fmt.Fprintf(stdout, "      waiting on the %s, who decides it from its conversation; you may still decide it here to override\n", found.Owner)
 	return 0
 }
 
@@ -343,12 +350,16 @@ the document by the role that owns it, in a revision recorded under that role.
 Nothing an unapproved proposal contains ever reaches a document, and neither
 does anything an approved one contains.
 
-Every decision is recorded here, by you, under the authority of the role that
-owns the document. No agent records one: an owning role that runs is shown the
-proposals against its documents and argues for or against them, and the
-Lead Product Manager is told in so many words that it cannot decide one. So a
-proposal waits on you whoever owns the document, and the record says you
-exercised that role's authority.
+The role that owns the document decides a proposal against it, from its own
+conversation: the architect for the designs, specifications, and decision
+records, and the Lead Product Manager for the product home. You are told
+afterwards and are not asked. What waits on you is a change to the brief or the goals that changes what they intend, or does not say whether
+it does, because a change of fundamental intent is yours. Each proposal says
+which it is.
+
+A decision recorded here is yours, under the authority of the role that owns
+the document. You may record one on any proposal still undecided, which is how
+you override the owner; the record says you exercised that role's authority.
 
   list [--all] [--owner <role>]   what is waiting to be decided
   show <id>                       one proposal and what became of it

@@ -371,24 +371,25 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	}
 }
 
-// The batch an owning role argued on a recurring pass is one decision list, and
-// it reaches the operator the way every finding does: once, directly and tagged,
-// through the operator-action message, naming each proposal and what the owner
-// recommends. It ends, silently, once the operator has decided every proposal
-// in it.
+// The batch an owning role argued on a recurring pass, over changes the
+// operator decides — here changes to the goals that do not say whether they
+// change what the goals intend — is one decision list, and it reaches the
+// operator the way every finding does: once, directly and tagged, through the
+// operator-action message, naming each proposal and what the owner recommends.
+// It ends, silently, once the operator has decided every proposal in it.
 func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, time.Time{})
 	first := "amendment-0123456789abcdef0123456789abcde0"
 	second := "amendment-0123456789abcdef0123456789abcde1"
-	harness.propose(t, first, moment)
-	harness.propose(t, second, moment.Add(time.Minute))
+	harness.proposeAgainst(t, first, moment, "v1-goals", artifact.KindGoals, domain.RoleProductManager)
+	harness.proposeAgainst(t, second, moment.Add(time.Minute), "v1-goals", artifact.KindGoals, domain.RoleProductManager)
 	cursors := harness.poll(t, harness.start(), notify.KindProposalRaised, notify.KindProposalRaised)
 
 	pass := moment.Add(time.Hour)
 	if err := harness.runs.Sweeps().Append(runstate.Sweep{
-		Task: "architect-amendments", Role: domain.RoleArchitect,
+		Task: "product-manager-amendments", Role: domain.RoleProductManager,
 		StartedAt: pass, EndedAt: pass.Add(time.Minute), Turns: 1,
 		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "argued two", Recommendations: []sweep.Recommendation{
 			{Proposal: first, Verdict: sweep.RecommendApprove, Reason: "the design is silent on it"},
@@ -417,8 +418,8 @@ func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
 	for _, want := range []string{
 		first + " approve; " + second + " merge into " + first,
 		"the design is silent on it",
-		"the architect, arguing the undecided changes proposed to its documents",
-		"yoyo sweeps --task architect-amendments",
+		"the Lead Product Manager, arguing the undecided changes proposed to its documents",
+		"yoyo sweeps --task product-manager-amendments",
 		"every proposal in it is decided",
 	} {
 		if !strings.Contains(message.Body, want) {
@@ -433,7 +434,7 @@ func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
 	for index, id := range []string{first, second} {
 		if err := harness.amend.Decide(amendment.Decision{
 			SchemaVersion: amendment.SchemaVersion, ProposalID: id, Verdict: amendment.VerdictApproved,
-			Authority: domain.RoleArchitect, Decider: amendment.DeciderOperator,
+			Authority: domain.RoleProductManager, Decider: amendment.DeciderOperator,
 			DecidedAt: pass.Add(time.Duration(index+1) * time.Hour),
 		}); err != nil {
 			t.Fatalf("Decide() error = %v", err)
@@ -442,6 +443,88 @@ func TestAnOwnersArguedBatchIsSaidToTheOperatorOnce(t *testing.T) {
 	}
 	if len(cursors.Streams[operatorActionStream].Delivered) != 0 {
 		t.Fatalf("cursor = %#v, want a batch whose every proposal is decided forgotten", cursors.Streams[operatorActionStream])
+	}
+}
+
+// A decision the owning role made from its conversation is said afterwards, in
+// its own voice, so the operator sees what was decided on his behalf without
+// being asked; a decision he recorded himself is not said back to him.
+func TestAnOwnersDecisionIsSaidAfterwards(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	owned := "amendment-0123456789abcdef0123456789abcde0"
+	overridden := "amendment-0123456789abcdef0123456789abcde1"
+	harness.propose(t, owned, moment)
+	harness.propose(t, overridden, moment.Add(time.Minute))
+	cursors := harness.poll(t, harness.start(), notify.KindProposalRaised, notify.KindProposalRaised)
+
+	if err := harness.amend.Decide(amendment.Decision{
+		SchemaVersion: amendment.SchemaVersion, ProposalID: owned, Verdict: amendment.VerdictApproved,
+		Authority: domain.RoleArchitect, Decider: amendment.DeciderOwner, Conversation: "chat-architect",
+		Reason: "the design is silent on it", DecidedAt: moment.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Decide(owner) error = %v", err)
+	}
+	if err := harness.amend.Decide(amendment.Decision{
+		SchemaVersion: amendment.SchemaVersion, ProposalID: overridden, Verdict: amendment.VerdictDeclined,
+		Authority: domain.RoleArchitect, Decider: amendment.DeciderOperator,
+		Reason: "not this", DecidedAt: moment.Add(2 * time.Hour),
+	}); err != nil {
+		t.Fatalf("Decide(operator) error = %v", err)
+	}
+	batch, err := harness.feed.Poll(context.Background(), cursors)
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	var said []Delivery
+	for _, delivery := range batch.Deliveries {
+		if delivery.Posts() {
+			said = append(said, delivery)
+		}
+	}
+	if len(said) != 1 || said[0].Notification.Event.Kind != notify.KindAmendmentDecided {
+		t.Fatalf("said = %#v, want the owner's decision alone", said)
+	}
+	message, err := notify.Render(said[0].Notification.Topic, said[0].Notification.Speaker, said[0].Notification.Event)
+	if err != nil {
+		t.Fatalf("render the decision: %v", err)
+	}
+	for _, want := range []string{"approved " + owned, "the design is silent on it", "makes the approved change"} {
+		if !strings.Contains(message.Body, want) {
+			t.Fatalf("the decision reads as %q, which does not say %q", message.Body, want)
+		}
+	}
+}
+
+// A batch the architect argued over changes to her own designs is hers to
+// decide, so nothing in it is put to the operator as needing his hand.
+func TestAnOwnersBatchOverItsOwnDecisionsIsNotPutToTheOperator(t *testing.T) {
+	t.Parallel()
+
+	harness := newTestHarness(t, time.Time{})
+	first := "amendment-0123456789abcdef0123456789abcde0"
+	harness.propose(t, first, moment)
+	cursors := harness.poll(t, harness.start(), notify.KindProposalRaised)
+
+	pass := moment.Add(time.Hour)
+	if err := harness.runs.Sweeps().Append(runstate.Sweep{
+		Task: "architect-amendments", Role: domain.RoleArchitect,
+		StartedAt: pass, EndedAt: pass.Add(time.Minute), Turns: 1,
+		Result: &sweep.Result{Status: sweep.StatusComplete, Summary: "argued one", Recommendations: []sweep.Recommendation{
+			{Proposal: first, Verdict: sweep.RecommendApprove, Reason: "the design is silent on it"},
+		}},
+	}); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	batch, err := harness.feed.Poll(context.Background(), cursors)
+	if err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	for _, delivery := range batch.Deliveries {
+		if delivery.Stream == operatorActionStream && delivery.Posts() {
+			t.Fatalf("the architect's batch over her own designs was put to the operator: %#v", delivery)
+		}
 	}
 }
 
@@ -1709,6 +1792,13 @@ func (h *testHarness) refused(t *testing.T, waiting string, resetsAt *time.Time,
 
 func (h *testHarness) propose(t *testing.T, id string, at time.Time) {
 	t.Helper()
+	h.proposeAgainst(t, id, at, "slack-reporting-design", artifact.KindDesign, domain.RoleArchitect)
+}
+
+// proposeAgainst records a proposal against a document of the kind and owner
+// given, which is what decides whether the owner or the operator decides it.
+func (h *testHarness) proposeAgainst(t *testing.T, id string, at time.Time, document string, kind artifact.Kind, owner domain.AgentRole) {
+	t.Helper()
 	if err := h.amend.Append(amendment.Proposal{
 		SchemaVersion: amendment.SchemaVersion,
 		ID:            id,
@@ -1718,9 +1808,9 @@ func (h *testHarness) propose(t *testing.T, id string, at time.Time) {
 		WorkItemID:    "yoyodyne-ifd.68.3",
 		ProductID:     "yoyodyne",
 		RepositoryID:  "yoyodyne",
-		Artifact:      "slack-reporting-design",
-		Kind:          artifact.KindDesign,
-		Owner:         domain.RoleArchitect,
+		Artifact:      document,
+		Kind:          kind,
+		Owner:         owner,
 		Change:        "say which persona opens a topic's thread",
 		Why:           "opening a thread is nobody's account of anything",
 		RaisedAt:      at,

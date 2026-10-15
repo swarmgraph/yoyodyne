@@ -1230,12 +1230,15 @@ brake's hold becomes a fourth once it is yours:
   a warning-or-above report into the pile; that report is what she may
   handle as yours, and the finding is the decision rather than the report,
   so it is named once.)
-- **An owning role's batch of recommendations on the changes proposed to its
-  documents.** A [recurring pass](configuration.md#working-the-amendment-queue-on-a-cadence)
-  of the architect, or of the Lead Product Manager, argues the undecided
-  proposals it is put — approve, decline, or merge with another, with the
-  reason — and decides none of them: only `yoyo amendment` does. Each pass that
-  argued something still undecided is one finding, keyed by the pass, whose
+- **An owning role's batch of recommendations on the changes you decide.** A
+  [recurring pass](configuration.md#working-the-amendment-queue-on-a-cadence)
+  of the architect, or of the Lead Product Manager, decides the undecided
+  proposals against its own documents with its `amendment` action, and you are
+  told each decision afterwards. A change to the brief or the goals that does not say it is consistent with their intent is yours, and
+  on one of those the pass recommends instead — approve, decline, or merge with
+  another, with the reason — for you to decide with `yoyo amendment`. A
+  recommendation on a proposal its owner decides is in no batch. Each pass that
+  argued something of yours still undecided is one finding, keyed by the pass, whose
   message is the pass's decision list — each proposal with what its owner
   recommends, then the reasons. A proposal you decide drops out of it, and the
   finding ends when the last one in it is decided.
@@ -6765,20 +6768,24 @@ example; [recurring tasks](configuration.md#recurring-tasks) says how to turn it
 on. A listing the tracker would not give is said in the pass's message and on
 its record, and the next pass is handed the same range.
 
-**A pass of a role that owns documents carries what it recommended on the
-changes proposed to them.** The harness puts the undecided proposals against
-the role's documents in front of it on every firing — oldest first, at most ten
-a pass, and never one the role already argued on an earlier pass while the
-operator has not decided it — and the account carries a recommendation for each:
-`approve`, `decline`, or `merge` with another, with the reason. The listing
-shows them after the findings, as `> recommends approve for <id>` with the
-reason under it. They are recommendations and never decisions: nothing on a
-sweep record changes a document or settles a proposal, `yoyo amendment approve`
-and `yoyo amendment decline` record each decision under the owner's authority,
-and each pass's batch is [a finding that needs your
+**A pass of a role that owns documents decides the changes proposed to them,
+and carries what it recommended on the ones you decide.** The harness puts the
+undecided proposals against the role's documents in front of it on every
+firing — oldest first, at most ten a pass. One the role decides is put again on
+every pass until it is decided; one you decide that the role already argued on
+an earlier pass is not put again while it waits on you. The role decides its
+own with its `amendment` action, which records the decision on the proposal
+under its own authority, and you are told afterwards. On a change to the brief
+or the goals that does not say it is consistent with their
+intent, the account carries a recommendation instead: `approve`, `decline`, or
+`merge` with another, with the reason. The listing shows them after the
+findings, as `> recommends approve for <id>` with the reason under it. A
+recommendation settles nothing: `yoyo amendment approve` and `yoyo amendment
+decline` record your decision under the owner's authority, and each pass's
+batch of what you decide is [a finding that needs your
 hand](#where-a-finding-that-needs-your-hand-goes): sent to you once and named by
 [`yoyo status`](#where-the-harness-stands-the-four-lines) while it waits on you —
-derived from these records, and dropping any proposal you have decided since. [Working the amendment queue on a
+derived from these records, and dropping any proposal decided since. [Working the amendment queue on a
 cadence](configuration.md#working-the-amendment-queue-on-a-cadence) says how
 the pass is configured.
 

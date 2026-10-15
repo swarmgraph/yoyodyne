@@ -45,6 +45,22 @@ func queuedProposal(index int, age time.Duration) amendment.Proposal {
 	}
 }
 
+// goalsProposal is one undecided change against the goals that does not say
+// whether it changes what they intend, which is the operator's to decide.
+func goalsProposal(index int, age time.Duration) amendment.Proposal {
+	proposal := queuedProposal(index, age)
+	proposal.Artifact, proposal.Kind, proposal.Owner = "v1-goals", artifact.KindGoals, domain.RoleProductManager
+	return proposal
+}
+
+// productManagerPass is one recorded firing of the Lead Product Manager's task
+// carrying her recommendations.
+func productManagerPass(startedAt time.Time, recommendations ...sweep.Recommendation) runstate.Sweep {
+	pass := architectPass(startedAt, recommendations...)
+	pass.Task, pass.Role = "product-manager-amendments", domain.RoleProductManager
+	return pass
+}
+
 // architectPass is one recorded firing of the architect's task carrying her
 // recommendations.
 func architectPass(startedAt time.Time, recommendations ...sweep.Recommendation) runstate.Sweep {
@@ -95,17 +111,63 @@ func TestAQueueNothingIsDrainingIsNamedByItsAge(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"2 of 2 proposed change(s) are undecided, the oldest raised 23d ago, against the architect's documents",
-		"the operator's — proposals are decided with `yoyo amendment`",
+		"the architect's — the owning role decides proposals from its conversation",
 		"not keeping up, or none is enabled",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered is missing %q:\n%s", want, rendered)
 		}
 	}
+	// A queue of design changes is the architect's to drain, and nothing about
+	// it is put to the operator.
+	for _, entry := range standing.NeedsHuman {
+		if entry.Mover == MoverOperator {
+			t.Fatalf("NeedsHuman puts %s %s to the operator, though the architect decides every proposal in it", entry.Kind, entry.ID)
+		}
+	}
+	if operator := standing.RenderOperatorWaits(moment); !strings.Contains(operator, "Nothing on the needs-a-human line is the operator's") {
+		t.Fatalf("the operator's waits list role-decidable amendments:\n%s", operator)
+	}
+
+	// The same queue whose oldest is a goals change that does not say its intent
+	// is the operator's, because that oldest one is his to decide.
+	goals := goalsProposal(3, 30*24*time.Hour)
+	sources.Amendments = fakeAmendments{records: []amendment.Record{{Proposal: &goals}, {Proposal: &old}, {Proposal: &fresh}}}
+	rendered = ReadStanding(context.Background(), sources).Render()
+	if !strings.Contains(rendered, "the operator's — the oldest is a change of fundamental intent") {
+		t.Fatalf("a queue whose oldest is the operator's is not said to wait on him:\n%s", rendered)
+	}
 }
 
-// What the owner argued on a recurring pass is the batch the operator decides
-// from: one finding for him per pass, named ahead of the proposals it covers,
+// The operator's list carries a goals change that does not say whether it
+// changes their intent, and never a design change, which the architect decides.
+func TestTheOperatorsListCarriesOnlyTheAmendmentsHeDecides(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	design := queuedProposal(1, time.Hour)
+	unstated := goalsProposal(2, time.Hour)
+	consistent := goalsProposal(3, time.Hour)
+	consistent.Intent = artifact.IntentConsistent
+	sources.Amendments = fakeAmendments{records: []amendment.Record{{Proposal: &design}, {Proposal: &unstated}, {Proposal: &consistent}}}
+	standing := ReadStanding(context.Background(), sources)
+	movers := map[string]Mover{}
+	for _, entry := range standing.NeedsHuman {
+		if entry.Kind == AttentionAmendment {
+			movers[entry.ID] = entry.Mover
+		}
+	}
+	if movers[design.ID] != MoverArchitect || movers[unstated.ID] != MoverOperator || movers[consistent.ID] != MoverProductManager {
+		t.Fatalf("amendment movers = %v, want the design the architect's, the unstated goals change the operator's, and the consistent one the Lead Product Manager's", movers)
+	}
+	operator := standing.RenderOperatorWaits(moment)
+	if !strings.Contains(operator, unstated.ID) || strings.Contains(operator, design.ID) || strings.Contains(operator, consistent.ID) {
+		t.Fatalf("the operator's waits = %q, want the unstated goals change alone", operator)
+	}
+}
+
+// What the owner argued on a recurring pass, over changes the operator decides,
+// is the batch he decides from: one finding for him per pass, named ahead of the proposals it covers,
 // carrying the pass's decision list. A proposal decided since is dropped, a
 // later pass's recommendation on the same proposal stands over an earlier one,
 // and a pass left with nothing undecided makes no finding at all.
@@ -113,10 +175,10 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 	t.Parallel()
 
 	sources := quietSources()
-	first := queuedProposal(1, 10*24*time.Hour)
-	second := queuedProposal(2, 9*24*time.Hour)
-	decided := queuedProposal(3, 8*24*time.Hour)
-	unargued := queuedProposal(4, 2*24*time.Hour)
+	first := goalsProposal(1, 10*24*time.Hour)
+	second := goalsProposal(2, 9*24*time.Hour)
+	decided := goalsProposal(3, 8*24*time.Hour)
+	unargued := goalsProposal(4, 2*24*time.Hour)
 	decision, err := decided.Decide(amendment.VerdictApproved, amendment.DeciderOperator, "", moment.Add(-time.Hour))
 	if err != nil {
 		t.Fatalf("Decide() error = %v", err)
@@ -125,11 +187,11 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 		{Proposal: &first}, {Proposal: &second}, {Proposal: &decided}, {Proposal: &unargued}, {Decision: &decision},
 	}}
 	sources.Sweeps = fakeSweeps{recorded: []runstate.Sweep{
-		architectPass(moment.Add(-2*24*time.Hour),
+		productManagerPass(moment.Add(-2*24*time.Hour),
 			sweep.Recommendation{Proposal: first.ID, Verdict: sweep.RecommendDecline, Reason: "no"},
 			sweep.Recommendation{Proposal: decided.ID, Verdict: sweep.RecommendApprove, Reason: "yes"},
 		),
-		architectPass(moment.Add(-6*time.Hour),
+		productManagerPass(moment.Add(-6*time.Hour),
 			sweep.Recommendation{Proposal: first.ID, Verdict: sweep.RecommendApprove, Reason: "on reflection, yes"},
 			sweep.Recommendation{Proposal: second.ID, Verdict: sweep.RecommendMerge, Reason: "the same change", Into: first.ID},
 		),
@@ -157,13 +219,13 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 		t.Fatalf("batch findings = %+v, want the later pass's alone", batches)
 	}
 	batch := batches[0]
-	if batch.Key != "amendments:architect-amendments@2026-08-30T06:00:00Z" || !batch.Since.Equal(moment.Add(-6*time.Hour)) {
+	if batch.Key != "amendments:product-manager-amendments@2026-08-30T06:00:00Z" || !batch.Since.Equal(moment.Add(-6*time.Hour)) {
 		t.Fatalf("batch = %+v, want it keyed and dated by the pass that argued it", batch)
 	}
 	for _, want := range []string{
 		"decide " + first.ID + " approve; " + second.ID + " merge into " + first.ID + ".",
-		first.ID + " (a change to v1-design): on reflection, yes",
-		second.ID + " (a change to v1-design): the same change",
+		first.ID + " (a change to v1-goals): on reflection, yes",
+		second.ID + " (a change to v1-goals): the same change",
 	} {
 		if !strings.Contains(batch.Needs, want) {
 			t.Fatalf("needs = %q, want it to say %q", batch.Needs, want)
@@ -174,10 +236,10 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 	}
 	rendered := standing.Render()
 	for _, want := range []string{
-		"the architect's batch of 2 proposed changes needs your hand: decide " + first.ID + " approve;",
+		"the Lead Product Manager's batch of 2 proposed changes needs your hand: decide " + first.ID + " approve;",
 		"only a person can act on this; " + amendmentBatchEnds,
-		"a change to v1-design is proposed and undecided (" + first.ID + ") — the architect's",
-		"a change to v1-design is proposed and undecided (" + unargued.ID + ") — the architect's",
+		"a change to v1-goals is proposed and undecided (" + first.ID + ") — the operator's",
+		"a change to v1-goals is proposed and undecided (" + unargued.ID + ") — the operator's",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered is missing %q:\n%s", want, rendered)

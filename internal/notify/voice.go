@@ -193,6 +193,7 @@ var harnessVoice = voice{
 		KindModelSubstituted:         "{waiting} is being served by {servedby} rather than {model}: {cause}. Nothing has stopped; the model behind the work has changed.",
 		KindReportFiled:              "Reported on {item}: {text}",
 		KindProposalRaised:           "A change to {artifact} is proposed: {text}",
+		KindAmendmentDecided:         "A change proposed to {artifact} was decided by its owner: {text}",
 		KindExchangeTurn:             "{exchange}, {rounds}: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}.",
 		KindDirectiveRecorded:        "Recorded, for the {receiver}: {text} — {effect}",
@@ -273,6 +274,7 @@ var developerVoice = voice{
 		KindModelSubstituted:         "{waiting} carries on under {servedby} rather than {model}: {cause}. My work keeps moving, and what produced it while it did is written down.",
 		KindReportFiled:              "Noticed while working on {item}: {text}",
 		KindProposalRaised:           "{artifact} isn't mine to edit, so I'm proposing the change instead: {text}",
+		KindAmendmentDecided:         "The change proposed to {artifact} has been settled by whoever owns it: {text}",
 		KindExchangeTurn:             "On {exchange}, {rounds}: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}. Back to the change.",
 		KindDirectiveRecorded:        "I've been told something about this item, and it is written down rather than left in a thread: {text} — {effect}",
@@ -353,6 +355,7 @@ var reviewerVoice = voice{
 		KindModelSubstituted:         "{waiting} is answering on {servedby} rather than {model}: {cause}. What reaches me for a verdict was produced by a different model, and I judge it the same way.",
 		KindReportFiled:              "Noticed while reviewing {item}: {text}",
 		KindProposalRaised:           "{artifact} is not mine to change, so this is an argument about it: {text}",
+		KindAmendmentDecided:         "The change proposed to {artifact} has been decided by its owner: {text}",
 		KindExchangeTurn:             "In {exchange}, at {rounds}: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}; I judge the change against what that leaves.",
 		KindDirectiveRecorded:        "This is recorded against the item, and I judge the change against it exactly as against one typed at a terminal: {text} — {effect}",
@@ -432,6 +435,7 @@ var developmentManagerVoice = voice{
 		KindModelSubstituted:         "{waiting} is served by {servedby} rather than {model}: {cause}. My order stands and the queue keeps being pulled from.",
 		KindReportFiled:              "Noticed while planning {item}: {text}",
 		KindProposalRaised:           "{artifact} isn't mine to change, so here is the case for changing it: {text}",
+		KindAmendmentDecided:         "The owner of {artifact} decided the change proposed to it: {text}",
 		KindExchangeTurn:             "{exchange} is at {rounds} and the item waits on it: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}, and the item it held moves accordingly.",
 		KindDirectiveRecorded:        "Direction came in on this thread and is recorded against the item: {text} — {effect}",
@@ -512,6 +516,7 @@ var productManagerVoice = voice{
 		KindModelSubstituted:         "{waiting} is being served by {servedby} rather than {model}: {cause}. The work carries on and is priced against the model that served it.",
 		KindReportFiled:              "Noticed about {item}: {text}",
 		KindProposalRaised:           "A change to {artifact} is proposed, and I decide it only where the document is mine: {text}",
+		KindAmendmentDecided:         "I decided the change proposed to {artifact}, which is mine to decide: {text}",
 		KindExchangeTurn:             "The operator is being asked something, in {exchange} at {rounds}: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}. What it settles is product intent.",
 		KindDirectiveRecorded:        "The operator has directed this work from the thread, and it is recorded for the {receiver}: {text} — {effect}",
@@ -592,6 +597,7 @@ var architectVoice = voice{
 		KindModelSubstituted:         "{waiting} fell back from {model} to {servedby}, which is a stated alternative rather than a degradation: {cause}. The substitution is recorded per turn, and affinity returns to {model} as soon as it can be asked for again.",
 		KindReportFiled:              "Noticed about the design of {item}: {text}",
 		KindProposalRaised:           "{artifact} should change, and this is the case: {text}",
+		KindAmendmentDecided:         "The change proposed to {artifact} is decided, under my own authority over the design: {text}",
 		KindExchangeTurn:             "{exchange}, {rounds}, on what the design left open: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}, which is where the design stops being ambiguous.",
 		KindDirectiveRecorded:        "This arrived through a thread rather than a terminal, and is the same record with the same force either way: {text} — {effect}",
@@ -673,6 +679,7 @@ var programManagerVoice = voice{
 		KindModelSubstituted:         "{waiting} was answered by {servedby} instead of {model}, the stated alternative: {cause}. It is recorded per turn, and {model} is asked again as soon as it can serve.",
 		KindReportFiled:              "Noticed while watching the line, about {item}: {text}",
 		KindProposalRaised:           "{artifact} should change, and here is why: {text}",
+		KindAmendmentDecided:         "The change proposed to {artifact} was decided by its owner, for the record: {text}",
 		KindExchangeTurn:             "{exchange}, {rounds}, on a question about the line: {text}",
 		KindExchangeClosed:           "{exchange} closed {outcome}; the question it asked is answered.",
 		KindDirectiveRecorded:        "This came in through a thread, and it carries the same force as one typed at a terminal: {text} — {effect}",
@@ -844,9 +851,13 @@ var nextMoves = map[Kind]string{
 	// What an agent said in its own words. A report asks for nothing by design and
 	// says so; the other three are all waiting on the operator.
 	KindReportFiled:    "nobody's — the work carried on.",
-	KindProposalRaised: "the operator's — nothing reaches the document until they decide it.",
-	KindExchangeTurn:   "the operator's, until the exchange is answered.",
-	KindExchangeClosed: "back to the work the exchange was holding.",
+	KindProposalRaised: "the owning role's — nothing reaches the document until it is decided.",
+	// What became of a proposal its owner decided: an approval leaves the owner
+	// a revision to write, and a decline leaves nobody anything. Which one this
+	// was is the message's Mover, set where it is built; this is the fallback.
+	KindAmendmentDecided: "the owning role's, where it approved the change — it makes it in the document as a revision.",
+	KindExchangeTurn:     "the operator's, until the exchange is answered.",
+	KindExchangeClosed:   "back to the work the exchange was holding.",
 	// What a reply did. The recorded clause is the pausing one, because a
 	// directive that stopped work is the one a reader has to do something about;
 	// directiveInForceMove is the other case, and nextMove chooses between them
@@ -1029,7 +1040,8 @@ func nextMove(event Event) (string, bool) {
 	// role, where the table's clause says the work carried on.
 	if strings.TrimSpace(event.Detail.Mover) != "" {
 		switch event.Kind {
-		case KindStallNoticed, KindRunEnded, KindBlockerRecorded, KindCapacityHold, KindProviderOutage, KindRecurringTaskFailing, KindWatchBraked, KindIntakeHeld, KindLineWaiting, KindOperatorAction, KindReportFiled:
+		case KindStallNoticed, KindRunEnded, KindBlockerRecorded, KindCapacityHold, KindProviderOutage, KindRecurringTaskFailing, KindWatchBraked, KindIntakeHeld, KindLineWaiting, KindOperatorAction, KindReportFiled,
+			KindProposalRaised, KindAmendmentDecided:
 			return ended(strings.TrimSpace(event.Detail.Mover)), true
 		}
 	}

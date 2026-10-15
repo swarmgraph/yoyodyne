@@ -941,7 +941,7 @@ rather than asked for. A role that meets it and has nothing else to say has two
 moves left, both bad: build against intent it believes is wrong, or edit the
 document anyway. So it has a third — it proposes the change, in one small block
 like the report block, and the harness carries it to the role that owns the
-document and to you. The developer carries that block today, being the role that
+document, which decides it, and tells you. The developer carries that block today, being the role that
 meets the boundary while implementing against a document; the reviewer says what
 is wrong with a change as a finding instead, and the Lead Product Manager stops and
 asks you.
@@ -1013,13 +1013,19 @@ proposal never made; one run's three lost proposals went unnoticed for four runs
 on exactly that account. The carried refusal above is spent by the developer's
 next reply and this is not: it is what an auditor reads once the run is over.
 
-The owner hears it where it works, and you are the one who decides. Proposals
-against the brief and the goals are carried into the Lead Product Manager's
-conversation and proposals against the designs, the specifications, and the
-decision records into the architect's, and each argues for or against them and
-can decide or edit nothing. So every decision is recorded by you through
-`yoyo amendment` — the same override path `yoyo invariant` takes — and the record
-says you exercised the owner's authority rather than that the owner answered.
+The owner hears it where it works, and decides it there. Proposals against the
+product home are carried into the Lead Product Manager's conversation and
+proposals against the designs, the specifications, and the decision records into
+the architect's, and each decides the ones against its own documents with its
+`amendment` action — approve or decline, with the reason — recorded on the
+proposal under its own authority and said to you afterwards, in the thread of
+the work that raised it. What is yours is a change of fundamental intent: a
+proposal against the brief or the goals that does not say it is
+consistent with their intent, which the Lead Product Manager argues and you
+decide. `yoyo amendment` records your decisions, and decides any other proposal
+nobody has decided yet when you want to override the owner — the same override
+path `yoyo invariant` takes — and the record says you exercised the owner's
+authority rather than that the owner answered.
 
 ## Reporting into Slack
 
@@ -1657,10 +1663,13 @@ once, directly, tagged by member id** — the communication rule's own test for 
 tag, since it is both important and yours — the pass after it is recorded.
 [Operations](operations.md#where-a-finding-that-needs-your-hand-goes) says what
 makes one: the Lead Product Manager handling a report with `"needs":
-"operator"`, a stopped run the development manager escalated to you, and the batch of
-recommendations an owning role argued on a recurring pass over the changes
-proposed to its documents — one message per pass, listing each proposal with
-what its owner recommends and why, for you to decide with `yoyo amendment`. The message says what is
+"operator"`, a stopped run the development manager escalated to you, and the
+batch of recommendations an owning role argued on a recurring pass over the
+changes to its documents that you decide — changes to the brief or the goals
+that do not say they are consistent with their intent — one message per pass,
+listing each proposal with what its owner recommends and why, for you to decide
+with `yoyo amendment`. A decision the owner made itself is said afterwards, in
+the work's thread, and asks nothing of you. The message says what is
 needed, who found it, where it is recorded, and what ends it, so you can go and
 read the whole of it:
 

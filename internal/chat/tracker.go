@@ -221,6 +221,15 @@ const (
 	// directives to be withdrawn and nine standing ones resolved into the
 	// operating rules, and only a person's hands could do it (yoyodyne-ifd.430.32).
 	actionDirective = "directive"
+	// actionAmendment decides a change another role proposed to a document this
+	// conversation's role owns: "approve" or "decline", with the reason, written
+	// onto the proposal exactly as `yoyo amendment approve` and `decline` write
+	// it, under the role's own authority. Its subject is a proposal in the
+	// amendment log rather than an item, and it exists because an owner that
+	// could only argue left every decision to the operator, who was then shown
+	// about 29 batches of design changes he had no reason to decide
+	// (yoyodyne-i92). See amendmentdecision.go.
+	actionAmendment = "amendment"
 	// handleNeedsOperator is the one value "needs" takes on a handling: the
 	// report asks for a change only the operator can make, and the handling is
 	// a finding for him rather than a decision that closes the report.
@@ -253,6 +262,7 @@ var trackerActionArguments = map[string][]string{
 	actionBrake:        {"decision"},
 	actionWithdraw:     {"proposal"},
 	actionDirective:    {"directive", "decision", "became"},
+	actionAmendment:    {"amendment", "decision"},
 }
 
 // trackerCapabilities is which authority each operation belongs to. It is the
@@ -306,6 +316,10 @@ var trackerCapabilities = map[string]capability.Capability{
 	// Lead Product Manager's alone, so it is held under the capability only she
 	// holds. It has no lane-scoped name: a directive belongs to the product.
 	actionDirective: capability.BacklogAdmit,
+	// Deciding a proposed change is its own capability, held by the two roles
+	// that own documents; which proposals each may decide is asked as the
+	// decision is carried out, from the document's kind.
+	actionAmendment: capability.AmendmentDecide,
 }
 
 // laneCapabilities is the lane-scoped name of each operation that has one: the
@@ -337,7 +351,7 @@ var trackerActionNames = []string{
 	actionRead, actionSurvey, actionCreate, actionAttribute, actionUpdate, actionLabel, actionReparent,
 	actionReprioritize, actionPark, actionUnpark, actionLink, actionUnlink, actionRepair,
 	actionClose, actionRetire, actionInFlight, actionTriage, actionHandle, actionBrake, actionWithdraw,
-	actionDirective,
+	actionDirective, actionAmendment,
 }
 
 // providerPathClause is what every role that writes an item's text is told
@@ -456,6 +470,10 @@ type TrackerAction struct {
 	// Proposal names the undecided proposal a withdrawal takes back, exactly as
 	// it was listed, and is taken by a withdrawal and by nothing else.
 	Proposal string `json:"proposal,omitempty"`
+	// Amendment names the proposed change an "amendment" action decides, by its
+	// whole id or a prefix of it that names exactly one, and is taken by that
+	// action and by nothing else.
+	Amendment string `json:"amendment,omitempty"`
 	// Became is what a directive resolved from the conversation now lives on as:
 	// the document it was written into, or the work item that answers it. It is
 	// required on a "directive" action's "resolve" and taken by nothing else.
@@ -1046,6 +1064,12 @@ func (a TrackerAction) validateSubject() error {
 			return errors.New("directive does not take an id; it names the directive it ends in \"directive\", and a directive is not a work item")
 		}
 		return nil
+	case a.Action == actionAmendment:
+		// A proposed change is to a document, not to a work item.
+		if id != "" {
+			return errors.New("amendment does not take an id; it names the proposed change it decides in \"amendment\", and a proposed change is not a work item")
+		}
+		return nil
 	case a.decidesDocument():
 		// A document publication has no work item: the decision names its run and
 		// is recorded there. An id naming the run's own record is accepted, since
@@ -1071,7 +1095,7 @@ func (a TrackerAction) actsOnExistingItem() bool {
 		return false
 	}
 	switch a.Action {
-	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw, actionDirective:
+	case actionCreate, actionSurvey, actionHandle, actionBrake, actionWithdraw, actionDirective, actionAmendment:
 		return false
 	default:
 		return true
@@ -1177,6 +1201,8 @@ func (a TrackerAction) validateArguments() []error {
 		problems = append(problems, proposalReferenceProblems(a.Proposal)...)
 	case actionDirective:
 		problems = append(problems, a.directiveActionProblems()...)
+	case actionAmendment:
+		problems = append(problems, a.amendmentDecisionProblems()...)
 	case actionAttribute:
 		problems = append(problems, a.goalProblems()...)
 	case actionLabel:
@@ -1408,6 +1434,9 @@ func (a TrackerAction) arguments() []string {
 	if strings.TrimSpace(a.Became) != "" {
 		carried = append(carried, "became")
 	}
+	if strings.TrimSpace(a.Amendment) != "" {
+		carried = append(carried, "amendment")
+	}
 	if strings.TrimSpace(a.Add) != "" {
 		carried = append(carried, "add")
 	}
@@ -1614,6 +1643,12 @@ func (s *Session) performTrackerActions(ctx context.Context, actions []TrackerAc
 func (s *Session) applyTrackerAction(ctx context.Context, outcome *TrackerOutcome) {
 	if outcome.Action.readsReport() {
 		s.readReport(outcome)
+		return
+	}
+	// A decision on a proposed change writes to the amendment log and reads
+	// nothing in the tracker, so a conversation without one can still make it.
+	if outcome.Action.Action == actionAmendment {
+		s.decideAmendment(outcome)
 		return
 	}
 	if s.options.Tracker == nil {

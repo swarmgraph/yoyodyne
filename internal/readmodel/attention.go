@@ -754,7 +754,10 @@ func (a Attention) Whose() string {
 	case AttentionDirective:
 		return a.Mover.Possessive() + " — the work it affects waits until `yoyo directive resolve` settles it"
 	case AttentionAmendment:
-		return a.Mover.Possessive() + " — nothing reaches the document until they or the operator decide it"
+		if a.Mover == MoverOperator {
+			return a.Mover.Possessive() + " — a change of fundamental intent; `yoyo amendment approve|decline` decides it, and nothing reaches the document until he does"
+		}
+		return a.Mover.Possessive() + " — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided"
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
 			if len(step.ReconcileFindings) > 0 {
@@ -823,7 +826,10 @@ func (a Attention) Whose() string {
 	case AttentionReports:
 		return a.Mover.Possessive() + " — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up"
 	case AttentionAmendmentQueue:
-		return a.Mover.Possessive() + " — proposals are decided with `yoyo amendment`, and a queue this old says the recurring task that argues them is not keeping up, or none is enabled"
+		if a.Mover == MoverOperator {
+			return a.Mover.Possessive() + " — the oldest is a change of fundamental intent, decided with `yoyo amendment`; a queue this old says it has waited on him longer than any regular pass would leave it"
+		}
+		return a.Mover.Possessive() + " — the owning role decides proposals from its conversation, and a queue this old says the recurring pass that puts them to it is not keeping up, or none is enabled"
 	case AttentionStall:
 		if a.Stall != nil {
 			return a.Stall.Reason.Whose()
@@ -998,13 +1004,15 @@ func directiveAttention(paused directive.Directive) Attention {
 }
 
 // amendmentAttention is an undecided proposal as the attention line carries
-// it: whose move it is is the document's owner, and the proposal is carried
-// whole so a surface can show what was proposed and why, and act on it by id.
+// it: whose move it is is the document's owner, which decides it from its
+// conversation, or the operator for a change of fundamental intent; and the
+// proposal is carried whole so a surface can show what was proposed and why,
+// and act on it by id.
 func amendmentAttention(proposal amendment.Proposal) Attention {
 	return Attention{
 		Kind:       AttentionAmendment,
 		ID:         proposal.ID,
-		Mover:      MoverOf(proposal.Owner),
+		Mover:      ownership.ResolveAmendment(proposal.Owner, proposal.ReservedForOperator()),
 		WorkItemID: proposal.WorkItemID,
 		Amendment:  &proposal,
 	}
@@ -1049,10 +1057,15 @@ func reportsAttention(pile report.Pile) Attention {
 
 // amendmentQueueAttention is a queue of proposed changes whose oldest
 // undecided one has waited too long, as the attention line carries it. It is
-// the operator's move whoever owns the documents: only `yoyo amendment` decides
-// a proposal, and only a person enables the task that argues them.
-func amendmentQueueAttention(queue amendment.Queue) Attention {
-	return Attention{Kind: AttentionAmendmentQueue, Mover: MoverOperator, AmendmentQueue: &queue}
+// the move of whoever decides that oldest one: its owner, which works the queue
+// from its conversation, or the operator where that one is a change of
+// fundamental intent.
+func amendmentQueueAttention(queue amendment.Queue, oldest amendment.Proposal) Attention {
+	return Attention{
+		Kind:           AttentionAmendmentQueue,
+		Mover:          ownership.ResolveAmendment(oldest.Owner, oldest.ReservedForOperator()),
+		AmendmentQueue: &queue,
+	}
 }
 
 // degradedServiceAttention is a part the supervisor has left down, as the

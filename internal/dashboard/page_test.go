@@ -815,7 +815,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>`,
 			`data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c"`, `data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"`,
 			`data-entry="conversation-carried-item:yoyodyne-ifd.188"`, `data-entry="held-work:decision"`, `data-entry="held-work:carry-out"`, `data-entry="report:"`,
-			`<span class="item-id">proposed document change</span>`, `<span class="grouping-detail">the architect's — nothing reaches the document until they or the operator decide it</span>`, `<span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>`,
+			`<span class="item-id">proposed document change</span>`, `<span class="grouping-detail">the architect's — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided</span>`, `<span class="grouping-detail">the harness's — the decision is made, and what is outstanding is the harness acting on it</span>`,
 		},
 		"attention-empty": {`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom</h2>`, `<p id="grouping-empty" class="empty">Nothing waits on the operator or anybody else.</p>`},
 		"attention-error": {`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom</h2>`, "Could not be read: the recorded directives could not be read: open directives: permission denied"},
@@ -825,7 +825,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		"attention-amendment": {
 			`<h2 id="card-heading" class="popup-title">proposed document change</h2>`,
 			"<dt>What</dt>", "<dt>Waiting on</dt>", "<dt>Kind</dt>", "<dt>Mover</dt>",
-			"<dd>the architect's — nothing reaches the document until they or the operator decide it</dd>",
+			"<dd>the architect's — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided</dd>",
 			"<dt>Document</dt>", "<dd>v1-harness-design</dd>", "<dt>Document kind</dt>", "<dd>design</dd>", "<dt>Owner</dt>", "<dd>architect</dd>",
 			"<dt>Proposed by</dt>", "<dd>developer (agent developer)</dd>", "<dt>In run</dt>", "<dd>run-5c1e9b2d7a4f3e8c6b0d1f2a3c4e5b6d</dd>",
 			`<button class="item-open item-id" type="button" data-item="yoyodyne-ifd.210">yoyodyne-ifd.210</button>`,

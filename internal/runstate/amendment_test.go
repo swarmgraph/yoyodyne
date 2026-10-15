@@ -112,7 +112,7 @@ func TestADecisionMustSettleSomethingThatIsStillOpen(t *testing.T) {
 	if err := store.Append(second); err != nil {
 		t.Fatalf("Append() error = %v", err)
 	}
-	wrongAuthority, err := second.Decide(amendment.VerdictDeclined, amendment.DeciderOwner, "no", time.Now())
+	wrongAuthority, err := second.Decide(amendment.VerdictDeclined, amendment.DeciderOperator, "no", time.Now())
 	if err != nil {
 		t.Fatalf("Decide() error = %v", err)
 	}
@@ -253,5 +253,38 @@ func TestARunsRecordOfAProposalSaysWhichOfRaisedOrDroppedItIs(t *testing.T) {
 	}
 	if err := state.Validate(); err == nil || !strings.Contains(err.Error(), "exceeds the bound") {
 		t.Fatalf("Validate() error = %v, want the record's bound named", err)
+	}
+}
+
+// The log refuses an owner's decision on a change it does not hold: a goals
+// change that does not say it is consistent with their intent stays the
+// operator's, whichever path writes the decision.
+func TestTheLogRefusesAnOwnersDecisionTheOperatorKeeps(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewAmendmentStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("NewAmendmentStore() error = %v", err)
+	}
+	goals := testProposal("amendment-0123456789abcdef0123456789abcdef")
+	goals.Artifact, goals.Kind, goals.Owner = "v1-goals", artifact.KindGoals, domain.RoleProductManager
+	if err := store.Append(goals); err != nil {
+		t.Fatalf("Append() error = %v", err)
+	}
+	forged := amendment.Decision{
+		SchemaVersion: amendment.SchemaVersion, ProposalID: goals.ID, Verdict: amendment.VerdictApproved,
+		Authority: domain.RoleProductManager, Decider: amendment.DeciderOwner, Conversation: "chat-product",
+		DecidedAt: time.Now(),
+	}
+	if err := store.Decide(forged); err == nil || !strings.Contains(err.Error(), "the operator's to decide") {
+		t.Fatalf("Decide() of an owner's decision on a reserved goals change = %v, want it refused as the operator's", err)
+	}
+	// The operator still decides it.
+	decision, err := goals.Decide(amendment.VerdictApproved, amendment.DeciderOperator, "", time.Now())
+	if err != nil {
+		t.Fatalf("Decide() error = %v", err)
+	}
+	if err := store.Decide(decision); err != nil {
+		t.Fatalf("store.Decide(operator) error = %v", err)
 	}
 }

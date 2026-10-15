@@ -262,6 +262,16 @@ const (
 	// AmendmentPropose is proposing a change to a governed document its role does
 	// not own, to be decided under the owner's authority.
 	AmendmentPropose Capability = "amendment.propose"
+	// AmendmentDecide is approving or declining a proposed change to a document
+	// the role owns, from its own conversation, under its own authority. It is
+	// held by the architect over the designs, specifications, and decision records
+	// and by the Lead Product Manager over the product home. Whose document a
+	// proposal is follows from the document's kind rather than from anything the
+	// role says, and a change to the brief or the goals that does
+	// not say it is consistent with their intent is refused to both, because it
+	// stays the operator's (authority-by-capability, as amended for
+	// yoyodyne-ifd.437.14).
+	AmendmentDecide Capability = "amendment.decide"
 	// ServiceRequestRestart is writing one durable request that the supervisor
 	// restart a part the services section declares. It restarts nothing itself:
 	// the supervisor's pass is the only executor, and the harness the only
@@ -321,6 +331,7 @@ var declared = []Capability{
 	LaneReportWrite,
 	ReportFile,
 	AmendmentPropose,
+	AmendmentDecide,
 	ServiceRequestRestart,
 	PassRequest,
 }

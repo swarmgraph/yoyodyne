@@ -82,7 +82,7 @@ func TestATurnIsBoundedToWhatItWasPut(t *testing.T) {
 		t.Errorf("a pass at the turn bound plus one is inside the pass bound and was refused: %v", err)
 	}
 	contract := RecommendationContract()
-	for _, want := range []string{maxRecommendationsText, string(RecommendApprove), string(RecommendDecline), string(RecommendMerge), "yoyo amendment approve", "not decisions"} {
+	for _, want := range []string{maxRecommendationsText, string(RecommendApprove), string(RecommendDecline), string(RecommendMerge), "yoyo amendment approve", "not a decision", `"amendment" action`} {
 		if !strings.Contains(contract, want) {
 			t.Errorf("the recommendation contract does not state %q:\n%s", want, contract)
 		}
