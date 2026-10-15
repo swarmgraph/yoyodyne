@@ -65,6 +65,14 @@ func TestTheProgramManagerSearchesTheRepositoryAndTheSearchIsRecorded(t *testing
 	if len(reply.RepositoryReads) != 1 || len(reply.RepositoryReads[0].Results) != 1 {
 		t.Fatalf("reply repository reads = %#v", reply.RepositoryReads)
 	}
+	// The operator's transcript calls a search a search, not a path read.
+	if rendered := reply.RepositoryReads[0].Render(); !strings.HasPrefix(rendered, "[repository] 1 search(es) made at a recorded commit\n") {
+		t.Fatalf("the transcript describes the search as %q", rendered)
+	}
+	mixed := RepositoryRound{Results: []repositoryread.Result{{Action: repositoryread.ActionRead, Path: "a"}, reply.RepositoryReads[0].Results[0]}}
+	if rendered := mixed.Render(); !strings.HasPrefix(rendered, "[repository] 1 path(s) read and 1 search(es) made at a recorded commit\n") {
+		t.Fatalf("a mixed round is described as %q", rendered)
+	}
 
 	events, err := options.Store.LoadEvents(session.Evidence().ConversationID)
 	if err != nil {

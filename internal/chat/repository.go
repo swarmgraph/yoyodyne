@@ -169,7 +169,22 @@ func (r RepositoryRound) Render() string {
 		rendered.WriteString(indent(r.Problem))
 		return rendered.String()
 	}
-	fmt.Fprintf(&rendered, "[repository] %d path(s) read at a recorded commit\n", len(r.Results))
+	// A search is counted as a search rather than as a path read, so the
+	// heading says what the round did before the lines under it do.
+	searches := 0
+	for _, result := range r.Results {
+		if result.Action == repositoryread.ActionSearch {
+			searches++
+		}
+	}
+	switch reads := len(r.Results) - searches; {
+	case searches == 0:
+		fmt.Fprintf(&rendered, "[repository] %d path(s) read at a recorded commit\n", reads)
+	case reads == 0:
+		fmt.Fprintf(&rendered, "[repository] %d search(es) made at a recorded commit\n", searches)
+	default:
+		fmt.Fprintf(&rendered, "[repository] %d path(s) read and %d search(es) made at a recorded commit\n", reads, searches)
+	}
 	for _, result := range r.Results {
 		rendered.WriteString(indent(result.Describe()))
 	}
