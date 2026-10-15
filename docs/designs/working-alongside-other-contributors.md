@@ -10,18 +10,29 @@ revisions:
       by: architect
       at: 2026-10-15T12:26:09.541038Z
       reason: 'yoyodyne-7o2: the design for working alongside other contributors, people or other copies of the factory, learning about each other only through the forge and Git: a state for waiting on a person''s merge, feedback as repair rounds, fetch before each run, a limit on waiting pull requests, claims as Git references, an answer to each of team mode''s five gaps, polling over web hooks, and the build items that follow.'
+    - action: amended
+      by: architect
+      at: 2026-10-15T13:10:19.311988Z
+      reason: 'Keeps the promises of the operator-approved team-mode scope that the published text broke, as the reviewer of its publishing run found (yoyodyne-ifd.437.52): reports, their handling and directives travel between machines through a records reference on the shared remote; each item''s budgets are counted across every factory, spent only by the factory holding the item''s claim and acted on only after the spend is pushed; the team pause is the shared form of the intake hold; and the old draft docs/team-mode-coordination.md is named as replaced, with a build item to change that file, which lies outside the architect''s folders.'
 approvals:
     - policy: approvals.designs
       revision: 0
       by: harness
       at: 2026-10-15T12:26:09.541038Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1010, for document-1010.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-15T13:10:19.311988Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1013, for document-1013.1 under the automatic approval policy
 ---
 # Working alongside other contributors
 
-Serves the team goal: a team can run Yoyodyne against one shared repository, with collaborators each running their own harness without losing work, splitting the tracker, or weakening any safety invariant. It answers the design item for working alongside other contributors (yoyodyne-7o2), from Mason's direction of October 9.
+Serves the team goal: a team can run Yoyodyne against one shared repository, with collaborators each running their own harness without losing work, splitting the tracker, or weakening any safety invariant. It answers the design item for working alongside other contributors (yoyodyne-7o2), from Mason's direction of October 9, and keeps the promises of [the team-mode scope](../team-mode-scope.md), which the operator approved on August 19: one tracker, so that every machine sees the same backlog, attributions and reports, and findings and control travel.
 
 The factory is one contributor among others. The others may be people, or another copy of this factory on a different machine. The design has to work the same way in both cases. So everything one contributor learns about another comes through the forge and Git, and never through shared local state. Every machine keeps its own home, as [the machine home](machine-home.md) rules. What a team shares is the repository, its remote, and the forge.
+
+This design replaces the earlier draft, docs/team-mode-coordination.md, which was never adopted. Where the two disagree, this design is the one that applies.
 
 The standing goals apply throughout. Every state below is shown in ordinary words where the operator reads it. Every decision named here belongs to a role, and none is put to the operator for approval.
 
@@ -61,6 +72,8 @@ At the limit, the scheduler starts no new developer work. Repair rounds, reviews
 
 ## 5. Two factories and the same work
 
+Team mode needs the harness to publish through pull requests on a forge, because the forge is where contributors learn about each other. `yoyo doctor` refuses team mode, in plain words, for a factory whose publishing is off.
+
 ### Claims
 
 A claim is a Git reference on the shared remote, `refs/yoyodyne/claims/<item id>`. It points at a small commit holding a claim record:
@@ -73,8 +86,8 @@ A claim is a Git reference on the shared remote, `refs/yoyodyne/claims/<item id>
 
 The factory's identity is the product id, plus a machine identity generated once and kept in that machine's home, plus the forge account the factory acts as.
 
-- **Taking.** Before claiming an item, the harness reads the intake hold, as [the intake invariant](../decisions/invariants/selected-work-passes-intake-and-records-why.md) requires, and the team pause below. It then pushes the claim reference with `--force-with-lease=<ref>:`, which succeeds only if no such reference exists. A refused push means another contributor holds the item. That item is skipped this turn, with the holder named where the queue is read. The local tracker claim is made only after the push succeeds.
-- **Renewing.** While a run holds the item, including while it waits for a merge, the harness renews the claim every 15 minutes. It pushes a new claim commit with a lease that names the commit it last pushed.
+- **Taking.** Before claiming an item, the harness fetches the claim references, the records reference (section 7) and the team pause, and reads the intake hold, as [the intake invariant](../decisions/invariants/selected-work-passes-intake-and-records-why.md) requires, and the team pause below. It then pushes the claim reference with `--force-with-lease=<ref>:`, which succeeds only if no such reference exists. A refused push means another contributor holds the item. That item is skipped this turn, with the holder named where the queue is read. The local tracker claim is made only after the push succeeds. A factory that cannot reach the remote cannot push a claim, so it never starts new work on a reading of the team pause it could not refresh.
+- **Renewing.** While a run holds the item, including while it waits for a merge or is stopped and kept for a decision, the harness renews the claim every 15 minutes. It pushes a new claim commit with a lease that names the commit it last pushed.
 - **Expiry.** A claim not renewed for two hours may be taken over by another factory. The takeover pushes with a lease naming the stale commit, and records the earlier holder in the new claim record and on the item. A failed renewal is a wait caused by something outside the work, and it is tried again on the next turn. Only a claim that has gone two hours unrenewed can be lost.
 - **Release.** When the run ends, the harness deletes the reference with a lease naming its own commit. A reference that is no longer its own is left alone and reported.
 
@@ -82,19 +95,65 @@ Agents never touch these references. The harness pushes them, as it already push
 
 People are not expected to push claims. A factory notices a person's work only through that person's pull requests, and a person's pull request that implements an item is resolved by the Lead Product Manager, not by the claim.
 
+### The team pause
+
+The team pause is the shared form of the intake hold: the reference `refs/yoyodyne/pause`, set and cleared with `yoyo pause --team`. While it is set, no factory starts new work from the product; runs already in progress finish, and repair rounds and waiting pull requests carry on. Every factory reads it in the same fetch that comes before a claim. An item the operator named on a machine is still that operator's exception, as the intake invariant already allows. The operator's pause on each machine, set by `yoyo pause`, stops that machine's spending and is unchanged: it does not travel, because one collaborator must not be able to stop another's machine.
+
 ### The five gaps team mode named
 
 - **The tracker drifting apart between machines.** The factory shares the tracker as Beads shares it, through the export committed to the repository. The claim reference, not the tracker, is what stops two factories doing the same work, so a tracker that is briefly out of date costs a skipped item, not a duplicate run. When two machines' edits to one item cannot be merged, the harness holds that item for the development manager, naming both versions, and edits neither. How Beads merges its export has not been read for this design; the first build establishes it.
-- **No claim that works across machines.** Section 5's claims.
+- **No claim that works across machines.** The claims above.
 - **The one-merge-at-a-time lock being per machine.** The lease stays per machine. Across machines, the guarantee is the remote's own compare and swap. A protected target lands only through its pull request with the reviewed head pinned. An unprotected target is pushed only with a lease naming the target the candidate was built on. Two factories racing to promote cannot both land: the loser's candidate is invalidated and rebuilt without charging a repair, as the merge queue design rules for target movement. The invariant on one promotion per target branch is amended to say this.
-- **Reports, run records and the pause switch being per machine.** Reports and run records stay per machine, deliberately. They are each operator's account of their own factory, and what other contributors need is on the forge: the claims, the pull requests, and in each pull request's description, the factory's identity and the work item it serves. The pause gains a team form, the reference `refs/yoyodyne/pause`. It is set and cleared with `yoyo pause --team`, and every factory reads it before claiming. The operator's pause on each machine, set by `yoyo pause`, is unchanged.
-- **No proof of who an operator is.** The factory does not establish one. The forge account is the identity, and the forge's permissions decide who may merge, review or push. A factory acts on its own operator's decisions and on what the forge shows. It never acts on a decision recorded on another machine. Permissions between users stay out of v1, as the non-goals say.
+- **Reports, run records and the pause switch being per machine.** Reports, their handling and directives travel between machines, as section 7 describes, and so does what each item has spent, as section 8 describes. The pause gains its team form above. Run records stay per machine, for the reason section 7 gives.
+- **No proof of who an operator is.** The factory does not establish one. The forge account is the identity, and the forge's permissions decide who may merge, review or push. A factory acts on its own operator's decisions, on directives that travel (section 7), and on what the forge shows. It never acts on another machine's own controls: that machine's pause, stop, or decisions about that machine's runs. Permissions between users stay out of v1, as the non-goals say.
 
 ## 6. Polling the forge
 
-The harness polls the forge on the maintenance turn, every five minutes by default. Each poll covers the pull requests it is waiting on, the reviews and comments on its open pull requests, the target branch, the claim references and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little. The interval is a numeric limit, and setting it is the development manager's decision.
+The harness polls the forge on the maintenance turn, every five minutes by default. Each poll covers the pull requests it is waiting on, the reviews and comments on its open pull requests, the target branch, the claim references, the records reference and the team pause. It uses the forge's conditional requests, so an unchanged answer costs little. The interval is a numeric limit, and setting it is the development manager's decision.
 
 Web hooks are rejected. A laptop has no address the forge can reach, and a relay that received them on its behalf would be the hosted control plane v1 excludes. Polling within a few minutes is fast enough for work measured in runs.
+
+## 7. What travels between machines
+
+The backlog and attributions travel in the tracker. Reports and control travel through a second reference of the harness's own on the shared remote, `refs/yoyodyne/records`.
+
+### What it holds
+
+The reference points at a commit whose tree holds one file for each record, named by the record's own identifier:
+
+- `reports/<id>.json`: a report, with the factory identity that filed it;
+- `report-handling/<id>.json`: what a role did with a report, naming the report;
+- `directives/<id>.json`: a directive, and `directive-changes/<id>.json` for each later change to one, naming the directive;
+- `spends/<item id>/<id>.json`: one spend of an item's budget (section 8).
+
+A record is never rewritten or removed. A change to something already recorded, such as a report handled or a directive resolved, is a new record naming the earlier one.
+
+### Writing
+
+The harness builds each new commit on top of the records commit it last fetched, using Git's own object commands in the machine's state directory. No working tree is checked out and no file in the repository is written. It pushes with a lease naming the commit it fetched. A refused push means another factory pushed first: the harness fetches, builds its commit again on the newer one, and pushes again. Because every record has a path of its own, building again never has to choose between two contents for one file.
+
+Where the path is already present on the remote, the record is already there. The harness drops its own copy and uses the one that stands. This is what makes a directive recorded from a Slack reply exactly one directive: such a directive is named by the Slack message's id, so when two factories' Slack connections record the same reply, the first push wins and the second names the directive that stands. A Slack connection acknowledges a reply only after its push succeeded or it found the reply already recorded, and the acknowledgement names the directive.
+
+A report, its handling, or a directive that cannot be pushed because the remote cannot be reached is kept on the machine, marked as not yet shared, and pushed on the next turn. The status line says how many records are not yet shared. A spend is different, as section 8 says.
+
+### Reading
+
+On each poll and in the fetch before each claim, the harness fetches the reference and copies every record it has not yet seen into the machine's own report and directive stores, marked with the factory that wrote it. Every surface keeps reading those stores through the one read model, as [the read model invariant](../decisions/invariants/surfaces-project-one-read-model.md) requires, so no surface reads Git and a report reads the same wherever it was filed. A role handling a report from another machine records its handling as a record that travels back.
+
+### What stays on each machine
+
+Run records, worktrees, event logs, provider sessions, conversations, the spend ledger, and the operator's pause stay on the machine that holds them. They describe one operator's own runs, money and afternoon, and two machines holding different answers about them are both right. What another contributor needs to know about a run is what became of its item: its status, notes, reports, claim and pull request, all of which travel. The scope does not promise that cost travels, so each operator sees what their own factory spends; a total across machines is not designed here.
+
+## 8. Each item's budgets across machines
+
+The scope records that an item's budgets are counted on the machine that counted them, so a cap of one is a cap of two across a pair. The budgets are the repair grants an item is given, the re-runs it causes, the merge re-arms it makes, and the review rounds it costs across every run of it. This design counts them across every factory.
+
+- **Only the claim holder spends.** Only the factory holding an item's claim spends any of the item's budgets, and a decision about a stopped run is carried out on the machine whose run it is, which still holds the claim. The claim already lets one factory hold an item at a time, so spending is ordered across machines without a shared counter or a tie-break.
+- **Every spend is a record.** A spend is written under `spends/<item id>/` in the records reference, naming the budget, the run, the factory and the time. Review rounds, counted today from local run records, are counted from these records instead: a run records each review round when it starts.
+- **Counted before spending, acted on after pushing.** Before spending, the holder fetches and counts the item's spends of that budget across all factories against the configured cap. It pushes its spend record and acts only after the push succeeds. A spend that cannot be pushed is not made: the run waits, as a wait caused by something outside the work, and nothing is charged.
+- **A takeover inherits what was spent.** A factory taking over an expired claim fetches the item's spends first, so it starts from what the earlier holder spent.
+- **Different caps.** Where factories are configured with different caps for one budget, each applies its own cap to the count across all factories, so the lower cap is the one an item meets.
+- **Joining.** When a machine first runs in team mode, it pushes the spends it had already counted on its own items as spend records, once, so nothing spent before is forgotten.
 
 ## Alternatives rejected
 
@@ -102,14 +161,19 @@ Web hooks are rejected. A laptop has no address the forge can reach, and a relay
 - **Claims as files on the target branch.** Every claim would be a commit to main, through review and the promotion lease, for something that has to take seconds.
 - **A shared lock service.** It would be shared state outside Git and the forge, which the operator's direction rules out.
 - **Treating every pull request comment as a repair request.** It turns questions into repair rounds and spends budget on conversation.
+- **Keeping reports on each machine.** It breaks the scope's promise that findings travel: a finding about shared work would reach only the operator whose run noticed it.
+- **Reports and spends as tracker items or notes.** A report, a directive and a spend are not work, and putting them in the tracker would put them in the queue of work to pull.
+- **A shared counter for budgets with a tie-break.** The claim already decides who may spend, so a second way of deciding would only be a place for the two to disagree.
 
 ## What is enforced in code
 
 - A claim is taken only by a push that fails if the reference exists. It is renewed, taken over and released only by a lease naming the expected commit. No agent touches a claim reference.
-- The intake hold and the team pause are read before every claim.
+- The intake hold and the team pause are read before every claim, from the fetch made for it.
 - A rewrite of a published head happens only after its merge authority is confirmed withdrawn.
 - Nothing lands on the target except through the pinned pull request merge, or a push with a lease naming the candidate's base.
 - A person's approval on the forge never satisfies the independent review.
+- Records are written only through Git objects in the machine's state directory, pushed with a lease, and never rewritten or removed. No agent writes one directly.
+- Only the claim holder spends an item's budget, and a spend is acted on only after its record is pushed.
 
 ## What a reviewer can check
 
@@ -120,6 +184,11 @@ Web hooks are rejected. A laptop has no address the forge can reach, and a relay
 - At the limit on waiting pull requests, no new developer work starts, and the status line names the pull requests being waited on.
 - Two factories racing for one item: exactly one claim push succeeds.
 - A claim unrenewed for two hours can be taken over, and the takeover names the earlier holder.
+- A report filed on one factory is shown on the other after its next poll, naming the factory that filed it, and its handling travels back.
+- One Slack reply seen by two factories produces one directive, and both acknowledgements name it.
+- With a repair cap of one, two factories working one item in turn spend one repair between them.
+- A spend whose push fails is not acted on, and the run waits without being charged.
+- With the team pause set, no factory starts new work, and runs in progress finish.
 
 ## Build items, for the Lead Product Manager to admit under `team-development`
 
@@ -128,18 +197,22 @@ Web hooks are rejected. A laptop has no address the forge can reach, and a relay
 3. Fetch before each run, with the starting target and its age recorded.
 4. Waiting pull requests brought up to date when the target moves, with conflicts as repair rounds under their own limit.
 5. The limit on waiting pull requests, and the pause it causes, said in plain words on every surface.
-6. Claim references: taking, renewing, expiry and takeover, and release, plus the `yoyo doctor` check that the forge accepts them.
-7. The factory identity, kept in the machine's home and named in claims and pull request descriptions.
-8. The team pause reference and `yoyo pause --team`.
+6. Claim references: taking, renewing, expiry and takeover, and release, plus the `yoyo doctor` checks that the forge accepts them and that publishing is on.
+7. The factory identity, kept in the machine's home and named in claims, records and pull request descriptions.
+8. The team pause reference and `yoyo pause --team`, read in the fetch before every claim.
 9. Tracker sharing between machines: establish how Beads merges its export, and hold an item whose versions cannot be merged.
-10. Forge polling on the maintenance turn, with conditional requests.
-11. A two-factory validation: two homes on one machine against one remote, covering every check under What a reviewer can check.
+10. Forge polling on the maintenance turn, with conditional requests, covering the claim, records and pause references.
+11. The records reference: writing records through Git objects with a lease, fetching and copying them into the machine's stores, the count of records not yet shared, and Slack directives named by message id.
+12. Each item's budgets counted across factories through spend records, spent only by the claim holder, acted on only after the push, and the one-time push of earlier spends on joining.
+13. The earlier draft docs/team-mode-coordination.md replaced by a short note naming this design as its replacement. The file is outside the architect's folders, so a developer run changes it.
+14. A two-factory validation: two homes on one machine against one remote, covering every check under What a reviewer can check.
 
-The first build cannot start before claims (6), because two factories without claims duplicate work. The others can be taken in any order.
+No build that lets a second factory run can start before claims (6), because two factories without claims duplicate work. Budgets (12) also need the records reference (11). The others can be taken in any order.
 
 ## Documents this amends
 
-- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gains a consequence. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder. The architect revises it once this design lands.
+- [Beads is the durable workflow store](../decisions/beads-durable-workflow-store.md) gains a consequence. The claim reference is the cross-machine guarantee for who holds an item, while the tracker still records the holder; reports, directives and spends travel in the records reference beside it, not in the tracker. The architect revises it once this design lands.
 - [One promotion per target branch](../decisions/invariants/one-promotion-per-target-branch.md) gains the remote compare and swap as the guarantee across machines. This waits on the typed invariant write (yoyodyne-0bj).
 - The v1 harness design's text on fetching only during reconcile is replaced by section 3. This waits on that design being split into parts that can be read whole.
-- The Lead Product Manager's team-mode scope document should say that working alongside other contributors is designed, and name this design. That change is hers.
+- The Lead Product Manager's team-mode scope document should say that working alongside other contributors is designed, name this design, and say that its question on a team-wide pause and its gap on budgets are answered here. That change is hers.
+- The earlier draft docs/team-mode-coordination.md is replaced by this design, through build item 13.
