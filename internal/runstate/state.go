@@ -1573,8 +1573,10 @@ func (d MergeDrop) Validate() error {
 
 // MergeCauseUncertain is the cause a merge disagreement is listed under: the
 // change may have merged and nothing confirmed it, so the only step that may act
-// on it is finishing the merge, which reads the target branch again first.
-const MergeCauseUncertain = "uncertain"
+// on it is finishing the merge, which reads the target branch again first. The
+// value is the docket's, declared once there, because it is what a docket entry
+// carries.
+const MergeCauseUncertain = triage.MergeDisagreementCause
 
 // MergeDisagreement is a read of the target branch that did not find the run's
 // change on it while the run's record or the forge said it had merged. It is

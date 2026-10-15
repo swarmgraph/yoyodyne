@@ -2,10 +2,13 @@ package orchestrator
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/backend"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -259,4 +262,171 @@ func TestARunRecordedAsMergedWhoseItemIsClosedIsNotRead(t *testing.T) {
 	if entries := fixture.entries(t); len(entries) != 0 {
 		t.Fatalf("docket = %#v, want nothing listed", entries)
 	}
+}
+
+// listingTracker is the fake tracker with a listing, which is how the real one
+// is read by the sweep: one listing of closed work per sweep.
+type listingTracker struct {
+	*orchestratortest.Tracker
+	lists int
+}
+
+func (l *listingTracker) List(_ context.Context, status string) ([]beads.WorkItem, error) {
+	l.lists++
+	if l.Item.Status == status {
+		return []beads.WorkItem{l.Item}, nil
+	}
+	return nil, nil
+}
+
+// Which items are closed is read with one listing for the whole sweep, and no
+// item is read on its own: a long history of landed runs costs the tracker one
+// call per sweep rather than one per run.
+func TestTheSweepReadsWhichItemsAreClosedWithOneListing(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	fixture.forgetMerge(t)
+	tracker := &listingTracker{Tracker: fixture.run.tracker}
+	fixture.reconciler.Tracker = tracker
+	shows := tracker.ShowCalls
+
+	if findings := fixture.sweep(t); len(findings) != 1 || findings[0].OnTarget || !findings[0].Docketed {
+		t.Fatalf("findings = %#v, want the open item's run listed", findings)
+	}
+	if tracker.lists != 1 || tracker.ShowCalls != shows {
+		t.Fatalf("listings = %d, items read one at a time = %d; want one listing and none read on its own", tracker.lists, tracker.ShowCalls-shows)
+	}
+
+	// An item the listing names as closed is not read again, and its run is not.
+	tracker.Item.Status = "closed"
+	if findings := fixture.sweep(t); len(findings) != 0 {
+		t.Fatalf("findings = %#v, want none for an item the listing names as closed", findings)
+	}
+	if tracker.ShowCalls != shows {
+		t.Errorf("items read one at a time = %d, want none", tracker.ShowCalls-shows)
+	}
+}
+
+// disagreementEntries is the docket's entries about a merge disagreement.
+func disagreementEntries(t *testing.T, docket *memoryDocket) []triage.Entry {
+	t.Helper()
+	entries, err := docket.List()
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	var found []triage.Entry
+	for _, entry := range entries {
+		if entry.Publication != nil && entry.Publication.Disagreement != nil {
+			found = append(found, entry)
+		}
+	}
+	return found
+}
+
+// assertLeftAtItsMerge holds what a sweep that settles a landing through the
+// pull request leaves when the forge says merged and the target branch does
+// not carry the change: the item open, the run not recorded as merged, the
+// forge's state on the request, and the disagreement written and listed once.
+func assertLeftAtItsMerge(t *testing.T, fixture queuedFixture, results []Reconciliation, landed string) runstate.State {
+	t.Helper()
+	if len(results) != 1 || results[0].Action != ActionUnsettled || results[0].Failure != "" {
+		t.Fatalf("reconciliation = %#v, want the run left unsettled at its merge", results)
+	}
+	if fixture.tracker.Record().Closed {
+		t.Fatal("the item was closed on a merge the target branch does not carry")
+	}
+	state, err := fixture.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.RecordedAsMerged() || state.PullRequest == nil || state.PullRequest.Merged {
+		t.Fatalf("status %s, pull request %#v; want the run not recorded as merged", state.Status, state.PullRequest)
+	}
+	if state.PullRequest.State != "MERGED" {
+		t.Errorf("recorded pull request state = %q, want the forge's own MERGED", state.PullRequest.State)
+	}
+	disagreement := state.MergeDisagreement
+	if disagreement == nil || disagreement.Cause != runstate.MergeCauseUncertain || disagreement.Commit != landed || disagreement.ForgeState != "MERGED" {
+		t.Fatalf("disagreement = %#v, want the absent commit recorded with the forge's state and an uncertain cause", disagreement)
+	}
+	if entries := disagreementEntries(t, fixture.docket); len(entries) != 1 || entries[0].Key != triage.DisagreementKey(pipelineRunID, state.PullRequest.Number) {
+		t.Fatalf("docket = %#v, want the disagreement listed once", entries)
+	}
+	return state
+}
+
+// A queued merge the forge then performed by replaying the change, so the
+// reviewed commit never reaches main, is left at its queued merge rather than
+// closed on the forge's word; a second sweep asks again and lists nothing more.
+func TestAQueuedMergeTheTargetDoesNotCarryIsLeftAtItsMerge(t *testing.T) {
+	t.Parallel()
+
+	fixture := newQueuedFixture(t)
+	protectBranch(t, fixture.remote, "main")
+	fixture.forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+	fixture.forge.SetReplayMerge(true)
+	fixture.docket = &memoryDocket{}
+	outcome := fixture.run(t)
+	if outcome.Integration == nil || !outcome.Integration.ThroughPullRequest {
+		t.Fatalf("integration = %#v, want a landing through the pull request", outcome.Integration)
+	}
+	fixture.forge.PerformQueuedMerge(t)
+
+	state := assertLeftAtItsMerge(t, fixture, fixture.reconcile(t), outcome.Integration.SourceCommit)
+	if !state.PullRequest.MergeQueued {
+		t.Errorf("pull request = %#v, want it still at its queued merge for the next sweep", state.PullRequest)
+	}
+	assertLeftAtItsMerge(t, fixture, fixture.reconcile(t), outcome.Integration.SourceCommit)
+}
+
+// A process killed while landing, whose request the forge then reports merged
+// by a replay, is left at its merge rather than completed on the forge's word;
+// a second sweep asks again and lists nothing more.
+func TestAnInterruptedLandingTheTargetDoesNotCarryIsLeftAtItsMerge(t *testing.T) {
+	t.Parallel()
+
+	fixture := newQueuedFixture(t)
+	protectBranch(t, fixture.remote, "main")
+	fixture.docket = &memoryDocket{}
+	forge := fixture.forge
+	forge.SetQueueMerge(false)
+	forge.SetTargetProtection(publish.BranchProtection{Protected: true, By: "branch protection"})
+	// The forge declines, so the run goes on past the merge request and stops;
+	// what a killed process leaves is the record as it stood when the forge was
+	// asked, which is taken here and put back afterwards.
+	forge.SetMergeErr(publish.MergeRefused{Number: 1, Method: publish.MergeCommit, Status: "BLOCKED", Reason: "held"})
+	var killed runstate.State
+	forge.SetOnMerge(func() {
+		recorded, err := fixture.store.Load(pipelineRunID)
+		if err != nil {
+			t.Fatalf("Load() at the merge request error = %v", err)
+		}
+		killed = recorded
+	})
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, approveVerdict)
+	pipeline := publishing(automatic(newSharedPipeline(t, fixture.repository, fixture.worktreeRoot, fixture.store, fixture.tracker, provider, []string{"exit 0"}), provider), forge)
+	_, _ = pipeline.Run(context.Background(), fixture.tracker.Record().Item.ID)
+	if killed.Integration == nil || !killed.Integration.ThroughPullRequest || killed.Status.Terminal() {
+		t.Fatalf("record at the merge request = status %q, integration %#v; want a live landing on the record", killed.Status, killed.Integration)
+	}
+	if err := fixture.store.Save(killed); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+	fixture.tracker.ForgetSettlement()
+	fixture.tracker.SetItemStatus("in_progress")
+	forge.SetMergeErr(nil)
+	landed := killed.Integration.SourceCommit
+	forge.SetReplayMerge(true)
+	if err := forge.MergeByHand("main", landed); err != nil {
+		t.Fatalf("merge the request: %v", err)
+	}
+
+	state := assertLeftAtItsMerge(t, fixture, fixture.reconcile(t), landed)
+	if state.Status.Terminal() || state.Integration == nil {
+		t.Errorf("status %s, integration %#v; want the run still at its landing for the next sweep", state.Status, state.Integration)
+	}
+	assertLeftAtItsMerge(t, fixture, fixture.reconcile(t), landed)
 }

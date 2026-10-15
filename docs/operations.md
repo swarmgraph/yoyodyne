@@ -3741,7 +3741,9 @@ and before the docket is built, the sweep reads the remote target branch for
 every run recorded as merged — ended succeeded, its promotion recorded, nothing
 retiring it, no merge still queued — whose work item is still open, where the
 change could only be on the remote: a landing through the pull request, or a
-request the record says the forge merged. A run whose commit, or its pull
+request the record says the forge merged. Which items are still open is read
+with one listing of the tracker's closed work per sweep, not one read per run.
+A run whose commit, or its pull
 request's merge commit, is there is left alone. One whose change is not there
 has the disagreement written on its record and is put once on the development
 manager's docket as an unfinished publication, naming the item, the run, the

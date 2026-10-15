@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -73,6 +74,10 @@ func disagreementCandidate(state runstate.State) bool {
 // manager's docket. A run already carrying a disagreement is not written again,
 // and its entry is recorded once by key, so a second sweep adds nothing.
 //
+// Which items are still open is read once for the whole sweep (closedItems),
+// not once per run, so a long history costs one tracker listing and a git read
+// only for the runs whose item is open.
+//
 // One run that cannot be read never stops the sweep; it is reported with its
 // failure, and the next sweep asks again.
 func (r Reconciler) FindMergeDisagreements(ctx context.Context) ([]MergeDisagreementFinding, error) {
@@ -87,23 +92,100 @@ func (r Reconciler) FindMergeDisagreements(ctx context.Context) ([]MergeDisagree
 	if err != nil {
 		return nil, fmt.Errorf("read the recorded runs to find runs recorded as merged that are not on their target branch: %w", err)
 	}
-	var findings []MergeDisagreementFinding
+	var candidates []runstate.State
 	for _, state := range recorded {
-		if !disagreementCandidate(state) {
-			continue
+		if disagreementCandidate(state) {
+			candidates = append(candidates, state)
 		}
-		status, err := r.itemStatus(ctx, state.WorkItemID)
-		if err != nil {
+	}
+	if len(candidates) == 0 {
+		return nil, nil
+	}
+	items := make([]string, 0, len(candidates))
+	for _, state := range candidates {
+		items = append(items, state.WorkItemID)
+	}
+	closed, unread, err := r.closedItems(ctx, items)
+	if err != nil {
+		return nil, fmt.Errorf("read which work items are closed to find runs recorded as merged that are not on their target branch: %w", err)
+	}
+	var findings []MergeDisagreementFinding
+	for _, state := range candidates {
+		if problem, missed := unread[state.WorkItemID]; missed {
 			findings = append(findings, MergeDisagreementFinding{RunID: state.RunID, WorkItemID: state.WorkItemID, Number: state.PullRequest.Number,
-				Failure: fmt.Errorf("read whether work item %s is still open: %w", state.WorkItemID, err).Error()})
+				Failure: fmt.Sprintf("whether work item %s is still open could not be read: %s", state.WorkItemID, problem)})
 			continue
 		}
-		if status == "closed" {
+		if closed[state.WorkItemID] {
 			continue
 		}
 		findings = append(findings, r.findMergeDisagreement(ctx, reader, state))
 	}
 	return findings, nil
+}
+
+// closedItemLister is a tracker that can list its work items by status, which
+// beads.Client is.
+type closedItemLister interface {
+	List(ctx context.Context, status string) ([]beads.WorkItem, error)
+}
+
+// maxItemReadsPastACut bounds how many items a cut listing left out are read
+// one at a time: each is its own tracker call. An item past it is reported as
+// unread, and the next sweep asks again.
+const maxItemReadsPastACut = 40
+
+// closedItems reads which of the named work items are closed, with one listing
+// of the tracker's closed items. Where bd would not lift its default limit, the
+// rows it returned are used and each named item they left out is read on its
+// own, up to maxItemReadsPastACut; one that could not be read is returned in
+// unread with why, because an item not known to be closed is not known to be
+// open either. A tracker that cannot list is read one item at a time.
+func (r Reconciler) closedItems(ctx context.Context, named []string) (map[string]bool, map[string]string, error) {
+	closed := make(map[string]bool)
+	unread := make(map[string]string)
+	listed := make(map[string]bool)
+	lister, canList := r.Tracker.(closedItemLister)
+	limit := len(named)
+	if canList {
+		items, err := lister.List(ctx, "closed")
+		var cut *beads.ListingCut
+		switch {
+		case err == nil:
+		case errors.As(err, &cut):
+			items = cut.Items
+			limit = maxItemReadsPastACut
+		default:
+			return nil, nil, err
+		}
+		for _, item := range items {
+			id := strings.TrimSpace(item.ID)
+			closed[id] = strings.TrimSpace(item.Status) == "closed"
+			listed[id] = true
+		}
+		if err == nil {
+			return closed, unread, nil
+		}
+	}
+	asked := 0
+	for _, id := range named {
+		if listed[id] {
+			continue
+		}
+		listed[id] = true
+		if asked >= limit {
+			unread[id] = "the tracker's listing of closed work was cut short and this sweep already read as many items one at a time as it may"
+			continue
+		}
+		asked++
+		status, err := r.itemStatus(ctx, id)
+		if err != nil {
+			unread[id] = err.Error()
+			continue
+		}
+		closed[id] = status == "closed"
+	}
+	return closed, unread, nil
 }
 
 // findMergeDisagreement reads one run's target branch and records what it found.
