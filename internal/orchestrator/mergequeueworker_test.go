@@ -114,10 +114,12 @@ func (f *queueFixture) work() (MergeQueueVerification, error) {
 	return f.worker.Work(ctx, queueKey)
 }
 
-// restart is work asked for by the worker that comes after one that died with
-// a stage unfinished, once nothing that stage started is still running. It is
+// restart is work asked for again after an earlier call took a stage's hold
+// and let it go — a worker that died with the stage unfinished, or one that
+// set a stage aside — once nothing that stage started is still running. It is
 // asked again for a bounded while if it waits on that stage, as the queue asks
-// again on its next pass.
+// again on its next pass. Every call that takes the same stage's hold for the
+// same generation a second time goes through it.
 //
 // A stage's hold is a lock that stays taken while any copy of its file is
 // open. Every process this test binary starts, for whichever test is running
@@ -456,7 +458,7 @@ func TestALostCandidateCheckoutIsRestoredNotRebuilt(t *testing.T) {
 	}
 	runPipelineGit(t, f.repository, "worktree", "prune")
 	f.records.fail = nil
-	verification, err := f.work()
+	verification, err := f.restart()
 	if err != nil || !verification.Verified || verification.Generation.Candidate != generation.Candidate || verification.Generation.Number != 1 {
 		t.Fatalf("Work() = %#v, %v; want the recorded candidate verified", verification, err)
 	}
@@ -802,7 +804,7 @@ func TestAReviewTheProviderRefusedIsAWaitThatEarnsNothing(t *testing.T) {
 	if err := verification.Generation.Gate(f.configured()); err == nil {
 		t.Fatal("a refused review passed the gate")
 	}
-	verification, err = f.work()
+	verification, err = f.restart()
 	if err != nil || !verification.Verified || f.reviewer.calls() != 2 || f.checks.calls() != 1 {
 		t.Fatalf("Work() = %#v, %v; want the review asked again and approved", verification, err)
 	}
