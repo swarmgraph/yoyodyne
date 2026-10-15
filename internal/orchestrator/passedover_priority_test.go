@@ -100,7 +100,7 @@ func TestAReadyPriorityZeroItemIsSelectedAheadOfALowerPriorityDecisionAndNewerWo
 			break
 		}
 	}
-	for _, want := range []string{"priority 3", "yoyodyne-c02", "yoyodyne-8ff", "Lead Product Manager's order"} {
+	for _, want := range []string{"priority 3", "A red check is filed against main only when main fails it (yoyodyne-c02)", "The re-arms are refused (yoyodyne-8ff)", "Lead Product Manager's order"} {
 		if !strings.Contains(said, want) {
 			t.Fatalf("what the pull said of the re-run = %q, want it to name %q", said, want)
 		}
@@ -316,7 +316,9 @@ func TestAReadyPriorityZeroItemTakesTheFreeSlotAheadOfLowerPriorityPreservedWork
 					break
 				}
 			}
-			for _, want := range []string{"priority 2", "at priority 0", "yoyodyne-ifd.428.94", "still there"} {
+			// The priority-0 work is named by what it is, its title with its
+			// identifier after it, rather than by identifier alone.
+			for _, want := range []string{"priority 2", "1 item at priority 0 in the Lead Product Manager's order stood ready (The re-run fix (yoyodyne-ifd.428.94))", "still there"} {
 				if !strings.Contains(said, want) {
 					t.Fatalf("what the pull said of the repair = %q, want it to name %q", said, want)
 				}
