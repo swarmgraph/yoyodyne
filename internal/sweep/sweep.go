@@ -210,10 +210,12 @@ func (f Finding) Validate() error {
 }
 
 // Recommended is what an owning role recommends be done with a change somebody
-// proposed to one of its documents. It is a recommendation and never a
-// decision: no role records a decision on a proposal, `yoyo amendment` is the
-// only thing that does, and what a pass produces is the owner's argument for
-// the operator to act on.
+// proposed to one of its documents that the operator decides: a change to the
+// brief or the goals that does not say it is consistent with
+// their intent (amendment.Proposal.ReservedForOperator). It is a
+// recommendation and never a decision. A proposal the role decides itself it
+// settles with its conversation's "amendment" action, not here; what a pass
+// records here is the owner's argument for the operator to act on.
 type Recommended string
 
 const (
@@ -247,8 +249,9 @@ type Recommendation struct {
 	Proposal string      `json:"proposal"`
 	Verdict  Recommended `json:"verdict"`
 	// Reason is why, and it is required whichever way the verdict goes: a
-	// recommendation is an argument for the operator to act on, and one with no
-	// reasoning asks them to decide on an assertion.
+	// recommendation is an argument for the operator to act on, on a proposal
+	// only he decides, and one with no reasoning asks him to decide on an
+	// assertion.
 	Reason string `json:"reason"`
 	// Into is the other proposal a merge folds this one into, and is required on
 	// a merge and refused on anything else.
@@ -970,18 +973,18 @@ func ReportRequest() string {
 // recurring passes are put no proposals, and a role told about a field it has
 // nothing to put in it is a role that fills it with something.
 //
-// The wording holds the line the amendment record holds: the role recommends
-// and the operator decides. A block that said "approved" would be read by
-// somebody as a decision, and the whole reason the decision is recorded from
-// the command line and by nobody else is that a role must not be able to
-// settle an argument about its own document by having the last word in it.
+// The wording holds the line the amendment record holds: the role decides its
+// own proposals with the "amendment" action, which records the decision, and
+// recommends only on the ones the operator decides. A recommendation is never a
+// decision, so a block that recorded one would let a change of fundamental
+// intent be settled by the role arguing it.
 func RecommendationContract() string {
 	return strings.Join([]string{
-		`Your block also carries "recommendations": one entry for every proposed change put to you on this pass, and none for a proposal you were not shown:`,
+		`Your block also carries "recommendations": one entry for every proposed change put to you on this pass that says it is decided by the operator, and none for any other:`,
 		"",
 		`"recommendations":[{"proposal":"amendment-id","verdict":"approve|decline|merge","reason":"why, in a sentence or two","into":"amendment-id (a merge only: the proposal this one folds into)"}]`,
 		"",
-		`These are recommendations and not decisions. Nothing you say here changes a document or settles a proposal: the operator reads the batch and records each decision with "yoyo amendment approve" or "yoyo amendment decline", under your authority. "approve" argues for the change, "decline" argues against it, and "merge" says two proposals ask for one change and names the other; every one carries the reason, because the operator acts on the argument rather than the verdict.`,
+		`A proposal that says it is decided by you is yours to settle, with the "amendment" action in a yoyodyne-tracker block, and gets no recommendation: the action records your decision, and the operator is told afterwards. A proposal that says it is decided by the operator is a change of fundamental intent, and for it you recommend. A recommendation is not a decision: nothing you say here changes a document or settles it, and the operator records the decision with "yoyo amendment approve" or "yoyo amendment decline". "approve" argues for the change, "decline" argues against it, and "merge" says two proposals ask for one change and names the other; every one carries the reason, because the operator acts on the argument rather than the verdict.`,
 		"At most " + maxRecommendationsText + " recommendations in one turn, which is the most the harness puts to you on one pass.",
 	}, "\n")
 }

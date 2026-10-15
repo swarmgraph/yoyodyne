@@ -174,8 +174,13 @@ const (
 	// escalates to the operator and is exactly what this channel exists for.
 	KindReportFiled    Kind = "report.filed"
 	KindProposalRaised Kind = "proposal.raised"
-	KindExchangeTurn   Kind = "exchange.turn"
-	KindExchangeClosed Kind = "exchange.closed"
+	// KindAmendmentDecided is an owning role deciding a change proposed to its
+	// own document, from its conversation. It is said afterwards rather than
+	// asked: the decision was the role's to make, and the operator is told so he
+	// can see what was decided on his behalf.
+	KindAmendmentDecided Kind = "amendment.decided"
+	KindExchangeTurn     Kind = "exchange.turn"
+	KindExchangeClosed   Kind = "exchange.closed"
 	// What a reply in a topic's thread did. They are the acknowledgment the
 	// inbound half owes every message it reads: the directive as recorded, the
 	// resolution that lifted one, what came of one that held nothing up, or the
@@ -454,6 +459,7 @@ func Kinds() []Kind {
 		KindModelSubstituted,
 		KindReportFiled,
 		KindProposalRaised,
+		KindAmendmentDecided,
 		KindExchangeTurn,
 		KindExchangeClosed,
 		KindDirectiveRecorded,
@@ -506,7 +512,7 @@ func (k Kind) Valid() bool {
 		KindLandingGreen, KindLandingRed, KindLandingUnverified,
 		KindRunParked, KindRunContinued, KindBlockerRecorded, KindRunEnded, KindUsageLimitExhausted,
 		KindModelSubstituted,
-		KindReportFiled, KindProposalRaised, KindExchangeTurn, KindExchangeClosed,
+		KindReportFiled, KindProposalRaised, KindAmendmentDecided, KindExchangeTurn, KindExchangeClosed,
 		KindDirectiveRecorded, KindDirectiveResolved, KindDirectiveCarriedOut, KindDirectiveRefused,
 		KindDirectiveWithdrawn, KindQuestionHeard,
 		KindIntakeHeld, KindIntakeReleased, KindIntakeEscalated, KindHoldPlaced, KindHoldLifted, KindOperatorAction,
@@ -923,7 +929,8 @@ type Detail struct {
 	// what says whether the work it affects is paused. Empty there is the
 	// operational directive, which is in force already and stops nothing.
 	Unresolved string `json:"unresolved,omitempty"`
-	// Artifact is the document a proposal is about, read by KindProposalRaised,
+	// Artifact is the document a proposal is about, read by KindProposalRaised
+	// and KindAmendmentDecided,
 	// and the governed document an artifact-changing directive rewrites, read by
 	// KindDirectiveRecorded.
 	Artifact string `json:"artifact,omitempty"`
