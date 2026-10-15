@@ -246,12 +246,12 @@ func Automatic(pipeline orchestrator.Pipeline, provider backend.Backend) orchest
 }
 
 // InterruptedStore stops accepting writes once a run reaches the given repair
-// attempt, after letting allowSaves of them through. What is left on disk is
+// attempt, after letting AllowSaves of them through. What is left on disk is
 // what an interrupted process leaves behind: a non-terminal run recorded at the
-// last step it managed to write down. Varying allowSaves is what chooses the
+// last step it managed to write down. Varying AllowSaves is what chooses the
 // step the process died on.
 //
-// reached overrides which step that is, for a test interested in a budget other
+// Reached overrides which step that is, for a test interested in a budget other
 // than the repair one. It is the only part of the shape that differs between
 // them: what a killed process leaves behind is the same story whichever count it
 // was in the middle of.

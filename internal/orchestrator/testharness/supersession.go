@@ -19,7 +19,7 @@ func (f QueuedFixture) Orphan(t *testing.T, landed orchestrator.Outcome, number 
 	return f.OrphanStarted(t, landed, number, time.Now().UTC().Add(-2*time.Hour))
 }
 
-// orphanStarted is the same run with its start stated, because when the dead run
+// OrphanStarted is the same run with its start stated, because when the dead run
 // began relative to the landing is part of what says its publication is
 // superseded rather than pending.
 func (f QueuedFixture) OrphanStarted(t *testing.T, landed orchestrator.Outcome, number int, started time.Time) runstate.State {
@@ -27,14 +27,14 @@ func (f QueuedFixture) OrphanStarted(t *testing.T, landed orchestrator.Outcome, 
 	return f.DeadRun(t, landed, f.Tracker.Record().Item.ID, "run-11112222333344445555666677778888", number, started)
 }
 
-// orphanOf is a dead run of some other item, which is the shape of a request no
+// OrphanOf is a dead run of some other item, which is the shape of a request no
 // landing of this harness supersedes.
 func (f QueuedFixture) OrphanOf(t *testing.T, landed orchestrator.Outcome, workItemID, runID string, number int) runstate.State {
 	t.Helper()
 	return f.DeadRun(t, landed, workItemID, runID, number, time.Now().UTC().Add(-2*time.Hour))
 }
 
-// deadRun records a run that published and then died before anything was
+// DeadRun records a run that published and then died before anything was
 // judged, leaving the pair the operator found: the branch on the remote exactly
 // as Publishing left it, and the request the forge holds for it.
 func (f QueuedFixture) DeadRun(t *testing.T, landed orchestrator.Outcome, workItemID, runID string, number int, started time.Time) runstate.State {

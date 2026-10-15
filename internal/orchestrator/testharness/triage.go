@@ -40,7 +40,7 @@ func (d *MemoryDocket) CloseKey(key, decision string, at time.Time) {
 	}
 }
 
-// waitOn settles one entry with a decision that holds only until the moment it
+// WaitOn settles one entry with a decision that holds only until the moment it
 // names, which is what waiting on a forge is.
 func (d *MemoryDocket) WaitOn(key string, at, revisitAfter time.Time) {
 	d.CloseKey(key, "wait", at)
