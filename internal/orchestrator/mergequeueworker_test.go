@@ -114,6 +114,31 @@ func (f *queueFixture) work() (MergeQueueVerification, error) {
 	return f.worker.Work(ctx, queueKey)
 }
 
+// restart is work asked for by the worker that comes after one that died with
+// a stage unfinished, once nothing that stage started is still running. It is
+// asked again for a bounded while if it waits on that stage, as the queue asks
+// again on its next pass.
+//
+// A stage's hold is a lock that stays taken while any copy of its file is
+// open. Every process this test binary starts, for whichever test is running
+// beside this one, begins with a copy of every descriptor the binary has open,
+// close-on-exec ones included, and keeps them until it has replaced itself
+// with its program; on a loaded machine that can take tens of milliseconds. So
+// a hold the earlier worker has just closed can still read as taken, and the
+// worker is right to wait. A hold something keeps for the whole bound still
+// fails the test, with the wait it reported.
+func (f *queueFixture) restart() (MergeQueueVerification, error) {
+	f.t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		verification, err := f.work()
+		if err != nil || !strings.Contains(verification.Waiting, "may still be running from an earlier start") || time.Now().After(deadline) {
+			return verification, err
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
 func (f *queueFixture) generations() []runstate.MergeQueueGeneration {
 	f.t.Helper()
 	generations, err := f.queue.Generations(queueKey, f.entry.EntryID)
@@ -324,7 +349,7 @@ func TestARestartDuringTheChecksRunsThemAgainOnTheSameCandidate(t *testing.T) {
 	}
 	before := f.generations()[0]
 	f.records.fail = nil
-	verification, err := f.work()
+	verification, err := f.restart()
 	if err != nil || !verification.Verified {
 		t.Fatalf("Work() after the restart = %#v, %v", verification, err)
 	}
@@ -351,7 +376,7 @@ func TestARestartDuringTheReviewAsksAgainAndKeepsTheChecks(t *testing.T) {
 		t.Fatal("Work() succeeded past a lost record")
 	}
 	f.records.fail = nil
-	verification, err := f.work()
+	verification, err := f.restart()
 	if err != nil || !verification.Verified {
 		t.Fatalf("Work() after the restart = %#v, %v", verification, err)
 	}
@@ -695,18 +720,17 @@ func TestARestartWaitsOutAStageAnEarlierWorkerLeftRunning(t *testing.T) {
 
 	// Once it has ended, the checks are set aside and run again.
 	orphan.Close()
-	verification, err = f.work()
+	verification, err = f.restart()
 	if err != nil || !verification.Verified || len(verification.Generation.Interruptions) != 1 || f.checks.calls() != 2 {
 		t.Fatalf("Work() = %#v, %v with %d check runs; want the checks run again once the first ended", verification, err, f.checks.calls())
 	}
 }
 
 // lockOrphan takes the stage's hold for the test's stand-in orphan. The checks
-// that held it have exited by the time Work returns, but the operating system
-// may take a moment to release the hold they carried, more so on a machine
-// running the whole suite at once. So the lock is asked for again for a
-// bounded while rather than once: a hold that something keeps for the whole
-// bound still fails the test.
+// that held it have exited by the time Work returns, but a process started
+// beside them can still hold a copy of it for a moment (restart says why). So
+// the lock is asked for again for a bounded while rather than once: a hold
+// that something keeps for the whole bound still fails the test.
 func lockOrphan(t *testing.T, orphan *os.File) {
 	t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
