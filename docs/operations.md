@@ -1888,18 +1888,36 @@ attached, because there is no condition to wait out: a dropped connection is
 already gone, and the provider's own retries are spent before the harness sees
 the terminal.
 
-The provider contradicting itself is in the same class. A stream that ends one
-invocation twice — two terminal results, where there was only ever one ending —
-judges nothing either, and the second of them is quite often the real one: a
-subagent's completion carrying a terminal's marks is read as the invocation's,
-so the run's own ending arrives looking like the duplicate. Because neither
-ending can be told apart from the other, the invocation is not trusted to have
-produced an answer at all, and it is asked again in the same session rather than
-published. That used to fail the run outright as a malformed stream, which is
-how a change that was all but finished came to be recovered by a triage rerun.
-Both endings stay in the run's event log, so what the provider's dialect drifted
-into is diagnosable afterwards. A stream the harness genuinely cannot read still
-fails the run.
+The provider contradicting itself — a stream that ends one invocation twice, two
+terminal results where there was only ever one ending — judges nothing either,
+and whether it is asked again is decided by reading the first ending:
+
+- **The first ending is the answer when it can be trusted.** It can be when the
+  provider reported no failure, named how the invocation ended, and carried the
+  text it ended with — the shape every genuine terminal has. A later terminal is
+  then the provider saying something after it had already said what it came to
+  say, as when work the session left running in the background wakes it after
+  its terminal and it answers a second time. The invocation is taken as answered
+  by its first terminal, nothing is relaunched, and the later terminal is
+  recorded in the run's event log as a `duplicate_terminal_result` anomaly. What
+  the provider charged for the later turn is still added to what the
+  invocation cost.
+- **Otherwise neither ending can be trusted, and the invocation is asked
+  again.** Where the first ending reported a failure, named no ending, or
+  carried no text, it cannot be told apart from the second, and the second is
+  quite often the real one: a subagent's completion carrying a terminal's marks
+  is read as the invocation's, so the run's own ending arrives looking like the
+  duplicate. The invocation is not trusted to have produced an answer at all,
+  and it is asked again in the same session rather than published, against the
+  relaunch budget below.
+
+Both endings stay in the run's event log either way, and the anomaly says which
+of the two readings it got (`answered_by_first_terminal`), so what the
+provider's dialect drifted into is diagnosable afterwards. Ending one invocation
+twice used to fail the run outright as a malformed stream, and then for a time
+relaunched every such invocation, including developers that had finished and
+could only repeat the account they had already given. A stream the harness
+genuinely cannot read still fails the run.
 
 One budget covers both provider invocations a run makes. A review the provider
 killed is asked for again on the same count, without redeveloping the change,
@@ -1944,9 +1962,11 @@ any terminal the API did not report at all. Two of the API's own errors are
 neither: a login the provider will not accept (`Not logged in`, a 401) and an
 API nothing reaches (`Can't reach the API server`, a name that does not resolve)
 are [a wait that spends nothing](#waiting-out-a-provider-nobody-can-reach)
-rather than a relaunch or a refusal. The invocation ended twice is the one
-thing outside the API's own errors that still relaunches, because it is not a
-verdict on anything — it is the provider failing to say what its verdict was.
+rather than a relaunch or a refusal. An invocation ended twice whose first
+ending cannot be trusted is the one thing outside the API's own errors that
+still relaunches, because it is not a verdict on anything — it is the provider
+failing to say what its verdict was. One whose first ending can be trusted is
+answered by it and relaunches nothing.
 
 ## Waiting out a provider nobody can reach
 

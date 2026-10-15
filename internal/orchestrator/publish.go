@@ -104,8 +104,9 @@ func (p Pipeline) resolvePublishing(ctx context.Context) (bool, string, error) {
 // sat were wrong. A project that does not publish committed nothing until its
 // promotion, so its branch tip stood at the base commit for the whole run; and a
 // publishing one committed only on the path where an invocation was accepted, so
-// an invocation the provider ended twice — a relaunch condition rather than a
-// judgement about the work — left its round's change in the worktree and the
+// an invocation the provider ended twice — then always a relaunch condition, and
+// now one only where its first ending cannot be trusted (see
+// recordDuplicateTerminal in internal/backend/claudecode) — left its round's change in the worktree and the
 // branch tip on the round before it. Run run-f3755e3f spent four invocations
 // that way on yoyodyne-ifd.425: its developer fixed both of the reviewer's
 // findings, four further invocations were reissued with the same findings and

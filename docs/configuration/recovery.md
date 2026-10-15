@@ -509,13 +509,16 @@ started rather than deriving it again. No wait is attached, because there is no
 condition to wait out: a dropped connection is already gone, and the provider's
 own retries are spent before the harness sees the terminal.
 
-A stream that ends one invocation twice spends the same budget. Two terminal
-results where there was only ever one ending judge nothing about the work, and
-neither can be told apart from the other — a subagent's completion carrying a
-terminal's marks is read as the invocation's, so the run's own ending arrives
-looking like the duplicate — so the invocation is asked again rather than
-published. Both endings stay in the run's event log. A stream the harness
-genuinely cannot read still fails the run.
+A stream that ends one invocation twice spends the same budget only where its
+first ending cannot be trusted. An invocation's answer is its first terminal
+when that terminal reported no failure, named how the invocation ended, and
+carried the text it ended with: a later terminal is then recorded in the run's
+event log as an anomaly and asks for nothing. Where the first terminal was not
+that, neither ending can be told apart from the other — a subagent's completion
+carrying a terminal's marks is read as the invocation's, so the run's own ending
+arrives looking like the duplicate — and the invocation is asked again rather
+than published. Both endings stay in the run's event log either way. A stream
+the harness genuinely cannot read still fails the run.
 
 One budget covers both provider invocations a run makes. A review the provider
 killed is asked for again on the same count, without redeveloping the change,
@@ -557,9 +560,11 @@ A refusal that would stand is never relaunched. A terminal `api_error` quoting a
 4xx status — a malformed request, a key that is not permitted, a limit the
 provider is enforcing — earns the identical answer on the next attempt, so it
 fails the run as it always did; so does a 529, which is a wait rather than a
-relaunch, and so does any terminal the API did not report at all. The invocation
-ended twice is the one thing outside the API's own errors that still relaunches,
-because it is not a verdict on anything.
+relaunch, and so does any terminal the API did not report at all. An invocation
+ended twice whose first ending cannot be trusted is the one thing outside the
+API's own errors that still relaunches, because it is not a verdict on anything;
+one whose first ending can be trusted is answered by it, as
+[when the provider dies mid-run](../operations.md#when-the-provider-dies-mid-run) says.
 
 ## Triage thresholds
 
