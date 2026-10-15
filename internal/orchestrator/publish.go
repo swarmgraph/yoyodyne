@@ -510,7 +510,14 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 		return nil
 	}
 	published.State = merged.State
-	published.Merged = merged.Merged
+	// A landing through the pull request moved no branch, so the remote target
+	// is the only place the change can be, and the run is recorded as merged
+	// only once the read below finds it there. Until then the record carries the
+	// forge's state and nothing more: a forge that says it merged is not a change
+	// on the target. A local promotion is already on the authoritative branch,
+	// so there the merged flag stays the forge's report and the finishing sweep
+	// confirms it afterwards.
+	published.Merged = merged.Merged && !integration.ThroughPullRequest
 	a.state.PullRequest = &published
 	a.outcome.PullRequest = &published
 	if !merged.Merged {
@@ -523,13 +530,20 @@ func (a *activeRun) publishIntegration(ctx context.Context) error {
 	// commit the remote target has that the local one does not — the forge's own
 	// where it is the merge of this promotion on the remote, and otherwise found in
 	// the remote history.
+	a.landingAt(fmt.Sprintf("checking that %s's %s carries pull request #%d", a.pipeline.Config.Execution.Remote, integration.TargetBranch, published.Number), landingReadsRemote)
 	remoteTarget, err := recoveringValue(ctx, a, runstate.RetryRemoteTarget, func(ctx context.Context) (string, error) {
 		return a.pipeline.Worktrees.ConfirmRemoteTarget(ctx, integration, merged.MergeCommit)
 	})
 	if err != nil {
-		a.recordPublishFailure(fmt.Errorf("confirm the merge reached %s: %w", integration.TargetBranch, err))
+		cause := fmt.Errorf("confirm the merge reached %s: %w", integration.TargetBranch, err)
+		if integration.ThroughPullRequest {
+			cause = fmt.Errorf("the forge reports pull request %d %s, but %s on %s was not found to carry its commit %s, so the change is not recorded as merged: %w",
+				published.Number, nonEmpty(merged.State, "merged"), integration.TargetBranch, a.pipeline.Config.Execution.Remote, integration.TargetCommit, cause)
+		}
+		a.recordPublishFailure(cause)
 		return nil
 	}
+	published.Merged = true
 	published.MergeCommit = remoteTarget
 	// The merge left the remote one commit ahead of the local target, so the
 	// branch a person reads is now behind the forge by the commit the forge made

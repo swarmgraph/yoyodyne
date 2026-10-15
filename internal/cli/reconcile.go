@@ -44,8 +44,13 @@ type reconcileOutput struct {
 	// target's red check: still waiting on an open item, brought up to date
 	// where the fix left the head behind, filed again where the check is still
 	// red, or left for the watch to re-arm.
-	RedTargets  []orchestrator.RedTargetResumption `json:"red_targets"`
-	Convergence orchestrator.Convergence           `json:"convergence"`
+	RedTargets []orchestrator.RedTargetResumption `json:"red_targets"`
+	// MergeDisagreements is what this sweep read of the target branch for every
+	// run recorded as merged whose item is still open: the ones whose change is
+	// not there are written on the run and listed for the development manager,
+	// with the cause given as uncertain. Nothing else is done about them here.
+	MergeDisagreements []orchestrator.MergeDisagreementFinding `json:"merge_disagreements"`
+	Convergence        orchestrator.Convergence                `json:"convergence"`
 	// Docketed is how many entries this sweep is what put on the triage docket.
 	// It is a count rather than the entries because the docket is read where it
 	// is acted on, which is the development manager's conversation; what this
@@ -116,8 +121,11 @@ type reconcileSweep struct {
 	Publications   []orchestrator.PublicationRefresh
 	Settlements    []orchestrator.PublicationSettlement
 	RedTargets     []orchestrator.RedTargetResumption
-	Convergence    orchestrator.Convergence
-	Docketed       int
+	// MergeDisagreements is what the sweep read of the target branch for the
+	// runs recorded as merged whose item is still open.
+	MergeDisagreements []orchestrator.MergeDisagreementFinding
+	Convergence        orchestrator.Convergence
+	Docketed           int
 	// Unrecorded names the runs the sweep docketed whose record carries no
 	// reason they stopped, and NotDocketed the runs it could not docket.
 	Unrecorded  []string
@@ -225,6 +233,12 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// put back at its promotion here, and hosted with the other updates below.
 	redTargets, redTargetErr := reconciler.ResumeRedTargets(ctx)
 	err = errors.Join(err, redTargetErr)
+	// Every run recorded as merged whose item is still open is checked against
+	// its target branch next, after everything above that settles a merge and
+	// before the docket is built, so a run this sweep confirmed is not listed and
+	// one whose change is not there is listed by this sweep rather than the next.
+	disagreements, disagreementErr := reconciler.FindMergeDisagreements(ctx)
+	err = errors.Join(err, disagreementErr)
 	// Convergence is swept even when settling a run failed. The two are
 	// independent — one finishes runs, the other finishes branches — and a
 	// checkout left behind the forge because some unrelated run could not be
@@ -272,23 +286,24 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// sweep: nothing was recorded, and the next pass decides.
 	stall, stallProblem := checkForStall(ctx, parts, *stallAfter)
 	sweep := reconcileSweep{
-		TrackerExports:   trackerExports,
-		Runs:             results,
-		Recoveries:       recoveries,
-		Publications:     publications,
-		Settlements:      settlements,
-		RedTargets:       redTargets,
-		Convergence:      convergence,
-		Docketed:         docketed.Added,
-		Unrecorded:       docketed.Unrecorded,
-		NotDocketed:      docketed.NotDocketed,
-		ClosedWithItem:   closedWithItem,
-		ListingCut:       listingCut,
-		EscalationsEnded: escalationsEnded,
-		Supervision:      supervision,
-		Stall:            stall,
-		StallProblem:     stallProblem,
-		Forge:            reconciler.Forge,
+		TrackerExports:     trackerExports,
+		Runs:               results,
+		Recoveries:         recoveries,
+		Publications:       publications,
+		Settlements:        settlements,
+		RedTargets:         redTargets,
+		MergeDisagreements: disagreements,
+		Convergence:        convergence,
+		Docketed:           docketed.Added,
+		Unrecorded:         docketed.Unrecorded,
+		NotDocketed:        docketed.NotDocketed,
+		ClosedWithItem:     closedWithItem,
+		ListingCut:         listingCut,
+		EscalationsEnded:   escalationsEnded,
+		Supervision:        supervision,
+		Stall:              stall,
+		StallProblem:       stallProblem,
+		Forge:              reconciler.Forge,
 	}
 	// The runs that exited on their in-process usage-limit bound and whose
 	// deadline has since passed are continued last, after everything the sweep
@@ -581,25 +596,26 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 	// Continuation refusals belong to their items' findings.
 	if jsonOutput {
 		output := reconcileOutput{
-			TrackerExports:   sweep.TrackerExports,
-			Runs:             results,
-			Recoveries:       sweep.Recoveries,
-			Publications:     publications,
-			Settlements:      sweep.Settlements,
-			RedTargets:       sweep.RedTargets,
-			Convergence:      convergence,
-			Docketed:         docketed,
-			Unrecorded:       sweep.Unrecorded,
-			NotDocketed:      sweep.NotDocketed,
-			ClosedWithItem:   sweep.ClosedWithItem,
-			ListingCut:       sweep.ListingCut,
-			EscalationsEnded: sweep.EscalationsEnded,
-			Supervision:      sweep.Supervision,
-			Stall:            sweep.Stall,
-			StallProblem:     sweep.StallProblem,
-			Continuations:    sweep.Continuations,
-			Updates:          sweep.Updates,
-			Forge:            sweep.Forge,
+			TrackerExports:     sweep.TrackerExports,
+			Runs:               results,
+			Recoveries:         sweep.Recoveries,
+			Publications:       publications,
+			Settlements:        sweep.Settlements,
+			RedTargets:         sweep.RedTargets,
+			MergeDisagreements: sweep.MergeDisagreements,
+			Convergence:        convergence,
+			Docketed:           docketed,
+			Unrecorded:         sweep.Unrecorded,
+			NotDocketed:        sweep.NotDocketed,
+			ClosedWithItem:     sweep.ClosedWithItem,
+			ListingCut:         sweep.ListingCut,
+			EscalationsEnded:   sweep.EscalationsEnded,
+			Supervision:        sweep.Supervision,
+			Stall:              sweep.Stall,
+			StallProblem:       sweep.StallProblem,
+			Continuations:      sweep.Continuations,
+			Updates:            sweep.Updates,
+			Forge:              sweep.Forge,
 		}
 		if results == nil {
 			output.Runs = []orchestrator.Reconciliation{}
@@ -627,6 +643,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if output.RedTargets == nil {
 			output.RedTargets = []orchestrator.RedTargetResumption{}
+		}
+		if output.MergeDisagreements == nil {
+			output.MergeDisagreements = []orchestrator.MergeDisagreementFinding{}
 		}
 		if output.Convergence.Targets == nil {
 			output.Convergence.Targets = []gitworktree.Catchup{}
@@ -688,6 +707,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		if sweep.ListingCut != "" {
 			fmt.Fprintf(stderr, "closing the docket entries of closed work: %s\n", sweep.ListingCut)
 		}
+		printMergeDisagreements(stdout, stderr, sweep.MergeDisagreements)
 		for _, ended := range sweep.EscalationsEnded {
 			if ended.Failure != "" {
 				fmt.Fprintf(stdout, "escalation of %s (%s) to the operator has ended, and was not recorded: %s\n", ended.RunID, ended.WorkItemID, ended.Failure)
@@ -1197,5 +1217,28 @@ func printReconcileFinding(stdout, stderr io.Writer, finding *readmodel.Attentio
 	}
 	if problem != "" {
 		fmt.Fprintf(stderr, "  finding not recorded: %s\n", problem)
+	}
+}
+
+// printMergeDisagreements says which runs recorded as merged were found not to
+// be on their target branch. A run whose change is there is the ordinary case
+// and is not said; a run found again by a later sweep is said again, because it
+// is still not on the branch, and its entry on the development manager's list
+// is the one already there.
+func printMergeDisagreements(stdout, stderr io.Writer, findings []orchestrator.MergeDisagreementFinding) {
+	for _, finding := range findings {
+		switch {
+		case finding.Failure != "":
+			fmt.Fprintf(stderr, "run %s (%s) is recorded as merged and could not be checked against its target branch: %s\n", finding.RunID, finding.WorkItemID, finding.Failure)
+		case finding.Kept != "":
+			fmt.Fprintf(stdout, "run %s (%s) is recorded as merged and was left alone: %s\n", finding.RunID, finding.WorkItemID, finding.Kept)
+		case !finding.OnTarget:
+			listed := "it is on the development manager's list"
+			if finding.Docketed {
+				listed = "it is now on the development manager's list"
+			}
+			fmt.Fprintf(stdout, "run %s (%s) is recorded as merged, but pull request #%d (%s on the forge) is not on its target branch; %s, with the cause given as uncertain\n",
+				finding.RunID, finding.WorkItemID, finding.Number, nonEmptyValue(finding.ForgeState, "state unreported"), listed)
+		}
 	}
 }

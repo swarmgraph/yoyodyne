@@ -1571,6 +1571,77 @@ func (d MergeDrop) Validate() error {
 	return errors.Join(problems...)
 }
 
+// MergeCauseUncertain is the cause a merge disagreement is listed under: the
+// change may have merged and nothing confirmed it, so the only step that may act
+// on it is finishing the merge, which reads the target branch again first. The
+// value is the docket's, declared once there, because it is what a docket entry
+// carries.
+const MergeCauseUncertain = triage.MergeDisagreementCause
+
+// MergeDisagreement is a read of the target branch that did not find the run's
+// change on it while the run's record or the forge said it had merged. It is
+// written by whoever made the read — the run as it confirmed its own merge, or a
+// reconcile sweep — and kept from the first read on: a later read that agrees is
+// what finishing the merge records, and it does not erase that the two
+// disagreed.
+type MergeDisagreement struct {
+	FoundAt      time.Time `json:"found_at"`
+	TargetBranch string    `json:"target_branch"`
+	// Commit is the run's commit that was looked for, and MergeCommit the pull
+	// request's merge commit the forge named, where it named one. Neither was
+	// on the target branch when it was read.
+	Commit      string `json:"commit"`
+	MergeCommit string `json:"merge_commit,omitempty"`
+	// TargetTip is the commit the target branch was at when it was read, empty
+	// where the branch was not there at all.
+	TargetTip string `json:"target_tip,omitempty"`
+	// PullRequest and ForgeState are the request and what the forge said of it
+	// when the read was made.
+	PullRequest int    `json:"pull_request,omitempty"`
+	ForgeState  string `json:"forge_state,omitempty"`
+	// Cause is always MergeCauseUncertain.
+	Cause string `json:"cause"`
+	// Detail says what was read, in the words of whoever read it.
+	Detail string `json:"detail"`
+}
+
+// Validate rejects a disagreement that cannot describe a real read.
+func (d MergeDisagreement) Validate() error {
+	var problems []error
+	if d.FoundAt.IsZero() {
+		problems = append(problems, errors.New("merge_disagreement found_at is required"))
+	}
+	if !validLocalBranch(d.TargetBranch) {
+		problems = append(problems, fmt.Errorf("merge_disagreement target_branch %q is invalid", d.TargetBranch))
+	}
+	if !commitPattern.MatchString(d.Commit) {
+		problems = append(problems, fmt.Errorf("merge_disagreement commit %q is invalid", d.Commit))
+	}
+	if d.MergeCommit != "" && !commitPattern.MatchString(d.MergeCommit) {
+		problems = append(problems, fmt.Errorf("merge_disagreement merge_commit %q is invalid", d.MergeCommit))
+	}
+	if d.TargetTip != "" && !commitPattern.MatchString(d.TargetTip) {
+		problems = append(problems, fmt.Errorf("merge_disagreement target_tip %q is invalid", d.TargetTip))
+	}
+	if d.Cause != MergeCauseUncertain {
+		problems = append(problems, fmt.Errorf("merge_disagreement cause %q must be %q", d.Cause, MergeCauseUncertain))
+	}
+	if strings.TrimSpace(d.Detail) == "" {
+		problems = append(problems, errors.New("merge_disagreement detail is required: a read nobody can say the result of is not worth recording"))
+	}
+	return errors.Join(problems...)
+}
+
+// RecordedAsMerged reports a run whose record says its change has landed and
+// nothing is left to wait for: it ended succeeded with its promotion recorded,
+// nothing retired it, and the forge holds no merge of it still queued. It is a
+// reading of the record alone; whether the target branch agrees is what the
+// merge disagreement sweep reads.
+func (s State) RecordedAsMerged() bool {
+	return s.Retirement == nil && s.Status == StatusSucceeded && s.Integration != nil &&
+		(s.PullRequest == nil || !s.PullRequest.MergeQueued)
+}
+
 // Validate rejects a published record that cannot describe a real pull request.
 func (p PullRequest) Validate() error {
 	var problems []error
@@ -2148,6 +2219,10 @@ func (s *State) recordedTexts() []recordedText {
 	// moment, so it is held to the same bound.
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)
+	}
+	if s.MergeDisagreement != nil {
+		unstated("merge_disagreement.detail", "merge_disagreement.detail", &s.MergeDisagreement.Detail, MaxRecordedTextBytes)
+		unstated("merge_disagreement.forge_state", "merge_disagreement.forge_state", &s.MergeDisagreement.ForgeState, MaxRecordedTextBytes)
 	}
 	own("failure", &s.Failure, MaxBlockerBytes, failureCutNote)
 	own("blocker", &s.Blocker, MaxBlockerBytes, blockerCutNote)
@@ -3524,6 +3599,10 @@ type State struct {
 	// whoever found out — the run whose merge the forge refused, or the sweep that
 	// asked what became of a queued one.
 	MergeDrop *MergeDrop `json:"merge_drop,omitempty"`
+	// MergeDisagreement is a read of the target branch that did not find this
+	// run's change while the record or the forge said it had merged. It is what
+	// puts the run on the development manager's docket with an uncertain cause.
+	MergeDisagreement *MergeDisagreement `json:"merge_disagreement,omitempty"`
 	// Failure is why this run ended, in the words of whoever ended it, and it is
 	// what every surface prints where it answers "why did this stop". It is
 	// written by whatever made the run terminal — the pipeline as it fails a run,
@@ -4194,6 +4273,14 @@ func (s State) Validate() error {
 		// somebody has to look at is outstanding and nothing says which.
 		if s.PullRequest == nil {
 			problems = append(problems, errors.New("a recorded merge_drop requires the pull request whose merge was dropped"))
+		}
+	}
+	if s.MergeDisagreement != nil {
+		if err := s.MergeDisagreement.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+		if s.Integration == nil {
+			problems = append(problems, errors.New("a recorded merge_disagreement requires the integration whose commit was looked for"))
 		}
 	}
 	// A removal is only ever recorded with the evidence that earned it. There are

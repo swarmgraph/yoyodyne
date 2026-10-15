@@ -203,6 +203,7 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		default:
 			scheduler.Deployment = binary
 		}
+		findMergeDisagreementsAtStart(ctx, *configPath, stderr)
 	}
 	schedule, err := scheduler.Schedule(ctx)
 	code := reportSchedule(stdout, stderr, *jsonOutput, schedule, err)
@@ -210,6 +211,29 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		return code
 	}
 	return takeUpTheDeploy(ctx, binary, sessions, watching, stderr, code, *budget, schedule.SpentUSD, *limit, schedule.Chosen())
+}
+
+// findMergeDisagreementsAtStart checks every run recorded as merged whose item is
+// still open against its target branch, once, as a watch session starts, and
+// lists each one whose change is not there for the development manager. The
+// reconcile sweep does the same on its own schedule; this is what keeps a
+// session started after a redeploy from choosing work beside such a run for a
+// whole maintenance interval before anybody is told. What it finds is said on
+// standard error, which is where this command says everything that is not its
+// result, and a failure is said and does not stop the session.
+func findMergeDisagreementsAtStart(ctx context.Context, configPath string, stderr io.Writer) {
+	parts, err := buildComponents(configPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "runs recorded as merged were not checked against their target branch as this session started, and the next `yoyo reconcile` checks them: %v\n", err)
+		return
+	}
+	ctx = beads.OnBehalfOf(ctx, "yoyo work --watch, checking runs recorded as merged against their target branch as the session starts")
+	findings, err := reconcilerFrom(parts).FindMergeDisagreements(ctx)
+	if err != nil {
+		fmt.Fprintf(stderr, "runs recorded as merged were not checked against their target branch as this session started, and the next `yoyo reconcile` checks them: %v\n", err)
+		return
+	}
+	printMergeDisagreements(stderr, stderr, findings)
 }
 
 // deployedBinary is what taking up a deploy needs of the file this session is

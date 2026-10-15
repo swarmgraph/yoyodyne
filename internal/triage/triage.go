@@ -323,6 +323,28 @@ type Publication struct {
 	// from here to when it was docketed, so it is an age rather than a countdown
 	// to a deadline nothing set.
 	ApprovedAt time.Time `json:"approved_at"`
+	// Disagreement is a read of the target branch that did not find the run's
+	// change while the run's record or the forge said it had merged. An entry
+	// carrying one is keyed apart from the publication's other entries
+	// (DisagreementKey), so the disagreement is listed once even where the
+	// publication was docketed before for something else.
+	Disagreement *MergeDisagreement `json:"disagreement,omitempty"`
+}
+
+// MergeDisagreementCause is the one cause a disagreement is listed under: the
+// change may have merged and nothing confirmed it.
+const MergeDisagreementCause = "uncertain"
+
+// MergeDisagreement is the run's record of the read, as the entry carries it. It
+// is declared here rather than imported from the durable run schema for the
+// reason Finding is.
+type MergeDisagreement struct {
+	FoundAt      time.Time `json:"found_at"`
+	TargetBranch string    `json:"target_branch"`
+	Commit       string    `json:"commit"`
+	TargetTip    string    `json:"target_tip,omitempty"`
+	Cause        string    `json:"cause"`
+	Detail       string    `json:"detail"`
 }
 
 // Environmental is a round the environment refused rather than the work failing,
@@ -1450,6 +1472,15 @@ func PublicationKey(runID string, number int) string {
 	return Key(ClassPublication, runID) + "#" + strconv.Itoa(number)
 }
 
+// DisagreementKey names the event a merge disagreement is: this run's
+// publication found absent from its target branch while recorded as merged. It
+// is apart from PublicationKey because the publication of a run can already be
+// docketed for something else — a dropped merge, a stuck one — and a key shared
+// with that entry would keep the disagreement off the docket for good.
+func DisagreementKey(runID string, number int) string {
+	return PublicationKey(runID, number) + ":not-on-target"
+}
+
 // UnreadyKey names the event an unready item is: this item found unready for
 // these kinds of prerequisite. There is no run in it because there is no run —
 // that is what the class is — so the item and what was found are what identify
@@ -1518,6 +1549,9 @@ func (e Entry) keys() []string {
 			return nil
 		}
 		return []string{ProductDecisionKey(e.RunID, e.ProductDecision.Decision)}
+	}
+	if e.Class == ClassPublication && e.Publication != nil && e.Publication.Disagreement != nil {
+		return []string{DisagreementKey(e.RunID, e.Publication.Number)}
 	}
 	derived := []string{Key(e.Class, e.RunID)}
 	// A publication whose request is unrecorded has no number to key to, and is
@@ -1857,6 +1891,17 @@ func (e Entry) Validate() error {
 			}
 			if len(e.Publication.WaitingOn) > MaxBlockerBytes {
 				problems = append(problems, fmt.Errorf("publication: waiting_on is %d bytes, limit is %d", len(e.Publication.WaitingOn), MaxBlockerBytes))
+			}
+			if disagreement := e.Publication.Disagreement; disagreement != nil {
+				if disagreement.Cause != MergeDisagreementCause {
+					problems = append(problems, fmt.Errorf("publication: a disagreement's cause must be %q", MergeDisagreementCause))
+				}
+				if strings.TrimSpace(disagreement.Detail) == "" || strings.TrimSpace(disagreement.TargetBranch) == "" || strings.TrimSpace(disagreement.Commit) == "" {
+					problems = append(problems, errors.New("publication: a disagreement names the target branch, the commit looked for, and what was read"))
+				}
+				if len(disagreement.Detail) > MaxBlockerBytes {
+					problems = append(problems, fmt.Errorf("publication: disagreement detail is %d bytes, limit is %d", len(disagreement.Detail), MaxBlockerBytes))
+				}
 			}
 			if len(e.Publication.Checks) > MaxBlockerBytes {
 				problems = append(problems, fmt.Errorf("publication: checks is %d bytes, limit is %d", len(e.Publication.Checks), MaxBlockerBytes))
@@ -2723,6 +2768,18 @@ func (e Entry) renderPublication() string {
 		merge = "the forge has its merge queued"
 	}
 	fmt.Fprintf(&rendered, "      Forge state: %s, %s\n", nonEmpty(published.State, "unreported"), merge)
+	// A disagreement is said before anything else about the request, because it
+	// is what the entry is about: the record says merged and the branch does not.
+	if disagreement := published.Disagreement; disagreement != nil {
+		tip := "the branch was not there"
+		if disagreement.TargetTip != "" {
+			tip = "the branch was at " + disagreement.TargetTip
+		}
+		fmt.Fprintf(&rendered, "      Not on the target branch: %s was read at %s and does not carry %s (%s)\n",
+			disagreement.TargetBranch, disagreement.FoundAt.UTC().Format(time.RFC3339), disagreement.Commit, tip)
+		fmt.Fprintf(&rendered, "      Cause: %s — the change may have merged and nothing confirmed it, so the only step that may act on it is finishing the merge, which reads the target branch again first\n",
+			disagreement.Cause)
+	}
 	// A queued merge is never shown without its checks beside it, because a merge
 	// the forge is holding for checks that will not pass is not going to land.
 	switch {

@@ -1549,6 +1549,21 @@ func (d Docketer) entriesFor(state runstate.State, now time.Time, already standi
 			entries = append(entries, entry)
 		}
 	}
+	// A merge disagreement is listed under its own key, whatever else the
+	// publication was docketed for, and once that entry stands it is what the
+	// docket says of the publication: a stuck-publication entry beside it would
+	// list the same request twice. See mergedisagreement.go.
+	if state.MergeDisagreement != nil {
+		if _, docketed := already[triage.DisagreementKey(state.RunID, publicationNumber(state))]; !docketed {
+			entry, err := d.disagreementEntry(state, now)
+			if err != nil {
+				problems = append(problems, err)
+			} else {
+				entries = append(entries, entry)
+			}
+		}
+		return entries, errors.Join(problems...)
+	}
 	if publicationDocketed(state, already) {
 		return entries, errors.Join(problems...)
 	}
@@ -2067,6 +2082,19 @@ func (d Docketer) escalationEntry(state runstate.State, now time.Time) (triage.E
 }
 
 func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.Entry, error) {
+	entry, err := d.unvalidatedPublicationEntry(state, now)
+	if err != nil {
+		return triage.Entry{}, err
+	}
+	if err := entry.Validate(); err != nil {
+		return triage.Entry{}, fmt.Errorf("docket the unmerged publication of run %s: %w", state.RunID, err)
+	}
+	return entry, nil
+}
+
+// unvalidatedPublicationEntry is publicationEntry before it is checked, for an
+// entry that adds to it first (disagreementEntry).
+func (d Docketer) unvalidatedPublicationEntry(state runstate.State, now time.Time) (triage.Entry, error) {
 	counters, err := d.recordedCounters(state, rearmsOf(state))
 	if err != nil {
 		return triage.Entry{}, err
@@ -2114,9 +2142,6 @@ func (d Docketer) publicationEntry(state runstate.State, now time.Time) (triage.
 			ApprovedAt:  publicationApprovedAt(state).UTC(),
 		},
 		Counters: counters,
-	}
-	if err := entry.Validate(); err != nil {
-		return triage.Entry{}, fmt.Errorf("docket the unmerged publication of run %s: %w", state.RunID, err)
 	}
 	return entry, nil
 }

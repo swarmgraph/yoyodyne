@@ -4672,8 +4672,17 @@ merge, and the local target follows by the catch-up above: a fast-forward onto
 the remote, taken under the branch's promotion lease. So no ending of the run
 leaves your local target ahead of the remote:
 
-- **Merged.** The catch-up brings the local target onto the forge's merge
-  commit, and the item closes.
+- **Merged.** The run reads the remote target and records the change as merged
+  only once it finds the reviewed commit there; the catch-up then brings the
+  local target onto the forge's merge commit, and the item closes.
+- **Merged on the forge's word only.** The forge reports the request merged and
+  the remote target does not carry the reviewed commit — a merge that replayed
+  the change as fresh commits does this. The run is not recorded as merged: it
+  stops at its merge with the forge's state on its record and the item handed
+  back, as a refused merge is. The same reading by `yoyo reconcile`, for a
+  queued merge or an interrupted landing, leaves the run where it was, writes
+  the disagreement on it, and lists it for the development manager with the
+  cause given as uncertain.
 - **Queued.** Nothing moves locally. The worktree and branch are kept, because
   nothing proves the change is on the target yet; `yoyo reconcile` catches the
   local target up once the forge merges, closes the item, and cleans up.
@@ -4690,8 +4699,9 @@ leaves your local target ahead of the remote:
 - **The process was killed** after the landing was prepared and before the
   forge's answer was heard. The run recorded the landing before asking, and
   `yoyo reconcile` settles it on what the forge says rather than on the local
-  target, which says nothing here: merged is confirmed, caught up onto, closed,
-  and cleaned up; queued is recorded as a queued landing and settled like any
+  target, which says nothing here: merged is confirmed on the remote target,
+  caught up onto, closed, and cleaned up, or left at its merge as above where
+  the remote target does not carry it; queued is recorded as a queued landing and settled like any
   other; anything else hands the item to a person, as the run itself would have.
 
 **Why.** On a protected target, promoting locally first strands commits. A

@@ -3542,7 +3542,12 @@ merge that **landed but could not be confirmed** is the second: the forge
 performed it, and the steps that confirm it — verifying the remote carries the
 promotion and recording the merge commit — failed,
 so the record honestly says the publication is not settled even though the
-merge is real. In those two, your local branch is deliberately left where it is
+merge is real. That is a local promotion, whose change is already on your
+local target. A landing through the pull request on a protected target is not
+settled that way: until the remote target is read and found to carry the
+reviewed commit the run is not recorded as merged, so it stays at its merge
+with the forge's state on its record, and the next sweep asks and reads again.
+In those two, your local branch is deliberately left where it is
 rather than moved on a publication nothing verified. A **merged branch that
 could not be deleted** is the third, and is the mildest: the item is already
 settled — closed, or back in the backlog, as its landing said — and your local
@@ -3730,6 +3735,25 @@ every recorded request that was not merged was asked about on every pass, one
 listing and one merge-queue question at a time: on 2026-09-29, over 798
 recorded publications, one pass ran past an hour while the two runs a redeploy
 drain had preserved held both developer slots with 49 items ready.
+
+**Runs recorded as merged that are not on their target branch.** After those,
+and before the docket is built, the sweep reads the remote target branch for
+every run recorded as merged — ended succeeded, its promotion recorded, nothing
+retiring it, no merge still queued — whose work item is still open, where the
+change could only be on the remote: a landing through the pull request, or a
+request the record says the forge merged. Which items are still open is read
+with one listing of the tracker's closed work per sweep, not one read per run.
+A run whose commit, or its pull
+request's merge commit, is there is left alone. One whose change is not there
+has the disagreement written on its record and is put once on the development
+manager's docket as an unfinished publication, naming the item, the run, the
+pull request and what the forge says of it now, with the cause given as
+uncertain: the change may have merged and nothing confirmed it. A later sweep
+finds the same run again and adds nothing. The sweep only records and lists —
+it merges nothing, re-runs nothing, closes no pull request and spends no budget
+— and `--json` carries what it found under `merge_disagreements`. A watch
+session (`yoyo work --watch`) makes the same read once as it starts, and says on
+standard error what it found.
 
 Before either of those, the sweep looks for the one publication neither can see:
 **a promoted run whose record names no pull request at all.** Everything above
