@@ -31,6 +31,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/goal"
+	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/intervention"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/modelfailover"
@@ -389,6 +390,10 @@ type Options struct {
 	// role because the authority to ask is decided by the role's bundle, and a
 	// conversation without one refuses the block and says so.
 	RunInspector RunInspector
+	// HealthObserver is how a manager observes the factory's health and follows
+	// what an observation left out, through health.observe and health.follow.
+	// It is wired for every role for the reason RunInspector is.
+	HealthObserver HealthObserver
 	// Memories is what this agent knows. A management role's turns are briefed
 	// from it and write what they conclude back into it, through the context
 	// actions; every role's turns read from it the side conversations it held
@@ -1007,6 +1012,7 @@ type Reply struct {
 	RepositoryReads []RepositoryRound `json:"repository_reads,omitempty"`
 	LogReads        []LogRound        `json:"log_reads,omitempty"`
 	RunReads        []RunRound        `json:"run_reads,omitempty"`
+	HealthReads     []HealthRound     `json:"health_reads,omitempty"`
 	// Picture is how old the picture of the repository this reply was answered
 	// from was, in landings on the target branch, and what the harness did about
 	// it: nothing where it was current, a re-read before the turn where it was
@@ -1532,6 +1538,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	documentHandedBack := false
 	logRounds := 0
 	runRounds := 0
+	healthRounds := 0
 	s.toolUses = make(map[capability.Capability]*toolUse)
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
@@ -1797,6 +1804,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				}
 			} else {
 				undelivered += runinspect.Render(round.Results)
+			}
+		}
+		// The factory's health observed, or the next part of an observation,
+		// on a manager's behalf. Like the run reads it never fails the turn.
+		if len(parsed.HealthReads) > 0 {
+			round := s.performHealthReads(ctx, parsed.HealthReads, &healthRounds)
+			reply.HealthReads = append(reply.HealthReads, round)
+			if round.Problem != "" {
+				if healthRounds < health.MaxRoundsPerMessage {
+					undelivered += "# Factory health\n\nNothing was read: " + round.Problem + "\n\n"
+				}
+			} else {
+				undelivered += health.Render(round.Results)
 			}
 		}
 		// What this reply concluded about an operator's idea, written down where it
@@ -2745,6 +2765,8 @@ type parsedReply struct {
 	Reads    []repositoryread.Request
 	LogReads []logread.Request
 	RunReads []runinspect.Request
+	// HealthReads are the health observations and follows a reply asks for.
+	HealthReads []health.Request
 	// Ask is the one question this reply puts to another role, where it puts
 	// one. Most replies put none, which is not an empty ask.
 	Ask *exchange.Ask
@@ -2831,6 +2853,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, fmt.Errorf("run block refused: %w", err)
 	}
+	prose, healthReads, err := health.Extract(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, fmt.Errorf("health block refused: %w", err)
+	}
 	prose, ask, err := exchange.Extract(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2870,6 +2897,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Reads = reads
 	parsed.LogReads = logs
 	parsed.RunReads = runReads
+	parsed.HealthReads = healthReads
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
@@ -3564,6 +3592,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		s.reportRepositoryReads(out, reply)
 		s.reportLogReads(out, reply)
 		s.reportRunReads(out, reply)
+		s.reportHealthReads(out, reply)
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
 		s.reportMemories(out, reply)
@@ -4156,6 +4185,16 @@ func (s *Session) reportRunReads(out io.Writer, reply Reply) {
 		return
 	}
 	for _, round := range reply.RunReads {
+		fmt.Fprint(out, round.Render())
+	}
+	fmt.Fprintln(out)
+}
+
+func (s *Session) reportHealthReads(out io.Writer, reply Reply) {
+	if len(reply.HealthReads) == 0 {
+		return
+	}
+	for _, round := range reply.HealthReads {
 		fmt.Fprint(out, round.Render())
 	}
 	fmt.Fprintln(out)

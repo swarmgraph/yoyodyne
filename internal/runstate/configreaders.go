@@ -63,6 +63,10 @@ type ConfigReader struct {
 	StartedAt  time.Time `json:"started_at"`
 	// Keys is config.SchemaKeys as the part's own build derived it.
 	Keys []string `json:"keys"`
+	// SearchPath is the search path the part was started with, which is where
+	// any provider command it launches is looked for. It is empty on a record a
+	// build wrote before parts recorded it, which says nothing either way.
+	SearchPath string `json:"search_path,omitempty"`
 }
 
 // InstanceID identifies a process's record without replacing another running

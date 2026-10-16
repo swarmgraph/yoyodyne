@@ -74,6 +74,15 @@ const (
 	// holds what").
 	RunInspect Capability = "run.inspect"
 	RunVerify  Capability = "run.verify"
+	// HealthObserve is taking one fresh observation of the factory's health:
+	// every actionable anomaly with its identity and history, every legitimate
+	// wait, the supervised services, and which sources were read whole.
+	// HealthFollow is reading the next part of what one observation left out
+	// of its rendering. Both read and decide nothing
+	// (docs/designs/fresh-factory-health-and-preserved-run-recovery.md, "The
+	// five capabilities").
+	HealthObserve Capability = "health.observe"
+	HealthFollow  Capability = "health.follow"
 	// WorktreeMutate is writing inside the run's own isolated worktree and on its
 	// own branch: creating it, committing what a developer left, removing it once
 	// its work is somewhere else. It never reaches the branch a run promotes into,
@@ -304,6 +313,8 @@ var declared = []Capability{
 	LogRead,
 	RunInspect,
 	RunVerify,
+	HealthObserve,
+	HealthFollow,
 	WorktreeMutate,
 	TargetBranchMutate,
 	PromotionLease,

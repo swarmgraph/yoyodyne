@@ -67,7 +67,7 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 		}
 		return answer(Unknown, reading.Says)
 	case ExpectWaitRecorded:
-		if wait := waitOf(state); wait != nil {
+		if wait := WaitOf(state); wait != nil {
 			return answer(Met, fmt.Sprintf("it waits on %s, released by %s", wait.Kind, wait.Release))
 		}
 		return answer(NotMet, "the record names no wait")

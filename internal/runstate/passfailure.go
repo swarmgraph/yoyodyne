@@ -157,6 +157,13 @@ func PassFailuresOf(passes []Sweep) []PassFailure {
 	return ended
 }
 
+// PassFailed is whether one pass failed, by the rule the findings above are
+// counted by.
+func PassFailed(pass Sweep) bool {
+	failed, _ := passFailedOrWorked(pass)
+	return failed
+}
+
 // passFailedOrWorked says whether a pass failed, and whether it did its work.
 // A role's pass fails only where a turn's actions were not carried out, it
 // never started, it was stopped under it, or it gave no account at all. Its

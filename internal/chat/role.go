@@ -28,6 +28,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
@@ -106,6 +107,10 @@ type Authority struct {
 	// it stands, and check one expected state of it.
 	RunInspects bool
 	RunVerifies bool
+	// HealthObserves and HealthFollows are whether this role may observe the
+	// factory's health, and follow what an observation left out.
+	HealthObserves bool
+	HealthFollows  bool
 	// Asks is whether this role is on the inter-role ask channel — both ends of
 	// it, because the two are the same judgement: a role worth asking for an
 	// opinion is one whose own opinion is worth asking for. It is not the
@@ -231,6 +236,8 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			LogReads:        registry.Holds(role, capability.LogRead),
 			RunInspects:     registry.Holds(role, capability.RunInspect),
 			RunVerifies:     registry.Holds(role, capability.RunVerify),
+			HealthObserves:  registry.Holds(role, capability.HealthObserve),
+			HealthFollows:   registry.Holds(role, capability.HealthFollow),
 			Asks:            registry.Holds(role, capability.ExchangeAsk),
 			Answers:         registry.Holds(role, capability.ExchangeAnswer),
 			Memory:          registry.Holds(role, capability.AgentContextMutate),
@@ -397,6 +404,14 @@ func (s *Session) authorize(parsed parsedReply) error {
 		}
 		if request.Action == runinspect.ActionInspect && !authority.RunInspects {
 			return &AuthorityError{Role: authority.Role, Refused: "a run to be inspected", Reason: "this role holds no run.inspect grant"}
+		}
+	}
+	for _, request := range parsed.HealthReads {
+		if request.Action == health.ActionFollow && !authority.HealthFollows {
+			return &AuthorityError{Role: authority.Role, Refused: "a health observation to be followed", Reason: "this role holds no health.follow grant"}
+		}
+		if request.Action == health.ActionObserve && !authority.HealthObserves {
+			return &AuthorityError{Role: authority.Role, Refused: "the factory's health to be observed", Reason: "this role holds no health.observe grant"}
 		}
 	}
 	if len(parsed.Memories) > 0 && !authority.Memory {

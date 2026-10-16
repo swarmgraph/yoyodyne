@@ -152,8 +152,8 @@ func TestTheRunGatedBundlesAreUnchangedByTheRepositoryRead(t *testing.T) {
 // than read from the registry, so a capability arriving in it or leaving it is a
 // change somebody has to make to this list too. It holds no close, no retire, no
 // triage, no artifact or invariant write, no worktree, no checks, no verdict, and
-// no share of the promotion. The two run reads are the factory-flow program
-// manager's, given by "Who holds what" in
+// no share of the promotion. The two run reads and the two health reads are the
+// factory-flow program manager's, given by "Who holds what" in
 // docs/designs/fresh-factory-health-and-preserved-run-recovery.md.
 func TestTheProgramManagerHoldsItsDesignsSetExactly(t *testing.T) {
 	t.Parallel()
@@ -171,7 +171,7 @@ func TestTheProgramManagerHoldsItsDesignsSetExactly(t *testing.T) {
 		"agent-context.mutate", "lane-report.write",
 		"report.file", "amendment.propose", "exchange.ask", "exchange.answer",
 		"service.request-restart",
-		"run.inspect", "run.verify",
+		"run.inspect", "run.verify", "health.observe", "health.follow",
 	}
 	got := slices.Clone(bundle.Holds)
 	slices.Sort(got)

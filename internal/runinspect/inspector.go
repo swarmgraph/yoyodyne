@@ -127,7 +127,7 @@ func (i Inspector) Inspect(ctx context.Context, runID string) Inspection {
 	found := readmodel.Looking(ctx, i.Remains, func() time.Time { return now })(state)
 	inspection.Remains = &found
 	inspection.Reservation = reservationOf(state)
-	inspection.Wait = waitOf(state)
+	inspection.Wait = WaitOf(state)
 	inspection.LastContinuation = lastContinuation(state)
 	inspection.LastRefusal = lastRefusal(state)
 	return i.redactInspection(inspection)
@@ -181,9 +181,9 @@ func reservationOf(state runstate.State) *Reservation {
 	return reservation
 }
 
-// waitOf is the wait a run in flight records, in the order the sweep reads
+// WaitOf is the wait a run in flight records, in the order the sweep reads
 // them (DeadRunRemedy in internal/runstate).
-func waitOf(state runstate.State) *Wait {
+func WaitOf(state runstate.State) *Wait {
 	if !state.Status.InFlight() {
 		return nil
 	}

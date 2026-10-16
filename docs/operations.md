@@ -827,7 +827,8 @@ effort not found in type config.agentDocument` until it was restarted at 1:28
 PM; the watch and the installed binary had been checked, and the dashboard had
 not. So each long-running part — the supervisor, the Slack sink, the scheduler
 (`yoyo work --watch`), and the dashboard — records as it starts which build it
-is, which file it reads, and every configuration key its build reads, under
+is, which file it reads, every configuration key its build reads, and the
+search path it was started with, under
 `projects/<product>/state/config-readers/` in the state root, with one record per
 process and start time. For the same service and process id, only the latest
 startup record is compared: the watch and supervisor keep their process ids
@@ -6888,6 +6889,21 @@ that finds it, rather than once an hour. The `--json` form carries them a second
 time as `pull_requests` on the record, by number, which is what the next pass
 reads to know what was already said. [Recurring
 tasks](configuration.md#recurring-tasks) says when the reading is taken.
+
+**Every development manager pass, and every factory-flow program manager
+pass, opens with a fresh health observation.** Before the pass's first turn the
+harness takes the observation `health.observe` takes ([observing the factory's
+health](conversation.md#observing-the-factorys-health)) and puts it at the top
+of the message: the runs in flight with no process behind them, the work held
+after a stopped run, the factory problems, each service's running copies with
+their builds, search paths, provider commands and configuration files, the
+maintenance failures no finding has carried yet, and the legitimate waits, with
+every source named and whether it was read whole. It is taken whatever the
+events since the pass's last one, so a quiet hour still shows a run that lost
+its worker. A source that could not be read is said, and such an observation is
+never presented as a healthy one. The pass's record keeps the observation's
+identifier and the identity of each condition it carried, in the `health` field
+`yoyo sweeps --json` shows.
 
 **A development manager's pass carries what waits on you, beside her docket.**
 Every firing of her task, scheduled or summoned by the brake, has two sections

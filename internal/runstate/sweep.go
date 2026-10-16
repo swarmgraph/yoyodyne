@@ -429,6 +429,14 @@ type Sweep struct {
 	// Docket records what this pass delivered and what the next pass must put
 	// first. It is absent on older passes and on roles that read no docket.
 	Docket *DocketDelivery `json:"docket,omitempty"`
+	// Health is the fresh health observation the harness took before this
+	// pass's first turn and put in its message: which observation, when, whether
+	// every source it reads was read whole, and the identity of every condition
+	// it carried. A later observation reads these to say when a condition was
+	// first seen and how many passes it has been put to. It is absent on a pass
+	// of a role no observation is delivered to, and on every record written
+	// before passes carried one.
+	Health *SweepHealth `json:"health,omitempty"`
 	// ClosedThrough is how far the closed work handed to a Lead Product Manager's
 	// pass reached: the moment the listing was read where it listed everything
 	// closed since the last pass, or the close time of the last item it listed
@@ -459,6 +467,40 @@ type Sweep struct {
 	// because a pass that quietly did less than it was meant to is the failure
 	// this record exists to make visible. It is empty on a role's pass.
 	Steps []SweepStep `json:"steps,omitempty"`
+}
+
+// MaxSweepHealthDelivered bounds how many condition identities one pass
+// records of the observation it was handed. An observation carrying more keeps
+// the first ones in its order, which puts the actionable ones first.
+const MaxSweepHealthDelivered = 500
+
+// SweepHealth is the health observation one pass was handed.
+type SweepHealth struct {
+	Observation string    `json:"observation"`
+	ObservedAt  time.Time `json:"observed_at"`
+	// Complete is every source the observation reads having been read whole.
+	Complete bool `json:"complete"`
+	// Delivered is the identity of every condition the observation carried, in
+	// its order.
+	Delivered []string `json:"delivered,omitempty"`
+}
+
+func (h SweepHealth) Validate() error {
+	if !ValidHealthObservationID(h.Observation) {
+		return fmt.Errorf("health observation %q is not an observation identifier", h.Observation)
+	}
+	if h.ObservedAt.IsZero() {
+		return errors.New("a delivered health observation names when it was taken")
+	}
+	if len(h.Delivered) > MaxSweepHealthDelivered {
+		return fmt.Errorf("%d health conditions in one pass, limit is %d", len(h.Delivered), MaxSweepHealthDelivered)
+	}
+	for _, identity := range h.Delivered {
+		if strings.TrimSpace(identity) == "" || len(identity) > MaxSweepModelBytes {
+			return errors.New("a delivered health condition names a bounded identity")
+		}
+	}
+	return nil
 }
 
 // MaxSweepDelivered bounds how many delivered items one pass records. It is the
@@ -826,6 +868,11 @@ func (s Sweep) Validate() error {
 			problems = append(problems, errors.New("only a development manager's pass carries docket delivery"))
 		}
 		if err := s.Docket.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if s.Health != nil {
+		if err := s.Health.Validate(); err != nil {
 			problems = append(problems, err)
 		}
 	}

@@ -58,16 +58,16 @@ func (r RunRound) Render() string {
 	return out.String()
 }
 
-// outsideFactoryFlow is why a lane-scoped agent may not read runs: the design
-// gives these tools to the program manager watching the factory-flow lane
-// alone, and a grant is held by a role, so the lane is checked here as the
-// tools' scope.
-func (s *Session) outsideFactoryFlow() string {
+// outsideFactoryFlow is why a lane-scoped agent may not do what, here: the
+// design gives the run and health tools to the program manager watching the
+// factory-flow lane alone, and a grant is held by a role, so the lane is
+// checked here as the tools' scope.
+func (s *Session) outsideFactoryFlow(what string) string {
 	lane := s.lane()
 	if lane == "" || lane == readmodel.FactoryFlowLane {
 		return ""
 	}
-	return fmt.Sprintf("only the program manager watching the %s lane may read runs, and this one watches %s", readmodel.FactoryFlowLane, lane)
+	return fmt.Sprintf("only the program manager watching the %s lane may %s, and this one watches %s", readmodel.FactoryFlowLane, what, lane)
 }
 
 func (s *Session) performRunReads(ctx context.Context, requests []runinspect.Request, rounds *int) RunRound {
@@ -90,7 +90,7 @@ func (s *Session) performRunReads(ctx context.Context, requests []runinspect.Req
 			if spent {
 				return result, errors.New("run reads have spent their rounds for this message")
 			}
-			if refusal := s.outsideFactoryFlow(); refusal != "" {
+			if refusal := s.outsideFactoryFlow("read runs"); refusal != "" {
 				return result, errors.New(refusal)
 			}
 			if s.options.RunInspector == nil {

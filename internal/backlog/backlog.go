@@ -345,6 +345,11 @@ type Entry struct {
 	// holds the item, and is nil where nothing is holding it or that record names
 	// no moment. Like AwaitingCarryOut it is a fact about the wait.
 	AwaitingSince *time.Time `json:"awaiting_since,omitempty"`
+	// AwaitingRun is the run the hold Awaiting names is about — the stopped
+	// run somebody has to decide about — and is empty where nothing is holding
+	// the item, where the hold is a parent's landing, or where the record that
+	// holds it names no run. Like AwaitingSince it is a fact about the wait.
+	AwaitingRun string `json:"awaiting_run,omitempty"`
 	// AwaitingLanding reports a held item whose hold is its parent's change
 	// landing rather than anybody's decision: a child that says it builds on a
 	// change the harness recorded and never saw reach the target branch. It is a
@@ -515,6 +520,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 			AwaitingWork:     awaitingWork(awaiting, holding, landing),
 			AwaitingLanding:  landing,
 			AwaitingSince:    since,
+			AwaitingRun:      awaitingRun(awaiting, holding, landing),
 			// An item whose execution is not a developer run is never the next thing
 			// to pull, however clear the dependency answer about it is, and neither is
 			// one somebody parked or one somebody is holding. All three are a
@@ -787,6 +793,15 @@ func (q Queue) Render() string {
 func (e Entry) Hold() string {
 	_, reason := e.hold()
 	return reason
+}
+
+// awaitingRun is the stopped run an item's own hold is about, where it is
+// held by one.
+func awaitingRun(awaiting string, holding Hold, landing bool) string {
+	if awaiting == "" || landing {
+		return ""
+	}
+	return strings.TrimSpace(holding.RunID)
 }
 
 // HoldKind is which of the refusals Hold explains this entry carries, in a

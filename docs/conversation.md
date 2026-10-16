@@ -1818,6 +1818,66 @@ Neither tool takes the run's lease: a reading is never a second owner of the
 run. What comes back is redacted, handed back as untrusted evidence in the same
 message, and audited like every tool.
 
+### Observing the factory's health
+
+`health.observe` takes a fresh observation of this product's health, and
+`health.follow` reads the next part of what one observation left out. The
+development manager, the architect, and the program manager hold both, and the
+program manager may use them only on the instance watching the `factory-flow`
+lane; any other call is refused. Both are asked with one block, at most two
+requests a reply and three rounds a message:
+
+````text
+```yoyodyne-health
+{"requests":[{"action":"observe"},{"action":"follow","observation":"health-20261016T151500Z-1a2b3c4d","cursor":"20"}]}
+```
+````
+
+An observation may name the product, which must be the conversation's own, and
+at most twenty runs to restrict its run conditions to. It is read from the
+records as they stand when it is taken: the runs in flight and whether a process
+is behind each, the work held after a stopped run, the factory problems
+`yoyo status` lists, the supervisor's record of the services, what each running
+copy of a service recorded as it started, and the pass records. It hands back
+an identifier and the time it was taken; every one of those sources, with
+whether it was read whole; each read failure; and every condition it found,
+those needing a decision or an action first and the legitimate waits after
+them. A condition is known by the product, the run where it is a run's, and the
+condition, so a newer run of an item is never the same condition as an older
+stoppage of it. Each says when it was first seen, when last seen, and how many
+passes it has been put to, read from the pass records; its classification; whose
+it is; and what it needs, which for a wait is what releases it and what will
+look at it again.
+
+It also lists each service the supervisor hosts, and the supervisor: every
+running copy with its build, its start time, and whether that build is the one
+on disk; the search path the copy was started with and, for the scheduler and
+the Slack sink, whether each provider command the configured agents launch is
+found on it; and the configuration file the copy names, with whether it exists.
+A copy on an old build, a copy beside the supervisor's, a provider command not
+found, and a missing configuration file are each a condition. So is each
+maintenance pass failure since your last pass that no finding has carried to a
+role yet; the ones a finding carries are listed as delivered.
+
+At most twenty conditions are rendered. The totals are exact whatever is
+rendered, the identities left out are named, and a cursor is handed back;
+`health.follow` with the observation and that cursor returns the next twenty.
+An observation is kept for following for fifteen minutes, and a follow of an
+older one is refused: observe again. An observation with a source not read
+whole says so first, and is never said to be healthy or to have found nothing.
+
+Before the first turn of every scheduled pass of the development manager, and
+of the program manager instance watching the `factory-flow` lane, the harness
+takes the same observation itself and puts it in the pass's message, whatever
+the events since the pass's last one and however old the conversation's
+briefing. The pass's record keeps the observation's identifier and the identity
+of every condition it carried, which is what a later observation reads to say
+when a condition was first seen and how often it has recurred.
+
+Neither tool takes any lease or changes anything. What comes back is redacted,
+handed back as untrusted evidence in the same message, and audited like every
+tool.
+
 ### A program manager's lane report
 
 A [program manager](designs/program-manager.md) keeps one report on its lane: a

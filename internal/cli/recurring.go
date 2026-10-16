@@ -96,6 +96,10 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 			return readmodel.RenderPassFailures(readmodel.Sources{Passes: parts.store.Sweeps(), Reports: parts.reports,
 				ProgramManagers: programManagerInstances(parts.config)}, role, agent)
 		},
+		// A fresh health observation before every pass of the development
+		// manager's and of the factory-flow program manager's, over the records
+		// `yoyo status` reads, whatever the pass's events say.
+		Health: productHealth{parts: parts}.Deliver,
 		// The proposed changes, so a task that wakes a role owning documents puts
 		// the undecided ones against them in the wake and records what the role
 		// argued. The same log every run proposes into and `yoyo amendment`

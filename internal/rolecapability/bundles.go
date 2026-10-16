@@ -107,6 +107,9 @@ func bundles() []Bundle {
 				// is the managers' who carry recoveries out ("Who holds what" in
 				// docs/designs/fresh-factory-health-and-preserved-run-recovery.md).
 				capability.RunInspect,
+				// And observes the factory's health, for the same reason.
+				capability.HealthObserve,
+				capability.HealthFollow,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,
@@ -128,6 +131,10 @@ func bundles() []Bundle {
 				// she decided, are what her decisions about stopped runs rest on.
 				capability.RunInspect,
 				capability.RunVerify,
+				// The fresh health observation every pass of hers carries, and the
+				// same observation taken or followed on request.
+				capability.HealthObserve,
+				capability.HealthFollow,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,
@@ -206,9 +213,13 @@ func bundles() []Bundle {
 				capability.LogRead,
 				// The design gives both to the factory-flow instance alone. A grant
 				// is held by a role, so the role holds them and the tools refuse an
-				// instance whose lane is another (internal/chat/runinspect.go).
+				// instance whose lane is another (internal/chat/runinspect.go). The
+				// health tools are held and scoped the same way
+				// (internal/chat/health.go).
 				capability.RunInspect,
 				capability.RunVerify,
+				capability.HealthObserve,
+				capability.HealthFollow,
 				capability.ReadModelRead,
 				capability.WorkItemAdmit,
 				capability.WorkItemAttribute,
