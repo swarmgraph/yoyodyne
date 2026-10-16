@@ -1770,6 +1770,54 @@ turns also name their pass so its tool use is discoverable in the conversation
 record. A failed request audit prevents a read, and a failed result audit
 withholds the evidence.
 
+### Looking at one run, and checking a recovery's effect
+
+`run.inspect` shows one run of this product as it stands, and `run.verify`
+checks one expected state of it. The development manager holds both, the
+architect holds `run.inspect` only, and the program manager holds both but may
+use them only on the instance watching the `factory-flow` lane; any other call
+is refused. Both are asked with one block, one run a request, at most four
+requests a reply and two rounds a message:
+
+````text
+```yoyodyne-run
+{"requests":[{"action":"inspect","run":"run-1a2b3c4d"},{"action":"verify","run":"run-1a2b3c4d","expect":"worker live"}]}
+```
+````
+
+An inspection hands back the run record, cut at 48 KiB with the cut and the
+whole size declared; the stamp the process holding the run's lease wrote beside
+it; the run's worker and whether it is live, absent, or uncertain; whether the
+run's branch and worktree are there, as the repository was asked; whether the
+run still holds its work item and a developer slot or document landing; any wait
+and what releases it; and the last continuation and the last refusal to
+continue.
+
+A worker is the process holding the run's lease. When a process takes a run's
+lease it writes down its process number, the start time the operating system
+reports for it, the build it runs, and the run and the attempt it is making:
+in the stamp beside the lease at once, and on the run record the first time it
+writes the record. Every process that takes the run is a new attempt. Until the
+new attempt reaches the record, the worker reads as uncertain. The worker is
+live only when the stamp and the record name
+the same worker and a running process has that number and started when the
+worker said it did. A number the operating system has since given to another
+process reads as absent, never live. A run recorded before workers wrote this
+down reads as uncertain.
+
+A verification names one expected state from this list and no other: worker
+live, wait recorded, reservation released, continuation started, repair
+started, rerun holds the item, integration completed, item given back, question
+recorded, unresolved hold recorded. Any other refuses the whole block. It
+answers met, not met, or unknown, with what was read and when. Whatever could
+not be read makes the answer unknown, never met. Item given back, question
+recorded, and unresolved hold recorded are recorded by recovery actions this
+build does not carry out yet, so they answer unknown.
+
+Neither tool takes the run's lease: a reading is never a second owner of the
+run. What comes back is redacted, handed back as untrusted evidence in the same
+message, and audited like every tool.
+
 ### A program manager's lane report
 
 A [program manager](designs/program-manager.md) keeps one report on its lane: a

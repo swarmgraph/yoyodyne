@@ -184,6 +184,12 @@
     "work_item_claimed_at": "\u003ctime\u003e",
     "work_item_id": "yoyodyne-task",
     "work_item_title": "Task",
+    "worker": {
+      "attempt": 1,
+      "pid": "\u003cpid\u003e",
+      "run_id": "run-0123456789abcdef0123456789abcdef",
+      "started_at": "\u003ctime\u003e"
+    },
     "workflow_instance_id": "run-0123456789abcdef0123456789abcdef-delivery",
     "worktree_path": "\u003cworktrees\u003e/yoyodyne-task-01234567",
     "worktree_removed": true

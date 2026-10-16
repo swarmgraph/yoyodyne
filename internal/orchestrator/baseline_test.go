@@ -1446,6 +1446,20 @@ func (n *baselineNormalizer) walk(subject any) any {
 				walked[key] = "<elapsed>"
 				continue
 			}
+			// A run's worker names the process that held it, which is this test
+			// process and a different number on every run; its attempt is behavior
+			// and is kept.
+			if worker, ok := typed[key].(map[string]any); ok && key == "worker" {
+				if _, named := worker["pid"]; named {
+					masked := make(map[string]any, len(worker))
+					for field, value := range worker {
+						masked[field] = value
+					}
+					masked["pid"] = "<pid>"
+					walked[key] = n.walk(masked)
+					continue
+				}
+			}
 			walked[key] = n.walk(typed[key])
 		}
 		return walked

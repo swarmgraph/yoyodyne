@@ -83,10 +83,14 @@ func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 	return entries, actions, ""
 }
 
+// FactoryFlowLane is the lane of the program manager that watches how work
+// flows through the factory.
+const FactoryFlowLane = "factory-flow"
+
 func FactoryFlowAgent(instances []ProgramManagerInstance) string {
 	var agents []string
 	for _, instance := range instances {
-		if instance.Lane == "factory-flow" {
+		if instance.Lane == FactoryFlowLane {
 			agents = append(agents, instance.Agent)
 		}
 	}

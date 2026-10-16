@@ -38,6 +38,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
+	"github.com/mason-bryant/yoyodyne/internal/runinspect"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
@@ -383,6 +384,11 @@ type Options struct {
 	// role to advise from its briefing believing it had looked.
 	RepositoryReader RepositoryReader
 	LogReader        LogReader
+	// RunInspector is how a manager is shown one run and checks one expected
+	// state of it, through run.inspect and run.verify. It is wired for every
+	// role because the authority to ask is decided by the role's bundle, and a
+	// conversation without one refuses the block and says so.
+	RunInspector RunInspector
 	// Memories is what this agent knows. A management role's turns are briefed
 	// from it and write what they conclude back into it, through the context
 	// actions; every role's turns read from it the side conversations it held
@@ -999,6 +1005,7 @@ type Reply struct {
 	// advice rests on is something the operator reading it is owed.
 	RepositoryReads []RepositoryRound `json:"repository_reads,omitempty"`
 	LogReads        []LogRound        `json:"log_reads,omitempty"`
+	RunReads        []RunRound        `json:"run_reads,omitempty"`
 	// Picture is how old the picture of the repository this reply was answered
 	// from was, in landings on the target branch, and what the harness did about
 	// it: nothing where it was current, a re-read before the turn where it was
@@ -1522,6 +1529,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	repositoryRounds := 0
 	documentHandedBack := false
 	logRounds := 0
+	runRounds := 0
 	s.toolUses = make(map[capability.Capability]*toolUse)
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
@@ -1773,6 +1781,20 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				}
 			} else {
 				undelivered += logread.Render(round.Results)
+			}
+		}
+		// One run as it stands, or one expected state of it, read on a manager's
+		// behalf. Like the log reads it never fails the turn, and a spent bound
+		// ends run reads for this message.
+		if len(parsed.RunReads) > 0 {
+			round := s.performRunReads(ctx, parsed.RunReads, &runRounds)
+			reply.RunReads = append(reply.RunReads, round)
+			if round.Problem != "" {
+				if runRounds < runinspect.MaxRoundsPerMessage {
+					undelivered += "# Runs\n\nNothing was read: " + round.Problem + "\n\n"
+				}
+			} else {
+				undelivered += runinspect.Render(round.Results)
 			}
 		}
 		// What this reply concluded about an operator's idea, written down where it
@@ -2686,6 +2708,7 @@ type parsedReply struct {
 	// at a recorded commit. Most replies name none.
 	Reads    []repositoryread.Request
 	LogReads []logread.Request
+	RunReads []runinspect.Request
 	// Ask is the one question this reply puts to another role, where it puts
 	// one. Most replies put none, which is not an empty ask.
 	Ask *exchange.Ask
@@ -2767,6 +2790,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, fmt.Errorf("log read block refused: %w", err)
 	}
+	prose, runReads, err := runinspect.Extract(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, fmt.Errorf("run block refused: %w", err)
+	}
 	prose, ask, err := exchange.Extract(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2805,6 +2833,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Evaluation = evaluated
 	parsed.Reads = reads
 	parsed.LogReads = logs
+	parsed.RunReads = runReads
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
@@ -3498,6 +3527,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// against the commit the file was read at.
 		s.reportRepositoryReads(out, reply)
 		s.reportLogReads(out, reply)
+		s.reportRunReads(out, reply)
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
 		s.reportMemories(out, reply)
@@ -4080,6 +4110,16 @@ func (s *Session) reportRepositoryReads(out io.Writer, reply Reply) {
 		return
 	}
 	for _, round := range reply.RepositoryReads {
+		fmt.Fprint(out, round.Render())
+	}
+	fmt.Fprintln(out)
+}
+
+func (s *Session) reportRunReads(out io.Writer, reply Reply) {
+	if len(reply.RunReads) == 0 {
+		return
+	}
+	for _, round := range reply.RunReads {
 		fmt.Fprint(out, round.Render())
 	}
 	fmt.Fprintln(out)

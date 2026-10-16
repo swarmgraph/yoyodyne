@@ -31,6 +31,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
+	"github.com/mason-bryant/yoyodyne/internal/runinspect"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
 	"github.com/mason-bryant/yoyodyne/internal/toolcatalog"
 )
@@ -101,6 +102,10 @@ type Authority struct {
 	// bundles name repository.search.
 	RepositorySearch bool
 	LogReads         bool
+	// RunInspects and RunVerifies are whether this role may be shown one run as
+	// it stands, and check one expected state of it.
+	RunInspects bool
+	RunVerifies bool
 	// Asks is whether this role is on the inter-role ask channel — both ends of
 	// it, because the two are the same judgement: a role worth asking for an
 	// opinion is one whose own opinion is worth asking for. It is not the
@@ -224,6 +229,8 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 				registry.Holds(role, capability.RepositoryList) &&
 				registry.Holds(role, capability.RepositorySearch),
 			LogReads:        registry.Holds(role, capability.LogRead),
+			RunInspects:     registry.Holds(role, capability.RunInspect),
+			RunVerifies:     registry.Holds(role, capability.RunVerify),
 			Asks:            registry.Holds(role, capability.ExchangeAsk),
 			Answers:         registry.Holds(role, capability.ExchangeAnswer),
 			Memory:          registry.Holds(role, capability.AgentContextMutate),
@@ -383,6 +390,14 @@ func (s *Session) authorize(parsed parsedReply) error {
 	}
 	if len(parsed.LogReads) > 0 && !authority.LogReads {
 		return &AuthorityError{Role: authority.Role, Refused: "an operational record to be read", Reason: "this role holds no log.read grant"}
+	}
+	for _, request := range parsed.RunReads {
+		if request.Action == runinspect.ActionVerify && !authority.RunVerifies {
+			return &AuthorityError{Role: authority.Role, Refused: "a run to be checked for an expected state", Reason: "this role holds no run.verify grant"}
+		}
+		if request.Action == runinspect.ActionInspect && !authority.RunInspects {
+			return &AuthorityError{Role: authority.Role, Refused: "a run to be inspected", Reason: "this role holds no run.inspect grant"}
+		}
 	}
 	if len(parsed.Memories) > 0 && !authority.Memory {
 		return &AuthorityError{

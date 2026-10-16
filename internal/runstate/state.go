@@ -2915,6 +2915,13 @@ type State struct {
 	// before this did and what a binary carrying no revision of its own produces —
 	// a comparison nobody can make, rather than a run that is current.
 	Build string `json:"build,omitempty"`
+	// Worker is the process working on the run now, or that last did: its
+	// process number, start time, build, and the run and attempt it took the run
+	// as. Every process that takes the run's lease is a new attempt, stamped
+	// beside the lease at once and written here with that process's first write
+	// of the record; every other write keeps it as stored. See worker.go. Absent is a run recorded by a build that kept no identity, whose
+	// worker is reported uncertain rather than live or absent.
+	Worker *WorkerIdentity `json:"worker,omitempty"`
 	// WorkflowInstanceID is the workflow instance this run is observed through,
 	// and is what tells a run on the declarative path from a run on the legacy
 	// one: a run carrying one records a position in the built-in delivery
@@ -3897,6 +3904,20 @@ func (s State) Validate() error {
 	}
 	if s.Build != "" && !buildPattern.MatchString(s.Build) {
 		problems = append(problems, errors.New("build is not a revision"))
+	}
+	// A worker identity is the store's own record of who took the run, so one
+	// naming another run, no process, or a build nothing could have produced is
+	// refused rather than carried as evidence of a worker.
+	if s.Worker != nil {
+		if s.Worker.RunID != s.RunID {
+			problems = append(problems, errors.New("worker.run_id is not this run"))
+		}
+		if s.Worker.PID <= 0 || s.Worker.Attempt < 1 {
+			problems = append(problems, errors.New("worker must name a process and an attempt of at least one"))
+		}
+		if s.Worker.Build != "" && !buildPattern.MatchString(s.Worker.Build) {
+			problems = append(problems, errors.New("worker.build is not a revision"))
+		}
 	}
 	// The instance is checked to the shape an instance is recorded under, for the
 	// same reason: a run naming an instance nothing could be stored as names

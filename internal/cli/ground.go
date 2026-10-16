@@ -25,6 +25,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/runinspect"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -221,6 +222,15 @@ func conversationHeldWork(parts components) chat.HeldWork {
 // no observer rather than as an interface holding nil, so a derivation wired
 // from parts built without one falls back to the record and says so instead of
 // failing on the first stopped run.
+// conversationRunInspector is the run.inspect and run.verify hand, or nil
+// where there is no run store to read, which the conversation refuses plainly.
+func conversationRunInspector(parts components) chat.RunInspector {
+	if parts.store == nil {
+		return nil
+	}
+	return runinspect.Inspector{Runs: parts.store, Remains: remainsOf(parts), RedactValues: parts.redactValues}
+}
+
 func remainsOf(parts components) readmodel.Remains {
 	if parts.worktrees == nil {
 		return nil

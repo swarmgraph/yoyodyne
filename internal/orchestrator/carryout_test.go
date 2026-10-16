@@ -1011,6 +1011,12 @@ func TestSchedulingRecoversCompletedRepairNotesAfterDispatchAcknowledgementFailu
 			expected := before
 			expected.RepairContinuations = append([]runstate.RepairContinuation(nil), before.RepairContinuations...)
 			expected.RepairContinuations[0].DispatchPending, expected.RepairContinuations[0].SuccessNotePending = false, false
+			// The pass that wrote the acknowledgement held the run to do it, so the
+			// record names it as the run's latest worker; nothing else changed.
+			if after.Worker == nil || (before.Worker != nil && after.Worker.Attempt <= before.Worker.Attempt) {
+				t.Fatalf("worker after recovery = %+v, before = %+v; want the recovering pass as a later attempt", after.Worker, before.Worker)
+			}
+			expected.Worker = after.Worker
 			if !reflect.DeepEqual(after, expected) || !reflect.DeepEqual(harness.spent(t), spent) {
 				t.Fatal("note recovery changed the continuation, execution outcome, or expenditure")
 			}

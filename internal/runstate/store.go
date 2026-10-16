@@ -152,6 +152,7 @@ func (l *Lease) Release() error {
 	l.file = nil
 	var cleared error
 	if l.holder != "" {
+		releaseWorker(l.holder)
 		if err := os.Remove(l.holder); err != nil && !errors.Is(err, os.ErrNotExist) {
 			cleared = fmt.Errorf("clear the %s holder: %w", l.label, err)
 		}
@@ -285,6 +286,11 @@ func (s *Store) reserve(ctx context.Context, state State, full func(active []Sta
 	if !held {
 		return nil, fmt.Errorf("run %s is already held by another process", state.RunID)
 	}
+	worker := thisWorker(state.RunID, 1)
+	if err := s.stampLease(lease, state.RunID, worker); err != nil {
+		return nil, errors.Join(err, lease.Release())
+	}
+	state.Worker = &worker
 	if err := s.Create(state); err != nil {
 		return nil, errors.Join(fmt.Errorf("create reserved run state: %w", err), lease.Release())
 	}
@@ -398,6 +404,10 @@ func (s *Store) Adopt(ctx context.Context, workItemID string) (State, *Lease, er
 		if err != nil {
 			return State{}, nil, errors.Join(err, lease.Release())
 		}
+		state, err = s.beginAttempt(lease, state)
+		if err != nil {
+			return State{}, nil, err
+		}
 		return state, lease, nil
 	}
 	return State{}, nil, ErrNoRunInFlight
@@ -428,6 +438,10 @@ func (s *Store) AdoptRun(ctx context.Context, runID string) (State, *Lease, erro
 	state, err := s.Load(runID)
 	if err != nil {
 		return State{}, nil, errors.Join(err, lease.Release())
+	}
+	state, err = s.beginAttempt(lease, state)
+	if err != nil {
+		return State{}, nil, err
 	}
 	return state, lease, nil
 }
@@ -471,21 +485,13 @@ func (s *Store) takeLease(ctx context.Context, runID string) (*Lease, bool, erro
 		file.Close()
 		return nil, false, nil
 	}
-	lease := &Lease{label: "run", file: file}
-	// The holder is stamped under the lock, so a surface that only reads can say
-	// whether a process is behind the run without taking the lease to find out.
-	// A lease that cannot be stamped is refused rather than taken: what it would
-	// buy is a run every surface reports as having no process while one works on
-	// it.
-	holder, err := s.holderPath(runID)
-	if err != nil {
-		return nil, false, errors.Join(err, lease.Release())
-	}
-	if err := s.stampRunHolder(holder); err != nil {
-		return nil, false, errors.Join(err, lease.Release())
-	}
-	lease.holder = holder
-	return lease, true, nil
+	// The caller stamps the holder under the lock, as the worker attempt it is
+	// taking the run as (beginAttempt, or reserve for a run's first), so a
+	// surface that only reads can say whether a process is behind the run without
+	// taking the lease to find out. A lease that cannot be stamped is refused
+	// rather than taken: what it would buy is a run every surface reports as
+	// having no process while one works on it.
+	return &Lease{label: "run", file: file}, true, nil
 }
 
 // acquireLease takes the exclusive lock on an open lease file, retrying within
@@ -515,6 +521,11 @@ func acquireLease(ctx context.Context, file *os.File, grace time.Duration, waiti
 }
 
 func (s *Store) Create(state State) error {
+	// A record copied from another run carries that run's worker, which is
+	// nothing this run has had; it is dropped rather than recorded.
+	if state.Worker != nil && state.Worker.RunID != state.RunID {
+		state.Worker = nil
+	}
 	// Every free-text field is cut to its bound on the way in rather than the
 	// record refused for it; see boundRecordedTexts.
 	state, err := state.withRecordedTextsBounded()
@@ -557,6 +568,9 @@ func (s *Store) Create(state State) error {
 // routing here, and writing either would lose or forge it. Every other field is
 // the caller's, as it always was.
 func (s *Store) Save(state State) error {
+	// The caller's worker is never what is written (see below), so it is not
+	// what is validated either.
+	state.Worker = nil
 	state, err := state.withRecordedTextsBounded()
 	if err != nil {
 		return err
@@ -569,9 +583,13 @@ func (s *Store) Save(state State) error {
 		return err
 	}
 	defer unlock()
-	if err := s.checkRoutingWrite(state); err != nil {
+	worker, err := s.checkRoutingWrite(state)
+	if err != nil {
 		return err
 	}
+	// The worker is the store's to write (worker.go), whatever the caller's
+	// copy says.
+	state.Worker = s.workerToWrite(state.RunID, worker)
 	return s.writeState(state)
 }
 
