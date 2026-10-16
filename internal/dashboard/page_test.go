@@ -1,8 +1,9 @@
 package dashboard
 
 // These tests are the evidence for the page: its eight sections, each with an
-// empty, a loading, and an error state beside its ready one, rendered from the
-// read model and from nothing else.
+// empty, a loading, and an error state beside its ready one, and the merge
+// queues shown only where there are any, rendered from the read model and from
+// nothing else.
 //
 // The page is drawn by its own script, which a Go test cannot run. So the
 // script is run under Node, against the fixtures under testdata/fixtures, by
@@ -85,9 +86,10 @@ func strict(t *testing.T, name string, body []byte, into any) {
 	}
 }
 
-// The shell carries the eight sections, and each of them carries its four states
-// with the lines the script fills, so a section the script has not reached yet
-// says it is reading rather than being blank.
+// The shell carries the eight sections and the hidden merge queues section,
+// and each of them carries its four states with the lines the script fills, so
+// a section the script has not reached yet says it is reading rather than
+// being blank.
 func TestTheShellCarriesEverySectionEachWithItsStates(t *testing.T) {
 	t.Parallel()
 	w := serve(t, stubReader{standing: standingWith("title")})
@@ -595,7 +597,8 @@ func TestARenderWithoutNodeFailsUnlessDeclaredUnavailable(t *testing.T) {
 
 // The page's script draws every section in every state from the fixtures, and
 // what it draws is what the renders under testdata/renders hold. Each of the
-// eight sections reaches each of its four states in at least one scenario, each
+// eight sections reaches each of its four states in at least one scenario, the
+// merge queues are hidden, ready, and unreadable in at least one each, each
 // of the three pop-ups reaches each of its four and is closed in another, the
 // page reaches its own four, and no scenario sets a style or sends the token
 // anywhere but as a bearer to this origin — render.js refuses both.

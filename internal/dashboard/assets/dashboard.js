@@ -1,5 +1,6 @@
 // The page's own script: hold the token, fetch the read model with it, and
-// draw the eight sections from what comes back. It is served from this origin
+// draw the eight sections, and the merge queues where there are any, from what
+// comes back. It is served from this origin
 // because the policy allows script from nowhere else.
 //
 // The token lives in sessionStorage and nowhere else. Session storage is scoped
