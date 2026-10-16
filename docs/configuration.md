@@ -4173,7 +4173,9 @@ run is at stake by then, and the landing is recorded as unverified and files
 nothing. The bound is minutes rather than hours on purpose: on 2026-09-19 a
 session waited two hours on one run's race suite under load, with its second
 seat empty and two recurring passes missed — a wait the restart drain limit
-caps at fifteen minutes by default, independently of load. What a run the bound stops loses is the
+caps at fifteen minutes by default, independently of load, apart from the one
+check a run is on, which is waited for no longer than `check_timeout` as
+configured. What a run the bound stops loses is the
 minutes its current phase had spent, and a developer attempt and a review
 resume where they were. Set it longer if that trade is wrong for your project, and never to
 nothing — a drain with no bound is the wait this exists to end, and the
