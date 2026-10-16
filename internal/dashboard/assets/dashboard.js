@@ -25,8 +25,10 @@
 // month holds is seconds of work. The dashboard builds each of the three in the
 // background on those same clocks and answers every request with the latest
 // one, carrying under "snapshot" when it was taken and how old it is; the page
-// says that age, and marks a reading stale when it is older than two of its
-// intervals or the dashboard's last build of it failed. The standing's age
+// says that age, and how long the reading took where that is longer than its
+// interval, and marks a reading stale when it is older than two of its
+// intervals and two of its last build's durations, or the dashboard's last
+// build of it failed. The standing's age
 // warning waits until the reading is five minutes old. While answers are slow
 // or failing the page asks less often, doubling the wait up to a ceiling, and
 // goes back to its ordinary clock on the first quick answer. Each section says which of its sources it is
@@ -431,19 +433,26 @@ var standingWarningAgeSeconds = 5 * 60;
   }
 
   // takenAgo is how old a reading was when it was served, from the snapshot
-  // the dashboard sends beside it, and nothing where it sent none.
+  // the dashboard sends beside it, and nothing where it sent none. A reading
+  // that takes the dashboard longer to read than its interval is never newer
+  // than one read of it, so how long that read took is said beside the age.
   function takenAgo(reading) {
     var snapshot = reading && reading.snapshot;
     if (!snapshot || typeof snapshot.age_seconds !== "number") {
       return "";
+    }
+    var took = snapshot.build_seconds || 0;
+    if (took > (snapshot.interval_seconds || 0)) {
+      return "taken " + age(snapshot.age_seconds * 1e9) + " ago, by a reading that took " + age(took * 1e9) + "; ";
     }
     return "taken " + age(snapshot.age_seconds * 1e9) + " ago; ";
   }
 
   // snapshotNote is the sentence a reading's own age calls for: the
   // dashboard's latest build of it failed, so what is shown is the one before;
-  // or it is older than two of its intervals, so the building is falling
-  // behind. The standing's age warning also waits for minimumAgeSeconds.
+  // or it is older than two of its intervals and two of the time its last
+  // build took, so the building is falling behind. The standing's age warning
+  // also waits for minimumAgeSeconds.
   // Nothing where neither is so.
   function snapshotNote(what, reading, minimumAgeSeconds) {
     var snapshot = reading && reading.snapshot;
@@ -455,7 +464,9 @@ var standingWarningAgeSeconds = 5 * 60;
       return "The dashboard's last reading of " + what + " failed — " + snapshot.failure + " — so what is shown is the reading taken " + old + " ago.";
     }
     if (snapshot.stale && (snapshot.age_seconds || 0) >= (minimumAgeSeconds || 0)) {
-      return "The reading of " + what + " is " + old + " old, older than two of its " + age((snapshot.interval_seconds || 0) * 1e9) + " intervals: the dashboard is taking longer than that to read it, so what is shown may not be what the harness is doing now.";
+      var took = snapshot.build_seconds || 0;
+      var rounds = took > 0 ? " intervals and two of the " + age(took * 1e9) + " its last reading took" : " intervals";
+      return "The reading of " + what + " is " + old + " old, older than two of its " + age((snapshot.interval_seconds || 0) * 1e9) + rounds + ": the dashboard is falling behind reading it, so what is shown may not be what the harness is doing now.";
     }
     return "";
   }

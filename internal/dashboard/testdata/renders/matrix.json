@@ -415,6 +415,24 @@
       "report": "closed"
     }
   },
+  "snapshot-slow": {
+    "page": "ready",
+    "sections": {
+      "band": "ready",
+      "spend": "ready",
+      "live": "ready",
+      "pipeline": "ready",
+      "throughput": "ready",
+      "capacity": "ready",
+      "factory": "empty",
+      "managers": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed"
+    }
+  },
   "snapshot-failed": {
     "page": "ready",
     "sections": {

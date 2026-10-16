@@ -355,10 +355,15 @@ const pages = [
   { name: "stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/standing": unreachable } },
   { name: "throughput-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/throughput": refused(503, "the state root could not be resolved") } },
   // The dashboard's answers carry the age of the snapshot they were served
-  // from: a standing older than two intervals keeps the small stale marker,
-  // and one whose latest build failed names the failure beside its age.
+  // from: a standing older than two rounds of its builder's schedule keeps
+  // the small stale marker, and one whose latest build failed names the
+  // failure beside its age.
   { name: "snapshot", token: "t", standing: ok(aged(fixture("standing-busy"), {})), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-old", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 45, stale: true })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
+  // A standing that takes the dashboard longer to read than its interval is
+  // as new as one read of it can be: it is said with its age and how long the
+  // read took, and not marked stale.
+  { name: "snapshot-slow", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 92, build_seconds: 58 })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 20, interval_seconds: 60 })), spend: ok(fixture("spend-busy")) },
   { name: "snapshot-failed", token: "t", standing: ok(aged(fixture("standing-busy"), { age_seconds: 34, failure: "bd list timed out after 30s" })), throughput: ok(aged(fixture("throughput-busy"), { age_seconds: 95, interval_seconds: 60, failure: "the state root could not be resolved" })), spend: ok(fixture("spend-busy")) },
   { name: "spend-stale", token: "t", standing: ok(fixture("standing-busy")), throughput: ok(fixture("throughput-busy")), spend: ok(fixture("spend-busy")), then: { "/api/spend": refused(503, "the state root could not be resolved") } }
 ];

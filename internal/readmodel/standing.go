@@ -803,6 +803,10 @@ const maxUndecidedReportAge = 7 * 24 * time.Hour
 // the missing quarter says so.
 func ReadStanding(ctx context.Context, sources Sources) Standing {
 	now := sources.now()
+	// The tracker is asked twice in all, both at once, starting now
+	// (sharedlisting.go).
+	sources, shared := sources.sharing()
+	shared.start(ctx)
 	standing := Standing{
 		ObservedAt:   now,
 		Running:      []RunningRun{},
@@ -1893,6 +1897,15 @@ func Queue(ctx context.Context, sources Sources) (backlog.Queue, string, error) 
 // understates it — and an overstated gate is a line an operator can read and
 // dismiss, where the other direction is work started past somebody's step.
 func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Coverage, string, error) {
+	// What the harness holds for a person is read first, because it asks the
+	// repository about every stopped run and needs nothing from the tracker: a
+	// standing's tracker commands are already under way and answer while it
+	// reads. A tracker that fails is still the failure reported.
+	var held backlog.Holds
+	var heldErr error
+	if sources.Stoppages != nil {
+		held, heldErr = HeldForAPerson(ctx, sources.Stoppages, sources.Decisions, sources.Remains)
+	}
 	var admitted []beads.WorkItem
 	for _, status := range backlogStatuses {
 		items, err := sources.list(ctx, status)
@@ -1911,12 +1924,8 @@ func readQueue(ctx context.Context, sources Sources) (backlog.Queue, backlog.Cov
 	for _, item := range ready {
 		pullable = append(pullable, item.ID)
 	}
-	var held backlog.Holds
-	if sources.Stoppages != nil {
-		held, err = HeldForAPerson(ctx, sources.Stoppages, sources.Decisions, sources.Remains)
-		if err != nil {
-			return backlog.Queue{}, nil, "", fmt.Errorf("read what the harness is holding back after stopped runs: %w", err)
-		}
+	if heldErr != nil {
+		return backlog.Queue{}, nil, "", fmt.Errorf("read what the harness is holding back after stopped runs: %w", heldErr)
 	}
 	var discharged map[string][]string
 	unread := ""

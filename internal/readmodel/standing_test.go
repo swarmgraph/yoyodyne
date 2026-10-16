@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -96,13 +98,29 @@ func (f fakeTracker) Ready(context.Context) ([]beads.WorkItem, error) {
 	return f.ready, f.fail
 }
 
+// statusTracker answers a listing as bd does: a status is the items listed
+// under it, and no status is every item, each carrying the status it is listed
+// under, which is what a standing reads its narrower listings out of.
 type statusTracker struct{ fakeTracker }
 
 func (s statusTracker) List(_ context.Context, status string) ([]beads.WorkItem, error) {
 	if s.fail != nil {
 		return nil, s.fail
 	}
-	return s.byStatus[status], nil
+	if status != "" {
+		return s.byStatus[status], nil
+	}
+	every := append([]beads.WorkItem(nil), s.byStatus[""]...)
+	for _, listed := range slices.Sorted(maps.Keys(s.byStatus)) {
+		if listed == "" {
+			continue
+		}
+		for _, item := range s.byStatus[listed] {
+			item.Status = listed
+			every = append(every, item)
+		}
+	}
+	return every, nil
 }
 
 type fakeDirectives struct {
@@ -726,17 +744,17 @@ func TestTheOperatorsExampleRendersFromState(t *testing.T) {
 	for _, want := range []string{
 		"Running (1 developer run):\n",
 		// The effort level is said beside the model it was asked of.
-		"  yoyodyne-ifd.194 — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far\n",
+		"  yoyodyne-ifd.194 (the four-line status) — developing, on claude-opus-5 at medium effort, 12m elapsed, $3.41 so far\n",
 		"Working (1 conversation):\n",
 		"  product-manager — product-manager, on fable at high effort, a turn in flight for 40s after 270 recorded turns\n",
 		"Not startable (2 of 3 admitted items; 1 awaits the development manager's decision):\n",
-		"  yoyodyne-ifd.200 — intake is held, and the operator placed it — the overnight looked wrong; `yoyo release` lifts it\n",
+		"  yoyodyne-ifd.200 (later work) — intake is held, and the operator placed it — the overnight looked wrong; `yoyo release` lifts it\n",
 		// The whole line, because docs/operations.md prints it as the example an
 		// operator reads: a wording change has to break the document and the test
 		// together rather than leaving the two saying different things.
 		// It opens with when the item was held, in the machine's own zone, and how
 		// long ago that was, read from the run's stop.
-		"  yoyodyne-ifd.201 — held since " + localMoment(moment.Add(-24*time.Hour)) + ", 24 hours ago; run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
+		"  yoyodyne-ifd.201 (waiting work) — held since " + localMoment(moment.Add(-24*time.Hour)) + ", 24 hours ago; run run-b stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has\n",
 		// Only the operator's entry is under the line named for a human; the
 		// development manager's is under a line naming her.
 		"Needs a human (1):\n  intake is held, since 2026-08-30T10:00:00Z: the operator placed it — the overnight looked wrong — the operator's",
@@ -2044,7 +2062,7 @@ func TestACoveredEpicIsNotStartableWithTheCoveringChildNamed(t *testing.T) {
 	for _, waiting := range standing.NeedsHuman {
 		t.Fatalf("needs a human = %+v, want a covered epic to ask nothing of anybody", waiting)
 	}
-	if rendered := standing.Render(); !strings.Contains(rendered, epic.ID+" — "+refused.Reason) {
+	if rendered := standing.Render(); !strings.Contains(rendered, epic.ID+" ("+epic.Title+") — "+strings.ReplaceAll(refused.Reason, child.ID, child.ID+" ("+child.Title+")")) {
 		t.Fatalf("rendered:\n%s\nwant the epic refused with its children named", rendered)
 	}
 }
