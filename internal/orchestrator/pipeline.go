@@ -2142,6 +2142,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// whose target moved, and that re-earns the whole gate exactly as a first
 	// promotion that lost its race does, through the loop below.
 	if resumableIntegration(state) {
+		run.resumedAtPromotion = resumedAfterLostRace(state)
 		outcome, replayed, err := run.promoteApproved(ctx)
 		if !replayed {
 			return outcome, err
@@ -2488,6 +2489,13 @@ type activeRun struct {
 	// state.KeptChecks holds for the same candidate (keptchecks.go). It is
 	// spent by that stage, whichever way it goes.
 	keptChecksOwed bool
+	// resumedAtPromotion is a run a repair put back at its promotion after it
+	// gave back its slot for losing races (resumedAfterLostRace): whatever the
+	// target branch did while it was stopped happened before this process tried
+	// to land anything, so a promotion refused for that is a stale base rather
+	// than a lost race (prepareIntegrationRetry). It is spent by the first
+	// promotion, whichever way it goes.
+	resumedAtPromotion bool
 }
 
 // chargingProcess is what this process charges this run's review rounds under.
@@ -2835,6 +2843,12 @@ func (a *activeRun) blockOnLostRaces(cause error) error {
 // else is. Only a run whose repair budget is spent hands the conflict to a
 // person.
 func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (bool, error) {
+	// The first refusal for drift of a promotion a repair resumed after lost
+	// races is the base it stopped on having gone stale while nothing was trying
+	// to land it, not other work landing first while it was, so it is replayed
+	// without being counted or reported as a lost race.
+	staleBase := a.resumedAtPromotion && errors.Is(cause, gitworktree.ErrTargetDrift)
+	a.resumedAtPromotion = false
 	if !contendedIntegration(cause) {
 		return false, nil
 	}
@@ -2850,14 +2864,18 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	// replays, and that is bounded here: the race that makes
 	// lostRacesBeforeGivingBackTheSlot ends the run with its work kept rather
 	// than replaying it again.
-	if a.state.IntegrationRetries+1 >= lostRacesBeforeGivingBackTheSlot {
-		a.observe(ctx, deliveryIntegrate, "contended")
-		return false, a.blockOnLostRaces(cause)
+	if staleBase {
+		a.landingAt("bringing the change up to date with "+a.worktree.TargetBranch+", which moved while the run was stopped", landingAsksNothing)
+	} else {
+		if a.state.IntegrationRetries+1 >= lostRacesBeforeGivingBackTheSlot {
+			a.observe(ctx, deliveryIntegrate, "contended")
+			return false, a.blockOnLostRaces(cause)
+		}
+		a.state.IntegrationRetries++
+		a.landingAt("replaying the change onto "+a.worktree.TargetBranch+", which moved after this change was prepared on it", landingAsksNothing)
 	}
-	a.state.IntegrationRetries++
 	a.state.ReplayUnjudged = true
 	a.outcome.IntegrationRetries = a.state.IntegrationRetries
-	a.landingAt("replaying the change onto "+a.worktree.TargetBranch+", which moved after this change was prepared on it", landingAsksNothing)
 	a.state.UpdatedAt = a.pipeline.clock().Now()
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return false, fmt.Errorf("save integration retry %d: %w", a.state.IntegrationRetries, err)

@@ -298,6 +298,11 @@ type RepairContinueResult struct {
 	// kept branch, checked, reviewed and queued again, with no developer invoked
 	// unless that conflicts.
 	Replay bool `json:"replay,omitempty"`
+	// LostRace says the replay is of a run that gave back its developer slot after
+	// losing the race to land, rather than of a merge the forge did not make: it
+	// is put back at its promotion with the races it lost cleared, so the change
+	// is brought up to date with its target before it is checked or reviewed again.
+	LostRace bool `json:"lost_race,omitempty"`
 	// FreshSession says the run recorded no developer session to re-enter, so the
 	// repair starts a fresh one on the preserved change, and is why it recorded
 	// none. Empty where the repair re-enters the session the run recorded.
@@ -488,8 +493,15 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// and queued again: the replay a merge that fell behind gets, decided here
 	// because nothing was returned to a developer to repair (replaysDroppedMerge).
 	replay := replaysDroppedMerge(prior, found)
-	if replay {
+	// A repair of a run that lost its race to land is the same replay, for the
+	// same reason: what it is for is the change brought up to date with its
+	// target, and re-entering its developer on the base it stopped on spends the
+	// checks and a review on a change the promotion then refuses (lostracerepair.go).
+	lostRace := !replay && replaysLostRace(prior, found)
+	if replay || lostRace {
+		replay = true
 		result.Replay = true
+		result.LostRace = lostRace
 	} else if err := continuableRepair(prior, found); err != nil {
 		if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" && !found.Unknown {
 			return result, fmt.Errorf("%w; the supported alternative is a re-run decided by the development manager and carried out with `yoyo triage rerun %s`, which starts fresh from the target branch", err, prior.RunID)
@@ -613,7 +625,9 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	}
 
 	reason := continueReason(entry, granted, result.Stall, result.Checks, result.ResumesAt)
-	if replay {
+	if lostRace {
+		reason = lostRaceReplayReason(entry, granted, prior)
+	} else if replay {
 		reason = replayReason(entry, granted, prior)
 	}
 	if result.FreshSession != "" {
@@ -1315,7 +1329,10 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	}
 	continued.Status = runstate.StatusRunning
 	continued.Phase = continuedPhase(prior, stalled)
-	if replay {
+	switch {
+	case replay && prior.LostItsRace():
+		putBackAfterLostRace(&continued, prior, reason, c.now())
+	case replay:
 		putBackAtPromotion(&continued, prior, reason, c.now())
 	}
 	continued.CompletedAt = nil
@@ -1503,6 +1520,8 @@ func (result RepairContinueResult) Render() string {
 		return rendered.String()
 	}
 	switch {
+	case result.LostRace:
+		fmt.Fprintf(&rendered, "put run %s back at its promotion to bring its approved change, which lost the race to land, up to date with its target from its kept branch before anything else, check it and review it again, and land it; the races it lost before are not counted against it, and no developer attempt is counted unless that conflicts\n", result.RunID)
 	case result.Replay:
 		fmt.Fprintf(&rendered, "put run %s back at its merge to bring its approved change, which the forge did not merge, up to date with its target from its kept branch, check it and review it again, and queue its merge again; no developer attempt is counted unless that conflicts\n", result.RunID)
 	case result.Checks:
