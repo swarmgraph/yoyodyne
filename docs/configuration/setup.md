@@ -427,8 +427,10 @@ Up to three layers produce the effective configuration, later ones winning:
    `services.dashboard.port` (8765), `services.dashboard.bind` (`127.0.0.1`),
    `services.dashboard.allowed_hosts` (empty), `services.dashboard.token`
    (`generated`), `services.scheduler.enabled` (`true`),
-   `services.maintenance.enabled` (`true`), and `services.maintenance.every`
-   (`10m`).
+   `services.maintenance.enabled` (`true`), `services.maintenance.every`
+   (`10m`), `services.maintenance.tracker_cleanup.every` (`24h`),
+   `services.maintenance.tracker_cleanup.grown_megabytes` (128), and
+   `services.maintenance.tracker_cleanup.max_hold` (`15s`).
    `triage.repair_grant_attempts` is filled in too, but as a derivation rather
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been
