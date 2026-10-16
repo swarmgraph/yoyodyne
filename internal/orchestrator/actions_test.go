@@ -1023,6 +1023,7 @@ var notAStep = map[string]string{
 	"completeDeveloperOperation": "closes the logical operation the developer has answered",
 	"clearDirectivePause":        "consumes a directive pause the run recorded",
 	"clearDependencyPause":       "consumes a dependency pause the run recorded",
+	"leaveDeveloping":            "marks the developer's returned attempt as behind the run, so a gate's record is saved at checking",
 	"clearTrackerPause":          "consumes a tracker park the run recorded, and gives its recovery window back",
 	"clearOperatorHold":          "consumes an operator hold the run recorded",
 	"recordProviderStop":         "records that the harness stopped the provider on time",
