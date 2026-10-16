@@ -2706,6 +2706,7 @@ func (a *activeRun) verifyReviewAndFinish(ctx context.Context) (Outcome, error) 
 	// worktree is preserved for them either way, so a failing check ends the
 	// run exactly as it always has.
 	if !a.pipeline.automatic() {
+		a.leaveDeveloping()
 		if err := a.holdForDirective(); err != nil {
 			return a.stop(ctx, err)
 		}
@@ -3294,6 +3295,7 @@ func (a *activeRun) blockOnPromotedDivergence(integration gitworktree.Integratio
 func (a *activeRun) repairLoop(ctx context.Context) error {
 	limit := a.repairBudget()
 	for {
+		a.leaveDeveloping()
 		// Every round of the gate asks what the operator has directed, because a
 		// round is another developer invocation and a directive recorded while one
 		// was running must not buy the run another one. The first round is where a
@@ -5517,10 +5519,11 @@ func (a *activeRun) holdForDependency(ctx context.Context) error {
 // recordDependencyPause does: a process that dies here must leave a run that can
 // be told from an interrupted one and picked up again.
 //
-// The phase is left exactly where the run reached, unlike the dependency pause
-// beside it. That pause is taken having decided the work must not proceed, so it
-// moves a developer's phase on; this is taken having decided nothing at all, and
-// a resumed run has to re-ask the question this one could not get an answer to.
+// The phase is left exactly where the run reached, as the dependency pause
+// beside it leaves it: at checking when the gate's round began after a developer
+// attempt (leaveDeveloping). This is taken having decided nothing at all, and a
+// resumed run re-asks the question this one could not get an answer to when it
+// re-enters the gate.
 func (a *activeRun) recordTrackerPause(boundary string, cause error) error {
 	paused, err := a.noteTrackerPause(boundary, cause)
 	if err != nil {
@@ -5607,13 +5610,14 @@ func pausedForTracker(state runstate.State) bool {
 // Recording it is also what gives the run's developer slot back: a run carrying
 // a dependency pause holds none (runstate.State.HoldsDeveloperSlot), so the next
 // pull can fill the slot while this run waits with no process behind it.
+//
+// The phase is saved exactly as the run has it, whatever it is. A run waiting
+// at developing is one whose developer had not finished, and resuming it there
+// hands the same developer the same session in the same worktree, with no check
+// run until that attempt returns. A run that reached this gate from the
+// pipeline's own rounds has already left developing (leaveDeveloping), so it
+// resumes at the checks it stopped short of.
 func (a *activeRun) recordDependencyPause(blockers []string) error {
-	// The developer's attempt is behind this run and the gate is what it stopped
-	// short of, so the recorded phase says so. Left at developing, a resumed run
-	// would be handed a second developer attempt it does not need.
-	if a.state.Phase == runstate.PhaseDeveloping {
-		a.state.Phase = runstate.PhaseChecking
-	}
 	paused := runstate.DependencyPause{Blockers: blockers}
 	a.state.DependencyPause = &paused
 	a.state.UpdatedAt = a.pipeline.clock().Now()
@@ -5621,6 +5625,19 @@ func (a *activeRun) recordDependencyPause(blockers []string) error {
 		return fmt.Errorf("record the unfinished work that paused this run: %w", err)
 	}
 	return dependencyPause{blockers: blockers}
+}
+
+// leaveDeveloping marks the developer's attempt as behind the run, at the start
+// of every round of the gate. Each route into a round comes from an attempt that
+// returned, or from a run already past developing, so whatever a gate in front
+// of the checks records — a wait on unfinished work, a tracker read that went
+// unanswered — is saved at checking, and a run resumed from it is not handed a
+// second developer attempt it does not need. It is not saved here: the gate's
+// own record saves it, and verify sets the same phase if nothing stops first.
+func (a *activeRun) leaveDeveloping() {
+	if a.state.Phase == runstate.PhaseDeveloping {
+		a.state.Phase = runstate.PhaseChecking
+	}
 }
 
 // clearDependencyPause records that the run is no longer waiting, before it
