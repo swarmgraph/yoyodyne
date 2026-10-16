@@ -314,6 +314,15 @@ func (s *Server) Serve(ctx context.Context) error {
 				problems = append(problems, err)
 			}
 		}
+		// The readings were cancelled with the server's lifetime; a build that
+		// was under way is waited for within the same grace, so nothing this
+		// dashboard started is still reading or writing once Serve returns. A
+		// build still running when the grace ends is left to its own bound.
+		for _, reading := range []*snapshot{s.standing, s.throughput, s.spend} {
+			if !reading.settled(grace.Done()) {
+				break
+			}
+		}
 		if err := errors.Join(problems...); err != nil {
 			return fmt.Errorf("dashboard: stop: %w", err)
 		}

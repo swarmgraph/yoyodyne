@@ -106,6 +106,9 @@ type snapshot struct {
 	attempted chan struct{}
 	running   bool
 	askedAt   time.Time
+	// loops counts the builders running, so a stopping server can wait for the
+	// one it cancelled to end rather than leave it writing after the stop.
+	loops sync.WaitGroup
 }
 
 func newSnapshot(interval time.Duration, build func(context.Context) (any, error)) *snapshot {
@@ -188,7 +191,28 @@ func (s *snapshot) start() {
 func (s *snapshot) wake() {
 	if !s.running {
 		s.running = true
-		go s.loop(s.life)
+		s.loops.Add(1)
+		go func() {
+			defer s.loops.Done()
+			s.loop(s.life)
+		}()
+	}
+}
+
+// settled waits for every builder to end, until the deadline. It is what a
+// server calls once it has cancelled their lifetime, and it says whether they
+// all ended in time.
+func (s *snapshot) settled(deadline <-chan struct{}) bool {
+	ended := make(chan struct{})
+	go func() {
+		s.loops.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+		return true
+	case <-deadline:
+		return false
 	}
 }
 

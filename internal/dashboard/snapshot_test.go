@@ -311,3 +311,33 @@ func TestASlowStandingIsAnsweredAtOnceWithItsAgeRatherThanAsStale(t *testing.T) 
 		t.Fatalf("a reading behind a hung build: %d %s", status, body)
 	}
 }
+
+// A stopping dashboard waits for a build it cancelled to end, so nothing the
+// dashboard started is still reading or writing once it has stopped.
+func TestAStoppedReadingIsWaitedForUntilItsBuildEnds(t *testing.T) {
+	t.Parallel()
+	reader := &slowReader{release: make(chan error)}
+	w := serve(t, reader)
+	life, stop := context.WithCancel(context.Background())
+	w.server.standing.live(life)
+	// The build ignores its context, as a build reading files from disk does,
+	// until the test lets it end.
+	w.server.standing.build = func(context.Context) (any, error) {
+		return reader.Standing(context.Background())
+	}
+	w.server.standing.start()
+	for reader.built() < 1 {
+		time.Sleep(time.Millisecond)
+	}
+	stop()
+
+	expired := make(chan struct{})
+	close(expired)
+	if w.server.standing.settled(expired) {
+		t.Fatal("the reading said it had ended while its build was still running")
+	}
+	reader.release <- nil
+	if !w.server.standing.settled(make(chan struct{})) {
+		t.Fatal("the reading did not end once its build had")
+	}
+}
