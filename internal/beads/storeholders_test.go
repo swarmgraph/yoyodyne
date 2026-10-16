@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // fixedHolders is a finder that answers what it is told, remembering the paths
@@ -212,7 +213,7 @@ func TestPsAnswersAreReadForStartAndCommand(t *testing.T) {
 	if bare := described[77]; bare.Command != "bd" || !bare.Since.Equal(time.Date(2026, 10, 1, 9, 2, 3, 0, time.UTC)) {
 		t.Errorf("psProcesses()[77] = %+v, want bd with its start", bare)
 	}
-	if long := boundedCommand("/usr/local/bin/bd " + strings.Repeat("x", 400)); len(long) > maxHolderCommandBytes+len("…") || !strings.HasPrefix(long, "bd x") {
+	if long := boundedCommand("/usr/local/bin/bd " + strings.Repeat("x", 400)); len(long) > maxHolderCommandBytes+len(oneline.Marker) || !strings.HasPrefix(long, "bd x") {
 		t.Errorf("boundedCommand() = %q, want it bounded", long)
 	}
 }

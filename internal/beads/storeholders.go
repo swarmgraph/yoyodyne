@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
 
 // Which processes hold the tracker's store, for whoever has to say so.
@@ -237,29 +237,36 @@ func psProcesses(output string, zone *time.Location) map[int]StoreHolder {
 			continue
 		}
 		holder := StoreHolder{PID: pid}
-		if since, err := time.ParseInLocation("Mon Jan _2 15:04:05 2006", strings.Join(fields[1:6], " "), zone); err == nil {
+		if since, err := time.ParseInLocation("Mon Jan _2 15:04:05 2006", fmt.Sprintf("%s %s %s %s %s", fields[1], fields[2], fields[3], fields[4], fields[5]), zone); err == nil {
 			holder.Since = since
 		}
-		holder.Command = boundedCommand(strings.Join(fields[6:], " "))
+		holder.Command = boundedCommand(afterFields(line, 6))
 		described[pid] = holder
 	}
 	return described
 }
 
-// boundedCommand is a command line kept to maxHolderCommandBytes, with the
-// program named by its base name, since the directory it ran from says nothing
-// about what it was doing.
+// afterFields is what follows the first count space-separated fields of line,
+// as the line has it.
+func afterFields(line string, count int) string {
+	rest := line
+	for range count {
+		rest = strings.TrimLeft(rest, " \t")
+		end := strings.IndexAny(rest, " \t")
+		if end < 0 {
+			return ""
+		}
+		rest = rest[end:]
+	}
+	return strings.TrimSpace(rest)
+}
+
+// boundedCommand is a command line folded onto one line and kept to
+// maxHolderCommandBytes, with the program named by its base name, since the
+// directory it ran from says nothing about what it was doing.
 func boundedCommand(command string) string {
-	program, rest, _ := strings.Cut(command, " ")
-	command = strings.TrimSpace(filepath.Base(program) + " " + rest)
-	if len(command) <= maxHolderCommandBytes {
-		return command
-	}
-	cut := command[:maxHolderCommandBytes]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
-	}
-	return cut + "…"
+	program, rest, _ := strings.Cut(strings.TrimSpace(command), " ")
+	return oneline.Fold(filepath.Base(program)+" "+rest, maxHolderCommandBytes)
 }
 
 func firstNonBlank(values ...string) string {

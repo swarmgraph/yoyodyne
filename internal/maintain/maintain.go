@@ -26,7 +26,7 @@
 //     the worktrees, and takes the stall reading. It is the one slow step, so
 //     it runs beside the supervisor's looks at the children rather than
 //     holding them up.
-//   - tracker-cleanup: the work tracker's store cleaned up, once it has grown
+//   - cleanup: the work tracker's store cleaned up, once it has grown
 //     services.maintenance.tracker_cleanup.grown_megabytes since the last
 //     cleanup left it or that section's "every" has passed since then. bd
 //     never reclaims the room its changes leave behind, and every tracker call
@@ -80,7 +80,7 @@ import (
 const (
 	StepProvider        = "provider"
 	StepReconcile       = "reconcile"
-	StepTrackerCleanup  = "tracker-cleanup"
+	StepTrackerCleanup  = "cleanup"
 	StepRebuild         = "rebuild"
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"

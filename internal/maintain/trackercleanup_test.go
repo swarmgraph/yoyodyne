@@ -87,11 +87,11 @@ func TestAStoreOverTheSizeBoundIsCleanedUpAndRecorded(t *testing.T) {
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
 	if step.Outcome != runstate.StepRan {
-		t.Fatalf("tracker-cleanup step = %+v, want a cleanup run", step)
+		t.Fatalf("cleanup step = %+v, want a cleanup run", step)
 	}
 	for _, want := range []string{"grown 200 MB since its last cleanup left it at 500 MB, past the 128 MB bound", "from 700 MB to 520 MB in 9.0 seconds"} {
 		if !strings.Contains(step.Detail, want) {
-			t.Errorf("tracker-cleanup step = %q, want it to say %q", step.Detail, want)
+			t.Errorf("cleanup step = %q, want it to say %q", step.Detail, want)
 		}
 	}
 	if asked := store.cleanups(); len(asked) != 1 || asked[0] != config.DefaultTrackerCleanupMaxHold {
@@ -127,7 +127,7 @@ func TestAStoreUnderBothBoundsIsNotCleanedUp(t *testing.T) {
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
 	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "the tracker's store is 510 MB, 10 MB more than its last cleanup at") || !strings.Contains(step.Detail, "the next cleanup is due at") {
-		t.Errorf("tracker-cleanup step = %+v, want it skipped saying when the next is due", step)
+		t.Errorf("cleanup step = %+v, want it skipped saying when the next is due", step)
 	}
 	if asked := store.cleanups(); len(asked) != 0 {
 		t.Errorf("cleanups asked = %v, want none", asked)
@@ -168,7 +168,7 @@ func TestTheTimeBoundAndAStoreNeverCleanedUpBothBringACleanup(t *testing.T) {
 			}
 			step := stepNamed(t, f.pass1(t), StepTrackerCleanup)
 			if step.Outcome != runstate.StepRan || !strings.Contains(step.Detail, tc.want) {
-				t.Errorf("tracker-cleanup step = %+v, want a cleanup because %q", step, tc.want)
+				t.Errorf("cleanup step = %+v, want a cleanup because %q", step, tc.want)
 			}
 		})
 	}
@@ -186,7 +186,7 @@ func TestABusyStoreIsSkippedAndTriedAgainWithoutFailingThePass(t *testing.T) {
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
 	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "process 4242 (bd export -o .beads/issues.jsonl)") || !strings.Contains(step.Detail, "the next pass tries again") {
-		t.Errorf("tracker-cleanup step = %+v, want it skipped naming the holder", step)
+		t.Errorf("cleanup step = %+v, want it skipped naming the holder", step)
 	}
 	if recorded.Problem != "" {
 		t.Errorf("pass problem = %q, want a busy store to fail nothing", recorded.Problem)
@@ -200,7 +200,7 @@ func TestABusyStoreIsSkippedAndTriedAgainWithoutFailingThePass(t *testing.T) {
 	store.mu.Unlock()
 	f.now = f.now.Add(11 * time.Minute)
 	if step := stepNamed(t, f.pass1(t), StepTrackerCleanup); step.Outcome != runstate.StepRan {
-		t.Errorf("tracker-cleanup step at the next pass = %+v, want the cleanup it skipped run", step)
+		t.Errorf("cleanup step at the next pass = %+v, want the cleanup it skipped run", step)
 	}
 }
 
@@ -216,7 +216,7 @@ func TestACleanupStoppedAtItsHoldIsRecordedAndFinishedLater(t *testing.T) {
 	recorded := f.pass1(t)
 	step := stepNamed(t, recorded, StepTrackerCleanup)
 	if step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "stopped once it had held the store for 5s") || !strings.Contains(step.Detail, "the next pass finishes it") {
-		t.Errorf("tracker-cleanup step = %+v, want it stopped and left for the next pass", step)
+		t.Errorf("cleanup step = %+v, want it stopped and left for the next pass", step)
 	}
 	if recorded.Problem != "" {
 		t.Errorf("pass problem = %q, want a stopped cleanup to fail nothing", recorded.Problem)
@@ -234,7 +234,7 @@ func TestACleanupStoppedAtItsHoldIsRecordedAndFinishedLater(t *testing.T) {
 	store.mu.Unlock()
 	f.now = f.now.Add(11 * time.Minute)
 	if step := stepNamed(t, f.pass1(t), StepTrackerCleanup); step.Outcome != runstate.StepRan {
-		t.Errorf("tracker-cleanup step at the next pass = %+v, want the stopped cleanup finished", step)
+		t.Errorf("cleanup step at the next pass = %+v, want the stopped cleanup finished", step)
 	}
 }
 

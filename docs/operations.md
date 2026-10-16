@@ -398,7 +398,7 @@ Each pass takes eight steps, in this order, and each is recorded:
   [stall reading](#when-nothing-happened-at-all). It runs beside the
   supervisor's looks at the parts rather than holding them up, and is marked
   as the pass's so it is not [counted as a hand step](#counting-your-hand-steps).
-- **tracker-cleanup** — the work tracker's store in the primary checkout
+- **cleanup** — the work tracker's store in the primary checkout
   cleaned up with `bd gc --skip-decay`, which bd never does on its own. Every
   tracker call opens the whole store, so one nobody cleans up makes every call
   slower and every wait behind bd's lock longer: the primary checkout's had
