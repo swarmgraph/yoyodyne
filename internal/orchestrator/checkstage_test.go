@@ -241,7 +241,7 @@ func TestAStageTheBoundStoppedIsContinuedAtItsChecksByTheHarnessChargingNothing(
 			if err != nil {
 				t.Fatalf("Load() error = %v", err)
 			}
-			if !stopped.StoppedAtStageBound() || !stopped.HarnessContinuesCheckStage() {
+			if !stopped.StoppedUnfinishedAtChecks() || !stopped.HarnessContinuesCheckStage() {
 				t.Fatalf("stopped run = %#v, want one the stage bound stopped that the harness continues", stopped)
 			}
 			// The stoppage is on the docket, saying load stopped it and that the harness
@@ -406,7 +406,7 @@ func TestADecidedCheckStageContinuationWithNoRepairAttemptsReachesTheChecks(t *t
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if !stopped.StoppedAtStageBound() || stopped.RepairAttempts != 0 {
+	if !stopped.StoppedUnfinishedAtChecks() || stopped.RepairAttempts != 0 {
 		t.Fatalf("stopped run = %#v, want a first-attempt check-stage timeout", stopped)
 	}
 	if _, err := store.Triage().GrantRepair(ctx, tracker.Item.ID, triageDecided(runstate.TriageDecisionRepair, stopped.RunID), 2, docketedNow, handbackCaps); err != nil {
@@ -434,8 +434,10 @@ func TestADecidedCheckStageContinuationWithNoRepairAttemptsReachesTheChecks(t *t
 	if err != nil {
 		t.Fatalf("Load() error = %v", err)
 	}
-	if final.RepairAttempts != 0 || len(final.CheckStageContinuations) != 0 || !final.ContinuedCheckStage() {
-		t.Fatalf("final run = %#v, want only the decided check-stage continuation and no repair attempt", final)
+	// The decided continuation is also a rerun of the unfinished check, counted
+	// against the same bounds as the harness's own.
+	if final.RepairAttempts != 0 || len(final.CheckStageContinuations) != 1 || !final.CheckStageContinuations[0].ByDecision || !final.ContinuedCheckStage() {
+		t.Fatalf("final run = %#v, want the decided check-stage continuation counted as one rerun and no repair attempt", final)
 	}
 	if integrated := gitLine(t, repository, "show", "main:feature.txt"); integrated != "implemented" {
 		t.Fatalf("integrated feature = %q, want the first attempt's change", integrated)
@@ -543,7 +545,7 @@ func TestAStageStoppedPastItsContinuationsIsLeftToTheDevelopmentManager(t *testi
 	if state.HarnessContinuesCheckStage() {
 		t.Fatal("a run continued to the bound is still continued by the harness")
 	}
-	if says := state.CheckStageStopSays(); !strings.Contains(says, "which is its bound") || !strings.Contains(says, "development manager's decision") {
+	if says := state.CheckStageStopSays(); !strings.Contains(says, "which is the bound every path shares") || !strings.Contains(says, "development manager's decision") {
 		t.Fatalf("stop says %q, want the bound spent and the decision the development manager's", says)
 	}
 	refused := state

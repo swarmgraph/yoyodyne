@@ -152,7 +152,7 @@ func TestRunnerGivesEveryCheckTheConfiguredBudget(t *testing.T) {
 		want      time.Duration
 	}{
 		{name: "configured", configure: 45 * time.Minute, want: 45 * time.Minute},
-		{name: "unset falls back", configure: 0, want: defaultTimeout},
+		{name: "unset falls back", configure: 0, want: DefaultTimeout},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

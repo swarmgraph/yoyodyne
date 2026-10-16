@@ -1,5 +1,13 @@
 # Individual check timeout recovery needs architectural reconciliation
 
+**Resolved.** The architect has since reconciled the design:
+[Recoverable and terminal failures](../designs/recoverable-and-terminal-failures.md),
+under **The checks and the review**, now treats a check stopped by a time limit as
+unfinished and allows two reruns within three times its limit
+(yoyodyne-gms). The load-scaled check limits and those bounded reruns were then
+built on main by the rebuild of this item (yoyodyne-ifd.429.41.1). What follows
+is the record as it stood before either.
+
 Each check's own time limit scales with machine load
 (yoyodyne-ifd.429.41) remains unfinished. Its required timeout recovery
 contradicts the governing recovery design. This change records that prerequisite

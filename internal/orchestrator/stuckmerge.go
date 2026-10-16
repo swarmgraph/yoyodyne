@@ -174,7 +174,7 @@ func dropReplayRefusal(state runstate.State) string {
 // checkout have to be there as the repository shows them, because the replay is
 // made from them; a run without them is refused as any repair is.
 func replaysDroppedMerge(prior runstate.State, found triage.Found) bool {
-	if prior.MergeDrop == nil || handedBackRepair(prior) || continuableStall(prior) || prior.StoppedAtStageBound() {
+	if prior.MergeDrop == nil || handedBackRepair(prior) || continuableStall(prior) || prior.StoppedUnfinishedAtChecks() {
 		return false
 	}
 	// A merge withdrawn over a check failing on the change itself is the

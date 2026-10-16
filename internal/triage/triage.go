@@ -1088,13 +1088,21 @@ const (
 	// repair has nothing to hand back, and the same record answers it the same way
 	// every time. A re-run or a re-arm is what the record supports.
 	CarryOutMergeDropped CarryOutCause = "merge-dropped"
+	// CarryOutCheckRerunsSpent is a decided repair that would run a check a time
+	// limit left unfinished again on a candidate whose reruns or allowance are
+	// already spent (runstate.CheckStageContinuation). Every path that runs the
+	// check again shares those bounds, so a decided repair cannot reset them; a
+	// re-run of the item, which makes a new candidate, or parking it is what
+	// remains.
+	CarryOutCheckRerunsSpent CarryOutCause = "check-reruns-spent"
 )
 
 // CarryOutCauses is the closed list the record and the inventory share.
 func CarryOutCauses() []CarryOutCause {
 	return []CarryOutCause{CarryOutWorktreeGone, CarryOutBranchGone, CarryOutHeadMoved,
 		CarryOutDecisionSuperseded, CarryOutDecisionMissing, CarryOutStoppageMissing,
-		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable, CarryOutNoLongerApplies, CarryOutMergeDropped}
+		CarryOutPublicationUnmakeable, CarryOutBackendUnavailable, CarryOutNoLongerApplies, CarryOutMergeDropped,
+		CarryOutCheckRerunsSpent}
 }
 
 func (c CarryOutCause) Valid() bool {

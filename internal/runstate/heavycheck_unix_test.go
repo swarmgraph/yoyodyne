@@ -426,8 +426,11 @@ func TestManyRunsAtOnceNeverRunMoreThanTheirPlaces(t *testing.T) {
 	// Eight runs reading the record every 10ms on a machine already running
 	// the whole suite spend most of their time queued for its lock, so this
 	// test reads it less often and allows minutes: what it proves is the
-	// bound and that everything finishes, not how fast.
-	store.poll = 50 * time.Millisecond
+	// bound and that everything finishes, not how fast. The waiting runs' reads
+	// share that lock with a started check writing its process down, which
+	// waits at most thirty seconds for it, so they read seldom enough to leave
+	// it free under the race detector beside the whole suite.
+	store.poll = 250 * time.Millisecond
 
 	var running, most atomic.Int32
 	var wait sync.WaitGroup
