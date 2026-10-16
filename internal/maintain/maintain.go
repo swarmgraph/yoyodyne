@@ -26,6 +26,19 @@
 //     the worktrees, and takes the stall reading. It is the one slow step, so
 //     it runs beside the supervisor's looks at the children rather than
 //     holding them up.
+//   - tracker-cleanup: the work tracker's store cleaned up, once it has grown
+//     services.maintenance.tracker_cleanup.grown_megabytes since the last
+//     cleanup left it or that section's "every" has passed since then. bd
+//     never reclaims the room its changes leave behind, and every tracker call
+//     opens the whole store, so one nobody cleans up slows every call. It runs
+//     after reconcile, on the same goroutine, so the pass's own tracker calls
+//     are over before it starts; it does not start while any other process has
+//     the store open; and it is stopped once it has held the store for the
+//     section's max_hold, so no call waiting behind it runs past its own limit
+//     (internal/beads, cleanup.go). Being busy or stopped is a skip, never a
+//     failure: the next pass tries again. Each cleanup that ran is recorded
+//     with when, the store's size either side, and how long it took, and the
+//     latest is said on the pass's line in `yoyo status`.
 //   - rebuild: what the supervisor's rebuilder last came to — it builds the
 //     binary on its own thirty-second look when the branch lands something the
 //     binary is made of, so a deploy has a build to take up.
@@ -53,6 +66,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
@@ -66,6 +80,7 @@ import (
 const (
 	StepProvider        = "provider"
 	StepReconcile       = "reconcile"
+	StepTrackerCleanup  = "tracker-cleanup"
 	StepRebuild         = "rebuild"
 	StepRestartRequests = "restart-requests"
 	StepRedeploy        = "redeploy"
@@ -128,6 +143,20 @@ type Host interface {
 	RestartOnRequest(ctx context.Context, name config.ServiceName, now time.Time) string
 }
 
+// TrackerStore is the work tracker's store as the cleanup step sees it. It is
+// satisfied by beads.Client.
+type TrackerStore interface {
+	StoreSize() (string, int64, error)
+	CleanUpStore(ctx context.Context, hold time.Duration) (beads.StoreCleanup, error)
+}
+
+// Cleanups is the record of each cleanup of the tracker's store that ran. It
+// is satisfied by *runstate.TrackerStoreCleanupStore.
+type Cleanups interface {
+	Read() (runstate.TrackerStoreCleanups, error)
+	Record(runstate.TrackerStoreCleanup) error
+}
+
 // Releaser is the release step: a decided release cut and its tag pushed. It
 // is satisfied by *releasecut.Cutter.
 type Releaser interface {
@@ -161,6 +190,13 @@ type Pass struct {
 	// Release cuts a decided release, and is nil where nothing is wired to;
 	// the step then says so.
 	Release Releaser
+	// Tracker is the primary checkout's tracker store and Cleanups the record
+	// of its cleanups; where either is nil the cleanup step says so. Cleanup is
+	// when one is due and how long it may hold the store, and its zero value is
+	// the configuration's default.
+	Tracker        TrackerStore
+	Cleanups       Cleanups
+	TrackerCleanup config.TrackerCleanup
 
 	Now func() time.Time
 	Log func(format string, args ...any)
@@ -178,6 +214,10 @@ type Pass struct {
 	// what one came to once a Wait collected it before a pass did.
 	releasing *cutting
 	released  *runstate.SweepStep
+	// cleanedUp is the latest cleanup of the tracker's store, for the pass's
+	// line; cleanupsRead says the record has been read for it once.
+	cleanedUp    *runstate.TrackerStoreCleanup
+	cleanupsRead bool
 }
 
 type cutting struct {
@@ -186,9 +226,17 @@ type cutting struct {
 }
 
 type underway struct {
-	started    time.Time
-	firing     int
-	reconciled chan runstate.SweepStep
+	started time.Time
+	firing  int
+	done    chan offGoroutine
+}
+
+// offGoroutine is what the pass does off the supervisor's goroutine: reconcile,
+// and then the tracker's cleanup, with the record of the cleanup where one ran.
+type offGoroutine struct {
+	reconciled runstate.SweepStep
+	cleaned    runstate.SweepStep
+	cleanup    *runstate.TrackerStoreCleanup
 }
 
 // Name is how the pass is named in what the supervisor says, and Service the
@@ -209,7 +257,24 @@ func (p *Pass) Describe() string {
 	} else if !p.nextDue.IsZero() {
 		said += fmt.Sprintf("; next at %s", p.nextDue.UTC().Format(time.RFC3339))
 	}
+	if cleanup := p.latestCleanup(); cleanup != nil {
+		said += "; the tracker's store was last cleaned up " + cleanup.Says()
+	}
 	return said
+}
+
+// latestCleanup is the latest cleanup of the tracker's store, read from its
+// record the first time it is asked for and kept from each pass after that.
+func (p *Pass) latestCleanup() *runstate.TrackerStoreCleanup {
+	if !p.cleanupsRead && p.Cleanups != nil {
+		p.cleanupsRead = true
+		if cleanups, err := p.Cleanups.Read(); err == nil {
+			if latest, found := cleanups.Latest(); found {
+				p.cleanedUp = &latest
+			}
+		}
+	}
+	return p.cleanedUp
 }
 
 // Look is the pass as a resident of the supervisor. On every tick it finishes
@@ -219,8 +284,8 @@ func (p *Pass) Describe() string {
 func (p *Pass) Look(ctx context.Context, now time.Time) {
 	if p.running != nil {
 		select {
-		case reconciled := <-p.running.reconciled:
-			p.finish(ctx, reconciled)
+		case done := <-p.running.done:
+			p.finish(ctx, done)
 		default:
 		}
 		return
@@ -242,10 +307,14 @@ func (p *Pass) Look(ctx context.Context, now time.Time) {
 		return
 	}
 	p.nextDue = claimed.NextDue(p.every())
-	p.running = &underway{started: now, firing: claimed.Firings, reconciled: make(chan runstate.SweepStep, 1)}
+	p.running = &underway{started: now, firing: claimed.Firings, done: make(chan offGoroutine, 1)}
 	p.log("maintenance pass %d starting", claimed.Firings)
-	reconciled := p.running.reconciled
-	go func() { reconciled <- p.reconcile(ctx) }()
+	done := p.running.done
+	go func() {
+		work := offGoroutine{reconciled: p.reconcile(ctx)}
+		work.cleaned, work.cleanup = p.cleanUpTracker(ctx)
+		done <- work
+	}()
 	if p.Release != nil && p.releasing == nil && p.released == nil {
 		// Beside the pass rather than inside it: see the package comment. It
 		// touches nothing of the supervisor's.
@@ -270,8 +339,8 @@ func (p *Pass) Wait(ctx context.Context) {
 		return
 	}
 	select {
-	case reconciled := <-p.running.reconciled:
-		p.finish(ctx, reconciled)
+	case done := <-p.running.done:
+		p.finish(ctx, done)
 	case <-ctx.Done():
 	}
 }
@@ -301,7 +370,7 @@ func (p *Pass) due(now time.Time) bool {
 
 // finish takes the steps that read and change the supervisor's account of its
 // children, on its own goroutine, and records the pass.
-func (p *Pass) finish(ctx context.Context, reconciled runstate.SweepStep) {
+func (p *Pass) finish(ctx context.Context, done offGoroutine) {
 	started := p.running.started
 	p.running = nil
 	recorded := runstate.Sweep{
@@ -311,7 +380,11 @@ func (p *Pass) finish(ctx context.Context, reconciled runstate.SweepStep) {
 		StartedAt:     started.UTC(),
 	}
 	recorded.Steps = append(recorded.Steps, p.provider())
-	recorded.Steps = append(recorded.Steps, reconciled)
+	recorded.Steps = append(recorded.Steps, done.reconciled)
+	recorded.Steps = append(recorded.Steps, done.cleaned)
+	if done.cleanup != nil {
+		p.cleanedUp, p.cleanupsRead = done.cleanup, true
+	}
 	recorded.Steps = append(recorded.Steps, p.rebuild())
 	recorded.Steps = append(recorded.Steps, p.restartRequests(ctx))
 	// Collected before the redeploy is decided, so a cut that has just finished
@@ -428,6 +501,120 @@ func (p *Pass) reconcile(ctx context.Context) runstate.SweepStep {
 		step.Outcome, step.Detail = runstate.StepRan, "yoyo reconcile "+describeResult(result)
 	}
 	return step
+}
+
+// cleanUpTracker cleans up the tracker's store where a cleanup is due, and
+// records it where one ran. It runs off the supervisor's goroutine, after
+// reconcile, and touches nothing of the supervisor's.
+func (p *Pass) cleanUpTracker(ctx context.Context) (runstate.SweepStep, *runstate.TrackerStoreCleanup) {
+	step := runstate.SweepStep{Name: StepTrackerCleanup}
+	if p.Tracker == nil || p.Cleanups == nil {
+		step.Outcome, step.Detail = runstate.StepSkipped, "no tracker store is wired, so nothing is cleaned up"
+		return step, nil
+	}
+	bounds := p.cleanupBounds()
+	earlier, err := p.Cleanups.Read()
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the record of earlier cleanups of the tracker's store could not be read, so whether one is due cannot be told: %v", err)
+		return step, nil
+	}
+	_, size, err := p.Tracker.StoreSize()
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store could not be measured, so whether a cleanup is due cannot be told: %v", err)
+		return step, nil
+	}
+	reason, notDue := cleanupDue(earlier, size, bounds, p.now())
+	if reason == "" {
+		step.Outcome, step.Detail = runstate.StepSkipped, notDue
+		return step, nil
+	}
+	cleaned, err := p.Tracker.CleanUpStore(ctx, bounds.MaxHold.Duration())
+	if err != nil {
+		step.Outcome, step.Detail = runstate.StepFailed, fmt.Sprintf("the tracker's store (%s) was due a cleanup because %s, and it could not be cleaned up: %v", runstate.SayBytes(size), reason, err)
+		return step, nil
+	}
+	if !cleaned.Ran() {
+		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store (%s) is due a cleanup because %s, and it was not started because another process had the store open, which a cleanup would have kept waiting: %s; the next pass tries again",
+			runstate.SayBytes(size), reason, beads.SayHolders(cleaned.Busy))
+		return step, nil
+	}
+	record := runstate.TrackerStoreCleanup{
+		Store:      cleaned.Store,
+		StartedAt:  cleaned.StartedAt,
+		Took:       cleaned.Took,
+		SizeBefore: cleaned.SizeBefore,
+		SizeAfter:  cleaned.SizeAfter,
+		Stopped:    cleaned.Stopped,
+		Said:       cleaned.Said,
+		Reason:     reason,
+	}
+	recordFailure := ""
+	if err := p.Cleanups.Record(record); err != nil {
+		recordFailure = fmt.Sprintf("; it could not be recorded, so the next pass measures from the cleanup before it: %v", err)
+	}
+	if cleaned.Stopped {
+		step.Outcome, step.Detail = runstate.StepSkipped, fmt.Sprintf("the tracker's store was due a cleanup because %s, and the cleanup was stopped once it had held the store for %s, so that no other tracker call waits on it past its own limit: from %s to %s in %s; the next pass finishes it%s",
+			reason, bounds.MaxHold, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), recordFailure)
+		return step, &record
+	}
+	step.Outcome, step.Detail = runstate.StepRan, fmt.Sprintf("cleaned up the tracker's store, due because %s: from %s to %s in %s%s",
+		reason, runstate.SayBytes(cleaned.SizeBefore), runstate.SayBytes(cleaned.SizeAfter), roundTook(cleaned.Took), recordFailure)
+	if recordFailure != "" {
+		step.Outcome = runstate.StepFailed
+	}
+	return step, &record
+}
+
+// cleanupDue says why a cleanup of a store of size bytes is due, or, where
+// none is, why not and when one will be.
+func cleanupDue(earlier runstate.TrackerStoreCleanups, size int64, bounds config.TrackerCleanup, now time.Time) (reason, notDue string) {
+	last, found := earlier.LastFinished()
+	if !found {
+		return "the harness has never finished cleaning it up", ""
+	}
+	every := bounds.Every.Duration()
+	grownBound := int64(bounds.GrownMegabytes) << 20
+	grown := size - last.SizeAfter
+	if since := now.Sub(last.StartedAt); since >= every {
+		return fmt.Sprintf("its last cleanup, at %s, was more than %s ago", local(last.StartedAt), bounds.Every), ""
+	}
+	if grown >= grownBound {
+		return fmt.Sprintf("it has grown %s since its last cleanup left it at %s, past the %d MB bound", runstate.SayBytes(grown), runstate.SayBytes(last.SizeAfter), bounds.GrownMegabytes), ""
+	}
+	said := fmt.Sprintf("the tracker's store is %s", runstate.SayBytes(size))
+	if grown > 0 {
+		said += fmt.Sprintf(", %s more than its last cleanup at %s left it", runstate.SayBytes(grown), local(last.StartedAt))
+	} else {
+		said += fmt.Sprintf(", no more than its last cleanup at %s left it", local(last.StartedAt))
+	}
+	return "", fmt.Sprintf("%s; the next cleanup is due at %s, or sooner once it has grown %d MB", said, local(last.StartedAt.Add(every)), bounds.GrownMegabytes)
+}
+
+// cleanupBounds is the configured cleanup, with the default standing for each
+// bound left at zero.
+func (p *Pass) cleanupBounds() config.TrackerCleanup {
+	bounds, defaults := p.TrackerCleanup, config.DefaultTrackerCleanup()
+	if bounds.Every <= 0 {
+		bounds.Every = defaults.Every
+	}
+	if bounds.GrownMegabytes <= 0 {
+		bounds.GrownMegabytes = defaults.GrownMegabytes
+	}
+	if bounds.MaxHold <= 0 {
+		bounds.MaxHold = defaults.MaxHold
+	}
+	return bounds
+}
+
+func local(moment time.Time) string {
+	return moment.Local().Format("2006-01-02 15:04 MST")
+}
+
+func roundTook(took time.Duration) string {
+	if took < time.Minute {
+		return fmt.Sprintf("%.1f seconds", took.Seconds())
+	}
+	return took.Round(time.Second).String()
 }
 
 // rebuild is what the supervisor's rebuilder last came to.

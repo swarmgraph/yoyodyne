@@ -25,7 +25,11 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 			Token:        DashboardTokenGenerated,
 		},
 		Scheduler:   Service{Enabled: true},
-		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval)},
+		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval), TrackerCleanup: TrackerCleanup{
+			Every:          Duration(DefaultTrackerCleanupInterval),
+			GrownMegabytes: DefaultTrackerCleanupGrownMegabytes,
+			MaxHold:        Duration(DefaultTrackerCleanupMaxHold),
+		}},
 	}
 	if !reflect.DeepEqual(resolved.Config.Services, want) {
 		t.Fatalf("services = %+v, want the defaults %+v", resolved.Config.Services, want)
@@ -40,6 +44,9 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 		"services.scheduler.enabled",
 		"services.maintenance.enabled",
 		"services.maintenance.every",
+		"services.maintenance.tracker_cleanup.every",
+		"services.maintenance.tracker_cleanup.grown_megabytes",
+		"services.maintenance.tracker_cleanup.max_hold",
 	} {
 		if origin := resolved.Origins[key]; origin != OriginDefault {
 			t.Errorf("origin[%q] = %q, want %q", key, origin, OriginDefault)
@@ -184,6 +191,18 @@ func TestServicesAreValidatedLikeEveryOtherKey(t *testing.T) {
 			section: "services:\n  dashboard:\n    allowed_hosts: [yoyo.local, YOYO.local]\n",
 			want:    `services.dashboard.allowed_hosts names "YOYO.local" twice`,
 		},
+		"a tracker cleanup more often than hourly": {
+			section: "services:\n  maintenance:\n    tracker_cleanup:\n      every: 10m\n",
+			want:    "services.maintenance.tracker_cleanup.every is 10m0s, and the shortest interval allowed is 1h0m0s",
+		},
+		"a tracker cleanup grown bound of nothing": {
+			section: "services:\n  maintenance:\n    tracker_cleanup:\n      grown_megabytes: 0\n",
+			want:    "services.maintenance.tracker_cleanup.grown_megabytes is 0, and must be between 1 and 16384",
+		},
+		"a tracker cleanup hold past a tracker call's room": {
+			section: "services:\n  maintenance:\n    tracker_cleanup:\n      max_hold: 25s\n",
+			want:    "services.maintenance.tracker_cleanup.max_hold is 25s, and must be between 1s and 20s",
+		},
 		"the slack service over reporting that is off": {
 			section: "services:\n  slack:\n    enabled: true\n",
 			want:    "services.slack is enabled and slack reporting is off",
@@ -284,5 +303,32 @@ func TestARecurringTaskMayNotTakeTheMaintenancePassesName(t *testing.T) {
 `, nil)
 	if err == nil || !strings.Contains(err.Error(), `recurring task "maintenance" is named for the product's maintenance pass`) {
 		t.Errorf("a recurring task named maintenance loaded as %v, want it refused", err)
+	}
+}
+
+// The cleanup's three bounds are read one by one, each keeping the harness's
+// default where the file says nothing about it.
+func TestTrackerCleanupBoundsAreReadOneByOne(t *testing.T) {
+	t.Parallel()
+
+	resolved := loadProject(t, minimalProjectConfig+`services:
+  maintenance:
+    tracker_cleanup:
+      grown_megabytes: 64
+      max_hold: 10s
+`, nil)
+	cleanup := resolved.Config.Services.Maintenance.TrackerCleanup
+	want := TrackerCleanup{Every: Duration(DefaultTrackerCleanupInterval), GrownMegabytes: 64, MaxHold: Duration(10 * time.Second)}
+	if cleanup != want {
+		t.Fatalf("tracker cleanup = %+v, want %+v", cleanup, want)
+	}
+	for key, origin := range map[string]string{
+		"services.maintenance.tracker_cleanup.every":           OriginDefault,
+		"services.maintenance.tracker_cleanup.grown_megabytes": resolved.Path,
+		"services.maintenance.tracker_cleanup.max_hold":        resolved.Path,
+	} {
+		if resolved.Origins[key] != origin {
+			t.Errorf("origin[%q] = %q, want %q", key, resolved.Origins[key], origin)
+		}
 	}
 }

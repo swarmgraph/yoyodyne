@@ -226,8 +226,15 @@ type servicesDocument struct {
 }
 
 type maintenanceServiceDocument struct {
-	Enabled *bool     `yaml:"enabled"`
-	Every   *Duration `yaml:"every"`
+	Enabled        *bool                   `yaml:"enabled"`
+	Every          *Duration               `yaml:"every"`
+	TrackerCleanup *trackerCleanupDocument `yaml:"tracker_cleanup"`
+}
+
+type trackerCleanupDocument struct {
+	Every          *Duration `yaml:"every"`
+	GrownMegabytes *int      `yaml:"grown_megabytes"`
+	MaxHold        *Duration `yaml:"max_hold"`
 }
 
 type serviceDocument struct {
