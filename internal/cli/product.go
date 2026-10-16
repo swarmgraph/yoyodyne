@@ -739,6 +739,15 @@ func (p *product) residents(host *supervise.Supervisor, log func(format string, 
 			return nil, nil, err
 		}
 		pass.Release = cutter
+		// The primary checkout's store, which every run and role shares; a run's
+		// worktree reaches the same one (beads.storeDirectory).
+		cleanups, err := runstate.NewTrackerStoreCleanupStore(p.stateRoot, productID)
+		if err != nil {
+			return nil, nil, err
+		}
+		pass.Tracker = beads.Client{Runner: p.runner, Dir: repository}
+		pass.Cleanups = cleanups
+		pass.TrackerCleanup = maintenance.TrackerCleanup
 	}
 	return append(residents, pass), pass, nil
 }

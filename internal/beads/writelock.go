@@ -86,7 +86,8 @@ func (c Client) lockItem(ctx context.Context, id string) (func(), error) {
 	if err := lockWriteFile(waiting, file); err != nil {
 		_ = file.Close()
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
-			return nil, fmt.Errorf("another write to %s held it for longer than %s, so this one was not made: %w", id, c.timeout(), err)
+			held := c.whoHeld("the write lock for "+id, filepath.Join(store, writeLockDirectory, id+".lock"))
+			return nil, fmt.Errorf("another write to %s held it for longer than %s, so this one was not made (%s): %w", id, c.timeout(), held, err)
 		}
 		return nil, fmt.Errorf("lock writes to %s: %w", id, err)
 	}
@@ -94,6 +95,20 @@ func (c Client) lockItem(ctx context.Context, id string) (func(), error) {
 		_ = unlockWriteFile(file)
 		_ = file.Close()
 	}, nil
+}
+
+// storeDatabase is the database directory of the store this client's bd uses,
+// or empty where the client names no directory, for the reason lockItem takes
+// no lock for one.
+func (c Client) storeDatabase() string {
+	if c.Dir == "" {
+		return ""
+	}
+	store := storeDirectory(c.Dir, os.Getenv("BEADS_DIR"))
+	if store == "" {
+		return ""
+	}
+	return databaseDirectory(store)
 }
 
 // storeDirectory is the store directory bd run in dir would write to, resolved

@@ -8,13 +8,15 @@ import (
 )
 
 // composing is one prompt beside a turn being answered, running in a goroutine
-// the way a conversation runs it.
+// the way a conversation runs it. The turn ends before the answer is handed
+// over, so a prompt the test opens once it has the answer is never still beside
+// the turn.
 func composing(ctx context.Context, console *terminal, interrupt <-chan struct{}) prompted {
 	answers := make(prompted, 1)
 	end := console.BesideTurn()
 	go func() {
-		defer end()
 		line, err := console.Prompt(ctx, "you> ", interrupt)
+		end()
 		answers <- struct {
 			line string
 			err  error

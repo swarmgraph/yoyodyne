@@ -255,6 +255,10 @@ services:           # the parts of the product, each on or off; see Services
   maintenance:
     enabled: true
     every: 10m
+    tracker_cleanup:
+      every: 24h
+      grown_megabytes: 128
+      max_hold: 15s
 
 checks: []          # yours to write; a run with none is refused
 landing_checks: []  # what runs whole, once per landing; see "Where the whole suite runs"
@@ -904,8 +908,10 @@ Up to three layers produce the effective configuration, later ones winning:
    `services.dashboard.port` (8765), `services.dashboard.bind` (`127.0.0.1`),
    `services.dashboard.allowed_hosts` (empty), `services.dashboard.token`
    (`generated`), `services.scheduler.enabled` (`true`),
-   `services.maintenance.enabled` (`true`), and `services.maintenance.every`
-   (`10m`).
+   `services.maintenance.enabled` (`true`), `services.maintenance.every`
+   (`10m`), `services.maintenance.tracker_cleanup.every` (`24h`),
+   `services.maintenance.tracker_cleanup.grown_megabytes` (128), and
+   `services.maintenance.tracker_cleanup.max_hold` (`15s`).
    `triage.repair_grant_attempts` is filled in too, but as a derivation rather
    than a fixed default: it takes the size of the effective
    `execution.repair_attempts_before_replan`, read after every layer has been
@@ -7748,6 +7754,10 @@ services:
   maintenance:
     enabled: true
     every: 10m
+    tracker_cleanup:
+      every: 24h
+      grown_megabytes: 128
+      max_hold: 15s
 ```
 
 **Every service is present whether or not a project mentions it.** The section is
@@ -7924,6 +7934,21 @@ sweep log under the name `maintenance`, which is why a
 [The maintenance pass](operations.md#the-supervisors-maintenance-pass) says what
 each step does and what it never does. With the part off, `yoyo reconcile` is
 yours to schedule.
+
+**The pass also cleans up the work tracker's store** in the primary checkout,
+under `services.maintenance.tracker_cleanup`. A cleanup is due once the store
+has grown `grown_megabytes` (128 by default, between 1 and 16384) since the
+last cleanup left it, or `every` (a day by default, an hour at the shortest)
+has passed since then, whichever is first. The growth is measured from what
+the last cleanup left rather than as a size the store may not pass, because a
+cleanup keeps the whole history, and a store whose history alone outgrew a
+fixed size would be cleaned up on every pass and shrink by nothing.
+`max_hold` (15 seconds by default, between one second and 20) is the longest
+one cleanup holds the store; every tracker call waits behind it, so it is
+stopped when this runs out and the next pass finishes the work, and its
+ceiling leaves a call that arrives the moment a cleanup starts most of its own
+thirty seconds to answer in. Each bound is read on its own, so a file may set
+one and keep the defaults for the others.
 
 ## Recurring tasks
 
