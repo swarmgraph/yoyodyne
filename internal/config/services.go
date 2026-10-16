@@ -69,6 +69,73 @@ type MaintenanceService struct {
 	// that load for nothing, since what the pass settles moves on the scale of
 	// runs finishing.
 	Every Duration `yaml:"every" json:"every"`
+	// TrackerCleanup is when the pass cleans up the work tracker's store, and
+	// for how long a cleanup may hold it.
+	TrackerCleanup TrackerCleanup `yaml:"tracker_cleanup" json:"tracker_cleanup"`
+}
+
+// TrackerCleanup is when the maintenance pass cleans up the work tracker's
+// store in the primary checkout: once the store has grown GrownMegabytes since
+// the last cleanup left it, or Every has passed since that cleanup, whichever
+// comes first. A store the harness has never cleaned up is cleaned up at the
+// first pass. bd never reclaims the room its own changes leave behind, and
+// every tracker call opens the whole store, so a store nobody cleans up makes
+// every call slower and every wait behind bd's lock longer (internal/beads,
+// cleanup.go).
+//
+// The growth is measured from what the last cleanup left rather than as a size
+// the store may not pass, because a cleanup keeps the whole history: a store
+// whose history alone outgrew a fixed size would be cleaned up on every pass
+// and shrink by nothing.
+type TrackerCleanup struct {
+	// Every is the longest the store goes without a cleanup.
+	Every Duration `yaml:"every" json:"every"`
+	// GrownMegabytes is how much the store may grow past what the last cleanup
+	// left before the next is due.
+	GrownMegabytes int `yaml:"grown_megabytes" json:"grown_megabytes"`
+	// MaxHold is the longest one cleanup holds the store. Every tracker call
+	// waits behind it, so it is stopped when this runs out and the next pass
+	// finishes the work; it has a ceiling well inside the limit a tracker call
+	// is given, so a call that arrives the moment a cleanup starts still
+	// answers inside its own.
+	MaxHold Duration `yaml:"max_hold" json:"max_hold"`
+}
+
+const (
+	// DefaultTrackerCleanupInterval is a day: the cleanup of a day's changes
+	// takes a second or two, and the store never carries more than a day's
+	// unreclaimed room.
+	DefaultTrackerCleanupInterval = 24 * time.Hour
+	// MinTrackerCleanupInterval is the shortest a project may set. A cleanup
+	// holds the store every other call waits on, so a cadence of minutes would
+	// be waits for nothing.
+	MinTrackerCleanupInterval = time.Hour
+	// DefaultTrackerCleanupGrownMegabytes is how much growth brings a cleanup
+	// forward. The store in the primary checkout carried some 360 MB of
+	// unreclaimed room after two months without one; a day of ordinary work
+	// adds a few megabytes, so this is reached only by a day far busier than
+	// usual.
+	DefaultTrackerCleanupGrownMegabytes = 128
+	// MaxTrackerCleanupGrownMegabytes bounds the growth a project may allow, at
+	// a size whose cleanup no longer fits in any hold allowed below.
+	MaxTrackerCleanupGrownMegabytes = 16 << 10
+	// DefaultTrackerCleanupMaxHold is how long a cleanup may hold the store.
+	// Cleaning up the 885 MB store took nine seconds.
+	DefaultTrackerCleanupMaxHold = 15 * time.Second
+	// MaxTrackerCleanupHold is the ceiling on that hold: two thirds of the
+	// thirty seconds a tracker call is given (internal/beads), so a call that
+	// arrives the moment a cleanup starts has ten seconds to answer once it is
+	// stopped, against the two or so an ordinary call takes.
+	MaxTrackerCleanupHold = 20 * time.Second
+)
+
+// DefaultTrackerCleanup is the cleanup a project that says nothing gets.
+func DefaultTrackerCleanup() TrackerCleanup {
+	return TrackerCleanup{
+		Every:          Duration(DefaultTrackerCleanupInterval),
+		GrownMegabytes: DefaultTrackerCleanupGrownMegabytes,
+		MaxHold:        Duration(DefaultTrackerCleanupMaxHold),
+	}
 }
 
 const (
@@ -202,7 +269,7 @@ func DefaultServices() Services {
 			Token:        DashboardTokenGenerated,
 		},
 		Scheduler:   Service{Enabled: true},
-		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval)},
+		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval), TrackerCleanup: DefaultTrackerCleanup()},
 	}
 }
 
@@ -266,11 +333,29 @@ func (s Services) problems(reporting Slack) []string {
 }
 
 func (m MaintenanceService) problems() []string {
+	var problems []string
 	if m.Every.Duration() < MinMaintenanceInterval {
-		return []string{fmt.Sprintf("services.maintenance.every is %s, and the shortest interval allowed is %s: every pass reads the tracker and asks the forge about every unsettled publication, so a shorter interval is load rather than maintenance",
-			m.Every, Duration(MinMaintenanceInterval))}
+		problems = append(problems, fmt.Sprintf("services.maintenance.every is %s, and the shortest interval allowed is %s: every pass reads the tracker and asks the forge about every unsettled publication, so a shorter interval is load rather than maintenance",
+			m.Every, Duration(MinMaintenanceInterval)))
 	}
-	return nil
+	return append(problems, m.TrackerCleanup.problems()...)
+}
+
+func (t TrackerCleanup) problems() []string {
+	var problems []string
+	if t.Every.Duration() < MinTrackerCleanupInterval {
+		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_cleanup.every is %s, and the shortest interval allowed is %s: a cleanup holds the tracker's store every other tracker call waits on, so a shorter interval is waiting for nothing",
+			t.Every, Duration(MinTrackerCleanupInterval)))
+	}
+	if t.GrownMegabytes < 1 || t.GrownMegabytes > MaxTrackerCleanupGrownMegabytes {
+		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_cleanup.grown_megabytes is %d, and must be between 1 and %d",
+			t.GrownMegabytes, MaxTrackerCleanupGrownMegabytes))
+	}
+	if hold := t.MaxHold.Duration(); hold < time.Second || hold > MaxTrackerCleanupHold {
+		problems = append(problems, fmt.Sprintf("services.maintenance.tracker_cleanup.max_hold is %s, and must be between 1s and %s: every tracker call waits while a cleanup holds the store, and a hold longer than that leaves a call that arrives as it starts too little of its own thirty seconds to answer in",
+			t.MaxHold, Duration(MaxTrackerCleanupHold)))
+	}
+	return problems
 }
 
 func (d DashboardService) problems() []string {

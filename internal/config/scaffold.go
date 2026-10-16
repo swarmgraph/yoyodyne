@@ -694,6 +694,14 @@ func renderScaffoldServices(builder *strings.Builder, services Services) {
 # the checkout up, and answers the restart requests program managers made. It
 # restarts nothing while the provider cannot be reached or is not logged in,
 # and each pass is recorded where "yoyo sweeps" reads it.
+#
+# The pass also cleans up the work tracker's store, which bd never does on its
+# own and which slows every tracker call as it grows: once the store has grown
+# grown_megabytes since the last cleanup left it, or "every" has passed since
+# then, whichever is first. A cleanup deletes no work item, note, or history.
+# It does not start while another process is using the store, and it is
+# stopped after max_hold, at most 20s, so no other tracker call waits on it
+# past its own limit; the next pass finishes what a stopped one began.
 services:
   slack:
     enabled: %t
@@ -708,6 +716,10 @@ services:
   maintenance:
     enabled: %t
     every: %s
+    tracker_cleanup:
+      every: %s
+      grown_megabytes: %d
+      max_hold: %s
 `,
 		services.Slack.Enabled,
 		services.Dashboard.Enabled,
@@ -718,6 +730,9 @@ services:
 		services.Scheduler.Enabled,
 		services.Maintenance.Enabled,
 		renderScaffoldDuration(services.Maintenance.Every),
+		renderScaffoldDuration(services.Maintenance.TrackerCleanup.Every),
+		services.Maintenance.TrackerCleanup.GrownMegabytes,
+		renderScaffoldDuration(services.Maintenance.TrackerCleanup.MaxHold),
 	)
 }
 

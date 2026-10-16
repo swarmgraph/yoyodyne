@@ -502,6 +502,10 @@ type Client struct {
 	// tests, which drive a call that times out on every attempt without waiting
 	// the seconds between them.
 	listingPause func(ctx context.Context, wait time.Duration) bool
+	// Holders is how a call stopped at a limit learns which processes had the
+	// store open, so its account can name them (storeholders.go). Nil asks the
+	// operating system.
+	Holders HolderFinder
 }
 
 // ListingRecorder is where a client writes how its listings end. It is
@@ -1876,6 +1880,12 @@ func (c Client) Reopen(ctx context.Context, id, reason string, parking domain.Wo
 const maxBDOutputBytes = 256 << 20
 
 func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	return c.runWithin(ctx, c.timeout(), args...)
+}
+
+// runWithin is one bd invocation under limit rather than the client's own
+// bound, which is what the store's cleanup is run under (cleanup.go).
+func (c Client) runWithin(ctx context.Context, limit time.Duration, args ...string) ([]byte, error) {
 	runner := c.Runner
 	if runner == nil {
 		return nil, errors.New("bd process runner is required")
@@ -1889,7 +1899,7 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 		Args:           args,
 		Dir:            c.Dir,
 		Env:            inUTC(withoutAutoExport(os.Environ())),
-		Timeout:        c.timeout(),
+		Timeout:        limit,
 		MaxOutputBytes: maxBDOutputBytes,
 	}
 	var raw boundedExportOutput
@@ -1920,7 +1930,12 @@ func (c Client) run(ctx context.Context, args ...string) ([]byte, error) {
 		if result.Status == execution.ProcessTimedOut {
 			// bd's own words come after the account, so the account is never lost
 			// to however much bd printed before it was stopped.
-			account := timeoutAccount(args, Caller(ctx), time.Since(started), c.timeout(), deadline, deadlined, started)
+			account := timeoutAccount(args, Caller(ctx), time.Since(started), limit, deadline, deadlined, started)
+			if !deadlined || deadline.After(started) {
+				// A call that never started waited on nothing, so only one that ran is
+				// asked about.
+				account += "; " + c.whoHeld("the tracker's store", c.storeDatabase())
+			}
 			message = strings.TrimSuffix(account+": "+message, ": ")
 		}
 		return nil, processFailure{verb: args[0], status: result.Status, exitCode: result.ExitCode, message: message}
@@ -1990,6 +2005,9 @@ func timeoutAccount(args []string, who string, ran, limit time.Duration, deadlin
 		return fmt.Sprintf("%s was stopped after %s, when its caller's own deadline of %s ran out before the %s limit each tracker call is given",
 			account, roundedSpan(ran), roundedSpan(allowed), limit)
 	}
+	if args[0] == "gc" {
+		return fmt.Sprintf("%s was stopped after %s, at the %s it is given to hold the store", account, roundedSpan(ran), limit)
+	}
 	return fmt.Sprintf("%s was stopped after %s, at the %s limit each tracker call is given", account, roundedSpan(ran), limit)
 }
 
@@ -2020,6 +2038,8 @@ func describeCall(args []string) string {
 		return "exporting every work item"
 	case verb == "create":
 		return "creating a work item"
+	case verb == "gc":
+		return "cleaning up the tracker's store"
 	case target != "":
 		return "changing work item " + target + " (bd " + verb + ")"
 	default:

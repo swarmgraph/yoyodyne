@@ -212,7 +212,7 @@ func TestAPassRecordsEveryStepAndWhySkippedOnesWereSkipped(t *testing.T) {
 			t.Errorf("step %s was %s and says nothing about why", step.Name, step.Outcome)
 		}
 	}
-	want := []string{StepProvider, StepReconcile, StepRebuild, StepRestartRequests, StepRedeploy, StepSlack, StepRelease}
+	want := []string{StepProvider, StepReconcile, StepTrackerCleanup, StepRebuild, StepRestartRequests, StepRedeploy, StepSlack, StepRelease}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("steps = %v, want %v", names, want)
 	}
@@ -464,8 +464,8 @@ func TestAReleaseCutRunsBesideThePassesAndHoldsATakeUpBack(t *testing.T) {
 	f.pass.Release = cut
 
 	f.pass.Look(context.Background(), f.now)
-	reconciled := <-f.pass.running.reconciled
-	f.pass.finish(context.Background(), reconciled)
+	done := <-f.pass.running.done
+	f.pass.finish(context.Background(), done)
 	recorded, _ := f.pass.Last()
 	if step := stepNamed(t, recorded, StepRelease); step.Outcome != runstate.StepSkipped || !strings.Contains(step.Detail, "under way since") {
 		t.Errorf("release step = %+v, want it under way", step)
