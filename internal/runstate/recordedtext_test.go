@@ -72,6 +72,8 @@ var structuredStrings = map[string]string{
 	"account_alias":                               "matched against the account alias pattern",
 	"config_revision":                             "matched against the configuration revision pattern",
 	"build":                                       "matched against the revision pattern",
+	"worker.build":                                "matched against the revision pattern",
+	"worker.run_id":                               "refused unless it is the record's own run id",
 	"workflow_instance_id":                        "a validated identifier",
 	"provider_session_id":                         "the provider's session identifier",
 	"provider_model":                              "a model selector",

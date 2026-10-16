@@ -19,6 +19,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
+	"github.com/mason-bryant/yoyodyne/internal/runinspect"
 )
 
 type Call struct{ Perform func(context.Context) error }
@@ -69,6 +70,10 @@ func Default() (action.Registry[Call], error) {
 	search := declaration(capability.RepositorySearch, "yoyodyne-repository", action.ToolRead, "Search the files at a recorded commit.", `Each request gives the action search, a pattern, optionally regexp, optionally a path to search under, and optionally why.`, "the files Git tracks as a recorded commit holds them, optionally under one path; never files someone is editing", "(*Session).performRepositoryReads", action.ToolBounds{RequestsPerReply: repositoryread.MaxRequestsPerReply, RoundsPerMessage: 2, BytesPerRequest: repositoryread.MaxSearchBytes, BytesPerReply: repositoryread.MaxBytesPerReply})
 	search.Capabilities = append(search.Capabilities, capability.RepositoryRead, capability.RepositoryList)
 	actions = append(actions, search)
+	inspect, verify := runinspect.InspectDescriptor(), runinspect.VerifyDescriptor()
+	actions = append(actions,
+		action.Action[Call]{Name: string(inspect.ID), Summary: "See one run as it stands: its record, its worker, and what it holds and waits on.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunInspect}, Perform: perform, Tool: &inspect},
+		action.Action[Call]{Name: string(verify.ID), Summary: "Check whether one run is in one expected state.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunVerify}, Perform: perform, Tool: &verify})
 	// A named repository read has always required the list grant beside the read.
 	actions[1].Capabilities = append(actions[1].Capabilities, capability.RepositoryList)
 	actions[2].Capabilities = append(actions[2].Capabilities, capability.RepositoryRead)

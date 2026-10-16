@@ -102,6 +102,11 @@ func bundles() []Bundle {
 				capability.ProviderInvoke,
 				capability.ArtifactDesignMutate,
 				capability.InvariantMutate,
+				// The architect is shown one run as it stands, so a design can rest
+				// on how runs actually behave, and checks no recovery: verifying one
+				// is the managers' who carry recoveries out ("Who holds what" in
+				// docs/designs/fresh-factory-health-and-preserved-run-recovery.md).
+				capability.RunInspect,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,
@@ -119,6 +124,10 @@ func bundles() []Bundle {
 				capability.ProviderInvoke,
 				capability.WorkDecompose,
 				capability.WorkTriage,
+				// Seeing one run as it stands, and checking a recovery had the effect
+				// she decided, are what her decisions about stopped runs rest on.
+				capability.RunInspect,
+				capability.RunVerify,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,
@@ -195,6 +204,11 @@ func bundles() []Bundle {
 				// "Searching the repository").
 				capability.RepositorySearch,
 				capability.LogRead,
+				// The design gives both to the factory-flow instance alone. A grant
+				// is held by a role, so the role holds them and the tools refuse an
+				// instance whose lane is another (internal/chat/runinspect.go).
+				capability.RunInspect,
+				capability.RunVerify,
 				capability.ReadModelRead,
 				capability.WorkItemAdmit,
 				capability.WorkItemAttribute,

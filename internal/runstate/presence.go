@@ -39,6 +39,27 @@ type runHolder struct {
 	// HeldAt is when the lease was taken, written so a state directory somebody
 	// reads by hand says when. Nothing decides from it.
 	HeldAt time.Time `json:"held_at"`
+	// Worker is the identity the holder took the run with (worker.go). A stamp
+	// written by a build that kept none carries only the process number.
+	Worker *WorkerIdentity `json:"worker,omitempty"`
+}
+
+// holderRunning reports whether the process a stamp names is still the process
+// that wrote it. A stamp that recorded its process's start time is held to it,
+// so a number the operating system has handed to another process reads as the
+// holder gone rather than as the holder.
+func holderRunning(holder runHolder) (bool, error) {
+	look, err := LookProcess(holder.PID)
+	if err != nil {
+		return false, err
+	}
+	if !look.Running() {
+		return false, nil
+	}
+	if holder.Worker != nil && !holder.Worker.StartedAt.IsZero() && !look.StartedAt.IsZero() {
+		return sameStart(holder.Worker.StartedAt, look.StartedAt), nil
+	}
+	return true, nil
 }
 
 // RunPresence is whether a process can be found behind one run in flight, and
@@ -70,7 +91,7 @@ func (s *Store) Held(runID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return processIsRunning(holder.PID)
+	return holderRunning(holder)
 }
 
 // Presence reports whether a process can be found behind a run, and takes
@@ -110,7 +131,7 @@ func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPr
 	case err != nil:
 		return RunPresence{Found: true}, err
 	}
-	running, err := processIsRunning(holder.PID)
+	running, err := holderRunning(holder)
 	if err != nil {
 		return RunPresence{Found: true}, fmt.Errorf("ask whether run %s's holder is running: %w", state.RunID, err)
 	}
@@ -155,10 +176,25 @@ func (s *Store) holderPath(runID string) (string, error) {
 	return filepath.Join(s.root, runID+".holder"), nil
 }
 
+// stampLease writes this process's stamp, as the worker it took the run as,
+// beside a run lease it now holds, and has the lease clear it when let go.
+func (s *Store) stampLease(lease *Lease, runID string, worker WorkerIdentity) error {
+	path, err := s.holderPath(runID)
+	if err != nil {
+		return err
+	}
+	if err := s.stampRunHolder(path, worker); err != nil {
+		return err
+	}
+	lease.holder = path
+	holdWorker(path, worker)
+	return nil
+}
+
 // stampRunHolder writes this process's stamp for a run whose lease it now holds.
 // It is replaced by rename rather than written in place, so a reader sees the
 // whole of one stamp or none of it.
-func (s *Store) stampRunHolder(path string) error {
+func (s *Store) stampRunHolder(path string, worker WorkerIdentity) error {
 	temporary, err := os.CreateTemp(s.root, ".holder-*.tmp")
 	if err != nil {
 		return fmt.Errorf("create temporary run holder: %w", err)
@@ -169,7 +205,7 @@ func (s *Store) stampRunHolder(path string) error {
 		temporary.Close()
 		return fmt.Errorf("secure temporary run holder: %w", err)
 	}
-	if err := writeJSONFile(temporary, "run holder", runHolder{PID: os.Getpid(), HeldAt: time.Now().UTC()}); err != nil {
+	if err := writeJSONFile(temporary, "run holder", runHolder{PID: worker.PID, HeldAt: time.Now().UTC(), Worker: &worker}); err != nil {
 		temporary.Close()
 		return err
 	}

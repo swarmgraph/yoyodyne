@@ -64,6 +64,16 @@ const (
 	RepositorySearch Capability = "repository.search"
 	// LogRead reads bounded, redacted operational records under the state root.
 	LogRead Capability = "log.read"
+	// RunInspect is being shown one run as it stands: its record, who holds its
+	// lease, whether its worker is live, whether its branch and worktree are
+	// there, and what it waits on. RunVerify is checking one expected state of one
+	// run against the same evidence. Both read and decide nothing; they are what
+	// a manager establishes a recovery's effect with, and they are two names
+	// because the architect is shown runs and checks no recovery
+	// (docs/designs/fresh-factory-health-and-preserved-run-recovery.md, "Who
+	// holds what").
+	RunInspect Capability = "run.inspect"
+	RunVerify  Capability = "run.verify"
 	// WorktreeMutate is writing inside the run's own isolated worktree and on its
 	// own branch: creating it, committing what a developer left, removing it once
 	// its work is somewhere else. It never reaches the branch a run promotes into,
@@ -292,6 +302,8 @@ var declared = []Capability{
 	RepositoryList,
 	RepositorySearch,
 	LogRead,
+	RunInspect,
+	RunVerify,
 	WorktreeMutate,
 	TargetBranchMutate,
 	PromotionLease,

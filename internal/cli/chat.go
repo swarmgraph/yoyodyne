@@ -1024,6 +1024,11 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// here, and a reader nobody may ask is never asked.
 		RepositoryReader: conversationRepositoryReader(parts),
 		LogReader:        logread.Reader{StateRoot: parts.stateRoot, ProductID: parts.config.Product.ID, RedactValues: parts.redactValues},
+		// How a manager is shown one run of this product and checks one expected
+		// state of it: the run store observed without taking any lease, and the
+		// repository asked whether the run's branch and worktree are there. It is
+		// wired for every role because which role may ask is the bundle's.
+		RunInspector: conversationRunInspector(parts),
 		// Where a recorded recommendation about an operator's idea is kept. It is
 		// wired for every role because the authority to record one is decided in
 		// the chat package's table rather than here, and a store nobody may write

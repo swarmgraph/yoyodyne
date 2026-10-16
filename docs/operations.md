@@ -4518,8 +4518,11 @@ has the rule.
 
   Whether a process is behind a run is observed rather than taken, the way the
   Working line below observes a conversation: a process that takes a run's
-  lease writes down which process it is beside it, and a reading checks that
-  process is still there. A holder killed outright leaves that stamp behind,
+  lease writes down which process it is beside it — its number and the start
+  time the operating system reports for it — and a reading checks that process
+  is still there and is still the one that started then, so a number the
+  operating system has handed to another process does not read as the holder.
+  A holder killed outright leaves that stamp behind,
   and the run reads as having no process at once. A run with no stamp at all —
   a park whose process let go of it and exited — reads so once neither its
   record nor its event log has been written to for half an hour, which is also
