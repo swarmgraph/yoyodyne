@@ -30,3 +30,29 @@ func ResolvePassFailure(factoryFlowAgent string, remedy *PersonOnlyRemedy) PassF
 	}
 	return answer
 }
+
+// ResolvePassFailureForRole is ResolvePassFailure for the pass of one role,
+// so the role that cannot run is never the one named to answer for it. The
+// development manager's own failing pass goes to the factory-flow program
+// manager, or to the Lead Product Manager where none is configured; the
+// factory-flow program manager's own goes to the Lead Product Manager. Every
+// other pass is routed exactly as ResolvePassFailure routes it, and a recorded
+// person-only remedy still names the operator whichever role's pass it is.
+func ResolvePassFailureForRole(factoryFlowAgent string, role domain.AgentRole, failedAgent string, remedy *PersonOnlyRemedy) PassFailure {
+	answer := ResolvePassFailure(factoryFlowAgent, remedy)
+	toProductManager := func() {
+		answer.Watcher, answer.Agent, answer.Resolver, answer.Fallback = domain.RoleProductManager, "", domain.RoleProductManager, false
+		if answer.Mover != MoverOperator {
+			answer.Mover = MoverProductManager
+		}
+	}
+	switch {
+	case role == domain.RoleDevelopmentManager && factoryFlowAgent != "":
+		answer.Resolver = domain.RoleProgramManager
+	case role == domain.RoleDevelopmentManager:
+		toProductManager()
+	case role == domain.RoleProgramManager && factoryFlowAgent != "" && failedAgent == factoryFlowAgent:
+		toProductManager()
+	}
+	return answer
+}

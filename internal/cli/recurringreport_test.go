@@ -26,6 +26,7 @@ type reportRecoveryBackend struct {
 	replies     []string
 	requests    []backendapi.RunRequest
 	interrupted bool
+	failure     *backendapi.RunResult
 }
 
 func (b *reportRecoveryBackend) Run(_ context.Context, request backendapi.RunRequest) (backendapi.RunResult, error) {
@@ -43,6 +44,17 @@ func (b *reportRecoveryBackend) Run(_ context.Context, request backendapi.RunReq
 			return backendapi.RunResult{}, err
 		}
 		return backendapi.RunResult{LastEvent: event.Sequence, FinalText: b.replies[index]}, errors.New("the provider closed the stream")
+	}
+	if b.failure != nil {
+		if request.EventSink != nil {
+			for i, text := range []string{strings.Repeat("old output\n", 600), "last cause: password=secret-value"} {
+				event, _ := execution.NewEvent(request.RunID, request.LastSequence+uint64(i)+1, time.Now(), execution.EventProcessOutput, "test", map[string]string{"text": text})
+				if err := request.EventSink(event); err != nil {
+					return backendapi.RunResult{}, err
+				}
+			}
+		}
+		return *b.failure, nil
 	}
 	if b.replies[index] == "" {
 		return backendapi.RunResult{}, errors.New("report request refused")
@@ -104,7 +116,8 @@ func newReportRecoveryPassWithOptions(t *testing.T, configure func(*chat.Options
 		}
 		options := chat.Options{
 			Role: role, Agent: agent, Backend: b, Store: conversations, Hold: hold,
-			Fresh: replacement != nil, Model: "gpt-6-astra", Provider: domain.BackendClaudeCode,
+			RedactValues: []string{"secret-value"},
+			Fresh:        replacement != nil, Model: "gpt-6-astra", Provider: domain.BackendClaudeCode,
 			AccountAlias: config.DefaultAccountAlias, Repository: filepath.Join(root, "repository"),
 			ProductID: "example", RepositoryID: "example", Memories: memories, Reports: reports,
 			Briefing: chat.Briefing{Text: "A fresh briefing for the product.", GatheredAt: clock.Now()},
@@ -469,5 +482,62 @@ func TestARecurringDocumentOwnershipRefusalKeepsTheOtherActionsAndDoesNotFailThe
 	path := filepath.Join(p.backend.requests[0].WorkingDirectory, "docs", "product", "refused-goals.md")
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Fatalf("refused document was written: %s, %v", path, err)
+	}
+}
+
+func TestFailedRolePassFindingCarriesPrintedOutputAndNamesAnotherOwner(t *testing.T) {
+	for _, tc := range []struct {
+		role                domain.AgentRole
+		agent, want, absent string
+	}{
+		{domain.RoleArchitect, "", "the development manager resolves the cause", ""},
+		{domain.RoleDevelopmentManager, "", "factory-flow program manager factory-watch must answer", "the development manager resolves"},
+		{domain.RoleProgramManager, "factory-watch", "Lead Product Manager must answer", "the development manager resolves"},
+	} {
+		t.Run(string(tc.role), func(t *testing.T) {
+			p := newReportRecoveryPass(t, "fail", "fail", "fail")
+			p.backend.failure = &backendapi.RunResult{Backend: domain.BackendClaudeCode, IsError: true, StopReason: "process_exit_1", FinalText: "session printed this", Process: execution.ProcessResult{Stdout: strings.Repeat("old output\n", 600), Stderr: "last cause: password=secret-value"}}
+			task := p.trigger.Tasks["architect-pass"]
+			task.Role = tc.role
+			p.trigger.Tasks = map[string]config.RecurringTask{"architect-pass": task}
+			// The task's agent binding is configured through the trigger's agent selector.
+			if tc.agent != "" {
+				p.trigger.Tasks = nil
+				p.trigger.Instances = map[string]config.AgentConfig{tc.agent: {Role: domain.RoleProgramManager, Triggers: config.Triggers{Every: config.Duration(time.Hour)}}}
+			}
+			for i := 0; i < 3; i++ {
+				pass := p.fire(t)
+				if !pass.Failed || !strings.Contains(pass.FailureOutput, "earlier output omitted") || !strings.Contains(pass.FailureOutput, "last cause") || strings.Contains(pass.FailureOutput, "secret-value") || len(pass.FailureOutput) > 4096 {
+					t.Fatalf("failed pass = %+v", pass)
+				}
+			}
+			findings, err := p.reports.List()
+			if err != nil || len(findings) != 1 {
+				t.Fatalf("findings = %+v, %v", findings, err)
+			}
+			message := findings[0].Message
+			if !strings.Contains(message, tc.want) || (tc.absent != "" && strings.Contains(message, tc.absent)) || !strings.Contains(message, "last cause") || !strings.Contains(message, "retaining the last 2560 bytes") {
+				t.Fatalf("finding = %s", message)
+			}
+		})
+	}
+}
+
+func TestFailedRolePassFindingKeepsTheTerminalDiagnosticAfterPrintedOutput(t *testing.T) {
+	p := newReportRecoveryPass(t, "fail", "fail", "fail")
+	const diagnostic = "terminal cause: session refused secret-value"
+	p.backend.failure = &backendapi.RunResult{Backend: domain.BackendClaudeCode, IsError: true, StopReason: "process_exit_1", FinalText: diagnostic}
+	for i := 0; i < 3; i++ {
+		pass := p.fire(t)
+		if !strings.Contains(pass.FailureOutput, "last cause:") || !strings.Contains(pass.FailureOutput, "terminal cause: session refused") || !strings.Contains(pass.FailureOutput, "earlier output omitted") || strings.Contains(pass.FailureOutput, "secret-value") || len(pass.FailureOutput) > runstate.MaxSweepTextBytes {
+			t.Fatalf("saved failure output = %q", pass.FailureOutput)
+		}
+	}
+	findings, err := p.reports.List()
+	if err != nil || len(findings) != 1 {
+		t.Fatalf("findings = %+v, %v", findings, err)
+	}
+	if !strings.Contains(findings[0].Message, "terminal cause: session refused") || strings.Contains(findings[0].Message, "secret-value") {
+		t.Fatalf("finding = %s", findings[0].Message)
 	}
 }

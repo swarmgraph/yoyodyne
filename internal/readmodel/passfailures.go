@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -61,9 +62,9 @@ func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 		if handling.NeedsOperator {
 			remedy = handling.PersonOnly
 		}
-		owner := ownership.ResolvePassFailure(watcher, remedy)
+		owner := ownership.ResolvePassFailureForRole(watcher, f.Role, f.Agent, remedy)
 		failure := FailingTask{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, RaisedAt: f.RaisedAt,
-			LatestAt: f.LatestAt, Problem: f.Problem, WentWrong: f.WentWrong, ProductPass: true, Ownership: &owner, ReportID: id}
+			LatestAt: f.LatestAt, Problem: f.Problem, WentWrong: f.WentWrong, FailureOutput: f.FailureOutput, ProductPass: true, Ownership: &owner, ReportID: id}
 		entries = append(entries, failingTaskAttention(failure))
 		if owner.Mover == MoverOperator {
 			actions = append(actions, OperatorAction{
@@ -101,8 +102,14 @@ func FactoryFlowAgent(instances []ProgramManagerInstance) string {
 	return agents[0]
 }
 
+// passFailureOutputRoom is what a pass's message gives one failure's output:
+// the whole of the ending its pass record keeps, with its heading.
+const passFailureOutputRoom = 2 * execution.DiagnosticTailBytes
+
 // RenderPassFailures is carried into the watcher's existing pass and digest,
-// and into the development manager's pass that resolves the cause.
+// and into the pass of the role that resolves the cause: the development
+// manager's, or, where the failing pass is a role's own, the role
+// ownership.ResolvePassFailureForRole names instead.
 func RenderPassFailures(sources Sources, role domain.AgentRole, agent string) string {
 	entries, problem := ReadPassFailures(sources)
 	if problem != "" {
@@ -111,13 +118,18 @@ func RenderPassFailures(sources Sources, role domain.AgentRole, agent string) st
 	var rendered strings.Builder
 	for _, entry := range entries {
 		owner := entry.FailingTask.Ownership
-		if role != domain.RoleDevelopmentManager && (role != owner.Watcher || agent != owner.Agent) {
+		if (role != owner.Resolver || (role == domain.RoleProgramManager && agent != owner.Agent)) && (role != owner.Watcher || agent != owner.Agent) {
 			continue
 		}
 		if rendered.Len() == 0 {
-			rendered.WriteString("## Product passes failing\n\nAnswer each finding in this pass's account. The factory-flow program manager also carries it in her existing digest and lane report. The development manager resolves the cause; only the affected pass carrying out its work, finished or with more waiting, clears it.\n\n")
+			rendered.WriteString("## Product passes failing\n\nAnswer each finding in this pass's account. The factory-flow program manager also carries it in her existing digest and lane report. The role named below resolves the cause; only the affected pass carrying out its work, finished or with more waiting, clears it.\n\n")
 		}
 		fmt.Fprintf(&rendered, "- %s: %s; %s\n", entry.FailingTask.ReportID, entry.What(), runstate.PassFailureOwnersSays(*owner))
+		// The end of what the failed session printed goes to whoever answers
+		// the finding, since it is what the cause is read from.
+		if said := (runstate.PassFailure{FailureOutput: entry.FailingTask.FailureOutput}).OutputSays(passFailureOutputRoom); said != "" {
+			rendered.WriteString(strings.TrimPrefix(said, "\n") + "\n")
+		}
 	}
 	return rendered.String()
 }
