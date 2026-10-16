@@ -29,6 +29,16 @@ package orchestrator
 // its commit rather than rebuilt, so what was recorded against it still
 // describes it.
 //
+// The protected-path gate is asked of the candidate before anything runs on
+// it: it is a string comparison over the paths the candidate changes, and a
+// candidate it refuses earns nothing whatever its checks and review would say
+// (checkPaths). A check that fails on the candidate is run once more on the
+// target at the candidate's base, because a failure is the change's only where
+// the target is known to pass the same check there (checkBase). An entry whose
+// failing check fails on its base too waits for the target to move and steps
+// aside meanwhile for the entries behind it, one of which may be what makes
+// the target pass again.
+//
 // A stage is a spend like a run's, and passes the same doors a run's does
 // before it starts: the operator's pause on harness activity holds both
 // stages, and the review also waits out a provider nobody can reach, a usage
@@ -72,6 +82,8 @@ type MergeQueueCandidates interface {
 	RemoveQueueCandidate(ctx context.Context, path string) error
 	HoldsCommit(ctx context.Context, commit string) (bool, error)
 	CandidateChanges(ctx context.Context, baseCommit, candidate string, limits gitworktree.DiffLimits) (gitworktree.BranchChange, error)
+	CandidatePaths(ctx context.Context, base, candidate string) ([]string, error)
+	CheckoutQueueBase(ctx context.Context, entry, base string) (string, error)
 	repositoryReader
 }
 
@@ -84,6 +96,7 @@ type MergeQueueRecords interface {
 	RecordGeneration(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) error
 	HoldStage(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (*runstate.MergeQueueStageHold, error)
 	StageRunning(key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration, stage runstate.MergeQueueStage) (bool, string, error)
+	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 }
 
 // ErrMergeQueueWorkerBusy is a queue another process is already working.
@@ -135,6 +148,10 @@ type MergeQueueVerification struct {
 	// Waiting is what the call stopped short of starting a stage for, and
 	// empty where it started everything it had to. A later call takes it up.
 	Waiting string
+	// Conflict is the entry's approved head refusing to merge onto the target
+	// as it stands, so no candidate could be built. It is a defect of the
+	// change, handed back by the promoter (HandBackConflict).
+	Conflict *gitworktree.QueueCandidateConflict
 }
 
 // Work verifies the first waiting entry of a queue. It refuses with
@@ -157,7 +174,7 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 	}
 	defer func() { _ = lease.Release() }()
 
-	entry, found, err := w.next(key)
+	entry, found, err := w.next(ctx, key)
 	if err != nil || !found {
 		return MergeQueueVerification{}, err
 	}
@@ -178,6 +195,11 @@ func (w MergeQueueWorker) Work(ctx context.Context, key runstate.MergeQueueKey) 
 			outcome.Waiting = wait.reason
 			return outcome, nil
 		}
+		var conflict *gitworktree.QueueCandidateConflict
+		if errors.As(err, &conflict) {
+			outcome.Conflict = conflict
+			return outcome, nil
+		}
 		if err != nil || outcome.Verified || outcome.Refusal != "" {
 			return outcome, err
 		}
@@ -193,8 +215,25 @@ func (w MergeQueueWorker) verify(ctx context.Context, lease *runstate.Lease, key
 	if err != nil {
 		return outcome, err
 	}
+	generation, err = w.checkPaths(ctx, lease, key, entry, generation)
+	outcome.Generation = generation
+	if err != nil {
+		return outcome, err
+	}
+	if generation.Paths != nil && len(generation.Paths.Refused) > 0 {
+		outcome.Refusal = generation.Gate(configured).Error()
+		return outcome, nil
+	}
 	generation, moved, err := w.check(ctx, lease, key, generation)
 	outcome.Generation = generation
+	// A base check that was interrupted, or ended without judging anything,
+	// earned nothing and is run again.
+	if err == nil && !moved && !generation.BaseCheck.Settled() {
+		if failed := failedCheck(generation); failed != "" {
+			generation, err = w.checkBase(ctx, lease, key, entry, generation, configured, failed)
+			outcome.Generation = generation
+		}
+	}
 	if err == nil && !moved && generation.CheckRun != nil && checksPassed(generation) {
 		generation, moved, err = w.review(ctx, lease, key, entry, run, generation)
 		outcome.Generation = generation
@@ -239,16 +278,35 @@ func (w MergeQueueWorker) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry in admission order that still waits.
-func (w MergeQueueWorker) next(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, bool, error) {
+// next is the first entry, in the order the queue is worked, that still waits,
+// passing over one that waits on its target being made to pass a check it
+// fails at the candidate's base: nothing about that entry can change until the
+// target moves, and the change that moves it may be behind it.
+func (w MergeQueueWorker) next(ctx context.Context, key runstate.MergeQueueKey) (runstate.MergeQueueEntry, bool, error) {
 	entries, err := w.Queue.Entries(key)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, false, err
 	}
-	for _, entry := range entries {
-		if w.Waiting == nil || w.Waiting(entry) {
-			return entry, true, nil
+	target := ""
+	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
+		if w.Waiting != nil && !w.Waiting(entry) {
+			continue
 		}
+		generations, err := w.Queue.Generations(key, entry.EntryID)
+		if err != nil {
+			return runstate.MergeQueueEntry{}, false, err
+		}
+		if count := len(generations); count > 0 && generations[count-1].WaitsOnTarget() {
+			if target == "" {
+				if target, err = w.Candidates.TargetCommit(ctx, key.TargetBranch); err != nil {
+					return runstate.MergeQueueEntry{}, false, fmt.Errorf("read where %s stands: %w", key.TargetBranch, err)
+				}
+			}
+			if generations[count-1].TargetBase == target {
+				continue
+			}
+		}
+		return entry, true, nil
 	}
 	return runstate.MergeQueueEntry{}, false, nil
 }
@@ -308,6 +366,10 @@ func (w MergeQueueWorker) current(ctx context.Context, lease *runstate.Lease, ke
 		Message: fmt.Sprintf("yoyodyne: merge queue candidate for %s %s\n\nEntry: %s (order %d)\nRun: %s\nApproved head: %s\n",
 			entry.WorkItemID, entry.WorkItemTitle, entry.EntryID, entry.Order, entry.RunID, entry.ApprovedHead),
 	})
+	var conflict *gitworktree.QueueCandidateConflict
+	if errors.As(err, &conflict) {
+		return runstate.MergeQueueGeneration{}, conflict
+	}
 	if err != nil {
 		return runstate.MergeQueueGeneration{}, fmt.Errorf("build the candidate for merge queue entry %d: %w", entry.Order, err)
 	}
@@ -344,6 +406,7 @@ func (w MergeQueueWorker) awaitUnfinished(key runstate.MergeQueueKey, generation
 	}{
 		{runstate.MergeQueueStageChecks, generation.CheckRun != nil && generation.CheckRun.FinishedAt == nil},
 		{runstate.MergeQueueStageReview, generation.Review != nil && generation.Review.FinishedAt == nil},
+		{runstate.MergeQueueStageBase, generation.BaseCheck != nil && generation.BaseCheck.FinishedAt == nil},
 	} {
 		if !stage.started {
 			continue

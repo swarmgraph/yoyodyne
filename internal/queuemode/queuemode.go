@@ -17,7 +17,8 @@
 // later slice's explicit transfer, never a side effect of asking again.
 //
 // Nothing here enqueues, merges, rewrites a head, or moves an entry between
-// modes, and nothing in the harness calls it yet.
+// modes. The pipeline admits through it when execution.merge_queue is on, and
+// an explicit transfer chooses the other mode through Select.
 package queuemode
 
 import (
@@ -198,6 +199,29 @@ func harnessCannotLand(branch string, observed publish.QueueCapabilities, harnes
 	return nil
 }
 
+// unreadTargetHold is the hold for a target whose protection the forge would
+// not say: nothing is admitted on an answer nobody got, and nothing is merged
+// the old way either, because the switch chose the queue. A forge that refused
+// the harness's login is a credential only a person can give; any other
+// failure — a forge or a network that did not answer — is the development
+// manager's to watch, and lifts at the first reading that succeeds.
+func unreadTargetHold(branch string, err error) *Hold {
+	hold := &Hold{
+		Requirement: oneline.Fold(fmt.Sprintf("The protection of %s could not be read, so whether the forge requires its own merge queue there is not known: %v", branch, err), maxExplanationBytes),
+		Step:        "let the harness read " + branch + "'s protection rules again; the hold lifts at the first reading that succeeds",
+	}
+	if errors.Is(err, publish.ErrForgeAccessRefused) {
+		hold.PersonOnly = &ownership.PersonOnlyRemedy{
+			Reason: ownership.PersonCredential,
+			Target: "the forge login the harness reads " + branch + "'s protection rules with",
+			Step:   "give the harness's forge login read access to " + branch + "'s protection rules, or leave execution.merge_queue off",
+		}
+		hold.Step = hold.PersonOnly.Step
+	}
+	hold.Mover = ownership.ResolveQueueModeHold(hold.PersonOnly)
+	return hold
+}
+
 // Admitter admits approved changes to their merge queue in the mode chosen
 // for them.
 type Admitter struct {
@@ -212,7 +236,8 @@ type Admitter struct {
 
 // Admitted is what one admission did. Entry is the queue's entry for the run
 // and New says whether this call wrote it. Hold is set, and Entry empty, where
-// nothing was admitted because neither queue can land into the target.
+// nothing was admitted because neither queue can land into the target, or
+// because the target's protection could not be read to say whether one can.
 type Admitted struct {
 	Entry runstate.MergeQueueEntry
 	New   bool
@@ -250,7 +275,7 @@ func (a Admitter) Admit(ctx context.Context, admission runstate.MergeQueueAdmiss
 		var err error
 		observed, err = a.Forge.QueueCapabilities(ctx, branch)
 		if err != nil {
-			return Admitted{}, fmt.Errorf("learn what the forge's merge queue establishes for %s; nothing was admitted: %w", branch, err)
+			return Admitted{Hold: unreadTargetHold(branch, err)}, nil
 		}
 	}
 	selection, err := Select(branch, observed, a.Harness, now())
@@ -288,16 +313,13 @@ func (a Admitter) admitAsRecorded(ctx context.Context, admission runstate.MergeQ
 	return Admitted{Entry: entry}, nil
 }
 
-// existing is the queue's entry for the admission's run, if it has one.
+// existing is the queue's entry for the admission's run, if the queue still
+// holds one. A run whose entry was handed back or released has none: its next
+// admission is a new entry, and its mode is chosen afresh.
 func (a Admitter) existing(admission runstate.MergeQueueAdmission) (runstate.MergeQueueEntry, bool, error) {
-	entries, err := a.Queue.Entries(admission.Key)
+	entry, found, err := a.Queue.Standing(admission.Key, admission.RunID)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, false, fmt.Errorf("read the merge queue for %s before admitting to it: %w", admission.Key.TargetBranch, err)
 	}
-	for _, entry := range entries {
-		if entry.RunID == admission.RunID {
-			return entry, true, nil
-		}
-	}
-	return runstate.MergeQueueEntry{}, false, nil
+	return entry, found, nil
 }

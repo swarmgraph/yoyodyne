@@ -76,11 +76,21 @@ func (r *executableRunner) resolve() (string, error) {
 }
 
 func (r *executableRunner) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	// A gated launch that returns here never reaches the runner that would close
+	// its hold, so it is closed here, as execution.LaunchGate says every launch
+	// that started nothing closes it.
+	notStarted := func() {
+		if command.Gate != nil && command.Gate.Hold != nil {
+			_ = command.Gate.Hold.Close()
+		}
+	}
 	if err := ctx.Err(); err != nil {
+		notStarted()
 		return execution.ProcessResult{}, err
 	}
 	path, err := r.resolve()
 	if err != nil {
+		notStarted()
 		return execution.ProcessResult{}, errors.Join(execution.ErrProcessNotStarted, err)
 	}
 	command.Name = path

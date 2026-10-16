@@ -35,10 +35,9 @@ package orchestrator
 // for it. A refusal, a merge the forge stopped holding, and a remote target
 // that moved after the local one was moved are retained as they are and
 // reported. Withdrawing a queued merge and deciding what a failed candidate
-// costs are mergequeuerecovery.go's; moving an entry between modes belongs to
-// later work.
-//
-// Nothing in the harness calls this yet.
+// costs are mergequeuerecovery.go's, and moving an entry between modes is
+// mergequeuetransfer.go's. The merge queue's driver (mergequeuedriver.go)
+// calls it once the worker has verified an entry.
 
 import (
 	"context"
@@ -82,6 +81,7 @@ type MergeQueueLandingRecords interface {
 	RecordGeneration(worker *runstate.Lease, key runstate.MergeQueueKey, generation runstate.MergeQueueGeneration) error
 	Landing(key runstate.MergeQueueKey, entryID string) (runstate.MergeQueueLanding, bool, error)
 	RecordLanding(worker *runstate.Lease, key runstate.MergeQueueKey, landing runstate.MergeQueueLanding) error
+	Transfer(ctx context.Context, key runstate.MergeQueueKey, entryID string, mode runstate.MergeQueueMode, evidence runstate.MergeQueueModeEvidence, at time.Time) (runstate.MergeQueueEntry, bool, error)
 }
 
 // MergeQueueCompletion records a confirmed landing outside the queue: on the
@@ -117,6 +117,10 @@ type MergeQueuePromoter struct {
 	// Repair hands a defective candidate's run back to its own repair loop;
 	// nil records the decision and leaves the hand-back for a later call.
 	Repair MergeQueueRepair
+	// Retire closes the landed run's own pull request and deletes the
+	// branches the landing left on the remote (mergequeueretire.go); nil
+	// leaves them.
+	Retire MergeQueueRetirement
 }
 
 // MergeQueuePromotion is what one call to Promote found and did. At most one
@@ -145,6 +149,15 @@ type MergeQueuePromotion struct {
 	// Withdrawn is nothing the queue asked for able to land the change any
 	// more: no merge was asked for, or the forge confirmed it withdrawn.
 	Withdrawn bool
+	// Untidied is what could not be tidied on the forge after a landing: the
+	// run's own pull request or a branch left open. It holds nothing up.
+	Untidied string
+	// ForgeHeldSince is when the forge took the merge it holds queued, set
+	// beside Waiting on such a merge; Dropped is a merge the forge stopped
+	// holding without making, set beside Unresolved. Both are what the driver
+	// withdraws an entry for.
+	ForgeHeldSince *time.Time
+	Dropped        bool
 }
 
 func (o MergeQueuePromotion) stopped() bool {
@@ -218,27 +231,36 @@ func (p MergeQueuePromoter) validate() error {
 	return errors.Join(problems...)
 }
 
-// next is the first entry in admission order whose completion is not whole
-// and that was not handed back, with its landing record.
+// next is the first entry, in the order the queue is worked, whose completion
+// is not whole and that was not handed back, with its landing record. An entry
+// with nothing under way whose candidate waits on its target being made to
+// pass a check (runstate's WaitsOnTarget) is passed over, as the worker passes
+// it over, so it holds back none of the entries behind it.
 func (p MergeQueuePromoter) next(key runstate.MergeQueueKey) (runstate.MergeQueueEntry, runstate.MergeQueueLanding, bool, error) {
 	entries, err := p.Queue.Entries(key)
 	if err != nil {
 		return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, err
 	}
-	for _, entry := range entries {
+	for _, entry := range runstate.MergeQueueWorkOrder(entries) {
 		landing, found, err := p.Queue.Landing(key, entry.EntryID)
 		if err != nil {
 			return entry, runstate.MergeQueueLanding{}, false, err
 		}
 		if !found {
-			return entry, runstate.NewMergeQueueLanding(entry), true, nil
+			landing = runstate.NewMergeQueueLanding(entry)
 		}
-		if landing.Handback != nil {
+		if landing.Handback != nil || (landing.Completion != nil && landing.Completion.Whole()) {
 			continue
 		}
-		if landing.Completion == nil || !landing.Completion.Whole() {
-			return entry, landing, true, nil
+		if attempt, attempted := landing.Current(); !attempted || attempt.SetAside != nil {
+			// A candidate record that cannot be read steps nothing aside: it is
+			// evidence that says nothing either way, which Recover reads it as.
+			generations, err := p.Queue.Generations(key, entry.EntryID)
+			if count := len(generations); err == nil && count > 0 && generations[count-1].WaitsOnTarget() {
+				continue
+			}
 		}
+		return entry, landing, true, nil
 	}
 	return runstate.MergeQueueEntry{}, runstate.MergeQueueLanding{}, false, nil
 }
@@ -350,6 +372,10 @@ func (q *queuePromotion) begin(ctx context.Context) error {
 		if q.outcome.Drift {
 			return nil
 		}
+		if waiting := q.forgeQueueRequired(ctx); waiting != "" {
+			q.outcome.Waiting = waiting
+			return nil
+		}
 		path, err := q.path(ctx)
 		if err != nil {
 			return err
@@ -404,6 +430,28 @@ func (q *queuePromotion) path(ctx context.Context) (runstate.MergeQueueLandingPa
 		return runstate.MergeQueueLandThroughPullRequest, nil
 	}
 	return runstate.MergeQueueLandLocallyThenPullRequest, nil
+}
+
+// forgeQueueRequired is why a verified candidate in the harness's queue waits
+// rather than landing, and empty where it may land: a target that has come to
+// require the forge's own merge queue, or whose protection cannot be read to
+// say, lands nothing the harness checked and reviewed, so nothing is asked of
+// it. The candidate keeps its gate while it waits, and a target that moves in
+// the meantime is drift like any other ("GitHub's own merge queue" in the
+// design). Nothing is intended or recorded for the wait, so the first reading
+// that finds the requirement gone lands the candidate.
+func (q *queuePromotion) forgeQueueRequired(ctx context.Context) string {
+	if q.p.Forge == nil {
+		return ""
+	}
+	observed, err := q.p.Forge.QueueCapabilities(ctx, q.key.TargetBranch)
+	switch {
+	case err != nil:
+		return fmt.Sprintf("the protection of %s could not be read, so whether it requires the forge's own merge queue is not known, and the verified candidate waits with its gate kept: %v", q.key.TargetBranch, err)
+	case observed.QueueRequired:
+		return fmt.Sprintf("%s requires the forge's own merge queue, which would land a commit of its own rather than the candidate the harness checked and reviewed, so the verified candidate waits with its gate kept until a person removes that requirement from the branch's protection rules", q.key.TargetBranch)
+	}
+	return ""
 }
 
 // forgeQueueQualifies asks the forge again whether its queue enforces the
@@ -828,9 +876,14 @@ func (q *queuePromotion) awaitForge(ctx context.Context) error {
 		return q.confirmWith(ctx, state.MergeCommit)
 	case strings.EqualFold(state.State, "OPEN") && state.AutoMerge:
 		q.outcome.Waiting = fmt.Sprintf("the forge holds the merge of pull request %d queued until its own requirements are met", attempt.PullRequest)
+		if requested, asked := attempt.Mutation(runstate.MergeQueueRequestMerge); asked && requested.Settled != nil {
+			since := requested.Settled.At
+			q.outcome.ForgeHeldSince = &since
+		}
 	default:
 		q.outcome.Unresolved = fmt.Sprintf("the forge no longer holds the merge of pull request %d and has not made it (it reads %s); it is kept as it is and not asked for again",
 			attempt.PullRequest, strings.ToLower(nonEmpty(state.State, "unreported")))
+		q.outcome.Dropped = true
 	}
 	return nil
 }
@@ -1054,6 +1107,13 @@ func (q *queuePromotion) recordCompletion(ctx context.Context) error {
 		if err := q.p.Completion.RecordWorkItem(ctx, q.entry, *completion); err != nil {
 			return fmt.Errorf("record the landing on %s: %w", q.entry.WorkItemID, err)
 		}
+		// The forge is tidied before the completion is written whole, so a
+		// process that stops between the two tidies again rather than never.
+		if q.p.Retire != nil {
+			if err := q.p.Retire.Retire(ctx, q.entry, *completion, *attempt); err != nil {
+				q.outcome.Untidied = fmt.Sprintf("the change landed, and the forge was not tidied after it: %v", err)
+			}
+		}
 		at := q.now()
 		completion.WorkItemAt = &at
 		if err := q.save(); err != nil {
@@ -1107,9 +1167,12 @@ func (c MergeQueueRunCompletion) now() time.Time {
 	return time.Now()
 }
 
-// RecordRun writes the landing onto the run as its integration. The change the
-// run made is its source; what landed is the commit that carried it — the
-// harness's candidate, or the forge queue's combined commit.
+// RecordRun writes the landing onto the run as its integration: the target
+// moved from the candidate's base onto the commit that landed — the harness's
+// candidate, or the forge queue's combined commit — and that commit is both
+// the integration's source and its target, as a run's own fast-forward is. The
+// run's approved head is inside it, which is what lets the run's branch and
+// worktree be cleaned up on the proof a landed run's are.
 func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.MergeQueueEntry, completion runstate.MergeQueueCompletion) error {
 	state, err := c.Store.Load(entry.RunID)
 	if err != nil {
@@ -1118,12 +1181,15 @@ func (c MergeQueueRunCompletion) RecordRun(_ context.Context, entry runstate.Mer
 	if state.Integration != nil && state.Integration.TargetCommit == completion.Landed {
 		return nil
 	}
+	// The landing is confirmed on the target by the time this is recorded, and
+	// the local target has followed it, so nothing about the run's integration
+	// waits on a forge: it is recorded as settled, which is what leaves the
+	// run's branch and worktree to the cleanup a landed run is owed.
 	state.Integration = &runstate.Integration{
 		TargetBranch:         entry.TargetBranch,
-		SourceCommit:         entry.ApprovedHead,
+		SourceCommit:         completion.Landed,
 		TargetCommit:         completion.Landed,
 		PreviousTargetCommit: completion.TargetBase,
-		ThroughPullRequest:   completion.Path.ThroughForge() && !completion.Path.MovesLocalTargetFirst(),
 	}
 	state.UpdatedAt = c.now()
 	return c.Store.Save(state)

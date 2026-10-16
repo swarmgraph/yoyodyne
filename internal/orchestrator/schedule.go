@@ -820,7 +820,10 @@ type Pull struct {
 	// Optional; see launchSettingsHeld. A pull wired without the record chooses
 	// as it did, and each dispatch it makes is refused on the check itself.
 	LaunchSettings ScheduleLaunchSettings
-	Build          string
+	// MergeQueues is the merge queues the session works beside its pulls, each
+	// in a goroutine of its own (mergequeuedriver.go). Nil works none.
+	MergeQueues ScheduleMergeQueues
+	Build       string
 	// RedeployDrainLimit is execution.redeploy_drain_limit as this pull read it:
 	// how long a session that has found a build deployed over it waits out the
 	// runs it hosts before restarting anyway, with those runs stopped and
@@ -1260,6 +1263,13 @@ type Schedule struct {
 	// exactly the ceremony this exists to end.
 	Landed         []LandedConversation `json:"landed,omitempty"`
 	LandingProblem string               `json:"landing_problem,omitempty"`
+	// QueuePasses are the merge queue passes this session made, and
+	// QueueProblem what stopped the latest of them where something did.
+	QueuePasses  []ScheduledQueuePass `json:"merge_queue_passes,omitempty"`
+	QueueProblem string               `json:"merge_queue_problem,omitempty"`
+	// QueueHeld is the latest look at the approved changes the merge queue
+	// held out, where it found any.
+	QueueHeld *MergeQueueHeldPass `json:"merge_queue_held,omitempty"`
 	// Braked is the intake hold this session's own failure-storm brake placed,
 	// and BlockedInARow is what tripped it. What lifts it is on the hold's own
 	// record: the development manager's decision, or a probe run that lands.
@@ -1445,6 +1455,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	firings := newRecurringFirings(session.passingBeside(ctx))
 	firings.taken = s.besideTurns
 	defer firings.cancel(nil)
+	// queuePasses is the merge queue passes in flight, one per queue, worked
+	// beside the pull as the firings are and collected the same way.
+	queuePasses := newMergeQueuePasses(session.passingBeside(ctx))
+	defer queuePasses.cancel()
 	// tried is every item this pass has already started, against the item as it
 	// read at the time and what became of the start. A drain never looks at that
 	// reading: nothing is ever removed, because a run that ends without moving the
@@ -2081,6 +2095,7 @@ pulling:
 		// here, before anything reads what the session has spent or whether it
 		// still hosts anything.
 		s.collectFirings(&schedule, firings, &cadence, false)
+		s.collectQueuePasses(&schedule, queuePasses, false)
 		if s.Limit > 0 && schedule.Chosen() >= s.Limit {
 			schedule.Stopped = ScheduleLimitReached
 			break
@@ -2136,12 +2151,13 @@ pulling:
 			// its turns is hosted too — a restart under it would cut its pass off
 			// part-way — so it is waited out, and past the bound it is stopped, which
 			// records it as a missed pass the next session owes.
-			if running == 0 && firings.idle() {
+			if running == 0 && firings.idle() && queuePasses.idle() {
 				schedule.Stopped = ScheduleRedeployed
 				break
 			}
 			if running == 0 && drain.expired(s.now()) {
 				firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
+				queuePasses.cancel()
 			}
 			// Past the bound the session hosts nothing more. The runs still going
 			// are stopped where they are — each at a phase the session that comes
@@ -2270,6 +2286,15 @@ pulling:
 			}
 		} else {
 			cadence.hold(s.fire(session.passing(ctx), &schedule, pull))
+		}
+		// The merge queues are worked here for the reason the schedule is fired
+		// here: a queue pass chooses no work and starts no run, so neither the
+		// brake nor the intake hold below stops it — what it lands was approved
+		// already. Each pass passes the operator's pause itself, at every stage
+		// that would spend. A session draining to restart that hosts no run
+		// starts no new pass.
+		if pull.MergeQueues != nil && (!drain.active || running > 0) {
+			s.startQueuePasses(&schedule, pull.MergeQueues, queuePasses)
 		}
 		// And a role whose tracker block the harness refused is woken here, last of
 		// the three. It is placed after the other two because it is the cheapest to
@@ -3396,8 +3421,10 @@ collecting:
 	// each to record itself as a missed pass rather than for its turns to end.
 	if schedule.Stopped == ScheduleRedeployed && drain.boundReached {
 		firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
+		queuePasses.cancel()
 	}
 	s.collectFirings(&schedule, firings, &cadence, true)
+	s.collectQueuePasses(&schedule, queuePasses, true)
 	drain.stop()
 	// The last line, and whether it is an ending. A session stopping to be
 	// restarted into the build deployed over it is waiting on nothing and nobody,

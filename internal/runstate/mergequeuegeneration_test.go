@@ -76,6 +76,10 @@ func TestTheGateGivesNoCreditForMissingOrIncompleteEvidence(t *testing.T) {
 		// refuses it, whatever its checks and its review say.
 		"an ungranted protected path": {func(g *MergeQueueGeneration) { g.Paths.Refused = []string{"docs/designs/v1-harness-design.md"} },
 			"protected paths its work item does not grant: docs/designs/v1-harness-design.md"},
+		// And a candidate nobody asked the gate about earns nothing for it.
+		"no protected-path check": {func(g *MergeQueueGeneration) { g.Paths = nil }, "no protected-path check was recorded"},
+		"a protected-path check of another generation": {func(g *MergeQueueGeneration) { g.Paths.Binding = "another" },
+			"recorded against another generation"},
 		"no checks":                {func(g *MergeQueueGeneration) { g.CheckRun = nil }, "no checks were recorded"},
 		"checks never finished":    {func(g *MergeQueueGeneration) { g.CheckRun.FinishedAt = nil }, "never finished"},
 		"checks interrupted":       {func(g *MergeQueueGeneration) { g.CheckRun.Problem = "the runner died" }, "did not complete"},

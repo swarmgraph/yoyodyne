@@ -550,7 +550,7 @@ type MergeQueueHandback struct {
 	RepairAttempts int `json:"repair_attempts"`
 	RepairBudget   int `json:"repair_budget"`
 	// HandedBackAt is when the failure was recorded on the run and the run
-	// docketed, and is set only for a continuation that HandsBackToRun.
+	// docketed, and is set only for a handback that GoesToRun.
 	HandedBackAt *time.Time `json:"handed_back_at,omitempty"`
 	// ReportedAt is when a handback with no run to give it to — a candidate no
 	// one head answers for, or a run that no longer has what a repair continues
@@ -573,6 +573,17 @@ type MergeQueueConflict struct {
 	Paths      []string `json:"paths,omitempty"`
 	// Detail is Git's own account of the refusal, bounded.
 	Detail string `json:"detail,omitempty"`
+}
+
+// GoesToRun reports a handback whose change goes back to its own run: a
+// repair, an exhausted budget, or an entry released after its merge was
+// withdrawn for something other than a move to the other queue mode — a merge
+// the forge dropped, or held past the limit on a queued merge's wait — which
+// nothing admits again on its own, so its run is stopped with its work kept
+// for the development manager rather than left waiting on an entry that has
+// left the queue.
+func (h MergeQueueHandback) GoesToRun() bool {
+	return h.Continuation.HandsBackToRun() || (h.Continuation == MergeQueueReleased && h.TransferTo == "")
 }
 
 // Reported reports a continuation that is put on the development manager's
@@ -653,7 +664,7 @@ func (h MergeQueueHandback) validate() []error {
 	if released && (h.RepairAttempts != 0 || h.RepairBudget != 0) {
 		problems = append(problems, errors.New("a released entry reads no repair budget"))
 	}
-	if h.HandedBackAt != nil && (!h.Continuation.HandsBackToRun() || h.HandedBackAt.IsZero()) {
+	if h.HandedBackAt != nil && (!h.GoesToRun() || h.HandedBackAt.IsZero()) {
 		problems = append(problems, fmt.Errorf("a %s is not handed back to its run", h.Continuation))
 	}
 	return problems

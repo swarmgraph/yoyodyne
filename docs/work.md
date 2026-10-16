@@ -2472,5 +2472,70 @@ approved, verified, or held by the forge says so and says it has not landed,
 and one whose landing nothing has confirmed yet reads as uncertain. A queue
 record that cannot be read is said, never left out. A product with no queue
 record prints nothing and the dashboard shows no panel, so both read as they
-did before queues existed. Nothing in the harness admits a change to a queue
-yet; the switch that does is still to come.
+did before queues existed.
+
+## Landing through a merge queue
+
+With `execution.merge_queue` on, an approved change does not land at the end of
+its own run. The run earns its gate as it always does — the protected-path gate,
+the configured checks, and an independent review — and then admits the change to
+the merge queue of its target branch and ends. The run is recorded succeeded,
+the item stays claimed, and the item's notes name the queue and the entry the
+change waits in; the run holds no developer slot meanwhile, so the next item
+starts beside it.
+
+The queue then lands the change on its own, one entry at a time in the order
+they were admitted. It builds a candidate — the target as it stands with the
+change merged onto it — and lands that candidate only once the candidate itself
+has passed the protected-path gate, the configured checks, and an independent
+review: the run's own approval admitted the change and authorizes no landing.
+When it lands, the landing is recorded on the run and the item is settled exactly
+as a run's own landing settles it — closed where the run's landing claim and its
+approval discharge the item, put back otherwise — and the run's own pull request
+is closed and its branch and the queue's candidate branch are deleted from the
+remote.
+
+What can happen to a queued change instead:
+
+- **The target moves under its candidate.** The candidate is built again on the
+  moved target and verified from nothing. Nobody is charged for it.
+- **A check fails on the candidate and passes on the target.** The failure is
+  the change's: the change is handed back to its own run, which records it as the
+  failing check and blocks the item, and the run goes on the development
+  manager's docket for the repair continuation, under the run's own repair
+  budget.
+- **A check fails on the candidate and on the target too.** The failure is the
+  target's: the item a red landing files for that check is found or filed, the
+  change is charged nothing, and it waits for the target to move while the
+  changes behind it — the fix among them — go ahead.
+- **The change will not merge onto the target.** It is handed back as a replay
+  conflict is, so a repair moves it onto the target and asks its developer to
+  reconcile it.
+- **The candidate touches a protected path its item does not grant.** It is
+  handed back before any check runs on it.
+- **The forge drops the candidate's merge, or holds it queued longer than
+  `triage.stuck_merge_age`.** The merge is withdrawn, and once the forge
+  confirms it is withdrawn the change is handed back to its run, kept, for the
+  development manager to decide on.
+- **Something no single run can take up** — a run that no longer has the branch
+  or the session a repair continues from — goes on the development manager's
+  docket by itself.
+
+**A target that requires the forge's own merge queue holds the change.** With
+the switch on and a target branch whose protection lands changes only through
+GitHub's merge queue — or whose protection cannot be read — nothing is admitted
+and nothing is merged the old way. The run stops at its promotion with its
+approval standing, the item is blocked naming the branch setting that holds it,
+and one report is filed for the queue however many changes it holds. A change
+already admitted waits with its candidate's gate kept. The harness takes the
+held changes up by itself, in the order they were approved, at the first
+reading that finds the requirement gone; it never changes the setting itself.
+
+Turning the switch off admits nothing new and lets what is queued finish in the
+queue it was admitted to; a change the queue was holding is then integrated the
+way it is with the switch off. Moving a queued change between the harness's
+queue and the forge's is `yoyo queue transfer`, which withdraws first and moves
+nothing while that withdrawal is unconfirmed. `yoyo status` and the dashboard
+show every queue and where each change in it stands.
+[The configuration guide](configuration.md#integrating-through-a-merge-queue)
+has the whole of it.

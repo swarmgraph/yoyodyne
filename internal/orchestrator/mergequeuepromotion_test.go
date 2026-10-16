@@ -153,8 +153,8 @@ func (f *promotionFixture) assertLandedOnce(generation runstate.MergeQueueGenera
 	if f.run.saveCount() != 1 {
 		f.t.Fatalf("the run was saved %d times, want its integration recorded once", f.run.saveCount())
 	}
-	if saved := f.run.latest(); saved.Integration == nil || saved.Integration.TargetCommit != generation.Candidate || saved.Integration.SourceCommit != f.head {
-		f.t.Fatalf("run integration = %#v, want the candidate landed from the approved head", saved.Integration)
+	if saved := f.run.latest(); saved.Integration == nil || saved.Integration.TargetCommit != generation.Candidate || saved.Integration.SourceCommit != generation.Candidate {
+		f.t.Fatalf("run integration = %#v, want the candidate landed, recorded as a run's fast-forward is", saved.Integration)
 	}
 	if completes := strings.Count(strings.Join(f.tracker.Calls, " "), "complete"); completes != 1 || !f.tracker.Closed {
 		f.t.Fatalf("work item completed %d times (closed %v), want once", completes, f.tracker.Closed)
@@ -411,6 +411,83 @@ func TestAProtectedTargetLandsThroughThePullRequestAndFollowsOnlyAfterConfirmati
 	completion := f.assertLandedOnce(generation).Completion
 	if completion.Path != runstate.MergeQueueLandThroughPullRequest || completion.RemoteMerge != remote || completion.PullRequest == "" {
 		t.Fatalf("completion = %#v, want the pull-request path and the forge's merge named", completion)
+	}
+}
+
+// A change already admitted when its target comes to require the forge's own
+// merge queue is not landed while the requirement stands: its verified
+// candidate waits with its gate kept, nothing is asked of the forge, and the
+// first reading that finds the requirement removed lands exactly that
+// candidate.
+func TestAVerifiedCandidateWaitsWhileItsTargetRequiresTheForgesQueue(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landProtected)
+	generation := f.verify()
+	base := f.local("main")
+	required := heldForge{"main": true}
+	f.promoter.Forge = required
+
+	waiting, err := f.promote()
+	if err != nil || !strings.Contains(waiting.Waiting, "requires the forge's own merge queue") || waiting.Landed {
+		t.Fatalf("Promote() = %#v, %v; want the candidate waiting on the requirement", waiting, err)
+	}
+	if len(f.landing().Attempts) != 0 || len(f.forge.OpenedRequests()) != 0 || len(f.forge.MergeRequests()) != 0 || f.local("main") != base {
+		t.Fatal("something was intended, opened, merged, or moved while the requirement stood")
+	}
+	if err := generation.Gate(f.configured()); err != nil {
+		t.Fatalf("the waiting candidate lost its gate: %v", err)
+	}
+
+	required["main"] = false
+	f.forge.QueueMerge = true
+	if waiting, err := f.promote(); err != nil || waiting.Waiting == "" || strings.Contains(waiting.Waiting, "requires the forge's own merge queue") {
+		t.Fatalf("Promote() once the requirement is gone = %#v, %v; want the merge asked for", waiting, err)
+	}
+	f.forge.PerformQueuedMerge(t)
+	if landed, err := f.promote(); err != nil || !landed.Landed || !landed.Completed {
+		t.Fatalf("Promote() after the merge = %#v, %v; want the same candidate landed", landed, err)
+	}
+	f.assertLandedOnce(generation)
+}
+
+// Once the queue lands a change, the run's own pull request is closed naming
+// what landed it, and both the run's branch and the queue's candidate branch
+// are deleted from the remote, so nothing is left open for the development
+// manager's forge check to flag.
+func TestALandingClosesTheRunsPullRequestAndDeletesBothBranches(t *testing.T) {
+	t.Parallel()
+
+	f := newPromotionFixture(t, landProtected)
+	generation := f.verify()
+	runBranch := "yoyodyne/yoyodyne-task/run"
+	runPipelineGit(t, f.repository, "push", "origin", f.entry.ApprovedHead+":refs/heads/"+runBranch)
+	run := f.run.admittedRun.state
+	run.PullRequest = &runstate.PullRequest{Number: 41, URL: "https://forge.example/pull/41", Branch: runBranch, HeadCommit: f.entry.ApprovedHead, State: "OPEN"}
+	f.run.admittedRun.state = run
+	f.forge.Hold(runBranch, publish.PullRequest{Number: 41, State: "OPEN", HeadCommit: f.entry.ApprovedHead})
+	f.promoter.Retire = MergeQueuePublicationRetirer{Store: f.run, Forge: f.forge, Branches: f.lander}
+	f.forge.QueueMerge = true
+
+	if _, err := f.promote(); err != nil {
+		t.Fatalf("Promote() error = %v", err)
+	}
+	f.forge.PerformQueuedMerge(t)
+	landed, err := f.promote()
+	if err != nil || !landed.Landed || !landed.Completed || landed.Untidied != "" {
+		t.Fatalf("Promote() after the merge = %#v, %v; want it landed and tidied", landed, err)
+	}
+	closed := f.forge.ClosedRequests()
+	if len(closed) != 1 || closed[0].Number != 41 || !strings.Contains(closed[0].Comment, f.entry.EntryID) {
+		t.Fatalf("closed = %#v, want the run's own request closed naming the queue entry", closed)
+	}
+	for _, branch := range []string{runBranch, runstate.MergeQueueCandidateBranch(f.entry.EntryID)} {
+		if refs := gitLine(t, f.remote, "for-each-ref", "refs/heads/"+branch); refs != "" {
+			t.Fatalf("%s is still on the remote: %s", branch, refs)
+		}
+	}
+	if saved := f.run.latest(); saved.PullRequest == nil || !strings.Contains(saved.PullRequest.Superseded, f.entry.EntryID) || saved.Integration == nil || saved.Integration.TargetCommit != generation.Candidate {
+		t.Fatalf("run = %#v, want its landing and the closed request recorded", saved.PullRequest)
 	}
 }
 
@@ -776,8 +853,8 @@ func TestTheForgesQueueIsHandedOnlyAnEntryItStillGatesOnTheCombinedCommit(t *tes
 	if forgeLanded == head || completion == nil || completion.Landed != forgeLanded || completion.RemoteMerge != forgeLanded {
 		t.Fatalf("completion = %#v, want the forge's landed commit %s rather than the head %s", completion, forgeLanded, head)
 	}
-	if integration := f.run.latest().Integration; integration == nil || integration.TargetCommit != forgeLanded || integration.SourceCommit != head {
-		t.Fatalf("run integration = %#v, want the forge's commit landed from the approved head", integration)
+	if integration := f.run.latest().Integration; integration == nil || integration.TargetCommit != forgeLanded || integration.SourceCommit != forgeLanded {
+		t.Fatalf("run integration = %#v, want the forge's commit landed", integration)
 	}
 	if !strings.Contains(f.tracker.CloseReason, forgeLanded) || !strings.Contains(f.tracker.CloseReason, "forge's merge queue") {
 		t.Fatalf("close reason = %q, want it to name the forge's landed commit", f.tracker.CloseReason)
@@ -842,8 +919,10 @@ func TestTheRunCompletionMakesItsRecordsOnce(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if run.saveCount() != 1 || !run.latest().Integration.ThroughPullRequest || run.latest().Integration.TargetCommit != landed.Landed {
-		t.Fatalf("run saved %d times as %#v, want once, through the pull request", run.saveCount(), run.latest().Integration)
+	// The landing is confirmed on the target before it is recorded, so the
+	// run's integration is recorded settled rather than waiting on a forge.
+	if run.saveCount() != 1 || run.latest().Integration.ThroughPullRequest || run.latest().Integration.TargetCommit != landed.Landed {
+		t.Fatalf("run saved %d times as %#v, want once, recorded settled", run.saveCount(), run.latest().Integration)
 	}
 	if strings.Count(strings.Join(tracker.Calls, " "), "complete") != 1 {
 		t.Fatalf("tracker calls = %v, want one completion", tracker.Calls)
@@ -884,6 +963,10 @@ func (r *recordingRun) Save(state runstate.State) error {
 	if r.failSaves > 0 {
 		r.failSaves--
 		return errors.New("the run store refused the write")
+	}
+	if _, other := r.admittedRun.others[state.RunID]; other {
+		r.admittedRun.others[state.RunID] = state
+		return nil
 	}
 	r.saves = append(r.saves, state)
 	r.admittedRun.state = state

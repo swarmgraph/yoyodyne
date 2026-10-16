@@ -207,6 +207,18 @@ const (
 	// the provider is held for every developer until a check finds the settings
 	// in force again (LaunchSettingsHold).
 	CauseDeveloperSettingsNotApplied EnvironmentalCause = "developer-settings-not-applied"
+	// CauseMergeQueueHeld is an approved change that, with execution.merge_queue
+	// on, could not be admitted to its target branch's merge queue: the branch's
+	// protection requires the forge's own merge queue, which lands a commit no
+	// harness check or review judged, or the protection could not be read. The
+	// change is not replayed and merged the old way instead, because the
+	// operator chose the queue by the switch; it waits at its promotion with its
+	// approval standing, and the harness admits it by itself at the first later
+	// reading that finds the protection readable and the forge's queue not
+	// required, or integrates it the old way once the switch is off
+	// (docs/designs/integration-through-a-merge-queue.md, "GitHub's own merge
+	// queue"). Only the integration stop records it.
+	CauseMergeQueueHeld EnvironmentalCause = "merge-queue-held"
 )
 
 // Valid reports a cause this harness recognizes. A record naming anything else
@@ -218,7 +230,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
-		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit,
+		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit, CauseMergeQueueHeld,
 	}
 }
 
@@ -239,6 +251,8 @@ func (c EnvironmentalCause) ClearedBy() string {
 		return "settle the local target branch and the remote's as \"Unwedging a target branch that diverged from the forge\" in docs/operations.md says, or clear whatever in the primary checkout held the catch-up, so the local branch can be fast-forwarded onto the remote's"
 	case CauseRemoteAuthRefused:
 		return "make the credential the harness pushes with acceptable to the remote again: load the SSH key into the agent the harness runs under (`ssh-add`, then `ssh -T git@github.com` to check), or renew the forge login (`gh auth login`)"
+	case CauseMergeQueueHeld:
+		return "remove the requirement for the forge's own merge queue from the target branch's protection rules, or give the harness's forge login read access to those rules, or turn execution.merge_queue off; the harness then takes the change up by itself"
 	default:
 		return ""
 	}
@@ -296,6 +310,8 @@ func (c EnvironmentalCause) Title() string {
 		return "a check reached its own time limit, already scaled for the machine's load, before it judged the change"
 	case CauseDeveloperSettingsNotApplied:
 		return "the developer's provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out"
+	case CauseMergeQueueHeld:
+		return "the merge queue is switched on and the target branch's protection requires the forge's own merge queue, or could not be read"
 	default:
 		return string(c)
 	}

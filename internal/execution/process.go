@@ -228,6 +228,20 @@ func (r OSProcessRunner) armBudget(timeout time.Duration) (<-chan time.Time, fun
 }
 
 func (r OSProcessRunner) Run(ctx context.Context, command Command, observer OutputObserver) (ProcessResult, error) {
+	// A gated command hands over this process's copy of the hold, which the gate
+	// closes once the process has started (gatedProcess.started) or abandons it
+	// (gatedProcess.abandon). Every return before the gate is prepared closes it
+	// here instead: a copy nobody closes keeps the lock taken in this process
+	// until the garbage collector gets to it, and the lock then reads as a
+	// process still running when none was ever started.
+	gateTookHold := false
+	if command.Gate != nil && command.Gate.Hold != nil {
+		defer func() {
+			if !gateTookHold {
+				_ = command.Gate.Hold.Close()
+			}
+		}()
+	}
 	if strings.TrimSpace(command.Name) == "" {
 		return ProcessResult{}, errors.New("command name is required")
 	}
@@ -292,6 +306,7 @@ func (r OSProcessRunner) Run(ctx context.Context, command Command, observer Outp
 		if err != nil {
 			return ProcessResult{ExitCode: -1}, fmt.Errorf("%w: start %q behind its launch gate: %w", ErrProcessNotStarted, command.Name, err)
 		}
+		gateTookHold = true
 	}
 
 	result := ProcessResult{StartedAt: clock.Now(), ExitCode: -1}

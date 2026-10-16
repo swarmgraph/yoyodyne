@@ -77,13 +77,13 @@ can end a successful run before promotion,
 recorded as `integration-policy`. Other step and scope refusals keep the existing
 gate names.
 
-The set of causes outside the work currently has fifteen values. A named cause alone does not forgive a
+The set of causes outside the work currently has sixteen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
 present it spends as an ordinary round does. `usage-window`,
 `check-stage-bound`, and `check-time-limit` are the exceptions: they stopped before judgment, so they
 settle without treating the preserved change as delivery. A round charged by a
 previous process is not returned by this process; a return that could not be
-written is reported explicitly. These causes are classifications, not fifteen
+written is reported explicitly. These causes are classifications, not sixteen
 more timers. Stops keep what remains of the branch and checkout; the table says
 when a usable checkout may never have existed.
 
@@ -104,6 +104,7 @@ when a usable checkout may never have existed.
 | `check-stage-bound` | All checks together reached the load-scaled stage limit without a verdict. | Timed out; owed current round/grant returned regardless of diff, with at most two reruns of the checks per candidate, shared with `check-time-limit`. |
 | `check-time-limit` | One check reached its own load-scaled limit without a verdict. | Timed out, the check unfinished; owed current round/grant returned regardless of diff. The checks are run again within the bounds shared with `check-stage-bound`: two reruns per candidate, within three times the check's limit; once spent, the development manager decides and the record says the cause is unresolved. |
 | `developer-settings-not-applied` | A resumed run's developer provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out. | Recorded on the run before any developer is relaunched; nothing ran, nothing is charged, and the run stays as it was, resumable once the hold on the provider lifts. A fresh dispatch refused the same way has no run to record it on; see the developer settings check below. |
+| `merge-queue-held` | With `execution.merge_queue` on, the target branch's protection requires the forge's own merge queue, or could not be read, so the approved change could not be admitted. | Integration stops with approval retained, item blocked naming the setting; nothing is admitted, replayed, or merged, and nothing is charged. One report per condition. The harness resumes the change at its promotion once the requirement is gone or the switch is off. |
 
 ## Pauses that keep a run in flight
 
@@ -275,6 +276,11 @@ describes the pass that applies those rules.
 | `internal/orchestrator/pipeline.go` | `(*activeRun).gateProtectedPaths` | `phase-error` | 1 | Creates a path refusal before checks; shared repairs decide handback or terminal stop. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).integrate` | `classified-stop` | 4 | Refuses promotion lease, target settlement, or integration failure; any completed promotion stands. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).finish` | `call:complete` | 1 | Completes before proof-based cleanup and separate landing checks. |
+| `internal/orchestrator/mergequeueadmission.go` | `(*activeRun).holdFromMergeQueue` | `classified-stop` | 2 | With `execution.merge_queue` on, ends a run whose target requires the forge's own merge queue, or whose protection could not be read, as an integration stop of cause `merge-queue-held` with the approval standing, including a blocker the tracker would not take; nothing was admitted, replayed, or merged. |
+| `internal/orchestrator/mergequeueadmission.go` | `(*activeRun).admitToMergeQueue` | `classified-stop` | 1 | With `execution.merge_queue` on, ends a run whose approved change could not be admitted to its target's merge queue — an unearned gate, a commit, record, or publishing reading that failed, or a forge that could not say what its queue establishes — as a promotion that failed; nothing was admitted or moved. |
+| `internal/orchestrator/mergequeueadmission.go` | `(*activeRun).completeQueued` | `call:fail` | 3 | Refuses an admission whose record could not be saved on the run, an item note that could not be written, or a terminal record that would not save; the entry stands in the queue either way and a later run finds it rather than admitting it again. |
+| `internal/orchestrator/mergequeueadmission.go` | `(*activeRun).completeQueued` | `classified-stop` | 3 | Refuses an admission whose record could not be saved on the run, an item note that could not be written, or a terminal record that would not save; the entry stands in the queue either way and a later run finds it rather than admitting it again. |
+| `internal/orchestrator/mergequeueadmission.go` | `(*activeRun).completeQueued` | `status-write` | 2 | Ends a run succeeded once its approved change is admitted to the merge queue: the item stays claimed, the branch and worktree are kept for a handback, and no developer slot is held while the queue lands the change. |
 | `internal/orchestrator/mergequeuerecovery.go` | `(MergeQueueRunHandback).HandBack` | `status-write` | 1 | Fails a run whose merge queue candidate was a defect of its change, once its queued merge is confirmed withdrawn, including one that ended succeeded when its change was approved, since that change never landed: records the failing check and a blocker, blocks the item, and dockets the run for the existing repair continuation. A cancelled run keeps its status. Charges no repair attempt and preserves the branch, checkout, and session. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `call:fail` | 6 | Refuses unrecorded publication, an unsaved landing configuration comparison, or outcome, item, or state write failures; otherwise succeeds. |
 | `internal/orchestrator/pipeline.go` | `(*activeRun).complete` | `classified-stop` | 6 | Refuses unrecorded publication, an unsaved landing configuration comparison, or outcome, item, or state write failures; otherwise succeeds. |
@@ -311,6 +317,7 @@ describes the pass that applies those rules.
 | `internal/runstate/environmental.go` | `CauseCheckStageBound` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseDeveloperSettingsNotApplied` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseCheckTimeLimit` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseMergeQueueHeld` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/stopclass.go` | `StopChecks` | `StopClass` | 1 | Closed recorded class: checks. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopReview` | `StopClass` | 1 | Closed recorded class: review. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopIntegration` | `StopClass` | 1 | Closed recorded class: integration. Identifies the stopping operation; grants no action. |
