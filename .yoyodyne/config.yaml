@@ -97,6 +97,10 @@ services:
     enabled: true
   dashboard:
     enabled: true
+    # 8080 is the port the operator uses for the dashboard, decided by the Lead
+    # Product Manager on 2026-10-14; without it the dashboard comes up on the
+    # default 8765 and the page he has open stops updating.
+    port: 8080
     token: file
 
 execution:
