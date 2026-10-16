@@ -2,15 +2,19 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -338,4 +342,118 @@ func TestARunThatKeepsLosingTheRaceGivesBackItsSlotWithItsWorkKept(t *testing.T)
 			t.Fatalf("lost races = %d, want %d", outcome.IntegrationRetries, lostRacesBeforeGivingBackTheSlot-1)
 		}
 	})
+}
+
+// An approval carrying one minor note the reviewer put out of scope, which is
+// the verdict the run in yoyodyne-gle stopped on: its note is what sent the
+// repair to the developer on the old base.
+const approveWithOutOfScopeNoteVerdict = `{"decision":"approve","approves":"implementation","summary":"the change matches the acceptance criteria","findings":[{"severity":"minor","disposition":"out_of_scope","message":"word the header so it covers this case too","location":{"file":"feature.txt","line":1}}]}`
+
+// yoyodyne-gle: a run that gave back its slot after losing the race to land,
+// whose target then moved again while it was stopped, is repaired by bringing
+// its change up to date before anything else. The repair puts it back at its
+// promotion, the promotion replays the change onto the target as it now stands
+// without counting that as a race, the checks run on the replayed change, a
+// fresh review approves it, and it lands — with no developer invoked, and with
+// the races the stopped stint lost no longer counted against it.
+func TestARepairOfARunThatLostItsRaceReplaysItOntoTheTargetBeforeItsChecksAndLands(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	build := func(provider *orchestratortest.Backend, checks ...string) Pipeline {
+		return automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, checks), provider)
+	}
+	stopping := orchestratortest.RoleBackend(implementsFeature, approveWithOutOfScopeNoteVerdict)
+	movingTargetReviewer(t, repository, stopping, lostRacesBeforeGivingBackTheSlot)
+	pipeline := build(stopping, "test -f feature.txt")
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err == nil || !strings.Contains(err.Error(), runstate.ContendedIntegrationFailure) {
+		t.Fatalf("Run() error = %v, want the run stopped on its lost races", err)
+	}
+	stopped, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !stopped.LostItsRace() || stopped.IntegrationRetries != lostRacesBeforeGivingBackTheSlot-1 {
+		t.Fatalf("stopped run: lost its race %t, races %d; want it stopped on its last permitted race", stopped.LostItsRace(), stopped.IntegrationRetries)
+	}
+
+	// Other work lands while the run is stopped, so the base it stopped on is
+	// further behind still by the time the repair is carried out.
+	writePipelineFile(t, repository, "while-stopped.txt", "landed while the run was stopped\n")
+	runPipelineGit(t, repository, "add", "while-stopped.txt")
+	runPipelineGit(t, repository, "commit", "-m", "work that landed while the run was stopped")
+
+	docket := &memoryDocket{}
+	if _, err := docketerOverStore(docket, store, pipeline.Config).RecordStoppedRun(stopped); err != nil {
+		t.Fatalf("RecordStoppedRun() error = %v", err)
+	}
+	if _, err := store.Triage().GrantRepair(context.Background(), tracker.Item.ID, triageDecided(runstate.TriageDecisionRepair, outcome.RunID),
+		TriageRepairGrantRounds(pipeline.Config.Triage), time.Now(), TriageCaps(pipeline.Config.Execution, pipeline.Config.Triage)); err != nil {
+		t.Fatalf("GrantRepair() error = %v", err)
+	}
+	worktrees, err := gitworktree.New(gitworktree.Options{Runner: execution.OSProcessRunner{}, RepositoryRoot: repository, WorktreeRoot: worktreeRoot, Timeout: testGitBudget})
+	if err != nil {
+		t.Fatalf("gitworktree.New() error = %v", err)
+	}
+	intake, err := runstate.NewIntakeHoldStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewIntakeHoldStore() error = %v", err)
+	}
+	continuing := orchestratortest.RoleBackend(func(backend.RunRequest) error {
+		return errors.New("the developer was invoked for a repair that only brings the change up to date")
+	}, approveVerdict)
+	continuer := RepairContinuer{
+		Docket: docket, Runs: store, Intake: intake, Decisions: store.Triage(), Items: tracker, Worktrees: worktrees,
+		ConfiguredAttempts: pipeline.Config.Execution.RepairAttemptsBeforeReplan,
+		Capacity:           pipeline.Config.Execution.MaxConcurrentDevelopers,
+		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+			// The check passes only on a change that sits on the target as it now
+			// stands, so a gate run on the old base would fail it.
+			return build(continuing, "test -f feature.txt && test -f while-stopped.txt").Continue(ctx, workItemID, runID)
+		},
+	}
+
+	result, err := continuer.Continue(context.Background(), RepairContinueRequest{Run: outcome.RunID})
+	if err != nil {
+		t.Fatalf("Continue() error = %v", err)
+	}
+	if !result.Continued || !result.Replay || !result.LostRace || result.ResumesAt != runstate.PhaseIntegrating {
+		t.Fatalf("result = %#v, want the run put back at its promotion to be brought up to date", result)
+	}
+	if result.Outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("outcome = %#v, closed = %t; want the replayed change landed", result.Outcome, tracker.Closed)
+	}
+	if developers := continuing.RequestsForRole(domain.RoleDeveloper); len(developers) != 0 {
+		t.Fatalf("developer invocations = %d, want none", len(developers))
+	}
+	if reviews := continuing.RequestsForRole(domain.RoleReviewer); len(reviews) != 1 {
+		t.Fatalf("reviewer invocations = %d, want one fresh review of the replayed change", len(reviews))
+	}
+	for _, landed := range []string{"feature.txt", "while-stopped.txt", "elsewhere-1.txt"} {
+		if _, err := os.Stat(filepath.Join(repository, landed)); err != nil {
+			t.Fatalf("main is missing %s after the landing: %v", landed, err)
+		}
+	}
+
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.BaseCommit == stopped.BaseCommit {
+		t.Fatalf("recorded base is still %s, want the change replayed onto the target", state.BaseCommit)
+	}
+	// The stale base the repair found is not a race the run lost, and the races
+	// the stopped stint lost were cleared with the stop they caused.
+	if state.IntegrationRetries != 0 || result.Outcome.IntegrationRetries != 0 {
+		t.Fatalf("races recorded = %d (outcome %d), want none", state.IntegrationRetries, result.Outcome.IntegrationRetries)
+	}
+	if state.RepairAttempts != stopped.RepairAttempts {
+		t.Fatalf("repair attempts = %d, want %d: bringing the change up to date costs no attempt", state.RepairAttempts, stopped.RepairAttempts)
+	}
+	if !strings.Contains(state.RepairContinuations[len(state.RepairContinuations)-1].Reason, "lost the race to land") {
+		t.Fatalf("continuation reason = %q, want it to say the run lost its race", state.RepairContinuations[len(state.RepairContinuations)-1].Reason)
+	}
 }
