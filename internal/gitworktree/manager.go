@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -74,6 +75,38 @@ const (
 	// oversubscribed machine, inside the thirty minutes a claim may have nothing
 	// alive behind it (readmodel.DefaultDeadClaimThreshold).
 	uncountedCheckoutFiles = 2000
+	// replayCommitBudget is what one replayed commit adds to the budget a
+	// replay's `git rebase` gets, on top of the per-file allowance a checkout
+	// gets for every file the replay writes.
+	//
+	// A replay is not one local Git command's worth of work: it checks out the
+	// moved target, then merges, writes, and commits each of the change's
+	// commits in turn, and every one of those steps waits on the machine as a
+	// command of its own would. A replay is also met at the worst moment the
+	// machine has: the target just moved because another run landed, and that
+	// run's whole-suite landing checks are starting beside it. Memory runs short
+	// first and the one-minute load average catches up last, so the load scaling
+	// can still read an idle machine while a replay Git finishes in a second
+	// waits out the idle thirty seconds. So each commit is budgeted the idle
+	// figure again, and a replay that still runs out is asked again by the
+	// caller with the budget doubled (WithReplayRetry).
+	replayCommitBudget = defaultTimeout
+	// uncountedReplayCommits is the number of commits a replay is budgeted for
+	// when its commits could not be counted, for the reason
+	// uncountedCheckoutFiles is a figure rather than a refusal: the count only
+	// sizes a bound.
+	uncountedReplayCommits = 10
+	// maxReplayDoublings caps how many times a retried replay's budget is
+	// doubled, so a caller that keeps asking still has a replay that hangs
+	// ended.
+	maxReplayDoublings = 3
+	// maxReplayBudget caps a replay's budget on a manager left to the default,
+	// however many commits and files it bought and however often it was
+	// doubled, so the worst case stays inside the thirty minutes a claim may
+	// have nothing alive behind it (readmodel.DefaultDeadClaimThreshold). A
+	// caller that named a Timeout has said what a Git command is worth and is
+	// not capped, as it is not scaled.
+	maxReplayBudget = 20 * time.Minute
 	// defaultRemote is the remote publishing pushes to when nothing names
 	// another.
 	defaultRemote = "origin"
@@ -2809,7 +2842,9 @@ func (m *Manager) RebaseOntoTarget(ctx context.Context, worktree Worktree, messa
 		// held index lock rather than to a commit simply be retried.
 		return rebase, nil
 	}
-	if err := m.replay(ctx, path, worktree, targetCommit); err != nil {
+	work := m.countReplay(ctx, path, worktree.BaseCommit, source, targetCommit)
+	budget := m.retriedReplayTimeout(work, ReplayRetry(ctx))
+	if err := m.replay(ctx, path, worktree, targetCommit, budget, work); err != nil {
 		return rebase, err
 	}
 	replayed, err := m.resolveWorktreeHead(ctx, path)
@@ -2844,7 +2879,11 @@ func (m *Manager) RebaseOntoTarget(ctx context.Context, worktree Worktree, messa
 // same state directory a conflicted one does, so it is told apart by how the
 // process stopped before that directory is ever asked about, and it is reported
 // as ErrReplayKilled once the worktree is back on its branch.
-func (m *Manager) replay(ctx context.Context, path string, worktree Worktree, targetCommit string) error {
+//
+// The rebase runs under budget, which replayTimeout derives from work rather
+// than the budget one local Git command gets; every other command here keeps
+// its own.
+func (m *Manager) replay(ctx context.Context, path string, worktree Worktree, targetCommit string, budget time.Duration, work replayWork) error {
 	// A refreshed export is a path this worktree's index has been told to leave
 	// alone, and Git refuses to move a HEAD across one. The branch's own copies go
 	// back first so the replay sees an ordinary worktree, and they are refreshed
@@ -2857,7 +2896,7 @@ func (m *Manager) replay(ctx context.Context, path string, worktree Worktree, ta
 	// than the store rather than wrong. Failing the replay over it would throw
 	// away work that landed, so it is not reported here.
 	defer func() { _ = m.refreshExports(ctx, path) }()
-	rebased, err := m.runWithEnvironment(ctx, harnessCommitEnvironment(), "-C", path,
+	rebased, err := m.runBounded(ctx, harnessCommitEnvironment(), budget, "-C", path,
 		"-c", "core.hooksPath="+os.DevNull,
 		"-c", "user.name="+harnessCommitAuthorName,
 		"-c", "user.email="+harnessCommitAuthorEmail,
@@ -2869,7 +2908,7 @@ func (m *Manager) replay(ctx context.Context, path string, worktree Worktree, ta
 		return nil
 	}
 	if stopped, killed := killedReplay(rebased.Status); killed {
-		return m.abandonKilledReplay(ctx, path, worktree, targetCommit, stopped)
+		return m.abandonKilledReplay(ctx, path, worktree, targetCommit, fmt.Sprintf("%s; its budget was %s, %s", stopped, budget, work))
 	}
 	failed := fmt.Errorf("replay %s onto %s at %s failed with exit code %d: %s",
 		worktree.Branch, worktree.TargetBranch, targetCommit, rebased.ExitCode, strings.TrimSpace(rebased.Stderr))
@@ -4086,6 +4125,97 @@ func (m *Manager) checkoutTimeout(files int, counted bool) time.Duration {
 		return base
 	}
 	return scaledTimeout(base, load, runtime.NumCPU())
+}
+
+// replayWork is what one replay has to do, as its budget is bought for it: the
+// commits it replays, and the files it writes — those the target changed since
+// the change's base, which checking the target out rewrites, and those the
+// change itself touches.
+type replayWork struct {
+	commits int
+	files   int
+	counted bool
+}
+
+func (w replayWork) String() string {
+	if !w.counted {
+		return fmt.Sprintf("bought for a replay that could not be counted, as %d commit(s) writing %d file(s)", w.commits, w.files)
+	}
+	return fmt.Sprintf("bought for replaying %d commit(s) that write %d file(s)", w.commits, w.files)
+}
+
+// countReplay counts what a replay of source from base onto target has to do.
+// Like checkoutFiles it never stops the replay: a count that could not be read
+// sizes the budget as an uncounted replay, which is generous rather than short.
+func (m *Manager) countReplay(ctx context.Context, path, base, source, target string) replayWork {
+	uncounted := replayWork{commits: uncountedReplayCommits, files: uncountedCheckoutFiles}
+	counted, err := m.run(ctx, "-C", path, "rev-list", "--count", base+".."+source)
+	if err != nil || counted.Status != execution.ProcessSucceeded {
+		return uncounted
+	}
+	commits, err := strconv.Atoi(strings.TrimSpace(counted.Stdout))
+	if err != nil {
+		return uncounted
+	}
+	files := 0
+	for _, tip := range []string{target, source} {
+		listed, err := m.run(ctx, "-C", path, "diff", "--name-only", "--no-renames", base, tip)
+		if err != nil || listed.Status != execution.ProcessSucceeded {
+			return uncounted
+		}
+		files += strings.Count(listed.Stdout, "\n")
+	}
+	return replayWork{commits: commits, files: files, counted: true}
+}
+
+// replayTimeout is the budget one replay's `git rebase` gets: the budget a
+// local Git command gets, plus replayCommitBudget for every commit it replays
+// and checkoutFileBudget for every file it writes. The allowance is added to a
+// caller's named Timeout and scaled with the default by the load, for the
+// reasons checkoutTimeout gives for its own.
+func (m *Manager) replayTimeout(work replayWork) time.Duration {
+	allowance := time.Duration(work.commits)*replayCommitBudget + time.Duration(work.files)*checkoutFileBudget
+	if m.timeout > 0 {
+		return m.timeout + allowance
+	}
+	base := defaultTimeout + allowance
+	load, ok := loadAverage()
+	if !ok {
+		return base
+	}
+	return scaledTimeout(base, load, runtime.NumCPU())
+}
+
+// retriedReplayTimeout is replayTimeout doubled once for each retry, up to
+// maxReplayDoublings, and capped at maxReplayBudget on a manager left to the
+// default budget.
+func (m *Manager) retriedReplayTimeout(work replayWork, retry int) time.Duration {
+	budget := m.replayTimeout(work) << min(max(retry, 0), maxReplayDoublings)
+	if m.timeout == 0 && budget > maxReplayBudget {
+		return maxReplayBudget
+	}
+	return budget
+}
+
+// replayRetryKey is the context key WithReplayRetry's count travels under.
+type replayRetryKey struct{}
+
+// WithReplayRetry marks a replay as the caller's retry number retry of one the
+// harness stopped on its budget, so the replay is given its budget doubled that
+// many times, up to maxReplayDoublings. A replay stopped on time is the machine
+// having been too busy rather than anything about the change, and asking again
+// on the same budget would meet the same machine.
+func WithReplayRetry(ctx context.Context, retry int) context.Context {
+	return context.WithValue(ctx, replayRetryKey{}, retry)
+}
+
+// ReplayRetry is the retry number WithReplayRetry marked ctx with, and zero for
+// a replay asked for the first time.
+func ReplayRetry(ctx context.Context) int {
+	if retry, ok := ctx.Value(replayRetryKey{}).(int); ok && retry > 0 {
+		return retry
+	}
+	return 0
 }
 
 // checkoutAllowanceFiles is how many files the budget is bought for. A tree

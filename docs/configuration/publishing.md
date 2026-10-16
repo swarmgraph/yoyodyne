@@ -471,9 +471,17 @@ A replay the harness itself ended — its local Git budget ran out, its context
 was cancelled, or it went silent past its liveness bound — is **not** a
 conflict, although it leaves the same half-applied state behind. It is told
 apart by how the rebase stopped, abandoned the same way so the worktree is back
-on its branch before anything is recorded, and reported as an integration stop
-by something outside the work, of cause `replay-killed`, that
-`yoyo triage resume` picks up, rather than as a conflict for a person to settle.
+on its branch before anything is recorded. The replay's `git rebase` is given
+a budget bought for what it does: the local Git budget, plus that budget's idle
+thirty seconds again for each commit it replays and fifty milliseconds for each
+file it writes, all scaled for load. A replay stopped on time is asked again by
+the harness on its own, up to three times, after waits of one, two, and four
+minutes and with its budget doubled each time, spending no repair attempt and
+counting no lost race; each wait is on the run's record. Only a replay still
+stopped after the third retry ends the run, reported as an integration stop by
+something outside the work, of cause `replay-killed`, whose reason names the
+retries, that `yoyo triage resume` picks up, rather than as a conflict for a
+person to settle.
 
 Two more stops of an approved change before its promotion are integration stops
 of the same kind, although a person clears them: a target branch the harness

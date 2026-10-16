@@ -2908,7 +2908,7 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	if err := a.pipeline.Store.Save(a.state); err != nil {
 		return false, fmt.Errorf("save integration retry %d: %w", a.state.IntegrationRetries, err)
 	}
-	rebase, err := a.pipeline.Worktrees.RebaseOntoTarget(ctx, a.worktree, integrationMessage(a.item, a.outcome))
+	rebase, err := a.replayOntoTarget(ctx)
 	// The replay reports the commit it owns whichever way it went, so it is
 	// recorded before the failure is: an aborted replay leaves the branch on that
 	// commit, and the worktree is preserved for whoever picks the conflict up.
@@ -2955,6 +2955,56 @@ func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (b
 	a.observe(ctx, deliveryIntegrate, "superseded")
 	a.leftLanding()
 	return true, nil
+}
+
+// replayKilledRetries is how many times a replay the harness stopped on its own
+// budget is asked again before the run stops on it, and replayKilledWaits is
+// the wait before each of those retries. Each retry also doubles the replay's
+// budget (gitworktree.WithReplayRetry), so the last attempt is given eight times
+// the first one's budget, about twenty minutes after the first stopped.
+//
+// A replay stopped on time says nothing about the change: it passed its checks
+// and was approved, nothing was merged or conflicted, and the worktree is back
+// on its branch. What stopped it is a machine too busy at the moment main
+// moved, which is the moment another run's landing checks start. So it is
+// retried by the harness, charging no repair attempt and no lost race, and
+// only a replay still stopped after the last retry ends the run — with the
+// retries named, as an integration stop the development manager's list carries.
+const replayKilledRetries = 3
+
+var replayKilledWaits = [replayKilledRetries]time.Duration{time.Minute, 2 * time.Minute, 4 * time.Minute}
+
+// replayOntoTarget replays the change onto its moved target, asking again
+// while the harness keeps stopping the replay on its budget, up to
+// replayKilledRetries times. Every other answer — a replay that went through,
+// a conflict, any other failure, or a run whose own context ended — is
+// returned as it came.
+func (a *activeRun) replayOntoTarget(ctx context.Context) (gitworktree.Rebase, error) {
+	message := integrationMessage(a.item, a.outcome)
+	for retry := 0; ; retry++ {
+		rebase, err := a.pipeline.Worktrees.RebaseOntoTarget(gitworktree.WithReplayRetry(ctx, retry), a.worktree, message)
+		if !errors.Is(err, gitworktree.ErrReplayKilled) || ctx.Err() != nil {
+			return rebase, err
+		}
+		if retry == replayKilledRetries {
+			return rebase, fmt.Errorf("the harness stopped the replay on its time limit %d times, asking again after each with the limit doubled, and nothing was found against the change: %w",
+				retry+1, err)
+		}
+		// A killed replay can still have committed what the worktree held, and the
+		// next replay is accepted only from the commit the run records.
+		if recordErr := a.recordRebase(rebase); recordErr != nil {
+			return rebase, withFailedRecord(err, recordErr)
+		}
+		wait := replayKilledWaits[retry]
+		if recordErr := a.recordRetry(runstate.RetryReplay, retry+1, wait, err); recordErr != nil {
+			return rebase, withFailedRecord(err, recordErr)
+		}
+		if a.pipeline.sleep(ctx, wait) != nil {
+			// The run is ending, so the replay is left stopped as it was rather
+			// than asked again under a context that is already over.
+			return rebase, err
+		}
+	}
 }
 
 // recordRebase makes the replayed base and the harness commit that carries the
