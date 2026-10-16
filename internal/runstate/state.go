@@ -2032,6 +2032,8 @@ func (s *State) recordedTexts() []recordedText {
 	own("workflow_divergence", &s.WorkflowDivergence, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("workflow_unobserved", &s.WorkflowUnobserved, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("developer_model_reason", &s.DeveloperModelReason, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("provider_effort_description", &s.ProviderEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
+	own("review_effort_description", &s.ReviewEffortDescription, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	own("review_summary", &s.ReviewSummary, MaxReviewSummaryBytes, reviewSummaryCutNote)
 	if s.DeveloperSummary != nil {
 		add("developer_summary.text", "developer_summary.text", &s.DeveloperSummary.Text, MaxRecordedTextBytes, reviewSummaryCutNote, true)
@@ -2973,8 +2975,9 @@ type State struct {
 	// level was configurable; either way the provider resolved its own.
 	ProviderEffort string `json:"provider_effort,omitempty"`
 	// ProviderResolvedEffort is provider-reported; ProviderEffortReported is false when not reported.
-	ProviderResolvedEffort string `json:"provider_resolved_effort,omitempty"`
-	ProviderEffortReported bool   `json:"provider_effort_reported"`
+	ProviderResolvedEffort    string `json:"provider_resolved_effort,omitempty"`
+	ProviderEffortDescription string `json:"provider_effort_description,omitempty"`
+	ProviderEffortReported    bool   `json:"provider_effort_reported"`
 	// ProviderLoaded is the settings sources, skills, plugins, connectors, and
 	// instruction files the last developer invocation was given beside its prompt, by name and source, and
 	// absent before one has been made. See backend.Loaded.
@@ -3134,9 +3137,10 @@ type State struct {
 	ReviewResolvedModel string `json:"review_resolved_model,omitempty"`
 	// ReviewEffort is the effort level the review asked the provider for, and
 	// empty where the reviewer agent configured none.
-	ReviewEffort         string `json:"review_effort,omitempty"`
-	ReviewResolvedEffort string `json:"review_resolved_effort,omitempty"`
-	ReviewEffortReported bool   `json:"review_effort_reported"`
+	ReviewEffort            string `json:"review_effort,omitempty"`
+	ReviewResolvedEffort    string `json:"review_resolved_effort,omitempty"`
+	ReviewEffortDescription string `json:"review_effort_description,omitempty"`
+	ReviewEffortReported    bool   `json:"review_effort_reported"`
 	// ReviewLoaded is what the review was given beside its prompt.
 	ReviewLoaded *backend.Loaded `json:"review_loaded,omitempty"`
 	// ReviewBaseCommit and ReviewHeadCommit are the two commits the change the

@@ -216,9 +216,10 @@ type Result struct {
 	ResolvedModel  string
 	// RequestedEffort is the effort level this review asked the provider for,
 	// and empty where the reviewer agent configured none.
-	RequestedEffort string
-	ResolvedEffort  string
-	EffortReported  bool
+	RequestedEffort   string
+	ResolvedEffort    string
+	EffortDescription string
+	EffortReported    bool
 	// Loaded is what the review was given beside its prompt.
 	Loaded       backend.Loaded
 	SessionID    string
@@ -456,17 +457,18 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	})
 	if err != nil {
 		return Result{
-			RequestedModel:   r.Model,
-			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
-			ResolvedEffort:   providerResult.ResolvedEffort,
-			EffortReported:   providerResult.EffortReported,
-			Loaded:           providerResult.Loaded,
-			LastSequence:     lastSequence,
-			UsageLimit:       providerResult.UsageLimit,
-			ServerOverload:   providerResult.ServerOverload,
-			TransientFailure: providerResult.TransientFailure,
-			ProviderOutage:   providerResult.ProviderOutage,
-			ProcessStatus:    providerResult.Process.Status,
+			RequestedModel:    r.Model,
+			RequestedEffort:   r.invocationEffort(request.Spend.Backend),
+			ResolvedEffort:    providerResult.ResolvedEffort,
+			EffortDescription: providerResult.EffortDescription,
+			EffortReported:    providerResult.EffortReported,
+			Loaded:            providerResult.Loaded,
+			LastSequence:      lastSequence,
+			UsageLimit:        providerResult.UsageLimit,
+			ServerOverload:    providerResult.ServerOverload,
+			TransientFailure:  providerResult.TransientFailure,
+			ProviderOutage:    providerResult.ProviderOutage,
+			ProcessStatus:     providerResult.Process.Status,
 		}, fmt.Errorf("reviewer backend failed: %w", err)
 	}
 	sequence = execution.NewSequence(lastSequence)
@@ -488,21 +490,22 @@ func (r Reviewer) Review(ctx context.Context, request Request) (Result, error) {
 	// with it too, because a report survives a verdict the harness rejected.
 	evidence := func() Result {
 		return Result{
-			RequestedModel:   r.Model,
-			RequestedEffort:  r.invocationEffort(request.Spend.Backend),
-			ResolvedEffort:   providerResult.ResolvedEffort,
-			EffortReported:   providerResult.EffortReported,
-			Loaded:           providerResult.Loaded,
-			ResolvedModel:    providerResult.ResolvedModel,
-			SessionID:        providerResult.SessionID,
-			LastSequence:     lastSequence,
-			UsageLimit:       providerResult.UsageLimit,
-			ServerOverload:   providerResult.ServerOverload,
-			TransientFailure: providerResult.TransientFailure,
-			ProviderOutage:   providerResult.ProviderOutage,
-			ProcessStatus:    providerResult.Process.Status,
-			Reports:          reported,
-			ReportProblem:    reportProblem,
+			RequestedModel:    r.Model,
+			RequestedEffort:   r.invocationEffort(request.Spend.Backend),
+			ResolvedEffort:    providerResult.ResolvedEffort,
+			EffortDescription: providerResult.EffortDescription,
+			EffortReported:    providerResult.EffortReported,
+			Loaded:            providerResult.Loaded,
+			ResolvedModel:     providerResult.ResolvedModel,
+			SessionID:         providerResult.SessionID,
+			LastSequence:      lastSequence,
+			UsageLimit:        providerResult.UsageLimit,
+			ServerOverload:    providerResult.ServerOverload,
+			TransientFailure:  providerResult.TransientFailure,
+			ProviderOutage:    providerResult.ProviderOutage,
+			ProcessStatus:     providerResult.Process.Status,
+			Reports:           reported,
+			ReportProblem:     reportProblem,
 		}
 	}
 	if providerResult.IsError {

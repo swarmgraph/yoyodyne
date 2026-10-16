@@ -85,11 +85,24 @@ func (d Descriptor) ForModel(model string) Descriptor {
 	return d
 }
 
-// InvocationEffort resolves an omitted effort explicitly where the provider
-// has an established default. Claude's existing empty-effort behavior is kept.
+// InvocationEffort preserves an omitted effort so the provider resolves its
+// own configuration. Advertised defaults are catalog facts, not overrides.
 func (d Descriptor) InvocationEffort(model, effort string) string {
-	if level := strings.TrimSpace(effort); level != "" {
-		return level
+	return strings.TrimSpace(effort)
+}
+
+// DescribeInvocationEffort records who selected Codex's effort without reading
+// its configuration or guessing a level the stream did not report.
+func (d Descriptor) DescribeInvocationEffort(requested, resolved string, reported bool) string {
+	if d.Adapter != domain.BackendCodex {
+		return ""
 	}
-	return d.ForModel(model).DefaultEffort
+	if requested = strings.TrimSpace(requested); requested != "" {
+		return requested + ", from the agent"
+	}
+	level := "not reported"
+	if reported && strings.TrimSpace(resolved) != "" {
+		level = strings.TrimSpace(resolved)
+	}
+	return level + ", from the Codex configuration"
 }

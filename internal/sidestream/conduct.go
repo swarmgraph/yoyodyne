@@ -168,11 +168,12 @@ type Spoken struct {
 	ResolvedModel string
 	Effort        string
 	// ResolvedEffort is provider-reported; EffortReported is false when not reported.
-	ResolvedEffort string `json:"resolved_effort,omitempty"`
-	EffortReported bool   `json:"effort_reported"`
-	AccountAlias   string
-	ConfigRevision string
-	Build          string
+	ResolvedEffort    string `json:"resolved_effort,omitempty"`
+	EffortDescription string `json:"effort_description,omitempty"`
+	EffortReported    bool   `json:"effort_reported"`
+	AccountAlias      string
+	ConfigRevision    string
+	Build             string
 	// LastEvent is the highest sequence this invocation wrote to the stream's
 	// log, for a voice that numbers events without going through the sink.
 	LastEvent uint64
@@ -424,6 +425,7 @@ func (r Runner) Put(ctx context.Context, ask Ask) (Answer, error) {
 	// agent stopped naming one does not go on reporting the last level it had.
 	stream.ProviderEffort = spoken.Effort
 	stream.ProviderResolvedEffort = spoken.ResolvedEffort
+	stream.ProviderEffortDescription = spoken.EffortDescription
 	stream.ProviderEffortReported = spoken.EffortReported
 	if spoken.AccountAlias != "" {
 		stream.AccountAlias = spoken.AccountAlias

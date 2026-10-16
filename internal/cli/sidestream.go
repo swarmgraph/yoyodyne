@@ -191,15 +191,16 @@ func (v sideVoice) Answer(ctx context.Context, question sidestream.Question) (si
 		// The model that actually asked, which is the configured one unless the
 		// permitted alternate served the turn. Recording the configured selector
 		// would leave the stream naming a model that refused it.
-		Model:          served.Model,
-		ResolvedModel:  result.ResolvedModel,
-		Effort:         served.Effort,
-		ResolvedEffort: result.ResolvedEffort,
-		EffortReported: result.EffortReported,
-		AccountAlias:   account.Alias,
-		ConfigRevision: v.config.Revision(),
-		Build:          buildinfo.Commit(),
-		LastEvent:      result.LastEvent,
+		Model:             served.Model,
+		ResolvedModel:     result.ResolvedModel,
+		Effort:            served.Effort,
+		ResolvedEffort:    result.ResolvedEffort,
+		EffortDescription: result.EffortDescription,
+		EffortReported:    result.EffortReported,
+		AccountAlias:      account.Alias,
+		ConfigRevision:    v.config.Revision(),
+		Build:             buildinfo.Commit(),
+		LastEvent:         result.LastEvent,
 	}
 	// The refusal is recorded before the turn is failed, because it is a fact
 	// about the whole product rather than about this side thread. Failing to
