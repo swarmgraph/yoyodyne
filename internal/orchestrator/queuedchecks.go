@@ -332,6 +332,7 @@ func invalidateForgeApproval(state *runstate.State) {
 	state.ReviewModel = ""
 	state.ReviewResolvedModel = ""
 	state.ReviewEffort = ""
+	state.ReviewEffortDescription = ""
 	state.ReviewBaseCommit = ""
 	state.ReviewHeadCommit = ""
 	state.ReviewDecision = ""

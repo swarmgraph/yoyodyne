@@ -222,7 +222,7 @@ func TestAnEffortEditedMidRunReachesNoRunInFlight(t *testing.T) {
 	}
 }
 
-func TestCodexRunPinsAnExplicitDefaultThroughRepair(t *testing.T) {
+func TestCodexRunKeepsAnOmittedEffortThroughRepair(t *testing.T) {
 	t.Parallel()
 	repository := pipelineRepository(t)
 	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Work", Status: "open"}}
@@ -253,15 +253,15 @@ func TestCodexRunPinsAnExplicitDefaultThroughRepair(t *testing.T) {
 		t.Fatal("the test needs a first attempt and a repair")
 	}
 	for _, request := range attempts {
-		if request.Model != "gpt-6.1-sol" || request.Effort != "low" {
-			t.Fatalf("the configured default changed during a live run: %+v", request)
+		if request.Model != "gpt-6.1-sol" || request.Effort != "" {
+			t.Fatalf("the omitted effort changed during a live run: %+v", request)
 		}
 	}
 	state, err := store.Load(outcome.RunID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !state.EffortSettled || state.ProviderEffort != "low" || outcome.ProviderEffort != "low" {
-		t.Fatalf("default was not recorded on the run: %+v", state)
+	if !state.EffortSettled || state.ProviderEffort != "" || outcome.ProviderEffort != "" {
+		t.Fatalf("the omitted effort was not settled on the run: %+v", state)
 	}
 }

@@ -40,8 +40,35 @@ func TestCodexEffortMatchesTheRecordedCLICatalog(t *testing.T) {
 				t.Fatalf("%s does not accept advertised level %s", model.Slug, level.Effort)
 			}
 		}
-		if !reflect.DeepEqual(policy.EffortLevels, levels) || policy.InvocationEffort(model.Slug, "") != model.Default || !policy.AcceptsEffort(model.Default) {
+		if !reflect.DeepEqual(policy.EffortLevels, levels) || policy.DefaultEffort != model.Default || !policy.AcceptsEffort(model.Default) {
 			t.Fatalf("%s policy = %+v, want levels %v and default %q", model.Slug, policy, levels, model.Default)
 		}
+	}
+}
+
+func TestCodexInvocationKeepsAnOmittedEffortAndDescribesItsSource(t *testing.T) {
+	t.Parallel()
+	descriptor, _ := BuiltInDescriptor(domain.BackendCodex)
+	for _, test := range []struct {
+		requested, resolved string
+		reported            bool
+		want                string
+	}{
+		{"high", "", false, "high, from the agent"},
+		{"high", "medium", true, "high, from the agent"},
+		{"", "high", true, "high, from the Codex configuration"},
+		{"", "", false, "not reported, from the Codex configuration"},
+		{"", "high", false, "not reported, from the Codex configuration"},
+	} {
+		if got := descriptor.InvocationEffort("gpt-6.1-sol", test.requested); got != test.requested {
+			t.Fatalf("requested %q became %q", test.requested, got)
+		}
+		if got := descriptor.DescribeInvocationEffort(test.requested, test.resolved, test.reported); got != test.want {
+			t.Fatalf("description = %q, want %q", got, test.want)
+		}
+	}
+	claude, _ := BuiltInDescriptor(domain.BackendClaudeCode)
+	if claude.InvocationEffort("opus", "") != "" || claude.DescribeInvocationEffort("high", "", false) != "" {
+		t.Fatal("Claude's omitted effort and records must stay unchanged")
 	}
 }

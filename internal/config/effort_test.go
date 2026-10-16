@@ -118,12 +118,12 @@ agents:
 	}
 }
 
-func TestCodexEffortUsesTheModelsLevelsAndExplicitDefault(t *testing.T) {
+func TestCodexEffortUsesTheModelsLevelsAndLeavesOmittedEffortEmpty(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct{ model, level, want string }{
 		{"gpt-6-astra", "high", "high"},
-		{"gpt-6.1-sol", "", "low"},
-		{"gpt-6-sol", "", "medium"},
+		{"gpt-6.1-sol", "", ""},
+		{"gpt-6-sol", "", ""},
 		{"gpt-6-luna", "max", "max"},
 	} {
 		cfg := loadProject(t, minimalProjectConfig+`agents:
@@ -195,11 +195,11 @@ func TestCodexModelVersionValidatesEffortForBothSelectorsAtLoad(t *testing.T) {
 	}
 }
 
-func TestCodexModelVersionKeepsExplicitOrDefaultEffortWhenBothSelectorsAcceptIt(t *testing.T) {
+func TestCodexModelVersionKeepsExplicitOrOmittedEffortWhenBothSelectorsAcceptIt(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct{ level, want string }{
 		{"high", "high"},
-		{"", "medium"},
+		{"", ""},
 	} {
 		cfg := loadProject(t, minimalProjectConfig+`agents:
   developer:

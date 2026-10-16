@@ -3741,7 +3741,9 @@ It never inherits the developer slot pair or label models. `failover.effort` is
 accepted only for developer and reviewer run endpoint resolution. The alternate
 retains the existing `enabled`, `provider`, `model` and `account` keys and also accepts
 `effort`. For these run endpoint pairs, inherited effort is validated separately
-on each endpoint; an explicit `effort: ""` requests that endpoint's model default.
+on each endpoint; an explicit `effort: ""` passes no effort, so that endpoint's
+provider uses its own configured level (for Codex, the Codex configuration; for
+Claude Code, its own resolution).
 An incompatible inherited level is refused rather than silently dropped, and a
 reviewer alternate must support the reviewer's read-only access. Disabled
 reviewer alternates are validated too.
@@ -5304,12 +5306,19 @@ a provider that does not accept the agent's level: that turn is asked with none,
 says none was asked rather than the level configured, so the failover still
 saves the turn.
 
-**Codex always receives an explicit level.** On fresh and resumed invocations,
-including developer, reviewer, conversation, and recurring turns, the adapter
+**Codex receives a level only when the agent sets one.** On fresh and resumed
+invocations, including developer, reviewer, conversation, and recurring turns, the adapter
 passes `--config 'model_reasoning_effort="high"'` for `effort: high`, before
 `resume` when resuming. This overrides personal Codex settings. Omitting `effort`
-or setting it empty explicitly passes the invoked model's advertised default.
-The default is model-specific:
+or setting it empty passes no effort override, so the Codex CLI resolves its own
+configured level. Yoyo does not read the account's Codex home. Read-only Codex
+roles — reviewers and the management roles — still ignore the account's Codex
+configuration for isolation (see [provider capability validation](provider-plugins.md#capability-validation)),
+so one with no `effort` runs at Codex's built-in level for its model, not the
+level in the account's `~/.codex/config.toml`. To run such an agent higher, set
+`effort` on it in the project configuration.
+The catalog below lists model defaults as reference values, not overrides Yoyo
+passes when effort is omitted:
 
 | Codex model | Accepted levels | Default |
 | --- | --- | --- |
@@ -5347,9 +5356,13 @@ models. A conversation records the level of its last turn, an exchange round and
 a side thread record theirs, a recurring or program manager pass records its
 pass's, and a branch review records its reviewer's. Every line in the cost log
 carries the level its invocation asked for, so each turn is pinned to one even
-where the conversation's own record has moved on. An absent requested level on an older record means none was asked. Codex
-invocations made by this build record their explicit default when none was
-configured. `yoyo config show` prints the key beside the model, `yoyo agent list`
+where the conversation's own record has moved on. An absent requested level
+means no override was asked for. Codex records carry
+`effort_description`, with `provider_*` and `review_*` names on run records,
+to distinguish `high, from the agent` from `high, from the Codex configuration`
+when the stream reports the latter level, or `not reported, from the Codex
+configuration` when it does not. `yoyo config show` prints the key beside the
+model, `yoyo agent list`
 says `model opus at medium effort`, `yoyo status` says it beside the model on
 the line of each running run and each conversation in flight — `developing, on
 claude-opus-5 at medium effort` — and carries it under `--json`, and the
@@ -5362,8 +5375,10 @@ Codex `exec --json` stream normally omits effort; a `session_configured` event
 that includes `reasoning_effort` records that value. Every invocation's cost
 line preserves both facts, even when a later turn replaces the conversation's
 record. Sweep evidence uses the effort actually requested by the serving turn,
-rather than re-reading the configuration after a provider substitution. A line whose record names
-no level says nothing of one, and reads as it did before the key existed.
+rather than re-reading the configuration after a provider substitution. Run
+notes, status lines, and dashboard cards use the Codex effort description,
+including its source and an unreported level. Claude Code lines whose record
+names no level read as they did before the key existed.
 
 ### Skills and instruction files a Codex role is given
 

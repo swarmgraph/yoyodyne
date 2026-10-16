@@ -364,6 +364,7 @@ func (a *activeRun) applyDeveloperEndpoint(choice runstate.EndpointChoice, endpo
 	a.state.DeveloperModel = requestedModel(endpoint)
 	a.state.DeveloperModelReason = fmt.Sprintf("the %s endpoint of developer slot %d", choice, a.state.RecordedSlot())
 	a.state.ProviderEffort = endpoint.Effort
+	a.state.ProviderEffortDescription = a.pipeline.Config.DescribeInvocationEffort(config.AgentConfig{Backend: endpoint.Provider}, endpoint.Effort, "", false)
 	a.state.EffortSettled = true
 }
 

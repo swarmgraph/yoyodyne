@@ -227,7 +227,7 @@ func (r Resolved) resolveRoutedEndpoint(providers *backend.Registry, path string
 	if descriptor, ok := providers.Lookup(agent.Backend); ok {
 		effort = descriptor.InvocationEffort(model, effort)
 		if agent.Effort == "" {
-			origins["effort"] += fmt.Sprintf("; provider %s model %s default", agent.Backend, model)
+			origins["effort"] += fmt.Sprintf("; none passed, so provider %s resolves model %s's level from its own configuration", agent.Backend, model)
 		}
 	}
 	return RoutedEndpoint{Endpoint: endpoint, Model: agent.Model, ModelVersion: agent.ModelVersion, Effort: effort, Origins: origins}, problems

@@ -290,7 +290,7 @@ func TestReloadPreservesTheLastCompleteValidConfiguration(t *testing.T) {
 	}
 }
 
-func TestSameProviderModelsResolveTheirOwnEffortDefaults(t *testing.T) {
+func TestSameProviderModelsPassNoEffortWhenTheAgentSetsNone(t *testing.T) {
 	t.Parallel()
 	resolved := loadProject(t, minimalProjectConfig+`execution:
   developer_slots:
@@ -306,11 +306,11 @@ agents:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if pair.Primary.Effort != "medium" || pair.Alternate.Effort != "low" || pair.Primary.Endpoint.Same(pair.Alternate.Endpoint) {
-		t.Fatalf("model defaults = %+v", pair)
+	if pair.Primary.Effort != "" || pair.Alternate.Effort != "" || pair.Primary.Endpoint.Same(pair.Alternate.Endpoint) {
+		t.Fatalf("an unset effort must stay unset on both models = %+v", pair)
 	}
-	if !strings.Contains(pair.Alternate.Origins["effort"], "model gpt-6-astra default") {
-		t.Fatalf("default origin = %s", pair.Alternate.Origins["effort"])
+	if !strings.Contains(pair.Alternate.Origins["effort"], "none passed, so provider codex resolves model gpt-6-astra's level from its own configuration") {
+		t.Fatalf("unset effort origin = %s", pair.Alternate.Origins["effort"])
 	}
 }
 

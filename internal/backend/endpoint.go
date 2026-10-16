@@ -60,7 +60,9 @@ const ClaudeCodeAdapterVersion = "claude-code/2"
 // "codex/4" admits the developer's confined cache and scratch on launch and resume.
 // "codex/5" passes effort explicitly and records provider-reported effort separately.
 // "codex/6" measures the composed input and refuses oversized input before launch.
-const CodexAdapterVersion = "codex/6"
+// "codex/7" omits the effort override when the agent sets none and records whether
+// effort comes from the agent or from the Codex configuration.
+const CodexAdapterVersion = "codex/7"
 
 // Endpoint is one execution endpoint: which provider, read by which compiled
 // adapter, under which account, asking which model.

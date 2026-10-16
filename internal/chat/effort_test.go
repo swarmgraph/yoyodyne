@@ -133,41 +133,50 @@ func effortProviderRegistry(t *testing.T, adapter domain.Backend) *backendapi.Re
 	return registry
 }
 
-func TestCodexConversationDefaultsAndRecordsRequestedAndReportedEffortPerTurn(t *testing.T) {
+func TestCodexConversationRecordsExplicitOrConfiguredEffortPerTurn(t *testing.T) {
 	t.Parallel()
-	provider := &fakeBackend{results: []backendapi.RunResult{
-		{Backend: domain.BackendCodex, SessionID: "codex-session", FinalText: "First.", ResolvedEffort: "high", EffortReported: true},
-		{Backend: domain.BackendCodex, SessionID: "codex-session", FinalText: "Second."},
-	}}
-	log := &recordingSpendLog{}
-	options := testOptions(t, provider)
-	options.Provider, options.Model, options.Effort = domain.BackendCodex, "gpt-6.1-sol", ""
-	options.Spend = log
-	session := openTestSession(t, options)
-	for index := 0; index < 2; index++ {
-		reply, err := session.Send(context.Background(), "continue")
-		if err != nil {
-			t.Fatal(err)
-		}
-		if reply.Evidence.Effort != "low" || reply.Evidence.EffortReported != (index == 0) {
-			t.Fatalf("turn %d evidence = %+v", index, reply.Evidence)
-		}
-		recorded, err := options.Store.Load(runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role})
-		if err != nil {
-			t.Fatal(err)
-		}
-		if recorded.ProviderEffort != "low" || recorded.ProviderEffortReported != (index == 0) {
-			t.Fatalf("turn %d record = %+v", index, recorded)
-		}
-		want := ""
-		if index == 0 {
-			want = "high"
-		}
-		if recorded.ProviderResolvedEffort != want || log.lines[index].ResolvedEffort != want || log.lines[index].EffortReported != (index == 0) || log.lines[index].Effort != "low" {
-			t.Fatalf("turn %d effort was guessed or lost: record=%+v, cost=%+v", index, recorded, log.lines[index])
-		}
-	}
-	if len(provider.requests) != 2 || provider.requests[0].Effort != "low" || provider.requests[1].Effort != "low" || provider.requests[0].SessionID != "" || provider.requests[1].SessionID != "codex-session" {
-		t.Fatalf("initial and resumed requests = %+v", provider.requests)
+	for _, effort := range []string{"", "high"} {
+		t.Run("effort="+effort, func(t *testing.T) {
+			descriptor, _ := backendapi.BuiltInDescriptor(domain.BackendCodex)
+			descriptions := []string{
+				descriptor.DescribeInvocationEffort(effort, "high", true),
+				descriptor.DescribeInvocationEffort(effort, "", false),
+			}
+			provider := &fakeBackend{results: []backendapi.RunResult{
+				{Backend: domain.BackendCodex, SessionID: "codex-session", FinalText: "First.", ResolvedEffort: "high", EffortReported: true, EffortDescription: descriptions[0]},
+				{Backend: domain.BackendCodex, SessionID: "codex-session", FinalText: "Second.", EffortDescription: descriptions[1]},
+			}}
+			log := &recordingSpendLog{}
+			options := testOptions(t, provider)
+			options.Provider, options.Model, options.Effort = domain.BackendCodex, "gpt-6.1-sol", effort
+			options.Spend = log
+			session := openTestSession(t, options)
+			for index := 0; index < 2; index++ {
+				reply, err := session.Send(context.Background(), "continue")
+				if err != nil {
+					t.Fatal(err)
+				}
+				if reply.Evidence.Effort != effort || reply.Evidence.EffortReported != (index == 0) || reply.Evidence.EffortDescription != descriptions[index] {
+					t.Fatalf("turn %d evidence = %+v", index, reply.Evidence)
+				}
+				recorded, err := options.Store.Load(runstate.ConversationIdentity{Agent: options.Agent, Role: options.Role})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if recorded.ProviderEffort != effort || recorded.ProviderEffortReported != (index == 0) || recorded.ProviderEffortDescription != descriptions[index] || log.lines[index].EffortDescription != descriptions[index] {
+					t.Fatalf("turn %d lost the effort source: record=%+v, cost=%+v", index, recorded, log.lines[index])
+				}
+				want := ""
+				if index == 0 {
+					want = "high"
+				}
+				if recorded.ProviderResolvedEffort != want || log.lines[index].ResolvedEffort != want || log.lines[index].EffortReported != (index == 0) || log.lines[index].Effort != effort {
+					t.Fatalf("turn %d effort was guessed or lost: record=%+v, cost=%+v", index, recorded, log.lines[index])
+				}
+			}
+			if len(provider.requests) != 2 || provider.requests[0].Effort != effort || provider.requests[1].Effort != effort || provider.requests[0].SessionID != "" || provider.requests[1].SessionID != "codex-session" {
+				t.Fatalf("initial and resumed requests = %+v", provider.requests)
+			}
+		})
 	}
 }

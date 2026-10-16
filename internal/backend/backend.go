@@ -349,7 +349,10 @@ type RunResult struct {
 	// ResolvedEffort is what the stream reported, never inferred from the request.
 	// EffortReported is false when the provider omitted it.
 	ResolvedEffort string
-	EffortReported bool
+	// EffortDescription names Codex's requested level and source, or its
+	// reported level and source when no override was requested.
+	EffortDescription string
+	EffortReported    bool
 	// Loaded is the skills, plugins, and instruction files the invocation was
 	// given beside its prompt, by name and source. See loaded.go.
 	Loaded    Loaded

@@ -101,8 +101,9 @@ type Conversation struct {
 	// the level too.
 	ProviderEffort string `json:"provider_effort,omitempty"`
 	// ProviderResolvedEffort is provider-reported; ProviderEffortReported is false when not reported.
-	ProviderResolvedEffort string `json:"provider_resolved_effort,omitempty"`
-	ProviderEffortReported bool   `json:"provider_effort_reported"`
+	ProviderResolvedEffort    string `json:"provider_resolved_effort,omitempty"`
+	ProviderEffortDescription string `json:"provider_effort_description,omitempty"`
+	ProviderEffortReported    bool   `json:"provider_effort_reported"`
 	// ProviderLoaded is the settings sources, skills, plugins, connectors, and
 	// instruction files the last completed turn was given beside its prompt, by name and source. It is
 	// rewritten by each turn as the model is.
