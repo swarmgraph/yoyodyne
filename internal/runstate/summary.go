@@ -360,6 +360,9 @@ type RunSummary struct {
 	// a proposal never made.
 	ReportProblem    string `json:"report_problem,omitempty"`
 	AmendmentProblem string `json:"amendment_problem,omitempty"`
+	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
+	// a run still owes; see State.SchedulingWaitClearFailure.
+	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
 	// Amendments is every proposal the run's agents made, raised or dropped as a
 	// restatement of one already raised. A drop is on no other record, so this is
 	// where a fold the comparison got wrong is found.
@@ -580,6 +583,7 @@ func (s *Store) summarize(state State) RunSummary {
 
 		CompletionRecordingFailure: state.CompletionRecordingFailure,
 	}
+	summary.SchedulingWaitClearFailure = state.SchedulingWaitClearFailure
 	if state.CheckFailure != nil {
 		failing := *state.CheckFailure
 		summary.FailingCheck = &failing

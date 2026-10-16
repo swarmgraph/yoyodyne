@@ -31,7 +31,8 @@ const MaxPriority = 4
 
 type WorkItem struct {
 	// RelevantGoals names the goals this change must not break, beside the goal it serves.
-	RelevantGoals []string
+	RelevantGoals  []string
+	SchedulingWait *SchedulingWait
 
 	ID                 string
 	Title              string
@@ -2175,6 +2176,12 @@ func convertWorkItemIn(raw rawWorkItem, writerZone *time.Location) (WorkItem, er
 	item.Parking = parkingIn(raw.Metadata)
 	item.Landing = metadataString(raw.Metadata, LandingKey)
 	item.Origin = originIn(raw.Metadata)
+	if saved := metadataString(raw.Metadata, schedulingWaitKey); saved != "" {
+		var wait SchedulingWait
+		if json.Unmarshal([]byte(saved), &wait) == nil && wait.Valid() {
+			item.SchedulingWait = &wait
+		}
+	}
 	return item, nil
 }
 

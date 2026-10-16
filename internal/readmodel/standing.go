@@ -355,6 +355,9 @@ type Sources struct {
 	// is every slot preferring nothing, and the line then reads exactly as it did
 	// before slots could prefer anything.
 	Slots []domain.DeveloperSlot
+	// SchedulingWaitProblemAfter is execution.scheduling_wait_problem_after as
+	// the caller read it. Zero takes DefaultSchedulingWaitProblemAfter.
+	SchedulingWaitProblemAfter time.Duration
 	// FactoryStallAfter is execution.factory_stall_after as the caller read it:
 	// how long no pull and no successful recurring pass may go before the
 	// factory is said to have stalled. Zero takes DefaultFactoryStallAfter.
@@ -532,9 +535,18 @@ type Refused struct {
 // WorkItemRef names one admitted work item, by id and title, for a surface that
 // lists a grouping of the queue rather than counting it. It carries no more than
 // that: what an item is in full is ReadWorkItem's answer, one item at a time.
+//
+// Where the scheduler kept a reason the item has not started, it carries that
+// too, as SchedulingWait and in words as WaitReason; a reason that has stood past
+// the configured time is marked prolonged, with whose move ends it. See
+// schedulingwait.go.
 type WorkItemRef struct {
-	WorkItemID string `json:"work_item_id"`
-	Title      string `json:"title,omitempty"`
+	WorkItemID              string                `json:"work_item_id"`
+	Title                   string                `json:"title,omitempty"`
+	SchedulingWait          *beads.SchedulingWait `json:"scheduling_wait,omitempty"`
+	WaitReason              string                `json:"wait_reason,omitempty"`
+	SchedulingWaitProlonged bool                  `json:"scheduling_wait_prolonged,omitempty"`
+	SchedulingWaitWhose     string                `json:"scheduling_wait_whose,omitempty"`
 }
 
 // Standing is where the harness stands, in the four lines and nothing else.
@@ -543,6 +555,12 @@ type WorkItemRef struct {
 // and one failure standing for all four would lose three answers the caller
 // still has.
 type Standing struct {
+	// SchedulingWaits is every admitted item no run carries and no refusal
+	// names, for which the scheduler kept a reason it has not started, and
+	// SchedulingWaitProblems is those whose reason has stood past
+	// execution.scheduling_wait_problem_after.
+	SchedulingWaits        []WorkItemRef `json:"scheduling_waits"`
+	SchedulingWaitProblems []WorkItemRef `json:"scheduling_wait_problems"`
 	// FactoryProblems is the same raised pass-failure entries the fourth line
 	// carries, projected for the dashboard's factory-problems section.
 	FactoryProblems        []Attention `json:"factory_problems"`
@@ -831,6 +849,37 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	standing.Startable = len(waits.startable)
 	standing.StartableItems = waits.startable
 	standing.AdmittedItems = waits.admitted
+	// A run in flight for an item supersedes whatever the scheduler last said
+	// about why it had not started, even while the run's clearing write is
+	// still owed, so neither list carries the old reason beside the run.
+	carried := make(map[string]bool, len(running))
+	for _, run := range running {
+		carried[run.WorkItemID] = true
+	}
+	for _, items := range [][]WorkItemRef{standing.AdmittedItems, standing.StartableItems} {
+		for i := range items {
+			if carried[items[i].WorkItemID] {
+				items[i].SchedulingWait, items[i].WaitReason = nil, ""
+			}
+			markSchedulingWait(&items[i], now, sources.SchedulingWaitProblemAfter)
+		}
+	}
+	// The waits listed on their own are the ones no other listing names: a
+	// refused item carries its kept reason inside its refusal.
+	standing.SchedulingWaits = []WorkItemRef{}
+	standing.SchedulingWaitProblems = []WorkItemRef{}
+	for _, item := range refused {
+		carried[item.WorkItemID] = true
+	}
+	for _, item := range standing.AdmittedItems {
+		if item.SchedulingWait == nil || carried[item.WorkItemID] {
+			continue
+		}
+		standing.SchedulingWaits = append(standing.SchedulingWaits, item)
+		if item.SchedulingWaitProlonged {
+			standing.SchedulingWaitProblems = append(standing.SchedulingWaitProblems, item)
+		}
+	}
 	standing.WaitingForSlot = waits.slotWait
 	standing.DocumentsWaitingForSlot, standing.DocumentsWaitingProblem = readDocumentWaits(sources)
 	if waits.groups != nil {
@@ -1541,7 +1590,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	var slotWait *SlotWait
 	for _, entry := range queue.Entries {
-		waits.admitted = append(waits.admitted, WorkItemRef{WorkItemID: entry.ID, Title: entry.Title})
+		waits.admitted = append(waits.admitted, waitingWorkRef(entry))
 		if _, carried := inFlight[entry.ID]; carried {
 			continue
 		}
@@ -1578,7 +1627,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 		default:
 			// Nothing refuses it: this is the work the harness starts next, now or,
 			// on a full machine, as soon as a slot frees.
-			ref := WorkItemRef{WorkItemID: entry.ID, Title: entry.Title}
+			ref := waitingWorkRef(entry)
 			waits.startable = append(waits.startable, ref)
 			if full {
 				if slotWait == nil {
@@ -1591,6 +1640,13 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 	}
 	if !stalled {
 		stopped = Stall{}
+	}
+	for i := range refused {
+		for _, entry := range queue.Entries {
+			if entry.ID == refused[i].WorkItemID && entry.SchedulingWait != nil {
+				refused[i].Reason += "; " + waitingWorkReason(entry, now, sources.SchedulingWaitProblemAfter)
+			}
+		}
 	}
 	oldestHoldFirst(refused)
 	if slotWait != nil {

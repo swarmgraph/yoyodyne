@@ -1034,6 +1034,11 @@ var notAStep = map[string]string{
 	"carrySession":               "keeps the session an ended invocation established, so the next one resumes in it",
 	"recordEnvironmentalRefusal": "records that the machine, not the work, refused the round",
 
+	// Reporting what the scheduler decided. Clearing the reason the scheduler
+	// kept for why the item had not started changes nothing about the work and
+	// decides nothing; it is the record of a choice already made.
+	"clearAcceptedSchedulingWait": "clears the reason the scheduler kept for why the item had not started, once the run is accepted",
+
 	// The environment an invocation is made in, prepared before the first one and
 	// again by any process that resumes the run. It is not a step of the delivery
 	// and could not be reordered into one: it changes nothing about the work, and

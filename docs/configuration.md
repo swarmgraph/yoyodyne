@@ -3911,6 +3911,23 @@ what an item takes, so a second entry for one label is a mapping the operator
 believes is active and that nothing will ever reach. All three are refused when
 the configuration loads, before anything is claimed.
 
+### Saying why ready work has not started
+
+```yaml
+execution:
+  scheduling_wait_problem_after: 1h   # the default
+```
+
+Every pass keeps, on each ready item it did not start and on each decided repair
+or re-run it left unstarted, the reason it gave, as one value in the item's
+tracker metadata that a changed reason replaces and the run starting the item
+clears. `yoyo status` and the dashboard read it back
+([operations](operations.md#reading-why-the-scheduler-has-not-started-an-item)).
+`scheduling_wait_problem_after` is how long one reason may stand unchanged
+before the wait is shown as a problem, with whose move ends it. It must not be
+negative; zero takes the default. It changes no priority, reservation, budget,
+or scheduling rule: it says when a wait is reported, and nothing else.
+
 ### Watching instead of draining
 
 `yoyo work` returns when nothing more is ready. `yoyo work --watch` does not: it

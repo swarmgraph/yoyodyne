@@ -494,6 +494,7 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		GateChecks:                 resolved.Config.GateCheckCommands(),
 		Capacity:                   resolved.Config.Execution.MaxConcurrentDevelopers,
 		Slots:                      resolved.Config.Execution.DeveloperSlots,
+		SchedulingWaitProblemAfter: resolved.Config.Execution.SchedulingWaitProblemAfter.Duration(),
 		TrackerTimeout:             chatTrackerTimeout,
 	}
 	// The program manager instances, so the hourly line counts the stale ones

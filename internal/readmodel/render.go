@@ -327,7 +327,7 @@ func (s Standing) renderWaitingTurns() string {
 // step and whose it is, then one sentence on whether any of it is the
 // operator's, and then the items themselves.
 func (s Standing) renderNotStartable() string {
-	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 && s.WaitingForSlot == nil {
+	if s.NotStartableProblem != "" && len(s.NotStartable) == 0 && s.WaitingForSlot == nil && len(s.SchedulingWaits) == 0 {
 		return unreadable("Not startable", s.NotStartableProblem) + s.renderDocumentWaits()
 	}
 	var rendered strings.Builder
@@ -354,6 +354,13 @@ func (s Standing) renderNotStartable() string {
 		}
 		rendered.WriteString(remainder(further, "refused item"))
 	}
+	// Why the scheduler has not started ready work, a problem first.
+	waiting := append(append([]WorkItemRef{}, s.SchedulingWaitProblems...), notProlonged(s.SchedulingWaits)...)
+	listedWaits, furtherWaits := bound(len(waiting))
+	for _, item := range waiting[:listedWaits] {
+		fmt.Fprintf(&rendered, "  %s (%s) — not started: %s\n", item.Title, item.WorkItemID, item.WaitReason)
+	}
+	rendered.WriteString(remainder(furtherWaits, "item the scheduler has kept a reason for not starting"))
 	if s.NotStartableProblem != "" {
 		fmt.Fprintf(&rendered, "%s%s\n", partialRead, s.NotStartableProblem)
 	}
@@ -718,4 +725,15 @@ func atEffort(model, effort, description string) string {
 		return ", at " + effort + " effort"
 	}
 	return ", on " + model + " at " + effort + " effort"
+}
+
+// notProlonged is the waits that have not yet stood long enough to be a problem.
+func notProlonged(waits []WorkItemRef) []WorkItemRef {
+	var kept []WorkItemRef
+	for _, wait := range waits {
+		if !wait.SchedulingWaitProlonged {
+			kept = append(kept, wait)
+		}
+	}
+	return kept
 }

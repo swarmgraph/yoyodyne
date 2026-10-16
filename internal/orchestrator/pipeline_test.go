@@ -74,6 +74,10 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		AcceptanceCriteria: "feature.txt exists",
 		Status:             "open",
 	}}
+	// The scheduler kept a reason this item had not started; the run that
+	// starts it clears that reason and leaves the notes as they were.
+	tracker.Item.SchedulingWait = &beads.SchedulingWait{Class: "sequenced behind work in flight", Reason: "waiting behind run run-other", FirstPassedOver: time.Now().Add(-time.Minute), ReasonSince: time.Now().Add(-time.Minute)}
+	tracker.Item.Notes = "Earlier notes"
 	tracker.OnClaim = func() error {
 		if err := os.MkdirAll(filepath.Join(repository, ".beads"), 0o700); err != nil {
 			return err
@@ -81,6 +85,9 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 		return os.WriteFile(filepath.Join(repository, ".beads", "issues.jsonl"), []byte("claim control state\n"), 0o600)
 	}
 	provider := &orchestratortest.Backend{Respond: func(request backend.RunRequest) (backend.RunResult, error) {
+		if tracker.Item.SchedulingWait != nil {
+			t.Fatal("the developer was invoked with the scheduler's old reason still kept on the item")
+		}
 		if !strings.Contains(request.Prompt, "design content") {
 			return backend.RunResult{}, errors.New("prompt did not contain referenced design")
 		}
@@ -144,6 +151,9 @@ func TestPipelineEndToEndWithFakeBackend(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(outcome.WorktreePath, "feature.txt")); err != nil {
 		t.Fatalf("preserved worktree change missing: %v", err)
+	}
+	if tracker.Item.SchedulingWait != nil || !strings.HasPrefix(tracker.Item.Notes, "Earlier notes") {
+		t.Fatalf("starting the item left wait %+v, notes %q", tracker.Item.SchedulingWait, tracker.Item.Notes)
 	}
 }
 
@@ -846,6 +856,8 @@ func TestPipelineEnforcesConfiguredDeveloperCapacityBeforeClaim(t *testing.T) {
 	provider := &orchestratortest.Backend{ReportedAvailability: backend.Availability{Installed: true, Authenticated: true}}
 	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
 	now := time.Now().UTC()
+	wait := &beads.SchedulingWait{Reason: "waiting for a slot", FirstPassedOver: now, ReasonSince: now}
+	tracker.Item.SchedulingWait = wait
 	active := runstate.State{
 		SchemaVersion: runstate.StateSchemaVersion,
 		RunID:         "run-fedcba9876543210fedcba9876543210",
@@ -863,6 +875,9 @@ func TestPipelineEnforcesConfiguredDeveloperCapacityBeforeClaim(t *testing.T) {
 
 	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err == nil || !strings.Contains(err.Error(), "developer capacity is full") {
 		t.Fatalf("Run() capacity error = %v", err)
+	}
+	if tracker.Item.SchedulingWait != wait {
+		t.Fatal("refused dispatch cleared the scheduling wait")
 	}
 	if tracker.Claimed {
 		t.Fatal("capacity-limited run claimed work")

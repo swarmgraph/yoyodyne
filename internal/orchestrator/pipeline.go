@@ -756,6 +756,11 @@ type Outcome struct {
 	Branch            string                              `json:"branch,omitempty"`
 	WorktreePath      string                              `json:"worktree_path,omitempty"`
 	BaseCommit        string                              `json:"base_commit,omitempty"`
+
+	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
+	// this run still owes; see runstate.State.SchedulingWaitClearFailure.
+	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
+
 	// continuationAccepted is set only after an adopted run has passed its
 	// resume preconditions. A pre-adoption pause can name an existing run
 	// without accepting it.
@@ -1599,6 +1604,7 @@ func (a *activeRun) claim(ctx context.Context) error {
 	if err := validateClaimedItem(item, a.state.WorkItemID); err != nil {
 		return fmt.Errorf("validate claimed work item: %w", err)
 	}
+	a.clearAcceptedSchedulingWait(ctx)
 	bundle, err := contextbundle.Assemble(contextbundle.Request{RepositoryRoot: a.pipeline.Repository, WorkItem: item, Specifications: a.pipeline.Config.Product.Specifications, IntentRoot: a.pipeline.Config.Product.IntentRoot(a.pipeline.Repository)})
 	if err != nil {
 		return fmt.Errorf("assemble claimed work item context: %w", err)
@@ -2046,6 +2052,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 		},
 	}
 	run.keptChecksOwed = pickedUpAtChecks
+	run.clearAcceptedSchedulingWait(ctx)
 	// A run resumed at its promotion carries the verdict that authorized it into
 	// the outcome it reports, because the steps past this point read the outcome:
 	// the independence check reads the two sessions off it, the notes recorded on

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
@@ -348,5 +349,24 @@ func TestAnUnknownWorkItemExemptionIsRefused(t *testing.T) {
 	}
 	if err != nil && !strings.Contains(err.Error(), `"diagnosis"`) {
 		t.Fatalf("Decode() error = %v, want it to name the classes there are", err)
+	}
+}
+
+func TestSchedulingWaitProblemTime(t *testing.T) {
+	for _, test := range []struct {
+		value string
+		want  time.Duration
+	}{
+		{"", time.Hour}, {"  scheduling_wait_problem_after: 2h\n", 2 * time.Hour},
+	} {
+		input := strings.Replace(validBootstrapConfig, "execution:\n", "execution:\n"+test.value, 1)
+		cfg, err := Decode(strings.NewReader(input))
+		if err != nil || cfg.Execution.SchedulingWaitProblemAfter.Duration() != test.want {
+			t.Fatalf("value %q: got %s, %v", test.value, cfg.Execution.SchedulingWaitProblemAfter.Duration(), err)
+		}
+	}
+	input := strings.Replace(validBootstrapConfig, "execution:\n", "execution:\n  scheduling_wait_problem_after: -1h\n", 1)
+	if _, err := Decode(strings.NewReader(input)); err == nil {
+		t.Fatal("negative duration accepted")
 	}
 }
