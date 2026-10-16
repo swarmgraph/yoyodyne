@@ -75,6 +75,20 @@ type eligibilityReading struct {
 	schedule *Schedule
 	poll     *idlePoll
 	passOver func(workItemID, reason string)
+	// keepWait is passOver for an entry the tracker calls ready: it names the
+	// entry on the schedule and also keeps the reason on the item, with the
+	// class the poll counts it under. See Schedule's keepWait.
+	keepWait func(workItemID string, class runstate.PassedOverClass, reason string)
+}
+
+// keepWaitOn keeps a ready entry's reason through keepWait, and names it
+// through passOver alone where the reading carries no keepWait.
+func (r eligibilityReading) keepWaitOn(workItemID string, class runstate.PassedOverClass, reason string) {
+	if r.keepWait != nil {
+		r.keepWait(workItemID, class, reason)
+		return
+	}
+	r.passOver(workItemID, reason)
 }
 
 // eligibility asks every question about one entry but the conflict one, and
@@ -128,7 +142,7 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 	// pullable at the next selection. The derivation and the words are the
 	// backlog's, which is what the standing status refuses the same item with.
 	if covering := read.coverage.Covering(entry.ID); len(covering) > 0 {
-		reading.passOver(entry.ID, backlog.CoveredReason(covering))
+		reading.keepWaitOn(entry.ID, runstate.PassedOverCoveredByChildren, backlog.CoveredReason(covering))
 		poll.pass(entry.ID, runstate.PassedOverCoveredByChildren, "")
 		return passedOver, nil
 	}
@@ -146,7 +160,7 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		// that outlives them answering is that it notices. What is
 		// remembered is only that this was said: an item paused all night
 		// is one line in the report rather than one per poll.
-		reading.passOver(entry.ID, "an unresolved directive pauses it: "+pausing[0].Summary())
+		reading.keepWaitOn(entry.ID, runstate.PassedOverPausedByDirective, "an unresolved directive pauses it: "+pausing[0].Summary())
 		poll.pass(entry.ID, runstate.PassedOverPausedByDirective, "")
 		return passedOver, nil
 	}
@@ -174,7 +188,7 @@ func (s Scheduler) eligibility(entry backlog.Entry, reading eligibilityReading) 
 		if err := pull.route(read.items[entry.ID], unmet); err != nil && schedule.ReadinessProblem == "" {
 			schedule.ReadinessProblem = err.Error()
 		}
-		reading.passOver(entry.ID, unreadyReason(unmet))
+		reading.keepWaitOn(entry.ID, runstate.PassedOverPrerequisiteUnmet, unreadyReason(unmet))
 		poll.pass(entry.ID, runstate.PassedOverPrerequisiteUnmet, "")
 		return passedOver, nil
 	}

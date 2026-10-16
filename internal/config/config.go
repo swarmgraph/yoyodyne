@@ -284,8 +284,9 @@ type Execution struct {
 	// waits on a landing. A landing's checks run through the same check runner
 	// as every run's, so whatever bounds the machine's heavy checks bounds them.
 	// Zero reads as DefaultDocumentLandings; see DocumentLandingLimit.
-	DocumentLandings           int `yaml:"document_landings" json:"document_landings"`
-	RepairAttemptsBeforeReplan int `yaml:"repair_attempts_before_replan" json:"repair_attempts_before_replan"`
+	DocumentLandings           int      `yaml:"document_landings" json:"document_landings"`
+	RepairAttemptsBeforeReplan int      `yaml:"repair_attempts_before_replan" json:"repair_attempts_before_replan"`
+	SchedulingWaitProblemAfter Duration `yaml:"scheduling_wait_problem_after" json:"scheduling_wait_problem_after"`
 	// IntegrationRetriesBeforeReconciliation bounds the replays of a run whose
 	// promotion lost a race — to another run, or to whoever moved the target
 	// branch mid-run — that stopped on the change: the replay conflicted, or the
@@ -1157,6 +1158,9 @@ func (c Config) Validate() error {
 	// all waits for her summoned turn and no longer, and probes at the poll
 	// after it. Only a negative one, which
 	// describes no wait anybody could take, is refused.
+	if c.Execution.SchedulingWaitProblemAfter < 0 {
+		problems = append(problems, "execution.scheduling_wait_problem_after cannot be negative")
+	}
 	if c.Execution.BrakeCooldown < 0 {
 		problems = append(problems, "execution.brake_cooldown cannot be negative")
 	}

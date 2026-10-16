@@ -1503,6 +1503,28 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		deferred[workItemID] = len(schedule.Deferred)
 		schedule.Deferred = append(schedule.Deferred, Deferred{WorkItemID: workItemID, Reason: reason})
 	}
+	// keepWait keeps, on a ready item this pull did not start, the reason it
+	// did not start, as the one current value the tracker holds for the item
+	// beside its notes; see schedulingwait.go. It decides nothing: every pull
+	// still asks every question afresh, and the value is only what the last pull
+	// that passed the item over said about it. waitTracker and waitItems are the
+	// pull's, set once the queue is read.
+	var waitTracker ScheduleTracker
+	var waitItems map[string]beads.WorkItem
+	keepWait := func(workItemID string, class runstate.PassedOverClass, reason string) {
+		passOver(workItemID, reason)
+		reason = schedulingWaitReason(reason, waitItems)
+		// The queue was read with each item's kept reason, so a reason that has
+		// not changed costs no tracker write and no read.
+		if item, read := waitItems[workItemID]; read {
+			if _, changed := beads.NextSchedulingWait(item.SchedulingWait, string(class), reason, s.now()); !changed {
+				return
+			}
+		}
+		if err := recordSchedulingWait(ctx, waitTracker, workItemID, class, reason, s.now()); err != nil {
+			schedule.CarryOutReadProblem = joinProblem(schedule.CarryOutReadProblem, fmt.Sprintf("record why %s has not started: %v", workItemID, err))
+		}
+	}
 	// sequencedEarlier is the items this pass passed over because starting them
 	// would have raced work already in flight, against the conflict that held
 	// each one. It
@@ -2950,6 +2972,8 @@ pulling:
 		// because it needs the queue — it reads the entries' executors — and
 		// because the entries it closes must not then be passed over on this same
 		// pull as work still waiting on somebody opening a conversation.
+		waitTracker = pull.Tracker
+		waitItems = read.items
 		queue.Entries = s.land(ctx, &schedule, pull, queue.Entries)
 		schedule.Admitted = len(queue.Entries)
 		schedule.Pullable = queue.Ready()
@@ -3011,7 +3035,7 @@ pulling:
 			}
 			answer, err := s.eligibility(entry, eligibilityReading{
 				pull: pull, read: read, tried: tried, occupied: occupied, waiting: waitingRuns,
-				schedule: &schedule, poll: &poll, passOver: passOver,
+				schedule: &schedule, poll: &poll, passOver: passOver, keepWait: keepWait,
 			})
 			if err == nil {
 				decided[entry.ID] = answer
@@ -3162,7 +3186,7 @@ pulling:
 				// reports the last of them rather than the first.
 				if racing, races := flight.against(read.items[entry.ID]); races {
 					racedNow[entry.ID] = true
-					passOver(entry.ID, racing.reason())
+					keepWait(entry.ID, runstate.PassedOverSequencedBehindWork, racing.reason())
 					sequencedEarlier[entry.ID] = racing
 					sequenced = append(sequenced, entry.ID)
 					poll.pass(entry.ID, runstate.PassedOverSequencedBehindWork, "")
@@ -3247,12 +3271,12 @@ pulling:
 			}
 			if racing, races := flight.against(read.items[past.entry.ID]); races {
 				racedNow[past.entry.ID] = true
-				passOver(past.entry.ID, racing.reason())
+				keepWait(past.entry.ID, runstate.PassedOverSequencedBehindWork, racing.reason())
 				sequencedEarlier[past.entry.ID] = racing
 				poll.pass(past.entry.ID, runstate.PassedOverSequencedBehindWork, "")
 				continue
 			}
-			passOver(past.entry.ID, leftForAnotherSlotReason(past.slot, past.took))
+			keepWait(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, leftForAnotherSlotReason(past.slot, past.took))
 			poll.pass(past.entry.ID, runstate.PassedOverLeftForAnotherSlot, "")
 		}
 		// A decision the walk never reached a slot for is written onto its item as

@@ -448,6 +448,9 @@ type OwedStep struct {
 	ReconcileFindings []runstate.ReconcileFinding `json:"reconcile_findings,omitempty"`
 	Status            runstate.Status             `json:"status"`
 	Phase             runstate.Phase              `json:"phase,omitempty"`
+	// SchedulingWaitClearFailure is the clearing of the scheduler's kept reason
+	// for the item, which the run's start could not write and reconcile retries.
+	SchedulingWaitClearFailure string `json:"scheduling_wait_clear_failure,omitempty"`
 	// EndedAt is when the run ended, which is when the step began to be owed.
 	// It is absent on a record that names no ending.
 	EndedAt                    time.Time                  `json:"ended_at,omitzero"`
@@ -561,6 +564,9 @@ func (a Attention) What() string {
 		}
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
+			if step.SchedulingWaitClearFailure != "" {
+				return fmt.Sprintf("the old scheduling reason for %s could not be cleared: %s", a.WorkItemID, step.SchedulingWaitClearFailure)
+			}
 			if len(step.ReconcileFindings) > 0 {
 				return reconcileFindingWhat(a.WorkItemID, step.ReconcileFindings)
 			}
@@ -757,6 +763,9 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — nothing reaches the document until they or the operator decide it"
 	case AttentionOwedStep:
 		if step := a.OwedStep; step != nil {
+			if step.SchedulingWaitClearFailure != "" {
+				return a.Mover.Possessive() + " — `yoyo reconcile` retries clearing the old scheduling reason; accepted execution continues"
+			}
 			if len(step.ReconcileFindings) > 0 {
 				return reconcileFindingWhose(a.Mover, step.ReconcileFindings)
 			}
@@ -1013,7 +1022,7 @@ func amendmentAttention(proposal amendment.Proposal) Attention {
 // owedStepAttention is a run that ended still owing a step, as the attention
 // line carries it.
 func owedStepAttention(state runstate.State) Attention {
-	step := &OwedStep{ReconcileFindings: state.ReconcileFindings, Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure, ConfigComparison: state.ConfigComparison}
+	step := &OwedStep{SchedulingWaitClearFailure: state.SchedulingWaitClearFailure, ReconcileFindings: state.ReconcileFindings, Status: state.Status, Phase: state.Phase, EndedAt: runEnded(state), PullRequest: state.PullRequest, MergeDrop: state.MergeDrop, CleanupFailure: state.CleanupFailure, LandingChecks: state.LandingChecks, CompletionRecordingFailure: state.CompletionRecordingFailure, ConfigComparison: state.ConfigComparison}
 	if state.Integration != nil {
 		step.TargetBranch = state.Integration.TargetBranch
 	}

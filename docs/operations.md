@@ -5184,6 +5184,44 @@ its records could not be read rather than reporting an empty list. It is not
 printed as a fifth line: it is the read model's capacity query, carried for the
 capacity panel and for scripts.
 
+## Reading why the scheduler has not started an item
+
+When a scheduling pass leaves a ready item unstarted — it would race a run in
+flight, every free developer slot went to its preferred label's work, it is
+covered by its children, a directive pauses it, it asks for something the tree
+does not have — or leaves a decided repair or
+re-run unstarted, it keeps that item's current reason. Read it in `yoyo status`,
+under the not-startable line, or in the dashboard's admitted, startable, and
+held-back lists. Each reason names what is in its way by what it is, with its
+identifier after it, and says when the item was first passed over and since when
+the current reason has stood.
+
+The reason is one value per item in the tracker's metadata,
+`yoyodyne_scheduling_wait`, beside the item's notes and never in them: a pass
+whose reason is unchanged writes nothing, a changed reason replaces the value
+and keeps the time the item was first passed over, and the run that starts the
+item clears it before its developer is invoked. A dispatch refused before the
+run starts leaves it as it was. A failed clearing write does not stop the run:
+the run records that it is owed, `yoyo status` names it on the run and under
+"Needs a human" as a step the harness still owes, and `yoyo reconcile` retries
+it once the run's lease is free, leaving alone any reason a later pass recorded
+in the meantime. While the clearing is owed, the run in flight hides the old
+reason from every list.
+
+The value is what the last pass that passed the item over said. Every pass still
+asks every question afresh, and nothing the scheduler decides reads this value,
+so it changes no scheduling rule, reservation, priority, or budget.
+
+A reason that has stood unchanged for longer than
+`execution.scheduling_wait_problem_after` (default `1h`) is shown as a problem,
+first in the list, with whose move ends it. That owner is the one the idle line
+and the stall alarm already give for the same kind of wait — "nobody's" for a
+wait behind a run in flight or a slot's preference, the harness's for a decision
+recorded and not yet carried out, the development manager's for a prerequisite
+the tree does not have, the operator's for a directive only he can resolve —
+and not an owner decided here. The JSON reading carries the same items as
+`scheduling_waits` and the problems among them as `scheduling_wait_problems`.
+
 ## When nothing happened at all
 
 Under the four lines, `yoyo status` reads back every stretch in which this
