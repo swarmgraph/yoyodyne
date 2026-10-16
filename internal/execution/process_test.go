@@ -13,6 +13,7 @@ import (
 	"sync"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestProcessResultRecordsOutputClosureOnlyWhenObserved(t *testing.T) {
@@ -852,5 +853,29 @@ func TestProcessHelper(t *testing.T) {
 		os.Exit(0)
 	default:
 		os.Exit(98)
+	}
+}
+
+func TestDiagnosticTailRedactsASecretAcrossItsCutAndKeepsWholeCharacters(t *testing.T) {
+	secret := "secret-across-the-tail-boundary"
+	for _, line := range []string{
+		strings.Repeat("x", 100) + secret + strings.Repeat("é", 1275) + "last cause",
+		strings.Repeat("é", 2000) + "last cause",
+	} {
+		outputs := make(chan Output, 2)
+		scanErrors := make(chan error, 2)
+		var group sync.WaitGroup
+		group.Add(1)
+		scanOutput(strings.NewReader(line+"\n"), StreamStderr, RealClock{}, NewRedactor(secret), outputs, scanErrors, func() {}, &group)
+		group.Wait()
+		output := <-outputs
+		if !utf8.ValidString(output.Tail) || !strings.HasSuffix(output.Tail, "last cause") || !strings.Contains(output.Tail, "earlier output omitted") {
+			t.Fatalf("tail = %q", output.Tail)
+		}
+		for i := 0; i+8 <= len(secret); i++ {
+			if strings.Contains(output.Tail, secret[i:i+8]) {
+				t.Fatalf("tail retained part of a secret: %q", output.Tail)
+			}
+		}
 	}
 }

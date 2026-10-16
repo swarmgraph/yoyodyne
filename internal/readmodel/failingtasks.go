@@ -47,6 +47,9 @@ type FailingTask struct {
 	// Problem is what the latest failed firing's record says stopped it, which
 	// carries the refusal's own words.
 	Problem string `json:"problem"`
+	// FailureOutput is the bounded, redacted end of what the latest failed
+	// session printed, where it printed anything.
+	FailureOutput string `json:"failure_output,omitempty"`
 	// WentWrong is a product pass's latest failure in ordinary words, which the
 	// line about it leads with ahead of the record's own.
 	WentWrong string `json:"went_wrong,omitempty"`
@@ -80,7 +83,7 @@ func (f FailingTask) Mover() Mover {
 // times.
 func (f FailingTask) Says() string {
 	if f.ProductPass {
-		return (runstate.PassFailure{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, WentWrong: f.WentWrong, Problem: f.Problem}).Says()
+		return (runstate.PassFailure{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, WentWrong: f.WentWrong, Problem: f.Problem, FailureOutput: f.FailureOutput}).Says()
 	}
 	return fmt.Sprintf("the recurring task %s has failed before its first turn %d times in a row since %s: %s; latest: %s",
 		f.Task, f.Failures, f.FirstAt.UTC().Format(time.RFC3339), f.Cause.Describe(), singleLine(f.Problem, maxRefusalBytes))

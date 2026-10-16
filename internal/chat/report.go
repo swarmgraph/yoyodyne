@@ -507,7 +507,7 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 	s.markReportDelivered(subject.ID)
 	if handling.NeedsOperator {
 		if subject.PassFailureTask != "" {
-			outcome.applied("recorded that %s needs the operator's hand: %s; the watching role still watches and the development manager resolves the cause; only the affected pass succeeding clears the finding",
+			outcome.applied("recorded that %s needs the operator's hand: %s; the role named in the finding still answers it and resolves the cause; only the affected pass succeeding clears the finding",
 				subject.ID, handling.PersonOnly.Step)
 			return
 		}

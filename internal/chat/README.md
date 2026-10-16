@@ -148,7 +148,8 @@ message size limit.
 report block it sends `sweep.ReportRequest()` once (`RetryReport` /
 `ReportRetried`). Repeated pass failures are written into the next pass's
 message by `Trigger.PassFailures`; who they go to is
-`ownership.ResolvePassFailure`.
+`ownership.ResolvePassFailureForRole`, and the end of what a failed turn
+printed is `Session.FailureOutput`.
 
 ### What does a recurring turn start from?
 `passcontext.go`. `ForPass` arms it; `Send` calls `startFreshPass` for the

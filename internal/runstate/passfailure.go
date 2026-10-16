@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
@@ -28,6 +29,13 @@ type PassFailure struct {
 	FirstAt   time.Time        `json:"first_at"`
 	RaisedAt  time.Time        `json:"raised_at"`
 	LatestAt  time.Time        `json:"latest_at"`
+	// Role and Agent are whose pass is failing, so the finding can be routed
+	// away from a role that cannot answer it while its own pass fails.
+	Role  domain.AgentRole `json:"role,omitempty"`
+	Agent string           `json:"agent,omitempty"`
+	// FailureOutput is the bounded, redacted end of what the latest failed
+	// session printed, with any cut declared at its start.
+	FailureOutput string `json:"failure_output,omitempty"`
 	// WentWrong is what stopped the latest failed pass, in ordinary words, and
 	// Problem is that pass's record. A line about the failure leads with the
 	// first, because the record is written for whoever debugs the harness.
@@ -50,6 +58,20 @@ func (f PassFailure) Says() string {
 	return said
 }
 
+// failureOutputHeading introduces the session's own output on a finding.
+const failureOutputHeading = "\nWhat the session printed last, before it ended in an error:\n"
+
+// OutputSays is the latest failed session's printed output as a finding
+// carries it, after the sentence about the failure, kept within room bytes by
+// cutting more of its start; it is empty where the session printed nothing.
+func (f PassFailure) OutputSays(room int) string {
+	output := strings.TrimSpace(f.FailureOutput)
+	if output == "" || room <= len(failureOutputHeading)+len(execution.DiagnosticTailMarker) {
+		return ""
+	}
+	return failureOutputHeading + execution.DiagnosticTailWithin(output, room-len(failureOutputHeading)-len(execution.DiagnosticTailMarker))
+}
+
 func lastPassErrorLine(problem string) string {
 	line := strings.Join(strings.Fields(problem), " ")
 	if len(line) <= 512 {
@@ -68,6 +90,12 @@ func PassFailureOwnersSays(owner ownership.PassFailure) string {
 		watcher = "the development manager (no factory-flow program manager is configured)"
 	}
 	said := watcher + " watches and must answer this finding; the development manager resolves the cause"
+	if owner.Resolver == domain.RoleProgramManager {
+		said = watcher + " must answer this finding and resolve the cause, because the role that would otherwise resolve it is the one whose pass is failing"
+	}
+	if owner.Resolver == domain.RoleProductManager {
+		said = "the Lead Product Manager must answer this finding and resolve the cause, because the role that would otherwise answer it is the one whose pass is failing"
+	}
 	if owner.PersonStep != "" {
 		said += "; the operator must " + strings.Join(strings.Fields(owner.PersonStep), " ")
 	}
@@ -97,6 +125,7 @@ func PassFailuresOf(passes []Sweep) []PassFailure {
 			}
 			f.Failures++
 			f.LatestAt, f.Problem, f.WentWrong = pass.StartedAt, pass.Problem, PassWentWrong(pass)
+			f.Role, f.Agent, f.FailureOutput = pass.Role, pass.Agent, pass.FailureOutput
 			for _, step := range pass.Steps {
 				if step.Outcome == StepFailed {
 					f.Problem = step.Name + ": " + step.Detail
@@ -242,7 +271,7 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 			r := report.Report{SchemaVersion: report.SchemaVersion, ID: id, Role: report.HarnessReporter,
 				RunID: f.Task + "@" + f.FirstAt.UTC().Format(time.RFC3339Nano), ProductID: s.productID,
 				RepositoryID: attribution.RepositoryID, Build: attribution.Build, Severity: report.SeverityWarning,
-				PassFailureTask: f.Task, RecordedAt: f.RaisedAt, Message: f.Says() + ". " + PassFailureOwnersSays(ownership.ResolvePassFailure(watcher, nil)) + "."}
+				PassFailureTask: f.Task, RecordedAt: f.RaisedAt, Message: passFailureMessage(f, watcher)}
 			if err := reports.Append(r); err != nil {
 				return err
 			}
@@ -257,4 +286,17 @@ func (s *SweepStore) RecordPassFailures(ctx context.Context, reports *ReportStor
 		}
 	}
 	return nil
+}
+
+// passFailureMessage is the finding filed for a pass failing repeatedly: what
+// failed, who answers it, and the end of what the failed session printed, cut
+// further at its start where the whole would pass the report's bound.
+func passFailureMessage(f PassFailure, watcher string) string {
+	message := f.Says() + ". " + PassFailureOwnersSays(ownership.ResolvePassFailureForRole(watcher, f.Role, f.Agent, nil)) + "."
+	return message + f.OutputSays(report.MaxMessageBytes-len(message))
+}
+
+// FailureOutputTail retains a small, readable end of already redacted output.
+func FailureOutputTail(output string) string {
+	return execution.DiagnosticTail(output)
 }

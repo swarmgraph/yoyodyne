@@ -285,6 +285,9 @@ func (c SweepClaim) Validate() error {
 // names none, and what it carries instead is each step it took with what became
 // of it.
 type Sweep struct {
+	// FailureOutput is the end of what a session that ended in an error
+	// printed, redacted and bounded by execution.DiagnosticTail.
+	FailureOutput string           `json:"failure_output,omitempty"`
 	SchemaVersion int              `json:"schema_version"`
 	ProductID     domain.ProductID `json:"product_id"`
 	Task          string           `json:"task"`
@@ -887,6 +890,9 @@ func (s Sweep) Validate() error {
 		if err := s.Result.Validate(); err != nil {
 			problems = append(problems, err)
 		}
+	}
+	if len(s.FailureOutput) > MaxSweepTextBytes {
+		problems = append(problems, fmt.Errorf("failure output is %d bytes, limit is %d", len(s.FailureOutput), MaxSweepTextBytes))
 	}
 	if len(s.Problem) > MaxSweepTextBytes {
 		problems = append(problems, fmt.Errorf("problem is %d bytes, limit is %d", len(s.Problem), MaxSweepTextBytes))

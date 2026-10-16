@@ -74,3 +74,35 @@ func TestAPassFailureNamesTheOperatorOnlyForARecordedPersonOnlyStep(t *testing.T
 		t.Fatal("watcher was not told the person's step")
 	}
 }
+
+func TestFailedManagersPassFailureReachesTheRoleThatCanAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		failed, receiver           domain.AgentRole
+		failedAgent, receiverAgent string
+	}{
+		{domain.RoleDevelopmentManager, domain.RoleProgramManager, "", "factory-watch"},
+		{domain.RoleProgramManager, domain.RoleProductManager, "factory-watch", ""},
+	} {
+		t.Run(string(tc.failed), func(t *testing.T) {
+			passes, _ := runstate.NewSweepStore(t.TempDir(), "example")
+			start := time.Now()
+			for i := 0; i < 3; i++ {
+				at := start.Add(time.Duration(i) * time.Hour)
+				if err := passes.Append(runstate.Sweep{Task: "failed-manager", Role: tc.failed, Agent: tc.failedAgent, StartedAt: at, EndedAt: at.Add(time.Minute), Failed: true, Problem: "process exited", FailureOutput: "last printed cause"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sources := Sources{Passes: passes, ProgramManagers: []ProgramManagerInstance{{Agent: "factory-watch", Lane: "factory-flow"}}}
+			text := RenderPassFailures(sources, tc.receiver, tc.receiverAgent)
+			if !strings.Contains(text, "last printed cause") || !strings.Contains(text, "must answer this finding") {
+				t.Fatalf("receiver got %q", text)
+			}
+			if text := RenderPassFailures(sources, tc.failed, tc.failedAgent); text != "" {
+				t.Fatalf("failed role was asked to repair itself: %s", text)
+			}
+			if text := RenderPassFailures(sources, domain.RoleProgramManager, "another-manager"); text != "" {
+				t.Fatalf("another program manager received the finding: %s", text)
+			}
+		})
+	}
+}

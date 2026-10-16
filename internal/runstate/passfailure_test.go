@@ -208,3 +208,29 @@ func TestFailureFindingsAreSerializedAndRetriedFromTheSweepLog(t *testing.T) {
 		t.Fatalf("new run = %+v", filed)
 	}
 }
+
+func TestFailureOutputTailKeepsTheEndWithoutSplittingACharacter(t *testing.T) {
+	output := FailureOutputTail(strings.Repeat("é", 3000) + "last cause")
+	if !utf8.ValidString(output) || !strings.HasSuffix(output, "last cause") || !strings.HasPrefix(output, "[earlier output omitted;") || len(output) > MaxSweepTextBytes {
+		t.Fatalf("tail = %q", output)
+	}
+}
+
+// A finding carrying a long problem and a full kept ending still fits the
+// report's bound, giving up the start of the output rather than its end, and
+// the one-line sentence about the failure carries none of the output.
+func TestAPassFailureFindingKeepsTheOutputsEndWithinTheReportBound(t *testing.T) {
+	f := PassFailure{Task: "development-manager-sweep", Failures: 3, FirstAt: time.Now(), Role: domain.RoleDevelopmentManager,
+		WentWrong: strings.Repeat("went wrong ", 60), Problem: strings.Repeat("problem ", 200),
+		FailureOutput: FailureOutputTail(strings.Repeat("é", 3000) + "last cause")}
+	if strings.Contains(f.Says(), "last cause") {
+		t.Fatalf("the one-line sentence carries the output: %s", f.Says())
+	}
+	message := passFailureMessage(f, "factory-watch")
+	if len(message) > report.MaxMessageBytes || !utf8.ValidString(message) || !strings.HasSuffix(message, "last cause") || !strings.Contains(message, "earlier output omitted") {
+		t.Fatalf("message is %d bytes: %q", len(message), message)
+	}
+	if strings.Contains(message, "the development manager resolves") || !strings.Contains(message, "factory-flow program manager factory-watch must answer") {
+		t.Fatalf("the failing role was named to answer for its own pass: %s", message)
+	}
+}

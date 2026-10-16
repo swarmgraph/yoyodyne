@@ -625,6 +625,7 @@ type Options struct {
 // Session is one open conversation. It owns the durable record, so every turn
 // it completes is recorded before the operator sees the reply.
 type Session struct {
+	failureOutput         string
 	lastEffortRequested   string
 	lastEffortResolved    string
 	lastEffortReported    bool
@@ -1438,6 +1439,7 @@ func (s *Session) servedByAlternate() string {
 // Each turn is recorded before the next begins, so a conversation interrupted
 // part way still resumes from what was actually said.
 func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
+	s.failureOutput = ""
 	if err := s.PublishDocuments(ctx); err != nil {
 		return Reply{}, err
 	}
@@ -2074,7 +2076,19 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	}
 
 	lastSequence := s.state.LastSequence
+	// outputTail is the redacted end of what the current attempt printed, kept
+	// so a failed turn can say what the session said before it ended.
+	var outputTail string
+	outputRedactor := execution.NewRedactor(s.options.RedactValues...)
 	sink := func(event execution.Event) error {
+		if event.Type == execution.EventProcessOutput || event.Type == execution.EventAgentMessage {
+			var printed struct {
+				Text string `json:"text"`
+			}
+			if json.Unmarshal(event.Payload, &printed) == nil && printed.Text != "" {
+				outputTail = runstate.FailureOutputTail(outputTail + outputRedactor.Redact(printed.Text) + "\n")
+			}
+		}
 		if err := s.options.Store.AppendEvent(event); err != nil {
 			return err
 		}
@@ -2222,6 +2236,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	// the provider refused was charged for exactly as the one it served was.
 	s.lastInvocationCostUSD = 0
 	for {
+		outputTail = ""
 		// The failover goes outside the meter rather than inside it, so each attempt
 		// is one line in the cost log naming the model that attempt actually asked
 		// for. Wrapped the other way round, a turn the alternate served would be
@@ -2447,6 +2462,27 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		// next attempt writes over it.
 		s.stream.interrupted()
 	}
+	s.failureOutput = ""
+	if err != nil || result.IsError {
+		if outputTail == "" {
+			outputTail = result.Process.Stdout + "\n" + result.Process.Stderr + "\n" + result.Process.OutputTruncation
+		}
+		// Events carry cut prefixes; the process retains stderr's ending before
+		// those cuts, so a long diagnostic must not be read from events alone.
+		stderr := result.Process.StderrTail
+		if stderr == "" {
+			stderr = result.Process.Stderr
+		}
+		if stderr != "" {
+			outputTail += "\nProcess stderr:\n" + stderr
+		}
+		// The terminal can name a cause no preceding text event carried. Keep it
+		// last so bounding the combined output preserves that diagnostic.
+		if result.FinalText != "" {
+			outputTail += "\n" + result.FinalText
+		}
+		s.failureOutput = runstate.FailureOutputTail(outputRedactor.Redact(outputTail))
+	}
 	s.state.LastSequence = lastSequence
 	// What the provider compacted is recorded whichever way the turn ended: the
 	// session lost detail either way.
@@ -2507,7 +2543,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 	if result.IsError {
 		s.stream.cutOff()
 		return "", errors.Join(
-			fmt.Errorf("%s reported failure: %s", RoleTitle(s.state.Role), result.DescribeFailure()),
+			fmt.Errorf("%s reported failure: %s", RoleTitle(s.state.Role), execution.NewRedactor(s.options.RedactValues...).Redact(result.DescribeFailure())),
 			declined,
 			abandoned,
 			refusal,
@@ -5214,3 +5250,6 @@ func (s *Session) lastEffortDescriptionValue() string {
 	}
 	return s.state.ProviderEffortDescription
 }
+
+// FailureOutput is the redacted end of the most recent failed invocation.
+func (s *Session) FailureOutput() string { return s.failureOutput }

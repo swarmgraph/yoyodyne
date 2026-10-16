@@ -575,6 +575,26 @@ digest and lane report; the development manager receives it too and owns
 resolving the cause. Where no factory-flow program manager is configured, the
 development manager watches it as well, and the finding says why.
 
+A role is never named to answer for its own failing pass. When the failing
+pass is the development manager's own, the factory-flow program manager answers
+the finding and resolves the cause; where no factory-flow program manager is
+configured, the Lead Product Manager does. When it is the factory-flow program
+manager's own, the Lead Product Manager answers and resolves it. A pass of any
+other role, another program manager's included, is routed as above, and the
+operator is named only for a recorded person-only step, whichever role's pass
+it is.
+
+A session that ends in an error keeps the end of what it printed — its messages,
+its process's output and standard error, and its final reply — on the pass
+record, redacted as the rest of the record is and bounded to its last 2560
+bytes, opening with `[earlier output omitted; retaining the last 2560 bytes]`
+where its start was cut. The finding carries the latest failed pass's ending
+after its sentence, cut further at its start where the whole would pass a
+report's 4 KiB bound, and the pass of the role that answers it is handed the
+same ending, so the cause can be read without the session. The one-line entry
+in `yoyo status` does not carry it; `--json` has it as `failure_output`. A pass
+recorded before this, or a session that printed nothing, carries none.
+
 The dashboard's **Factory problems** section and `yoyo status` carry the same
 finding from the shared read model. Further failures raise its count without
 filing another report, and the status line names it even after reaching its
@@ -609,7 +629,8 @@ target, and the exact step. The reasons are `credential`, `repository-setting`,
 and `protected-file`; the last accepts only provider-refused settings files
 and files under `.yoyodyne/roles/`. An operator flag or ordinary repair prose
 alone cannot transfer ownership to the operator. The factory-flow program
-manager still watches, and the development manager still resolves the cause.
+manager still watches unless her own pass is failing; the role named in the
+finding still resolves the cause.
 
 ## Setting up with `yoyo setup`
 
@@ -2695,16 +2716,19 @@ by different output than the 8 MiB total — a provider stream puts one tool res
 on one line, so a single large file read can reach it while the invocation as a
 whole is nowhere near verbose.
 
-It follows the same rule. The line is cut, the rest of it is read and thrown away
-so the process is never blocked writing it, and the cut line ends with a marker:
+It follows the same rule. The line is cut and the rest is drained so the
+process is never blocked writing it. Of standard error, the last 2560 bytes
+are also kept, redacted, in the process result, so a failed session's finding
+can say how its error ended. The cut line ends with a marker:
 
 ```text
-…[line truncated at 1048576 bytes; 3407872 further bytes were not retained]
+…[line truncated at 1048576 bytes; 3407872 further bytes omitted from this line]
 ```
 
-The marker names no record holding the rest, because there is none — unlike the
-8 MiB bound, which cuts a copy while every line still reaches the event log, this
-one drops what it cuts. What follows the long line is read normally.
+The marker names no record holding the whole line. Unlike the 8 MiB bound,
+which cuts a copy while every line still reaches the event log, this one drops
+what it cuts, apart from that kept ending of standard error. What follows the long line
+is read normally.
 
 For a provider stream a cut line is no longer an envelope, so nothing is read off
 it: it is recorded as a `truncated_stream_line` anomaly in the run's event log
@@ -6684,7 +6708,8 @@ when it takes several work turns.
 If the report is still missing, the listing marks the pass **FAILED PASS**:
 its findings remain unrecorded, its writes stand, and it counts toward the
 repeated-failure finding watched by the factory-flow program manager and
-resolved by the development manager. A program manager's failed pass also keeps
+resolved by the development manager, or by another role where the failing pass
+is her own (see [the maintenance pass](#the-supervisors-maintenance-pass)). A program manager's failed pass also keeps
 its event cursor where it was. After
 `execution.missing_reports_before_fresh_conversation` consecutive passes still
 omit the block — three by default — the next pass opens a fresh conversation
@@ -6964,7 +6989,8 @@ said again beyond that. The first firing that takes a turn ends these pre-turn
 messages. Once three executions have failed, the broader
 [product pass finding](#the-supervisors-maintenance-pass) also stands, with the
 factory-flow program manager watching and the development manager resolving the
-cause; only a successful pass clears that finding.
+cause, unless the failing pass is one of theirs; only a successful pass clears
+that finding.
 
 One turn may report at most twenty findings and five questions, and a whole
 firing holds what its turns come to. A pass that ran past even that says so in
