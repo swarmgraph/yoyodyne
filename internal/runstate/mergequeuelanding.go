@@ -552,6 +552,34 @@ type MergeQueueHandback struct {
 	// HandedBackAt is when the failure was recorded on the run and the run
 	// docketed, and is set only for a continuation that HandsBackToRun.
 	HandedBackAt *time.Time `json:"handed_back_at,omitempty"`
+	// ReportedAt is when a handback with no run to give it to — a candidate no
+	// one head answers for, or a run that no longer has what a repair continues
+	// from — was put on the development manager's docket.
+	ReportedAt *time.Time `json:"reported_at,omitempty"`
+	// TransferTo is the queue mode a released entry was released to move to,
+	// where an explicit transfer is what released it. The entry that supersedes
+	// it there keeps its place (MergeQueueStore.Transfer).
+	TransferTo MergeQueueMode `json:"transfer_to,omitempty"`
+	// Conflict is the approved head refusing to merge onto the target, which is
+	// a defect of the change found before any candidate could be built: such a
+	// handback names no generation, and carries the conflict instead.
+	Conflict *MergeQueueConflict `json:"conflict,omitempty"`
+}
+
+// MergeQueueConflict is an approved head that would not merge onto the target
+// as it stood, and where.
+type MergeQueueConflict struct {
+	TargetBase string   `json:"target_base"`
+	Paths      []string `json:"paths,omitempty"`
+	// Detail is Git's own account of the refusal, bounded.
+	Detail string `json:"detail,omitempty"`
+}
+
+// Reported reports a continuation that is put on the development manager's
+// docket by itself rather than given to a run: no single head answers for the
+// candidate, or the run no longer has what a repair continues from.
+func (c MergeQueueContinuation) Reported() bool {
+	return c == MergeQueueMissingPrerequisite || c == MergeQueueUnattributed
 }
 
 func (h MergeQueueHandback) validate() []error {
@@ -575,11 +603,26 @@ func (h MergeQueueHandback) validate() []error {
 	if err := mergeQueueText("handback reason", h.Reason, true); err != nil {
 		problems = append(problems, err)
 	}
-	if !released && (h.Generation == 0 || len(h.Binding) != 64 || len(h.Heads) == 0) {
+	conflicted := h.Conflict != nil
+	switch {
+	case conflicted && released:
+		problems = append(problems, errors.New("a released entry names no conflict"))
+	case conflicted && (h.Generation != 0 || h.Binding != "" || h.Candidate != "" || len(h.Heads) != 1 || h.Conflict.TargetBase != h.TargetBase):
+		problems = append(problems, errors.New("a conflict found building the candidate names the head and the base it would not merge onto, and no generation"))
+	case !released && !conflicted && (h.Generation == 0 || len(h.Binding) != 64 || len(h.Heads) == 0):
 		problems = append(problems, errors.New("the handback names no failed generation"))
 	}
+	if conflicted && (len(h.Conflict.Detail) > maxMergeQueueEvidenceText || len(h.Conflict.Paths) > MaxConflictedPaths) {
+		problems = append(problems, errors.New("the conflict carries more than a handback keeps"))
+	}
+	if h.TransferTo != "" && (!released || !h.TransferTo.valid()) {
+		problems = append(problems, fmt.Errorf("transfer mode %q is named on a handback that is not a release for a transfer", h.TransferTo))
+	}
+	if h.ReportedAt != nil && (!h.Continuation.Reported() || h.ReportedAt.IsZero()) {
+		problems = append(problems, fmt.Errorf("a %s is not reported to the docket by itself", h.Continuation))
+	}
 	for field, value := range map[string]string{"target base": h.TargetBase, "candidate": h.Candidate, "approved head": h.ApprovedHead} {
-		if released && value == "" && field != "approved head" {
+		if (released && value == "" && field != "approved head") || (conflicted && field == "candidate") {
 			continue
 		}
 		if !commitPattern.MatchString(value) {
@@ -1086,6 +1129,8 @@ func extendsLanding(recorded, revised MergeQueueLanding) error {
 			return conflict("a handback is never withdrawn")
 		case was.HandedBackAt != nil && !sameTime(was.HandedBackAt, now.HandedBackAt):
 			return conflict("a handback, once given to its run, is never withdrawn")
+		case was.ReportedAt != nil && !sameTime(was.ReportedAt, now.ReportedAt):
+			return conflict("a handback, once on the docket, is never withdrawn from it")
 		case !sameHandback(*was, *now):
 			return conflict("a handback is never rewritten")
 		}
@@ -1105,6 +1150,7 @@ func sameHandback(a, b MergeQueueHandback) bool {
 		}
 	}
 	a.Heads, b.Heads, a.HandedBackAt, b.HandedBackAt, a.At, b.At = nil, nil, nil, nil, time.Time{}, time.Time{}
+	a.ReportedAt, b.ReportedAt = nil, nil
 	return reflect.DeepEqual(a, b)
 }
 

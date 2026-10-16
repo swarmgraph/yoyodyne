@@ -368,6 +368,7 @@ func reportRunStatus(ctx context.Context, args []string, stdout, stderr io.Write
 		fmt.Fprint(stdout, standing.RenderUsageWindows())
 		fmt.Fprint(stdout, standing.RenderProgramManagers())
 		fmt.Fprint(stdout, standing.RenderConversationPasses())
+		fmt.Fprint(stdout, standing.RenderMergeQueues())
 		fmt.Fprint(stdout, standing.RenderServices())
 		fmt.Fprintln(stdout)
 	}
@@ -681,6 +682,11 @@ func standingSources(configPath string) readmodel.Sources {
 	sources.UsageWindowDegradedPercent = cfg.Execution.UsageWindowDegradedPercent
 	if store, err := runstate.NewDivergedTargetStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.DivergedTargets = store
+	}
+	// The product's merge queues, each entry and where it stands. A product
+	// that has never admitted a change to one reads none, and prints nothing.
+	if store, err := runstate.NewMergeQueueStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.MergeQueues = store
 	}
 	// The product's supervisor and its record of the parts, so a part the
 	// supervisor has left down is said here with its reason.

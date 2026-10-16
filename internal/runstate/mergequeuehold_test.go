@@ -74,3 +74,50 @@ func TestAStageIsHeldForAsLongAsAProcessItStartedIsAlive(t *testing.T) {
 	}
 	_ = again.Close()
 }
+
+// A process forked while the worker held the stage carries a copy of the hold
+// until it replaces itself with the program it was starting. That copy is the
+// hold of nothing the stage started, so a stage whose own processes have all
+// ended is not read as running for the moment such a copy outlives them; it is
+// waited out within MergeQueueHoldForkGrace.
+func TestAMomentaryCopyOfAStagesHoldIsNotAStageStillRunning(t *testing.T) {
+	t.Parallel()
+
+	store := newMergeQueueStore(t, t.TempDir())
+	lease := workerLease(t, store, mainQueue)
+	generation := testGeneration(t, 1)
+	hold, err := store.HoldStage(lease, mainQueue, generation, MergeQueueStageChecks)
+	if err != nil {
+		t.Fatalf("HoldStage() = %v", err)
+	}
+	inherited, err := hold.Inherited()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The stand-in for the forked copy lives a fraction of the grace and is
+	// nothing the stage recorded starting.
+	copyHolder := exec.Command("/bin/sh", "-c", "sleep 0.5")
+	copyHolder.ExtraFiles = append(copyHolder.ExtraFiles, inherited)
+	copyHolder.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := copyHolder.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = copyHolder.Process.Kill(); _ = copyHolder.Wait() })
+	inherited.Close()
+	if err := hold.Close(); err != nil {
+		t.Fatal(err)
+	}
+	started := time.Now()
+	running, reason, err := store.StageRunning(mainQueue, generation, MergeQueueStageChecks)
+	if err != nil || running {
+		t.Fatalf("StageRunning() = %t, %q, %v; want the momentary copy waited out", running, reason, err)
+	}
+	if waited := time.Since(started); waited > MergeQueueHoldForkGrace {
+		t.Fatalf("StageRunning() waited %s, past the grace of %s", waited, MergeQueueHoldForkGrace)
+	}
+	again, err := store.HoldStage(lease, mainQueue, generation, MergeQueueStageChecks)
+	if err != nil {
+		t.Fatalf("HoldStage() once the copy is gone = %v", err)
+	}
+	_ = again.Close()
+}

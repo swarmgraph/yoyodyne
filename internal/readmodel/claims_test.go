@@ -204,6 +204,30 @@ func TestAClaimOverWorkThatAlreadyLandedIsNotGivenBack(t *testing.T) {
 	}
 }
 
+// A run that handed its approved change to the merge queue ended succeeded
+// with its item still claimed, and the claim is what keeps the change from
+// being started again while it waits to land; once the queue has landed it,
+// the run's own integration says so as for any landing.
+func TestAClaimOverAChangeWaitingInTheMergeQueueIsNotGivenBack(t *testing.T) {
+	t.Parallel()
+
+	queued := ended("run-queued", "yoyodyne-ifd.9", runstate.StatusSucceeded, 9*time.Hour)
+	queued.MergeQueue = &runstate.MergeQueueAdmissionRecord{
+		EntryID: "mqe-" + strings.Repeat("a", 32), Order: 1, Repository: "yoyodyne", TargetBranch: "main",
+		Mode: runstate.MergeQueueHarness, ApprovedHead: strings.Repeat("b", 40), AdmittedAt: auditNoon.Add(-9 * time.Hour),
+	}
+	if !queued.AwaitingMergeQueue() {
+		t.Fatal("a succeeded run admitted to the queue and not landed does not read as waiting in it")
+	}
+	if dead := DeadClaims([]Claim{claimed("yoyodyne-ifd.9", "Queued")}, []runstate.State{queued}, auditNoon, 0, 0, nil); len(dead) != 0 {
+		t.Fatalf("DeadClaims() = %+v, want an item whose change waits in the merge queue to keep its claim", dead)
+	}
+	plain := ended("run-plain", "yoyodyne-ifd.9", runstate.StatusSucceeded, 9*time.Hour)
+	if plain.AwaitingMergeQueue() {
+		t.Fatal("a run never admitted to a queue reads as waiting in one")
+	}
+}
+
 // The 2026-09-22 shape, at the grain this reading works at. run-b0b6d18d's
 // change was approved and then stopped short of the target branch by a tracker
 // read that timed out, leaving a record that ends `failed` with the stop on it

@@ -35,6 +35,44 @@
       "report": "closed"
     }
   },
+  "queues": {
+    "page": "ready",
+    "sections": {
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty",
+      "queues": "ready"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed"
+    }
+  },
+  "queues-unreadable": {
+    "page": "ready",
+    "sections": {
+      "band": "empty",
+      "spend": "empty",
+      "live": "empty",
+      "pipeline": "empty",
+      "throughput": "empty",
+      "capacity": "empty",
+      "factory": "empty",
+      "managers": "empty",
+      "queues": "error"
+    },
+    "popups": {
+      "grouping": "closed",
+      "card": "closed",
+      "report": "closed"
+    }
+  },
   "run-steps": {
     "page": "ready",
     "sections": {

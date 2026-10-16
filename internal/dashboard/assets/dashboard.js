@@ -1,5 +1,6 @@
 // The page's own script: hold the token, fetch the read model with it, and
-// draw the eight sections from what comes back. It is served from this origin
+// draw the eight sections, and the merge queues where there are any, from what
+// comes back. It is served from this origin
 // because the policy allows script from nowhere else.
 //
 // The token lives in sessionStorage and nowhere else. Session storage is scoped
@@ -1261,6 +1262,44 @@ var standingWarningAgeSeconds = 5 * 60;
     section("managers", "ready");
   }
 
+  // The merge queues are shown only where the product has one: a product
+  // that has never admitted a change to a queue, and a standing not read yet,
+  // show no panel for them at all, so the page is what it was before queues
+  // existed. Each entry's state is the read model's own words for it.
+  function renderQueues() {
+    var standing = model.standing;
+    var node = document.getElementById("queues");
+    var queues = (standing && standing.merge_queues) || [];
+    var problem = standing && standing.merge_queues_problem;
+    setHidden(node, queues.length === 0 && !problem);
+    if (queues.length === 0) {
+      if (problem) {
+        section("queues", "error", problem, whatToDoAboutTheStanding());
+      }
+      return;
+    }
+    listProblems("queues-problems", [problem]);
+    var list = document.getElementById("queues-list");
+    clear(list);
+    queues.forEach(function (queue) {
+      var row = el("li", "held");
+      row.appendChild(el("h3", "held-title", "Merge queue for " + queue.target_branch + ": " + queue.open + " waiting to land, " + queue.finished + " finished"));
+      if (queue.refusal) {
+        row.appendChild(el("p", "held-reason", "Not in use: " + queue.refusal.requirement + " What would let it be used: " + queue.refusal.step + "."));
+      }
+      if (queue.last_pass && queue.last_pass.says) {
+        row.appendChild(el("p", "held-reason", "Last pass: " + queue.last_pass_label + " \u2014 " + queue.last_pass.says));
+      }
+      var entries = el("ul", "held-list");
+      (queue.entries || []).forEach(function (entry) {
+        entries.appendChild(el("li", "held-reason", entry.place + ". " + entry.work_item_id + " " + entry.title + " \u2014 " + entry.label + ", in " + entry.mode_label + " \u2014 " + entry.why));
+      });
+      row.appendChild(entries);
+      list.appendChild(row);
+    });
+    section("queues", "ready");
+  }
+
   function renderFactory() {
     var standing = model.standing;
     if (!standing) {
@@ -2254,6 +2293,7 @@ var standingWarningAgeSeconds = 5 * 60;
     renderCapacity();
     renderFactory();
     renderManagers();
+    renderQueues();
     // An open grouping, and an open entry card, are drawn again from the
     // reading just taken, so each stays as live as what it was opened from.
     renderGrouping();

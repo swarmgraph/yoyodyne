@@ -5697,8 +5697,9 @@ against the answer.
 
 `yoyo dashboard` serves what `yoyo status` reads — the four lines, the
 capacity state carried under them, what the harness is spending, and what
-landed — to a browser on this machine, as one page of eight sections, and keeps
-serving it until you stop it:
+landed — to a browser on this machine, as one page of eight sections, with a
+ninth, Merge queues, shown only where the product has a merge queue record,
+and keeps serving it until you stop it:
 
 ```sh
 ./bin/yoyo dashboard              # a port the operating system chooses
@@ -5896,7 +5897,8 @@ first kind does not last.
 
 ### What the page presents
 
-Eight sections, top to bottom, each drawn from the read model and from nothing
+Eight sections, top to bottom, and a ninth below them only where the product
+has a merge queue record, each drawn from the read model and from nothing
 else. Above them, one banner and only one, while it stands: the same sentence
 the terminal prints above the four lines when the harness is paused on the
 provider's usage window, when every role is held by one, or when the provider
@@ -6050,6 +6052,17 @@ slowly or not at all`.
    completed; when its report was written, or that it has written none; how
    many restart requests it has open; and a button that
    [opens its current report](#opening-a-program-managers-report).
+9. **Merge queues** — shown only where the product has a merge queue record;
+   a product with none shows no panel at all, so the page is the eight
+   sections above. For each target branch: how many changes wait to land and
+   how many have finished, what the queue's worker last found, why the queue
+   last refused a change where it did, and one line per change naming the work
+   item by identifier and title, the queue it is in, where it stands, and why,
+   all in the read model's words. A change reads as landed only once the queue
+   confirmed it on the target.
+   [Merge queues on `yoyo status` and the dashboard](work.md#merge-queues-on-yoyo-status-and-the-dashboard)
+   says the same for the terminal. While shown it is ready, or says what could
+   not be read; it is never shown loading or empty.
 
 Every section has four states and shows exactly one. **Loading** says it is
 reading, and for the spend box that it is pricing the last thirty days, with one
