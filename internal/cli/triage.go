@@ -257,6 +257,12 @@ func buildIntegrationResumer(configPath string) (orchestrator.IntegrationResumer
 	if err != nil {
 		return orchestrator.IntegrationResumer{}, err
 	}
+	return integrationResumerFrom(parts), nil
+}
+
+// integrationResumerFrom is buildIntegrationResumer over parts already built,
+// which is how the merge queue takes up the changes it held.
+func integrationResumerFrom(parts components) orchestrator.IntegrationResumer {
 	return orchestrator.IntegrationResumer{
 		Docket: parts.docket,
 		Runs:   parts.store,
@@ -277,7 +283,7 @@ func buildIntegrationResumer(configPath string) (orchestrator.IntegrationResumer
 			// cannot satisfy it.
 			return pipelineFrom(parts).Continue(ctx, workItemID, runID)
 		},
-	}, nil
+	}
 }
 
 // checkStageContinuerFrom wires the harness's own continuation of a check stage

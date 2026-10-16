@@ -62,10 +62,18 @@ func (w *withdrawingForge) count() int {
 // recordingRepair is the run's repair loop, recording each hand-back and
 // refusing the first fail of them.
 type recordingRepair struct {
-	mu     sync.Mutex
-	given  []runstate.MergeQueueHandback
-	fail   int
-	entity string
+	mu       sync.Mutex
+	given    []runstate.MergeQueueHandback
+	reported []runstate.MergeQueueHandback
+	fail     int
+	entity   string
+}
+
+func (r *recordingRepair) Report(_ context.Context, _ runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.reported = append(r.reported, handback)
+	return nil
 }
 
 func (r *recordingRepair) HandBack(_ context.Context, entry runstate.MergeQueueEntry, handback runstate.MergeQueueHandback) error {
@@ -396,7 +404,9 @@ func TestAWithdrawalStoppedAroundAnyRequestOrRecordIsFinishedFromWhatItShows(t *
 func failingFixture(t *testing.T, budget, spent int) (*promotionFixture, *recordingRepair) {
 	t.Helper()
 	f := newPromotionFixture(t, landLocally)
-	f.worker.Pipeline.Config.Checks = []string{"test -f feature.txt", "test -f missing.txt"}
+	// The second check passes on the target and fails only with the change on
+	// it, so the failure is the change's: the queue runs it on the base as well.
+	f.worker.Pipeline.Config.Checks = []string{"test -f feature.txt", "! grep -q implemented feature.txt"}
 	f.worker.Pipeline.Config.Execution.RepairAttemptsBeforeReplan = budget
 	f.run.admittedRun.state.Branch = "change"
 	f.run.admittedRun.state.RepairAttempts = spent
@@ -415,7 +425,7 @@ func TestADefectiveCandidateIsHandedBackToTheSameRunWithItsEvidenceKept(t *testi
 	f, repair := failingFixture(t, 2, 1)
 	failed := f.generations()[0]
 	recovered, err := f.recover()
-	if err != nil || recovered.Failure.Class != runstate.MergeQueueCandidateDefect || recovered.Failure.Check != "test -f missing.txt" || !recovered.Failure.Attributed {
+	if err != nil || recovered.Failure.Class != runstate.MergeQueueCandidateDefect || recovered.Failure.Check != "! grep -q implemented feature.txt" || !recovered.Failure.Attributed {
 		t.Fatalf("Recover() = %#v, %v; want the failing check read as the change's defect", recovered, err)
 	}
 	handback := f.landing().Handback
@@ -552,7 +562,7 @@ func TestOnlyADefectOfTheChangeIsChargedAndHandedBack(t *testing.T) {
 		t.Parallel()
 		f, _ := failingFixture(t, 2, 0)
 		filer := &orchestratortest.RecordingFiler{Open: []beads.WorkItem{{
-			ID: "yoyodyne-red-7", Status: "open", Notes: "Filed by the harness.\n" + redLandingMarker("main", "test -f missing.txt"),
+			ID: "yoyodyne-red-7", Status: "open", Notes: "Filed by the harness.\n" + redLandingMarker("main", "! grep -q implemented feature.txt"),
 		}}}
 		f.worker.Pipeline.Filer = filer
 		recovered := f.assertNotHandedBack(runstate.MergeQueueTargetFailure)
@@ -603,6 +613,11 @@ func TestAFailureIsNotAttributedToAHeadAnAnnotationNames(t *testing.T) {
 	generation.CheckRun = &runstate.MergeQueueCheckEvidence{
 		Binding: generation.Binding(), StartedAt: finished, FinishedAt: &finished,
 		Results: []runstate.MergeQueueCheckResult{{Command: "make test", ExitCode: 2, Status: "exited"}},
+	}
+	// The target passes the check at the base, so the failure is the
+	// candidate's.
+	generation.BaseCheck = &runstate.MergeQueueBaseEvidence{
+		Binding: generation.Binding(), Base: generation.TargetBase, Command: "make test", StartedAt: finished, FinishedAt: &finished, Passed: true,
 	}
 	failure, failed, err := ClassifyMergeQueueFailure(MergeQueueFailureEvidence{
 		Generations: []runstate.MergeQueueGeneration{generation}, Configured: configured, SuspectedHeads: []string{other},
@@ -693,7 +708,7 @@ func TestTheRunHandbackBlocksTheSameRunOnceAndChargesNothing(t *testing.T) {
 	if f.run.saveCount() != 1 || saved.RunID != f.entry.RunID || saved.Branch != "change" || saved.ProviderSessionID != "developer-session" {
 		t.Fatalf("run saved %d times as %#v, want the same run with its branch and session saved once", f.run.saveCount(), saved)
 	}
-	if saved.CheckFailure == nil || saved.CheckFailure.Command != "test -f missing.txt" || saved.Blocker == "" {
+	if saved.CheckFailure == nil || saved.CheckFailure.Command != "! grep -q implemented feature.txt" || saved.Blocker == "" {
 		t.Fatalf("run = %#v, want the failing check and a blocker recorded for its repair", saved)
 	}
 	if saved.RepairAttempts != 1 || saved.RepairBudget(f.worker.Pipeline.Config.Execution.RepairAttemptsBeforeReplan) != 2 || saved.GrantedRepairAttempts() != 0 {

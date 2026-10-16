@@ -3,6 +3,7 @@ package queuemode
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"slices"
 	"strconv"
@@ -458,6 +459,11 @@ func (q *uncertainQueue) Entries(key runstate.MergeQueueKey) ([]runstate.MergeQu
 	return q.MergeQueueStore.Entries(key)
 }
 
+func (q *uncertainQueue) Standing(key runstate.MergeQueueKey, runID string) (runstate.MergeQueueEntry, bool, error) {
+	q.calls = append(q.calls, "read")
+	return q.MergeQueueStore.Standing(key, runID)
+}
+
 func TestAnUncertainSaveIsReadBackBeforeAnotherAdmissionIsWritten(t *testing.T) {
 	t.Parallel()
 
@@ -500,9 +506,18 @@ func TestNothingIsAdmittedOnAHoldOrAnUnreadableForge(t *testing.T) {
 		t.Fatalf("Admit() on a branch neither queue can land into = %#v, %v; want a hold and no entry", admitted, err)
 	}
 
+	// A protection nobody could read holds the change too, naming the failed
+	// read. A forge that did not answer is the development manager's to watch;
+	// a login the forge refused is a credential only a person can give.
 	unreadable := &reader{err: errors.New("gh: Server Error (HTTP 502)")}
-	if _, err := (Admitter{Queue: store, Forge: unreadable, Harness: harness, Now: clock}).Admit(context.Background(), admission(t)); err == nil || !strings.Contains(err.Error(), "HTTP 502") || !strings.Contains(err.Error(), "nothing was admitted") {
-		t.Fatalf("Admit() against a forge that did not answer error = %v, want it refused naming the forge's answer", err)
+	admitted, err = Admitter{Queue: store, Forge: unreadable, Harness: harness, Now: clock}.Admit(context.Background(), admission(t))
+	if err != nil || admitted.Hold == nil || !strings.Contains(admitted.Hold.Requirement, "HTTP 502") || admitted.Hold.PersonOnly != nil || admitted.Hold.Mover != ownership.MoverDevelopmentManager {
+		t.Fatalf("Admit() against a forge that did not answer = %#v, %v; want a hold naming the failed read", admitted, err)
+	}
+	refused := &reader{err: fmt.Errorf("%w: HTTP 403", publish.ErrForgeAccessRefused)}
+	admitted, err = Admitter{Queue: store, Forge: refused, Harness: harness, Now: clock}.Admit(context.Background(), admission(t))
+	if err != nil || admitted.Hold == nil || admitted.Hold.PersonOnly == nil || admitted.Hold.Mover != ownership.MoverOperator {
+		t.Fatalf("Admit() against a forge that refused the login = %#v, %v; want a hold only a person can lift", admitted, err)
 	}
 	stale := noQueue()
 	stale.ObservedAt = observedAt.Add(-time.Hour)

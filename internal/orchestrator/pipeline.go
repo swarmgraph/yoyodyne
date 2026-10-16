@@ -398,6 +398,10 @@ type Pipeline struct {
 	// Publisher is required only when publishing is automatic, because a project
 	// that has not opted in never opens a pull request.
 	Publisher PullRequests
+	// MergeQueue is where an approved change is admitted when
+	// execution.merge_queue is on (mergequeueadmission.go). Nil admits nothing,
+	// and the run promotes its own change as it does with the switch off.
+	MergeQueue MergeQueueAdmissions
 	// Directives is what the operator has told the harness. It is required rather
 	// than optional, unlike the two collectors below: a run that cannot find out
 	// what has been directed would proceed against intent that may already have
@@ -739,14 +743,19 @@ func (p Preservation) checkable() bool {
 }
 
 type Outcome struct {
-	Retirement   *runstate.RunRetirement `json:"retirement,omitempty"`
-	RunID        string                  `json:"run_id"`
-	WorkItemID   string                  `json:"work_item_id"`
-	Status       runstate.Status         `json:"status"`
-	Phase        runstate.Phase          `json:"phase,omitempty"`
-	Branch       string                  `json:"branch,omitempty"`
-	WorktreePath string                  `json:"worktree_path,omitempty"`
-	BaseCommit   string                  `json:"base_commit,omitempty"`
+	// MergeQueue is the run's change admitted to its target's merge queue, and
+	// MergeQueueRefused why the queue could not take it, and holds it, where it
+	// could not.
+	MergeQueue        *runstate.MergeQueueAdmissionRecord `json:"merge_queue,omitempty"`
+	MergeQueueRefused string                              `json:"merge_queue_refused,omitempty"`
+	Retirement        *runstate.RunRetirement             `json:"retirement,omitempty"`
+	RunID             string                              `json:"run_id"`
+	WorkItemID        string                              `json:"work_item_id"`
+	Status            runstate.Status                     `json:"status"`
+	Phase             runstate.Phase                      `json:"phase,omitempty"`
+	Branch            string                              `json:"branch,omitempty"`
+	WorktreePath      string                              `json:"worktree_path,omitempty"`
+	BaseCommit        string                              `json:"base_commit,omitempty"`
 	// continuationAccepted is set only after an adopted run has passed its
 	// resume preconditions. A pre-adoption pause can name an existing run
 	// without accepting it.
@@ -2760,6 +2769,13 @@ func (a *activeRun) promoteApproved(ctx context.Context) (Outcome, bool, error) 
 		outcome, err := a.stop(ctx, err)
 		return outcome, false, err
 	}
+	// With execution.merge_queue on, the change is admitted to its target's
+	// queue rather than promoted here, and the run ends; a queue that cannot
+	// land into the target holds the change here rather than promoting it as
+	// below (mergequeueadmission.go).
+	if outcome, ended, err := a.admitToMergeQueue(ctx); ended {
+		return outcome, false, err
+	}
 	err := a.integrate(ctx)
 	if err == nil {
 		a.observe(ctx, deliveryIntegrate, "integrated")
@@ -3823,6 +3839,8 @@ func integrationStopCauseOf(failure error) (runstate.EnvironmentalCause, bool) {
 		return runstate.CauseDivergedTarget, true
 	case errors.Is(failure, gitworktree.ErrRemoteAuthRefused):
 		return runstate.CauseRemoteAuthRefused, true
+	case errors.Is(failure, ErrMergeQueueHeld):
+		return runstate.CauseMergeQueueHeld, true
 	case recovery.Recoverable(failure):
 		return runstate.CauseTransportFailure, true
 	default:

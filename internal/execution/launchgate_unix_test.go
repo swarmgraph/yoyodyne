@@ -56,13 +56,8 @@ func TestAGatedLaunchBeginsWorkOnlyAfterItIsRegistered(t *testing.T) {
 	if _, err := os.Stat(began); err != nil {
 		t.Fatalf("the process never began: %v", err)
 	}
-	again, err := os.OpenFile(hold.Name(), os.O_RDWR, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer again.Close()
-	if err := syscall.Flock(int(again.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		t.Fatalf("the hold is still held after the tree exited: %v", err)
+	if !holdFreed(t, hold.Name()) {
+		t.Fatal("the hold is still held after the tree exited")
 	}
 }
 
@@ -111,6 +106,61 @@ func TestAGateThatNeverOpensRunsNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(began); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("a gate that never opened ran the command: %v", err)
+	}
+}
+
+// A gated launch that returns before starting anything — a context already
+// ended, a program that cannot be found — lets go of the hold it was handed,
+// so the hold does not read as a process still running when none started.
+//
+// The test keeps its own reference to the file it hands over, so a copy the
+// runner forgot to close stays open for the whole test rather than until the
+// garbage collector happens by. What it waits out is the other way a hold
+// reads taken after it was closed: a process another test forks at that moment
+// carries a copy of every open descriptor until it starts its own program.
+func TestAGatedLaunchThatStartsNothingLetsGoOfTheHold(t *testing.T) {
+	t.Parallel()
+	ended, cancel := context.WithCancel(context.Background())
+	cancel()
+	for _, launch := range []struct {
+		name string
+		ctx  context.Context
+		run  string
+	}{
+		{"a context already ended", ended, "sh"},
+		{"a program that cannot be found", context.Background(), "yoyodyne-no-such-program"},
+	} {
+		handed := lockedHold(t, t.TempDir())
+		_, _ = OSProcessRunner{}.Run(launch.ctx, Command{
+			Name: launch.run, Args: []string{"-c", "true"}, Timeout: 10 * time.Second,
+			Gate: &LaunchGate{Hold: handed, Register: func(StartedProcess) error { return nil }},
+		}, nil)
+		if !holdFreed(t, handed.Name()) {
+			t.Errorf("%s: the hold is still taken after a launch that started nothing", launch.name)
+		}
+	}
+}
+
+// forkedCopyWindow is how long the test allows a process forked elsewhere in
+// this test binary to go on holding a copy of a descriptor this one closed,
+// before that process replaces itself with the program it was starting.
+const forkedCopyWindow = 5 * time.Second
+
+// holdFreed reports whether the hold can be taken within forkedCopyWindow.
+func holdFreed(t *testing.T, path string) bool {
+	t.Helper()
+	again, err := os.OpenFile(path, os.O_RDWR, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	for deadline := time.Now().Add(forkedCopyWindow); ; time.Sleep(20 * time.Millisecond) {
+		if syscall.Flock(int(again.Fd()), syscall.LOCK_EX|syscall.LOCK_NB) == nil {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
 	}
 }
 

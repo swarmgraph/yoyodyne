@@ -228,11 +228,23 @@ func TestAHandbackNeverNamesTheOperatorAndReadsTheBudgetAsItStood(t *testing.T) 
 	if problems := released.validate(); len(problems) != 0 {
 		t.Fatalf("a whole release = %v", problems)
 	}
+	// A release that is not for a transfer is handed back to its run, since
+	// nothing admits it again on its own; one released for a transfer is not.
+	handed := *released
+	at := time.Now()
+	handed.HandedBackAt = &at
+	if problems := handed.validate(); len(problems) != 0 || !handed.GoesToRun() {
+		t.Fatalf("a release handed to its run = %v", problems)
+	}
+	handed.TransferTo = MergeQueueForge
+	if problems := handed.validate(); len(problems) == 0 || handed.GoesToRun() {
+		t.Error("a release for a transfer validated as handed to its run")
+	}
 	for name, revise := range map[string]func(*MergeQueueHandback){
-		"a failure class":    func(h *MergeQueueHandback) { h.Class = MergeQueueCandidateDefect },
-		"a repair budget":    func(h *MergeQueueHandback) { h.RepairBudget = 2 },
-		"handed to its run":  func(h *MergeQueueHandback) { at := time.Now(); h.HandedBackAt = &at },
-		"the operator moves": func(h *MergeQueueHandback) { h.Mover = ownership.MoverOperator },
+		"a failure class":        func(h *MergeQueueHandback) { h.Class = MergeQueueCandidateDefect },
+		"a repair budget":        func(h *MergeQueueHandback) { h.RepairBudget = 2 },
+		"reported to the docket": func(h *MergeQueueHandback) { at := time.Now(); h.ReportedAt = &at },
+		"the operator moves":     func(h *MergeQueueHandback) { h.Mover = ownership.MoverOperator },
 	} {
 		revised := *released
 		revise(&revised)

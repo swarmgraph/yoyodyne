@@ -371,9 +371,10 @@ func (e MergeQueueGateError) Error() string {
 }
 
 // Gate reports whether this generation's candidate earned promotion under the
-// checks configured now: the protected-path gate, where it was asked, refused
-// none of the paths it changes, every configured check ran to its own end and passed over this
-// binding, and an independent reviewer approved this binding. Any missing,
+// checks configured now: the protected-path gate was asked of this binding and
+// refused none of the paths it changes, every configured check ran to its own
+// end and passed over this binding, and an independent reviewer approved this
+// binding. Any missing,
 // unfinished, mismatched, or failed part refuses, and so does a generation
 // already invalidated. It is the only question a promotion asks of
 // a generation, and the promotion asks it again under its own lease.
@@ -391,13 +392,15 @@ func (g MergeQueueGeneration) Gate(configured MergeQueueCheckConfiguration) erro
 		return refuse("it was verified by checks %s, and the project now configures %s", g.Checks.Digest, configured.Digest)
 	}
 	binding := g.Binding()
-	// A generation with no protected-path check recorded is not refused for
-	// that here: the promotion asks the protected-path gate of the candidate
-	// itself, under its own lease (the orchestrator's mergequeuepromotion.go).
-	// A check that was recorded is held to.
+	// The candidate is a revision no run's own gate saw, so the protected-path
+	// gate's answer about it is evidence the landing needs like the checks and
+	// the review (integration-requires-revision-bound-evidence). The worker
+	// records it before anything runs on the candidate; the promotion asks the
+	// gate again under its own lease besides.
 	paths := g.Paths
 	switch {
 	case paths == nil:
+		return refuse("no protected-path check was recorded")
 	case paths.Binding != binding:
 		return refuse("its protected-path check was recorded against another generation")
 	case len(paths.Refused) > 0:
