@@ -24,7 +24,7 @@ func TestAProjectThatSaysNothingAboutServicesGetsEveryServiceAtItsDefault(t *tes
 			AllowedHosts: []string{},
 			Token:        DashboardTokenGenerated,
 		},
-		Scheduler:   Service{Enabled: true},
+		Scheduler: Service{Enabled: true},
 		Maintenance: MaintenanceService{Enabled: true, Every: Duration(DefaultMaintenanceInterval), TrackerCleanup: TrackerCleanup{
 			Every:          Duration(DefaultTrackerCleanupInterval),
 			GrownMegabytes: DefaultTrackerCleanupGrownMegabytes,

@@ -375,9 +375,13 @@ services:
   maintenance:
     enabled: true
     every: 10m     # the default; a minute is the shortest
+    tracker_cleanup:
+      every: 24h           # the longest the tracker's store goes uncleaned; an hour is the shortest
+      grown_megabytes: 128 # or sooner, once it has grown this much since the last cleanup
+      max_hold: 15s        # the longest one cleanup holds the store; 20s at most
 ```
 
-Each pass takes seven steps, in this order, and each is recorded:
+Each pass takes eight steps, in this order, and each is recorded:
 
 - **provider** — whether the provider is answering, read from the product's
   [outage record](#waiting-out-a-provider-nobody-can-reach). While it stands,
@@ -394,6 +398,26 @@ Each pass takes seven steps, in this order, and each is recorded:
   [stall reading](#when-nothing-happened-at-all). It runs beside the
   supervisor's looks at the parts rather than holding them up, and is marked
   as the pass's so it is not [counted as a hand step](#counting-your-hand-steps).
+- **tracker-cleanup** — the work tracker's store in the primary checkout
+  cleaned up with `bd gc --skip-decay`, which bd never does on its own. Every
+  tracker call opens the whole store, so one nobody cleans up makes every call
+  slower and every wait behind bd's lock longer: the primary checkout's had
+  grown to 885 MB, and a cleaned copy answered reads one and a half to five
+  times faster ([the diagnosis](diagnoses/yoyodyne-6u7-tracker-timeouts.md)).
+  The cleanup deletes no work item, note, or history: listings, items, and
+  `bd history` read the same after it as before. It is due once the store has
+  grown `grown_megabytes` since the last cleanup left it, or `every` has passed
+  since that cleanup, whichever is first; a store the harness has never
+  cleaned up is cleaned up at the first pass. It runs after reconcile, so the
+  pass's own tracker calls are over; it does not start while any other process
+  has the store open, and says which; and it is stopped once it has held the
+  store for `max_hold`, so a call waiting behind it still answers inside its
+  own thirty seconds. A store in use, or a cleanup stopped at its hold, is a
+  skip rather than a failure, and the next pass tries again. Each cleanup that
+  ran is recorded under the product's state in `tracker-store-cleanups/`, and
+  the maintenance line in `yoyo status` says the latest:
+  `the tracker's store was last cleaned up at 2026-10-16 05:41 PDT, from 885 MB
+  to 526 MB in 9.0 seconds`.
 - **rebuild** — what the supervisor's rebuilder last came to. It builds the
   binary on its own thirty-second look when the branch lands something the
   binary is made of (above), so a deploy has a build to take up.
@@ -2380,7 +2404,16 @@ which limit stopped it.** A call stopped at its own limit reads
 `bd show failed with status timed_out and exit code -1: reading work item
 yoyodyne-7my for the development manager's recurring pass
 development-manager-sweep#804 was stopped after 30s, at the 30s limit each
-tracker call is given`; that is the store being slow. A call its caller gave
+tracker call is given; when it was stopped, the tracker's store was held open
+by process 4242 (bd export -o .beads/issues.jsonl), running since 2026-10-16
+05:41:25 PDT`; that is the store being slow, and the process named is what it
+was waiting on. The holder is read from `lsof` and its start from `ps` at the
+moment the call is stopped; where neither can say, the account says so and why
+(`which process held the tracker's store could not be told: lsof could not be
+run: …`, or `since when could not be read: ps did not answer: …`), and where
+nothing had the store open it says that. A write that waited out another
+write to the same item names what held that item's write lock the same way. A
+call its caller gave
 less time says `… was stopped after 5s, when its caller's own deadline of 5s ran
 out before the 30s limit each tracker call is given`; that is the caller not
 waiting for the store, and is a defect in the caller rather than a sign of a
