@@ -3033,9 +3033,10 @@ process is gone; the session waits only the seconds each stopped run takes to
 record its stop, up to two minutes for one that never reports back, which is
 then named in the restart's line and left to its own record. A recurring pass
 still taking its turns is stopped in the same step and waited for only while it
-records itself as a missed pass. Only a run at its
-promotion, or a check stage a moment from recording its verdict, is still
-hosted past the bound:
+records itself as a missed pass — unless one of its document landing runs is
+still going, which is waited for first. Only a run at its promotion, a run with
+a check running, a document landing run, or a check stage a moment from
+recording its verdict is still hosted past the bound:
 
 - Each run it still hosts at its developer attempt, its checks, or its review is
   stopped where it is and **preserved whole** — worktree, branch, claim,
@@ -3067,20 +3068,40 @@ hosted past the bound:
   cadence; only new starts are declined, and each declined pull says so. A
   forge outage can hold a promotion for hours, and those hours cost the
   scheduler nothing but the seat the promotion holds.
-- A run still running its checks is stopped at `execution.redeploy_drain_limit`,
-  independently of the check stage's own bound. Load can scale
-  `execution.check_stage_timeout` to hours, and waiting for that would leave
-  the session on the old build for hours. Each check that passed before the
+- A run with a check running is left to finish that check, and only that
+  check: a new build never makes a check start over. The session asks the run
+  to stop before its next check, and the run stops there by itself — between
+  two checks, or once its last check has passed — at its checks, preserved like
+  any stopped run. The wait is bounded by the running check's own configured
+  limit, `execution.check_timeout`, or the shorter limit the check was given,
+  plus five minutes for a check stopped at that limit to be recorded; a run
+  still at that check past then is stopped. Load can scale a check's limit, and
+  the check stage's `execution.check_stage_timeout`, to hours, and neither is
+  waited for in full: a check the load has let run past its configured limit
+  is stopped there and runs again in the session that comes back. A run
+  waiting for a heavy check's place, or between two checks, has nothing
+  running and is stopped at the bound. However many builds are deployed while
+  the check runs, it runs once. Each check that passed before the
   stop keeps its result: the session that comes back runs only the checks that
   had not finished, and only when the change is exactly the one they passed on
   — same content, same commit, same repair attempt. A changed change runs every
   check again. The work item gets a note naming the checks that kept their
   results and the ones that ran again, and the run's outcome notes mark each
   kept check. A check that said it could not run is not kept, and runs again.
-  A stage that has already finished
+  A check that failed is not a stop: the run goes on to the repair it is owed,
+  and the next look stops it there. A stage that has already finished
   gets up to a minute's grace to record its verdict and move the run on to its
   review or a repair; the next look stops it there. This brief wait uses the
   ordinary loop too, so pulls and recurring tasks continue.
+- A document landing run — a confirmed document a role wrote, landed through
+  its reviewed run — is never stopped for a restart, at any step: its checks,
+  its review, or its promotion. It is short and bounded by its own checks' and
+  review's limits, so the session waits for it, whether it hosts the run itself
+  or one of its recurring passes started it, and restarts once it has ended.
+  Past the bound no new one starts: the session's own pull starts none, and a
+  recurring pass whose role confirms a document then leaves it waiting, with no
+  run started, for the session that comes back, whose first pull lands it. The
+  role is told once, and the document does not need writing again.
 - A run that has already landed and is running its
   [landing checks](configuration.md#where-the-whole-suite-runs) is stopped at
   the bound too. The run is over and its item settled, so nothing is preserved
@@ -3093,7 +3114,8 @@ hosted past the bound:
   included — is made then, and one due once it hosts none is made by the
   session that comes back at its first pull, because the cadence is claimed
   durably and the restart takes a minute. A pass already taking its turns is
-  waited out like a run until the bound. The pass the drain costs is one still
+  waited out like a run until the bound, and past it for as long as a
+  document landing run it started is going. The pass the drain costs is one still
   taking its turns when the session restarts past the bound: it is stopped, and
   recorded in `yoyo sweeps` as a missed pass cancelled before it completed, so
   what it would have looked at waits for that task's next pass rather than
@@ -3108,9 +3130,10 @@ hosted past the bound:
 
 What a stopped run loses is the minutes its current phase had spent: a
 developer attempt resumes in the session it was making, and a review is asked
-for again. An interrupted check stage starts again from its first check when
-the run is re-adopted. The bound stops a developer attempt, running checks,
-and a review; a promotion is waited out past it. An already-finished check
+for again. No check is started over: the running one finishes first, and only
+the checks that had not run are run when the run is re-adopted. The bound stops
+a developer attempt and a review; a promotion, a running check, and a document
+landing run are waited out past it. An already-finished check
 stage gets up to a minute's grace to record its verdict and move to the next
 phase, where the next look stops the run. Set the bound longer if that trade
 is wrong for your project, and never to nothing — the configuration refuses
@@ -3122,9 +3145,14 @@ writes while the drain lasts; once the bound has run out, or a pull has been
 declined for being within a poll of it, the not-startable line names the
 restart as its own state — whose move is nobody's, because the session comes
 back on its own — rather than reporting an idle session or no session, either
-of which would send you to start one that is already on its way back. Running
-check stages are stopped at the drain limit and preserved for the next session,
-which runs only the checks that had not already passed on the same change. A run at its promotion is never stopped: it holds
+of which would send you to start one that is already on its way back. While
+the session is waiting past the bound for a check running in a run it hosts,
+its line names each such run, the check, and the latest moment that check can
+run to under its own limit, and the not-startable line reads the session as
+restarting until two minutes past that moment; it is said again whenever the
+runs it waits on change, and every ten minutes while they do not. While it is
+waiting for a document landing run, its line says how many, and is said again
+the same way. A run at its promotion is never stopped: it holds
 the target branch's lease, and the session waits it out however long it takes
 and restarts the moment it ends. While it does, its line says how many runs it
 is waiting out at their promotion and since when, and the not-startable line
@@ -3135,7 +3163,8 @@ minutes without being said again is a session that died waiting. A session
 giving an already-finished check stage its brief grace to record its verdict
 writes nothing while that wait is unchanged. The bound having run out reads
 that way for ten minutes past the bound. A session still draining after that,
-and not saying it is waiting out a promotion, has stopped restarting — stuck,
+and not saying it is waiting out a promotion, a running check, or a document
+landing run, has stopped restarting — stuck,
 or killed while it waited — and is reported as a factory problem rather than as a session on its way back: `yoyo status`, the
 dashboard's **Factory problems** section, and the channel's heartbeat name the
 session and say since when it has been draining past its bound, whose move is
@@ -3150,13 +3179,12 @@ no session running, and yours to start. The pass's own report, when the
 session returns, says the same: when the deploy was found, the bound, which
 runs it stopped and preserved, and any landing checks it interrupted.
 
-Older watch records can still name a running check stage being waited out and
-its latest deadline. For those records, status reads the session as restarting
-until two minutes past that deadline if that is later than thirty minutes past
-its latest line, and an older restart report can list the stages it waited out.
-New records omit `checking`, `checks_until`, and `checks_waited`: running stages
-are interrupted at the drain limit, while the brief grace applies only to
-stages that have already finished.
+A watch record waiting past the bound for running checks carries `checking`,
+the number of runs, `checks_until`, the latest deadline, and `check_waits`,
+each run with its check and deadline; one waiting for document landing runs
+carries `publishing`. The restart's report lists the runs whose check was let
+finish under `checks_waited`. Older records name whole check stages waited out
+the same way, with no `check_waits`, and are read the same way.
 
 ## Recovering interrupted runs
 

@@ -210,6 +210,10 @@ func (p Pipeline) PublishDocument(ctx context.Context, document runstate.Documen
 	if errors.As(err, &inFlight) {
 		return runstate.DocumentDelivery{RunID: inFlight.runID}, nil
 	}
+	var restarting documentHeldForRestart
+	if errors.As(err, &restarting) {
+		return runstate.DocumentDelivery{RunID: restarting.runID, Retrying: fmt.Sprintf("Document %s (%s) is confirmed, and its run has not started: %s. It does not need writing again.\n", document.WriteID, document.Candidate.Artifact.Title, restarting.Error())}, nil
+	}
 	if !ran || !saved.Status.Terminal() {
 		// A pause retains the confirmed handoff in the conversation. A store or
 		// infrastructure failure must never be claimed as delivered.
@@ -298,6 +302,35 @@ type documentWaiting struct {
 }
 
 func (w documentWaiting) Error() string { return w.capacity.Error() }
+
+// documentHeldForRestart is an attempt a watch session about to restart onto a
+// new build kept from starting, because a run it started now would be one the
+// restart has to wait for. The document is left waiting where the scheduler
+// starts it, so the session that comes back lands it without a message from
+// its conversation.
+type documentHeldForRestart struct {
+	runID string
+}
+
+func (h documentHeldForRestart) Error() string {
+	return "the watch session running this pass is about to restart onto a new build, so the run publishing this document starts in the session that comes back"
+}
+
+// holdDocumentForRestart leaves a document whose attempt a restart kept from
+// starting waiting for a document landing, which the next session's first
+// pull starts (scheduledocuments.go). A store that keeps nothing waiting
+// leaves it to its conversation's next message instead.
+func (p Pipeline) holdDocumentForRestart(ctx context.Context, document runstate.DocumentPublication, attempt int) error {
+	held := documentHeldForRestart{runID: document.RunIDFor(attempt)}
+	waits, ok := p.Store.(DocumentWaits)
+	if !ok {
+		return held
+	}
+	if _, _, err := waits.WaitForSlot(ctx, document, attempt, p.clock().Now()); err != nil {
+		return fmt.Errorf("record document %s as waiting for the session that comes back after a restart: %w", document.WriteID, err)
+	}
+	return held
+}
 
 // documentInFlight is an attempt whose run another process holds: the
 // scheduler, or another message of the conversation, is running it now, and its
@@ -454,6 +487,15 @@ func (p Pipeline) publishDocumentAttempt(ctx context.Context, document runstate.
 	state, err := p.Store.Load(runID)
 	var lease *runstate.Lease
 	started := false
+	// A run inside a recurring pass of a watch session is counted while it
+	// goes, so the session's restart onto a new build waits for it rather than
+	// stopping it; past the session's drain bound no new one starts, and the
+	// document waits for the session that comes back (passPublications).
+	publications := passPublicationsOf(ctx)
+	if !publications.begin(err == nil) {
+		return runstate.State{}, false, p.holdDocumentForRestart(ctx, document, attempt)
+	}
+	defer publications.end()
 	if err == nil {
 		// A run of this attempt is recorded, so it is not waiting for a slot
 		// whoever reserved it.

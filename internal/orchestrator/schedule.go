@@ -157,6 +157,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -168,6 +169,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/developerslot"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/readiness"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -1362,9 +1364,10 @@ type ScheduleDrain struct {
 	// stopped, so each landing is recorded as unverified; nothing is left for
 	// the session that comes back.
 	Landings []string `json:"landings,omitempty"`
-	// ChecksWaited is retained for records from sessions that waited out running
-	// check stages past the drain bound. New sessions stop those stages at the
-	// bound and leave this list empty.
+	// ChecksWaited names the work items whose runs had a check running when the
+	// bound ran out and were left to finish it rather than stopped part-way
+	// through it; each then stopped itself before its next check. Records from
+	// sessions that waited out whole check stages name those here too.
 	ChecksWaited []string `json:"checks_waited,omitempty"`
 	// Unreported names the work items whose runs the bound stopped and which had
 	// not reported back within stoppedRunGrace when the session restarted. The
@@ -1452,7 +1455,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	// its turns in a goroutine of its own and holding its own conversation and
 	// nothing else; see recurringfirings.go. They are collected at the top of
 	// every pull and waited out when the session ends, like its runs.
-	firings := newRecurringFirings(session.passingBeside(ctx))
+	// publications is the document landing runs those firings have going, which
+	// a restart waits for rather than stops; see passPublications.
+	publications := &passPublications{}
+	firings := newRecurringFirings(withPassPublications(session.passingBeside(ctx), publications))
 	firings.taken = s.besideTurns
 	defer firings.cancel(nil)
 	// queuePasses is the merge queue passes in flight, one per queue, worked
@@ -1594,12 +1600,13 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	landings := &hostedLandings{}
 	// boundSaid is the bound running out having been said in the watch log,
 	// which is done once however many looks at the top of the loop apply it —
-	// except while the restart waits on a promotion, which is said again; see
-	// promotionResayEvery. boundSaidAt is when it was last said, and
-	// promotingSaid how many promotions that line was waiting on.
+	// except while the restart waits on a promotion, a running check, or a
+	// document landing, which is said again; see promotionResayEvery.
+	// boundSaidAt is when it was last said, and waitingSaid what that line was
+	// waiting on (redeployDrain.waitingOn).
 	boundSaid := false
 	var boundSaidAt time.Time
-	promotingSaid := 0
+	waitingSaid := ""
 	// runs is the durable run state as the last pull read it, held outside the
 	// loop because the drain bound is applied at the top of the loop, before a
 	// pull is opened, and applying it means reading which phase each hosted run
@@ -2177,7 +2184,13 @@ pulling:
 				schedule.Stopped = ScheduleRedeployed
 				break
 			}
-			if running == 0 && drain.expired(s.now()) {
+			// Past the bound a firing starts no new document landing run, and one
+			// that has a document landing going is not stopped until it ends: a
+			// document landing is never cut off part-way for a restart.
+			if drain.expired(s.now()) {
+				publications.close()
+			}
+			if running == 0 && drain.expired(s.now()) && publications.active() == 0 {
 				firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
 				queuePasses.cancel()
 			}
@@ -2186,10 +2199,12 @@ pulling:
 			// back can continue from — and preserved. A run at its promotion is one
 			// exception: it holds the target branch's lease, and stopping it
 			// would leave a promotion only the repository could say the outcome of,
-			// so it is waited out. A check stage still running is stopped at the
-			// drain bound, however far load has scaled the stage's own bound. A
-			// stage that has just ended gets a brief grace to record its verdict
-			// — see stopHosted. Either wait is the session's ordinary loop,
+			// so it is waited out. A run with a check running is another: it
+			// finishes that check, up to the check's own limit, and is stopped
+			// before its next one, so no check is started over for the new build.
+			// A document landing run is the third, waited for at any step. A stage
+			// that has just ended gets a brief grace to record its verdict — see
+			// stopHosted. Every such wait is the session's ordinary loop,
 			// not a silence: the pull below is still opened, its recurring tasks
 			// still fire on their cadence, and only new starts are declined. A
 			// forge outage can hold a promotion for hours, and a session that
@@ -2207,6 +2222,7 @@ pulling:
 				// before the line is said, so it names the runs stopped for the
 				// restart.
 				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs) > 0
+				drain.publishing += publications.active()
 				reached := drain.record(running)
 				session.draining(reached)
 				// Said once, as it happens, in whatever state the session is in:
@@ -2214,14 +2230,16 @@ pulling:
 				// pull that follows need write a line of its own, and `yoyo status`
 				// would otherwise go on reading a drain inside its bound.
 				//
-				// A wait on a promotion is said again at intervals, and when what it
-				// waits on changes, so a reader can tell a session waiting out a
-				// long promotion from one that died while it waited; see
-				// promotionResayEvery.
-				resay := reached.Promoting > 0 &&
-					(reached.Promoting != promotingSaid || !s.now().Before(boundSaidAt.Add(promotionResayEvery)))
+				// A wait on a promotion, a running check, or a document landing is
+				// said again at intervals, and when what it waits on changes, so a
+				// reader can tell a session waiting out a long promotion or check
+				// from one that died while it waited, and is told which run's check
+				// it is waiting on now; see promotionResayEvery.
+				waitingOn := drain.waitingOn()
+				resay := drain.waitingOnAny() &&
+					(waitingOn != waitingSaid || !s.now().Before(boundSaidAt.Add(promotionResayEvery)))
 				if !boundSaid || resay {
-					boundSaid, boundSaidAt, promotingSaid = true, s.now(), reached.Promoting
+					boundSaid, boundSaidAt, waitingSaid = true, s.now(), waitingOn
 					session.note("the watch session is "+reached.Says(), running)
 				}
 			}
@@ -2233,7 +2251,7 @@ pulling:
 			// two recurring passes before it read their endings, and the session
 			// went on pulling nothing for forty minutes until it was restarted by
 			// hand. The stopped runs are collected below, after the loop.
-			if drain.boundReached && liveHosted(mine, hosted) == 0 {
+			if drain.boundReached && liveHosted(mine, hosted) == 0 && publications.active() == 0 {
 				schedule.Stopped = ScheduleRedeployed
 				break
 			}
@@ -2590,9 +2608,9 @@ pulling:
 				running++
 				startedDocuments++
 				// Hosted like any run this session starts, so a drain bound that runs
-				// out stops it exactly as it stops a chosen one.
-				runCtx, cancel := context.WithCancelCause(session.dispatching(ctx, runID))
-				runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
+				// out finds it; a document landing is waited for rather than stopped
+				// (stopHosted).
+				runCtx, cancel := hostedContext(session.dispatching(ctx, runID), index, landings)
 				hosted[index] = cancel
 				go func(document runstate.DocumentPublication) {
 					outcome, err := pull.Documents.Publish(runCtx, document)
@@ -2767,8 +2785,7 @@ pulling:
 			// Hosted like any run this session starts, so a drain bound that runs
 			// out stops a carried-out run at its checks exactly as it stops a chosen
 			// one, rather than waiting it out past the bound.
-			runCtx, cancel := context.WithCancelCause(session.dispatching(ctx, task.WorkItemID))
-			runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
+			runCtx, cancel := hostedContext(session.dispatching(ctx, task.WorkItemID), index, landings)
 			hosted[index] = cancel
 			go func(task CarryOutTask) {
 				carried, outcome, err := pull.CarryOut.Carry(runCtx, task)
@@ -2926,9 +2943,9 @@ pulling:
 		// with two exceptions it says out loud. A pull made with the bound closer
 		// than one poll away would start a run only to stop it, so the seat is
 		// left for the session that comes back; and past the bound, while a run
-		// at its promotion or recording a finished check stage is waited out,
-		// a run started now would be stopped at
-		// the next look. Skipped rather than found empty, and said as skipped,
+		// at its promotion, finishing a running check, landing a document, or
+		// recording a finished check stage is waited out, a run started now
+		// would be stopped at the next look. Skipped rather than found empty, and said as skipped,
 		// because the two are otherwise the same silence — and marked on the
 		// drain as well as said, so the read model names the poll as the session
 		// restarting rather than as an idle session over a queue with work in it.
@@ -2940,7 +2957,7 @@ pulling:
 			reason := fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound is %s away, which is less than one poll, so the session that comes back pulls them; %s",
 				free, remaining.Round(time.Second), skipped.Says())
 			if drain.boundReached {
-				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound has run out and %s still going at its promotion, recording a finished check stage, or still being stopped, is waited out rather than joined, so the session that comes back pulls them; %s",
+				reason = fmt.Sprintf("nothing more is pulled into the %d free seat(s): the drain bound has run out and %s still going at its promotion, finishing the check it is running, landing a document, recording a finished check stage, or still being stopped, is waited out rather than joined, so the session that comes back pulls them; %s",
 					free, plural(running, "run", "runs"), skipped.Says())
 			}
 			if !wait(pull, runstate.WatchIdle, account{reason: reason, running: len(occupied)}) {
@@ -3492,7 +3509,7 @@ func stopping(schedule Schedule) string {
 			said = fmt.Sprintf("%s; the drain bound of %s ran out", said, schedule.Drain.Bound)
 		}
 		if len(schedule.Drain.ChecksWaited) > 0 {
-			said += fmt.Sprintf("; the check stage of %d run(s) was waited out to its end rather than stopped: %s",
+			said += fmt.Sprintf("; the check running in %d run(s) was let finish rather than started over on the new build, and each run stopped before its next check, keeping the results of the checks it had passed: %s",
 				len(schedule.Drain.ChecksWaited), strings.Join(schedule.Drain.ChecksWaited, ", "))
 		}
 		if len(schedule.Drain.Landings) > 0 {
@@ -5699,6 +5716,12 @@ type account struct {
 	drain runstate.WatchDrain
 }
 
+// sameDrain reports two drains as the same drain. It is a function rather
+// than a comparison because the waits on running checks are a slice.
+func sameDrain(a, b runstate.WatchDrain) bool {
+	return reflect.DeepEqual(a, b)
+}
+
 // same reports two accounts as the same account, which is what makes a poll that
 // found what the poll before it found no news. It is a method rather than the
 // comparison the caller used to make because the classes carry a slice, and a
@@ -5706,7 +5729,7 @@ type account struct {
 func (a account) same(other account) bool {
 	if a.reason != other.reason || a.running != other.running ||
 		a.executor != other.executor || a.unreadable != other.unreadable ||
-		a.window != other.window || a.mover != other.mover || a.drain != other.drain {
+		a.window != other.window || a.mover != other.mover || !sameDrain(a.drain, other.drain) {
 		return false
 	}
 	if a.passedOver.Admitted != other.passedOver.Admitted ||
@@ -5803,6 +5826,13 @@ type redeployDrain struct {
 	// them; see promoted.
 	promoting      int
 	promotingSince time.Time
+	// checkWaits is the hosted runs the last look past the bound left going
+	// because a check was running in them, each asked to stop before its next
+	// check, and publishing the document landing runs it waited for, hosted
+	// ones and those its recurring passes have going. Both are rewritten at
+	// every look.
+	checkWaits []runstate.WatchCheckWait
+	publishing int
 	// due fires when the bound runs out. It is nil until the drain is armed with
 	// a bound, and a nil channel is one a select never chooses.
 	due   <-chan time.Time
@@ -5923,15 +5953,46 @@ func (d redeployDrain) record(hosting int) *runstate.WatchDrain {
 	if d.boundReached && d.promoting > 0 {
 		recorded.Promoting, recorded.PromotingSince = d.promoting, d.promotingSince
 	}
+	if d.boundReached && len(d.checkWaits) > 0 {
+		recorded.CheckWaits = slices.Clone(d.checkWaits)
+		recorded.Checking = len(d.checkWaits)
+		for _, wait := range d.checkWaits {
+			if wait.Until.After(recorded.ChecksUntil) {
+				recorded.ChecksUntil = wait.Until
+			}
+		}
+	}
+	if d.boundReached {
+		recorded.Publishing = d.publishing
+	}
 	return recorded
+}
+
+// waitingOn is what the restart is waiting for past the bound, as one string
+// that changes whenever the waits do: a session says its drain again when it
+// does, so the line a reader is shown names the runs it is waiting on now.
+func (d redeployDrain) waitingOn() string {
+	if !d.boundReached {
+		return ""
+	}
+	var parts []string
+	for _, wait := range d.checkWaits {
+		parts = append(parts, wait.RunID+" "+wait.Check)
+	}
+	return fmt.Sprintf("%v promoting=%d publishing=%d", parts, d.promoting, d.publishing)
+}
+
+// waitingOnAny reports the restart waiting on a run it does not stop past the
+// bound: a promotion, a running check, or a document landing.
+func (d redeployDrain) waitingOnAny() bool {
+	return d.boundReached && (d.promoting > 0 || len(d.checkWaits) > 0 || d.publishing > 0)
 }
 
 // host starts one run under a context of its own, so the drain bound can stop
 // it without stopping the session, and carries what became of it back to the
 // scheduling goroutine.
 func (s Scheduler) host(ctx context.Context, pull Pull, workItemID string, index int, selection runstate.Selection, hosted map[int]context.CancelCauseFunc, landings *hostedLandings, deliver func(completed)) {
-	runCtx, cancel := context.WithCancelCause(ctx)
-	runCtx = withLandingNotice(runCtx, func() { landings.begun(index) })
+	runCtx, cancel := hostedContext(ctx, index, landings)
 	hosted[index] = cancel
 	go func() {
 		outcome, err := pull.Start(runCtx, workItemID, selection)
@@ -5989,11 +6050,19 @@ func (s Scheduler) stopGrace() time.Duration {
 // branch's lease and is minutes from its end, and a promotion interrupted
 // part-way is the one boundary durable state cannot describe.
 //
-// A run at its checks is stopped at the drain bound too. The stage's own bound
-// scales with machine load and can be hours away, so waiting for it would keep
-// the session on the old build for hours. A stage that has just ended gets a
-// brief grace for the pipeline to record its verdict and move to the next
-// phase; a running stage gets no grace and is re-run by the next session.
+// A run with a check running is left to finish that check, and no more: it is
+// asked to stop before its next check starts (checkYield), and the checks it
+// has passed keep their results, so the session that comes back runs only the
+// checks that had not finished and none is started over because of the new
+// build. The wait is bounded by the running check's own limit
+// (waitForRunningCheck) rather than by the stage's, which scales with machine
+// load and can be hours away. A stage between checks, or waiting for a heavy
+// check's place, is stopped at once, because nothing in it is running; a stage
+// that has just ended gets a brief grace for the pipeline to record its
+// verdict and move to the next phase.
+//
+// A document landing run is waited for at any step: see the comment where it
+// is read.
 //
 // A run that is over and in its landing checks is stopped too. Nothing about
 // the run is at stake by then — it has landed, its item is settled, and a
@@ -6017,7 +6086,9 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 	}
 	unstopped, promoting := 0, 0
 	now := s.now()
+	drain.checkWaits, drain.publishing = nil, 0
 	defer func() { drain.promoted(promoting, now) }()
+	stop := RedeployDrain{At: now, Bound: drain.limit, SessionID: s.SessionID}
 	for id, index := range mine {
 		cancel, live := hosted[index]
 		if !live {
@@ -6026,12 +6097,21 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 		state, recorded := inFlight[id]
 		if !recorded {
 			if landings.landingAt(index) {
-				cancel(RedeployDrain{At: now, Bound: drain.limit, SessionID: s.SessionID})
+				cancel(stop)
 				delete(hosted, index)
 				schedule.Drain.Landings = append(schedule.Drain.Landings, id)
 				continue
 			}
 			unstopped++
+			continue
+		}
+		// A document landing run is waited for at whatever step it is at. It is
+		// short — the document checks and one review — and bounded by their own
+		// limits, and one stopped part-way was cancelled and run again from the
+		// start, which a deploy on nearly every landing turned into a document
+		// that never landed.
+		if state.Document != nil {
+			drain.publishing++
 			continue
 		}
 		switch state.Phase {
@@ -6043,16 +6123,57 @@ func (s Scheduler) stopHosted(schedule *Schedule, drain *redeployDrain, hosted m
 				unstopped++
 				continue
 			}
+			if wait, waiting := s.waitForRunningCheck(state, index, landings, stop, now); waiting {
+				drain.checkWaits = append(drain.checkWaits, wait)
+				if !slices.Contains(schedule.Drain.ChecksWaited, id) {
+					schedule.Drain.ChecksWaited = append(schedule.Drain.ChecksWaited, id)
+				}
+				continue
+			}
 		}
-		cancel(RedeployDrain{At: now, Bound: drain.limit, SessionID: s.SessionID})
+		cancel(stop)
 		delete(hosted, index)
 		schedule.Drain.Stopped = append(schedule.Drain.Stopped, id)
 	}
+	slices.SortFunc(drain.checkWaits, func(a, b runstate.WatchCheckWait) int { return strings.Compare(a.RunID, b.RunID) })
 	slices.Sort(schedule.Drain.Stopped)
 	slices.Sort(schedule.Drain.Landings)
 	slices.Sort(schedule.Drain.ChecksWaited)
 	return unstopped
 }
+
+// waitForRunningCheck decides whether a run at its checks past the drain bound
+// is waited for, because a check is running in it, and asks it to stop before
+// its next check where it is. The wait lasts until the check's own configured
+// limit (runstate.CheckStage.CheckRunningUntil) and checkYieldGrace beyond it,
+// for a check stopped at that limit to be recorded; a run still at that check
+// past then is stopped like any other.
+// A stage with no check launched — waiting for a heavy check's place, or
+// between two checks — has nothing a stop would start over, so it is stopped
+// at once.
+func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings *hostedLandings, stop RedeployDrain, now time.Time) (runstate.WatchCheckWait, bool) {
+	stage := state.CheckStage
+	if stage == nil {
+		return runstate.WatchCheckWait{}, false
+	}
+	until, running := stage.CheckRunningUntil()
+	if !running || !now.Before(until.Add(checkYieldGrace)) {
+		return runstate.WatchCheckWait{}, false
+	}
+	yield := landings.yieldAt(index)
+	if yield == nil {
+		return runstate.WatchCheckWait{}, false
+	}
+	yield.ask(stop)
+	return runstate.WatchCheckWait{RunID: state.RunID, WorkItemID: state.WorkItemID, Check: oneline.Fold(stage.Command, 512), Until: until}, true
+}
+
+// checkYieldGrace is how long past a running check's own limit a session waits
+// for the run to stop before its next check. A check that reaches its limit is
+// killed with every process it started and recorded within moments, so this is
+// a backstop against a run that never reaches the boundary rather than a wait
+// anybody ordinarily sees.
+const checkYieldGrace = 5 * time.Minute
 
 // checkStageDrainGrace is how long past the stage's recorded end a run still
 // reading as at its checks is waited on. The pipeline records the verdict and
@@ -6957,6 +7078,10 @@ func (s Schedule) Render() string {
 		case s.Drain.BoundReached && len(s.Drain.Stopped) > 0:
 			fmt.Fprintf(&rendered, "the drain bound ran out with %d run(s) still going, stopped and preserved for the session that comes back: %s\n",
 				len(s.Drain.Stopped), strings.Join(s.Drain.Stopped, ", "))
+		}
+		if len(s.Drain.ChecksWaited) > 0 {
+			fmt.Fprintf(&rendered, "the check running in %d run(s) was let finish rather than started over on the new build, and each run stopped before its next check: %s\n",
+				len(s.Drain.ChecksWaited), strings.Join(s.Drain.ChecksWaited, ", "))
 		}
 		if s.Drain.BoundReached && len(s.Drain.Landings) > 0 {
 			fmt.Fprintf(&rendered, "the landing checks of %d run(s) that had already landed were stopped at the drain bound, so each landing is recorded as unverified: %s\n",

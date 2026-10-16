@@ -494,6 +494,12 @@ type CheckStage struct {
 	CheckLimitSeconds      int64 `json:"check_limit_seconds,omitempty"`
 	CheckElapsedSeconds    int64 `json:"check_elapsed_seconds,omitempty"`
 	CheckStoppedAtLimit    bool  `json:"check_stopped_at_limit,omitempty"`
+	// CheckStartedAt is when the check Command names launched, written as it
+	// launches and cleared as the next check begins, so absent while a check is
+	// waiting for a heavy check's place or has not launched yet. With
+	// CheckLimitSeconds it says how long a restart onto a new build waits for
+	// that check (CheckRunningUntil).
+	CheckStartedAt *time.Time `json:"check_started_at,omitempty"`
 	// Interrupted reports a stage the sweep closed because the process running
 	// it died, with Command naming the check it was on. It is written by the
 	// settlement rather than by the run, because a run that died wrote nothing;
@@ -619,6 +625,9 @@ func (c CheckStage) Validate() error {
 	if c.FinishedAt != nil && c.FinishedAt.Before(c.StartedAt) {
 		problems = append(problems, errors.New("finished_at cannot precede started_at"))
 	}
+	if c.CheckStartedAt != nil && c.CheckStartedAt.Before(c.StartedAt) {
+		problems = append(problems, errors.New("check_started_at cannot precede started_at"))
+	}
 	if err := c.PermitWait.validate(); err != nil {
 		problems = append(problems, err)
 	}
@@ -731,6 +740,26 @@ func (c CheckStage) BoundSays() string {
 // Running reports a stage that has started and not ended.
 func (c CheckStage) Running() bool {
 	return c.FinishedAt == nil
+}
+
+// CheckRunningUntil reports a check launched and still running in a stage
+// that has not ended, and how long a restart onto a new build waits for it:
+// until its launch plus its configured limit, execution.check_timeout, or plus
+// the limit it was given where that is shorter. A limit the machine's load
+// scaled above the configured figure is not waited for in full, because load
+// can scale it to hours and a restart that waited that long would leave every
+// part of the product on the old build for them. A stage between checks,
+// waiting for a heavy check's place, or recording no limit has no check
+// running to report.
+func (c CheckStage) CheckRunningUntil() (time.Time, bool) {
+	if !c.Running() || c.CheckStartedAt == nil || c.CheckStartedAt.IsZero() || c.CheckLimitSeconds <= 0 || c.PermitWait.Waiting() {
+		return time.Time{}, false
+	}
+	limit := c.CheckLimitSeconds
+	if c.CheckConfiguredSeconds > 0 && c.CheckConfiguredSeconds < limit {
+		limit = c.CheckConfiguredSeconds
+	}
+	return c.CheckStartedAt.Add(time.Duration(limit) * time.Second), true
 }
 
 // Elapsed is what the stage spent, as recorded when it ended.

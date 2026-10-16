@@ -2861,8 +2861,8 @@ two hours under load, with `make race` alone past ninety minutes, holding its
 developer seat and the watch session's drain for the whole of it. So the stage
 has a bound of its own, beside the per-check one. A session
 [draining to restart into a deployed build](#watching-instead-of-draining)
-waits out a running check stage only until `redeploy_drain_limit`, independently
-of the stage's bound:
+lets the check a run is on finish, up to `check_timeout` as configured, and
+stops the run before its next check, independently of the stage's bound:
 
 ```yaml
 execution:
@@ -4152,9 +4152,15 @@ comes back re-adopts each one at its first pull, ahead of anything new, and
 continues it from the phase it was stopped at — the session that stopped it
 never does, however long it goes on pulling. A run at its promotion is waited
 out past the bound rather than interrupted, because it holds the target
-branch's lease. A running check stage is stopped at the drain bound, however
-far the machine's load has scaled
-[`check_stage_timeout`](#what-a-whole-check-stage-may-cost). Every check that
+branch's lease. A document landing run is waited out at any step, and past the
+bound no new one starts: a document a recurring pass confirms then waits for
+the session that comes back to land it. A run with a check running is left to
+finish that check — up to
+[`check_timeout`](#what-a-whole-check-stage-may-cost) as configured, or the
+shorter limit the check was given, however far the machine's load has scaled
+it or `check_stage_timeout` — and stops before its next check, so a new build
+never makes a check start over; a run waiting for a heavy check's place or
+between checks is stopped at the bound. Every check that
 passed before the stop keeps its result, so the session that comes back runs
 only the checks that had not finished — and only when the change is exactly the
 one they passed on; a changed change runs every check again. The work item's

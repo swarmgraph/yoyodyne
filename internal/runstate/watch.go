@@ -600,14 +600,27 @@ type WatchDrain struct {
 	// BoundReached marks the drain having run out: the session has stopped and
 	// preserved the runs it hosts, pulls nothing more into a free seat, and
 	// restarts as soon as it hosts nothing — which, for a run at its promotion,
-	// is when that promotion ends. A running check stage is stopped at the
-	// bound too. Its recurring tasks go on firing meanwhile.
+	// is when that promotion ends, for a run with a check running is when that
+	// check ends, and for a document landing run is when the run ends. Its
+	// recurring tasks go on firing meanwhile.
 	BoundReached bool `json:"bound_reached,omitempty"`
-	// Checking and ChecksUntil retain older watch records in which sessions
-	// waited out check stages past the drain bound, until the stage's own bound.
-	// New sessions stop running stages at the drain bound and leave both empty.
-	Checking    int       `json:"checking,omitempty"`
-	ChecksUntil time.Time `json:"checks_until,omitzero"`
+	// Checking is how many of the runs the session hosts had a check running
+	// when it recorded this, past the bound, and ChecksUntil the latest moment
+	// one of those checks can run to under its own limit. CheckWaits names each
+	// of them. Such a run is left to finish the check it is running and is
+	// stopped before its next one starts, so no check is started over on the
+	// new build; one still going past its limit is stopped then. Records from
+	// sessions that waited out whole check stages carry the two counts and no
+	// CheckWaits.
+	Checking    int              `json:"checking,omitempty"`
+	ChecksUntil time.Time        `json:"checks_until,omitzero"`
+	CheckWaits  []WatchCheckWait `json:"check_waits,omitempty"`
+	// Publishing is how many document landing runs the session was waiting on
+	// when it recorded this, past the bound: runs it hosts, and runs one of its
+	// recurring passes started. A document landing is never stopped for a
+	// restart, at any step; it is bounded by its own checks' and review's
+	// limits, and no new one starts once the bound has run out.
+	Publishing int `json:"publishing,omitempty"`
 	// Promoting is how many of the runs the session hosts were at their
 	// promotion when it recorded this, past the bound, and PromotingSince is
 	// when it began waiting them out. Such a run holds the target branch's lease
@@ -624,6 +637,42 @@ type WatchDrain struct {
 	PullSkipped bool `json:"pull_skipped,omitempty"`
 }
 
+// WatchCheckWait is one run a session past its drain bound is waiting on
+// because a check is running in it: which run, for which item, which check,
+// and the latest moment that check can run to under its own limit.
+type WatchCheckWait struct {
+	RunID      string    `json:"run_id"`
+	WorkItemID string    `json:"work_item_id,omitempty"`
+	Check      string    `json:"check"`
+	Until      time.Time `json:"until"`
+}
+
+// Says is the wait in the words the drain's clause names it in.
+func (w WatchCheckWait) Says() string {
+	run := "run " + w.RunID
+	if w.WorkItemID != "" && w.WorkItemID != w.RunID {
+		run += " (" + w.WorkItemID + ")"
+	}
+	return fmt.Sprintf("%s to finish %s, until %s at the latest", run, w.Check, w.Until.UTC().Format(time.RFC3339))
+}
+
+func (w WatchCheckWait) validate() error {
+	var problems []error
+	if strings.TrimSpace(w.RunID) == "" {
+		problems = append(problems, errors.New("a wait on a running check names no run"))
+	}
+	if strings.TrimSpace(w.Check) == "" {
+		problems = append(problems, errors.New("a wait on a running check names no check"))
+	}
+	if len(w.Check) > MaxWatchReasonBytes {
+		problems = append(problems, fmt.Errorf("a wait on a running check names a check of %d bytes, which exceeds the %d byte bound", len(w.Check), MaxWatchReasonBytes))
+	}
+	if w.Until.IsZero() {
+		problems = append(problems, errors.New("a wait on a running check names no moment it ends"))
+	}
+	return errors.Join(problems...)
+}
+
 // Bound is how long the session waits before it restarts anyway.
 func (d WatchDrain) Bound() time.Duration {
 	return time.Duration(d.BoundSeconds) * time.Second
@@ -635,6 +684,26 @@ func (d WatchDrain) Says() string {
 	said := fmt.Sprintf("draining to restart into the build deployed over it since %s, bounded at %s (until %s)",
 		d.Since.UTC().Format(time.RFC3339), d.Bound(), d.Until.UTC().Format(time.RFC3339))
 	if d.BoundReached {
+		// What the restart is waiting on, each in its own words: a check running
+		// in a run it hosts, a document landing, a promotion.
+		if len(d.CheckWaits) > 0 || d.Publishing > 0 {
+			var waits []string
+			if len(d.CheckWaits) > 0 {
+				checks := make([]string, 0, len(d.CheckWaits))
+				for _, wait := range d.CheckWaits {
+					checks = append(checks, wait.Says())
+				}
+				waits = append(waits, "the check running in "+strings.Join(checks, ", and ")+", so that check is not started over on the new build; each such run is stopped before its next check starts, and the checks it has passed keep their results")
+			}
+			if d.Publishing > 0 {
+				waits = append(waits, fmt.Sprintf("%d document landing run(s) to finish, because a restart never stops one part-way", d.Publishing))
+			}
+			if d.Promoting > 0 {
+				waits = append(waits, fmt.Sprintf("%d run(s) at their promotion, waited on since %s, because a promotion is never stopped part-way", d.Promoting, d.PromotingSince.UTC().Format(time.RFC3339)))
+			}
+			return fmt.Sprintf("%s; the bound has run out, so it is waiting for %s; it restarts the moment they finish, every other run is stopped and preserved for the session that comes back, nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
+				said, strings.Join(waits, "; and for "))
+		}
 		if d.Checking > 0 {
 			return fmt.Sprintf("%s; the bound has run out, so it is waiting out a check stage in %d run(s) it hosts until %s at the latest, the check-stage bound, and stopping and preserving every other run at a developer attempt or a review for the session that comes back; nothing more is pulled into a free seat until it does, and its recurring tasks go on firing",
 				said, d.Checking, d.ChecksUntil.UTC().Format(time.RFC3339))
@@ -673,6 +742,14 @@ func (d WatchDrain) validate() error {
 	}
 	if d.Checking > 0 && d.ChecksUntil.IsZero() {
 		problems = append(problems, errors.New("draining waits out a check stage and names no moment that wait ends"))
+	}
+	for _, wait := range d.CheckWaits {
+		if err := wait.validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if d.Publishing < 0 {
+		problems = append(problems, fmt.Errorf("draining reports %d document landing runs waited on, which is not a count", d.Publishing))
 	}
 	if d.Promoting < 0 {
 		problems = append(problems, fmt.Errorf("draining reports %d runs waited out at their promotion, which is not a count", d.Promoting))
