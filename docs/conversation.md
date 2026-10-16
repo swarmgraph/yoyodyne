@@ -1522,6 +1522,24 @@ trailing slash marking a directory. A directory asked for as a file, a file
 asked for as a directory, and a file that is not text are each refused with the
 reason, and the refusal is evidence the role is told rather than silence.
 
+**The program manager may also search.** A third action, `search`, takes a
+`pattern`, an optional `"regexp": true` that makes the pattern a regular
+expression in Go's syntax rather than a literal string, and an optional `path`
+that confines the search to what is under it. It looks through every file Git
+tracks at the same recorded commit and returns each matching line as its path,
+its line number, and the line, a line longer than 200 bytes cut with the cut
+marked. One search returns at most 200 matches and 32 KiB and takes at most ten
+seconds; a search that stops at any of those returns what it found and says
+which one stopped it. Files that are not text, files larger than 8 MiB, symbolic
+links, and submodules are not searched, and the result says how many there
+were. A pattern that does not compile, and a path that is absolute, climbs out,
+or names nothing at that commit, are refused with the reason. Only a role whose
+bundle holds `repository.search` may search — today the program manager alone,
+so the technical-health program manager can follow a function from its callers
+to its tests — and a search from any other role is refused by the harness with
+nothing in the block read. A search counts against the same six requests and
+96 KiB a reply's reads share.
+
 **The bounds are the harness's, not configuration.** One reply names at most
 six paths; one read returns at most 48 KiB of a file, and one reply's reads
 together at most 96 KiB; a listing returns at most 400 names; and one message
@@ -1548,7 +1566,9 @@ already carries.
 
 **Each read is on the conversation's record** as the commit, the path, and the
 time — one `repository.read` event per path, refusals included, and never the
-content. A reply that rests on a file is one somebody may later need to hold
+content. A search is recorded the same way, in the same event, with what it
+searched for beside the path, and how many matches it found rather than the
+matches themselves. A reply that rests on a file is one somebody may later need to hold
 against the commit the file was read at, and the record is what says which. The
 transcript and `--json` (`repository_reads`) say the same thing to you as it
 happens:
@@ -1710,7 +1730,9 @@ The program manager holds `log.read`. It may request pass records, watch
 transitions or scheduler output, the docket, a named run record, the usage-limit
 log, and the provider-outage record of this product. It cannot request arbitrary
 paths, tokens, memory, another agent's conversation records, or repository
-content. Repository content uses the existing repository block.
+content. Repository content uses the existing repository block, where the
+program manager may also [search](#reading-the-repository-at-a-recorded-commit)
+with `repository.search`.
 
 ````text
 ```yoyodyne-log

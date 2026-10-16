@@ -64,6 +64,11 @@ func Default() (action.Registry[Call], error) {
 	}
 	descriptor := logread.Descriptor()
 	actions = append(actions, action.Action[Call]{Name: string(descriptor.ID), Summary: "Read one named record the product keeps of its own running.", Wraps: "(*Session).performLogReads", Capabilities: []capability.Capability{capability.LogRead}, Perform: perform, Tool: &descriptor})
+	// A search is asked for in the repository block, so it needs the pair that
+	// block is refused without, as well as its own grant.
+	search := declaration(capability.RepositorySearch, "yoyodyne-repository", action.ToolRead, "Search the files at a recorded commit.", `Each request gives the action search, a pattern, optionally regexp, optionally a path to search under, and optionally why.`, "the files Git tracks as a recorded commit holds them, optionally under one path; never files someone is editing", "(*Session).performRepositoryReads", action.ToolBounds{RequestsPerReply: repositoryread.MaxRequestsPerReply, RoundsPerMessage: 2, BytesPerRequest: repositoryread.MaxSearchBytes, BytesPerReply: repositoryread.MaxBytesPerReply})
+	search.Capabilities = append(search.Capabilities, capability.RepositoryRead, capability.RepositoryList)
+	actions = append(actions, search)
 	// A named repository read has always required the list grant beside the read.
 	actions[1].Capabilities = append(actions[1].Capabilities, capability.RepositoryList)
 	actions[2].Capabilities = append(actions[2].Capabilities, capability.RepositoryRead)
