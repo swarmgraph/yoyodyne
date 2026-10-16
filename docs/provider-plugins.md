@@ -383,9 +383,12 @@ A Codex agent that sets an effort passes it explicitly with
 applied before `resume`, on initial and resumed invocations of every role.
 An omitted or empty effort passes no effort override at all, so the Codex CLI
 resolves the level from its own configuration. Yoyo does not read the account's
-Codex home to discover that level. Read-only roles still ignore user configuration
-for isolation, as described above; their level comes from the configuration
-Codex resolves under those restrictions. Explicit effort overrides Codex settings.
+Codex home to discover that level. Read-only roles — reviewers and the
+management roles — still ignore the account's Codex configuration for isolation,
+as described above, so one with no effort runs at Codex's built-in level for its
+model, not the level in the account's `~/.codex/config.toml`. To run such an
+agent higher, set `effort` on it in the project configuration. Explicit effort
+overrides Codex settings.
 
 The accepted levels are model-specific. In codex-cli **0.159.2**, the bundled
 catalog advertises `low`, `medium`, `high`, `xhigh`, `max`, and `ultra` for Astra,

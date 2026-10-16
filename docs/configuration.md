@@ -3741,7 +3741,9 @@ It never inherits the developer slot pair or label models. `failover.effort` is
 accepted only for developer and reviewer run endpoint resolution. The alternate
 retains the existing `enabled`, `provider`, `model` and `account` keys and also accepts
 `effort`. For these run endpoint pairs, inherited effort is validated separately
-on each endpoint; an explicit `effort: ""` requests that endpoint's model default.
+on each endpoint; an explicit `effort: ""` passes no effort, so that endpoint's
+provider uses its own configured level (for Codex, the Codex configuration; for
+Claude Code, its own resolution).
 An incompatible inherited level is refused rather than silently dropped, and a
 reviewer alternate must support the reviewer's read-only access. Disabled
 reviewer alternates are validated too.
@@ -5310,8 +5312,11 @@ passes `--config 'model_reasoning_effort="high"'` for `effort: high`, before
 `resume` when resuming. This overrides personal Codex settings. Omitting `effort`
 or setting it empty passes no effort override, so the Codex CLI resolves its own
 configured level. Yoyo does not read the account's Codex home. Read-only Codex
-roles still ignore user configuration for isolation; they resolve effort within
-that restricted configuration (see [provider capability validation](provider-plugins.md#capability-validation)).
+roles — reviewers and the management roles — still ignore the account's Codex
+configuration for isolation (see [provider capability validation](provider-plugins.md#capability-validation)),
+so one with no `effort` runs at Codex's built-in level for its model, not the
+level in the account's `~/.codex/config.toml`. To run such an agent higher, set
+`effort` on it in the project configuration.
 The catalog below lists model defaults as reference values, not overrides Yoyo
 passes when effort is omitted:
 
