@@ -5865,15 +5865,19 @@ the last build, so a build slower than its interval never runs back to back —
 and answers every request with the latest reading it has, however many tabs
 are asking: two tabs cost one build. Each answer carries, under `snapshot`,
 when the reading was taken (`taken_at`), how old it was when served
-(`age_seconds`), its interval (`interval_seconds`), and `stale` where it is
-older than two intervals; the reading's own fields are beside it exactly as
-before. A build that fails leaves the last reading served, with what the
-failure said and when under `snapshot.failure` and `snapshot.failed_at`,
-rather than a refusal; only a reading no build has ever produced is refused,
-with the failure. The first request after the dashboard starts waits for the
-first build, and a reading nobody has asked for in five minutes stops being
-built until somebody asks again, when it is served with its age while the next
-one is taken. Until yoyodyne-ifd.432.16 every poll of every tab rebuilt the
+(`age_seconds`), its interval (`interval_seconds`), how long the latest build
+took (`build_seconds`), and `stale` where it is older than two intervals and
+two of those builds — a build that is stuck rather than merely slow, since a
+reading that takes a minute to build is never younger than a minute; the
+reading's own fields are beside it exactly as before. A build that fails
+leaves the last reading served, with what the failure said and when under
+`snapshot.failure` and `snapshot.failed_at`, rather than a refusal; only a
+reading no build has ever produced is refused, with the failure. The standing's
+first build starts when the dashboard does. A request that arrives before any
+build has finished waits four seconds at most, and is then refused saying how
+long the first build has been under way, and the page asks again. A reading
+nobody has asked for in five minutes stops being built until somebody asks
+again, when it is served with its age while the next one is taken. Until yoyodyne-ifd.432.16 every poll of every tab rebuilt the
 standing from the whole tracker listing and every run record: at a load average
 of 117 one build took 6.4 seconds, and under more load it passed the tracker's
 thirty-second timeout and the page hung or showed errors exactly when the
@@ -5990,15 +5994,18 @@ the terminal prints above the four lines when the harness is paused on the
 provider's usage window, when every role is held by one, or when the provider
 is answering nobody. Beside the product's name the page says when the reading
 was observed, how old the dashboard's snapshot of it was when it was served —
-`taken 4s ago; asks again every 10 s` — and when it asks again. It marks the
-page **stale** when a reading is older than two of its intervals. For the
+`taken 4s ago; asks again every 10 s` — and when it asks again. Where a
+reading takes the dashboard longer than its interval, the age says how long
+the reading took: `taken 1m ago, by a reading that took 58s; asks again every
+10 s`. It marks the page **stale** when a reading is older than two of its
+intervals and two of the time its last build took. For the
 standing, routine lag shows only that small marker and the observed time; its
 red age warning appears once the reading is five minutes old or more. The
-throughput and spend age warnings still appear after two intervals. An age
+throughput and spend age warnings appear as soon as they are stale. An age
 warning says plainly what is old — `The reading
-of the standing is 5m old, older than two of its 10s intervals: the dashboard
-is taking longer than that to read it, so what is shown may not be what the
-harness is doing now.` Failed builds and failed polls still get an explanation
+of the standing is 5m old, older than two of its 10s intervals and two of the
+12s its last reading took: the dashboard is falling behind reading it, so what
+is shown may not be what the harness is doing now.` Failed builds and failed polls still get an explanation
 immediately. A reading whose latest build failed shows the failure beside its
 age — `The dashboard's last reading of the standing failed — bd list timed out
 after 30s — so what is shown is the reading taken 34s ago.` A poll that fails

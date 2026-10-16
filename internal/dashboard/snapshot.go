@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 	"time"
 )
@@ -28,6 +29,12 @@ const (
 	// minuteInterval is the throughput's and the spend's, which the page asks
 	// for once a minute: the spend prices every event log a month holds.
 	minuteInterval = time.Minute
+	// firstWait is how long a request waits for a reading no build has
+	// finished yet, which is every request in the first build after the
+	// dashboard starts. Past it the request is refused saying how long the
+	// first build has been under way, and the page asks again, rather than
+	// holding the request for however long the build takes.
+	firstWait = 4 * time.Second
 	// idleAfter is how long a reading goes on being built with nobody asking
 	// for it. A dashboard nobody has open builds nothing past it, and the next
 	// request is served the last reading with its age and starts the building
@@ -38,16 +45,23 @@ const (
 
 // SnapshotAge is what every reading served from a snapshot carries beside it,
 // under "snapshot": when it was taken, how old it was when served, how often it
-// is taken, whether it is older than two of those intervals, and — where the
-// latest build since failed — what the failure said and when. The page shows
-// the age from it and says so plainly when the reading is stale.
+// is taken, how long the latest build took, whether it is older than the
+// builder's own schedule leaves it, and — where the latest build since failed —
+// what the failure said and when. The page shows the age from it and says so
+// plainly when the reading is stale.
 type SnapshotAge struct {
 	TakenAt         time.Time `json:"taken_at"`
 	AgeSeconds      int64     `json:"age_seconds"`
 	IntervalSeconds int64     `json:"interval_seconds"`
-	// Stale is the reading being older than two intervals: the builds are
-	// falling behind or failing, and what is shown is not what the harness is
-	// doing now.
+	// BuildSeconds is how long the latest build took, whether it succeeded or
+	// failed. A reading that takes longer to build than its interval is never
+	// younger than its build, however promptly it is rebuilt.
+	BuildSeconds int64 `json:"build_seconds"`
+	// Stale is the reading being older than two rounds of its builder's own
+	// schedule — two intervals and two of the latest build's durations: a build
+	// is stuck or failing, and what is shown is not what the harness is doing
+	// now. A build that is only slow is not stale, because each reading is as
+	// new as one build of it can be; its age says how old that is.
 	Stale bool `json:"stale"`
 	// Failure is what the latest build said when it failed, after this reading
 	// was taken. It is empty when the latest build succeeded.
@@ -68,6 +82,8 @@ type snapshot struct {
 	// context ended first. It is a field so a test can hold the builder
 	// between builds rather than waiting ten real seconds.
 	sleep func(context.Context, time.Duration) bool
+	// firstWait bounds a request's wait for the first build; see firstWait.
+	firstWait time.Duration
 
 	mu sync.Mutex
 	// life is what a build runs under: the server's lifetime once Serve has
@@ -81,11 +97,18 @@ type snapshot struct {
 	takenAt  time.Time
 	failure  string
 	failedAt time.Time
+	// took is how long the latest build to end took, and buildingSince when
+	// the build under way started, zero where none is.
+	took          time.Duration
+	buildingSince time.Time
 	// attempted is closed once the first build has ended, either way. A
 	// request before then waits for it, because there is nothing yet to serve.
 	attempted chan struct{}
 	running   bool
 	askedAt   time.Time
+	// loops counts the builders running, so a stopping server can wait for the
+	// one it cancelled to end rather than leave it writing after the stop.
+	loops sync.WaitGroup
 }
 
 func newSnapshot(interval time.Duration, build func(context.Context) (any, error)) *snapshot {
@@ -95,6 +118,7 @@ func newSnapshot(interval time.Duration, build func(context.Context) (any, error
 		idle:      idleAfter,
 		now:       time.Now,
 		sleep:     sleep,
+		firstWait: firstWait,
 		life:      context.Background(),
 		attempted: make(chan struct{}),
 	}
@@ -109,21 +133,22 @@ func (s *snapshot) live(ctx context.Context) {
 
 // get is one request's reading: the latest one, encoded, with its age as of
 // now. It never builds: it starts the builder where none is running, and waits
-// only where no build has ever ended — the request's own context bounds that
-// wait. Where the only builds there have been failed, the latest failure is the
-// answer, as an error.
+// only where no build has ever ended — for firstWait at most, and within the
+// request's own context. Where the only builds there have been failed, the
+// latest failure is the answer, as an error.
 func (s *snapshot) get(ctx context.Context) ([]byte, SnapshotAge, error) {
 	s.mu.Lock()
 	s.askedAt = s.now()
-	if !s.running {
-		s.running = true
-		go s.loop(s.life)
-	}
+	s.wake()
 	attempted := s.attempted
 	s.mu.Unlock()
 
+	bound := time.NewTimer(s.firstWait)
+	defer bound.Stop()
 	select {
 	case <-attempted:
+	case <-bound.C:
+		return nil, SnapshotAge{}, s.notYet()
 	case <-ctx.Done():
 		return nil, SnapshotAge{}, errors.New("the dashboard's first reading was still being taken when the request ended; the page asks again")
 	}
@@ -141,7 +166,8 @@ func (s *snapshot) get(ctx context.Context) ([]byte, SnapshotAge, error) {
 		TakenAt:         s.takenAt.UTC(),
 		AgeSeconds:      int64(age / time.Second),
 		IntervalSeconds: int64(s.interval / time.Second),
-		Stale:           age > 2*s.interval,
+		BuildSeconds:    int64(s.took / time.Second),
+		Stale:           age > 2*(s.interval+s.took),
 	}
 	if s.failure != "" {
 		failedAt := s.failedAt.UTC()
@@ -149,6 +175,58 @@ func (s *snapshot) get(ctx context.Context) ([]byte, SnapshotAge, error) {
 		served.FailedAt = &failedAt
 	}
 	return s.encoded, served, nil
+}
+
+// start begins building now, ahead of any request, so the first request after
+// the dashboard starts finds the first build already under way. Nobody asking
+// still stops it after the idle bound.
+func (s *snapshot) start() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.askedAt = s.now()
+	s.wake()
+}
+
+// wake starts the builder where none is running. The caller holds mu.
+func (s *snapshot) wake() {
+	if !s.running {
+		s.running = true
+		s.loops.Add(1)
+		go func() {
+			defer s.loops.Done()
+			s.loop(s.life)
+		}()
+	}
+}
+
+// settled waits for every builder to end, until the deadline. It is what a
+// server calls once it has cancelled their lifetime, and it says whether they
+// all ended in time.
+func (s *snapshot) settled(deadline <-chan struct{}) bool {
+	ended := make(chan struct{})
+	go func() {
+		s.loops.Wait()
+		close(ended)
+	}()
+	select {
+	case <-ended:
+		return true
+	case <-deadline:
+		return false
+	}
+}
+
+// notYet is the refusal of a request that waited firstWait for a first build
+// still under way: how long it has been under way, so a slow first build reads
+// as one rather than as a dashboard that is not answering.
+func (s *snapshot) notYet() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.buildingSince.IsZero() {
+		return errors.New("the dashboard has not yet started its first reading; the page asks again")
+	}
+	under := s.now().Sub(s.buildingSince).Round(time.Second)
+	return fmt.Errorf("the dashboard's first reading since it started has been under way for %s and is not finished yet; the page asks again", under)
 }
 
 // loop builds, waits an interval from the end of the build, and builds again,
@@ -190,6 +268,9 @@ func sleep(ctx context.Context, interval time.Duration) bool {
 // failure; a failure keeps the reading and records what it said.
 func (s *snapshot) take(ctx context.Context) {
 	started := s.now()
+	s.mu.Lock()
+	s.buildingSince = started
+	s.mu.Unlock()
 	reading, err := s.build(ctx)
 	var encoded []byte
 	if err == nil {
@@ -197,6 +278,11 @@ func (s *snapshot) take(ctx context.Context) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.took = s.now().Sub(started)
+	if s.took < 0 {
+		s.took = 0
+	}
+	s.buildingSince = time.Time{}
 	if err != nil {
 		s.failure = err.Error()
 		s.failedAt = s.now()

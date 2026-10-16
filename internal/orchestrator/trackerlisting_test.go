@@ -48,7 +48,9 @@ func (r cappedTracker) Run(ctx context.Context, command execution.Command, _ exe
 	if verb == "ready" {
 		cap = 100
 	}
-	forced := verb == r.cutVerb && (verb == "ready" || status == r.cutStatus)
+	// A listing of every item holds the items of the status being cut, so it is
+	// cut with it: that listing is the one a standing reads each status from.
+	forced := verb == r.cutVerb && (verb == "ready" || status == r.cutStatus || status == "")
 	if forced {
 		cap = 2
 	}

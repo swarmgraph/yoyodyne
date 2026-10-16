@@ -284,6 +284,10 @@ func (s *Server) Serve(ctx context.Context) error {
 	for _, reading := range []*snapshot{s.standing, s.throughput, s.spend} {
 		reading.live(ctx)
 	}
+	// The standing is the page's main view and the reading a restarted
+	// dashboard is asked for first, so its first build starts now rather than
+	// when that request arrives.
+	s.standing.start()
 	server := &http.Server{
 		Handler:           s.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
@@ -308,6 +312,15 @@ func (s *Server) Serve(ctx context.Context) error {
 		for _, each := range servers {
 			if err := each.Shutdown(grace); err != nil {
 				problems = append(problems, err)
+			}
+		}
+		// The readings were cancelled with the server's lifetime; a build that
+		// was under way is waited for within the same grace, so nothing this
+		// dashboard started is still reading or writing once Serve returns. A
+		// build still running when the grace ends is left to its own bound.
+		for _, reading := range []*snapshot{s.standing, s.throughput, s.spend} {
+			if !reading.settled(grace.Done()) {
+				break
 			}
 		}
 		if err := errors.Join(problems...); err != nil {
@@ -474,9 +487,11 @@ func (s *Server) serveReading(writer http.ResponseWriter, request *http.Request,
 
 // serveSnapshot is one of the polled readings as JSON: the latest snapshot,
 // with its age under "snapshot". A request never builds one. It waits only
-// where no build has ended yet, and is refused with the failure only where
-// every build so far has failed; a failure after a reading was taken is said
-// beside that reading's age instead, so the page goes on showing it.
+// where no build has ended yet, and for a few seconds at most (firstWait); it
+// is refused with the failure only where every build so far has failed, and
+// with how long the first build has been under way where it is still running.
+// A failure after a reading was taken is said beside that reading's age
+// instead, so the page goes on showing it.
 func (s *Server) serveSnapshot(writer http.ResponseWriter, request *http.Request, reading *snapshot) {
 	encoded, age, err := reading.get(request.Context())
 	if err == nil {

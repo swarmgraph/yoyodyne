@@ -19,9 +19,10 @@ type ScheduleTracker struct {
 func (h *ScheduleTracker) List(_ context.Context, status string) ([]beads.WorkItem, error) {
 	h.Mu.Lock()
 	defer h.Mu.Unlock()
+	// No status is every item, closed work included, as bd answers it.
 	var matching []beads.WorkItem
 	for _, item := range h.Items {
-		if item.Status == status {
+		if status == "" || item.Status == status {
 			matching = append(matching, item)
 		}
 	}

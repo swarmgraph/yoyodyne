@@ -104,6 +104,9 @@ func TestTheStandingIsASnapshotServedWithItsAgeWhateverTheBuilderIsDoing(t *test
 	clock := &heldClock{at: start, asleep: make(chan struct{}), tick: make(chan bool)}
 	w.server.standing.now = clock.now
 	w.server.standing.sleep = clock.sleep
+	// The two first requests below wait for the first build, which the test
+	// releases at once; the bound on that wait is held by its own test.
+	w.server.standing.firstWait = time.Hour
 	life, stop := context.WithCancel(context.Background())
 	t.Cleanup(stop)
 	w.server.standing.live(life)
@@ -228,5 +231,113 @@ func TestAReadingNeverBuiltIsRefusedWithTheFailure(t *testing.T) {
 	response, body := w.get("/api/standing", bearer(w.server.Token()))
 	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the state root could not be resolved"`) || strings.Contains(body, "snapshot") {
 		t.Fatalf("a reading never built: %d %s", response.StatusCode, body)
+	}
+}
+
+// A standing whose build takes longer than the page's refresh interval is
+// still answered at once: the first request after a restart is refused within
+// a few seconds saying how long the first build has been under way, rather
+// than held for the whole build, and once a reading has been taken every
+// request is served it with its age and how long it took. A reading as new as
+// a slow build can make it is not stale; one older than two rounds of the
+// builder's own schedule is.
+func TestASlowStandingIsAnsweredAtOnceWithItsAgeRatherThanAsStale(t *testing.T) {
+	t.Parallel()
+	reader := &slowReader{release: make(chan error)}
+	w := serve(t, reader)
+	start := time.Date(2026, 10, 14, 15, 5, 0, 0, time.UTC)
+	clock := &heldClock{at: start, asleep: make(chan struct{}), tick: make(chan bool)}
+	w.server.standing.now = clock.now
+	w.server.standing.sleep = clock.sleep
+	w.server.standing.firstWait = 20 * time.Millisecond
+	life, stop := context.WithCancel(context.Background())
+	t.Cleanup(stop)
+	w.server.standing.live(life)
+
+	ask := func() (int, answered, string, time.Duration) {
+		t.Helper()
+		asked := time.Now()
+		response, body := w.get("/api/standing", bearer(w.server.Token()))
+		took := time.Since(asked)
+		var decoded answered
+		if response.StatusCode == http.StatusOK {
+			if err := json.Unmarshal([]byte(body), &decoded); err != nil {
+				t.Fatalf("decode %s: %v", body, err)
+			}
+		}
+		return response.StatusCode, decoded, body, took
+	}
+
+	// The dashboard starts its first build before anybody asks.
+	w.server.standing.start()
+	for reader.built() < 1 {
+		time.Sleep(time.Millisecond)
+	}
+	// Thirty seconds into a first build that takes fifty-eight, a request is
+	// refused at once, saying so.
+	clock.advance(30 * time.Second)
+	status, _, body, took := ask()
+	if status != http.StatusServiceUnavailable || !strings.Contains(body, "first reading since it started has been under way for 30s and is not finished yet") || strings.Contains(body, "snapshot") {
+		t.Fatalf("a request during the first slow build: %d %s", status, body)
+	}
+	if took > 5*time.Second {
+		t.Fatalf("a request during the first slow build took %s to be refused", took)
+	}
+
+	// The build ends fifty-eight seconds after it began. Thirty-four seconds
+	// later the reading is ninety-two seconds old, which is as new as a
+	// fifty-eight-second build rebuilt every ten seconds can make it, and it
+	// is served at once, said with its age and not as stale.
+	clock.advance(28 * time.Second)
+	reader.release <- nil
+	<-clock.asleep
+	clock.advance(34 * time.Second)
+	status, got, body, took := ask()
+	if status != http.StatusOK || got.Snapshot.AgeSeconds != 92 || got.Snapshot.BuildSeconds != 58 || got.Snapshot.IntervalSeconds != 10 || got.Snapshot.Stale {
+		t.Fatalf("a slow but current reading: %d %s", status, body)
+	}
+	if took > 5*time.Second {
+		t.Fatalf("a slow but current reading took %s to serve", took)
+	}
+
+	// The next build hangs. Once the reading is older than two intervals and
+	// two of its builds, the building has fallen behind, and it is stale.
+	clock.tick <- true
+	for reader.built() < 2 {
+		time.Sleep(time.Millisecond)
+	}
+	clock.advance(45 * time.Second)
+	if status, got, body, _ = ask(); status != http.StatusOK || got.Snapshot.AgeSeconds != 137 || !got.Snapshot.Stale {
+		t.Fatalf("a reading behind a hung build: %d %s", status, body)
+	}
+}
+
+// A stopping dashboard waits for a build it cancelled to end, so nothing the
+// dashboard started is still reading or writing once it has stopped.
+func TestAStoppedReadingIsWaitedForUntilItsBuildEnds(t *testing.T) {
+	t.Parallel()
+	reader := &slowReader{release: make(chan error)}
+	w := serve(t, reader)
+	life, stop := context.WithCancel(context.Background())
+	w.server.standing.live(life)
+	// The build ignores its context, as a build reading files from disk does,
+	// until the test lets it end.
+	w.server.standing.build = func(context.Context) (any, error) {
+		return reader.Standing(context.Background())
+	}
+	w.server.standing.start()
+	for reader.built() < 1 {
+		time.Sleep(time.Millisecond)
+	}
+	stop()
+
+	expired := make(chan struct{})
+	close(expired)
+	if w.server.standing.settled(expired) {
+		t.Fatal("the reading said it had ended while its build was still running")
+	}
+	reader.release <- nil
+	if !w.server.standing.settled(make(chan struct{})) {
+		t.Fatal("the reading did not end once its build had")
 	}
 }

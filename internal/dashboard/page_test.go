@@ -789,12 +789,14 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// than its ordinary clock.
 		"stale": {`class="freshness freshness-stale">stale<`, "so this is the reading from 14:05:09, and the page asks again in 20s, less often while the dashboard answers slowly or not at all"},
 		// The age of the snapshot each answer was served from: said beside the
-		// moment it was observed while it is fresh, marked stale without a
+		// moment it was observed while it is fresh, said with how long the read
+		// took where that is longer than the interval, marked stale without a
 		// warning during routine lag, and said with the failure beside it where
 		// the dashboard's latest build failed. The render driver also checks
 		// just below, at, and just above the page's own age-warning threshold.
-		"snapshot":     {`class="freshness">taken 4s ago; asks again every 10 s<`},
-		"snapshot-old": {`class="freshness freshness-stale">stale<`, `<p id="stale" class="stale" role="status" hidden></p>`},
+		"snapshot":      {`class="freshness">taken 4s ago; asks again every 10 s<`},
+		"snapshot-old":  {`class="freshness freshness-stale">stale<`, `<p id="stale" class="stale" role="status" hidden></p>`},
+		"snapshot-slow": {`class="freshness">taken 1m ago, by a reading that took 58s; asks again every 10 s<`, `<p id="stale" class="stale" role="status" hidden></p>`},
 		"snapshot-failed": {
 			`class="freshness freshness-stale">stale<`, "The dashboard's last reading of the standing failed — bd list timed out after 30s — so what is shown is the reading taken 34s ago.",
 			`<p id="throughput-stale" class="stale" role="status">The dashboard's last reading of the throughput failed — the state root could not be resolved — so what is shown is the reading taken 1m ago.</p>`,
