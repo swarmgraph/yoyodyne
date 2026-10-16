@@ -2142,7 +2142,7 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// whose target moved, and that re-earns the whole gate exactly as a first
 	// promotion that lost its race does, through the loop below.
 	if resumableIntegration(state) {
-		run.resumedAtPromotion = true
+		run.resumedAtPromotion = resumedAfterLostRace(state)
 		outcome, replayed, err := run.promoteApproved(ctx)
 		if !replayed {
 			return outcome, err
@@ -2489,11 +2489,12 @@ type activeRun struct {
 	// state.KeptChecks holds for the same candidate (keptchecks.go). It is
 	// spent by that stage, whichever way it goes.
 	keptChecksOwed bool
-	// resumedAtPromotion is a run put back at its promotion after it stopped:
-	// whatever the target branch did while it was stopped happened before this
-	// process tried to land anything, so a promotion refused for that is a stale
-	// base rather than a lost race (prepareIntegrationRetry). It is spent by the
-	// first promotion, whichever way it goes.
+	// resumedAtPromotion is a run a repair put back at its promotion after it
+	// gave back its slot for losing races (resumedAfterLostRace): whatever the
+	// target branch did while it was stopped happened before this process tried
+	// to land anything, so a promotion refused for that is a stale base rather
+	// than a lost race (prepareIntegrationRetry). It is spent by the first
+	// promotion, whichever way it goes.
 	resumedAtPromotion bool
 }
 
@@ -2842,10 +2843,10 @@ func (a *activeRun) blockOnLostRaces(cause error) error {
 // else is. Only a run whose repair budget is spent hands the conflict to a
 // person.
 func (a *activeRun) prepareIntegrationRetry(ctx context.Context, cause error) (bool, error) {
-	// A resumed promotion's first refusal for drift is the base it stopped on
-	// having gone stale while nothing was trying to land it, not other work
-	// landing first while it was, so it is replayed without being counted or
-	// reported as a lost race.
+	// The first refusal for drift of a promotion a repair resumed after lost
+	// races is the base it stopped on having gone stale while nothing was trying
+	// to land it, not other work landing first while it was, so it is replayed
+	// without being counted or reported as a lost race.
 	staleBase := a.resumedAtPromotion && errors.Is(cause, gitworktree.ErrTargetDrift)
 	a.resumedAtPromotion = false
 	if !contendedIntegration(cause) {

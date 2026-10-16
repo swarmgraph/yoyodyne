@@ -59,6 +59,20 @@ func putBackAfterLostRace(continued *runstate.State, prior runstate.State, reaso
 	continued.IntegrationRetries = 0
 }
 
+// resumedAfterLostRace reports a run standing at its promotion because a repair
+// put it back there after it gave back its slot for losing races: the
+// resumption that made it live superseded a lost-race failure. Its first
+// refused promotion is the base it stopped on gone stale, not a race.
+// Promotions resumed for anything else keep counting a moved target as a race,
+// as they always have.
+func resumedAfterLostRace(state runstate.State) bool {
+	if len(state.IntegrationResumptions) == 0 {
+		return false
+	}
+	last := state.IntegrationResumptions[len(state.IntegrationResumptions)-1]
+	return strings.HasPrefix(strings.TrimSpace(last.SupersededFailure), runstate.ContendedIntegrationFailure)
+}
+
 // lostRaceReplayReason is what the run and the item record as why a repair put
 // a run that lost its race back at its promotion rather than invoking its
 // developer.

@@ -91,13 +91,11 @@ newer.
   developer slot, and the repair is a new stint. No repair attempt is counted
   unless the replay conflicts, which goes to the developer as any conflict
   does.
-- A promotion resumed after a stop replays the change when its first attempt
+- A promotion that this repair resumed replays the change when its first attempt
   finds the target moved, without counting or reporting that as a lost race
-  (`resumedAtPromotion` and `staleBase` in `prepareIntegrationRetry`). The
+  (`resumedAfterLostRace`, and `staleBase` in `prepareIntegrationRetry`). The
   replayed change then earns the checks and a fresh review before it lands, as
-  every replay does. This applies to every resumed promotion, a dropped
-  merge's replay included, because in each the target moved while nothing was
-  trying to land the change.
+  every replay does.
 - `TestARepairOfARunThatLostItsRaceReplaysItOntoTheTargetBeforeItsChecksAndLands`
   (`lostrace_test.go`) reproduces the incident over a real repository: a run
   stops on its fifth lost race with an approval carrying an out-of-scope note,
@@ -111,7 +109,11 @@ newer.
 A promotion refused in a run that was not resumed is still counted as a lost
 race, including the first promotion of a fresh run whose development took long
 enough for main to move: the base was current when that attempt began, so
-other work did land first. How kept runs are resumed by hand or held for a
+other work did land first. Promotions resumed for other reasons — after a
+stop the environment caused, or by the sweep bringing a queued merge up to
+date, or by a dropped merge's repair — still count their first refusal as a
+race, as they did before; whether those should count it too is a question for
+a separate item rather than a change made quietly here. How kept runs are resumed by hand or held for a
 decision is the preserved-run recovery work (yoyodyne-06m), and replays that run
 past their time limit are a separate investigation (yoyodyne-qi6).
 
