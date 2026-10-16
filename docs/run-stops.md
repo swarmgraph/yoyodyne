@@ -32,8 +32,8 @@ the stop itself.
 
 | Bound or guard | Setting and default | What it bounds | How the run ends | What it spends | Change |
 | --- | --- | --- | --- | --- | --- |
-| One check's time | `execution.check_timeout`: 30 minutes | Each configured check, including a path check. No load scaling of this individual budget. | `timed_out`, class `check-timeout`; no verdict on the change and no automatic check-stage continuation for this cause. | No repair for the timeout; earlier spend stands. | Preserved. |
-| Whole check stage's time | `execution.check_stage_timeout`: 30 minutes | All checks in one stage, scaled upward for load, at most ten times the configured figure. The heaviest reading can raise the bound during the stage. | `timed_out`, class `check-stage-bound`. The harness can continue the same run at its checks twice, hard-coded by `MaxCheckStageContinuations`; after that the development manager gets the stop. | No review round, repair attempt, grant, or re-run for the bound or its continuation. | Branch, checkout, and developer session preserved. |
+| One check's time | `execution.check_timeout`: 30 minutes | Each configured check, including a path check, scaled upward for load by the stage's rule and ceiling, never above the stage's scaled bound, and held to what the check's rerun allowance has left. | `timed_out`, class `check-time-limit`: the check is unfinished, neither passed nor failed. The harness runs the checks again on the same candidate within the bounds it shares with the stage's continuations (`MaxCheckStageContinuations` reruns, within `CheckRerunAllowanceFactor` times the check's limit); after that the development manager gets the stop, and a decided repair cannot run it again on that candidate. | No review round, repair attempt, grant, or re-run for the limit or its reruns. | Branch, checkout, and developer session preserved. |
+| Whole check stage's time | `execution.check_stage_timeout`: 30 minutes | All checks in one stage, scaled upward for load, at most ten times the configured figure. The heaviest reading can raise the bound during the stage. | `timed_out`, class `check-stage-bound`. The harness can run the same run's checks again twice on one candidate, hard-coded by `MaxCheckStageContinuations` and shared with reruns after a check's own limit and with decided repairs; after that the development manager gets the stop. | No review round, repair attempt, grant, or re-run for the bound or its continuation. | Branch, checkout, and developer session preserved. |
 | Developer invocation's total time | Hard-coded: four hours in both provider adapters | One invocation, including its tool work; another invocation starts another clock. | A process times out. With resumable state the run stays `running`, awaiting continuation; without it the run ends `timed_out`, class `provider-budget`. An uncontinued stop is settled after the grace below, and a settled first stop is continued by the harness itself under the same `MaxHarnessStallContinuations` bound as a stall; a second is docketed. | Continuation re-enters the same attempt; no repair, grant, review round, or re-run. | Preserved, including the recorded session. |
 | Provider silence | Hard-coded: five minutes in both adapters | Gap between output events while the provider has not written its final reply. | The process is `stalled`; resumable state leaves the run `running` with `ProviderStop`. With nothing to continue it ends `timed_out`, class `provider-idle`. One automatic continuation of a settled stall is allowed by `MaxHarnessStallContinuations`, shared with the total-time stop above; a second stall is docketed. | Continuation re-enters the same attempt; no repair, grant, review round, or re-run. | Preserved, including the recorded session. |
 | Reviewer invocation's total time | Hard-coded: 15 minutes in `review.Reviewer` | One independent review, overriding the adapter's four-hour total; the five-minute limit on a session producing no output still applies. | A process timeout follows the same provider-stop continuation rule; a review with no resumable state ends on the provider failure. | No repair attempt for an unfinished verdict. | Preserved. |
@@ -77,13 +77,13 @@ can end a successful run before promotion,
 recorded as `integration-policy`. Other step and scope refusals keep the existing
 gate names.
 
-The set of causes outside the work currently has fourteen values. A named cause alone does not forgive a
+The set of causes outside the work currently has fifteen values. A named cause alone does not forgive a
 round: normally the settlement must also find an empty delivery. With a change
-present it spends as an ordinary round does. `usage-window` and
-`check-stage-bound` are the exceptions: they stopped before judgment, so they
+present it spends as an ordinary round does. `usage-window`,
+`check-stage-bound`, and `check-time-limit` are the exceptions: they stopped before judgment, so they
 settle without treating the preserved change as delivery. A round charged by a
 previous process is not returned by this process; a return that could not be
-written is reported explicitly. These causes are classifications, not fourteen
+written is reported explicitly. These causes are classifications, not fifteen
 more timers. Stops keep what remains of the branch and checkout; the table says
 when a usable checkout may never have existed.
 
@@ -101,7 +101,8 @@ when a usable checkout may never have existed.
 | `diverged-target` | Local and remote target histories disagree, or unowned primary state prevents fast-forward. | Integration stops with approval retained until the target can be reconciled. Normal empty-delivery accounting. |
 | `remote-auth-refused` | SSH or forge refused or lacked the required credential. | Integration stops with approval retained; no transport backoff on a credential refusal. A person renews the credential. Normal empty-delivery accounting. |
 | `queued-head-behind` | A queued merge fell behind its target and failed checks outside the change. | Sweep withdraws the queued merge and resumes promotion, replaying and earning fresh checks/review on the new base. It is not a finding against the old change. |
-| `check-stage-bound` | All checks together reached the load-scaled stage limit without a verdict. | Timed out; owed current round/grant returned regardless of diff, with at most two automatic continuations at checks. |
+| `check-stage-bound` | All checks together reached the load-scaled stage limit without a verdict. | Timed out; owed current round/grant returned regardless of diff, with at most two reruns of the checks per candidate, shared with `check-time-limit`. |
+| `check-time-limit` | One check reached its own load-scaled limit without a verdict. | Timed out, the check unfinished; owed current round/grant returned regardless of diff. The checks are run again within the bounds shared with `check-stage-bound`: two reruns per candidate, within three times the check's limit; once spent, the development manager decides and the record says the cause is unresolved. |
 | `developer-settings-not-applied` | A resumed run's developer provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out. | Recorded on the run before any developer is relaunched; nothing ran, nothing is charged, and the run stays as it was, resumable once the hold on the provider lifts. A fresh dispatch refused the same way has no run to record it on; see the developer settings check below. |
 
 ## Pauses that keep a run in flight
@@ -194,6 +195,7 @@ or a cleared finding does not discard a pending note.
 | `no-longer-applies` | The item is closed and its work is settled: the run itself merged and its publication completed, a later run of the item merged into the same target with no newer publication still unsettled, the development manager recorded a stop naming the item that does this item's work instead (no earlier than any decision about the run), or nobody decided anything about the run and the harness had already settled its docket entry with the item or the publication. Asked when the carry-out chooses a recovery and again before it carries one out, so nothing is attempted, spent, or claimed. Recorded with a note on the item naming the run and the merge or settlement, and what the run's own record says of its branch and worktree; nothing is removed, and the docket and the holds read it as settled rather than as a decision to make. An item closed by hand with none of those records — including one whose close reason only says in words that other items replaced it — keeps the recovery for the action's own gates to refuse, because a closed status and prose are not evidence the harness reads. A continuation the harness fires itself is refused the same way and noted on the item once. A run whose own change merged and whose publication finished is never announced as stopped, whatever blocker reaches its record later. | Nothing needs to. Reopening the item and recording a new decision about the run makes a recovery of it apply again; a reopened item is never read this way. |
 | `merge-dropped` | A repair was decided on a run whose approved change the forge did not merge — dropped from its queue, or withdrawn after waiting past `triage.stuck_merge_age` — nothing was ever returned to its developer, and the change cannot be brought up to date from the run: it was promoted locally, its pull request is closed, or its branch, worktree, approval, developer session or remaining resumptions are gone. Where none of those holds, the repair is carried out instead by putting the run back at its merge, bringing the kept change up to date with the target, checking and reviewing it again, and queuing the merge again, with no repair attempt counted unless that conflicts. Recorded on the item once, with the forge's reason the run carries and why the change cannot be replayed. | A re-run, which builds the change again on the current target branch, or a re-arm of the same merge where the forge's reason has passed. |
 | `backend-unavailable` | The stopped run's developer worked on a backend this harness can no longer start — the project no longer describes it, or this build cannot launch it — so its session cannot be carried on, reported as `RecordedBackendError`; or it worked on a backend other than the configured developer's and neither its record nor the run's own lines in the spend log name the model it was developed with there, reported as `RecordedModelError`. A run's developer is always invoked on the backend the run recorded, never on the one the developer is configured for now, and on that backend with the model the run was developed with, never the configured developer's. | A re-run, which starts the item again on the configured backend; the run's session stays on its record. |
+| `check-reruns-spent` | A decided repair would run checks a time limit left unfinished again on a candidate whose reruns or time allowance are already spent. The bounds are shared by the harness's own continuations after either limit and by decided repairs, and are never reset by a restart or a change of path. | A re-run of the item, which starts a new candidate from the target branch, or parking it. The run's branch, worktree, and session stay as they were. |
 
 Classification reads typed refusals and confirmed repository findings, never a
 match on the refusal's prose. An unreadable branch or checkout is not proof that
@@ -308,6 +310,7 @@ describes the pass that applies those rules.
 | `internal/runstate/environmental.go` | `CauseQueuedHeadBehind` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseCheckStageBound` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/environmental.go` | `CauseDeveloperSettingsNotApplied` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
+| `internal/runstate/environmental.go` | `CauseCheckTimeLimit` | `EnvironmentalCause` | 1 | Closed cause listed under Causes outside the work; changing the vocabulary requires its account. |
 | `internal/runstate/stopclass.go` | `StopChecks` | `StopClass` | 1 | Closed recorded class: checks. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopReview` | `StopClass` | 1 | Closed recorded class: review. Identifies the stopping operation; grants no action. |
 | `internal/runstate/stopclass.go` | `StopIntegration` | `StopClass` | 1 | Closed recorded class: integration. Identifies the stopping operation; grants no action. |
@@ -400,7 +403,7 @@ These are the Go expressions behind the figures above, held by the value test.
 | `internal/backend/codex/backend.go` | `defaultTimeout` | `4 * time.Hour` |
 | `internal/backend/codex/backend.go` | `defaultIdleTimeout` | `5 * time.Minute` |
 | `internal/backend/codex/backend.go` | `defaultAfterReplyTimeout` | `5 * time.Minute` |
-| `internal/checks/runner.go` | `defaultTimeout` | `30 * time.Minute` |
+| `internal/checks/runner.go` | `DefaultTimeout` | `30 * time.Minute` |
 | `internal/checks/runner.go` | `DefaultStageTimeout` | `30 * time.Minute` |
 | `internal/checks/runner.go` | `DefaultLandingCheckTimeout` | `2 * time.Hour` |
 | `internal/review/reviewer.go` | `defaultReviewTimeout` | `15 * time.Minute` |
@@ -413,6 +416,7 @@ These are the Go expressions behind the figures above, held by the value test.
 | `internal/runstate/document.go` | `MaxDocumentReturns` | `3` |
 | `internal/runstate/stallcontinue.go` | `MaxHarnessStallContinuations` | `1` |
 | `internal/runstate/checkstagecontinue.go` | `MaxCheckStageContinuations` | `2` |
+| `internal/runstate/checkstagecontinue.go` | `CheckRerunAllowanceFactor` | `3` |
 | `internal/runstate/promotion.go` | `promotionQueueWait` | `15 * time.Minute` |
 | `internal/runstate/store.go` | `maxEncodedStateBytes` | `1 << 20` |
 | `internal/runstate/store.go` | `maxEncodedEventBytes` | `1 << 20` |

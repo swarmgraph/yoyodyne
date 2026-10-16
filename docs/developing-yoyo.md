@@ -386,7 +386,7 @@ and up to 1,170 seconds under `make test`
 on a busier machine `make race` has needed about 26.5 minutes. The figure
 stays under
 [`execution.check_timeout`](configuration.md#how-long-a-check-may-take), which
-is not scaled for load, so a hang is still reported by `go test` with its dump
+load only ever lengthens, so a hang is still reported by `go test` with its dump
 of every goroutine before the harness ends the check. This project's
 configuration raises that limit from its thirty-minute default to forty-five
 minutes as a stopgap, and forty-three is a minute of compiling and a margin

@@ -362,6 +362,10 @@ type Execution struct {
 	// A check killed at this bound is not a check that failed: it is work that
 	// may have been passing the whole time, which is why every check reports
 	// what it spent against this budget rather than only the one that ran out.
+	// The figure is for an idle machine: the limit in force is scaled for load by
+	// the rule CheckStageTimeout is, never above the stage's scaled bound, and a
+	// check stopped at it is unfinished and run again only within the bounds
+	// runstate.CheckStageContinuation describes.
 	CheckTimeout Duration `yaml:"check_timeout" json:"check_timeout"`
 	// CheckStageTimeout is the total budget the whole check stage of one run
 	// gets: every configured check together, from the first one starting to the

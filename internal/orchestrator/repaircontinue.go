@@ -112,6 +112,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 
@@ -515,7 +516,7 @@ func (c RepairContinuer) Continue(ctx context.Context, request RepairContinueReq
 	// repaired decides two things below, and both of them before anything is
 	// written: whether the worktree has to hold a change already, and whether the
 	// continuation counts an attempt.
-	result.Checks = prior.StoppedAtStageBound()
+	result.Checks = prior.StoppedUnfinishedAtChecks()
 	result.Stall = !result.Checks && continuableStall(prior)
 	result.ResumesAt = continuedPhase(prior, result.Stall)
 	if replay {
@@ -1087,12 +1088,17 @@ func continuableRepair(prior runstate.State, found triage.Found) error {
 	// preserved change instead (see freshSessionWhy). A stall or a check-stage
 	// continuation has nothing to hand a fresh developer, so it still needs the
 	// session it stopped in.
-	if prior.ProviderSessionID == "" && !(handedBackRepair(prior) && !prior.StoppedAtStageBound()) {
+	if prior.ProviderSessionID == "" && !(handedBackRepair(prior) && !prior.StoppedUnfinishedAtChecks()) {
 		return fmt.Errorf("run %s recorded no developer session, and no failure was returned about its change for a fresh developer to repair, so there is no attempt to carry on with", prior.RunID)
+	}
+	// A check a time limit left unfinished is run again only within the bounds
+	// every path shares, so a decided repair cannot reset them.
+	if spent := prior.CheckRerunSpent(); spent != "" {
+		return permanentCarryOut(triage.CarryOutCheckRerunsSpent, fmt.Errorf("run %s's checks will not be run again on this candidate: %s; a re-run of the item, which starts a new candidate from the target branch, is what remains", prior.RunID, spent))
 	}
 	// A stall or a check-stage timeout owes the run the step the harness stopped,
 	// rather than a repair of a change nobody complained about.
-	if !handedBackRepair(prior) && !continuableStall(prior) && !prior.StoppedAtStageBound() {
+	if !handedBackRepair(prior) && !continuableStall(prior) && !prior.StoppedUnfinishedAtChecks() {
 		// An approved change the forge did not merge is the case this is decided on
 		// most, and the record answers it the same way on every pass, so it is
 		// refused once, on the item, with what the record supports instead.
@@ -1135,7 +1141,7 @@ func freshSessionWhy(prior runstate.State) string {
 			return fmt.Sprintf("run %s recorded no developer session to re-enter: the harness carried it on itself past a silent session at a step with no developer, so no developer session was ever recorded on it", prior.RunID)
 		}
 	}
-	if len(prior.CheckStageContinuations) > 0 {
+	if slices.ContainsFunc(prior.CheckStageContinuations, func(c runstate.CheckStageContinuation) bool { return !c.ByDecision }) {
 		return fmt.Sprintf("run %s recorded no developer session to re-enter: the harness carried it on itself at its checks, with no developer, so no developer session was ever recorded on it", prior.RunID)
 	}
 	if budgetStopped(prior) {
@@ -1285,13 +1291,22 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 			SupersededBlocker:      prior.Blocker,
 			SupersededCheckFailure: prior.CheckFailure,
 			Stall:                  stalled,
-			CheckStage:             prior.StoppedAtStageBound(),
+			CheckStage:             prior.StoppedUnfinishedAtChecks(),
 			FreshSession:           fresh,
 			DispatchPending:        true,
 			SuccessNotePending:     true,
 		})
-	if !stalled && !prior.StoppedAtStageBound() && !replay {
+	if !stalled && !prior.StoppedUnfinishedAtChecks() && !replay {
 		continued.RepairAttempts = prior.RepairAttempts + 1
+	}
+	// A decided rerun of an unfinished check counts against the same bounds as
+	// the harness's own, recorded before the checks run again.
+	if rerun, ok := prior.UnfinishedCheck(); ok {
+		rerun.ContinuedAt = c.now()
+		rerun.Reason = reason
+		rerun.SupersededFailure = prior.Failure
+		rerun.ByDecision = true
+		continued.CheckStageContinuations = append(append([]runstate.CheckStageContinuation{}, prior.CheckStageContinuations...), rerun)
 	}
 	// The blocker is cleared onto the continuation that supersedes it. A terminal
 	// run whose blocker still stands is what the docket re-dockets and what
@@ -1377,7 +1392,7 @@ func (c RepairContinuer) saveContinuation(continued runstate.State) (runstate.St
 // change the worktree holds, exactly as it does for a run a process died in
 // there.
 func continuedPhase(prior runstate.State, stalled bool) runstate.Phase {
-	if prior.StoppedAtStageBound() || (stalled && stallResumesPastTheAttempt(prior)) {
+	if prior.StoppedUnfinishedAtChecks() || (stalled && stallResumesPastTheAttempt(prior)) {
 		return prior.Phase
 	}
 	return runstate.PhaseDeveloping

@@ -1,7 +1,10 @@
 package orchestrator
 
-// Continuing a run at its checks after execution.check_stage_timeout stopped
-// the stage.
+// Continuing a run at its checks after a time limit left a check unfinished:
+// execution.check_stage_timeout stopping the stage, or a check reaching its own
+// execution.check_timeout. Both are continued the same way and share the bounds
+// runstate.CheckStageContinuation describes; what follows is written of the
+// stage's bound, which came first.
 //
 // A stage the bound stopped judged nothing. No check failed and nothing was
 // handed back to the developer; the change is on its branch exactly as the
@@ -19,9 +22,9 @@ package orchestrator
 // review round, repair grant, or re-run spent. The scheduling pass fires it on a
 // pull where a developer slot is free, ahead of fresh work at equal or lower
 // priority. Like fresh work, it is not held on machine load. It does so at most
-// runstate.MaxCheckStageContinuations times
-// for one run; past that the stoppage is the development manager's, as it was
-// before.
+// runstate.MaxCheckStageContinuations times on one candidate, within the check's
+// time allowance; past that the stoppage is the development manager's, as it
+// was before.
 //
 // It is held to what a repair is held to: the worktree has to be as the harness
 // left it and still hold the change, because that change is what the checks
@@ -285,17 +288,11 @@ func (c CheckStageContinuer) Continue(ctx context.Context, request CheckStageCon
 // between still says where the last one stopped.
 func continuedAtChecks(prior runstate.State, reason string, now time.Time) runstate.State {
 	continued := prior
-	command := ""
-	if prior.CheckStage != nil {
-		command = prior.CheckStage.Command
-	}
-	continued.CheckStageContinuations = append(append([]runstate.CheckStageContinuation{}, prior.CheckStageContinuations...),
-		runstate.CheckStageContinuation{
-			Command:           command,
-			ContinuedAt:       now,
-			Reason:            reason,
-			SupersededFailure: prior.Failure,
-		})
+	rerun, _ := prior.UnfinishedCheck()
+	rerun.ContinuedAt = now
+	rerun.Reason = reason
+	rerun.SupersededFailure = prior.Failure
+	continued.CheckStageContinuations = append(append([]runstate.CheckStageContinuation{}, prior.CheckStageContinuations...), rerun)
 	continued.Failure = ""
 	continued.Status = runstate.StatusRunning
 	continued.Phase = runstate.PhaseChecking
@@ -378,7 +375,7 @@ func (c CheckStageContinuer) closeEntry(entry triage.Entry, reason string) error
 		WorkItemID:    entry.WorkItemID,
 		Decision:      continuedChecksDocketDecision,
 		Reason:        singleLine(reason, triage.MaxMessageBytes),
-		DecidedBy:     "the harness, continuing a check stage its bound stopped under load",
+		DecidedBy:     "the harness, continuing checks a time limit stopped under load",
 		ClosedAt:      c.now(),
 	})
 	return err
@@ -387,13 +384,44 @@ func (c CheckStageContinuer) closeEntry(entry triage.Entry, reason string) error
 // checkStageContinueReason is what the run and the item record as why the run
 // is going again.
 func checkStageContinueReason(prior runstate.State) string {
-	during := ""
-	if prior.CheckStage != nil && prior.CheckStage.Command != "" {
-		during = " during " + prior.CheckStage.Command
-	}
 	return fmt.Sprintf(
-		"Continued at its checks: the check stage of run %s was stopped by load at its execution.check_stage_timeout bound%s, which judged nothing, so the harness continued the run itself at its checks on the change it already has, on the same branch and in the same worktree, with no developer attempt (continuation %d of %d). No review round, repair grant, or re-run was spent on it.",
-		prior.RunID, during, len(prior.CheckStageContinuations)+1, runstate.MaxCheckStageContinuations)
+		"Continued at its checks: %s, so the harness continued the run itself at its checks on the change it already has, on the same branch and in the same worktree, with no developer attempt (rerun %d of %d on this candidate). No review round, repair grant, or re-run was spent on it.",
+		unfinishedCheckSays(prior), len(prior.CheckReruns())+1, runstate.MaxCheckStageContinuations)
+}
+
+// unfinishedCheckSays is what a rerun's reason says about the stop it
+// continues: which limit stopped which check, the configured and scaled figures
+// and the load, the revision the check was judging, and what the check has
+// spent of its allowance on this candidate.
+func unfinishedCheckSays(prior runstate.State) string {
+	stage := prior.CheckStage
+	if stage == nil {
+		return fmt.Sprintf("a time limit stopped the checks of run %s before they judged the change", prior.RunID)
+	}
+	during := ""
+	if stage.Command != "" {
+		during = " during " + stage.Command
+	}
+	if stage.StoppedAtBound {
+		return fmt.Sprintf("the check stage of run %s was stopped by load at its execution.check_stage_timeout bound%s, which judged nothing", prior.RunID, during)
+	}
+	limit := time.Duration(stage.CheckLimitSeconds) * time.Second
+	revision := prior.HarnessCommit
+	if revision == "" {
+		revision = "the uncommitted change"
+	}
+	said := fmt.Sprintf("%s on run %s reached its own %s execution.check_timeout limit%s on attempt %d at %s and is unfinished, neither passed nor failed",
+		nonEmpty(stage.Command, "a check"), prior.RunID, limit, checkLimitLoad(*stage, limit), prior.RepairAttempts, revision)
+	if stop, ok := prior.UnfinishedCheck(); ok && stop.AllowanceSeconds > 0 {
+		spent := time.Duration(0)
+		for _, rerun := range append(prior.CheckReruns(), stop) {
+			if rerun.Command == stop.Command {
+				spent += time.Duration(rerun.ElapsedSeconds) * time.Second
+			}
+		}
+		said += fmt.Sprintf("; it has spent %s of its %s allowance", spent, time.Duration(stop.AllowanceSeconds)*time.Second)
+	}
+	return said
 }
 
 func (c CheckStageContinuer) validate() error {

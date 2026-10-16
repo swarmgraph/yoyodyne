@@ -188,6 +188,17 @@ const (
 	// is settled without asking the worktree: the change the attempt left is on
 	// the branch for the continuation to check, not a delivery the stop spent.
 	CauseCheckStageBound EnvironmentalCause = "check-stage-bound"
+	// CauseCheckTimeLimit is a check stopped at its own execution.check_timeout
+	// limit, scaled for the machine's load the way the stage's bound is, before
+	// it reached a verdict. The check is unfinished — neither passed nor failed —
+	// so nothing is handed back to the developer, and the harness runs it again
+	// within the bounds CheckStageContinuation describes, which it shares with
+	// CauseCheckStageBound. Load cannot prove the change did not make the check
+	// hang, which is why those bounds exist; once they are spent the stoppage is
+	// the development manager's.
+	//
+	// It ends the round unjudged for CauseCheckStageBound's reason.
+	CauseCheckTimeLimit EnvironmentalCause = "check-time-limit"
 	// CauseDeveloperSettingsNotApplied is a run turned back before its developer
 	// was started because the developer's provider did not apply what a
 	// developer is launched with: the sandbox, the notes guard, or the settings
@@ -207,7 +218,7 @@ func EnvironmentalCauses() []EnvironmentalCause {
 		CauseSandboxSpawnFailure, CauseStaleBinaryDispatch, CauseTransportFailure,
 		CauseProcessVanished, CauseUsageWindow, CauseReplayKilled, CauseDivergedTarget,
 		CauseRemoteAuthRefused, CauseQueuedHeadBehind, CauseCheckStageBound,
-		CauseDeveloperSettingsNotApplied,
+		CauseDeveloperSettingsNotApplied, CauseCheckTimeLimit,
 	}
 }
 
@@ -244,9 +255,10 @@ func (c EnvironmentalCause) NeedsAPerson() bool {
 // EndsTheRoundUnjudged reports a cause that ends the round before anything
 // could judge what it holds, so the round is refused without the worktree
 // being asked whether it delivered: the provider's usage window, and the check
-// stage stopped at its bound. See CauseUsageWindow and CauseCheckStageBound.
+// stage stopped at its bound, and a check stopped at its own limit. See
+// CauseUsageWindow, CauseCheckStageBound, and CauseCheckTimeLimit.
 func (c EnvironmentalCause) EndsTheRoundUnjudged() bool {
-	return c == CauseUsageWindow || c == CauseCheckStageBound
+	return c == CauseUsageWindow || c == CauseCheckStageBound || c == CauseCheckTimeLimit
 }
 
 // Title says what a cause is, the way somebody reading a docket entry or a
@@ -280,6 +292,8 @@ func (c EnvironmentalCause) Title() string {
 		return "its queued merge's head fell behind the target and failed checks on files the change does not touch"
 	case CauseCheckStageBound:
 		return "the check stage reached its bound, already scaled for the machine's load, before the checks judged the change"
+	case CauseCheckTimeLimit:
+		return "a check reached its own time limit, already scaled for the machine's load, before it judged the change"
 	case CauseDeveloperSettingsNotApplied:
 		return "the developer's provider did not apply the sandbox, the notes guard, or the settings that keep personal configuration out"
 	default:

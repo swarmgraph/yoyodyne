@@ -482,6 +482,18 @@ type CheckStage struct {
 	// StoppedAtBound reports a stage that ended because it reached its bound,
 	// with Command naming the check it stopped.
 	StoppedAtBound bool `json:"stopped_at_bound,omitempty"`
+	// CheckConfiguredSeconds is execution.check_timeout as configured, and
+	// CheckLimitSeconds the limit the check Command names was given: the
+	// configured figure scaled for the load the stage's bound is scaled for, by
+	// the same rule and ceiling, never above the stage's bound, and never above
+	// what the check's rerun allowance has left on this candidate
+	// (State.CheckRerunRemaining). CheckElapsedSeconds is what that check ran
+	// for, and CheckStoppedAtLimit reports a stage that ended because the check
+	// reached its own limit rather than the stage's bound.
+	CheckConfiguredSeconds int64 `json:"check_configured_seconds,omitempty"`
+	CheckLimitSeconds      int64 `json:"check_limit_seconds,omitempty"`
+	CheckElapsedSeconds    int64 `json:"check_elapsed_seconds,omitempty"`
+	CheckStoppedAtLimit    bool  `json:"check_stopped_at_limit,omitempty"`
 	// Interrupted reports a stage the sweep closed because the process running
 	// it died, with Command naming the check it was on. It is written by the
 	// settlement rather than by the run, because a run that died wrote nothing;
@@ -600,6 +612,9 @@ func (c CheckStage) Validate() error {
 	}
 	if c.Load < 0 || c.Cores < 0 {
 		problems = append(problems, errors.New("load and cores cannot be negative"))
+	}
+	if c.CheckConfiguredSeconds < 0 || c.CheckLimitSeconds < 0 || c.CheckElapsedSeconds < 0 {
+		problems = append(problems, errors.New("check_configured_seconds, check_limit_seconds, and check_elapsed_seconds cannot be negative"))
 	}
 	if c.FinishedAt != nil && c.FinishedAt.Before(c.StartedAt) {
 		problems = append(problems, errors.New("finished_at cannot precede started_at"))
@@ -747,6 +762,8 @@ func (c CheckStage) Describe(now time.Time) string {
 		switch {
 		case c.StoppedAtBound:
 			said += ", stopped at the bound during " + c.Command
+		case c.CheckStoppedAtLimit:
+			said += fmt.Sprintf(", %s stopped unfinished at its own %s limit", c.Command, describeSpan(time.Duration(c.CheckLimitSeconds)*time.Second))
 		case c.Interrupted:
 			said += ", interrupted during " + c.Command
 		case c.Running():
