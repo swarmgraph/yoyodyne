@@ -30,7 +30,7 @@ import (
 // developer attempt. A missing checkout is restored from the branch first, on
 // the same conditions any repair restores one (continuableRepair).
 func replaysLostRace(prior runstate.State, found triage.Found) bool {
-	if !prior.LostItsRace() || !prior.ApprovedAwaitingIntegration() || continuableStall(prior) || prior.StoppedAtStageBound() {
+	if !prior.LostItsRace() || !prior.ApprovedAwaitingIntegration() || continuableStall(prior) || prior.StoppedUnfinishedAtChecks() {
 		return false
 	}
 	if strings.TrimSpace(prior.ProviderSessionID) == "" || prior.ResumptionsLeft() == 0 {
