@@ -71,6 +71,18 @@ func (t *sharedTracker) start(ctx context.Context) {
 	})
 }
 
+// finish waits for both tracker commands to end, so that nothing a reading
+// started is still running — and still recording how the tracker answered —
+// after the reading has returned. A reading that stopped early on one failed
+// command waits out the other, which its own bound ends.
+func (t *sharedTracker) finish() {
+	if t == nil || t.every.done == nil {
+		return
+	}
+	<-t.every.done
+	<-t.ready.done
+}
+
 func (r *sharedRead) read(ctx context.Context, bound func(context.Context) (context.Context, context.CancelFunc), command func(context.Context) ([]beads.WorkItem, error)) {
 	bounded, cancel := bound(ctx)
 	defer cancel()

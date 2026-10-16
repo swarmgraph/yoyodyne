@@ -185,3 +185,40 @@ func TestAWaiterOnTheSharedListingStopsWithItsOwnContext(t *testing.T) {
 		t.Fatalf("listings = %q; want one", tracker.listings)
 	}
 }
+
+// slowReadyTracker fails its listing at once and answers its readiness query
+// only after a pause, recording when that query ended.
+type slowReadyTracker struct {
+	mu    sync.Mutex
+	ended bool
+}
+
+func (s *slowReadyTracker) List(context.Context, string) ([]beads.WorkItem, error) {
+	return nil, errors.New("bd list failed")
+}
+
+func (s *slowReadyTracker) Ready(context.Context) ([]beads.WorkItem, error) {
+	time.Sleep(50 * time.Millisecond)
+	s.mu.Lock()
+	s.ended = true
+	s.mu.Unlock()
+	return nil, nil
+}
+
+// A standing that stops early on a failed listing still waits for the
+// readiness query it started beside it, so nothing it started is running — or
+// recording how the tracker answered — once it has returned.
+func TestAStandingLeavesNoTrackerCommandRunningWhenItReturns(t *testing.T) {
+	t.Parallel()
+	tracker := &slowReadyTracker{}
+	sources := quietSources()
+	sources.Tracker = tracker
+
+	ReadStanding(context.Background(), sources)
+
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	if !tracker.ended {
+		t.Fatal("the standing returned with its readiness query still running")
+	}
+}

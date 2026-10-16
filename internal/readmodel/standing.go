@@ -807,6 +807,7 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// (sharedlisting.go).
 	sources, shared := sources.sharing()
 	shared.start(ctx)
+	defer shared.finish()
 	standing := Standing{
 		ObservedAt:   now,
 		Running:      []RunningRun{},
