@@ -640,7 +640,11 @@ func age(elapsed time.Duration) string {
 // the four lines rather than as a fifth: nothing on it waits on a person, and
 // the operator reads an instance when he chooses. Each line names the instance,
 // its lane, and its status word, and says why where the word is not working
-// or where the instance has missed a pass.
+// or where the instance has missed a pass. Under it come the three lists its
+// lane report opens with — Completed and Handed off over the last 24 hours, and
+// Blocked on a human — one line per entry, each named by what it is, and
+// "none" in words where a list is empty, so the layout never depends on how the
+// instance wrote its report.
 // It is empty where no instance is configured and none has asked for anything,
 // and says so where the instances were listed but something behind them could
 // not be read.
@@ -658,11 +662,44 @@ func (s Standing) RenderProgramManagers() string {
 			lane = "lane " + lane
 		}
 		fmt.Fprintf(&rendered, "  %s — %s — %s%s\n", instance.Agent, lane, instance.Status, instance.why())
+		rendered.WriteString(instance.RenderOpeningLists("    "))
 	}
 	if s.ProgramManagersProblem != "" {
 		rendered.WriteString(partialRead + s.ProgramManagersProblem + "\n")
 	}
 	return s.wording.Render(s.Titles.Cite(rendered.String()))
+}
+
+// RenderOpeningLists is the three lists a lane report opens with, as plain
+// text: a heading per list and one indented line per entry, or "none". Every
+// surface that prints them as text prints this.
+func (p ProgramManager) RenderOpeningLists(indent string) string {
+	var rendered strings.Builder
+	list := func(heading string, lines []string) {
+		if len(lines) == 0 {
+			fmt.Fprintf(&rendered, "%s%s: none\n", indent, heading)
+			return
+		}
+		fmt.Fprintf(&rendered, "%s%s:\n", indent, heading)
+		for _, line := range lines {
+			fmt.Fprintf(&rendered, "%s  - %s\n", indent, line)
+		}
+	}
+	says := func(entries []LaneEntry) []string {
+		lines := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			lines = append(lines, entry.Says())
+		}
+		return lines
+	}
+	list("Completed (last 24 hours)", says(p.Completed))
+	list("Handed off (last 24 hours)", says(p.HandedOff))
+	blocked := make([]string, 0, len(p.BlockedOnAHuman))
+	for _, block := range p.BlockedOnAHuman {
+		blocked = append(blocked, block.Says())
+	}
+	list("Blocked on a human", blocked)
+	return rendered.String()
 }
 
 // why is what follows an instance's status word: the reason it is stale, how
@@ -676,12 +713,15 @@ func (p ProgramManager) why() string {
 	if p.Stale {
 		parts = append(parts, p.StaleSays)
 	}
-	if p.Blocked {
+	if len(p.Blockers) > 0 {
 		cited := make([]string, 0, len(p.Blockers))
 		for _, blocker := range p.Blockers {
 			cited = append(cited, blocker.Cites)
 		}
 		parts = append(parts, fmt.Sprintf("blocked on %s (%s)", count(len(p.Blockers), "open ask"), strings.Join(cited, ", ")))
+	}
+	if len(p.BlockedOnAHuman) > 0 {
+		parts = append(parts, fmt.Sprintf("blocked on a human for %s", count(len(p.BlockedOnAHuman), "thing")))
 	}
 	if len(p.Claims) > 0 {
 		parts = append(parts, fmt.Sprintf("%s its report names that the record does not bear out", count(len(p.Claims), "blocker")))

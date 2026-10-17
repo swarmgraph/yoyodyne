@@ -811,6 +811,10 @@ func prepareChat(ctx context.Context, role domain.AgentRole, agentName, configPa
 	if err != nil {
 		return preparedChat{}, err
 	}
+	// A Blocked on a human entry cites the report, amendment, or directive the
+	// operator's act is recorded on, and the store reads those records to refuse
+	// an entry citing none and to stop carrying one once its act is recorded.
+	laneReports.UseWaitingRecords(readmodel.WaitingRecordCheck(waitingRecordSources(parts.stateRoot, cfg.Product.ID)))
 	return preparedChat{
 		parts:       parts,
 		name:        name,

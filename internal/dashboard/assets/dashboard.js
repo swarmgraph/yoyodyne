@@ -1208,8 +1208,12 @@ var standingWarningAgeSeconds = 5 * 60;
       parts.push(instance.stale_says);
     }
     var blockers = instance.blockers || [];
-    if (instance.blocked) {
+    if (blockers.length > 0) {
       parts.push("blocked on " + count(blockers.length, "open ask") + " (" + blockers.map(function (blocker) { return blocker.cites; }).join(", ") + ")");
+    }
+    var blockedOnAHuman = instance.blocked_on_a_human || [];
+    if (blockedOnAHuman.length > 0) {
+      parts.push("blocked on a human for " + count(blockedOnAHuman.length, "thing"));
     }
     var claims = instance.claims || [];
     if (claims.length > 0) {
@@ -1219,6 +1223,43 @@ var standingWarningAgeSeconds = 5 * 60;
       parts.push(missedPassSays(instance.missed_pass));
     }
     return parts.join("; ");
+  }
+
+  // The three lists a lane report opens with, one line per entry, each naming
+  // its item by what it is. They are structured in the model, so a report
+  // written as one paragraph still shows them as lists.
+  function laneEntrySays(entry) {
+    var about = entry.item ? (entry.title ? "\u201c" + entry.title + "\u201d (" + entry.item + ")" : entry.item) : entry.record;
+    return about + " — " + entry.what + (entry.to ? ", to " + entry.to : "") + ", " + localMoment(entry.at);
+  }
+
+  function humanBlockSays(block) {
+    var about = block.item ? (block.title ? "\u201c" + block.title + "\u201d (" + block.item + "): " : block.item + ": ") : "";
+    return about + block.what + " — " + block.reason_says + "; since " + localMoment(block.since) + "; cleared when the act is recorded on " + block.cites +
+      (block.unresolved ? " (" + block.unresolved + ")" : "");
+  }
+
+  function openingLists(instance) {
+    return [
+      { label: "Completed", lines: (instance.completed || []).map(laneEntrySays), none: "none in the last 24 hours" },
+      { label: "Handed off", lines: (instance.handed_off || []).map(laneEntrySays), none: "none in the last 24 hours" },
+      { label: "Blocked on a human", lines: (instance.blocked_on_a_human || []).map(humanBlockSays), none: "none" }
+    ];
+  }
+
+  function figureList(label, lines, none) {
+    var row = el("div", "figure-row");
+    row.appendChild(el("dt", null, label));
+    var body = el("dd");
+    if (lines.length === 0) {
+      body.textContent = none;
+    } else {
+      var list = el("ul", "card-run-facts");
+      lines.forEach(function (text) { list.appendChild(el("li", null, text)); });
+      body.appendChild(list);
+    }
+    row.appendChild(body);
+    return row;
   }
 
   function managerBadge(status) {
@@ -1233,6 +1274,9 @@ var standingWarningAgeSeconds = 5 * 60;
     row.appendChild(head);
     row.appendChild(el("h3", "held-title", instance.agent));
     var facts = el("dl", "held-facts");
+    openingLists(instance).forEach(function (named) {
+      facts.appendChild(figureList(named.label, named.lines, named.none));
+    });
     facts.appendChild(figureRow("Lane", instance.lane || "no lane configured"));
     var why = managerWhy(instance);
     if (why) {
@@ -2038,6 +2082,16 @@ var standingWarningAgeSeconds = 5 * 60;
           add("Since", named(entry.operator_action.since) ? dayAndClock(entry.operator_action.since) : "");
         }
         break;
+      case "blocked-on-a-human":
+        if (entry.blocked_on_a_human) {
+          var block = entry.blocked_on_a_human.entry;
+          add("Needs", block.what);
+          add("Why only a person", block.reason_says);
+          add("Listed by", "the program manager " + entry.blocked_on_a_human.agent);
+          add("Cleared by", "the act recorded on " + block.cites);
+          add("Since", named(block.since) ? dayAndClock(block.since) : "");
+        }
+        break;
       case "addressed-report":
         if (entry.report) {
           add("Severity", entry.report.severity);
@@ -2122,6 +2176,7 @@ var standingWarningAgeSeconds = 5 * 60;
   // citedRecords is what each kind of record a blocker's citation resolved to
   // is, in words: an open ask of the instance's own.
   var citedRecords = {
+    "directive": "a directive nobody has resolved",
     "report": "a report of its own the Lead Product Manager has not handled",
     "amendment": "an amendment of its own nobody has decided",
     "exchange": "an exchange of its own still open",
@@ -2151,6 +2206,9 @@ var standingWarningAgeSeconds = 5 * 60;
     document.getElementById("report-note").textContent = (instance.lane ? "lane " + instance.lane : "no lane configured") + " · read " + clock(answer.observed_at);
     var fields = document.getElementById("report-fields");
     clear(fields);
+    openingLists(instance).forEach(function (named) {
+      fields.appendChild(listField(named.label, named.lines, named.none));
+    });
     var status = el("div", "card-field");
     status.appendChild(el("dt", null, "Status"));
     var word = el("dd", "manager-line " + managerClass(instance.status));

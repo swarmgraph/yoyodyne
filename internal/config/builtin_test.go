@@ -222,3 +222,25 @@ func decidesAndReports(text string) bool {
 		strings.Contains(flat, "fundamental intent") &&
 		strings.Contains(flat, "admit any work they refused before, or refuse any work they admitted")
 }
+
+// The shipped program manager persona says to write Blocked on a human as the
+// report's own list, and that the harness derives the other two and carries the
+// entries; the copy this repository's roles read is held to the same passage by
+// the live persona test.
+func TestTheShippedProgramManagerPersonaWritesTheLaneReportsOpeningLists(t *testing.T) {
+	t.Parallel()
+
+	loaded, err := loadBuiltinBundle(BuiltinV1)
+	if err != nil {
+		t.Fatalf("loadBuiltinBundle() error = %v", err)
+	}
+	text, _, err := loaded.personas.load("persona", "personas/program-manager.md")
+	if err != nil {
+		t.Fatalf("load the program manager persona: %v", err)
+	}
+	for _, want := range []string{"**Completed:**", "**Handed off:**", "**Blocked on a human:**", "`blocked_on_a_human`", "The harness carries each Blocked on a human entry"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the shipped program manager persona does not say %q", want)
+		}
+	}
+}

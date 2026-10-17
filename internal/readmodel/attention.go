@@ -136,6 +136,12 @@ const (
 	// of the same name waits behind. The permit is the ID and its run's item is
 	// the WorkItemID.
 	AttentionKeptHeavyCheck AttentionKind = "heavy-check-kept"
+	// AttentionLaneHumanBlock is one entry a program manager's lane report lists
+	// under Blocked on a human, once per item however many passes or instances
+	// name it. The item is the WorkItemID and the ID, or the record it cites
+	// where it names none; the ownership registry names the mover from the
+	// entry's reason.
+	AttentionLaneHumanBlock AttentionKind = "blocked-on-a-human"
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
@@ -167,6 +173,7 @@ func AttentionKinds() []AttentionKind {
 		AttentionUnrunCheck,
 		AttentionCapacityDegraded,
 		AttentionKeptHeavyCheck,
+		AttentionLaneHumanBlock,
 	}
 }
 
@@ -222,6 +229,7 @@ func (a Attention) Label() string {
 		AttentionUnrunCheck:        "check not running",
 		AttentionCapacityDegraded:  "provider capacity degraded",
 		AttentionKeptHeavyCheck:    "check place kept",
+		AttentionLaneHumanBlock:    "blocked on a human",
 	}[a.Kind]
 }
 
@@ -261,13 +269,14 @@ func MoverOf(role domain.AgentRole) Mover { return ownership.MoverOf(role) }
 func Movers() []Mover { return ownership.Movers() }
 
 // LaneReportMovers is the part of this vocabulary a program manager's lane
-// report may name as what a blocker is waiting on: the people and parts of the
+// report may name as what a blocker is waiting on: the roles and parts of the
 // line a lane can be held up by. It is declared here, beside the vocabulary it
 // narrows, so the lane report and the attention line cannot come to disagree
-// about what a mover is called.
+// about what a mover is called. The operator is not among them: what waits on
+// him is a Blocked on a human entry, which carries a reason from the ownership
+// registry's closed list, and a blocker naming him is refused.
 func LaneReportMovers() []Mover {
 	return []Mover{
-		MoverOperator,
 		MoverProductManager,
 		MoverDevelopmentManager,
 		MoverArchitect,
@@ -402,6 +411,9 @@ type Attention struct {
 	// KeptHeavyCheck is the place and the permit holding it, on an
 	// AttentionKeptHeavyCheck entry; the permit is the ID.
 	KeptHeavyCheck *KeptHeavyCheck `json:"kept_heavy_check,omitempty"`
+	// LaneHumanBlock is the program manager's entry and the instance that wrote
+	// it, on an AttentionLaneHumanBlock entry.
+	LaneHumanBlock *LaneHumanBlock `json:"blocked_on_a_human,omitempty"`
 
 	// titles is what the tracker calls each item, set by the reading that
 	// assembled the entry, so the line a person reads names every item beside
@@ -430,7 +442,7 @@ func (a Attention) CitedWhose() string {
 // one class of finding once waited and the two hours the brake once stood.
 func (a Attention) Named() bool {
 	switch a.Kind {
-	case AttentionOperatorAction:
+	case AttentionOperatorAction, AttentionLaneHumanBlock:
 		return true
 	case AttentionAddressedReport:
 		return a.Report != nil && a.Report.Severity == report.SeverityCritical
@@ -733,6 +745,10 @@ func (a Attention) What() string {
 		if a.KeptHeavyCheck != nil {
 			return a.KeptHeavyCheck.Says()
 		}
+	case AttentionLaneHumanBlock:
+		if a.LaneHumanBlock != nil {
+			return a.LaneHumanBlock.Says()
+		}
 	}
 	// An entry whose record is missing is still said rather than printed
 	// blank: a blank line on the attention line is the confident emptiness
@@ -888,6 +904,13 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — nothing the check would catch is being caught; give it what it lacks where the harness runs its checks, or change the check, and the first change it runs on clears this"
 	case AttentionKeptHeavyCheck:
 		return a.Mover.Possessive() + " — the place is given back by itself once the last of those processes goes; if it is a hang, `yoyo heavy-checks release " + a.ID + " --by <name> --reason <why>` gives it back now and records who and why"
+	case AttentionLaneHumanBlock:
+		if a.LaneHumanBlock != nil {
+			if a.Mover != MoverOperator {
+				return a.Mover.Possessive() + " — the entry names the operator for a reason that is not on the closed list, so it is a defect in the program manager's report rather than something waiting on him; the program manager's next report corrects it"
+			}
+			return a.Mover.Possessive() + " — only a person can act on this; it stays on the program manager's report, pass after pass, until the act that clears it is recorded on " + a.LaneHumanBlock.Entry.Cites
+		}
 	case AttentionCapacityDegraded:
 		return a.Mover.Possessive() + " — the limit lifts on the provider's clock at its reset; work carries on until the provider refuses it, the harness waits out a refusal by itself, and a reading below the threshold or the reset passing clears this"
 	}

@@ -57,6 +57,32 @@ End every pass by rewriting your lane report: what has moved, what remains, and
 your blockers, each blocker citing the open request it waits on. Keep it brief;
 it is an executive summary, not a log.
 
+Every report opens with three lists, ahead of its summary, and every surface —
+the dashboard's row and card, and `yoyo status` — shows them first, one line
+per entry:
+
+- **Completed:** the work you finished in the last 24 hours. The harness
+  derives it from what you recorded — items you admitted or in your lane that
+  closed, and your requests that were decided — so you do not write it.
+- **Handed off:** the work you handed to another agent in the last 24 hours,
+  and which agent has it. The harness derives this too, and it never names a
+  person.
+- **Blocked on a human:** the work that needs the operator himself. You write
+  this one, as the report's `blocked_on_a_human` list. Under the rule below
+  that is rare: only something a person alone can do, or a change of
+  fundamental intent. A decision a role can make is not this; report it as a
+  defect instead. Each entry names the item where there is one, what the
+  operator must do, its reason from the closed list the contract names, the
+  report, amendment, or directive his act is recorded on, and since when. Work
+  you handed to a step only a person can take, such as reading a log only he
+  can open, goes here as well, and you file it as a defect.
+
+The harness carries each Blocked on a human entry from pass to pass until the
+operator's act is recorded on the record it cites, so you never write one
+twice, and leaving one out does not remove it. Do not repeat the three lists
+in the summary: they are fields, and the summary is the prose beneath them.
+Write the summary in short paragraphs, never one long block.
+
 ## Naming work to a person
 
 Name a work item by what it is, with its identifier after it, in your lane

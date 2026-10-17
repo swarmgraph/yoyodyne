@@ -751,6 +751,24 @@ func agentEndpoints(cfg config.Config) []readmodel.AgentEndpoint {
 	return endpoints
 }
 
+// waitingRecordSources is the records a Blocked on a human entry in a lane
+// report may cite: the collected reports, the proposed amendments, and the
+// directives. A store that cannot be built is left unwired, and the read model
+// then keeps every entry rather than dropping one on a record it could not read.
+func waitingRecordSources(stateRoot string, productID domain.ProductID) readmodel.Sources {
+	var sources readmodel.Sources
+	if store, err := runstate.NewReportStore(stateRoot, productID); err == nil {
+		sources.Reports = store
+	}
+	if store, err := runstate.NewAmendmentStore(stateRoot, productID); err == nil {
+		sources.Amendments = store
+	}
+	if store, err := runstate.NewDirectiveStore(stateRoot, productID); err == nil {
+		sources.Directives = store
+	}
+	return sources
+}
+
 // programManagerSources wires what the read model derives each program manager
 // instance from: the configured instances, their restart requests, their lane
 // reports, the pass records, and the exchanges. The reports, the amendments,

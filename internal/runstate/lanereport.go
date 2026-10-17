@@ -34,6 +34,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
 
@@ -86,12 +87,99 @@ type LaneReportBlocker struct {
 	Cites string `json:"cites"`
 }
 
-// LaneReportContent is the report as the role wrote it: an executive summary,
-// what remains, and what is blocking.
+// LaneReportHumanBlock is one entry under "Blocked on a human": what needs the
+// operator himself, for a reason on the ownership registry's closed list, and
+// the waiting record that his act clears. The instance writes it, and the store
+// carries it from version to version until that act is recorded, so a later
+// report that leaves it out does not remove it and its age never does
+// (`docs/designs/program-manager.md`, under "The lane report").
+type LaneReportHumanBlock struct {
+	// Item is the work item the entry is about, where it is about one. An
+	// operator question with no item is still an entry.
+	Item string `json:"item,omitempty"`
+	// What is what the operator must do.
+	What   string                   `json:"what"`
+	Reason ownership.OperatorReason `json:"reason"`
+	// Cites is the waiting record the operator's act is recorded on: a report,
+	// an amendment, or a directive.
+	Cites string    `json:"cites"`
+	Since time.Time `json:"since"`
+	// Carried is set by the store on an entry the version's own turn left out
+	// and the store carried forward from the version before.
+	Carried bool `json:"carried,omitempty"`
+}
+
+// Key is what makes two entries one: the item, or the record it cites where it
+// names no item. An item is listed once however many passes name it.
+func (b LaneReportHumanBlock) Key() string {
+	if b.Item != "" {
+		return "item:" + b.Item
+	}
+	return "cites:" + b.Cites
+}
+
+func (b LaneReportHumanBlock) validate() error {
+	var problems []error
+	if b.Item != "" {
+		if err := validateLaneReportLine("item", b.Item); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if strings.TrimSpace(b.What) == "" {
+		problems = append(problems, errors.New("what is required: it is what the operator must do"))
+	}
+	if err := b.Reason.Check(); err != nil {
+		problems = append(problems, err)
+	}
+	if err := validateLaneReportLine("cites", b.Cites); err != nil {
+		problems = append(problems, fmt.Errorf("%w: an entry names the waiting record the operator's act clears", err))
+	}
+	if b.Since.IsZero() {
+		problems = append(problems, errors.New("since is required: it is when the operator was first needed"))
+	}
+	return errors.Join(problems...)
+}
+
+// LaneReportContent is the report as the role wrote it: the one list it writes
+// of what is blocked on a human, an executive summary, what remains, and what is
+// blocking. The other two opening lists, Completed and Handed off, are derived
+// by the read model from the instance's recorded acts and are never written.
 type LaneReportContent struct {
-	Summary   string              `json:"summary"`
-	Remaining []string            `json:"remaining"`
-	Blockers  []LaneReportBlocker `json:"blockers"`
+	BlockedOnAHuman []LaneReportHumanBlock `json:"blocked_on_a_human,omitempty"`
+	Summary         string                 `json:"summary"`
+	Remaining       []string               `json:"remaining"`
+	Blockers        []LaneReportBlocker    `json:"blockers"`
+	// Refused names each Blocked on a human entry the turn wrote that was left
+	// out, and why. One bad entry does not refuse the report; the rest stands,
+	// and the refusals reach the pass record. It is never stored.
+	Refused []string `json:"-"`
+}
+
+// KeepValidHumanBlocks is the content with every Blocked on a human entry that
+// breaks the contract taken out and named in Refused. A store and a reply both
+// call it, and calling it twice changes nothing.
+func (c LaneReportContent) KeepValidHumanBlocks() LaneReportContent {
+	if c.BlockedOnAHuman == nil {
+		return c
+	}
+	kept := make([]LaneReportHumanBlock, 0, len(c.BlockedOnAHuman))
+	seen := map[string]bool{}
+	c.Refused = append([]string{}, c.Refused...)
+	for index, entry := range c.BlockedOnAHuman {
+		if err := entry.validate(); err != nil {
+			c.Refused = append(c.Refused, fmt.Sprintf("blocked_on_a_human[%d] was refused: %s", index, strings.ReplaceAll(err.Error(), "\n", "; ")))
+			continue
+		}
+		if seen[entry.Key()] {
+			c.Refused = append(c.Refused, fmt.Sprintf("blocked_on_a_human[%d] was refused: it repeats an entry for the same %s", index, strings.TrimPrefix(strings.TrimPrefix(entry.Key(), "item:"), "cites:")))
+			continue
+		}
+		seen[entry.Key()] = true
+		entry.Since = entry.Since.UTC()
+		kept = append(kept, entry)
+	}
+	c.BlockedOnAHuman = kept
+	return c
 }
 
 // Validate reports every contract violation in the report at once. A report is
@@ -116,6 +204,11 @@ func (c LaneReportContent) Validate() error {
 	for index, blocker := range c.Blockers {
 		if err := blocker.validate(); err != nil {
 			problems = append(problems, fmt.Errorf("blockers[%d]: %w", index, err))
+		}
+	}
+	for index, entry := range c.BlockedOnAHuman {
+		if err := entry.validate(); err != nil {
+			problems = append(problems, fmt.Errorf("blocked_on_a_human[%d]: %w", index, err))
 		}
 	}
 	if encoded, err := json.Marshal(c); err != nil {
@@ -262,6 +355,36 @@ type LaneReportStore struct {
 	// movers is the read model's check on what a blocker waits on, asked of
 	// every blocker before anything is written.
 	movers LaneReportMoverCheck
+	// waiting is the read model's answer about the record a Blocked on a human
+	// entry cites, and nil where nothing was wired to ask; see UseWaitingRecords.
+	waiting LaneReportWaitingCheck
+}
+
+// WaitingRecordState is what the record a Blocked on a human entry cites says
+// of the operator's act.
+type WaitingRecordState int
+
+const (
+	// WaitingRecordUnknown is a citation no record holds.
+	WaitingRecordUnknown WaitingRecordState = iota
+	// WaitingRecordOpen is a record still waiting on the operator's act.
+	WaitingRecordOpen
+	// WaitingRecordCleared is a record on which the act that clears it is
+	// recorded.
+	WaitingRecordCleared
+)
+
+// LaneReportWaitingCheck resolves the record one entry cites. An error is a
+// record that could not be read, which decides nothing.
+type LaneReportWaitingCheck func(cites string) (WaitingRecordState, error)
+
+// UseWaitingRecords hands the store the read model's resolution of the records
+// a Blocked on a human entry may cite. With it, a write refuses an entry citing
+// no waiting record or one already cleared, and stops carrying an entry once
+// its record is cleared. Without it every entry is kept and carried: an entry
+// is never dropped on a question nobody could answer.
+func (s *LaneReportStore) UseWaitingRecords(check LaneReportWaitingCheck) {
+	s.waiting = check
 }
 
 // NewLaneReportStore builds the store for one product. The values are the ones
@@ -322,7 +445,8 @@ func (s *LaneReportStore) Write(ctx context.Context, version LaneReport) (LaneRe
 		return LaneReport{}, err
 	}
 	version.SchemaVersion = LaneReportSchemaVersion
-	version.Report = s.redact(version.Report)
+	version.Report = s.redact(version.Report).KeepValidHumanBlocks()
+	version.Report = s.checkWaitingRecords(version.Report)
 	if version.RecordedAt.IsZero() {
 		version.RecordedAt = time.Now()
 	}
@@ -358,6 +482,11 @@ func (s *LaneReportStore) Write(ctx context.Context, version LaneReport) (LaneRe
 	version.Version = 1
 	if len(history) > 0 {
 		version.Version = history[len(history)-1].Version + 1
+		version.Report = s.carryHumanBlocks(history[len(history)-1].Report, version.Report)
+		if err := version.Validate(); err != nil {
+			return LaneReport{}, fmt.Errorf("with the Blocked on a human entries carried from version %d, which stay until the operator's act clears each: %w",
+				history[len(history)-1].Version, err)
+		}
 	}
 	history = append(history, version)
 	if len(history) > LaneReportHistory {
@@ -390,11 +519,80 @@ func (s *LaneReportStore) Write(ctx context.Context, version LaneReport) (LaneRe
 	return version, nil
 }
 
+// checkWaitingRecords refuses each new entry whose citation names no waiting
+// record, or one on which the operator's act is already recorded. A record that
+// could not be read refuses nothing.
+func (s *LaneReportStore) checkWaitingRecords(content LaneReportContent) LaneReportContent {
+	if s.waiting == nil || len(content.BlockedOnAHuman) == 0 {
+		return content
+	}
+	kept := make([]LaneReportHumanBlock, 0, len(content.BlockedOnAHuman))
+	for _, entry := range content.BlockedOnAHuman {
+		state, err := s.waiting(entry.Cites)
+		switch {
+		case err != nil:
+			kept = append(kept, entry)
+		case state == WaitingRecordUnknown:
+			content.Refused = append(content.Refused, fmt.Sprintf("the entry for %s was refused: it cites %s, which is no report, amendment, or directive on record", entry.label(), entry.Cites))
+		case state == WaitingRecordCleared:
+			content.Refused = append(content.Refused, fmt.Sprintf("the entry for %s was refused: it cites %s, on which the act that clears it is already recorded", entry.label(), entry.Cites))
+		default:
+			kept = append(kept, entry)
+		}
+	}
+	content.BlockedOnAHuman = kept
+	return content
+}
+
+// carryHumanBlocks is the new content with every entry of the version before it
+// that the new one leaves out carried forward, unless the record it cites says
+// the operator's act is recorded. An entry the new turn wrote again keeps the
+// earlier of the two moments it says it began.
+func (s *LaneReportStore) carryHumanBlocks(previous, next LaneReportContent) LaneReportContent {
+	written := map[string]int{}
+	for index, entry := range next.BlockedOnAHuman {
+		written[entry.Key()] = index
+	}
+	for _, entry := range previous.BlockedOnAHuman {
+		if index, again := written[entry.Key()]; again {
+			if entry.Since.Before(next.BlockedOnAHuman[index].Since) {
+				next.BlockedOnAHuman[index].Since = entry.Since
+			}
+			continue
+		}
+		if s.waiting != nil {
+			if state, err := s.waiting(entry.Cites); err == nil && state == WaitingRecordCleared {
+				continue
+			}
+		}
+		entry.Carried = true
+		next.BlockedOnAHuman = append(next.BlockedOnAHuman, entry)
+	}
+	return next
+}
+
+// label is how a refusal names one entry: its item, or the record it cites.
+func (b LaneReportHumanBlock) label() string {
+	if b.Item != "" {
+		return b.Item
+	}
+	return "the question citing " + b.Cites
+}
+
 // redact applies the store's redactor to every piece of prose the role wrote.
 // The mover is a closed token and is left alone; a citation is an identifier the
 // role chose and could carry anything, so it is redacted like the prose.
 func (s *LaneReportStore) redact(content LaneReportContent) LaneReportContent {
-	redacted := LaneReportContent{Summary: s.redactor.Redact(content.Summary)}
+	redacted := LaneReportContent{Summary: s.redactor.Redact(content.Summary), Refused: content.Refused}
+	if content.BlockedOnAHuman != nil {
+		redacted.BlockedOnAHuman = make([]LaneReportHumanBlock, len(content.BlockedOnAHuman))
+		for index, entry := range content.BlockedOnAHuman {
+			entry.Item = s.redactor.Redact(entry.Item)
+			entry.What = s.redactor.Redact(entry.What)
+			entry.Cites = s.redactor.Redact(entry.Cites)
+			redacted.BlockedOnAHuman[index] = entry
+		}
+	}
 	if content.Remaining != nil {
 		redacted.Remaining = make([]string, len(content.Remaining))
 		for index, entry := range content.Remaining {
