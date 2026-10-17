@@ -177,6 +177,7 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 	}
 	if decision, found := counters.DecisionOf(run.RunID); found && problem == "" {
 		reading.rerun = decision.Decision == runstate.TriageDecisionRerun
+		reading.decidedAt = decision.DecidedAt
 		if decision.Decision == runstate.TriageDecisionWait {
 			reading.waitsOn = strings.TrimSpace(decision.WaitsOn)
 		}
@@ -193,9 +194,35 @@ type decidedStanding struct {
 	carryOut bool
 	refused  *runstate.TriageCarryOut
 	rerun    bool
+	// decidedAt is when the decision standing about the run was recorded.
+	decidedAt time.Time
+	// rerunBy is the item's later run that carried a re-run decided about this
+	// run out (carriedOutBy), and nil where none has.
+	rerunBy *runstate.State
 	// waitsOn is the work item a wait standing about the run names.
 	waitsOn string
 	problem string
+}
+
+// carriedOutBy reads a re-run decided about run as carried out where the item's
+// latest run is another run started at or after the decision, which is the rule
+// the carry-out applies (orchestrator's startedSince) and decisionHold applies
+// below. The ledger alone cannot say it: a re-run decision stands on the record
+// after the re-run it bought has started, so read without the runs it claims a
+// carry-out forever. It matters where the re-run itself stopped in a way the
+// stoppage rules do not hold, or holds for a decision of its own: the hold then
+// falls back to the earlier run whose branch is still there, and would name the
+// harness as owing a re-run the carry-out has nothing left to start, so neither
+// starts nor refuses it (yoyodyne-0t9). The item is the development manager's
+// to decide about instead, and the hold names the run that carried it out.
+func (reading decidedStanding) carriedOutBy(run, latest runstate.State) decidedStanding {
+	if !reading.rerun || !reading.carryOut || reading.problem != "" || latest.RunID == "" ||
+		latest.RunID == run.RunID || latest.StartedAt.Before(reading.decidedAt) {
+		return reading
+	}
+	reading.carryOut = false
+	reading.rerunBy = &latest
+	return reading
 }
 
 // releasesRerun reports a re-run decision that no longer holds its item: the
@@ -271,6 +298,8 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 		return backlog.Hold{Reason: account + "; " + reading.problem + ", so this is stated as a stoppage nobody has decided about", Since: since, RunID: runID}
 	case reading.refused != nil:
 		return backlog.Hold{Reason: account + "; " + refusedCarryOut(*reading.refused), Since: since, RunID: runID}
+	case reading.rerunBy != nil:
+		return backlog.Hold{Reason: account + "; " + rerunCarriedOut(*reading.rerunBy, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
 	case reading.carryOut:
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	case reading.waitsOn != "":
@@ -286,6 +315,23 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 func refusedCarryOut(refused runstate.TriageCarryOut) string {
 	return fmt.Sprintf("the harness tried to carry out the %q the development manager decided and was refused by %s (%s, last at %s), so it is hers to move rather than the harness's: what clears it is %s",
 		refused.Decision, refused.Gate, strings.TrimSpace(refused.Refusal), refused.RefusedAt.UTC().Format(time.RFC3339), strings.TrimSpace(refused.Clears))
+}
+
+// rerunCarriedOut closes a hold whose re-run decision a later run has already
+// carried out: which run, when it started, how it ended, and that what follows
+// is the development manager's rather than the harness's — her decision still to
+// make, or the work she decided to wait on about that run, where waitsOn names it.
+func rerunCarriedOut(later runstate.State, waitsOn string) string {
+	ended := "is still in flight"
+	if later.Status.Terminal() {
+		ended = "ended " + strings.ReplaceAll(string(later.Status), "_", " ")
+	}
+	next := "she decides what happens next, and nothing pulls it until she has"
+	if waitsOn != "" {
+		next = fmt.Sprintf("she decided to wait on %s about that run, and once it is closed the stoppage is back on her docket for a decision", waitsOn)
+	}
+	return fmt.Sprintf("the re-run the development manager decided about it has been carried out: run %s started at %s and %s, so the harness has nothing left to carry out and %s",
+		later.RunID, later.StartedAt.UTC().Format(time.RFC3339), ended, next)
 }
 
 // stoppedAt is when a run stopped, which is when the item it was carrying came
@@ -369,6 +415,7 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 	// continues is the run itself — a repair grant re-enters its preserved
 	// session — and a fresh pull would start over beside it.
 	looked := make(map[string]triage.Found)
+	latest := latestPerItem(runs, func(run runstate.State) bool { return run.WorkItemID != "" })
 	for workItemID, run := range latestPerItem(runs, func(run runstate.State) bool {
 		if !stoppage(run) {
 			return false
@@ -380,15 +427,16 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 		}
 		// A decision the harness was refused carrying out still stands, so it holds
 		// the item as surely as one it has still to carry out — except a re-run
-		// refused for good over a run that left nothing, which releasesRerun lets go.
-		reading := decided.of(run.WorkItemID, run)
+		// refused for good over a run that left nothing, which releasesRerun lets go,
+		// and a re-run a later run has already carried out (carriedOutBy).
+		reading := decided.of(run.WorkItemID, run).carriedOutBy(run, latest[run.WorkItemID])
 		if reading.releasesRerun(found) {
 			return false
 		}
 		return reading.carryOut || reading.refused != nil
 	}) {
 		found := looked[run.RunID]
-		reasons[workItemID] = stoppageHold(run, decided, found)
+		reasons[workItemID] = stoppageHold(run, latest[workItemID], decided, found)
 	}
 	// A raise whose re-run the development manager has decided and the harness
 	// has still to carry out. The run that raised the item succeeded, so none of
@@ -442,12 +490,19 @@ func heldStopping(runs []runstate.State, escalated []runstate.Escalation, decide
 // stoppageHold describes one run, regardless of which of an item's runs a hold
 // selects. An approved change stopped at promotion is still the harness's to
 // resume while its branch survives, without a triage decision being needed.
-func stoppageHold(run runstate.State, decided standing, found triage.Found) backlog.Hold {
+// latest is the item's latest run, which is what says whether a re-run decided
+// about this one has been carried out (carriedOutBy).
+func stoppageHold(run, latest runstate.State, decided standing, found triage.Found) backlog.Hold {
 	preserved := found.Holds()
 	if run.IntegrationStop != nil && StoppageMover(run, &found, false) == MoverHarness {
 		return backlog.Hold{Reason: stoppedIntegration(run, found, preserved), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
-	reading := decided.of(run.WorkItemID, run)
+	reading := decided.of(run.WorkItemID, run).carriedOutBy(run, latest)
+	if reading.rerunBy != nil {
+		// What she decided about the run that carried the re-run out is what
+		// follows it, where that was a wait on named work.
+		reading.waitsOn = decided.of(run.WorkItemID, *reading.rerunBy).waitsOn
+	}
 	if run.IntegrationStop != nil {
 		return heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), reading, stoppedAt(run))
 	}
@@ -563,7 +618,7 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 	case outstandingPublication(run) && mergeConfirmed(run):
 		return heldFor(run.RunID, mergedPublication(run), reading, stoppedAt(run)), ""
 	case stoppage(run) || (!outstandingPublication(run) && !run.Escalated()):
-		return stoppageHold(run, decided, look(run)), ""
+		return stoppageHold(run, latest, decided, look(run)), ""
 	case outstandingPublication(run):
 		if run.WaitingOnRedTarget() {
 			return backlog.Hold{Reason: redTargetPublication(run), Decided: true, Since: run.PullRequest.TargetRed.At, RunID: run.RunID}, ""

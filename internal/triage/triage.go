@@ -828,8 +828,11 @@ type Standing struct {
 // A re-run and a merge re-arm are answered from the decision itself, which is
 // sufficient because carrying either one out changes what the reading is about.
 // A re-run produces a fresh run, and once that run stops it is the latest one the
-// item has, so the hold names it instead and nothing stands recorded about it. A
-// re-arm the forge then honours settles the publication and lifts the hold.
+// item has, so the hold names it instead and nothing stands recorded about it.
+// Where the fresh run stopped in a way no hold names, the hold falls back to the
+// decided run, and reads the decision as carried out by the fresh run's start
+// rather than by this rule (readmodel's carriedOutBy). A re-arm the forge then
+// honours settles the publication and lifts the hold.
 //
 // A decision the harness has tried to carry out and been refused is not one it
 // still has to act on: what the refusal asks for is hers, which is why the docket
