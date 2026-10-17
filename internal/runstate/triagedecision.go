@@ -28,9 +28,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
@@ -51,7 +54,9 @@ const (
 	TriageDecisionRearm = "rearm"
 	// TriageDecisionWait is the decision that nothing is to be done yet.
 	TriageDecisionWait = "wait"
-	// TriageDecisionEscalate hands the entry to the operator.
+	// TriageDecisionEscalate hands the entry up the escalation ladder: to the
+	// role it names, or to the operator for a reason on the closed list
+	// (`docs/designs/ownership-and-the-operator.md`).
 	TriageDecisionEscalate = "escalate"
 	// TriageDecisionStop stops a run still in flight whose work the development
 	// manager has decided is superseded, narrowed, or mis-launched. It is the one
@@ -146,6 +151,20 @@ type TriageDecision struct {
 	// other, and it is what tells a stoppage waiting on named work apart from one
 	// nobody has decided about wherever held work is counted.
 	WaitsOn string `json:"waits_on,omitempty"`
+	// EscalatedTo is the role an escalate decision handed the entry to: the Lead
+	// Product Manager on the item's intent, or the architect on its design. It is
+	// empty on an escalation to the operator, which carries OperatorReason
+	// instead, and on every other decision.
+	EscalatedTo domain.AgentRole `json:"escalated_to,omitempty"`
+	// OperatorReason is the closed-list reason an escalation to the operator was
+	// made for. An escalation recorded before the list was enforced carries none.
+	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
+}
+
+// EscalatesToOperator reports an escalate decision that handed the entry to the
+// operator rather than to a role.
+func (d TriageDecision) EscalatesToOperator() bool {
+	return d.Decision == TriageDecisionEscalate && d.EscalatedTo == ""
 }
 
 // Validate reports every contract violation in the decision at once.
@@ -201,6 +220,19 @@ func (d TriageDecision) Validate() error {
 	case len(waitsOn) > MaxTriageDecisionSupersededBytes:
 		problems = append(problems, fmt.Errorf("the item waited on is %d bytes, limit is %d", len(waitsOn), MaxTriageDecisionSupersededBytes))
 	}
+	switch {
+	case d.EscalatedTo == "" && d.OperatorReason == "":
+	case d.Decision != TriageDecisionEscalate:
+		problems = append(problems, fmt.Errorf("only a %q decision names whom it escalates to, and this one is %q", TriageDecisionEscalate, d.Decision))
+	case d.EscalatedTo != "" && d.OperatorReason != "":
+		problems = append(problems, fmt.Errorf("an escalation to the %s carries no operator reason; that is for an escalation to the operator", d.EscalatedTo.Title()))
+	case d.EscalatedTo != "" && !slices.Contains(ownership.EscalatesTo(domain.RoleDevelopmentManager), d.EscalatedTo):
+		problems = append(problems, fmt.Errorf("%q is not a role triage escalates to", d.EscalatedTo))
+	case d.OperatorReason != "":
+		if err := d.OperatorReason.Check(); err != nil {
+			problems = append(problems, err)
+		}
+	}
 	if d.DecidedAt.IsZero() {
 		problems = append(problems, errors.New("a triage decision records when it was made"))
 	}
@@ -225,8 +257,15 @@ func (d TriageDecision) Describe() string {
 		}
 		return described
 	}
-	return fmt.Sprintf("%q on the stopped work of run %s, %s: %s",
+	described := fmt.Sprintf("%q on the stopped work of run %s, %s: %s",
 		d.Decision, d.RunID, d.Cite(), strings.TrimSpace(d.Reason))
+	switch {
+	case d.EscalatedTo != "":
+		described += "; escalated to the " + d.EscalatedTo.Title()
+	case d.OperatorReason != "":
+		described += "; escalated to the operator for " + d.OperatorReason.Says()
+	}
+	return described
 }
 
 // InFlight reports a decision made about a run that had not stopped: a stop, or

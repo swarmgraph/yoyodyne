@@ -519,6 +519,10 @@ type Handling struct {
 	// PersonOnly supplies the validated physical act for a product-pass finding.
 	// Older handlings have no such field; their prose cannot name its operator.
 	PersonOnly *ownership.PersonOnlyRemedy `json:"person_only,omitempty"`
+	// OperatorReason is the reason from the operator's closed list a handling
+	// that needs him was recorded for. A handling recorded before the list was
+	// enforced carries none.
+	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
 }
 
 // MaxRequestsPerHandling bounds how many requests one handling maps, and
@@ -610,6 +614,14 @@ func (h Handling) Validate() error {
 			problems = append(problems, errors.New("person_only requires needs_operator"))
 		}
 		if err := h.PersonOnly.Validate(); err != nil {
+			problems = append(problems, err)
+		}
+	}
+	if h.OperatorReason != "" {
+		if !h.NeedsOperator {
+			problems = append(problems, errors.New("operator_reason requires needs_operator"))
+		}
+		if err := h.OperatorReason.Check(); err != nil {
 			problems = append(problems, err)
 		}
 	}

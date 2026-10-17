@@ -43,6 +43,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // SchemaVersion is 1 and has never changed. An exchange is written as it goes:
@@ -428,7 +429,15 @@ type Ask struct {
 	// restated it could only ever agree or contradict. One that states it anyway
 	// is held to matching, which is the contradiction being refused rather than
 	// silently redirecting the thread.
+	//
+	// It may name the operator, who is not a role and answers on no exchange; an
+	// ask naming him is put to him beside the asker's reply rather than opened as
+	// a thread, and only for a reason on his closed list (ownership.OperatorReasons),
+	// which the conversation checks.
 	Role domain.AgentRole `json:"role,omitempty"`
+	// OperatorReason is the closed-list reason an ask naming the operator is made
+	// for, and is taken by such an ask and by no other.
+	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
 	// Question is what is being asked. It is required and it has to ask
 	// something: a statement put through this channel is an opinion posted at
 	// another role, and nobody answers one.
@@ -456,11 +465,21 @@ type Ask struct {
 // Closing reports an ask that ends its exchange rather than continuing it.
 func (a Ask) Closing() bool { return strings.TrimSpace(a.Settled) != "" }
 
+// AsksOperator reports an ask that names the operator rather than a role.
+func (a Ask) AsksOperator() bool { return ownership.NamesOperator(string(a.Role)) }
+
 // Validate reports every contract violation in the ask at once.
 func (a Ask) Validate() error {
 	var problems []error
 	continuing := strings.TrimSpace(a.Exchange) != ""
 	switch {
+	case a.AsksOperator():
+		// He answers on no thread, so an ask naming him opens none and continues
+		// none. Whether the reason it gives is one he is named for is the
+		// conversation's to judge, where the asking role and its rung are known.
+		if continuing || a.Closing() {
+			problems = append(problems, errors.New("an ask naming the operator opens no exchange, so it names none and settles none"))
+		}
 	case a.Role != "":
 		if !a.Role.Valid() {
 			problems = append(problems, fmt.Errorf("role %q is not one of the harness's roles; ask %s",
@@ -469,6 +488,9 @@ func (a Ask) Validate() error {
 	case !continuing:
 		problems = append(problems, fmt.Errorf("role is required to open an exchange; ask %s",
 			strings.Join(roleNames(), ", ")))
+	}
+	if a.OperatorReason != "" && !a.AsksOperator() {
+		problems = append(problems, errors.New(`"operator_reason" is taken only by an ask naming the operator`))
 	}
 	if continuing && !ValidID(strings.TrimSpace(a.Exchange)) {
 		problems = append(problems, fmt.Errorf("exchange %q is not an exchange identifier", strings.TrimSpace(a.Exchange)))

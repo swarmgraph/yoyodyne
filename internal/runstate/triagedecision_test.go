@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // The second stoppage the tests below decide about, where one is not enough.
@@ -355,5 +358,45 @@ func TestARefusedCarryOutIsNotAwaitingTheHarness(t *testing.T) {
 	counters.CarryOuts = []TriageCarryOut{refusal}
 	if _, refused := counters.RefusedCarryOut(decidedRunID); !refused || counters.AwaitingCarryOut(decidedRunID) || !counters.Standing(decidedRunID).Refused {
 		t.Fatal("a refused re-arm still reads as the harness's to carry out")
+	}
+}
+
+// An escalation records whom it went to: a rung above the development manager,
+// or the operator with a reason on his closed list. Neither is taken by any
+// other decision, and an escalation to a role carries no operator reason.
+func TestATriageDecisionRecordsWhomAnEscalationWentTo(t *testing.T) {
+	t.Parallel()
+
+	base := TriageDecision{
+		Decision: TriageDecisionEscalate, RunID: "run-0123456789abcdef0123456789abcdef", Reason: "why",
+		DecidedBy: "development manager", Conversation: "chat-1", DecidedAt: time.Now(),
+	}
+	for _, fine := range []TriageDecision{
+		base,
+		func() TriageDecision { d := base; d.EscalatedTo = domain.RoleArchitect; return d }(),
+		func() TriageDecision { d := base; d.OperatorReason = ownership.OperatorCredential; return d }(),
+	} {
+		if err := fine.Validate(); err != nil {
+			t.Fatalf("Validate(%+v) = %v", fine, err)
+		}
+	}
+	for _, wrong := range []TriageDecision{
+		func() TriageDecision {
+			d := base
+			d.Decision = TriageDecisionWait
+			d.EscalatedTo = domain.RoleArchitect
+			return d
+		}(),
+		func() TriageDecision { d := base; d.EscalatedTo = domain.RoleDeveloper; return d }(),
+		func() TriageDecision {
+			d := base
+			d.EscalatedTo, d.OperatorReason = domain.RoleArchitect, ownership.OperatorCredential
+			return d
+		}(),
+		func() TriageDecision { d := base; d.OperatorReason = "approval"; return d }(),
+	} {
+		if err := wrong.Validate(); err == nil {
+			t.Fatalf("Validate(%+v) passed, want it refused", wrong)
+		}
 	}
 }

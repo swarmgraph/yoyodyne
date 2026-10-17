@@ -2176,6 +2176,17 @@ The answer comes back inside the reply you were already waiting for, as a furthe
 round of it, and the asking role then either asks again in the same thread or
 closes it with what it took from the exchange. Closing is the ordinary ending.
 
+**You are not on the channel, and an ask names you only for a reason on your
+closed list.** A role may write `"role": "operator"` with `"operator_reason"`
+set to `fundamental-intent`, `credential`, `repository-setting`, or
+`protected-file`; the question is then shown to you beside its reply, opens no
+exchange, and the role carries on without an answer. One that names you without
+such a reason is refused and handed back to the role with the rung it takes the
+question to instead — the development manager for a developer, the Lead Product
+Manager or the architect for the development manager, the Lead Product Manager
+for a program manager or the architect — and the rest of its reply is carried
+out.
+
 **Every exchange is opened with a hard limit on rounds**, which is
 [`exchange.max_rounds`](configuration.md#how-long-one-role-may-ask-another) and defaults
 to ten. The limit is copied onto the exchange as it opens and is durable with it,
@@ -2497,7 +2508,9 @@ names the run the entry is about: `repair` hands the item another bounded go at
 the change it has, `rerun` runs it again from the start, `rescope` splits out
 what was refused as out of scope, `rearm` repeats a merge the forge dropped —
 or arms one nothing ever asked the forge for, which is also answered by
-`rerun` — `wait` says nothing is to be done yet, `escalate` hands it to you, and
+`rerun` — `wait` says nothing is to be done yet, `escalate` hands it up the
+escalation ladder (to the Lead Product Manager or the architect, or to you for a
+reason on your closed list), and
 `retire-raise` ends a raise its owner's amendment made moot. A stopped
 document publication has no work item, so none of those can be recorded on it:
 its entry names the document and its pull request, and she answers it with
@@ -2536,8 +2549,8 @@ raise's; a re-arm closes the unfinished publication's entry for good; a wait
 closes any of them, the run's own entries and the publication's alike, only
 until the entry has been sitting there as long again, or until the work item it
 names is closed; and an escalation closes
-all of them, because an escalated item is waiting on you and none of it is hers
-to decide until you answer. Those are the entries a decision answers; what it
+all of them, because an escalated item is waiting on the role or the person it
+was handed to and none of it is hers to decide until they answer. Those are the entries a decision answers; what it
 closes is the run's whole live entry, so a decision that answers any of a run's
 open entries closes the rest of them with it, and a re-run decided on a stopped
 run settles the stuck publication folded beneath it too. Every decision but `wait` closes its entry for good,
@@ -2553,9 +2566,10 @@ with a note naming that run, because what became of the item is that run's to
 say, and it is docketed on its own if it stops. An attempt whose item has not
 been dispatched since stays; like every entry, it also closes when its item does,
 and the same refusal met again later is docketed again. Where she wants to decide
-one before then, `wait` and `escalate` may name the item and no run — escalating
-is the usual answer to a refusal only a person can clear, such as a dirty primary
-checkout. Either lands on the item as a note or a blocker and closes the item's
+one before then, `wait` and `escalate` may name the item and no run — waiting is
+the usual answer to a refusal the next dispatch will clear, such as a dirty
+primary checkout, which is no reason on your closed list, and escalating is
+held to the ladder exactly as below. Either lands on the item as a note or a blocker and closes the item's
 open attempts; neither spends anything, and no other decision may leave out the
 run.
 
@@ -2672,15 +2686,25 @@ re-arm is bounded once per publication** rather than by the rounds, because it
 buys no round at all and because what it repeats is one merge request the
 reviewer's verdict already authorized: an item that published three times has
 three separate budgets, and a second drop of one publication is an escalation
-rather than another re-arm. **An escalation is a durable blocker on the item and a report at
-`warning` severity or above**, in the same reply: the item itself says it is
-waiting on a person, and the report reaches [the pile you
-read](reporting.md#what-agents-report-and-where-it-reaches-you). Prose alone is not an escalation, and the
-harness refuses one carrying no such report rather than blocking an item you
-were never told about. The decision itself is
+rather than another re-arm. **An escalation names whom it goes to, and climbs
+[the escalation ladder](designs/ownership-and-the-operator.md#the-escalation-ladder)**:
+`"to": "product-manager"` hands it to the Lead Product Manager on the item's
+intent, and `"to": "architect"` to the architect on its design. **It names you
+only for a reason on your closed list**, given as `"operator_reason"`:
+`fundamental-intent`, `credential`, `repository-setting`, or `protected-file`.
+One that names you without one of them — and one that leaves out `"to"`, which
+names you — is refused with the rung to use instead: nothing is recorded and the
+item is not blocked. **An escalation is a durable blocker on the item and a
+report at `warning` severity or above**, in the same reply, addressed with
+`"for"` to the role it goes to, which puts it on that role's list and in front
+of its next pass; one to you reaches [the pile you
+read](reporting.md#what-agents-report-and-where-it-reaches-you). Prose alone is
+not an escalation, and the harness refuses one carrying no such report rather
+than blocking an item nobody was told about. An escalation to you is
 [a finding that needs your hand](operations.md#where-a-finding-that-needs-your-hand-goes):
 it is said to you directly once, and named under `Needs a human` on
-`yoyo status` while it stands as the decision on the item's latest stopped run. **A `retire-raise` lifts the raise's own parking and the blocked status it
+`yoyo status` while it stands as the decision on the item's latest stopped run.
+One to a role is that role's, and is never on your line. **A `retire-raise` lifts the raise's own parking and the blocked status it
 left, and closes the raise's entry**, as it is recorded, as the paragraph on
 raises above says. `rescope` and `wait` are the two that are a note and
 nothing else — a re-scope's real work is the child item it creates beside the

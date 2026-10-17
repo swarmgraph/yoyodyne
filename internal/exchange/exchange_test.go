@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // An ask comes only from the block. Prose that wonders aloud what the architect
@@ -322,5 +323,25 @@ func TestAnExchangesReportIsAboutTheBuildItsLatestRoundRan(t *testing.T) {
 	}
 	if got := (Exchange{Rounds: []Round{{}}}).lastBuild(); got != "" {
 		t.Fatalf("lastBuild() = %q, want none where no round recorded one", got)
+	}
+}
+
+// An ask may name the operator, whose reason the conversation checks; it opens
+// no exchange, so it continues and settles none, and only it takes a reason.
+func TestAnAskNamingTheOperatorOpensNoExchange(t *testing.T) {
+	t.Parallel()
+
+	fine := Ask{Role: "operator", OperatorReason: ownership.OperatorCredential, Question: "will you renew the login?"}
+	if err := fine.Validate(); err != nil || !fine.AsksOperator() {
+		t.Fatalf("Validate(%+v) = %v, want an ask naming the operator accepted", fine, err)
+	}
+	for _, wrong := range []Ask{
+		{Role: "operator", Exchange: "exchange-" + strings.Repeat("a", 32), Question: "and again?"},
+		{Role: "operator", Exchange: "exchange-" + strings.Repeat("a", 32), Settled: "done"},
+		{Role: domain.RoleArchitect, OperatorReason: ownership.OperatorCredential, Question: "what does it cost?"},
+	} {
+		if err := wrong.Validate(); err == nil {
+			t.Fatalf("Validate(%+v) passed, want it refused", wrong)
+		}
 	}
 }

@@ -24,6 +24,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // maxExchangeEventTextBytes bounds what one round's words come to in the
@@ -109,6 +110,9 @@ type conducted struct {
 // role told its question went unanswered — the same shape a failed tracker
 // action already has, and for the same reason.
 func (s *Session) conductAskWithoutToolAudit(ctx context.Context, ask exchange.Ask) conducted {
+	if ask.AsksOperator() {
+		return putToOperator(ask)
+	}
 	if s.options.Exchanges == nil {
 		return conducted{
 			round:    ExchangeRound{Asked: ask.Role, Problem: errNoExchanges.Error(), Question: oneLineAsk(ask)},
@@ -167,6 +171,22 @@ func (s *Session) conductAskWithoutToolAudit(ctx context.Context, ask exchange.A
 	return result
 }
 
+// putToOperator is an ask naming the operator for a reason on his closed list,
+// which refuseUnauthorizedAsk has already checked. He answers on no exchange,
+// so nothing is opened or spent: the question is put to him in what he is told
+// about this reply, and the asking role carries on without an answer.
+func putToOperator(ask exchange.Ask) conducted {
+	return conducted{
+		round: ExchangeRound{
+			Asked:    ask.Role,
+			State:    "put to the operator, for " + ask.OperatorReason.Says(),
+			Question: oneLineAsk(ask),
+		},
+		delivery: "# Your ask\n\nYour question is the operator's, for " + ask.OperatorReason.Says() +
+			". It is put to him beside this reply rather than to a role, so nothing answers it now. Carry on without an answer, say plainly what you asked him and why only he can answer it, and do not ask it again in this reply.\n",
+	}
+}
+
 // reportExchanges tells the operator what one role asked another while it was
 // answering them. Like the tracker actions it prints nothing when there was
 // nothing, and it prints the rounds that produced no answer beside the ones that
@@ -178,9 +198,12 @@ func (s *Session) reportExchanges(out io.Writer, reply Reply) {
 	fmt.Fprintf(out, "the %s asked another role (%d round(s)):\n", RoleTitle(s.state.Role), len(reply.Exchanges))
 	for _, round := range reply.Exchanges {
 		fmt.Fprintf(out, "  asked the %s: %s\n", RoleTitle(round.Asked), round.Question)
-		if round.ID != "" {
+		switch {
+		case round.ID != "":
 			fmt.Fprintf(out, "    %s, %s, round %d of %d, %s\n",
 				round.ID, round.State, round.Round, round.Rounds, money(round.CostUSD))
+		case round.State != "":
+			fmt.Fprintf(out, "    %s\n", round.State)
 		}
 		if round.Settled != "" {
 			fmt.Fprintf(out, "    settled: %s\n", round.Settled)
@@ -265,6 +288,9 @@ func askRefused(cause error) string {
 // refusedAskSays is a refused ask in ordinary words, for the operator and for
 // the record of a pass.
 func refusedAskSays(asker domain.AgentRole, ask exchange.Ask) string {
+	if ask.AsksOperator() {
+		return fmt.Sprintf("the %s asked the operator a question for no reason on his closed list, so the question was handed back with the rung to use instead (%s) and the rest of that reply was carried out", RoleTitle(asker), ownership.Rung(asker))
+	}
 	if ask.Role == asker {
 		return fmt.Sprintf("the %s put a question to its own role, which it may not do, so the question was handed back and the rest of that reply was carried out", RoleTitle(asker))
 	}
@@ -312,6 +338,19 @@ func refuseUnauthorizedAsk(authority Authority, parsed parsedReply) error {
 	// against: who is being asked was decided when the exchange opened and passed
 	// this check then, and the conductor holds the thread to it.
 	if parsed.Ask.Role == "" {
+		return nil
+	}
+	// The operator is on no rung of the escalation ladder, so a question for him
+	// passes only with a reason on his closed list, and a refusal names the rung
+	// this role takes it to instead.
+	if parsed.Ask.AsksOperator() {
+		if err := ownership.CheckOperatorRouting(authority.Role, parsed.Ask.OperatorReason); err != nil {
+			return &AuthorityError{
+				Role:    authority.Role,
+				Refused: "a question put to the operator",
+				Reason:  err.Error(),
+			}
+		}
 		return nil
 	}
 	if parsed.Ask.Role == authority.Role {

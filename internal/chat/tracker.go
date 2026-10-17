@@ -247,9 +247,9 @@ var trackerActionArguments = map[string][]string{
 	actionRepair:       {"state", "depends_on", "goal"},
 	actionClose:        {},
 	actionRetire:       {},
-	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on"},
+	actionTriage:       {"run", "decision", "budget", "superseded_by", "waits_on", "to", "operator_reason"},
 	actionInFlight:     {"decision", "superseded_by"},
-	actionHandle:       {"report", "requests", "needs", "person_only"},
+	actionHandle:       {"report", "requests", "needs", "person_only", "operator_reason"},
 	actionBrake:        {"decision"},
 	actionWithdraw:     {"proposal"},
 	actionDirective:    {"directive", "decision", "became"},
@@ -509,6 +509,17 @@ type TrackerAction struct {
 	// PersonOnly is the closed reason, target, and exact physical step for a
 	// product-pass finding whose remedy needs a person.
 	PersonOnly *ownership.PersonOnlyRemedy `json:"person_only,omitempty"`
+	// To is whom an escalate decision hands its entry to: "product-manager" on
+	// the item's intent, "architect" on its design, or "operator". It is taken by
+	// that decision and by nothing else, and left out it means the operator.
+	To string `json:"to,omitempty"`
+	// OperatorReason is the reason from the operator's closed list
+	// (ownership.OperatorReasons) that an escalation to the operator, or a
+	// handling that says a report needs him, is made for. Naming him without one
+	// is refused, and the refusal names the rung to use instead
+	// (`docs/designs/ownership-and-the-operator.md`, under "The escalation
+	// ladder").
+	OperatorReason ownership.OperatorReason `json:"operator_reason,omitempty"`
 	// State is which kind of stale backlog state a repair corrects, from the
 	// vocabulary internal/backlogrepair declares. It is required there and taken
 	// by nothing else: the three are found in different records and corrected by
@@ -1241,6 +1252,14 @@ func (a TrackerAction) validateArguments() []error {
 				problems = append(problems, err)
 			}
 		}
+		if reason := a.OperatorReason; reason != "" {
+			if strings.TrimSpace(a.Needs) != handleNeedsOperator {
+				problems = append(problems, errors.New("handle operator_reason requires needs set to operator"))
+			}
+			if err := reason.Check(); err != nil {
+				problems = append(problems, err)
+			}
+		}
 	case actionBrake:
 		switch decision := runstate.IntakeBrakeDecision(strings.TrimSpace(a.Decision)); {
 		case decision == "":
@@ -1446,6 +1465,12 @@ func (a TrackerAction) arguments() []string {
 	}
 	if a.PersonOnly != nil {
 		carried = append(carried, "person_only")
+	}
+	if strings.TrimSpace(a.To) != "" {
+		carried = append(carried, "to")
+	}
+	if strings.TrimSpace(string(a.OperatorReason)) != "" {
+		carried = append(carried, "operator_reason")
 	}
 	return carried
 }

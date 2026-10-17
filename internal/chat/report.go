@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/console"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
@@ -471,6 +472,11 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		outcome.fail(errors.New("a product-pass finding needs a validated person_only reason, target, and exact step before it can name the operator; nothing was recorded"))
 		return
 	}
+	operatorReason, err := s.handlingOperatorReason(outcome.Action)
+	if err != nil {
+		outcome.refused(err)
+		return
+	}
 	requests, err := s.resolveRequests(ctx, outcome)
 	if err != nil {
 		outcome.fail(fmt.Errorf("nothing was recorded: %w", err))
@@ -484,18 +490,19 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 		requests = nil
 	}
 	handling := report.Handling{
-		SchemaVersion: report.HandlingSchemaVersion,
-		ReportID:      subject.ID,
-		Role:          s.state.Role,
-		Agent:         s.options.Agent,
-		RunID:         s.state.ConversationID,
-		ProductID:     s.options.ProductID,
-		RepositoryID:  s.options.RepositoryID,
-		Reason:        strings.TrimSpace(outcome.Action.Reason),
-		Requests:      requests,
-		RecordedAt:    s.options.clock().Now(),
-		NeedsOperator: strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator,
-		PersonOnly:    outcome.Action.PersonOnly,
+		SchemaVersion:  report.HandlingSchemaVersion,
+		ReportID:       subject.ID,
+		Role:           s.state.Role,
+		Agent:          s.options.Agent,
+		RunID:          s.state.ConversationID,
+		ProductID:      s.options.ProductID,
+		RepositoryID:   s.options.RepositoryID,
+		Reason:         strings.TrimSpace(outcome.Action.Reason),
+		Requests:       requests,
+		RecordedAt:     s.options.clock().Now(),
+		NeedsOperator:  strings.TrimSpace(outcome.Action.Needs) == handleNeedsOperator,
+		PersonOnly:     outcome.Action.PersonOnly,
+		OperatorReason: operatorReason,
 	}
 	if err := s.options.Reports.Handle(handling); err != nil {
 		outcome.fail(err)
@@ -519,6 +526,26 @@ func (s *Session) recordReportHandling(ctx context.Context, outcome *TrackerOutc
 	}
 	outcome.applied("recorded what became of %s, reported at %q by the %s%s%s",
 		subject.ID, subject.Severity, RoleTitle(subject.Role), reportedOn(subject), mappingClause(requests))
+}
+
+// handlingOperatorReason is the closed-list reason a handling that says a
+// report needs the operator gives for naming him, from "operator_reason" or
+// from the person-only remedy it carries. A handling that names him for no
+// reason on the list is refused before anything is written, naming the rung the
+// handling role uses instead: a report whose remedy is a role's is that role's,
+// however loudly it was reported, and "needs" is not how it reaches one.
+func (s *Session) handlingOperatorReason(action TrackerAction) (ownership.OperatorReason, error) {
+	if strings.TrimSpace(action.Needs) != handleNeedsOperator {
+		return "", nil
+	}
+	reason := action.OperatorReason
+	if reason == "" && action.PersonOnly != nil {
+		reason = ownership.OperatorReasonOf(*action.PersonOnly)
+	}
+	if err := ownership.CheckOperatorRouting(s.state.Role, reason); err != nil {
+		return "", fmt.Errorf("the handling of %s names the operator and was not recorded: %w", strings.TrimSpace(action.Report), err)
+	}
+	return reason, nil
 }
 
 // reportedOn names the work the report was about, where it was about any. A

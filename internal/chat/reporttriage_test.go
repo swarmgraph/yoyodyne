@@ -351,7 +351,7 @@ func TestHandlingAReportAsNeedingTheOperatorIsRecordedAsAFinding(t *testing.T) {
 		{
 			SessionID: "session-1",
 			FinalText: trackerReply("Only Mason can add that hook.",
-				`{"action":"handle","report":"report-00000000000000000000000000000002","needs":"operator","reason":"add the PreToolUse hook to .claude/settings.json; the harness may not write that file"}`),
+				`{"action":"handle","report":"report-00000000000000000000000000000002","needs":"operator","operator_reason":"protected-file","reason":"add the PreToolUse hook to .claude/settings.json; the harness may not write that file"}`),
 		},
 		{SessionID: "session-1", FinalText: "Recorded."},
 		{SessionID: "session-1", FinalText: "Nothing more."},
