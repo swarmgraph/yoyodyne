@@ -1176,7 +1176,7 @@ or checkout still there is preserved work even when the flags say it was removed
 and flags saying it was kept do not make a missing branch or checkout present.
 A guard that finds nothing names the branch and checkout it looked for; a look
 that fails says it could not check rather than declaring the change removed.
-A decided repair of a run stopped at its check-stage bound continues the same
+A decided repair of a run stopped at either check time limit continues the same
 run at its checks on the finished change, recording the grant as carried out
 without another developer attempt or review round for the continuation.
 On 2026-09-23
@@ -1198,6 +1198,23 @@ approved and then stopped short of `main` by a tracker read that timed out, and
 the pull found nothing holding the item. The [claim
 audit](operations.md#claims-with-nothing-working-on-them) reads the same endings
 and leaves such an item's claim alone for the same reason.
+
+**A run that ended `timed out` at its checks is held the same way.** Whether
+the whole stage reached `execution.check_stage_timeout` or one check reached
+its own `execution.check_timeout`, the check is unfinished rather than failed,
+the finished change is kept on its branch and in its worktree, and the stop is
+docketed as the run ends, naming the check and the limit that stopped it. The
+claim audit leaves the item's claim alone, so no fresh run starts over the
+change. The harness continues the same run at its checks at the next pull with
+a developer slot free, under the same intake, pause, item, and worktree
+conditions for either limit; it invokes no developer and spends no review
+round, repair grant, or re-run. On one candidate the checks are run again at
+most twice, within three times the check's limit in all, and both bounds are
+shared by every path that runs them again and survive a restart. Once either is
+spent the change stays held and the stop is the development manager's
+decision. Waiting never makes an unfinished check pass. [What a check stage may
+cost](operations.md#what-a-check-stage-may-cost-and-where-the-whole-suite-runs)
+has the whole of it.
 
 None of these is released by a pass deciding to. Releasing a stoppage would start a fresh run on top of a change that is still
 there, and releasing an outstanding publication would start one over work the

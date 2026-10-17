@@ -170,6 +170,15 @@ func TestUnfinishedCheckRerunsAreBoundedAcrossPathsAndRestarts(t *testing.T) {
 		t.Fatal("Run() error = nil, want make race stopped at its own limit")
 	}
 	runID := outcome.RunID
+	// The stop is docketed as the run ends, for the harness to continue, naming
+	// the check and the limit that stopped it.
+	if len(docket.entries) == 0 {
+		t.Fatal("nothing docketed for a check stopped at its own limit")
+	}
+	if stopped := docket.entries[len(docket.entries)-1]; !stopped.HarnessContinuesChecks || stopped.RunID != runID ||
+		!strings.Contains(stopped.Render(), "make race reached its own execution.check_timeout limit of 30m") {
+		t.Fatalf("docket entry = %#v, want the harness's continuation of make race at its 30m execution.check_timeout limit", stopped)
+	}
 	// A pass the run had earlier is no credit for an unfinished check.
 	first, err := store.Load(runID)
 	if err != nil {
