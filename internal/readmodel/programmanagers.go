@@ -38,6 +38,8 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
+	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -108,6 +110,9 @@ const (
 	CitedAmendment      CitedRecord = "amendment"
 	CitedExchange       CitedRecord = "exchange"
 	CitedRestartRequest CitedRecord = "restart-request"
+	// CitedDirective is a directive, which only a Blocked on a human entry cites:
+	// resolving one is the operator's act.
+	CitedDirective CitedRecord = "directive"
 )
 
 // ProgramManagerBlocker is one blocker the instance's report names whose
@@ -187,6 +192,15 @@ type ProgramManager struct {
 	// change the word: a missed pass is why an instance goes on to read stale,
 	// and is said beside whatever word it reads.
 	MissedPass *ProgramManagerMiss `json:"missed_pass,omitempty"`
+	// Completed, HandedOff, and BlockedOnAHuman are the three lists the lane
+	// report opens with, and every surface shows them first. The first two are
+	// the last 24 hours of the instance's recorded acts, derived here and never
+	// written by it; the third is what its report says needs the operator, each
+	// entry while its waiting record says his act is not yet recorded. All three
+	// are empty rather than absent. See laneopening.go.
+	Completed       []LaneEntry                `json:"completed"`
+	HandedOff       []LaneEntry                `json:"handed_off"`
+	BlockedOnAHuman []ProgramManagerHumanBlock `json:"blocked_on_a_human"`
 	// Blockers are the report's blockers that resolved to an open record of the
 	// instance's own, and Claims the ones that did not, each with its reason.
 	// Both are empty rather than absent.
@@ -209,6 +223,18 @@ type ProgramManager struct {
 // every record that could not be read; the instances are still listed, and
 // what could not be read is not reported as none.
 func ReadProgramManagers(sources Sources) ([]ProgramManager, string) {
+	var items []beads.WorkItem
+	var itemsErr error
+	if sources.Tracker != nil {
+		items, itemsErr = sources.list(context.Background(), "")
+	}
+	return readProgramManagers(sources, items, itemsErr)
+}
+
+// readProgramManagers is ReadProgramManagers over a listing of the tracker's
+// items the caller already made, so a reading that lists them for the titles
+// lists them once.
+func readProgramManagers(sources Sources, items []beads.WorkItem, itemsErr error) ([]ProgramManager, string) {
 	instances := map[string]ProgramManagerInstance{}
 	for _, instance := range sources.ProgramManagers {
 		instances[instance.Agent] = instance
@@ -223,7 +249,12 @@ func ReadProgramManagers(sources Sources) ([]ProgramManager, string) {
 		return nil, strings.Join(records.problems, "; ")
 	}
 	passes := readCompletedPasses(sources)
-	problems := append(append([]string{}, records.problems...), passes.problems...)
+	acts := readLaneActs(items, itemsErr, sources.Tracker != nil)
+	directives, directivesRead := readDirectives(sources)
+	problems := append(append(append([]string{}, records.problems...), passes.problems...), acts.problems...)
+	if sources.Directives != nil && !directivesRead {
+		problems = append(problems, "the directives could not be read, so a Blocked on a human entry citing one is shown as still waiting")
+	}
 
 	agents := make([]string, 0, len(instances))
 	for agent := range instances {
@@ -234,7 +265,8 @@ func ReadProgramManagers(sources Sources) ([]ProgramManager, string) {
 	wording := ReadTextTerms(sources.Repository)
 	derived := make([]ProgramManager, 0, len(agents))
 	for _, agent := range agents {
-		instance, problem := deriveProgramManager(sources, instances[agent], records, passes, now)
+		instance, problem := deriveProgramManager(sources, instances[agent], records, directives, directivesRead, passes, now)
+		instance.Completed, instance.HandedOff = openingLists(instances[agent], acts, records, passes, now)
 		if problem != "" {
 			problems = append(problems, problem)
 		}
@@ -368,13 +400,19 @@ func citeProgramManager(instance ProgramManager, titles *WorkItemTitles) Program
 		claims = append(claims, claim)
 	}
 	instance.Blockers, instance.Claims = blockers, claims
+	instance.Completed = titleLaneEntries(append([]LaneEntry{}, instance.Completed...), titles)
+	instance.HandedOff = titleLaneEntries(append([]LaneEntry{}, instance.HandedOff...), titles)
+	instance.BlockedOnAHuman = titleHumanBlocks(append([]ProgramManagerHumanBlock{}, instance.BlockedOnAHuman...), titles)
 	return instance
 }
 
-func deriveProgramManager(sources Sources, instance ProgramManagerInstance, records citable, passes completedPasses, now time.Time) (ProgramManager, string) {
+func deriveProgramManager(sources Sources, instance ProgramManagerInstance, records citable, directives []directive.Directive, directivesRead bool, passes completedPasses, now time.Time) (ProgramManager, string) {
 	derived := ProgramManager{
 		Agent:           instance.Agent,
 		Lane:            instance.Lane,
+		Completed:       []LaneEntry{},
+		HandedOff:       []LaneEntry{},
+		BlockedOnAHuman: []ProgramManagerHumanBlock{},
 		Blockers:        []ProgramManagerBlocker{},
 		Claims:          []ProgramManagerClaim{},
 		RestartRequests: []runstate.RestartRequest{},
@@ -395,6 +433,7 @@ func deriveProgramManager(sources Sources, instance ProgramManagerInstance, reco
 		case written:
 			at := current.RecordedAt
 			derived.ReportWrittenAt = &at
+			derived.BlockedOnAHuman = humanBlocks(current.Report, records, directives, directivesRead)
 			for _, blocker := range current.Report.Blockers {
 				resolved, reason := records.resolve(instance.Agent, blocker.Cites)
 				if reason != "" {
@@ -409,7 +448,7 @@ func deriveProgramManager(sources Sources, instance ProgramManagerInstance, reco
 			}
 		}
 	}
-	derived.Blocked = len(derived.Blockers) > 0
+	derived.Blocked = len(derived.Blockers) > 0 || len(derived.BlockedOnAHuman) > 0
 
 	last, completed := passes.last[instance.Agent]
 	if completed {
@@ -482,10 +521,19 @@ type completedPasses struct {
 	// was never taken happened in no conversation.
 	missed    map[string]ProgramManagerMiss
 	activated map[string]activation
+	// admitted is every work item each instance's passes admitted, with when the
+	// pass that admitted it ended.
+	admitted map[string][]admission
 	// readable is whether both the pass log and the conversations were read, so
 	// that the absence of a pass means none was recorded.
 	readable bool
 	problems []string
+}
+
+// admission is one work item a pass admitted, and when that pass ended.
+type admission struct {
+	item string
+	at   time.Time
 }
 
 // readCompletedPasses attributes each pass to the instance whose conversation
@@ -494,7 +542,7 @@ type completedPasses struct {
 // backstop rejected, and a pass that answered without the block all end with
 // none, and all look the same here, which is the point.
 func readCompletedPasses(sources Sources) completedPasses {
-	passes := completedPasses{last: map[string]time.Time{}, missed: map[string]ProgramManagerMiss{}, activated: map[string]activation{}, readable: true}
+	passes := completedPasses{last: map[string]time.Time{}, missed: map[string]ProgramManagerMiss{}, activated: map[string]activation{}, admitted: map[string][]admission{}, readable: true}
 	if sources.FirstSeen != nil {
 		seen, err := sources.FirstSeen.FirstSeen()
 		if err != nil {
@@ -551,6 +599,14 @@ func readCompletedPasses(sources Sources) completedPasses {
 			continue
 		}
 		agent, known := agentOf[pass.ConversationID]
+		if !known && pass.Role == domain.RoleProgramManager {
+			agent, known = pass.Task, true
+		}
+		if known {
+			for _, item := range pass.Admitted {
+				passes.admitted[agent] = append(passes.admitted[agent], admission{item: item, at: pass.EndedAt})
+			}
+		}
 		if !known || pass.Result == nil {
 			continue
 		}
