@@ -452,10 +452,21 @@ The CLI finds these on its own, so each is turned off on the command line, on
 - Nothing turns off the Codex home's own `AGENTS.md` or `AGENTS.override.md`:
   no setting or flag names them, and `--ignore-user-config` does not reach them.
   Where the account's home holds either, the invocation runs under a temporary
-  home the harness makes beside it, linking every other entry of the account's
-  home — authentication, sessions, configuration — and leaving those two out.
-  It is removed when the invocation ends; removing it removes the links, never
-  what they point at. A home that holds neither is used as it is.
+  home the harness makes for it in the machine's temporary directory, linking
+  every other entry of the account's home — authentication, sessions,
+  configuration — and leaving those two out. What Codex writes through a link
+  lands in the account's home as it writes it. The temporary home keeps the
+  rest: before linking, the harness makes a `sessions` directory in the
+  account's home if it has none, so a first session is written there, and when
+  the invocation ends it copies every directory and file Codex created in the
+  temporary home into the account's home, replacing a file of the same name
+  there, before removing the temporary home. Only the harness's filtered copy of
+  `config.toml` (below) is not copied back, so a change Codex makes to that copy
+  is lost. A next turn therefore resumes the session natively, whether or not
+  the account's home had a sessions directory before. Removing the temporary
+  home removes the links, never what they point at; if the copy fails, the
+  temporary home is left where it is and the invocation's error names it. A
+  home that holds neither is used as it is.
 - The account's `config.toml` can carry instruction text as well.
   `--config developer_instructions=""` empties that setting on every turn.
   `model_instructions_file`, which replaces Codex's own base instructions, and
