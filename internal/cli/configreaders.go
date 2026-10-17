@@ -59,6 +59,7 @@ func writeConfigReaderAt(resolved config.Resolved, service, stateRoot string) er
 		ConfigPath: path,
 		StartedAt:  time.Now().UTC(),
 		Keys:       config.SchemaKeys(),
+		SearchPath: os.Getenv("PATH"),
 	})
 }
 

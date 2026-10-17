@@ -98,7 +98,8 @@ loops: `takeTurn` → `splitReply` → `collectReply` → `authorize` (`role.go`
 `verifyProposalReferences` → `recordProposals` → `admit` →
 `performTrackerActions` (`tracker.go`, at most `maxTrackerRounds`) →
 `performResearch` → `performRepositoryReads` → `performLogReads` /
-`performRunReads` (`tool.go`, `runinspect.go`) → `recordEvaluation` →
+`performRunReads` / `performHealthReads` (`tool.go`, `runinspect.go`,
+`health.go`) → `recordEvaluation` →
 `performMemoryWrites` → `writeLaneReport` → `performRestartRequest` →
 `conductAsk` (`exchange.go`). Whatever came back is carried into the next
 turn's prompt; the loop ends when a round asks for nothing more.
@@ -253,7 +254,7 @@ removes them from the record once a turn has delivered them.
 | `exchange.go` | one role asking another (`conductAsk`) |
 | `freshness.go`, `refresh.go` | how old the role's picture of the product is, and refreshing it |
 | `research.go`, `repository.go` | outside research and repository reads at a commit |
-| `tool.go`, `runinspect.go` | the audit every tool call passes (`auditTool`); `log.read`; `run.inspect` and `run.verify` over `internal/runinspect` |
+| `tool.go`, `runinspect.go`, `health.go` | the audit every tool call passes (`auditTool`); `log.read`; `run.inspect` and `run.verify` over `internal/runinspect`; `health.observe` and `health.follow` over `internal/health` |
 | `stream.go`, `activity.go`, `wording.go`, `replycut.go` | showing a reply while it arrives; plain-words findings; cut replies |
 | `spend.go` | what a turn spends, attributed |
 

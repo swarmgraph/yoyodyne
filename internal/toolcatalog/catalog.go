@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
+	"github.com/mason-bryant/yoyodyne/internal/health"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
@@ -74,6 +75,10 @@ func Default() (action.Registry[Call], error) {
 	actions = append(actions,
 		action.Action[Call]{Name: string(inspect.ID), Summary: "See one run as it stands: its record, its worker, and what it holds and waits on.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunInspect}, Perform: perform, Tool: &inspect},
 		action.Action[Call]{Name: string(verify.ID), Summary: "Check whether one run is in one expected state.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunVerify}, Perform: perform, Tool: &verify})
+	observe, follow := health.ObserveDescriptor(), health.FollowDescriptor()
+	actions = append(actions,
+		action.Action[Call]{Name: string(observe.ID), Summary: "Take a fresh observation of the factory's health.", Wraps: "(*Session).performHealthReads", Capabilities: []capability.Capability{capability.HealthObserve}, Perform: perform, Tool: &observe},
+		action.Action[Call]{Name: string(follow.ID), Summary: "Read the next part of what one observation left out.", Wraps: "(*Session).performHealthReads", Capabilities: []capability.Capability{capability.HealthFollow}, Perform: perform, Tool: &follow})
 	// A named repository read has always required the list grant beside the read.
 	actions[1].Capabilities = append(actions[1].Capabilities, capability.RepositoryList)
 	actions[2].Capabilities = append(actions[2].Capabilities, capability.RepositoryRead)

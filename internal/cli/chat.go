@@ -1029,6 +1029,11 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// repository asked whether the run's branch and worktree are there. It is
 		// wired for every role because which role may ask is the bundle's.
 		RunInspector: conversationRunInspector(parts),
+		// How a manager observes the factory's health and follows what an
+		// observation left out: the records `yoyo status` reads, read afresh for
+		// every observation, and the observations kept under the product's state.
+		// It is wired for every role because which role may ask is the bundle's.
+		HealthObserver: conversationHealthObserver(parts),
 		// Where a recorded recommendation about an operator's idea is kept. It is
 		// wired for every role because the authority to record one is decided in
 		// the chat package's table rather than here, and a store nobody may write

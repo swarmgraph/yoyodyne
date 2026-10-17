@@ -530,6 +530,11 @@ type Refused struct {
 	// record that names no moment. It is what lets a reader tell a hold from
 	// yesterday from one three weeks old, which the reason alone does not say.
 	HeldSince *time.Time `json:"held_since,omitempty"`
+	// RunID is the stopped run an item held for a person is held over, where
+	// the hold names one, and empty for every other refusal. It is what keeps
+	// a stoppage and a newer run of the same item two conditions rather than
+	// one (internal/health).
+	RunID string `json:"run_id,omitempty"`
 }
 
 // WorkItemRef names one admitted work item, by id and title, for a surface that
@@ -1609,6 +1614,7 @@ func readNotStartable(ctx context.Context, sources Sources, held switches, runni
 			held := Refused{WorkItemID: entry.ID, Title: entry.Title, Reason: entry.Hold(), Kind: kind}
 			if kind == backlog.HeldForAPerson {
 				held.HeldSince = entry.AwaitingSince
+				held.RunID = entry.AwaitingRun
 			}
 			refused = append(refused, held)
 			groups.add(entry, kind)

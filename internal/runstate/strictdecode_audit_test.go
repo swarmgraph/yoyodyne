@@ -126,6 +126,7 @@ var strictSites = map[string]strictSite{
 	"internal/exchange/exchange.go:Decode":              {strictValidator, "an ask block in an agent's reply"},
 	"internal/landing/landing.go:Decode":                {strictValidator, "a landing claim in a developer's reply"},
 	"internal/logread/logread.go:Decode":                {strictValidator, "a log-read request block in an agent's reply; stored log content is read tolerantly"},
+	"internal/health/health.go:Decode":                  {strictValidator, "a health.observe or health.follow request block in an agent's reply; the records an observation reads are read through the stores' tolerant doors"},
 	"internal/runinspect/runinspect.go:Decode":          {strictValidator, "a run.inspect or run.verify request block in an agent's reply; the run records it names are read through the store's tolerant Read"},
 	"internal/report/report.go:Decode":                  {strictValidator, "a report block in an agent's reply"},
 	"internal/repositoryread/repositoryread.go:Decode":  {strictValidator, "a repository-read block in an agent's reply"},

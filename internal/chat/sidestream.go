@@ -64,6 +64,8 @@ func (a Authority) OnSideStream() Authority {
 	narrowed.LogReads = a.LogReads && sidestream.Permits(capability.LogRead)
 	narrowed.RunInspects = a.RunInspects && sidestream.Permits(capability.RunInspect)
 	narrowed.RunVerifies = a.RunVerifies && sidestream.Permits(capability.RunVerify)
+	narrowed.HealthObserves = a.HealthObserves && sidestream.Permits(capability.HealthObserve)
+	narrowed.HealthFollows = a.HealthFollows && sidestream.Permits(capability.HealthFollow)
 	narrowed.Asks = a.Asks && sidestream.Permits(capability.ExchangeAsk)
 	narrowed.Answers = a.Answers && sidestream.Permits(capability.ExchangeAnswer)
 	// A side thread writes no memory of its own: what it worked out reaches the

@@ -432,6 +432,15 @@ type Trigger struct {
 	// existing passes. Neither invokes a role or creates another monitor.
 	RecordFailures func(context.Context) error
 	PassFailures   func(domain.AgentRole, string) string
+	// Health takes a fresh observation of the factory's health for one pass,
+	// and returns the section the pass's message carries and what its record
+	// keeps of it. It is called before the first turn of every pass of the
+	// development manager and of the factory-flow program manager, whatever
+	// that pass's events and however old its conversation's briefing
+	// ("Fresh health delivery" in
+	// docs/designs/fresh-factory-health-and-preserved-run-recovery.md).
+	// Optional: a trigger wired without it hands those passes no observation.
+	Health func(ctx context.Context, role domain.AgentRole, agent string) (string, *runstate.SweepHealth)
 	// ConversationWork is the role's live queue, read afresh for each recurring
 	// turn in backlog order rather than left to the conversation's old briefing.
 	// Optional: an unwired trigger wakes the role with its task alone.
@@ -1047,6 +1056,20 @@ func withPassStarting(ctx context.Context, starting func(runstate.WatchPass)) co
 	return context.WithValue(ctx, passStartingKey{}, starting)
 }
 
+// observesHealth is whether a pass is handed a fresh health observation: every
+// pass of the development manager's, and every pass of the program manager
+// instance watching the factory-flow lane.
+func (t Trigger) observesHealth(role domain.AgentRole, agent string) bool {
+	switch role {
+	case domain.RoleDevelopmentManager:
+		return agent == ""
+	case domain.RoleProgramManager:
+		instance, configured := t.Instances[agent]
+		return configured && strings.TrimSpace(instance.Lane) == readmodel.FactoryFlowLane
+	}
+	return false
+}
+
 // announcePass tells whoever asked that a pass has begun, and nobody where
 // nobody asked. It is called on the firing's own goroutine, before the pass's
 // first turn.
@@ -1167,6 +1190,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	failed := false
 	if t.PassFailures != nil {
 		message += "\n\n" + t.PassFailures(task.Role, f.agent)
+	}
+	if t.Health != nil && t.observesHealth(task.Role, f.agent) {
+		section, observed := t.Health(ctx, task.Role, f.agent)
+		message = section + "\n\n" + message
+		recorded.Health = observed
 	}
 	// The closed work to audit goes in the first turn's message only: a later
 	// turn of the same pass is a continuation of the audit, not a second list.
