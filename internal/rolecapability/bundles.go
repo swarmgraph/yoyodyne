@@ -131,6 +131,10 @@ func bundles() []Bundle {
 				// she decided, are what her decisions about stopped runs rest on.
 				capability.RunInspect,
 				capability.RunVerify,
+				// Carrying a recovery decision out on one run is hers alone ("Who
+				// holds what" in
+				// docs/designs/fresh-factory-health-and-preserved-run-recovery.md).
+				capability.RunRecover,
 				// The fresh health observation every pass of hers carries, and the
 				// same observation taken or followed on request.
 				capability.HealthObserve,

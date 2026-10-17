@@ -2548,12 +2548,22 @@ pulling:
 		// again would resume it only to stop it at the next look — once a poll for
 		// as long as a promotion beside it is waited out, each round re-running the
 		// run's checks and noting another redeploy stop on its item.
+		//
+		// A run the development manager asked through run.recover to have
+		// continued is picked up here too, whichever session last held it: it is
+		// a run in flight with nobody behind it, as a redeployed one is, and the
+		// request is what says it may be continued (recoveryrequest.go). So is a
+		// run parked on a tracker read that went unanswered: its process exited,
+		// and the dispatch re-reads the tracker before it takes the run, so a store
+		// that still does not answer leaves it parked to be tried at the next pull.
 		if s.Watching && !drain.active {
 			for id, state := range occupied {
-				if _, ours := mine[id]; ours || state.RedeployStop == nil {
+				asked := recoveryContinuationDue(state)
+				parked := pausedForTracker(state)
+				if _, ours := mine[id]; ours || (state.RedeployStop == nil && !asked && !parked) {
 					continue
 				}
-				if s.SessionID != "" && state.RedeployStop.SessionID == s.SessionID {
+				if !asked && state.RedeployStop != nil && s.SessionID != "" && state.RedeployStop.SessionID == s.SessionID {
 					continue
 				}
 				selection := runstate.Selection{
@@ -5298,6 +5308,9 @@ func carryingOutReason(task CarryOutTask) string {
 	if task.Decision == DecisionContinueStall {
 		return fmt.Sprintf("the harness stopped the AI session of run %s itself, because it went silent or its total budget ran out, and is continuing the run itself, once, at the phase it stopped in", task.RunID)
 	}
+	if task.Decision == DecisionFinishMerge {
+		return fmt.Sprintf("the development manager asked through run.recover for the integration of run %s's approved change to be finished, and the harness is finishing it", task.RunID)
+	}
 	reason := fmt.Sprintf("the development manager recorded a %q about the stoppage of run %s and the harness is carrying it out",
 		task.Decision, task.RunID)
 	if ahead := aheadOfQueue(task); ahead != "" {
@@ -6284,6 +6297,15 @@ func checkStageFinishing(state runstate.State, now time.Time) bool {
 // records as why it was chosen: it was not chosen, it was handed over, and the
 // reason says by what and from where.
 func readoptionReason(state runstate.State) string {
+	if state.RedeployStop == nil && !recoveryContinuationDue(state) && pausedForTracker(state) {
+		return fmt.Sprintf("re-adopted because run %s was parked at its %s phase when %s, and nothing else continues such a park; the run continues from durable state with every counter as it was",
+			state.RunID, nonEmpty(string(state.Phase), "unrecorded"), state.TrackerPause.Summary())
+	}
+	if recoveryContinuationDue(state) {
+		asked := state.RecoveryContinuation
+		return fmt.Sprintf("re-adopted because the development manager asked through run.recover (request %s, at %s) for run %s to be continued from its %s phase: %s; the run continues from durable state with every counter as it was",
+			asked.RequestID, asked.RequestedAt.UTC().Format(time.RFC3339), state.RunID, nonEmpty(string(state.Phase), "unrecorded"), asked.Reason)
+	}
 	return fmt.Sprintf("re-adopted by the watch session that restarted into the deployed build: run %s was stopped at its %s phase at %s by the session before this one, after that session had drained for its bound of %s to restart; the run continues from durable state with every counter as it was",
 		state.RunID, state.RedeployStop.Phase, state.RedeployStop.At.UTC().Format(time.RFC3339), state.RedeployStop.Bound())
 }

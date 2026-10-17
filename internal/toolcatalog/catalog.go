@@ -21,6 +21,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 	"github.com/mason-bryant/yoyodyne/internal/runinspect"
+	"github.com/mason-bryant/yoyodyne/internal/runrecover"
 )
 
 type Call struct{ Perform func(context.Context) error }
@@ -75,6 +76,9 @@ func Default() (action.Registry[Call], error) {
 	actions = append(actions,
 		action.Action[Call]{Name: string(inspect.ID), Summary: "See one run as it stands: its record, its worker, and what it holds and waits on.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunInspect}, Perform: perform, Tool: &inspect},
 		action.Action[Call]{Name: string(verify.ID), Summary: "Check whether one run is in one expected state.", Wraps: "(*Session).performRunReads", Capabilities: []capability.Capability{capability.RunVerify}, Perform: perform, Tool: &verify})
+	recover := runrecover.Descriptor()
+	actions = append(actions,
+		action.Action[Call]{Name: string(recover.ID), Summary: "Carry out one recovery decision on one run, under its lease, and say whether it applied.", Wraps: "(*Session).performRecoveries", Capabilities: []capability.Capability{capability.RunRecover}, Perform: perform, Tool: &recover})
 	observe, follow := health.ObserveDescriptor(), health.FollowDescriptor()
 	actions = append(actions,
 		action.Action[Call]{Name: string(observe.ID), Summary: "Take a fresh observation of the factory's health.", Wraps: "(*Session).performHealthReads", Capabilities: []capability.Capability{capability.HealthObserve}, Perform: perform, Tool: &observe},

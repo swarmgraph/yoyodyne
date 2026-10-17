@@ -223,6 +223,16 @@ func continuations(state runstate.State) []Continuation {
 	for _, c := range state.RepairContinuations {
 		all = append(all, Continuation{Kind: "repair", At: c.ContinuedAt, Reason: c.Reason, Pending: c.DispatchPending})
 	}
+	// A continuation the development manager asked for through run.recover is
+	// pending until the pipeline takes it up; one the work session refused is
+	// not a continuation at all, and is the run's last refusal instead.
+	if c := state.RecoveryContinuation; c != nil && c.Refused == "" {
+		continuation := Continuation{Kind: "continuation the development manager asked for (" + string(c.Action) + ", request " + c.RequestID + ")", At: c.RequestedAt, Reason: c.Reason, Pending: c.TakenUpAt == nil}
+		if c.TakenUpAt != nil {
+			continuation.At = *c.TakenUpAt
+		}
+		all = append(all, continuation)
+	}
 	sort.SliceStable(all, func(a, b int) bool { return all[a].At.Before(all[b].At) })
 	return all
 }
@@ -237,6 +247,8 @@ func lastContinuation(state runstate.State) *Continuation {
 
 func lastRefusal(state runstate.State) *Refusal {
 	switch {
+	case state.RecoveryContinuation != nil && state.RecoveryContinuation.Refused != "":
+		return &Refusal{Kind: "carrying out the development manager's request (" + string(state.RecoveryContinuation.Action) + ", request " + state.RecoveryContinuation.RequestID + ")", Says: state.RecoveryContinuation.Refused}
 	case state.CheckStageContinuationRefused != "":
 		return &Refusal{Kind: "continuing at its checks", Says: state.CheckStageContinuationRefused}
 	case state.StallContinuationRefused != "":

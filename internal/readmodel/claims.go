@@ -279,6 +279,12 @@ func holdsItsClaim(run runstate.State, now time.Time, within time.Duration) bool
 // than replace is recognized from the run's recorded blocker, which the pipeline
 // reads for itself before it starts anything fresh.
 //
+// The development manager's own answer about a run counts the same way: an
+// unresolved hold she recorded through run.recover names who moves next and
+// when it is looked at again, and a continuation she asked for is taken up by a
+// watching session's next pull. Both are pending until something later replaces
+// them, and neither is ended here on age alone.
+//
 // It is exported because the audit re-asks it under the run's lease, where the
 // answer is authoritative rather than a snapshot: a run that parked between the
 // reading and the lease must not be settled by what the reading saw.
@@ -286,7 +292,9 @@ func AwaitingContinuation(run runstate.State) bool {
 	if run.Status.Terminal() {
 		return false
 	}
-	return run.UsageLimitResetsAt != nil ||
+	return run.RecoveryHold != nil ||
+		run.RecoveryContinuation.Outstanding() ||
+		run.UsageLimitResetsAt != nil ||
 		run.PauseCause != "" ||
 		run.ProviderStop != "" ||
 		run.DirectivePause != nil ||

@@ -256,6 +256,28 @@ func (o Observer) readRuns(r *reading) {
 			continue
 		}
 		base := Anomaly{Identity: Identity{Run: state.RunID}, WorkItem: state.WorkItemID, Title: state.WorkItemTitle}
+		// What the development manager's run.recover requests left on the run
+		// comes first: it is her account of the run, and it is what says what
+		// anything else about it means.
+		if pending := state.PendingRecoveryRequests(); len(pending) > 0 {
+			last := pending[len(pending)-1]
+			anomaly := base
+			anomaly.Classification, anomaly.Identity.Condition = ClassRecoveryUnknown, "recovery-unknown"
+			anomaly.Says = fmt.Sprintf("run.recover request %s (%s) on run %s of %s was written and its writer could not read it back", last.ID, last.Action, state.RunID, state.WorkItemID)
+			anomaly.Owner = ownership.MoverDevelopmentManager
+			anomaly.Needs = "nothing is decided on this run until a run.recover request for it — a repeat of the same one is the plainest — has the harness read the write back under the run's lease and say what it holds"
+			r.add(anomaly)
+			continue
+		}
+		if hold := state.RecoveryHold; hold != nil {
+			anomaly := base
+			anomaly.Classification, anomaly.Identity.Condition = ClassRecoveryHold, "recovery-hold"
+			anomaly.Says = fmt.Sprintf("run %s of %s is %s at %s and carries an unresolved hold recorded at %s", state.RunID, state.WorkItemID, state.Status, state.Phase, hold.At.Local().Format("2006-01-02 15:04 MST"))
+			anomaly.Owner = ownership.MoverOf(hold.Owner)
+			anomaly.Needs = fmt.Sprintf("%s; looked at again %s", hold.NextAction, hold.FollowUp)
+			r.add(anomaly)
+			continue
+		}
 		if wait := runinspect.WaitOf(state); wait != nil {
 			anomaly := base
 			anomaly.Classification, anomaly.Identity.Condition = ClassWait, "wait"

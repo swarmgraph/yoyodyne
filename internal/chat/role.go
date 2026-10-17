@@ -107,6 +107,9 @@ type Authority struct {
 	// it stands, and check one expected state of it.
 	RunInspects bool
 	RunVerifies bool
+	// RunRecovers is whether this role may carry a recovery decision out on a
+	// run through run.recover.
+	RunRecovers bool
 	// HealthObserves and HealthFollows are whether this role may observe the
 	// factory's health, and follow what an observation left out.
 	HealthObserves bool
@@ -236,6 +239,7 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			LogReads:        registry.Holds(role, capability.LogRead),
 			RunInspects:     registry.Holds(role, capability.RunInspect),
 			RunVerifies:     registry.Holds(role, capability.RunVerify),
+			RunRecovers:     registry.Holds(role, capability.RunRecover),
 			HealthObserves:  registry.Holds(role, capability.HealthObserve),
 			HealthFollows:   registry.Holds(role, capability.HealthFollow),
 			Asks:            registry.Holds(role, capability.ExchangeAsk),
@@ -405,6 +409,9 @@ func (s *Session) authorize(parsed parsedReply) error {
 		if request.Action == runinspect.ActionInspect && !authority.RunInspects {
 			return &AuthorityError{Role: authority.Role, Refused: "a run to be inspected", Reason: "this role holds no run.inspect grant"}
 		}
+	}
+	if len(parsed.Recoveries) > 0 && !authority.RunRecovers {
+		return &AuthorityError{Role: authority.Role, Refused: "a recovery to be carried out on a run", Reason: "this role holds no run.recover grant; carrying out recovery decisions is the development manager's"}
 	}
 	for _, request := range parsed.HealthReads {
 		if request.Action == health.ActionFollow && !authority.HealthFollows {

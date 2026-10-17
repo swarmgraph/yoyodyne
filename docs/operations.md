@@ -3064,7 +3064,14 @@ recording its verdict is still hosted past the bound:
   re-adoption the pipeline could not take at that moment — a lease another
   process held, a tracker that did not answer — is made again at the next
   pull for as long as the run's record carries its stop, reported on one line
-  of the pass with the count of tries, and counts toward nothing.
+  of the pass with the count of tries, and counts toward nothing. A run whose
+  item was made to wait on unfinished work while it was down is not tried at
+  every pull: the first dispatch that finds the item waiting takes the run under
+  its lease and records a dependency wait on it at the phase it was stopped at,
+  so it gives back its seat and is continued, like any other dependency wait,
+  at the first pull after that work closes. A run another process holds is left
+  to that process, and so is a run interrupted inside its integration or with
+  its promotion recorded, which reconciliation settles instead.
   `yoyo run <beads-id>` continues one the same way if no session does, and
   `yoyo reconcile` leaves it alone as a run its own pipeline can continue.
   The session that stopped a run never re-adopts it, and a draining session
@@ -3238,6 +3245,16 @@ guide](configuration.md#discovery) says how the resolution is made.
 
 It compares the recorded run against the repository and Beads, and then finishes
 the run's own remaining step or records what still needs doing on that item.
+A run in flight that the development manager has answered through
+[`run.recover`](conversation.md#carrying-out-a-recovery-decision-on-one-run) —
+one carrying her unresolved hold, or her request to continue it that no session
+has taken up yet — is left alone as resumable however long it has sat still,
+and the claim audit leaves its claim alone too: the hold names who moves next,
+and the request is taken up by a watching session's next pull. A run parked
+because the tracker did not answer a read is left alone in the same way: a
+watching session takes it up again at its next pull, reading the tracker first,
+so it is continued once the tracker answers rather than ended for having sat
+still.
 A settlement refused for one item, including a remote branch deletion or an
 unreadable forge answer, leaves a finding on that item's run record and notes.
 The finding names the refusal, the remedy, and who moves it: the harness retries

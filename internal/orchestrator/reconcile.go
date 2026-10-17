@@ -499,9 +499,8 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// start holds it, and this is never reached.
 	//
 	// The same holds for every other park a run returns from and lets its process
-	// exit — waiting on an unresolved directive, on a tracker that would not
-	// answer, on a provider nobody could reach, or on the operator's pause once it
-	// is lifted. Nothing in the harness continues any of those either, so each is
+	// exit — waiting on an unresolved directive, on a provider nobody could
+	// reach, or on the operator's pause once it is lifted. Nothing in the harness continues any of those either, so each is
 	// settled the same way once its record has sat still for the grace. On
 	// 2026-09-26 a run parked on a dependency held developer slot 1 for twenty
 	// hours, read as resumable by every sweep, because only a provider stop was
@@ -509,6 +508,11 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// A park on work its item depends on was settled here too until a watching
 	// session's pull came to continue it once that work closes
 	// (yoyodyne-ifd.428.51); it is a wait on that work now, and left to the pull.
+	// A park on a tracker read that went unanswered was settled here too, and
+	// that ended a run at its review half an hour after a cancelled dependency
+	// read (docs/diagnoses/yoyodyne-06m-tracker-read-park-ended-on-age.md); a
+	// watching session's pull now continues it, re-reading the tracker as any
+	// dispatch does, so it is left to the pull as well.
 	//
 	// A stop somebody asked for comes first and does not wait for the grace: the
 	// run was going to end at its next boundary, no process will reach one, and
@@ -521,6 +525,23 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 		if requested {
 			return r.settleStopRequest(ctx, state, request)
 		}
+	}
+	// A run in flight that the development manager has answered through
+	// run.recover is hers, not nobody's, however long its record has sat still:
+	// an unresolved hold names who moves next and when it is looked at again,
+	// and a continuation she asked for is taken up by a watching session's next
+	// pull. Settling either as a park nothing serves would end, on age alone,
+	// work somebody is accountable for (recoveryrequest.go).
+	if state.Status.InFlight() && (state.RecoveryHold != nil || recoveryContinuationDue(state)) {
+		result := reconciliationOf(state, ActionResumable)
+		if hold := state.RecoveryHold; hold != nil {
+			result.Detail = fmt.Sprintf("the run carries an unresolved recovery hold recorded at %s: %s, the %s's move, looked at again %s",
+				hold.At.UTC().Format(time.RFC3339), hold.NextAction, hold.Owner, hold.FollowUp)
+		} else {
+			result.Detail = fmt.Sprintf("the development manager asked through run.recover (request %s) for the run to be continued, and a watching `yoyo work` session takes it up at its next pull",
+				state.RecoveryContinuation.RequestID)
+		}
+		return result, nil
 	}
 	if park, parked := r.parkNothingServes(state); parked && r.vanished(park) {
 		return r.settleVanished(ctx, state, park)
@@ -602,8 +623,8 @@ func (r Reconciler) settle(ctx context.Context, state runstate.State) (Reconcili
 	// parking exists to replace.
 	if pausedForTracker(state) {
 		result := reconciliationOf(state, ActionResumable)
-		result.Detail = fmt.Sprintf("the run is parked because %s, and can continue once the tracker answers; with no process holding it, a sweep after %s of its record not moving settles it as a stopped run",
-			state.TrackerPause.Summary(), r.vanishedGrace())
+		result.Detail = fmt.Sprintf("the run is parked because %s, and can continue once the tracker answers; a watching `yoyo work` session takes it up again at its next pull, however long it has been parked",
+			state.TrackerPause.Summary())
 		return result, nil
 	}
 	// A run parked because the operator paused all harness activity is not an
@@ -1654,8 +1675,6 @@ func (r Reconciler) parkNothingServes(state runstate.State) (recordedPark, bool)
 		return recordedPark{says: "the harness stopped the AI session running it because " + describeProviderStop(state.ProviderStop), since: since, providerStop: state.ProviderStop}, true
 	case pausedForDirective(state):
 		return recordedPark{says: "it paused for unresolved directive " + state.DirectivePause.DirectiveID, since: since}, true
-	case pausedForTracker(state):
-		return recordedPark{says: "it parked because " + state.TrackerPause.Summary(), since: since}, true
 	}
 	return recordedPark{}, false
 }

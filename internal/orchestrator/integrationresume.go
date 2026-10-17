@@ -574,6 +574,11 @@ func (r IntegrationResumer) supersedeOnRun(prior runstate.State, reason string) 
 	resumed.CompletedAt = nil
 	resumed.SettledQuietSince = nil
 	resumed.UpdatedAt = r.now()
+	// A development manager's run.recover request to finish this merge is the
+	// reason this resumption was made, wherever it was fired from, and it is
+	// answered by it.
+	resumed.TakeUpRecoveryContinuation(runstate.RecoverFinishMerge, r.now())
+	resumed.RecoveryHold = nil
 	if err := r.Runs.Save(resumed); err != nil {
 		return runstate.State{}, err
 	}

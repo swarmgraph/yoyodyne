@@ -74,6 +74,13 @@ const (
 	// holds what").
 	RunInspect Capability = "run.inspect"
 	RunVerify  Capability = "run.verify"
+	// RunRecover is carrying out one recovery decision on one run, from the
+	// closed list the design names, under the run's lease and against what the
+	// caller expected of it. It is the one recovery act a conversation may ask
+	// for, and only the development manager holds it
+	// (docs/designs/fresh-factory-health-and-preserved-run-recovery.md, "Who
+	// holds what").
+	RunRecover Capability = "run.recover"
 	// HealthObserve is taking one fresh observation of the factory's health:
 	// every actionable anomaly with its identity and history, every legitimate
 	// wait, the supervised services, and which sources were read whole.
@@ -313,6 +320,7 @@ var declared = []Capability{
 	LogRead,
 	RunInspect,
 	RunVerify,
+	RunRecover,
 	HealthObserve,
 	HealthFollow,
 	WorktreeMutate,

@@ -73,3 +73,17 @@ identifiers and their times, and `run.inspect` and `run.verify`. `run.recover`
 is then built on top of them as the design's third piece, with repair, rerun,
 giving the item back and asking the Lead Product Manager refused as not yet
 built until the build of stopped-run recovery adds them.
+
+## What became of it
+
+Shared health delivery landed both pieces: worker identity and `run.inspect`
+and `run.verify` (yoyodyne-e7c.1), and fresh health observations with kept
+identifiers (yoyodyne-e7c.2). The phase-keeping dependency wait landed on its
+own (yoyodyne-06m.1). `run.recover` was then built on them, in
+`internal/runrecover`, with what the work session does with its requests in
+`internal/orchestrator/recoveryrequest.go`. The pre-adoption refusal this note
+did not trace is the dependency check in `Pipeline.Run`, made before an
+existing run is adopted: it now records a durable wait on a run in flight with
+no process behind it (`waitInFlightOnDependencies`). Repair, rerun, giving the
+item back and asking the Lead Product Manager are still refused as not yet
+built, for stopped-run recovery (yoyodyne-ifd.428.99) to add.

@@ -203,6 +203,13 @@ const (
 	ClassDependencyWait Classification = "waiting on other work"
 	// A run in flight parked on another wait its record names.
 	ClassWait Classification = "legitimate wait"
+	// A run carrying an unresolved recovery hold the development manager
+	// recorded through run.recover: who moves next, and when it is looked at
+	// again.
+	ClassRecoveryHold Classification = "unresolved recovery hold"
+	// A run carrying a run.recover request whose writer could not read its
+	// write back, so nothing is decided on it until a later request does.
+	ClassRecoveryUnknown Classification = "recovery outcome not established"
 	// An item held after a stopped run, for a decision or its carrying out.
 	ClassHeldStoppage Classification = "held after its run stopped"
 	// A running copy of a part on a build other than the one on disk.

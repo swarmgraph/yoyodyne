@@ -40,6 +40,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
 	"github.com/mason-bryant/yoyodyne/internal/runinspect"
+	"github.com/mason-bryant/yoyodyne/internal/runrecover"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/spend"
 	"github.com/mason-bryant/yoyodyne/internal/terms"
@@ -394,6 +395,10 @@ type Options struct {
 	// what an observation left out, through health.observe and health.follow.
 	// It is wired for every role for the reason RunInspector is.
 	HealthObserver HealthObserver
+	// RunRecoverer carries a recovery decision out on one run, through
+	// run.recover. It is wired for every role for the reason RunInspector is;
+	// only the development manager's bundle holds the grant to ask.
+	RunRecoverer RunRecoverer
 	// Memories is what this agent knows. A management role's turns are briefed
 	// from it and write what they conclude back into it, through the context
 	// actions; every role's turns read from it the side conversations it held
@@ -1013,6 +1018,10 @@ type Reply struct {
 	LogReads        []LogRound        `json:"log_reads,omitempty"`
 	RunReads        []RunRound        `json:"run_reads,omitempty"`
 	HealthReads     []HealthRound     `json:"health_reads,omitempty"`
+	// Recoveries are the run.recover requests the reply made and what each came
+	// to. They are acts, so what they came to is the operator's to see whatever
+	// the turn concluded.
+	Recoveries []RecoveryRound `json:"recoveries,omitempty"`
 	// Picture is how old the picture of the repository this reply was answered
 	// from was, in landings on the target branch, and what the harness did about
 	// it: nothing where it was current, a re-read before the turn where it was
@@ -1539,6 +1548,7 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 	logRounds := 0
 	runRounds := 0
 	healthRounds := 0
+	recoveryRounds := 0
 	s.toolUses = make(map[capability.Capability]*toolUse)
 	// The operator's side of this message is recorded with the first round, which
 	// is the one built around it. The rounds after it are the harness handing back
@@ -1817,6 +1827,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 				}
 			} else {
 				undelivered += health.Render(round.Results)
+			}
+		}
+		// A recovery decision carried out on a run, on the development manager's
+		// behalf. It never fails the turn: what each request came to — applied,
+		// refused, or unknown — is handed back for her to check, and a spent bound
+		// ends recoveries for this message.
+		if len(parsed.Recoveries) > 0 {
+			round := s.performRecoveries(ctx, parsed.Recoveries, &recoveryRounds)
+			reply.Recoveries = append(reply.Recoveries, round)
+			if round.Problem != "" {
+				undelivered += "# Recovery\n\nNothing more is said: " + round.Problem + "\n\n"
+			} else {
+				undelivered += runrecover.Render(round.Results)
 			}
 		}
 		// What this reply concluded about an operator's idea, written down where it
@@ -2767,6 +2790,8 @@ type parsedReply struct {
 	RunReads []runinspect.Request
 	// HealthReads are the health observations and follows a reply asks for.
 	HealthReads []health.Request
+	// Recoveries are the run.recover requests a reply makes.
+	Recoveries []runrecover.Request
 	// Ask is the one question this reply puts to another role, where it puts
 	// one. Most replies put none, which is not an empty ask.
 	Ask *exchange.Ask
@@ -2858,6 +2883,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, fmt.Errorf("health block refused: %w", err)
 	}
+	prose, recoveries, err := runrecover.Extract(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, fmt.Errorf("recover block refused: %w", err)
+	}
 	prose, ask, err := exchange.Extract(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2898,6 +2928,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.LogReads = logs
 	parsed.RunReads = runReads
 	parsed.HealthReads = healthReads
+	parsed.Recoveries = recoveries
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
@@ -3593,6 +3624,7 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		s.reportLogReads(out, reply)
 		s.reportRunReads(out, reply)
 		s.reportHealthReads(out, reply)
+		s.reportRecoveries(out, reply)
 		// What it put into its own memory, because a memory enters every later turn
 		// and one the operator was never told about is agent state they cannot see.
 		s.reportMemories(out, reply)
@@ -4185,6 +4217,16 @@ func (s *Session) reportRunReads(out io.Writer, reply Reply) {
 		return
 	}
 	for _, round := range reply.RunReads {
+		fmt.Fprint(out, round.Render())
+	}
+	fmt.Fprintln(out)
+}
+
+func (s *Session) reportRecoveries(out io.Writer, reply Reply) {
+	if len(reply.Recoveries) == 0 {
+		return
+	}
+	for _, round := range reply.Recoveries {
 		fmt.Fprint(out, round.Render())
 	}
 	fmt.Fprintln(out)

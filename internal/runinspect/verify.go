@@ -107,6 +107,12 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 			}
 		}
 		return answer(NotMet, fmt.Sprintf("no later run is in flight on %s", state.WorkItemID))
+	case ExpectUnresolvedHoldRecorded:
+		if hold := state.RecoveryHold; hold != nil {
+			return answer(Met, fmt.Sprintf("an unresolved hold recorded at %s by request %s: %s, the %s's move, looked at again %s",
+				hold.At.UTC().Format(time.RFC3339), hold.RequestID, hold.NextAction, hold.Owner, hold.FollowUp))
+		}
+		return answer(NotMet, "the record names no unresolved hold")
 	case ExpectIntegrationCompleted:
 		if state.Integration != nil && state.Integration.TargetCommit != "" {
 			return answer(Met, fmt.Sprintf("its change is on %s at %s", state.Integration.TargetBranch, state.Integration.TargetCommit))
@@ -115,7 +121,7 @@ func (i Inspector) Verify(_ context.Context, runID string, expect Expected) Veri
 	}
 	// What remains is recorded by recovery actions this build does not carry
 	// out, so it has nothing to read them from.
-	return answer(Unknown, fmt.Sprintf("this build records nothing that shows %q; the recovery that records it is built by lifecycle recovery (yoyodyne-06m) and stopped-run recovery", expect))
+	return answer(Unknown, fmt.Sprintf("this build records nothing that shows %q; the recovery that records it is built by stopped-run recovery (yoyodyne-ifd.428.99)", expect))
 }
 
 func describeContinuation(c Continuation) string {
