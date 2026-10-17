@@ -237,6 +237,7 @@ func bundles() []Bundle {
 				capability.WorkItemReparent,
 				capability.AgentContextMutate,
 				capability.LaneReportWrite,
+				capability.StopCauseRecord,
 				capability.AmendmentPropose,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,

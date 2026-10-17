@@ -200,6 +200,19 @@ func (s *Session) performObserved(ask ObservedAsk) ObservedOutcome {
 	return outcome
 }
 
+func (s *Session) performStopCauses(ctx context.Context, ask StopCauseAsk) StopCauseOutcome {
+	outcome, err := auditTool(ctx, s, capability.StopCauseRecord, nil, 1, func() (StopCauseOutcome, error) { return s.performStopCausesWithoutToolAudit(ctx, ask), nil }, func(outcome StopCauseOutcome) (int, bool, error) {
+		if outcome.Failure != "" {
+			return 0, false, errors.New(outcome.Failure)
+		}
+		return 0, false, nil
+	})
+	if err != nil && outcome.Failure == "" {
+		outcome.Failure = err.Error()
+	}
+	return outcome
+}
+
 func (s *Session) performPassRequest(ask PassAsk) PassRequestOutcome {
 	outcome, err := auditTool(context.Background(), s, capability.PassRequest, nil, 1, func() (PassRequestOutcome, error) { return s.performPassRequestWithoutToolAudit(ask), nil }, func(outcome PassRequestOutcome) (int, bool, error) {
 		if outcome.Failure != "" {

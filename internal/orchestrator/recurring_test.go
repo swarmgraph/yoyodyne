@@ -31,7 +31,9 @@ type wokenRole struct {
 	// models is the model each turn was asked on, empty where the task named none.
 	models []string
 	// agents is the agent each turn woke, empty where the firing named the role.
-	agents  []string
+	agents []string
+	// stops is the stopped runs each turn was handed for its post-mortems.
+	stops   [][]runstate.StopEvent
 	answers []scriptedTurn
 	failure error
 }
@@ -66,8 +68,9 @@ type scriptedTurn struct {
 	compactions []backend.ProviderCompaction
 }
 
-func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, _ RecurringTurnOptions) (Turn, error) {
+func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, options RecurringTurnOptions) (Turn, error) {
 	r.messages = append(r.messages, message)
+	r.stops = append(r.stops, options.Stops)
 	r.agents = append(r.agents, agent)
 	r.passes = append(r.passes, pass)
 	r.models = append(r.models, model)

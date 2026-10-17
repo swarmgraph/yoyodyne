@@ -143,6 +143,7 @@ func recurringTrigger(parts components, configPath string, stderr io.Writer) orc
 		trigger.Instances = instances
 		trigger.Requests = parts.store.PassRequests()
 		trigger.Cursors = parts.store.PassCursors()
+		trigger.StopCauses = parts.store.StopCauses()
 		trigger.Events = passEvents{runs: parts.store, repository: parts.repository, refresh: parts.tracker().RefreshExportIfDue}
 		if conversations, err := runstate.NewConversationStore(parts.stateRoot, parts.config.Product.ID); err == nil {
 			trigger.Conversations = instanceConversations{store: conversations}
@@ -549,6 +550,9 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 	}
 	defer lease.Release()
 	session.ForPass(pass)
+	// The stopped runs the pass was handed are the only ones its post-mortems
+	// may count.
+	session.HandStops(options.Stops)
 	// The turn ran in a provider session of its own, and the conversation's is
 	// put back before the hold is given up, so the next turn anybody opens
 	// resumes the conversation's session rather than this turn's.

@@ -423,6 +423,14 @@ type Options struct {
 	// conversation without one refuses a request as having nowhere to go rather
 	// than appearing to have recorded it.
 	RestartRequests RestartRequests
+	// StopCauses is where a program manager's account of stopped runs is kept.
+	// It is optional like the rest, and a conversation without one refuses a
+	// stop causes block as having nowhere to go.
+	StopCauses StopCauses
+	// StopCauseRecurrence is how many stops of a cause after the Lead Product
+	// Manager handled its report bring a new report; zero is
+	// runstate.DefaultStopCauseRecurrence.
+	StopCauseRecurrence int
 	// PassRequests is where the Lead Product Manager's requests for a program
 	// manager instance's pass are recorded. It is optional like the rest, and a
 	// conversation without one refuses a request as having nowhere to go rather
@@ -649,6 +657,10 @@ type Session struct {
 	// where one is, so a lane report it writes is stamped with it. It is empty on
 	// an operator's own conversation.
 	pass string
+	// handedStops are the stopped runs the pass was handed, each with the cause
+	// read off its run record: the only stops a stop causes block may count.
+	// See stopcause.go.
+	handedStops []runstate.StopEvent
 	// passFresh says the next message is a recurring turn's first, which starts
 	// a provider session of its own; ForPass sets it and Send takes it.
 	// freshPass is true while that message's first round is being taken, and
@@ -1119,6 +1131,9 @@ type Reply struct {
 	// refused. It is recorded and nothing more, so it is reported rather than put
 	// to anybody.
 	Restart *RestartOutcome `json:"restart,omitempty"`
+	// StopCauses is what became of this reply's post-mortems of stopped runs:
+	// the stops counted and the reports filed, or why not.
+	StopCauses *StopCauseOutcome `json:"stop_causes,omitempty"`
 	// PassRequest is the pass this reply asked a program manager instance for,
 	// as recorded or refused.
 	PassRequest *PassRequestOutcome `json:"pass_request,omitempty"`
@@ -1901,6 +1916,19 @@ func (s *Session) Send(ctx context.Context, message string) (Reply, error) {
 			if undelivered != "" {
 				undelivered += renderRestartResult(outcome)
 			} else if err := s.carryResults(renderRestartResult(outcome)); err != nil {
+				return reply, err
+			}
+		}
+		// The post-mortems of stopped runs, counted and filed and carried back
+		// the way a restart request is. The reports they filed are this reply's
+		// reports as much as any the report block filed.
+		if parsed.StopCauses != nil {
+			outcome := s.performStopCauses(ctx, *parsed.StopCauses)
+			reply.StopCauses = &outcome
+			reply.Reports = append(reply.Reports, outcome.reports...)
+			if undelivered != "" {
+				undelivered += renderStopCauseResult(outcome)
+			} else if err := s.carryResults(renderStopCauseResult(outcome)); err != nil {
 				return reply, err
 			}
 		}
@@ -2809,6 +2837,9 @@ type parsedReply struct {
 	// Restart is the one part this reply asked the supervisor to restart, where
 	// it asked. Only a role holding service.request-restart may.
 	Restart *RestartAsk
+	// StopCauses is this reply's post-mortems of stopped runs, where it carried
+	// them. Only a role holding stop-cause.record may.
+	StopCauses *StopCauseAsk
 	// PassRequest is the one program manager instance this reply asked for a
 	// pass, where it asked. Only a role holding pass.request may.
 	PassRequest *PassAsk
@@ -2903,6 +2934,11 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 		parsed.Prose = rest
 		return parsed, &RestartError{Err: err}
 	}
+	prose, stopCauses, err := extractStopCauses(prose)
+	if err != nil {
+		parsed.Prose = rest
+		return parsed, &StopCauseError{Err: err}
+	}
 	prose, passRequest, err := extractPassRequest(prose)
 	if err != nil {
 		parsed.Prose = rest
@@ -2932,6 +2968,7 @@ func splitReply(role domain.AgentRole, answer string) (parsedReply, error) {
 	parsed.Ask = ask
 	parsed.Memories = memories
 	parsed.Restart = restart
+	parsed.StopCauses = stopCauses
 	parsed.PassRequest = passRequest
 	parsed.Observed = observed
 	parsed.Writes = writes
@@ -3636,6 +3673,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		// and shown on the standing, and the operator should hear it from here
 		// first rather than find it there.
 		s.reportRestart(out, reply)
+		// What its post-mortems counted and filed, because a report filed for it
+		// is on the pile like any other.
+		s.reportStopCauses(out, reply)
 		// What it asked a program manager instance for, because the request is
 		// durable and the pass it asks for runs at the scheduler's next pull.
 		s.reportPassRequest(out, reply)
@@ -3742,6 +3782,11 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 		var unreadableRestart *RestartError
 		if errors.As(err, &unreadableRestart) {
 			fmt.Fprintf(out, "%v\nNothing was requested and nothing was restarted; ask it what it meant to request.\n\n", unreadableRestart)
+			continue
+		}
+		var unreadableStopCauses *StopCauseError
+		if errors.As(err, &unreadableStopCauses) {
+			fmt.Fprintf(out, "%v\nNothing was counted and no post-mortem was filed; ask it what it meant to record.\n\n", unreadableStopCauses)
 			continue
 		}
 		var unreadablePassRequest *PassRequestError

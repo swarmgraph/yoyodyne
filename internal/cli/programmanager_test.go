@@ -61,7 +61,7 @@ func TestConfigAcceptsAProgramManagerAndShowsItsSetExactly(t *testing.T) {
 		"work-item.admit", "work-item.attribute", "work-item.update", "work-item.label",
 		"work-item.reprioritize", "work-item.park", "work-item.unpark", "work-item.link",
 		"work-item.unlink", "work-item.reparent",
-		"agent-context.mutate", "lane-report.write", "log.read",
+		"agent-context.mutate", "lane-report.write", "stop-cause.record", "log.read",
 		"report.file", "amendment.propose", "exchange.ask", "exchange.answer",
 		"service.request-restart",
 		"run.inspect", "run.verify", "health.observe", "health.follow",

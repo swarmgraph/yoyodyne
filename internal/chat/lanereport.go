@@ -215,6 +215,7 @@ func (s *Session) keepsLaneReport() bool {
 // the conversation's session back. See passcontext.go.
 func (s *Session) ForPass(pass string) {
 	s.pass = strings.TrimSpace(pass)
+	s.handedStops = nil
 	s.passFresh = s.pass != ""
 }
 

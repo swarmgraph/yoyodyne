@@ -206,6 +206,9 @@ type RecurringRole interface {
 // A report request is allowed once per pass, outside its work-turn bound.
 type RecurringTurnOptions struct {
 	RetryReport bool
+	// Stops are the stopped runs a program manager's pass was handed, which are
+	// the only stops its post-mortems may count. See stopcauses.go.
+	Stops       []runstate.StopEvent
 	FreshAfter  string
 	FreshReason string
 }
@@ -492,7 +495,12 @@ type Trigger struct {
 	// the standing goals, with the program manager instances' own audits beside
 	// it. Optional: a trigger wired without it hands the pass nothing to audit.
 	// See closedwork.go.
-	ClosedWork   RecurringClosedWork
+	ClosedWork RecurringClosedWork
+	// StopCauses is each program manager instance's account of why runs
+	// stopped, read for the section a pass handed stopped runs carries.
+	// Optional: a trigger wired without it still hands the stops over, and the
+	// section lists them without their earlier counts. See stopcauses.go.
+	StopCauses   PassStopCauses
 	Clock        execution.Clock
 	Availability func(from, to time.Time, task string) readmodel.GapCause
 }
@@ -1099,6 +1107,8 @@ type firing struct {
 	agent string
 	// events counts what the pass was handed, by class.
 	events map[string]int
+	// stops are the stopped runs among them, each with its cause.
+	stops []runstate.StopEvent
 	// request is the pass request a program manager's pass was taken from, and
 	// nil for every pass a request did not fire.
 	request *runstate.PassRequest
@@ -1150,7 +1160,7 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	var merged *sweep.Result
 	var problems []string
 	var pending []triage.WindowPosition
-	options := RecurringTurnOptions{RetryReport: true}
+	options := RecurringTurnOptions{RetryReport: true, Stops: f.stops}
 	// What stopped the proposals being put to the role is on the record ahead of
 	// the turns, because it is what happened first and it explains an account
 	// that recommends on nothing.

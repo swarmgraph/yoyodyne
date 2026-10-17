@@ -1,0 +1,283 @@
+package runstate
+
+import (
+	"context"
+	"os"
+	"strings"
+	"testing"
+	"time"
+)
+
+var stopCauseNow = time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
+
+func newStopCauseStore(t *testing.T) *StopCauseStore {
+	t.Helper()
+	store, err := NewStopCauseStore(t.TempDir(), "example")
+	if err != nil {
+		t.Fatalf("NewStopCauseStore() error = %v", err)
+	}
+	return store
+}
+
+func checkTimeStop(run string, at time.Time) StopEvent {
+	return StopEvent{Run: run, StoppedAt: at, Item: "item-" + run, Cause: StopCauseKey{Cause: CauseCheckTimeLimit.StopClass(), Side: StopSideBound, Step: PhaseChecking}}
+}
+
+func reviewStop(run string, at time.Time) StopEvent {
+	return StopEvent{Run: run, StoppedAt: at, Item: "item-" + run, Cause: StopCauseKey{Cause: StopReview, Side: StopSideWork, Step: PhaseReviewing}}
+}
+
+func recordStops(t *testing.T, store *StopCauseStore, stops ...StopEvent) StopCauseAccount {
+	t.Helper()
+	account, err := store.Record(context.Background(), "factory-flow-pm", stopCauseNow, func(account StopCauseAccount) ([]StopCauseEntry, error) {
+		return account.StopEntries(stops), nil
+	})
+	if err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	return account
+}
+
+func attachReport(t *testing.T, store *StopCauseStore, cause StopCauseKey, report string, at time.Time) StopCauseAccount {
+	t.Helper()
+	account, err := store.Record(context.Background(), "factory-flow-pm", at, func(StopCauseAccount) ([]StopCauseEntry, error) {
+		return []StopCauseEntry{{Kind: StopCauseReport, Cause: cause, Report: report, Fault: StopFaultBound, Remedy: "raise the limit"}}, nil
+	})
+	if err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	return account
+}
+
+// A cause is read from the run record: the stop cause it prints, the class
+// that cause falls in, and the step it stopped at. A record naming no cause
+// or no step is counted under unknown or unrecorded rather than guessed.
+func TestAStopCauseIsReadFromTheRunRecord(t *testing.T) {
+	t.Parallel()
+
+	state := State{RunID: "run-a", WorkItemID: "item-a", Status: StatusFailed, Phase: PhaseChecking, StopClass: CauseCheckTimeLimit.StopClass()}
+	key := StopCauseKeyOf(state)
+	if key != (StopCauseKey{Cause: CauseCheckTimeLimit.StopClass(), Side: StopSideBound, Step: PhaseChecking}) {
+		t.Fatalf("StopCauseKeyOf() = %+v", key)
+	}
+	if key.ID() != "check-time-limit/bound/checking" {
+		t.Errorf("ID() = %q", key.ID())
+	}
+	if err := key.Validate(); err != nil {
+		t.Errorf("Validate() = %v", err)
+	}
+
+	unknown := StopCauseKeyOf(State{RunID: "run-b", Status: StatusFailed})
+	if unknown.Cause != StopUnknown || unknown.Side != StopSideOutside || unknown.Step != unrecordedStep {
+		t.Errorf("StopCauseKeyOf(old record) = %+v, want unknown, outside, unrecorded", unknown)
+	}
+	if err := (StopCauseKey{Cause: StopReview, Side: StopSideBound, Step: PhaseReviewing}).Validate(); err == nil {
+		t.Error("Validate() accepted a class that is not the cause's own")
+	}
+	for class, want := range map[StopClass]StopSide{
+		StopChecks: StopSideWork, StopEscalated: StopSideWork, StopRepairBudget: StopSideBound,
+		StopProviderIdle: StopSideOutside, StopRedeploy: StopSideOutside, CauseUsageWindow.StopClass(): StopSideOutside,
+	} {
+		if got := StopSideOf(class); got != want {
+			t.Errorf("StopSideOf(%s) = %s, want %s", class, got, want)
+		}
+	}
+}
+
+// Every stop cause the run record can print is said in ordinary words, so a
+// post-mortem never names a cause by the harness's identifier alone.
+func TestEveryStopCauseIsSaidInOrdinaryWords(t *testing.T) {
+	t.Parallel()
+
+	for _, class := range StopClasses() {
+		if says := StopSays(class); says == string(class) || strings.TrimSpace(says) == "" {
+			t.Errorf("stop cause %q has no ordinary words", class)
+		}
+	}
+	if got := (StopCauseKey{Cause: StopRepairBudget, Side: StopSideBound, Step: PhaseCleaningUp}).Describe(); got != "the repair attempts ran out, at the cleanup step, which is a bound on the work" {
+		t.Errorf("Describe() = %q", got)
+	}
+}
+
+// The design's three examples: one cause across two passes, a replayed pass,
+// and a separate cause.
+func TestStopsAreGroupedByCauseAndCountedOncePerRunAndTime(t *testing.T) {
+	t.Parallel()
+
+	store := newStopCauseStore(t)
+	a, b, c := checkTimeStop("run-a", stopCauseNow.Add(-3*time.Hour)), checkTimeStop("run-b", stopCauseNow.Add(-2*time.Hour)), checkTimeStop("run-c", stopCauseNow.Add(-time.Hour))
+
+	// Pass one is handed A and B: one cause, count two.
+	account := recordStops(t, store, a, b)
+	if len(account.Causes) != 1 || account.Causes[0].Count() != 2 {
+		t.Fatalf("after pass one: %+v, want one cause counted twice", account.Causes)
+	}
+	account = attachReport(t, store, a.Cause, "report-one", stopCauseNow)
+
+	// Pass two is handed C: count three, and the report stands.
+	account = recordStops(t, store, c)
+	tally, _ := account.Cause(a.Cause.ID())
+	if tally.Count() != 3 {
+		t.Fatalf("after pass two: count %d, want 3", tally.Count())
+	}
+	if current, found := tally.Current(); !found || current.Report != "report-one" {
+		t.Errorf("Current() = %+v, %v, want the first report", current, found)
+	}
+
+	// Pass two run again, handed C once more, and also handed it twice in one
+	// list: nothing is counted twice.
+	before, _ := store.List("factory-flow-pm")
+	account = recordStops(t, store, c, c)
+	after, _ := store.List("factory-flow-pm")
+	tally, _ = account.Cause(a.Cause.ID())
+	if tally.Count() != 3 || len(after) != len(before) {
+		t.Fatalf("replay: count %d and %d entries (was %d), want 3 and nothing appended", tally.Count(), len(after), len(before))
+	}
+
+	// The same run stopped again after a re-run is a new stop time.
+	account = recordStops(t, store, checkTimeStop("run-c", stopCauseNow))
+	tally, _ = account.Cause(a.Cause.ID())
+	if tally.Count() != 4 {
+		t.Errorf("re-run stop: count %d, want 4", tally.Count())
+	}
+
+	// D stopped at review in the work: a second cause, and the first unchanged.
+	account = recordStops(t, store, reviewStop("run-d", stopCauseNow))
+	if len(account.Causes) != 2 {
+		t.Fatalf("causes = %d, want 2", len(account.Causes))
+	}
+	review, _ := account.Cause("review/work/reviewing")
+	first, _ := account.Cause(a.Cause.ID())
+	if review.Count() != 1 || first.Count() != 4 {
+		t.Errorf("counts = %d and %d, want 1 and 4", review.Count(), first.Count())
+	}
+	if _, reported := review.Current(); reported {
+		t.Error("the second cause carries the first cause's report")
+	}
+}
+
+// A stop whose run record has come to name another cause is moved by an
+// appended entry, and the entry that first counted it is left as it was.
+func TestAMisclassifiedStopIsMovedByAnAppendedEntry(t *testing.T) {
+	t.Parallel()
+
+	store := newStopCauseStore(t)
+	stop := checkTimeStop("run-a", stopCauseNow.Add(-time.Hour))
+	recordStops(t, store, stop)
+	original, err := os.ReadFile(store.Path("factory-flow-pm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	moved := stop
+	moved.Cause = StopCauseKey{Cause: StopChecks, Side: StopSideWork, Step: PhaseChecking}
+	account := recordStops(t, store, moved)
+	if old, _ := account.Cause(stop.Cause.ID()); old.Count() != 0 {
+		t.Errorf("the old cause still counts %d", old.Count())
+	}
+	if now, _ := account.Cause(moved.Cause.ID()); now.Count() != 1 {
+		t.Errorf("the new cause counts %d, want 1", now.Count())
+	}
+	rewritten, err := os.ReadFile(store.Path("factory-flow-pm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(rewritten), string(original)) {
+		t.Error("the record was rewritten rather than appended to")
+	}
+	entries, _ := store.List("factory-flow-pm")
+	if last := entries[len(entries)-1]; last.Kind != StopCauseMove || last.Reading == "" {
+		t.Errorf("last entry = %+v, want a move saying why", last)
+	}
+}
+
+// A correction to a report is a note appended against it; the report entry
+// stands as it was written.
+func TestACorrectionIsANoteAppendedAgainstTheReport(t *testing.T) {
+	t.Parallel()
+
+	store := newStopCauseStore(t)
+	stop := checkTimeStop("run-a", stopCauseNow.Add(-time.Hour))
+	recordStops(t, store, stop)
+	attachReport(t, store, stop.Cause, "report-one", stopCauseNow)
+	account, err := store.Record(context.Background(), "factory-flow-pm", stopCauseNow, func(StopCauseAccount) ([]StopCauseEntry, error) {
+		return []StopCauseEntry{{Kind: StopCauseNote, Cause: stop.Cause, Report: "report-one", Reading: "the limit was not the cause; the tracker was slow"}}, nil
+	})
+	if err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	tally, _ := account.Cause(stop.Cause.ID())
+	current, _ := tally.Current()
+	if current.Remedy != "raise the limit" || len(current.Notes) != 1 {
+		t.Errorf("Current() = %+v, want the report unchanged with one note", current)
+	}
+}
+
+// Once a cause's report is handled, a new report is owed only at the set count
+// of stops since the handling, or at once on a stop of priority 0 work; until
+// it is handled, recurrences are carried in the digest.
+func TestANewReportIsOwedAtTheRecurrenceCountOrOnTopPriorityWork(t *testing.T) {
+	t.Parallel()
+
+	handledAt := stopCauseNow
+	handled := func(report string) (time.Time, bool) { return handledAt, report == "report-one" }
+	unhandled := func(string) (time.Time, bool) { return time.Time{}, false }
+	cause := checkTimeStop("x", time.Time{}).Cause
+
+	tally := StopCauseTally{Cause: cause, Stops: []StopEvent{checkTimeStop("run-a", stopCauseNow.Add(-time.Hour))}}
+	if due := tally.Standing(handled, 0).Due; due != StopCauseDueOriginal {
+		t.Fatalf("no report: due %s, want original", due)
+	}
+	tally.Reports = []StopCauseReportRef{{Report: "report-one"}}
+	tally.Stops = append(tally.Stops, checkTimeStop("run-b", stopCauseNow.Add(time.Minute)), checkTimeStop("run-c", stopCauseNow.Add(2*time.Minute)), checkTimeStop("run-d", stopCauseNow.Add(3*time.Minute)))
+	if due := tally.Standing(unhandled, 0).Due; due != StopCauseDueCarried {
+		t.Errorf("unhandled report: due %s, want carried", due)
+	}
+
+	two := tally
+	two.Stops = tally.Stops[:3]
+	if standing := two.Standing(handled, 0); standing.Due != StopCauseDueCarried || standing.SinceHandled != 2 {
+		t.Errorf("two since handling: %+v, want carried with two", standing)
+	}
+	if standing := tally.Standing(handled, 0); standing.Due != StopCauseDueRecurred || standing.SinceHandled != 3 {
+		t.Errorf("three since handling: %+v, want recurred with three", standing)
+	}
+	if due := tally.Standing(handled, 5).Due; due != StopCauseDueCarried {
+		t.Errorf("three since handling against a threshold of five: due %s, want carried", due)
+	}
+
+	zero := 0
+	top := checkTimeStop("run-e", stopCauseNow.Add(time.Minute))
+	top.Priority = &zero
+	urgent := StopCauseTally{Cause: cause, Reports: tally.Reports, Stops: []StopEvent{top}}
+	if due := urgent.Standing(handled, 0).Due; due != StopCauseDueTopPriority {
+		t.Errorf("a priority 0 stop since handling: due %s, want top-priority", due)
+	}
+	before := urgent
+	before.Stops = []StopEvent{top}
+	before.Stops[0].StoppedAt = stopCauseNow.Add(-time.Minute)
+	if due := before.Standing(handled, 0).Due; due != StopCauseDueCarried {
+		t.Errorf("a priority 0 stop before the handling: due %s, want carried", due)
+	}
+}
+
+// What another product or instance wrote is not read as this one's.
+func TestAStopCauseRecordForAnotherInstanceIsRefused(t *testing.T) {
+	t.Parallel()
+
+	store := newStopCauseStore(t)
+	recordStops(t, store, checkTimeStop("run-a", stopCauseNow))
+	other, err := os.ReadFile(store.Path("factory-flow-pm"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(strings.TrimSuffix(store.Path("writing-pm"), stopCauseFile), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(store.Path("writing-pm"), other, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.List("writing-pm"); err == nil {
+		t.Error("List() read another instance's record as this one's")
+	}
+}

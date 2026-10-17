@@ -114,6 +114,9 @@ func (s *Session) startFreshPass() {
 // task calls once its turn, and any request for its missing report, is over.
 func (s *Session) EndPass() error {
 	s.freshPass, s.passFresh = false, false
+	// What the pass was handed is the pass's: a later turn in the conversation
+	// counts no stop.
+	s.handedStops = nil
 	if s.state.SessionAsideForPass == nil {
 		return nil
 	}

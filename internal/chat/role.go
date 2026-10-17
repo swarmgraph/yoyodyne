@@ -143,6 +143,10 @@ type Authority struct {
 	// part of the product: the program manager's service.request-restart, which
 	// writes a durable request and restarts nothing itself.
 	RestartRequests bool
+	// StopCauses is whether this role post-mortems stopped runs: the program
+	// manager's stop-cause.record, which appends to its own account of why runs
+	// stopped and files each cause's one report.
+	StopCauses bool
 	// PassRequests is whether this role may ask a program manager instance for a
 	// pass: the Lead Product Manager's pass.request, which records a request the
 	// scheduler takes and invokes nothing itself.
@@ -247,6 +251,7 @@ func buildAuthorities() map[domain.AgentRole]Authority {
 			Memory:          registry.Holds(role, capability.AgentContextMutate),
 			LaneReport:      registry.Holds(role, capability.LaneReportWrite),
 			RestartRequests: registry.Holds(role, capability.ServiceRequestRestart),
+			StopCauses:      registry.Holds(role, capability.StopCauseRecord),
 			PassRequests:    registry.Holds(role, capability.PassRequest),
 			// A hand step is a report about the line, written by the role that
 			// watches it: every role files reports, so the lane report beside
@@ -440,6 +445,13 @@ func (s *Session) authorize(parsed parsedReply) error {
 			Role:    authority.Role,
 			Refused: "a part of the product to be restarted",
 			Reason:  "asking the supervisor to restart a part is the program manager's, and this role says what it found in prose instead",
+		}
+	}
+	if parsed.StopCauses != nil && !authority.StopCauses {
+		return &AuthorityError{
+			Role:    authority.Role,
+			Refused: "stopped runs to be counted against their causes",
+			Reason:  "the post-mortem of stopped runs is the program manager's, and this role says what it found in prose instead",
 		}
 	}
 	if parsed.PassRequest != nil && !authority.PassRequests {
@@ -866,6 +878,8 @@ You own nothing upstream. The brief, the goals, and what is admitted to the back
 ` + exchange.AskingContract + `
 
 ` + restartContract + `
+
+` + stopCauseContract + `
 
 ` + interventionContract + `
 
