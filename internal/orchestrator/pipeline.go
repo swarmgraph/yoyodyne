@@ -6013,6 +6013,17 @@ func (p Pipeline) sleep(ctx context.Context, duration time.Duration) error {
 // what it did. Every attempt runs both again: no attempt inherits an earlier
 // attempt's verification, and review and integration are only reachable through
 // a change that passed both on the change being judged.
+// stageVerdictClear reports a check stage none of whose checks failed or was
+// stopped: each passed, or said it could not run.
+func stageVerdictClear(results []checks.Result) bool {
+	for _, result := range results {
+		if !result.Passed && result.CouldNotRun == "" {
+			return false
+		}
+	}
+	return true
+}
+
 func (a *activeRun) verify(ctx context.Context) error {
 	p := a.pipeline
 	a.state.Phase = runstate.PhaseChecking
@@ -6106,14 +6117,31 @@ func (a *activeRun) verify(ctx context.Context) error {
 			},
 			// Each check's own limit is scaled by the same reading, after the
 			// stage's, and recorded before the check starts (checkLimit).
+			// The moment the check launches goes onto the record with its limit,
+			// because the two are how long a restart onto a new build waits for
+			// it (stopHosted).
+			//
+			// Both this and Started below are a boundary between checks, where a
+			// run its hosting session asked to stop for a restart stops, before
+			// the next check launches rather than part-way through one
+			// (checkYield); the runner launches nothing more once it has.
 			CheckBound: func(command string) time.Duration {
 				limit := a.checkLimit(*stage, command)
 				stage.CheckLimitSeconds = int64(limit / time.Second)
+				if yieldBetweenChecks(ctx) {
+					return limit
+				}
+				launched := p.clock().Now()
+				stage.CheckStartedAt = &launched
+				a.state.UpdatedAt = launched
+				_ = p.Store.Save(a.state)
 				return limit
 			},
 			// Which check the stage is on goes onto the record as each begins.
 			Started: func(command string, _ time.Duration) {
+				yieldBetweenChecks(ctx)
 				stage.Command = command
+				stage.CheckStartedAt = nil
 				a.state.UpdatedAt = p.clock().Now()
 				_ = p.Store.Save(a.state)
 			},
@@ -6151,6 +6179,14 @@ func (a *activeRun) verify(ctx context.Context) error {
 	a.closeCheckStage(stage, ranResults)
 	if err != nil {
 		return stoppedBy(runstate.StopChecks, fmt.Errorf("verification infrastructure failed: %w", err))
+	}
+	// The end of the stage is the last boundary between checks. A run asked to
+	// stop for a restart whose checks have all passed stops here, at its checks,
+	// so the session that comes back keeps every result and runs none of them
+	// again. One whose stage found a failure goes on to that failure's ending
+	// instead, because the verdict is reached and is the run's to act on.
+	if stageVerdictClear(ranResults) && yieldBetweenChecks(ctx) {
+		return context.Cause(ctx)
 	}
 	for _, check := range ranResults {
 		// A check that said it could not run judged nothing about the change,
@@ -6325,6 +6361,9 @@ func (a *activeRun) closeCheckStage(stage *runstate.CheckStage, results []checks
 	finished := a.pipeline.clock().Now()
 	stage.FinishedAt = &finished
 	stage.ElapsedSeconds = int64(finished.Sub(stage.StartedAt) / time.Second)
+	// An ended stage has no check running, so the launch a restart would have
+	// waited on is not kept; what the last check ran for is recorded below.
+	stage.CheckStartedAt = nil
 	if last := len(results) - 1; last >= 0 {
 		stage.Command = results[last].Command
 		stage.ElapsedSeconds = int64(results[last].StageElapsed / time.Second)

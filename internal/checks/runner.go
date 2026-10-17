@@ -236,12 +236,34 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 		if err != nil {
 			return results, lastAccepted, err
 		}
+		checkTimeout := timeout
+		if !stopped {
+			stageElapsed = clock.Now().Sub(stageStarted) - waited
+			if request.StageBound != nil && !request.Unbounded {
+				if bound := request.StageBound(); bound > 0 && (len(results) == 0 || bound > stageTimeout) {
+					stageTimeout = bound
+				}
+			}
+			if request.CheckBound != nil {
+				if limit := request.CheckBound(safeCommand); limit > 0 {
+					checkTimeout = limit
+				}
+			}
+			// A caller that has ended by now — the caller's own Started or
+			// CheckBound may be what ended it, for a run asked to stop between two
+			// checks — gets no further check launched: the check is recorded as
+			// stopped by its caller without having run, which judges nothing.
+			if ctx.Err() != nil {
+				finishPermit(permit, execution.ProcessResult{}, 0)
+				stopped = true
+			}
+		}
 		if stopped {
 			now := clock.Now()
 			result := Result{
 				Command:         safeCommand,
 				Process:         execution.ProcessResult{Status: execution.ProcessCancelled, ExitCode: -1, StartedAt: now, FinishedAt: now},
-				Timeout:         timeout,
+				Timeout:         checkTimeout,
 				StageTimeout:    stageTimeout,
 				StageElapsed:    now.Sub(stageStarted) - waited,
 				StoppedByCaller: true,
@@ -252,18 +274,6 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 			}
 			lastAccepted = sequence.Last()
 			break
-		}
-		stageElapsed = clock.Now().Sub(stageStarted) - waited
-		if request.StageBound != nil && !request.Unbounded {
-			if bound := request.StageBound(); bound > 0 && (len(results) == 0 || bound > stageTimeout) {
-				stageTimeout = bound
-			}
-		}
-		checkTimeout := timeout
-		if request.CheckBound != nil {
-			if limit := request.CheckBound(safeCommand); limit > 0 {
-				checkTimeout = limit
-			}
 		}
 		// What the stage has left is what this check may have, and a check the
 		// stage has nothing left for is not started at all: a check given a

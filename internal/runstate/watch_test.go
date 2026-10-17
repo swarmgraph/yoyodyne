@@ -385,6 +385,29 @@ func TestASessionSaysWhenItIsDrainingAndUnderWhatBound(t *testing.T) {
 	if err := store.Record(endless); err == nil {
 		t.Fatal("Record() error = nil, want a check wait with no end refused")
 	}
+	// A drain waiting for a running check says which run, which check, and
+	// until when, reads back whole, and one naming no check is refused. One
+	// waiting for a document landing run says that too.
+	waiting := testWatchTransition(testWatchSessionID, WatchIdle, "draining")
+	wait := WatchCheckWait{RunID: "run-racing", WorkItemID: "yoyodyne-racing", Check: "make race", Until: since.Add(60 * time.Minute)}
+	waiting.Draining = &WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 2, BoundReached: true, Checking: 1, ChecksUntil: wait.Until, CheckWaits: []WatchCheckWait{wait}, Publishing: 1}
+	if err := store.Record(waiting); err != nil {
+		t.Fatalf("Record() error = %v", err)
+	}
+	if recorded, err := newTestWatchStore(t, root).List(); err != nil || len(recorded[len(recorded)-1].Draining.CheckWaits) != 1 ||
+		recorded[len(recorded)-1].Draining.CheckWaits[0] != wait || recorded[len(recorded)-1].Draining.Publishing != 1 {
+		t.Fatalf("List() = %#v, %v; want the waits on the check and the document read back", recorded, err)
+	}
+	for _, said := range []string{"run run-racing (yoyodyne-racing) to finish make race, until 2026-09-19T08:35:00Z at the latest", "not started over on the new build", "1 document landing run(s) to finish"} {
+		if !strings.Contains(waiting.Draining.Says(), said) {
+			t.Fatalf("Says() = %q, want %q in it", waiting.Draining.Says(), said)
+		}
+	}
+	unnamed := testWatchTransition(testWatchSessionID, WatchIdle, "draining")
+	unnamed.Draining = &WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), BoundReached: true, Checking: 1, ChecksUntil: wait.Until, CheckWaits: []WatchCheckWait{{RunID: "run-racing", Until: wait.Until}}}
+	if err := store.Record(unnamed); err == nil {
+		t.Fatal("Record() error = nil, want a wait on a check that names no check refused")
+	}
 	// A drain waiting out a promotion past its bound says so and since when, reads
 	// back whole, and one claiming that wait with no start named is refused.
 	promoting := testWatchTransition(testWatchSessionID, WatchIdle, "draining")

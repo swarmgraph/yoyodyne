@@ -481,8 +481,9 @@ func whichSession(sessions []runstate.WatchTransition, now time.Time) Stall {
 	// as stuck above. Past those the session either stopped — which its own later
 	// lines say — or died, and a dead session must not go on reading as one on
 	// its way back.
-	// A session waiting out a check stage past its bound names the latest moment
-	// that stage can run to, and is read as on its way back until then as well.
+	// A session waiting past its bound for a check running in a run it hosts
+	// names the latest moment that check can run to, and is read as on its way
+	// back until then as well.
 	if len(live) > 0 && live[0].Draining != nil &&
 		((live[0].Draining.BoundReached && now.Before(live[0].At.Add(DrainOverrunGrace))) ||
 			(live[0].Draining.BoundReached && live[0].Draining.Checking > 0 && now.Before(live[0].Draining.ChecksUntil.Add(RestartGrace))) ||
@@ -585,12 +586,13 @@ func DrainOverrunOf(sessions []runstate.WatchTransition, now time.Time) (Stall, 
 }
 
 // drainOverrun is a live session's drain having run out DrainOverrunAfter or
-// more ago with no restart recorded since. An older record waiting out a check
-// stage past the bound is left to the reading of it below until its deadline.
+// more ago with no restart recorded since. A session waiting for a running
+// check past the bound is left to the reading of it below until its deadline.
 //
-// A session waiting out a run at its promotion is not stuck however long past
-// the bound that runs: a promotion is never stopped part-way and has no bound
-// of its own, and the session restarts the moment it ends. It is read that way
+// A session waiting out a run at its promotion, or a document landing run, is
+// not stuck however long past the bound that runs: neither is stopped part-way
+// for a restart and the drain names no deadline for either, and the session
+// restarts the moment they end. It is read that way
 // for as long as its line saying so is under DrainOverrunGrace old — the
 // session says it again at intervals while it waits — and past that it is a
 // session that died waiting, read as stuck like any other.
@@ -599,7 +601,7 @@ func drainOverrun(latest runstate.WatchTransition, now time.Time) (Stall, bool) 
 	if drain == nil || !drain.BoundReached || drain.Checking > 0 || now.Before(drain.Until.Add(DrainOverrunAfter)) {
 		return Stall{}, false
 	}
-	if waitingOnPromotion(latest, now) {
+	if waitingOnUnstopped(latest, now) {
 		return Stall{}, false
 	}
 	return Stall{
@@ -616,6 +618,16 @@ func drainOverrun(latest runstate.WatchTransition, now time.Time) (Stall, bool) 
 func waitingOnPromotion(latest runstate.WatchTransition, now time.Time) bool {
 	drain := latest.Draining
 	return drain != nil && drain.BoundReached && drain.Promoting > 0 && now.Before(latest.At.Add(DrainOverrunGrace))
+}
+
+// waitingOnUnstopped is a live session's latest line saying, recently enough
+// to be believed, that the session is past its drain bound and waiting for a
+// run it never stops part-way: one at its promotion, or a document landing
+// run. Either has no deadline the drain can name, and the session says it
+// again at intervals while it waits.
+func waitingOnUnstopped(latest runstate.WatchTransition, now time.Time) bool {
+	drain := latest.Draining
+	return drain != nil && drain.BoundReached && (drain.Promoting > 0 || drain.Publishing > 0) && now.Before(latest.At.Add(DrainOverrunGrace))
 }
 
 // divergedTargetStall is a diverged target as the stall says it: the record's

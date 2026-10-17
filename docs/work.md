@@ -2137,13 +2137,18 @@ stopping each run it still hosts at a developer attempt, its checks, or a review
 where it is and preserving it whole for the session that comes back to re-adopt,
 with every counter as it was. A run it has stopped no longer counts as one it
 hosts, so nothing it stopped holds the restart back, and a recurring pass still
-taking its turns is stopped too and recorded as a missed pass. A running check stage is stopped at the drain limit even
-when load has extended the stage's own limit. Each check that passed before
+taking its turns is stopped too and recorded as a missed pass. A run with a
+check running is the exception: it finishes that check, up to the check's own
+configured limit, and stops before its next one, so a new build never makes a
+check start over however many arrive while it runs. Each check that passed before
 the stop keeps its result: the session that comes back runs only the checks
 that had not finished, and only when the change is exactly the one they passed
 on — a changed change runs every check again. A stage that has already finished gets a brief grace
 to record its verdict. A run at its promotion is waited out past the bound
-because it holds the target branch's lease. That stop is recorded as
+because it holds the target branch's lease, and a document landing run is
+waited out at any step, because it is short and one stopped part-way started
+over; past the bound no new one starts, and a document a recurring pass
+confirms then is left for the session that comes back to land. That stop is recorded as
 a restart rather than an ending, so `yoyo status` and the Slack sink say a
 session is coming back on the new build instead of telling you to start one,
 and the drain and its bound are on every line the session writes while it

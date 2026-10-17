@@ -2861,8 +2861,8 @@ two hours under load, with `make race` alone past ninety minutes, holding its
 developer seat and the watch session's drain for the whole of it. So the stage
 has a bound of its own, beside the per-check one. A session
 [draining to restart into a deployed build](#watching-instead-of-draining)
-waits out a running check stage only until `redeploy_drain_limit`, independently
-of the stage's bound:
+lets the check a run is on finish, up to `check_timeout` as configured, and
+stops the run before its next check, independently of the stage's bound:
 
 ```yaml
 execution:
@@ -4152,9 +4152,15 @@ comes back re-adopts each one at its first pull, ahead of anything new, and
 continues it from the phase it was stopped at — the session that stopped it
 never does, however long it goes on pulling. A run at its promotion is waited
 out past the bound rather than interrupted, because it holds the target
-branch's lease. A running check stage is stopped at the drain bound, however
-far the machine's load has scaled
-[`check_stage_timeout`](#what-a-whole-check-stage-may-cost). Every check that
+branch's lease. A document landing run is waited out at any step, and past the
+bound no new one starts: a document a recurring pass confirms then waits for
+the session that comes back to land it. A run with a check running is left to
+finish that check — up to
+[`check_timeout`](#what-a-whole-check-stage-may-cost) as configured, or the
+shorter limit the check was given, however far the machine's load has scaled
+it or `check_stage_timeout` — and stops before its next check, so a new build
+never makes a check start over; a run waiting for a heavy check's place or
+between checks is stopped at the bound. Every check that
 passed before the stop keeps its result, so the session that comes back runs
 only the checks that had not finished — and only when the change is exactly the
 one they passed on; a changed change runs every check again. The work item's
@@ -4167,7 +4173,9 @@ run is at stake by then, and the landing is recorded as unverified and files
 nothing. The bound is minutes rather than hours on purpose: on 2026-09-19 a
 session waited two hours on one run's race suite under load, with its second
 seat empty and two recurring passes missed — a wait the restart drain limit
-caps at fifteen minutes by default, independently of load. What a run the bound stops loses is the
+caps at fifteen minutes by default, independently of load, apart from the one
+check a run is on, which is waited for no longer than `check_timeout` as
+configured. What a run the bound stops loses is the
 minutes its current phase had spent, and a developer attempt and a review
 resume where they were. Set it longer if that trade is wrong for your project, and never to
 nothing — a drain with no bound is the wait this exists to end, and the
@@ -5954,7 +5962,13 @@ for different target branches move independently. A pass ends on its own — whe
 nothing can move, when what is left waits on the operator, a provider or the
 forge, or when it stops on something that needs a look — and a session draining
 to restart into a new build waits for its passes like its recurring firings, and
-stops them past the drain bound. A candidate's checks and review write to that
+stops them past the drain bound — except a pass whose candidate's checks are
+running, which is let finish them, each check up to its configured
+`check_timeout`, because a candidate's checks count only whole and a stage
+stopped part-way runs every check again. Past the bound no queue starts a new
+check stage; the session that comes back runs it. While the session waits, its
+line names the queue, the candidate's generation, the check, and the latest
+moment that check can run to. A candidate's checks and review write to that
 candidate's own event stream under the product's merge queues.
 
 **What you can see.** `yoyo status` prints each queue under the four lines, and
