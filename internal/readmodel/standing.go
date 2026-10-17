@@ -1036,7 +1036,17 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// the standing surfaces: it is said here with the reason the supervisor
 	// recorded, and the record is carried whole beside the lines.
 	standing.Services, standing.ServicesProblem = readServices(sources)
-	standing.ProgramManagers, standing.ProgramManagersProblem = ReadProgramManagers(sources)
+	// The tracker is listed once, for the program managers' opening lists and,
+	// below, for the titles every line is read beside.
+	var listed []beads.WorkItem
+	var listedErr error
+	if sources.Tracker != nil {
+		listed, listedErr = sources.list(ctx, "")
+	}
+	standing.ProgramManagers, standing.ProgramManagersProblem = readProgramManagers(sources, listed, listedErr)
+	// What a program manager's report lists as blocked on a human is said
+	// where the operator already looks, once per item.
+	needs = append(needs, laneHumanBlockAttention(standing.ProgramManagers)...)
 	standing.ConversationPasses, standing.ConversationPassesProblem = ReadConversationPasses(sources)
 	standing.MergeQueues, standing.MergeQueuesProblem = ReadMergeQueues(sources.MergeQueues)
 	needs = append(needs, standing.Services.Attention()...)
@@ -1154,7 +1164,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// Every number a person reads here is read beside its item's title. A
 	// tracker that cannot be listed costs the titles and nothing else: the lines
 	// above are all still true without them.
-	standing.Titles, _ = ReadWorkItemTitles(ctx, sources)
+	if sources.Tracker != nil && listedErr == nil {
+		standing.Titles = NewWorkItemTitles(listed)
+	}
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
 		standing.NeedsHuman[index].titles = standing.Titles

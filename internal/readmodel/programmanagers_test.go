@@ -515,9 +515,10 @@ func TestTheInstancesAreRenderedOneLineEachAndTheStaleOnesCounted(t *testing.T) 
 	sources.Exchanges = fakeExchanges{exchanges: []exchange.Exchange{askedBy("exchange-0123456789abcdef", "writing-pgm", "")}}
 	standing := ReadStanding(context.Background(), sources)
 
+	none := "    Completed (last 24 hours): none\n    Handed off (last 24 hours): none\n    Blocked on a human: none\n"
 	want := "Program managers (2):\n" +
-		"  factory-pgm — lane reliability — stale: no pass has completed since 2026-08-30T07:00:00Z, and its schedule is every 1h0m0s\n" +
-		"  writing-pgm — lane writing — blocked: blocked on 1 open ask (exchange-0123456789abcdef); 1 blocker its report names that the record does not bear out\n"
+		"  factory-pgm — lane reliability — stale: no pass has completed since 2026-08-30T07:00:00Z, and its schedule is every 1h0m0s\n" + none +
+		"  writing-pgm — lane writing — blocked: blocked on 1 open ask (exchange-0123456789abcdef); 1 blocker its report names that the record does not bear out\n" + none
 	if got := standing.RenderProgramManagers(); got != want {
 		t.Errorf("RenderProgramManagers() =\n%s\nwant\n%s", got, want)
 	}

@@ -85,6 +85,10 @@ var auditedDispositionReads = []dispositionSite{
 	},
 
 	{
+		File: "internal/readmodel/laneopening.go", Declaration: "(citable) waitingState", Read: "Resolved()", Reads: 1,
+		Means: "whether the operator has answered the directive a program manager's Blocked on a human entry cites, which is the act that clears the entry. It asks whether he acted, not whether the directive still applies, so a standing instruction he answered clears the entry while staying in force.",
+	},
+	{
 		File: "internal/chat/admission.go", Declaration: "(*Session) admissionGap", Read: "Resolved()", Reads: 1,
 		Means: "goal attribution, not a directive: whether the statement was matched to a recorded goal. It has no liveness reading at all.",
 	},

@@ -31,6 +31,43 @@
         "conversation_id": "chat-00000000000000000000000000000001",
         "turn": 12
       }
+    ],
+    "completed": [
+      {
+        "item": "yoyodyne-ifd.434.9",
+        "title": "Retire the operator's maintenance job",
+        "what": "closed",
+        "at": "2026-09-19T11:20:00Z"
+      }
+    ],
+    "handed_off": [
+      {
+        "item": "yoyodyne-ifd.434.12",
+        "title": "Move the checkout timeout out of the hot path",
+        "what": "admitted",
+        "at": "2026-09-19T07:58:00Z",
+        "to": "a developer"
+      },
+      {
+        "record": "exchange-0123456789abcdef",
+        "what": "asked: is developer slot 2 stuck?",
+        "at": "2026-09-19T07:50:00Z",
+        "to": "the development manager"
+      }
+    ],
+    "blocked_on_a_human": [
+      {
+        "item": "yoyodyne-ifd.434.15",
+        "title": "Read the forge job logs behind pull request 866",
+        "what": "grant the harness's token read access to the repository's Actions",
+        "reason": "repository-setting",
+        "reason_says": "a repository setting the harness's token cannot change",
+        "cites": "report-00000000000000000000000000000077",
+        "record": "report",
+        "since": "2026-09-18T16:40:00Z",
+        "carried": true,
+        "mover": "operator"
+      }
     ]
   },
   "report": {

@@ -4856,9 +4856,12 @@ has the rule.
   an age. A stall over an empty
   queue is not listed: it is a state of the machine rather than something waiting
   on you, and neither is a report pile or an amendment queue that is being worked through — what is
-  listed is one that is not. Each head names ten entries and counts the rest,
-  except a finding that needs your hand, a repeatedly failing product pass,
-  and a hold the brake placed: those are
+  listed is one that is not. It carries, too, each thing a [program
+  manager's lane report](conversation.md#a-program-managers-lane-report) lists
+  as blocked on a human, once per item, until the operator's act is recorded
+  on the record the entry cites. Each head names ten entries and counts the rest,
+  except a finding that needs your hand, a Blocked on a human entry, a
+  repeatedly failing product pass, and a hold the brake placed: those are
   named wherever they fall and never counted into `and N things not named
   here`, because a finding folded into a count is one that did not reach you. The unpublished promotions are the same set the
   channel's hourly line counts as awaiting the forge, read by the same
@@ -4938,6 +4941,7 @@ they are not the labels a person reads:
 | `tracker-unanswered` | tracker not answering |
 | `check-could-not-run` | check not running |
 | `heavy-check-kept` | check place kept |
+| `blocked-on-a-human` | blocked on a human |
 
 A line with nothing in it says `nothing` in words, and a line whose records could
 not be read says that instead — never `nothing`, which would be a confident
@@ -5036,9 +5040,26 @@ instance**, where any is configured or any has a restart request open:
 
 ```text
 Program managers (2):
-  factory-pgm — lane reliability — stale: no pass has completed since 2026-09-25T07:00:00Z, and its schedule is every 1h0m0s
+  factory-pgm — lane reliability — stale: no pass has completed since 2026-09-25T07:00:00Z, and its schedule is every 1h0m0s; blocked on a human for 1 thing
+    Completed (last 24 hours):
+      - "Retire the operator's maintenance job" (yoyodyne-ifd.434.9) — closed, 2026-09-25 06:40 PDT
+    Handed off (last 24 hours):
+      - "Move the checkout timeout out of the hot path" (yoyodyne-ifd.434.12) — admitted, to a developer, 2026-09-25 05:58 PDT
+    Blocked on a human:
+      - "Read the forge job logs behind pull request 866" (yoyodyne-ifd.434.15): grant the harness's token read access to the repository's Actions — a repository setting the harness's token cannot change; since 2026-09-24 09:40 PDT; cleared when the act is recorded on report-…
   writing-pgm — lane writing — blocked: blocked on 1 open ask (exchange-0123456789abcdef); 1 blocker its report names that the record does not bear out
+    Completed (last 24 hours): none
+    Handed off (last 24 hours): none
+    Blocked on a human: none
 ```
+
+Under each instance's line come the three lists its [lane
+report](conversation.md#a-program-managers-lane-report) opens with, one line
+per entry and `none` where a list is empty: what it completed and what it
+handed off in the last 24 hours, which the read model derives from its
+recorded acts, and what its report lists as blocked on a human, carried from
+pass to pass until the operator's act is recorded on the record each entry
+cites.
 
 It is not a fifth line, and nothing on it waits on you: you read an instance
 when you choose. Each instance says its name, its lane, and one word — **blocked**,
@@ -5050,7 +5071,8 @@ is derived by the read model, and nothing an instance writes sets it:
   [lane report](conversation.md#a-program-managers-lane-report) whose `cites`
   names a record of the instance's own that is still open: a report the Lead Product
   Manager has not handled, an amendment nobody has decided, an exchange still
-  open, or a restart request nothing has answered. A citation that names
+  open, or a restart request nothing has answered — or a Blocked on a human
+  entry whose record does not yet carry the operator's clearing act. A citation that names
   nothing, names another instance's record, or names one already decided blocks
   nothing; it is carried as a claim, with the reason, and the line counts them.
 - **Stale** is no completed pass within twice the instance's `triggers.every`,
@@ -5097,7 +5119,11 @@ reads stale, named while it stands rather than two schedules later.
 
 `--json` carries each instance under `standing.program_managers`: its `agent`,
 `lane`, `status`, `stale` and `blocked` separately, `stale_says`,
-`last_completed_pass_at`, the `missed_pass` where one stands — its `trigger`,
+`last_completed_pass_at`, the three opening lists as `completed` and
+`handed_off` (each entry with its `item`, `title`, `record`, `what`, `at`, and
+for a handoff `to`) and `blocked_on_a_human` (each with its `item`, `title`,
+`what`, `reason`, `reason_says`, `cites`, `record`, `since`, `carried`, and
+`mover`), the `missed_pass` where one stands — its `trigger`,
 `how`, the `what` the line opens the miss with, `at`, `recorded_at`, what it `says`, and its mover under `waiting_on`,
 always `harness` — the `blockers` each with its mover (`waiting_on`),
 its citation, and the kind of record it resolved to, the `claims` each with its
@@ -5200,14 +5226,15 @@ sentence about it: its `kind`, from a closed set — `amendment`,
 `publication`, `degraded-service`, `failing-task`, `config-mismatch`, `service-copies`, `hold`, `directive`,
 `outage`, `stall`, `held-work`, `operator-action`, `product-decision`,
 `human-gate`, `untraced-pass`, `factory-stall`, `tracker-unanswered`,
-`check-could-not-run`, `heavy-check-kept` — the `id`
+`check-could-not-run`, `heavy-check-kept`, `blocked-on-a-human` — the `id`
 of the record it is about (an amendment's, a
 directive's, a run's, a work item's, a service's name, a recurring task's
 name, a human gate's name, which switch a hold is: `operator`, `intake`, or
 `capacity`, and for a `factory-stall` the moment the factory last did anything
 and for a `tracker-unanswered` the moment listings began failing, and for a
 `check-could-not-run` the check's command, and for a `heavy-check-kept` the
-permit holding the place), the
+permit holding the place, and for a `blocked-on-a-human` the work item, or the
+record the entry cites where it names none), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
@@ -5216,7 +5243,8 @@ the record itself, whole, under a field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`, `service_copies`,
 `owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
-`tracker_listings`, `unrun_check`, `kept_heavy_check`, and for a hold `operator_hold`, `intake_hold`, or
+`tracker_listings`, `unrun_check`, `kept_heavy_check`, `blocked_on_a_human`
+(the program manager's entry and the instance that wrote it), and for a hold `operator_hold`, `intake_hold`, or
 `capacity_hold`, whichever switch the `id` names. An `amendment` carries the
 target document, the proposer's role, agent, run, and work item, the proposed
 change, and why, none of it cut to a line. An entry about one admitted work
@@ -6242,7 +6270,9 @@ slowly or not at all`.
 8. **Program managers** — each [program manager](designs/program-manager.md)
    instance `standing.program_managers` carries, which is the list `yoyo
    status` prints [under the four lines](#where-the-harness-stands-the-four-lines),
-   by name: its lane; its status as a word in a badge — **blocked**, **stale**,
+   by name, opening with the three lists its lane report opens with —
+   **Completed** and **Handed off** in the last 24 hours, and **Blocked on a
+   human** — one line per entry, or `none`; then its lane; its status as a word in a badge — **blocked**, **stale**,
    or **working**, derived by the read model and never by the page — and,
    where the word is not `working`, why, in the terminal's words, both halves
    where an instance is stale and blocked at once; under any word, the pass it
@@ -6439,8 +6469,19 @@ Each row of the program managers section ends in a button that opens the
 instance's current [lane report](conversation.md#a-program-managers-lane-report)
 on a card of its own, in a pop-up that closes like the others and puts focus
 back on the button that opened it. The card is read once, when it is opened,
-from `/api/program-managers/<agent>`, and shows, as text under plain labels:
-**Status**, the badge with why beside it; **Lane**; the **Missed pass**, where
+from `/api/program-managers/<agent>`, and shows, as text under plain labels,
+first the three lists every lane report opens with, each as a list with one
+line per entry, or `none`: **Completed**, what the instance finished in the
+last 24 hours, and **Handed off**, what it passed to another agent in that
+time, each entry naming its item by title and identifier, what happened, when,
+and for a handoff the agent it went to — both derived from the instance's
+recorded acts; and **Blocked on a human**, each entry naming its item, what the
+operator must do, the reason from the closed list in words, since when, and the
+record whose clearing act ends it — the instance's own list, carried from pass
+to pass until that act is recorded
+([a program manager's lane report](conversation.md#a-program-managers-lane-report)).
+A report written as one paragraph still shows the three as lists, because they
+are fields rather than prose. Then **Status**, the badge with why beside it; **Lane**; the **Missed pass**, where
 the instance has one since its last completed pass — which trigger owed it and
 whether no pass followed or it was cancelled before it completed, when it fell
 due or was taken and when the harness recorded it missed, the record's account

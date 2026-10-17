@@ -1014,6 +1014,15 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			t.Errorf("the busy render does not say docs-pgm's missed pass on its row: want %q", words)
 		}
 	}
+	// Every instance's row opens with the three lists, saying none where a list
+	// is empty, ahead of its lane.
+	for _, words := range []string{
+		`<dt>Completed</dt> <dd>none in the last 24 hours</dd> </div> <div class="figure-row"> <dt>Handed off</dt> <dd>none in the last 24 hours</dd> </div> <div class="figure-row"> <dt>Blocked on a human</dt> <dd>none</dd> </div> <div class="figure-row"> <dt>Lane</dt>`,
+	} {
+		if !strings.Contains(strings.Join(strings.Fields(row), " "), words) {
+			t.Errorf("the busy render's program manager rows do not open with the three lists: want %q", words)
+		}
+	}
 	card := html.UnescapeString(strings.Join(strings.Fields(page("report-unwritten")), " "))
 	for _, words := range []string{
 		"<dt>Missed pass</dt>",
@@ -1024,6 +1033,25 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	} {
 		if !strings.Contains(card, words) {
 			t.Errorf("the docs-pgm report card does not show its missed pass: want %q", words)
+		}
+	}
+	// The three lists a lane report opens with come first on the card, each as
+	// a list with one line per entry named by what it is, ahead of the summary
+	// the instance wrote as prose.
+	opening := html.UnescapeString(strings.Join(strings.Fields(page("report")), " "))
+	completedAt, handedAt, blockedAt, statusAt, summaryAt := strings.Index(opening, "<dt>Completed</dt>"), strings.Index(opening, "<dt>Handed off</dt>"),
+		strings.Index(opening, "<dt>Blocked on a human</dt>"), strings.Index(opening, "<dt>Status</dt>"), strings.Index(opening, "<dt>Summary</dt>")
+	if completedAt < 0 || !(completedAt < handedAt && handedAt < blockedAt && blockedAt < statusAt && statusAt < summaryAt) {
+		t.Errorf("the factory-pgm report card does not open with Completed, Handed off, and Blocked on a human ahead of its status and summary")
+	}
+	for _, words := range []string{
+		"<li>\u201cRetire the operator's maintenance job\u201d (yoyodyne-ifd.434.9) — closed, 2026-09-19 11:20 UTC</li>",
+		"<li>\u201cMove the checkout timeout out of the hot path\u201d (yoyodyne-ifd.434.12) — admitted, to a developer, 2026-09-19 07:58 UTC</li>",
+		"<li>exchange-0123456789abcdef — asked: is developer slot 2 stuck?, to the development manager, 2026-09-19 07:50 UTC</li>",
+		"<li>\u201cRead the forge job logs behind pull request 866\u201d (yoyodyne-ifd.434.15): grant the harness's token read access to the repository's Actions — a repository setting the harness's token cannot change; since 2026-09-18 16:40 UTC; cleared when the act is recorded on report-00000000000000000000000000000077</li>",
+	} {
+		if !strings.Contains(opening, words) {
+			t.Errorf("the factory-pgm report card does not list %q", words)
 		}
 	}
 	if card := strings.Join(strings.Fields(page("report")), " "); !strings.Contains(card, "none since its last completed pass") {

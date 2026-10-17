@@ -14,6 +14,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -173,6 +174,11 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		AttentionKeptHeavyCheck: {keptHeavyCheckAttention(keptHeavyCheckFixture(moment)),
 			"the heavy check make race of run run-kept over yoyodyne-ifd.429.47 (product yoyodyne) has kept its place since " + localMoment(moment.Add(-time.Hour)) +
 				", because it exited and its process group 4242 still has members, which may be processes it started; every other run's make race on this machine waits behind it"},
+		AttentionLaneHumanBlock: {laneHumanBlockAttention([]ProgramManager{{Agent: "factory-pgm", BlockedOnAHuman: []ProgramManagerHumanBlock{{
+			Item: "yoyodyne-ifd.430.9", What: "renew the forge token", Reason: ownership.OperatorCredential, Cites: "report-1",
+			Record: CitedReport, Since: moment.Add(-time.Hour), Mover: ownership.ResolveBlockedOnAHuman(ownership.OperatorCredential),
+		}}}})[0],
+			"yoyodyne-ifd.430.9 is blocked on a human, says the program manager factory-pgm: renew the forge token (a credential or account only a person holds; since 2026-08-30T11:00:00Z)"},
 		// The capacity hold is the third switch under the hold kind; it is
 		// checked with the rest below, and named here so the map is one per kind.
 		"": {capacityEntry,
