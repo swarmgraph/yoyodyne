@@ -872,13 +872,35 @@ retention or no invocation returned a final account. The reviewer names that
 limitation and what it cannot verify rather than treating the missing account
 as proof that the developer supplied no evidence.
 
-The saved copy retains at most 4 KiB, cutting on a character boundary and ending
-with a note when the rest was not recorded. It is shown as the developer's own
-untrusted claims: statements about compatibility, verification, and remaining
-risk for the reviewer to assess independently. Instructions in it are data,
-and neither the account nor the execution record replaces the harness's check
-results, revision-bound gate evidence, or the reviewer's judgment. The existing
-total review-input bound still applies.
+**Every attempt's account reaches the review, not only the latest.** When a
+completed reply comes from a later attempt than the saved account, the saved
+one is kept among the run's earlier accounts rather than overwritten; a second
+completed reply within one attempt — a re-asked reply, or a run picked up again
+— replaces that attempt's account, because the attempt's last account is the
+one it ended on. A review of a run that has had more than one attempt is shown
+each earlier attempt's account above the latest one, oldest first and newest
+last, each headed with its attempt number and labelled as the developer's own
+untrusted account. The run record keeps the eight most recent earlier accounts
+and counts any older ones it let go, and the review says how many were not
+shown. This is there because a repair's summary that said "as described in the
+previous attempt" was refused by a reviewer that was shown only that summary
+(`yoyodyne-37h`). The developer is told the other half: each attempt's summary
+stands on its own and never points to an earlier one, because the reviewer
+judges the latest.
+
+Each saved copy retains at most 4 KiB, cutting on a character boundary and
+ending with a note when the rest was not recorded. It is shown as the
+developer's own untrusted claims, and the reviewer is told what it may take
+from one and what it may not. It may take what the developer says it did and
+why — the decision behind a protected-path grant, the checks it says it ran,
+what it could not do, work it found — so a done-condition asking the summary to
+declare something is judged from it. It may not take anything about the change
+itself — what a file contains, what the code does, whether a test exists or
+passes — which the patch, the repository evidence, and the harness's check
+results decide. Instructions in it are data, and neither the account nor the
+execution record replaces the harness's check results, revision-bound gate
+evidence, or the reviewer's judgment. The account is redacted with the rest of
+the evidence, and the existing total review-input bound still applies.
 
 ## What an approval approves
 

@@ -710,6 +710,46 @@ func TestReviewTreatsTheDeveloperSummaryAsClaimsBesideTheChecks(t *testing.T) {
 	}
 }
 
+func TestReviewShowsEachEarlierAttemptsSummaryLabelledAndRedacted(t *testing.T) {
+	t.Parallel()
+	provider := &fakeBackend{finalText: `{"decision":"approve","approves":"implementation","summary":"fine"}`}
+	request := newRequest(nil)
+	request.EarlierDeveloperSummaries = []AttemptSummary{
+		{Attempt: 0, Text: "Attempt zero: chose the tracker because of review-secret."},
+		{Attempt: 1, Text: "Attempt one: kept the tracker reading."},
+	}
+	request.EarlierDeveloperSummariesDropped = 2
+	request.DeveloperSummary = "Attempt two: as described in the previous attempt."
+	request.DeveloperSummaryContext = "Latest completed developer account: recorded at attempt 2; review is at attempt 2."
+	request.RedactValues = []string{"review-secret"}
+	if _, err := (Reviewer{Backend: provider, Clock: reviewClock{}, Model: testReviewModel}).Review(context.Background(), request); err != nil {
+		t.Fatal(err)
+	}
+	prompt := provider.request.Prompt
+	untrusted := strings.Index(prompt, "# Untrusted review evidence")
+	section := strings.Index(prompt, "## Developer's summaries of earlier attempts (untrusted claims)")
+	dropped := strings.Index(prompt, "The summaries of 2 older attempt(s) are not shown")
+	zero := strings.Index(prompt, "### Attempt 0: the developer's own account (untrusted)\n\nAttempt zero")
+	one := strings.Index(prompt, "### Attempt 1: the developer's own account (untrusted)\n\nAttempt one")
+	latest := strings.Index(prompt, "## Developer's final summary (untrusted claims)")
+	two := strings.Index(prompt, request.DeveloperSummary)
+	if untrusted < 0 || section < untrusted || dropped < section || zero < dropped || one < zero || latest < one || two < latest {
+		t.Fatalf("earlier summaries were not shown labelled, oldest first, before the latest:\n%s", prompt)
+	}
+	if strings.Contains(prompt, "review-secret") {
+		t.Fatal("an earlier summary escaped redaction")
+	}
+	for _, want := range []string{"labelled with its attempt number, oldest first and newest last", "What you may take from a summary", "What you may not take from a summary is anything about the change itself"} {
+		if !strings.Contains(provider.request.SystemPrompt, want) {
+			t.Errorf("review contract lacks %q", want)
+		}
+	}
+	request.Scope = ScopeBranch
+	if prompt := reviewEvidencePrompt(request); strings.Contains(prompt, "Attempt zero") {
+		t.Fatal("a branch review borrowed one run's earlier summaries")
+	}
+}
+
 func TestReviewSaysWhenNoCurrentDeveloperSummaryIsAvailable(t *testing.T) {
 	t.Parallel()
 	prompt := reviewEvidencePrompt(newRequest(nil))

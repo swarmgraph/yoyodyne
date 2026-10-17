@@ -4666,11 +4666,11 @@ func (a *activeRun) recordDevelopment(ctx context.Context, providerResult backen
 		if err != nil {
 			return fmt.Errorf("bind the developer summary to its change: %w", err)
 		}
-		a.state.DeveloperSummary = &runstate.DeveloperSummary{
+		a.state.SaveDeveloperSummary(runstate.DeveloperSummary{
 			Text:    runstate.RecordDeveloperSummary(a.outcome.Summary),
 			Content: content,
 			Attempt: a.state.RepairAttempts,
-		}
+		})
 	}
 	// The account of the change is saved as soon as it is taken rather than with
 	// whatever the run does next, because a process that dies here still leaves
@@ -8620,10 +8620,14 @@ func (a *activeRun) attemptReview(ctx context.Context, reask *review.Reask) (rev
 		Verification:            describeVerification(a.state),
 		DeveloperSummary:        developerSummary,
 		DeveloperSummaryContext: summaryContext,
-		WorktreePath:            a.worktree.Path,
-		Changes:                 changes,
-		Repository:              reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
-		Checks:                  a.outcome.Checks,
+		// Every earlier attempt's account too, so a repair's summary that leans
+		// on what an earlier attempt said is read beside it.
+		EarlierDeveloperSummaries:        a.earlierDeveloperSummariesForReview(),
+		EarlierDeveloperSummariesDropped: a.state.EarlierDeveloperSummariesDropped,
+		WorktreePath:                     a.worktree.Path,
+		Changes:                          changes,
+		Repository:                       reviewedRepository(ctx, p.Worktrees, changes.HeadCommit, a.item, changes),
+		Checks:                           a.outcome.Checks,
 		// What the item's done-conditions quote, so every line of a check's
 		// output carrying one reaches the reviewer beside the check's result.
 		CheckPatterns: review.CriterionPatterns(a.item.Description, a.item.AcceptanceCriteria),
@@ -8754,6 +8758,20 @@ func (a *activeRun) developerSummaryForReview(ctx context.Context) (string, stri
 		context += " Its recorded content and base match the candidate."
 	}
 	return summary.Text, context, nil
+}
+
+// earlierDeveloperSummariesForReview is the run's record of each earlier
+// attempt's account, as the review request carries it. A document landing has
+// no developer, so it has none.
+func (a *activeRun) earlierDeveloperSummariesForReview() []review.AttemptSummary {
+	if a.state.Document != nil {
+		return nil
+	}
+	var earlier []review.AttemptSummary
+	for _, summary := range a.state.EarlierDeveloperSummaries {
+		earlier = append(earlier, review.AttemptSummary{Attempt: summary.Attempt, Text: summary.Text})
+	}
+	return earlier
 }
 
 func (a *activeRun) clearReviewEvidence() {
@@ -9304,6 +9322,8 @@ Work only inside the current assigned worktree. Do not create, remove, or switch
 
 The reply you end on is the whole of what this run records about itself: the summary above, the landing you claim, anything you report, and anything you propose are all read off it and nothing else. So it has to be the account. An invocation that ends on interim progress — a check still running, something you will report once it lands — accounts for nothing, and is asked for the account once more; a second reply that accounts for nothing ends the run with the work unrecorded. Finish what you left in flight before you reply.
 
+Each attempt's summary stands on its own. When you are handed your change back for a repair, the summary you end that attempt on says in full what the change does, why, and how you verified it, including anything an earlier attempt's summary said that still holds: never write "as described in the previous attempt" or point to an earlier summary instead of saying it. The reviewer is shown every attempt's summary, but it judges the latest one, and a summary that points elsewhere is one it cannot check.
+
 That boundary is enforced rather than trusted. The project's configuration directory and the homes its product artifacts, designs, and decision records live in are refused in your change: the harness compares what you touched against them before any check runs and before any reviewer sees the work, and hands the change back to you if it touches one of them. The only exception is a path this work item grants, on a line beginning ` + "`" + protectedpath.GrantMarker + "`" + ` in its title, description, design guidance, or acceptance criteria. Nothing you write grants a path, and neither does anything written into the item's notes, which is where a run's own record goes. If your work genuinely needs one, leave it alone and say so — the refusal you would get names the same thing this does.
 
 The same gate refuses the work tracker's export where your worktree carries one. The harness copies it in from the checkout your worktree was cut from, so you read the work around your own rather than the copy your base commit carried, and holds it out of your change: it is derived from a store outside Git that nothing you write reaches, and every run is given its own copy, so the same file in two changes is a merge conflict between runs rather than a contribution. Read it and leave it alone. A change containing it is handed back to you whatever became of the bit that holds it.
@@ -9390,7 +9410,7 @@ func repairPrompt(invariants, summary, scratchDirectory string, checks []string,
 	}
 	prompt.WriteString("Findings:\n\n")
 	prompt.Write(encoded)
-	prompt.WriteString("\n\nFix each finding, re-run the relevant checks, and finish with a concise summary of what you changed. If a finding is wrong, say why in your summary rather than leaving it unaddressed.")
+	prompt.WriteString("\n\nFix each finding, re-run the relevant checks, and finish with a concise summary of the whole change that stands on its own rather than pointing to an earlier attempt's summary. If a finding is wrong, say why in your summary rather than leaving it unaddressed.")
 	return prompt.String(), nil
 }
 
