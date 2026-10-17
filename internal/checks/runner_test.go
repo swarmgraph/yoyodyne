@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -579,12 +580,29 @@ func TestARequestMayRunUnboundedWithItsOwnBudget(t *testing.T) {
 // A check the caller's own deadline stops is recorded as stopped by its caller,
 // not by its budget or the stage's bound: the process reads as timed out either
 // way, and the run's account of the stop depends on telling them apart.
+//
+// The deadline passes only once the check is running. A deadline set on a
+// clock passes before the check starts on a machine busy enough, and a check
+// its caller ended before it started is recorded as cancelled without running,
+// which is a different case from the one this test is about.
 func TestACheckStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
-	defer cancel()
+	directory := t.TempDir()
+	marker := filepath.Join(directory, "started")
+	ctx := newDeadlineOnSignal()
+	go func() {
+		// Bounded, so this ends on its own however the test ends.
+		limit := time.Now().Add(time.Minute)
+		for time.Now().Before(limit) {
+			if _, err := os.Stat(marker); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		ctx.expire()
+	}()
 	results, _, err := (Runner{Process: execution.OSProcessRunner{}, Timeout: 30 * time.Minute, StageTimeout: 30 * time.Minute}).Run(ctx,
-		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"sleep 5"}}, nil)
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: directory, Commands: []string{"touch started; sleep 5"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -593,5 +611,30 @@ func TestACheckStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	}
 	if !results[0].StoppedByCaller || results[0].StoppedByStage || results[0].Timeout != 30*time.Minute {
 		t.Fatalf("result = %#v, want it stopped by its caller with its own budget untouched", results[0])
+	}
+}
+
+// deadlineOnSignal is a context whose deadline passes when the test says so
+// rather than at a time on the clock.
+type deadlineOnSignal struct {
+	context.Context
+	done chan struct{}
+	once sync.Once
+}
+
+func newDeadlineOnSignal() *deadlineOnSignal {
+	return &deadlineOnSignal{Context: context.Background(), done: make(chan struct{})}
+}
+
+func (c *deadlineOnSignal) expire() { c.once.Do(func() { close(c.done) }) }
+
+func (c *deadlineOnSignal) Done() <-chan struct{} { return c.done }
+
+func (c *deadlineOnSignal) Err() error {
+	select {
+	case <-c.done:
+		return context.DeadlineExceeded
+	default:
+		return nil
 	}
 }
