@@ -235,32 +235,69 @@ its search path, because what it vouches for is how the harness drives a real
 one, and every other check in the same stage still has them hidden.
 
 For a Codex developer, redirecting the environment alone does not grant a write.
-The adapter uses `workspace-write` with an explicit
-`sandbox_workspace_write.writable_roots` override naming only the shared cache
-and the scratch directory assigned to this run. It resolves those paths against
-the harness's checkout, refuses escaping worktree pointers and redirected cache
-or scratch paths, creates both directories through the confined writer with a
-pinned directory handle, and sets `GOCACHE` to the same resolved cache path.
-It does not grant the whole Git directory, another run's scratch, or an inherited
-cache path. The adapter disables approvals and sandbox network access. These
-are existing Codex settings, not new keys in Yoyodyne's configuration schema.
+The supported Codex CLI is **0.160.0**. The adapter runs every Codex role under
+a Codex permission profile it defines itself on the command line, as
+configuration overrides (`default_permissions` and `permissions.<name>`), and
+never passes `--sandbox`: 0.160.0 lets `--sandbox` replace a selected profile
+without saying so, so a run given both would run under the option rather than
+its profile. The profiles extend none of the CLI's built-in ones, so what a
+role may do does not move with a CLI release. These are existing Codex
+settings, not new keys in Yoyodyne's configuration schema.
 
-The installed `codex-cli 0.159.2` lists `--add-dir` on `exec`, but not on
-`exec resume`. The adapter passes the writable-root configuration and `--cd`
-before `resume`, alongside `--sandbox`, on every invocation. These arguments
-request the current run's directory policy; argument and CLI-help checks alone
-do not prove that native resume replaces a saved session's permissions or cwd.
-Read-only roles receive no developer directory grants.
+Each profile's name is the one in the table below followed by a random ending
+drawn when the invocation starts, such as
+`yoyodyne-developer-3f9c…`. That ending is what keeps configuration files out.
+0.160.0 adds the entries of a `[permissions.<name>]` table in the account's
+`config.toml`, or in the worktree's own `.codex/config.toml` where the account
+trusts the worktree, to a profile of the same name given on the command line:
+a file naming `yoyodyne-developer` made a directory outside the worktree
+writable. No file written before an invocation can name its profile, so nothing
+is added to it. What those files say about `sandbox_mode` or
+`default_permissions` gives way to the profile the command line selects.
 
-Codex CLI 0.159.2 on macOS cannot execute this policy when a writable root
-contains a double quote: its generated Seatbelt profile fails to compile with
-`sandbox-exec: unbound variable`. Encoding the path correctly in the adapter's
-configuration argument does not fix the CLI's profile generation. Such paths
-require a CLI fix; the adapter does not rename them, grant a broader parent, or
-disable the sandbox. Argument tests retain quoted paths, while the native
-regression uses paths with spaces and no double quotes. The CLI's
-[Seatbelt profile generator](https://github.com/openai/codex/blob/rust-v0.159.2/codex-rs/sandboxing/src/seatbelt.rs#L536-L564)
-is where those protected-path expressions are constructed.
+| | `yoyodyne-developer` | `yoyodyne-read-only` |
+| --- | --- | --- |
+| Read | every file on the machine | every file on the machine |
+| Write | the worktree, the shared cache, this run's scratch directory, and the system and user temporary directories | nothing |
+| Kept read-only inside each writable directory | `.git`, `.agents`, `.codex`, `.aws` | — |
+| Network | off | off |
+| Approvals | never asked; anything the profile refuses stays refused | never asked |
+
+That is what the CLI's `workspace-write` and `read-only` sandboxes granted
+before the move, entry for entry: asked without a provider call, 0.160.0
+resolves each profile to the same policy on files as those sandboxes resolved
+to. The temporary directories stay writable because a project's tests write to
+them, as they did under `workspace-write`. A read-only role is additionally
+launched from an empty directory outside the repository, with user
+configuration, execution rules, and external integrations switched off
+([provider plugins](../provider-plugins.md#capability-validation)).
+
+The adapter resolves the cache and scratch paths against the harness's
+checkout, refuses escaping worktree pointers and redirected cache or scratch
+paths, creates both directories through the confined writer with a pinned
+directory handle, and sets `GOCACHE` to the same resolved cache path. It does
+not grant the whole Git directory, another run's scratch, or an inherited cache
+path.
+
+`exec resume` takes neither `--cd` nor `--sandbox`, so the profile and `--cd`
+are given to `exec`, ahead of `resume`, on every invocation. Asked without a
+provider call, 0.160.0 runs a resumed session under the profile given then, in
+either direction between the two profiles, rather than the one the session was
+saved with. A test asks the installed CLI to resolve each profile from the
+adapter's own arguments and compares the result entry for entry
+(`TestTheInstalledCLIResolvesEachProfileAsDeclared`), once with no
+configuration files and once with an account `config.toml` and a trusted
+worktree `.codex/config.toml` that set `sandbox_mode = "danger-full-access"`,
+select an unrestricted profile, and add a writable outside directory and the
+network to each profile's name. Against the same files it checks that a name
+without the random ending is widened, so the check cannot pass on files the CLI
+never read. It skips where Codex is not installed.
+
+A path containing a double quote is quoted correctly in the profile, but the
+CLI's own macOS sandbox has failed to compile such a path into its Seatbelt
+profile (`sandbox-exec: unbound variable`). The adapter does not rename such a
+path, grant a broader parent, or disable the sandbox; the native regression
+below uses paths with spaces and no double quotes.
 
 The following regression launches the real CLI with a local scripted Responses
 server, saves a native session, resumes it with different cache, scratch, and
@@ -269,7 +306,10 @@ It requires successful Go compilation and scratch log writes, denied writes to
 unrelated and previously granted paths, and read-only restrictions after
 restoring a writable session. It checks the CLI's command event or unified shell
 tool result for a zero exit and a distinct proof message for each turn, and
-checks the retained files. The scripted provider's final reply and a replayed
+checks the retained files. Its denied directories are temporary ones, so it
+removes the developer profile's grants of the temporary directories for its own runs and
+fails rather than run if the profile stops carrying them in the form it
+expects. The scripted provider's final reply and a replayed
 command from an earlier turn cannot satisfy it. A unified shell command that
 yields is polled until it reports completion, without a limit on the number of
 polls. Only an explicit refusal before its execution environment is ready is

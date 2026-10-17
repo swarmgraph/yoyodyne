@@ -2,7 +2,6 @@ package codex
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -64,21 +63,6 @@ func sandboxCommand(t *testing.T, repository, worktree, session string, role dom
 	return runner.commands[0]
 }
 
-func writableDirectories(t *testing.T, args []string) []string {
-	t.Helper()
-	for _, arg := range args {
-		if value, found := strings.CutPrefix(arg, "sandbox_workspace_write.writable_roots="); found {
-			var directories []string
-			if err := json.Unmarshal([]byte(value), &directories); err != nil {
-				t.Fatal(err)
-			}
-			return directories
-		}
-	}
-	t.Fatalf("no writable directory policy in %q", args)
-	return nil
-}
-
 func TestDeveloperSandboxGrantsTheDeclaredCacheAndScratchOnEveryTurn(t *testing.T) {
 	t.Parallel()
 	for _, linked := range []bool{false, true} {
@@ -94,8 +78,8 @@ func TestDeveloperSandboxGrantsTheDeclaredCacheAndScratchOnEveryTurn(t *testing.
 		cache := filepath.Join(git, "yoyodyne", "go-build")
 		for _, session := range []string{"", "session-one"} {
 			command := sandboxCommand(t, repository, worktree, session, domain.RoleDeveloper)
-			if got := writableDirectories(t, command.Args); !reflect.DeepEqual(got, []string{cache, scratch}) {
-				t.Fatalf("writable roots = %q, want only the declared cache and scratch", got)
+			if got, want := profileFilesystem(t, command.Args), developerFilesystem(worktree, cache, scratch); !reflect.DeepEqual(got, want) {
+				t.Fatalf("developer file system = %q, want only the worktree, the declared cache and scratch, and the temporary directories: %q", got, want)
 			}
 			if !hasEnvironment(command.Env, "GOCACHE="+cache) {
 				t.Fatalf("the sandbox grants %q but GOCACHE names another path", cache)
@@ -104,10 +88,10 @@ func TestDeveloperSandboxGrantsTheDeclaredCacheAndScratchOnEveryTurn(t *testing.
 				t.Fatal(err)
 			}
 			joined := strings.Join(command.Args, " ")
-			if session != "" && strings.Index(joined, "writable_roots=") > strings.Index(joined, " resume ") {
+			if session != "" && strings.Index(joined, ".filesystem=") > strings.Index(joined, " resume ") {
 				t.Fatal("writable directory policy appears after resume")
 			}
-			for _, forbidden := range []string{"danger-full-access", "--dangerously-bypass", "--approve-for-me", "--add-dir"} {
+			for _, forbidden := range []string{"danger-full-access", "--dangerously-bypass", "--approve-for-me", "--add-dir", "--sandbox"} {
 				if strings.Contains(joined, forbidden) {
 					t.Fatalf("unconfined or unsupported option %q in %q", forbidden, command.Args)
 				}
@@ -125,7 +109,7 @@ func TestReadOnlyRolesNeverReceiveDeveloperDirectoryGrants(t *testing.T) {
 		}
 		for _, session := range []string{"", "session-one"} {
 			command := sandboxCommand(t, repository, worktree, session, role)
-			if sandboxArgument(t, command.Args) != sandboxReadOnly || strings.Contains(strings.Join(command.Args, " "), "writable_roots=") {
+			if profileArgument(t, command.Args) != profileReadOnly || strings.Contains(strings.Join(command.Args, " "), `="write"`) {
 				t.Fatalf("read-only role %s received developer access: %q", role, command.Args)
 			}
 		}
