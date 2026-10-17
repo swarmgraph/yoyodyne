@@ -19,12 +19,14 @@ package orchestrator
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -67,6 +69,9 @@ func (a *activeRun) keepChecks(ctx context.Context, commands []string, providerC
 		why := "no check had finished before the restart"
 		if prior != nil && len(prior.Checks) > 0 {
 			why = "the change is not the one the checks passed on before the restart, so no result was kept"
+		} else if a.stoppedChecks() != nil {
+			// What the stop recorded says check by check why each runs.
+			why = ""
 		}
 		a.noteKeptChecks(ctx, keeping, why)
 		return keeping
@@ -92,11 +97,20 @@ func (a *activeRun) keepChecks(ctx context.Context, commands []string, providerC
 		keeping.commands = append(keeping.commands, command)
 	}
 	why := ""
-	if len(keeping.kept) == 0 {
+	if len(keeping.kept) == 0 && a.stoppedChecks() == nil {
 		why = "no check had finished before the restart"
 	}
 	a.noteKeptChecks(ctx, keeping, why)
 	return keeping
+}
+
+// stoppedChecks is what the restart that stopped this run at its checks did to
+// them, where the stop recorded it (runstate.RedeployStopChecks).
+func (a *activeRun) stoppedChecks() *runstate.RedeployStopChecks {
+	if a.state.Readopted == nil {
+		return nil
+	}
+	return a.state.Readopted.Checks
 }
 
 // keptCommands names the checks the stage reused rather than ran.
@@ -176,23 +190,52 @@ func (a *activeRun) noteKeptChecks(ctx context.Context, keeping checkKeeping, wh
 	for _, command := range keeping.commands {
 		again = append(again, redactor.Redact(command))
 	}
-	_, _ = a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderKeptChecksNotes(a.state.RunID, keeping.keptCommands(), again, why))
+	_, _ = a.pipeline.Tracker.RecordOutcome(ctx, a.state.WorkItemID, renderKeptChecksNotes(a.state.RunID, keeping.keptCommands(), again, why, a.stoppedChecks()))
 }
 
 // renderKeptChecksNotes is the note a run picked back up at its checks after a
-// restart onto a new build leaves on its item.
-func renderKeptChecksNotes(runID string, kept, again []string, why string) string {
+// restart onto a new build leaves on its item. Where the stop recorded what it
+// did to the checks, the note says which check the restart waited for and
+// sorts the checks still to run into one cut short, any that said they could
+// not run, and those that had not started, because a reader told only that
+// checks "run again" reads a check the restart never started as one it threw
+// away.
+func renderKeptChecksNotes(runID string, kept, again []string, why string, stopped *runstate.RedeployStopChecks) string {
 	lines := []string{"Yoyodyne picked this run back up at its checks after the watch session restarted onto a new build."}
 	if len(kept) > 0 {
 		lines = append(lines, "Kept their results, because they had already passed on this same change before the restart: "+strings.Join(kept, ", ")+".")
+	}
+	if stopped != nil && stopped.WaitedFor != "" && why == "" {
+		lines = append(lines, fmt.Sprintf("The restart waited for %s, which was running when the new build arrived, to finish rather than start it over.", stopped.WaitedFor))
 	}
 	switch {
 	case len(again) == 0:
 		lines = append(lines, "Every check had already passed, so none runs again.")
 	case why != "":
 		lines = append(lines, fmt.Sprintf("Running every check again, because %s: %s.", why, strings.Join(again, ", ")))
+	case stopped == nil:
+		lines = append(lines, "Running now, because they had not passed before the restart: "+strings.Join(again, ", ")+".")
 	default:
-		lines = append(lines, "Running again, because they had not finished before the restart: "+strings.Join(again, ", ")+".")
+		var cut, couldNot, unstarted []string
+		for _, command := range again {
+			switch {
+			case oneline.Fold(command, 512) == stopped.CutShort:
+				cut = append(cut, command)
+			case slices.Contains(stopped.CouldNotRun, oneline.Fold(command, 512)):
+				couldNot = append(couldNot, command)
+			default:
+				unstarted = append(unstarted, command)
+			}
+		}
+		if len(cut) > 0 {
+			lines = append(lines, "Running again from its start, because it was still running when the run was stopped: "+strings.Join(cut, ", ")+".")
+		}
+		if len(couldNot) > 0 {
+			lines = append(lines, "Running again, because they said they could not run before the restart: "+strings.Join(couldNot, ", ")+".")
+		}
+		if len(unstarted) > 0 {
+			lines = append(lines, "Not started before the restart, so running now for the first time on this change: "+strings.Join(unstarted, ", ")+".")
+		}
 	}
 	lines = append(lines, "Run: "+runID)
 	return strings.Join(lines, "\n")

@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/checks"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -42,6 +43,10 @@ type RedeployDrain struct {
 	At        time.Time
 	Bound     time.Duration
 	SessionID string
+	// WaitedFor is the check the session let finish before the run stopped,
+	// where it asked the run to stop before its next check (checkYield) rather
+	// than cancelling it outright.
+	WaitedFor string
 }
 
 func (d RedeployDrain) Error() string {
@@ -288,6 +293,9 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain) (Outcome, error) {
 		BoundSeconds: int64(drained.Bound / time.Second),
 		SessionID:    drained.SessionID,
 	}
+	if a.state.Phase == runstate.PhaseChecking {
+		stopped.Checks = stoppedChecks(drained, a.outcome.Checks)
+	}
 	a.state.RedeployStop = &stopped
 	if !stoppedForRedeployIsResumable(a.state) {
 		a.state.RedeployStop = nil
@@ -323,6 +331,24 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain) (Outcome, error) {
 		return a.outcome, fmt.Errorf("record the redeploy stop on the work item: %w", err)
 	}
 	return a.outcome, nil
+}
+
+// stoppedChecks is what a stop at a run's checks did to them: the check the
+// session let finish, where it waited for one, and, from the stage's results,
+// a check the stop cut short and each that said it could not run. Every other
+// check of the stage either passed, and is kept, or had not started.
+func stoppedChecks(drained RedeployDrain, results []checks.Result) *runstate.RedeployStopChecks {
+	stopped := &runstate.RedeployStopChecks{WaitedFor: drained.WaitedFor}
+	for _, result := range results {
+		switch {
+		case result.Passed:
+		case result.CouldNotRun != "":
+			stopped.CouldNotRun = append(stopped.CouldNotRun, oneline.Fold(result.Command, 512))
+		case result.StoppedByCaller && !result.NotLaunched:
+			stopped.CutShort = oneline.Fold(result.Command, 512)
+		}
+	}
+	return stopped
 }
 
 // stoppedForRedeployIsResumable reports a run its hosting session stopped for a
@@ -368,9 +394,22 @@ func describeRedeployStop(stopped runstate.RedeployStop) string {
 // gone quiet has to be able to tell waiting from stopped.
 func renderRedeployStopNotes(outcome Outcome) string {
 	stopped := outcome.RedeployStop
+	said := fmt.Sprintf("Yoyodyne paused this run for a redeploy: the watch session hosting it found a build deployed over it, drained for its bound of %s, and restarted with this run still at its %s phase. The run was stopped and preserved rather than waited out; nothing here says the change is wrong.",
+		stopped.Bound(), stopped.Phase)
+	if atChecks := stopped.Checks; atChecks != nil {
+		said = fmt.Sprintf("Yoyodyne paused this run for a redeploy: the watch session hosting it found a build deployed over it, drained for its bound of %s, and stopped this run at its checks to restart. Nothing here says the change is wrong.",
+			stopped.Bound())
+		switch {
+		case atChecks.CutShort != "":
+			said += fmt.Sprintf(" %s was still running when the run was stopped, so it runs again from its start when the run is picked back up.", atChecks.CutShort)
+		case atChecks.WaitedFor != "":
+			said += fmt.Sprintf(" %s was running when the bound ran out, so the session let it finish rather than start it over, and the run stopped before its next check.", atChecks.WaitedFor)
+		default:
+			said += " No check was running when the run stopped, so none was cut short."
+		}
+	}
 	lines := []string{
-		fmt.Sprintf("Yoyodyne paused this run for a redeploy: the watch session hosting it found a build deployed over it, drained for its bound of %s, and restarted with this run still at its %s phase. The run was stopped and preserved rather than waited out; nothing here says the change is wrong.",
-			stopped.Bound(), stopped.Phase),
+		said,
 		"Run: " + outcome.RunID,
 		"Branch: " + outcome.Branch,
 		"Worktree: " + outcome.WorktreePath,

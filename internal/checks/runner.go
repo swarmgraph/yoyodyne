@@ -61,6 +61,10 @@ type Result struct {
 	// process reads as timed out either way, so without this a check stopped
 	// four minutes in would be reported as stopped at a thirty-minute budget.
 	StoppedByCaller bool `json:"stopped_by_caller,omitempty"`
+	// NotLaunched reports a check stopped by its caller before its process was
+	// launched — a run asked to stop between two checks stops there — so a
+	// reader can tell a check the stop never started from one it cut short.
+	NotLaunched bool `json:"not_launched,omitempty"`
 	// CouldNotRun is the reason a check that exited non-zero gave for not having
 	// run at all, by the convention CouldNotRunPrefix describes, and empty for
 	// every other check. Passed is false beside it, because nothing passed; a
@@ -267,6 +271,7 @@ func (r Runner) Run(ctx context.Context, request Request, sink func(execution.Ev
 				StageTimeout:    stageTimeout,
 				StageElapsed:    now.Sub(stageStarted) - waited,
 				StoppedByCaller: true,
+				NotLaunched:     true,
 			}
 			results = append(results, result)
 			if err := emitCompleted(request.RunID, sequence, clock, sink, result); err != nil {

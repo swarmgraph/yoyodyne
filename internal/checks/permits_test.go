@@ -205,8 +205,8 @@ func TestAWaitTheCallerStopsEndsTheStageWithNothingLaunched(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if len(results) != 1 || !results[0].StoppedByCaller || results[0].Process.Status != execution.ProcessCancelled {
-		t.Fatalf("results = %#v, want one check stopped by its caller", results)
+	if len(results) != 1 || !results[0].StoppedByCaller || results[0].Process.Status != execution.ProcessCancelled || !results[0].NotLaunched {
+		t.Fatalf("results = %#v, want one check stopped by its caller before it launched", results)
 	}
 	if len(process.gates) != 0 {
 		t.Fatalf("%d checks launched, want none", len(process.gates))

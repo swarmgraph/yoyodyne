@@ -3096,9 +3096,11 @@ recording its verdict is still hosted past the bound:
   stop keeps its result: the session that comes back runs only the checks that
   had not finished, and only when the change is exactly the one they passed on
   — same content, same commit, same repair attempt. A changed change runs every
-  check again. The work item gets a note naming the checks that kept their
-  results and the ones that ran again, and the run's outcome notes mark each
-  kept check. A check that said it could not run is not kept, and runs again.
+  check again. The work item gets a note when the run stops and another when
+  it is picked back up, naming the check the restart waited for, the checks
+  that kept their results, any check cut short and started over, and the
+  checks that had not started before the stop; the run's outcome notes mark
+  each kept check. A check that said it could not run is not kept, and runs again.
   A check that failed is not a stop: the run goes on to the repair it is owed,
   and the next look stops it there. A stage that has already finished
   gets up to a minute's grace to record its verdict and move the run on to its
