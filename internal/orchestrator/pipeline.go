@@ -6361,6 +6361,9 @@ func (a *activeRun) closeCheckStage(stage *runstate.CheckStage, results []checks
 	finished := a.pipeline.clock().Now()
 	stage.FinishedAt = &finished
 	stage.ElapsedSeconds = int64(finished.Sub(stage.StartedAt) / time.Second)
+	// An ended stage has no check running, so the launch a restart would have
+	// waited on is not kept; what the last check ran for is recorded below.
+	stage.CheckStartedAt = nil
 	if last := len(results) - 1; last >= 0 {
 		stage.Command = results[last].Command
 		stage.ElapsedSeconds = int64(results[last].StageElapsed / time.Second)
