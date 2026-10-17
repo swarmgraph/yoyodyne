@@ -1222,7 +1222,8 @@ func printReconcileFinding(stdout, stderr io.Writer, finding *readmodel.Attentio
 
 // printMergeDisagreements says which runs recorded as merged were found not to
 // be on their target branch. A run whose change is there is the ordinary case
-// and is not said; a run found again by a later sweep is said again, because it
+// and is not said, unless an earlier sweep listed it and this one took it off
+// the list; a run found again by a later sweep is said again, because it
 // is still not on the branch, and its entry on the development manager's list
 // is the one already there.
 func printMergeDisagreements(stdout, stderr io.Writer, findings []orchestrator.MergeDisagreementFinding) {
@@ -1232,6 +1233,9 @@ func printMergeDisagreements(stdout, stderr io.Writer, findings []orchestrator.M
 			fmt.Fprintf(stderr, "run %s (%s) is recorded as merged and could not be checked against its target branch: %s\n", finding.RunID, finding.WorkItemID, finding.Failure)
 		case finding.Kept != "":
 			fmt.Fprintf(stdout, "run %s (%s) is recorded as merged and was left alone: %s\n", finding.RunID, finding.WorkItemID, finding.Kept)
+		case finding.Settled:
+			fmt.Fprintf(stdout, "run %s (%s) is recorded as merged and pull request #%d is now on its target branch, so it is taken off the development manager's list\n",
+				finding.RunID, finding.WorkItemID, finding.Number)
 		case !finding.OnTarget:
 			listed := "it is on the development manager's list"
 			if finding.Docketed {

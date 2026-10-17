@@ -47,11 +47,14 @@ type MergeDisagreementFinding struct {
 	// Recorded reports this sweep wrote the disagreement on the run, and
 	// Docketed that it is what put the run on the docket. A run found again by a
 	// later sweep is neither: its disagreement and its entry already stand.
-	Recorded bool   `json:"recorded,omitempty"`
-	Docketed bool   `json:"docketed,omitempty"`
-	Detail   string `json:"detail,omitempty"`
-	Kept     string `json:"kept,omitempty"`
-	Failure  string `json:"failure,omitempty"`
+	Recorded bool `json:"recorded,omitempty"`
+	Docketed bool `json:"docketed,omitempty"`
+	// Settled reports this sweep closed the entry an earlier one listed, because
+	// the run's change is now on the target branch.
+	Settled bool   `json:"settled,omitempty"`
+	Detail  string `json:"detail,omitempty"`
+	Kept    string `json:"kept,omitempty"`
+	Failure string `json:"failure,omitempty"`
 }
 
 // disagreementCandidate reports a run the sweep reads the target branch for: a
@@ -72,7 +75,10 @@ func disagreementCandidate(state runstate.State) bool {
 // merged whose work item is still open, and for each one whose commit is not
 // there writes the disagreement on the run and lists it on the development
 // manager's docket. A run already carrying a disagreement is not written again,
-// and its entry is recorded once by key, so a second sweep adds nothing.
+// and its entry is recorded once by key and dated by the disagreement, so a
+// second sweep adds nothing and leaves any decision recorded on the entry
+// standing. A listed run whose change has since reached the branch has its entry
+// closed.
 //
 // Which items are still open is read once for the whole sweep (closedItems),
 // not once per run, so a long history costs one tracker listing and a git read
@@ -200,6 +206,18 @@ func (r Reconciler) findMergeDisagreement(ctx context.Context, reader MergeDisag
 	}
 	if reading.Found != "" {
 		finding.OnTarget = true
+		// A run an earlier sweep listed whose change has since arrived is the
+		// disagreement answered, so its entry is closed rather than left asking a
+		// question the branch has settled. An entry a decision still holds is left
+		// to it, and closed by the first sweep after that decision lapses.
+		if recorded.MergeDisagreement != nil && r.Docket != nil {
+			settled, err := r.Docket.SettlePublication(recorded,
+				fmt.Sprintf("%s now carries %s, so the change run %s was recorded as merging is on its target branch", target, reading.Found, recorded.RunID))
+			if err != nil {
+				finding.Failure = fmt.Errorf("close the merge disagreement of run %s, whose change is now on %s: %w", recorded.RunID, target, err).Error()
+			}
+			finding.Settled = settled > 0
+		}
 		return finding
 	}
 	// The forge is asked what it says of the request now, because that is what
@@ -315,9 +333,11 @@ func describeReading(reading gitworktree.TargetReading, commit, mergeCommit stri
 
 // RecordMergeDisagreement dockets one run whose disagreement is on its record,
 // and reports whether this call is what created the entry. The entry is keyed to
-// the run and its pull request apart from every other publication entry, so it
-// is recorded once however many sweeps find it, and a docket rebuilt from the
-// records derives the same entry (entriesFor).
+// the run and its pull request apart from every other publication entry, and
+// dated by the disagreement rather than by now (disagreementEntry), so it is
+// recorded once however many sweeps find it, a decision recorded on it stands
+// over every later sweep, and a docket rebuilt from the records derives the same
+// entry (entriesFor).
 func (d Docketer) RecordMergeDisagreement(state runstate.State) (bool, error) {
 	if err := d.validate(); err != nil {
 		return false, err
@@ -351,6 +371,15 @@ func (d Docketer) disagreementEntry(state runstate.State, now time.Time) (triage
 	}
 	disagreement := state.MergeDisagreement
 	entry.Key = triage.DisagreementKey(state.RunID, entry.Publication.Number)
+	// The entry is dated by the disagreement on the run rather than by the sweep
+	// that lists it, because every sweep re-derives it from that one record. Dated
+	// by the sweep, each one after a decision would read as a newer stoppage than
+	// the decision (DocketStore.RecordOnce), list the run again with a new time,
+	// and drop the wait the development manager had recorded on it. A run whose
+	// record carries a later disagreement is the one that is listed again.
+	if !disagreement.FoundAt.IsZero() {
+		entry.RecordedAt = disagreement.FoundAt.UTC()
+	}
 	if forgeState := strings.TrimSpace(disagreement.ForgeState); forgeState != "" {
 		entry.Publication.State = forgeState
 	}
