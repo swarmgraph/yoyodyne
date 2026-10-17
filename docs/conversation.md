@@ -3316,6 +3316,17 @@ is as wide as the terminal decides, and any other control character is dropped
 as it is when typed. The bracketing is turned off whenever the terminal changes
 hands, exactly as the keyboard is.
 
+A long paste is shown in the prompt as one line naming it, such as
+`[Pasted text #1 +42 lines]`, rather than drawn in full; one that is a single
+line of more than a thousand characters is named by its characters instead. A
+paste of three lines or fewer is shown as it is. You can type before and after
+the label, the cursor steps over it as one character, backspace removes it
+whole, and Ctrl-U or Ctrl-W cut it like anything else, for Ctrl-Y to put back.
+Two pastes in one message are numbered in the order they were pasted. Only the
+drawing is shortened: the message sent, the one recorded in the conversation,
+and the one written above the prompt once it is sent all carry the whole of
+what was pasted, where the label stood.
+
 Esc and Ctrl-C work as they do in Claude Code. While a turn is being answered,
 Esc stops it and puts you back at the prompt with the conversation intact; the
 conversation's record says you stopped it, nothing the Lead Product Manager
