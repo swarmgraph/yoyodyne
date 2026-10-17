@@ -302,3 +302,60 @@ func TestABadBlockedOnAHumanEntryIsRefusedAloneAndTheReportIsRead(t *testing.T) 
 		t.Fatalf("the pass record would say %q", refusal)
 	}
 }
+
+// A real program manager session whose block carries bad Blocked on a human
+// entries writes the report without them, and the refusals reach the role's
+// next prompt, the pass record's account, and the conversation's log.
+func TestARefusedBlockedOnAHumanEntryIsToldToTheRoleAndThePass(t *testing.T) {
+	t.Parallel()
+
+	store := newChatLaneReportStore(t)
+	store.UseWaitingRecords(func(cites string) (runstate.WaitingRecordState, error) {
+		if cites == "report-done" {
+			return runstate.WaitingRecordCleared, nil
+		}
+		return runstate.WaitingRecordOpen, nil
+	})
+	block := laneReportBlock(`{"blocked_on_a_human":[` +
+		`{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential","cites":"report-7","since":"2026-10-12T16:40:00Z"},` +
+		`{"item":"yoyodyne-ifd.10","what":"approve the design","reason":"approval","cites":"report-8","since":"2026-10-12T16:40:00Z"},` +
+		`{"item":"yoyodyne-ifd.11","what":"renew the account","reason":"credential","cites":"report-done","since":"2026-10-12T16:40:00Z"}],` +
+		`"summary":"s","remaining":[],"blockers":[]}`)
+	session, provider, root := programManagerSession(t, store, "A pass.\n\n"+block, "Nothing new.")
+	session.ForPass("factory-watch#3")
+
+	reply, err := session.Send(context.Background(), "How does the lane stand?")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if reply.LaneReport == nil || !reply.LaneReport.Recorded || len(reply.LaneReport.RefusedEntries) != 2 {
+		t.Fatalf("lane report outcome = %+v, want it written with two entries refused", reply.LaneReport)
+	}
+	refusal := reply.LaneReport.Refusal()
+	for _, want := range []string{"written without 2 Blocked on a human entries", `reason "approval"`, "report-done, on which the act that clears it is already recorded"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("the pass record's account %q does not say %q", refusal, want)
+		}
+	}
+	current, _, err := store.Current("factory")
+	if err != nil || len(current.Report.BlockedOnAHuman) != 1 || current.Report.BlockedOnAHuman[0].Item != "yoyodyne-ifd.9" {
+		t.Fatalf("the stored report carries %+v, %v; want only the good entry", current.Report.BlockedOnAHuman, err)
+	}
+
+	if _, err := session.Send(context.Background(), "Anything else?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	prompt := provider.requests[1].Prompt
+	if !strings.Contains(prompt, "These Blocked on a human entries were left out of it") || !strings.Contains(prompt, `reason "approval"`) {
+		t.Errorf("the role was not told which entries were left out:\n%s", prompt)
+	}
+	logged := false
+	for _, event := range loadTestEvents(t, root, session) {
+		if event.Type == execution.EventLaneReportRecorded && strings.Contains(string(event.Payload), "approval") {
+			logged = true
+		}
+	}
+	if !logged {
+		t.Error("the conversation's log does not name the refused entries on lane_report.recorded")
+	}
+}

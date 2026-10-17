@@ -245,6 +245,16 @@ func (s *Session) writeLaneReportWithoutToolAudit(ctx context.Context, content *
 		} else {
 			outcome.Recorded = true
 			outcome.Version = written.Version
+			// The store keeps the entries this reply's block already refused and
+			// adds the ones the waiting records refuse, so its answer names them
+			// all; a store that hands back none of them still leaves the block's.
+			refused := written.Report.Refused
+			if len(refused) == 0 {
+				refused = content.Refused
+			}
+			for _, entry := range refused {
+				outcome.RefusedEntries = append(outcome.RefusedEntries, singleLine(entry, maxTrackerFailureBytes))
+			}
 		}
 	}
 	eventType := execution.EventLaneReportRefused
