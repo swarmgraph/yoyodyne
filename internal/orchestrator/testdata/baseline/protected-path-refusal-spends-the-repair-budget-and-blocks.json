@@ -69,6 +69,18 @@
       "content": "\u003ccontent\u003e",
       "text": "implemented the work item"
     },
+    "earlier_developer_summaries": [
+      {
+        "attempt": 0,
+        "content": "\u003ccontent\u003e",
+        "text": "implemented the work item"
+      },
+      {
+        "attempt": 1,
+        "content": "\u003ccontent\u003e",
+        "text": "implemented the work item"
+      }
+    ],
     "effort_settled": true,
     "failure": "protected paths refused after 2 of 2 permitted attempt(s): docs/designs/delivery.md, docs/product/brief.md",
     "harness_commit": "\u003ccommit-2\u003e",

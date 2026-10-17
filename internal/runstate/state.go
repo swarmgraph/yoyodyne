@@ -1908,6 +1908,28 @@ func RecordDeveloperSummary(text string) string {
 	return boundRecordedText(text, MaxRecordedTextBytes, reviewSummaryCutNote)
 }
 
+// MaxEarlierDeveloperSummaries bounds how many earlier attempts' accounts a run
+// carries. Each is held to MaxRecordedTextBytes, so the record stays bounded
+// however many repair rounds a run is granted; the review's own input bound
+// still applies to what is shown.
+const MaxEarlierDeveloperSummaries = 8
+
+// SaveDeveloperSummary makes summary the run's latest account. An account from
+// another attempt is kept among the earlier ones rather than overwritten, so
+// review can show each attempt's account; a second account from the same
+// attempt — a re-asked reply, or a run picked up again — replaces the first,
+// because only an attempt's last account is the one it ended on.
+func (s *State) SaveDeveloperSummary(summary DeveloperSummary) {
+	if previous := s.DeveloperSummary; previous != nil && previous.Attempt != summary.Attempt {
+		s.EarlierDeveloperSummaries = append(s.EarlierDeveloperSummaries, *previous)
+		if excess := len(s.EarlierDeveloperSummaries) - MaxEarlierDeveloperSummaries; excess > 0 {
+			s.EarlierDeveloperSummaries = append([]DeveloperSummary(nil), s.EarlierDeveloperSummaries[excess:]...)
+			s.EarlierDeveloperSummariesDropped += excess
+		}
+	}
+	s.DeveloperSummary = &summary
+}
+
 // MaxChannelProblemBytes bounds the record of what a run's two side channels —
 // the reports its agents filed and the amendments they proposed — could not
 // read or could not keep. One lost entry is folded to a line by the caller
@@ -2066,6 +2088,9 @@ func (s *State) recordedTexts() []recordedText {
 	own("review_summary", &s.ReviewSummary, MaxReviewSummaryBytes, reviewSummaryCutNote)
 	if s.DeveloperSummary != nil {
 		add("developer_summary.text", "developer_summary.text", &s.DeveloperSummary.Text, MaxRecordedTextBytes, reviewSummaryCutNote, true)
+	}
+	for index := range s.EarlierDeveloperSummaries {
+		add("earlier_developer_summaries[].text", at("earlier_developer_summaries", index, "text"), &s.EarlierDeveloperSummaries[index].Text, MaxRecordedTextBytes, reviewSummaryCutNote, true)
 	}
 	// The landing reason is carried onward as an escalation's account, which is
 	// held to the blocker's bound, so it is held to that bound here too.
@@ -3259,6 +3284,14 @@ type State struct {
 	// account. Review receives the latest saved account with its attempt and
 	// content relation to the candidate stated, including after a replay.
 	DeveloperSummary *DeveloperSummary `json:"developer_summary,omitempty"`
+	// EarlierDeveloperSummaries holds the last account of each earlier attempt,
+	// oldest first, so a review of a repaired change is shown every attempt's
+	// account rather than only the latest one, which may lean on an earlier one.
+	// SaveDeveloperSummary is what moves an account here; it keeps at most
+	// MaxEarlierDeveloperSummaries and counts the ones it let go in
+	// EarlierDeveloperSummariesDropped.
+	EarlierDeveloperSummaries        []DeveloperSummary `json:"earlier_developer_summaries,omitempty"`
+	EarlierDeveloperSummariesDropped int                `json:"earlier_developer_summaries_dropped,omitempty"`
 	// LandingOutcome is what the developer claimed its change does to the work
 	// item, and LandingReason is its own account of the claim. They are durable
 	// because the closure is not always made by the process that read them: a run
@@ -4142,6 +4175,17 @@ func (s State) Validate() error {
 		if err := s.DeveloperSummary.Validate(); err != nil {
 			problems = append(problems, fmt.Errorf("developer_summary: %w", err))
 		}
+	}
+	if len(s.EarlierDeveloperSummaries) > MaxEarlierDeveloperSummaries {
+		problems = append(problems, fmt.Errorf("%d earlier developer summaries are carried, which exceeds the bound of %d", len(s.EarlierDeveloperSummaries), MaxEarlierDeveloperSummaries))
+	}
+	for index, earlier := range s.EarlierDeveloperSummaries {
+		if err := earlier.Validate(); err != nil {
+			problems = append(problems, fmt.Errorf("earlier_developer_summaries[%d]: %w", index, err))
+		}
+	}
+	if s.EarlierDeveloperSummariesDropped < 0 {
+		problems = append(problems, errors.New("earlier_developer_summaries_dropped cannot be negative"))
 	}
 	if len(s.RefusedAmendments) > MaxCarriedAmendmentRefusals {
 		problems = append(problems, fmt.Errorf("%d refused amendments are carried, which exceeds the bound of %d", len(s.RefusedAmendments), MaxCarriedAmendmentRefusals))
