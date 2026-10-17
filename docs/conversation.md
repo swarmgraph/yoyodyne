@@ -1971,23 +1971,59 @@ A [program manager](designs/program-manager.md) keeps one report on its lane: a
 short summary of how the lane is going, what remains, and what is blocking it.
 Nobody is sent it. The operator and the other roles read it when they choose.
 
+**It opens with three lists, ahead of its summary**: what the instance
+completed in the last 24 hours, what it handed off to another agent in that
+time, and what is blocked on a human. Every surface shows them first, as lists
+with one line per entry naming its item by what it is, so the layout never
+depends on how the instance wrote its summary. The first two are not written by
+the instance: the read model derives them from its recorded acts. **Completed**
+is the items it admitted, or that carry its lane's label, that closed in those
+24 hours, and its own reports, amendments, and exchanges decided or answered in
+them. **Handed off** is the items its passes admitted, each to a developer, or
+to the role whose conversation the item names; the reports it filed, to the
+role each is for, or the Lead Product Manager; the amendments it proposed, to
+the document's owner; and the exchanges it asked, to the role that answers. It
+names an agent and never a person.
+
+**Blocked on a human** is the instance's own list, and holds only what needs
+the operator himself. Each entry names the `item` where there is one, `what`
+the operator must do, its `reason` from the ownership registry's closed list —
+`fundamental-intent`, `credential`, `repository-setting`, or `protected-file`
+— the waiting record his act is recorded on as `cites` (a report, an
+amendment, or a directive), and `since` when, as a UTC time. **An entry stays
+until his act is recorded on that record**, never dropped for its age: the
+harness carries it from version to version, so a later report that leaves it
+out does not remove it. A report's entry is cleared once the report's latest
+handling no longer says it needs the operator, an amendment's once it is
+decided, and a directive's once it is resolved, withdrawn, or resolved into
+what carries it. Each entry is also on [the "Needs a human"
+line](operations.md#where-the-harness-stands-the-four-lines), once per item
+however many passes or instances name it, as a `blocked-on-a-human` entry the
+operator moves; the registry names the Lead Product Manager instead for an
+entry whose reason is not on the list.
+
 **It is rewritten whole by one block.** A program manager's reply ends with a
-`yoyodyne-lane-report` block, which carries three fields and nothing else:
+`yoyodyne-lane-report` block, which carries four fields and nothing else:
 
 ```text
-{"summary":"where the lane stands","remaining":["what is still to do"],
- "blockers":[{"what":"what is blocked","waiting_on":"product-manager","cites":"report-7"}]}
+{"blocked_on_a_human":[{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential",
+   "cites":"report-7","since":"2026-10-12T16:40:00Z"}],
+ "summary":"where the lane stands","remaining":["what is still to do"],
+ "blockers":[{"what":"what is blocked","waiting_on":"product-manager","cites":"report-8"}]}
 ```
 
-`remaining` is a list, and so is `blockers`. An empty list says nothing
+`blocked_on_a_human` may be left out, which writes no new entry and removes
+none. `remaining` is a list, and so is `blockers`. An empty list says nothing
 remains, or nothing is blocking. Each blocker names `what` is blocked,
 `waiting_on` (the mover it waits for), and `cites` (the identifier of the
 request, report, amendment, or exchange the instance raised about it). The
 mover comes from the read model's own vocabulary, narrowed to the movers a lane
-can wait on: `operator`, `product-manager`, `development-manager`, `architect`,
-`harness`, `forge`, or `provider`. What each citation resolves to decides
-whether the instance reads as blocked: only an open record of its own does, and
-the rest are shown as claims with the reason ([the instance's
+can wait on: `product-manager`, `development-manager`, `architect`, `harness`,
+`forge`, or `provider`. The operator is not one: what waits on him is a
+Blocked on a human entry, and a blocker naming him is refused. What each
+citation resolves to decides whether the instance reads as blocked: only an
+open record of its own does, or an open Blocked on a human entry, and the rest
+are shown as claims with the reason ([the instance's
 status](operations.md#where-the-harness-stands-the-four-lines)).
 
 The report is kept under the state root at
@@ -2005,7 +2041,7 @@ version on a card and writes nothing
 
 **A malformed block is refused whole, and the turn goes on.** A block over the
 bound, a block missing a field, a block with a field the report does not have,
-and a blocker waiting on anybody outside those seven movers are all refused.
+and a blocker waiting on anybody outside those six movers are all refused.
 Nothing is written, so the report before it still stands. The refusal is
 recorded in the conversation's log as `lane_report.refused`. The operator is
 told on the transcript, and `--json` carries it under `lane_report`. The program
@@ -2013,6 +2049,14 @@ manager is told why on its next turn. Where a recurring task's pass woke the
 turn, the refusal is written onto the pass's record, which is what
 [`yoyo sweeps`](operations.md#reading-what-the-recurring-tasks-found) reads. A block that lands is recorded as `lane_report.recorded`, with
 its version number. Neither event copies the report's text.
+
+**A bad Blocked on a human entry is refused on its own.** An entry with no
+reason from the closed list, with no time it began, citing no report,
+amendment, or directive on record, or citing one on which the operator's act is
+already recorded is left out, and the rest of the report is written. The
+program manager is told which entries were left out and why on its next turn,
+and a pass's record names them beside its other problems. A record that could
+not be read refuses nothing, and carries every entry forward.
 
 **Only the program manager may write one.** Writing a lane report is
 `lane-report.write`, which only the program manager's bundle holds. The block

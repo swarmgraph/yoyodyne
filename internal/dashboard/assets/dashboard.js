@@ -1230,12 +1230,12 @@ var standingWarningAgeSeconds = 5 * 60;
   // written as one paragraph still shows them as lists.
   function laneEntrySays(entry) {
     var about = entry.item ? (entry.title ? "\u201c" + entry.title + "\u201d (" + entry.item + ")" : entry.item) : entry.record;
-    return about + " — " + entry.what + (entry.to ? ", to " + entry.to : "") + ", " + dayAndClock(entry.at);
+    return about + " — " + entry.what + (entry.to ? ", to " + entry.to : "") + ", " + localMoment(entry.at);
   }
 
   function humanBlockSays(block) {
     var about = block.item ? (block.title ? "\u201c" + block.title + "\u201d (" + block.item + "): " : block.item + ": ") : "";
-    return about + block.what + " — " + block.reason_says + "; since " + dayAndClock(block.since) + "; cleared when the act is recorded on " + block.cites +
+    return about + block.what + " — " + block.reason_says + "; since " + localMoment(block.since) + "; cleared when the act is recorded on " + block.cites +
       (block.unresolved ? " (" + block.unresolved + ")" : "");
   }
 
@@ -2080,6 +2080,16 @@ var standingWarningAgeSeconds = 5 * 60;
           add("Found by", entry.operator_action.found_by);
           add("Recorded in", entry.operator_action.recorded_in);
           add("Since", named(entry.operator_action.since) ? dayAndClock(entry.operator_action.since) : "");
+        }
+        break;
+      case "blocked-on-a-human":
+        if (entry.blocked_on_a_human) {
+          var block = entry.blocked_on_a_human.entry;
+          add("Needs", block.what);
+          add("Why only a person", block.reason_says);
+          add("Listed by", "the program manager " + entry.blocked_on_a_human.agent);
+          add("Cleared by", "the act recorded on " + block.cites);
+          add("Since", named(block.since) ? dayAndClock(block.since) : "");
         }
         break;
       case "addressed-report":

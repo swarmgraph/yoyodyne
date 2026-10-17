@@ -264,13 +264,41 @@ func TestALaneReportBlockIsReadStrictly(t *testing.T) {
 		t.Errorf("a reply with no block reads as carrying one: %v, %v", found, err)
 	}
 	for name, reply := range map[string]string{
-		"two blocks":       laneReportBlock(`{"summary":"s","remaining":[],"blockers":[]}`) + laneReportBlock(`{"summary":"s","remaining":[],"blockers":[]}`),
-		"unclosed":         laneReportFence + "\n{}",
-		"trailing content": laneReportBlock(`{"summary":"s","remaining":[],"blockers":[]} {}`),
-		"a nobody mover":   laneReportBlock(`{"summary":"s","remaining":[],"blockers":[{"what":"w","waiting_on":"nobody","cites":"report-7"}]}`),
+		"two blocks":                        laneReportBlock(`{"summary":"s","remaining":[],"blockers":[]}`) + laneReportBlock(`{"summary":"s","remaining":[],"blockers":[]}`),
+		"unclosed":                          laneReportFence + "\n{}",
+		"trailing content":                  laneReportBlock(`{"summary":"s","remaining":[],"blockers":[]} {}`),
+		"a nobody mover":                    laneReportBlock(`{"summary":"s","remaining":[],"blockers":[{"what":"w","waiting_on":"nobody","cites":"report-7"}]}`),
+		"the operator as a blocker's mover": laneReportBlock(`{"summary":"s","remaining":[],"blockers":[{"what":"w","waiting_on":"operator","cites":"report-7"}]}`),
 	} {
 		if _, _, found, err := extractLaneReport(reply); !found || err == nil {
 			t.Errorf("%s: extractLaneReport() = found %v, err %v; want it carried and refused", name, found, err)
 		}
+	}
+}
+
+// A Blocked on a human entry that breaks the contract — no reason from the
+// closed list, no time it began — is refused on its own, and the report and the
+// other entries are read.
+func TestABadBlockedOnAHumanEntryIsRefusedAloneAndTheReportIsRead(t *testing.T) {
+	t.Parallel()
+
+	_, content, found, err := extractLaneReport(laneReportBlock(`{"blocked_on_a_human":[` +
+		`{"item":"yoyodyne-ifd.9","what":"renew the forge token","reason":"credential","cites":"report-7","since":"2026-10-12T16:40:00Z"},` +
+		`{"what":"approve the design","reason":"approval","cites":"report-8","since":"2026-10-12T16:40:00Z"},` +
+		`{"what":"answer the question","reason":"fundamental-intent","cites":"report-9","since":"yesterday"}],` +
+		`"summary":"s","remaining":[],"blockers":[]}`))
+	if err != nil || !found || content == nil {
+		t.Fatalf("extractLaneReport() = %+v, %v, %v; want the report read", content, found, err)
+	}
+	if len(content.BlockedOnAHuman) != 1 || content.BlockedOnAHuman[0].Item != "yoyodyne-ifd.9" {
+		t.Fatalf("kept %+v, want only the credential entry", content.BlockedOnAHuman)
+	}
+	refused := strings.Join(content.Refused, "\n")
+	if len(content.Refused) != 2 || !strings.Contains(refused, `reason "approval"`) || !strings.Contains(refused, `since "yesterday"`) {
+		t.Fatalf("refused %q, want the approval and the entry with no time", refused)
+	}
+	outcome := LaneReportOutcome{Recorded: true, Version: 2, RefusedEntries: content.Refused}
+	if refusal := outcome.Refusal(); !strings.Contains(refusal, "was written without 2 Blocked on a human entries") {
+		t.Fatalf("the pass record would say %q", refusal)
 	}
 }
