@@ -1180,6 +1180,12 @@ type Schedule struct {
 	// is fired or refused, and both say so; this is the ending that said nothing
 	// until yoyodyne-ifd.428.39, and two re-runs sat in it for a week.
 	CarryOutUnattempted []CarriedOut `json:"carry_out_unattempted,omitempty"`
+	// CarryOutWaiting is every decision this pass offered and did not start,
+	// each with what it waits on. The item's record is written only once a
+	// decision has stood a poll interval (CarryOutUnattempted), and not at all
+	// for one a gate already refused; this is what the pass's own log says about
+	// it every pass, so a decided re-run never waits without its line.
+	CarryOutWaiting []CarryOutWait `json:"carry_out_waiting,omitempty"`
 	// ContinuationProblem names a run paused on work its item waits on that the
 	// pass could not read or could not record continuing. It costs the pass
 	// nothing it was doing, so it is reported beside the pull rather than stopping
@@ -2766,12 +2772,21 @@ pulling:
 		_, declining := drain.declinesStarts(pull.Poll, s.now())
 		if !declining {
 			tasks, passedCarryOuts, pendingCarryOuts = s.nextCarryOuts(&schedule, pull, occupied, mine, waitingOn, closed, free, remaining, outranked)
+		} else if pull.CarryOut != nil {
+			// Nothing is attempted, and nothing is written onto the items, but the
+			// log still names each decision this pass left standing and why.
+			if outstanding, err := pull.CarryOut.Outstanding(); err == nil {
+				for _, task := range outstanding {
+					schedule.waitCarryOut(task, "this session is stepping down to restart on a newly deployed build and starts nothing new before then; the session that replaces it attempts it at its first pull")
+				}
+			}
 		}
 		// With no slot free this pull never walks the queue, so a decision held back
 		// for outranking work is written up now, beside the ones passed over.
 		if free < 1 && len(pendingCarryOuts) > 0 {
 			for _, pending := range pendingCarryOuts {
 				passedCarryOuts[pending.task.RunID] = pending.reason()
+				schedule.waitCarryOut(pending.task, pending.reason())
 			}
 			pendingCarryOuts = nil
 		}
@@ -3320,6 +3335,7 @@ pulling:
 			outrankedBy := make(map[string]string, len(pendingCarryOuts))
 			for _, pending := range pendingCarryOuts {
 				outrankedBy[pending.task.RunID] = pending.reason()
+				schedule.waitCarryOut(pending.task, pending.reason())
 			}
 			pendingCarryOuts = nil
 			s.recordUnattempted(ctx, &schedule, pull, outrankedBy)
@@ -4914,9 +4930,15 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 	passed := make(map[string]string)
 	taken := make(map[string]string)
 	newSlots := make(map[string]bool)
+	// pass passes a decision over for the item's record and says so on this
+	// pass's log, where a decision that waits is named with what it waits on.
+	pass := func(task CarryOutTask, why string) {
+		passed[task.RunID] = why
+		schedule.waitCarryOut(task, why)
+	}
 	for _, task := range outstanding {
 		if run, ours := taken[task.WorkItemID]; ours {
-			passed[task.RunID] = fmt.Sprintf("this pull was already carrying out a decision about run %s of the same item, and one item is never given two runs at once", run)
+			pass(task, fmt.Sprintf("this pull was already carrying out a decision about run %s of the same item, and one item is never given two runs at once", run))
 			continue
 		}
 		state, busy := occupied[task.WorkItemID]
@@ -4925,21 +4947,25 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		// including the gap before the pipeline acquires the run lease.
 		_, ours := mine[task.WorkItemID]
 		if busy && (!reusesSlot || ours) {
-			passed[task.RunID] = "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once"
+			pass(task, "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once")
 			continue
 		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
 			if task.Decision == DecisionContinueChecks {
-				passed[task.RunID] = fmt.Sprintf("the continuation is still waiting on %s; lifting that gate lets the next pull attempt it", gate)
+				pass(task, fmt.Sprintf("the continuation is still waiting on %s; lifting that gate lets the next pull attempt it", gate))
+				continue
 			}
+			// Its refusal is on the item already, so it is not passed over for the
+			// record; the log still names it, since this pass started nothing for it.
+			schedule.waitCarryOut(task, fmt.Sprintf("%s refused its last attempt and is still shut; the first pull after it opens attempts it again", gate))
 			continue
 		}
 		if remaining > 0 && len(chosen) >= remaining {
-			passed[task.RunID] = fmt.Sprintf("the session was bounded to %d more run(s) by its --limit, and %d decision(s) ahead of it on the docket took them", remaining, len(chosen))
+			pass(task, fmt.Sprintf("the session was bounded to %d more run(s) by its --limit, and %d decision(s) ahead of it on the docket took them", remaining, len(chosen)))
 			continue
 		}
 		if !reusesSlot && len(newSlots) >= slots {
-			passed[task.RunID] = fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots))
+			pass(task, fmt.Sprintf("every developer slot this pull had was spent on %d decision(s) ahead of it on the docket", len(newSlots)))
 			continue
 		}
 		// An unserved continuation already holds its slot. Recovering it does
@@ -4968,6 +4994,45 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		delete(occupied, id)
 	}
 	return chosen, passed, pending
+}
+
+// CarryOutWait is one decision a pass offered and did not start: the item, the
+// run it is about, what was decided, and what it waits on, in the words the
+// pass's log says it in.
+type CarryOutWait struct {
+	WorkItemID string `json:"work_item_id"`
+	RunID      string `json:"run_id"`
+	Decision   string `json:"decision"`
+	Waits      string `json:"waits"`
+}
+
+// waitCarryOut names a decision this pass did not start, once however many
+// times the pass passes it over: the last account given is the one kept.
+func (s *Schedule) waitCarryOut(task CarryOutTask, why string) {
+	wait := CarryOutWait{WorkItemID: task.WorkItemID, RunID: task.RunID, Decision: task.Decision, Waits: strings.TrimSpace(why)}
+	for index, existing := range s.CarryOutWaiting {
+		if existing.RunID == task.RunID && existing.Decision == task.Decision {
+			s.CarryOutWaiting[index] = wait
+			return
+		}
+	}
+	s.CarryOutWaiting = append(s.CarryOutWaiting, wait)
+}
+
+// Render is the wait as the pass's log line says it.
+func (w CarryOutWait) Render() string {
+	var what string
+	switch w.Decision {
+	case DecisionContinueChecks:
+		what = fmt.Sprintf("the harness's own continuation of run %s at its checks", w.RunID)
+	case DecisionContinueStall:
+		what = fmt.Sprintf("the harness's own continuation of run %s after its AI session stopped", w.RunID)
+	case runstate.TriageDecisionRerun:
+		what = fmt.Sprintf("the re-run the development manager decided about run %s", w.RunID)
+	default:
+		what = fmt.Sprintf("the %s the development manager decided about run %s", w.Decision, w.RunID)
+	}
+	return fmt.Sprintf("%s was not started this pass: %s waits, because %s\n", w.WorkItemID, what, w.Waits)
 }
 
 // outrankedCarryOut is a decision held back from going ahead of the queue
@@ -6949,8 +7014,15 @@ func (s Schedule) Render() string {
 	for _, carried := range s.CarriedOut {
 		rendered.WriteString(carried.Render())
 	}
+	written := make(map[string]bool, len(s.CarryOutUnattempted))
 	for _, unattempted := range s.CarryOutUnattempted {
 		rendered.WriteString(unattempted.Render())
+		written[unattempted.RunID] = true
+	}
+	for _, waiting := range s.CarryOutWaiting {
+		if !written[waiting.RunID] {
+			rendered.WriteString(waiting.Render())
+		}
 	}
 	if s.CarryOutProblem != "" {
 		fmt.Fprintf(&rendered, "%s\n", s.CarryOutProblem)

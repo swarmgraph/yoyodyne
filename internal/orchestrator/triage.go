@@ -348,12 +348,21 @@ func (d Docketer) Build() (DocketBuild, error) {
 	var problems []error
 	var missed []NotDocketed
 	var unrecorded []string
+	rerunEnded := d.endedReruns(recorded, already)
 	for _, state := range recorded {
 		// A run whose record supplies some entries and refuses another has the
 		// ones it supplied docketed: entriesFor returns both.
 		entries, err := d.entriesFor(state, now, already, copies)
 		if err != nil {
 			missed = append(missed, NotDocketed{RunID: state.RunID, Problem: err.Error()})
+		}
+		if rerunEnded(state) {
+			entry, err := d.stoppedRunEntryCarrying(state, now, d.look(state), runstate.RecordFailure(state.Failure))
+			if err != nil {
+				missed = append(missed, NotDocketed{RunID: state.RunID, Problem: err.Error()})
+			} else {
+				entries = append(entries, entry)
+			}
 		}
 		for _, entry := range entries {
 			created, err := d.Docket.RecordOnce(entry)
@@ -417,6 +426,55 @@ func (d Docketer) Build() (DocketBuild, error) {
 	joinProductDecisions(live, byID, now)
 	return DocketBuild{Entries: live, Waiting: waitingDocket(waiting, live), Added: added, Closed: closed + unlisted, Folded: len(open) - len(live),
 		Unrecorded: unrecorded, NotDocketed: missed}, errors.Join(problems...)
+}
+
+// endedReruns answers, for one recorded run, whether it is a re-run the harness
+// carried out of the development manager's decision that has since ended without
+// any stoppage rule docketing it, and is still its item's latest run.
+//
+// Her decision closed the entry of the run she decided about, and that closure
+// never lapses; the hold then reads the decision as carried out by this run
+// (readmodel's carriedOutBy) and names her as the one to decide what follows. A
+// re-run that ended failed or timed out with no blocker — a check that ran past
+// its limit before the record said which limit stopped it, say — is docketed by
+// no other rule, so without this entry the item stays held for her with nothing
+// on her docket asking her (yoyodyne-0t9). It is asked of the history at every
+// build, unlike a death, because it is narrow by construction: one run per re-run
+// claim, and only while that run is the latest its item has.
+//
+// A claim list that cannot be read dockets nothing for its item, which is the
+// state before this rule existed; the next build asks again.
+func (d Docketer) endedReruns(recorded []runstate.State, already standingDocket) func(runstate.State) bool {
+	latest := make(map[string]string)
+	ordered := append([]runstate.State(nil), recorded...)
+	runstate.NewestFirst(ordered)
+	for _, state := range ordered {
+		if _, seen := latest[state.WorkItemID]; !seen && state.WorkItemID != "" {
+			latest[state.WorkItemID] = state.RunID
+		}
+	}
+	claimed := make(map[string]map[string]bool)
+	return func(state runstate.State) bool {
+		if state.Document != nil || state.WorkItemID == "" || latest[state.WorkItemID] != state.RunID ||
+			strings.TrimSpace(state.Blocker) != "" || state.Integration != nil ||
+			(state.Status != runstate.StatusFailed && state.Status != runstate.StatusTimedOut) {
+			return false
+		}
+		if _, docketed := already[triage.Key(triage.ClassStoppedRun, state.RunID)]; docketed {
+			return false
+		}
+		runs, read := claimed[state.WorkItemID]
+		if !read {
+			runs = make(map[string]bool)
+			if claims, err := d.Reruns.Claimed(state.WorkItemID); err == nil {
+				for _, claim := range claims {
+					runs[claim.RunID] = true
+				}
+			}
+			claimed[state.WorkItemID] = runs
+		}
+		return runs[state.RunID]
+	}
 }
 
 // lookAgain puts what the repository holds now onto every open entry whose run

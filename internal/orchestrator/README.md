@@ -205,7 +205,10 @@ the stop class with `classifyStop`, writes `renderFailureNotes` to the item
 via `Tracker.RecordOutcome`, and dockets the run with
 `Docket.RecordStoppedRun` or `Docket.RecordUnstartedRun` (`triage.go`). Stop
 class names are in `internal/runstate/stopclass.go`. A site marks its own
-class with `stoppedBy(runstate.Stop…, err)`.
+class with `stoppedBy(runstate.Stop…, err)`. A re-run the harness carried out
+that then ended without any of those rules docketing it is docketed by
+`Docketer.Build` itself (`endedReruns`), so the development manager is asked
+about it.
 
 ### Why is a stop counted as the environment's and not the work's?
 `environmentalCauseOf` / `integrationStopCauseOf` map errors to
@@ -262,7 +265,7 @@ context bundle come from `internal/contextbundle`.
 | `passedover.go` | what a pass was handed of the work waiting in its role's conversation and which of it it took (`judgeDelivered`, which also marks an item whose finished document is held for sending, and refuses a held claim no such document backs), and the note on the first item when the pass did not take it (`notePassedOver`, `passedOverNote`) |
 | `repeatleave.go` | an item a role's passes keep leaving with nothing outside the role holding it: the count (`earlierLeaves`, `streakFor`), telling the pass to decide or ask (`leaveStreak.message`), sending it back once (`leaveStreak.sendBack`), the note on what it did (`noteSettled`), and what the development manager's pass is told (`itemsLeftAgain`, `leftAgainMessage`) |
 | `programmanagerpass.go` | program manager pass wake-up and cursor (`readWake`, `advance`) |
-| `triage.go` | `Docketer`: `RecordStoppedRun`, `RecordUnstartedRun`, `RecordEscalation`, `SettleClosedItem`, `Build` |
+| `triage.go` | `Docketer`: `RecordStoppedRun`, `RecordUnstartedRun`, `RecordEscalation`, `SettleClosedItem`, `Build` (and `endedReruns`, which it dockets) |
 | `rerun.go`, `repaircontinue.go`, `carryout.go`, `carryrearm.go`, `rearm.go` | carrying out the development manager's decisions on docketed runs |
 | `recoveryapplicability.go` | whether a repair or re-run still applies: `settledWorkOf` (the run itself merged, a later run merged, or the harness settled its docket entry) and `CarryOut.recoverySettled`, asked by `CarryOut.read` before a recovery is offered and by `CarryOut.Carry` before one is carried out; `recordNoLongerApplies` writes the `no-longer-applies` finding and the item's note |
 | `stallcontinue.go`, `checkstagecontinue.go`, `integrationresume.go` | the harness's own continuations of a stopped run |
