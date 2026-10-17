@@ -581,10 +581,13 @@ func TestARequestMayRunUnboundedWithItsOwnBudget(t *testing.T) {
 // way, and the run's account of the stop depends on telling them apart.
 func TestACheckStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	// The deadline is long enough that the check has launched before it
+	// passes, even on a machine the rest of the suite is loading: one that
+	// passes first stops the check before it launches, which is another case.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	results, _, err := (Runner{Process: execution.OSProcessRunner{}, Timeout: 30 * time.Minute, StageTimeout: 30 * time.Minute}).Run(ctx,
-		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"sleep 5"}}, nil)
+		Request{RunID: "run-0123456789abcdef0123456789abcdef", Directory: t.TempDir(), Commands: []string{"sleep 60"}}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
