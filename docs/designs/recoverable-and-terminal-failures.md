@@ -14,12 +14,21 @@ revisions:
       by: architect
       at: 2026-10-12T13:29:00.37981Z
       reason: 'yoyodyne-gms - states the October 11 ruling on checks stopped by their time limit: unfinished rather than failed, rerun from the start on the same candidate at most twice within three times the limit, bounds shared by every path and never reset by a restart, no reruns added by scaling for machine load, spent bounds kept for the development manager; resent with the one undefined joined word in the closing sentence written out in ordinary words after the word check refused the first run'
+    - action: amended
+      by: architect
+      at: 2026-10-14T11:09:33.900725Z
+      reason: 'Per the role rename ruling (yoyodyne-ifd.437.10), the role is named the Lead Product Manager where a person reads it: one change, in ''What this orders''. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
       by: harness
       at: 2026-10-12T13:29:00.37981Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 754, for document-754.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-14T11:09:33.900725Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 927, for document-927.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -70,4 +79,4 @@ Never a silent terminal failure. A window that runs out produces exactly what th
 
 ## What this orders
 
-Two changes to the machinery as shipped, for the product manager to admit: the provider boundary's post-budget window shortened from two hours to thirty minutes, and the lease-held waits bounded to the promotion queue's fifteen minutes with the release-and-record behavior above. Everything else in this design describes the recovery rule as it ships and gives it the taxonomy it was waiting on, including the bounded reruns of a check stopped by its time limit, built by the work that scales each check's time limit with machine load (yoyodyne-ifd.429.41).
+Two changes to the machinery as shipped, for the Lead Product Manager to admit: the provider boundary's post-budget window shortened from two hours to thirty minutes, and the lease-held waits bounded to the promotion queue's fifteen minutes with the release-and-record behavior above. Everything else in this design describes the recovery rule as it ships and gives it the taxonomy it was waiting on, including the bounded reruns of a check stopped by its time limit, built by the work that scales each check's time limit with machine load (yoyodyne-ifd.429.41).
