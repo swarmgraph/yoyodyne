@@ -289,6 +289,11 @@ const (
 	// LaneReportWrite is rewriting the instance's own lane report and nothing
 	// else: the brief, pulled summary of where its lane stands.
 	LaneReportWrite Capability = "lane-report.write"
+	// StopCauseRecord is appending to the instance's own account of why runs
+	// stopped and nothing else: counting the stops its pass was handed against
+	// the cause each run record names, attaching the one report filed about a
+	// cause, and noting a correction to it. It changes no report already filed.
+	StopCauseRecord Capability = "stop-cause.record"
 	// ReportFile is filing a report at one of the three severities, the pass's
 	// digest to the product manager included.
 	ReportFile Capability = "report.file"
@@ -358,6 +363,7 @@ var declared = []Capability{
 	WorkItemReparent,
 	ReadModelRead,
 	LaneReportWrite,
+	StopCauseRecord,
 	ReportFile,
 	AmendmentPropose,
 	ServiceRequestRestart,

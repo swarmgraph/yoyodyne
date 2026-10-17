@@ -66,7 +66,24 @@ type passEvents struct {
 func (p passEvents) Events(ctx context.Context, stream string, after, until time.Time) ([]orchestrator.PassEvent, error) {
 	switch stream {
 	case runstate.PassStreamRuns:
-		return runEvents(p.runs, after, until)
+		events, err := runEvents(p.runs, after, until)
+		if err != nil {
+			return nil, err
+		}
+		// A stop of priority 0 work brings a new post-mortem at once, so each
+		// stop carries its item's priority as the tracker's export gives it.
+		// Where the export cannot be read the priority is left unknown, which
+		// owes no report early.
+		priorities := itemPriorities(p.repository)
+		for _, event := range events {
+			if event.Stop == nil {
+				continue
+			}
+			if priority, known := priorities[event.Stop.Item]; known {
+				event.Stop.Priority = &priority
+			}
+		}
+		return events, nil
 	case runstate.PassStreamTracker:
 		if p.refresh != nil {
 			if err := p.refresh(ctx); err != nil {
@@ -115,6 +132,10 @@ func runEvents(store *runstate.Store, after, until time.Time) ([]orchestrator.Pa
 			continue
 		}
 		event.Key = state.RunID + "/" + string(event.Class)
+		if event.Class == config.TriggerStoppages {
+			stop := runstate.StopEventOf(state, ended)
+			event.Stop = &stop
+		}
 		events = append(events, event)
 	}
 	return events, nil
@@ -186,6 +207,33 @@ func admissionEvents(repository string, after, until time.Time) ([]orchestrator.
 		return nil, fmt.Errorf("the tracker's item export is larger than the %d bytes a pass reads", maxIssuesExportBytes)
 	}
 	return events, nil
+}
+
+// itemPriorities is each item's priority as the tracker's export records it,
+// and empty where there is no export or it cannot be read.
+func itemPriorities(repository string) map[string]int {
+	priorities := map[string]int{}
+	if strings.TrimSpace(repository) == "" {
+		return priorities
+	}
+	file, err := os.Open(filepath.Join(repository, issuesExport))
+	if err != nil {
+		return priorities
+	}
+	defer file.Close()
+	scanner := bufio.NewScanner(io.LimitReader(file, maxIssuesExportBytes))
+	scanner.Buffer(make([]byte, 64*1024), 16<<20)
+	for scanner.Scan() {
+		var item struct {
+			ID       string `json:"id"`
+			Priority *int   `json:"priority"`
+		}
+		if json.Unmarshal(scanner.Bytes(), &item) != nil || item.Priority == nil || strings.TrimSpace(item.ID) == "" {
+			continue
+		}
+		priorities[item.ID] = *item.Priority
+	}
+	return priorities
 }
 
 // instanceConversations asks the read model whether a turn is in flight on an

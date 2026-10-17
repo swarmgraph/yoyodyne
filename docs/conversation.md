@@ -2064,6 +2064,42 @@ in any other role's reply is refused like any block a role has no authority
 for: the turn fails, and nothing is written. No other contract describes the
 block.
 
+### A program manager's post-mortems of stopped runs
+
+A program manager's pass that is handed stopped runs post-mortems every one,
+grouped by cause. A cause is three things the harness reads off the run
+record: the stop cause the record prints, the class it was stopped in (the
+work, a bound on the work, or something outside the work), and the step it
+stopped at. The pass's message lists each cause it was handed, with how many
+stops it has had once this pass's are counted, the report it already cites,
+and whether it is owed one. It ends with the stops to count, ready to copy.
+The instance ends its reply with one block:
+
+```text
+{"stops":[{"run":"run-…","stopped_at":"2026-10-17T15:04:05Z"}],"reports":[{"cause":"check-time-limit/bound/checking","fault":"bound","remedy":"what to change","account":"what happened"}],"notes":[{"report":"report-…","note":"the correction"}]}
+```
+
+fenced as `yoyodyne-stop-causes`. Each stop is counted once, by its run and the
+moment it stopped, against the cause the harness read when it handed the stop
+over. A stop the pass was not handed is refused, and one already counted adds
+nothing, so a pass run again after it failed counts nothing twice. A report is
+the post-mortem of a cause: whether the bound, the work, or the environment was
+at fault, the remedy, and what happened. The harness files it at `warning` with
+the cause's count and runs, and attaches it to the cause. A cause gets one
+report. While it stands, a second is refused and the digest carries the count
+against it instead. Once the Lead Product Manager has handled it, a new report
+naming the handled one is taken after three more stops, or at once after a stop
+of priority 0 work. A filed report is never changed: a note is kept beside it
+as a correction. The result names, for the digest, each cause with its count
+and the report it cites.
+
+The record is kept under the state root at
+`projects/<product>/state/program-managers/<agent>/stop-causes.jsonl` and is
+only appended to. A stop whose run record later names a different cause is
+moved by a new entry naming it. Only the program manager holds
+`stop-cause.record`; the block in any other role's reply is refused like any
+block a role has no authority for.
+
 ### Asking a program manager for a pass
 
 A program manager instance with no `triggers` passes only when asked, and any

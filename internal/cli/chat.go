@@ -1053,6 +1053,10 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// is decided in the chat package's table, and the only thing that acts on
 		// a request is the supervisor's maintenance pass.
 		RestartRequests: parts.restartRequests,
+		// Where a program manager's account of stopped runs is kept. Wired for
+		// every role for the reason restart requests are; only the program
+		// manager's bundle holds the grant.
+		StopCauses: parts.store.StopCauses(),
 		// Where the Lead Product Manager's request for a program manager
 		// instance's pass is recorded, refused for an agent that is not one. It
 		// is wired for every role because the authority to ask is decided in the

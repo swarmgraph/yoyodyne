@@ -262,8 +262,15 @@ func TestEveryStoppedRunReachesThePassOnceAfterItsCursor(t *testing.T) {
 		if !cursor.WasCarried(runstate.PassStreamRuns, key) {
 			t.Fatalf("cursor did not record carrying %s", key)
 		}
-		if count := strings.Count(role.messages[1], strings.TrimSuffix(key, "/"+string(config.TriggerStoppages))); count != 1 {
+		// The events are listed once, and the post-mortem section after them
+		// names each stop once more, in the block the instance copies to count it.
+		listing, section, cut := strings.Cut(role.messages[1], "## Stopped runs, by cause")
+		run := strings.TrimSuffix(key, "/"+string(config.TriggerStoppages))
+		if count := strings.Count(listing, run); count != 1 {
 			t.Fatalf("pass listed %s %d times, want once", key, count)
+		}
+		if !cut || strings.Count(section, `"run":"`+run+`"`) != 1 {
+			t.Fatalf("the post-mortem section does not name %s once for counting:\n%s", run, section)
 		}
 	}
 	clock.at = clock.at.Add(5 * time.Minute)

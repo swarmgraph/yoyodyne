@@ -143,6 +143,9 @@ func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPer
 	if parsed.PassRequest != nil {
 		add(capability.PassRequest, 1)
 	}
+	if parsed.StopCauses != nil {
+		add(capability.StopCauseRecord, 1)
+	}
 	writeTool := capability.ArtifactProductMutate
 	for _, registered := range toolcatalog.Granted(s.state.Role) {
 		if registered.Tool.ID == capability.ArtifactDesignMutate {

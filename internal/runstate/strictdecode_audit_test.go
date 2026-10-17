@@ -119,6 +119,7 @@ var strictSites = map[string]strictSite{
 	"internal/chat/lanereport.go:decodeLaneReport":      {strictValidator, "a lane report block in a program manager's reply"},
 	"internal/chat/memory.go:decodeMemoryWrites":        {strictValidator, "a memory block in a conversation reply"},
 	"internal/chat/restart.go:decodeRestart":            {strictValidator, "a restart block in a conversation reply"},
+	"internal/chat/stopcause.go:decodeStopCauses":       {strictValidator, "a stop causes block in a program manager's reply"},
 	"internal/chat/passrequest.go:decodePassRequest":    {strictValidator, "a pass request block in a conversation reply"},
 	"internal/chat/proposal.go:decodeProposals":         {strictValidator, "a proposal block in a conversation reply"},
 	"internal/chat/tracker.go:decodeTrackerActions":     {strictValidator, "a tracker-action block in a conversation reply"},

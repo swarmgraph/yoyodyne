@@ -251,6 +251,7 @@ removes them from the record once a turn has delivered them.
 | `proposal.go`, `admission.go`, `resemblance.go`, `condition.go`, `concern.go`, `decision.go`, `withdraw.go` | proposals, admission without asking, duplicates, concerns, batch decisions |
 | `origin.go` | reading an admission's origin back out of an older item's notes, for `yoyo goals origins`; the origin an admission records is `creationOrigin` in `admission.go` |
 | `report.go`, `reportcoverage.go`, `lanereport.go` | reports roles file and read; program manager lane reports; `ForPass` |
+| `stopcause.go` | a program manager's post-mortems of stopped runs: counting the stops its pass was handed (`HandStops`) and filing each cause's one report, over `runstate/stopcause.go` |
 | `exchange.go` | one role asking another (`conductAsk`) |
 | `freshness.go`, `refresh.go` | how old the role's picture of the product is, and refreshing it |
 | `research.go`, `repository.go` | outside research and repository reads at a commit |

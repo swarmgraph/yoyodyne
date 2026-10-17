@@ -112,6 +112,9 @@ type PassEvent struct {
 	// happened to it.
 	Subject string
 	Detail  string
+	// Stop is the stopped run a stoppage is, with the cause read off its run
+	// record, and nil for every other event.
+	Stop *runstate.StopEvent
 }
 
 // PassEvents reads one stream's events recorded after one moment and at or
@@ -289,9 +292,10 @@ func (t Trigger) pass(ctx context.Context, agent string, instance config.AgentCo
 			pass:    passName(claimed),
 			task:    task,
 			trigger: trigger,
-			message: instanceMessage(agent, instance, due, nil, wake, t.addressedTo(task)),
+			message: instanceMessage(agent, instance, due, nil, wake, t.addressedTo(task)) + t.stopCauseSection(agent, wake),
 			agent:   agent,
 			events:  wake.counts(),
+			stops:   wake.stops(),
 			due:     dueAt,
 			finish: func(answered bool) string {
 				problems := append([]string(nil), wake.problems...)
@@ -356,9 +360,10 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 			pass:    pass,
 			task:    task,
 			trigger: runstate.PassTriggerRequest,
-			message: instanceMessage(agent, instance, false, &request, wake, t.addressedTo(task)),
+			message: instanceMessage(agent, instance, false, &request, wake, t.addressedTo(task)) + t.stopCauseSection(agent, wake),
 			agent:   agent,
 			events:  wake.counts(),
+			stops:   wake.stops(),
 			request: &request,
 			due:     request.RequestedAt,
 			finish: func(answered bool) string {
