@@ -254,7 +254,7 @@ removes them from the record once a turn has delivered them.
 | `exchange.go` | one role asking another (`conductAsk`) |
 | `freshness.go`, `refresh.go` | how old the role's picture of the product is, and refreshing it |
 | `research.go`, `repository.go` | outside research and repository reads at a commit |
-| `tool.go`, `runinspect.go`, `health.go` | the audit every tool call passes (`auditTool`); `log.read`; `run.inspect` and `run.verify` over `internal/runinspect`; `health.observe` and `health.follow` over `internal/health` |
+| `tool.go`, `runinspect.go`, `health.go`, `recover.go` | the audit every tool call passes (`auditTool`); `log.read`; `run.inspect` and `run.verify` over `internal/runinspect`; `health.observe` and `health.follow` over `internal/health`; `run.recover` over `internal/runrecover` (`performRecoveries`) |
 | `stream.go`, `activity.go`, `wording.go`, `replycut.go` | showing a reply while it arrives; plain-words findings; cut replies |
 | `spend.go` | what a turn spends, attributed |
 

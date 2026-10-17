@@ -1290,9 +1290,10 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 	// through it — which is exactly what a link applied to an in-flight item is
 	// filed to stop. Nothing has been claimed at this point, so the item is left
 	// where it is, and a run already in flight for it is left in flight rather
-	// than resumed.
+	// than resumed — given a durable wait at its own phase where no process is
+	// behind it (waitInFlightOnDependencies).
 	if blockers := blockingDependencies(item); len(blockers) > 0 {
-		return pauseWorkItemForDependencies(workItemID, blockers), nil
+		return p.waitInFlightOnDependencies(ctx, workItemID, blockers)
 	}
 	// An incomplete run for this item is either a run an interrupted process left
 	// behind, a run waiting out a provider usage limit, or a duplicate that must
@@ -1316,7 +1317,10 @@ func (p Pipeline) Run(ctx context.Context, workItemID string) (Outcome, error) {
 		// making, and the rest are owed the rest of the step they stopped short of.
 		// Nothing reaches here while the hold or the dependency is still in force,
 		// so a run carrying one is a run whose reason to wait has gone.
-		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !(p.automatic() && resumableRepair(inFlight)) {
+		// A run the development manager asked to have continued through
+		// run.recover is resumable on the same terms that request was accepted on
+		// (recoveryrequest.go).
+		if !pausedForUsageLimit(inFlight) && !pausedForDirective(inFlight) && !pausedForDependency(inFlight) && !pausedForTracker(inFlight) && !pausedForOperatorHold(inFlight) && !stoppedProviderIsResumable(inFlight) && !stoppedForRedeployIsResumable(inFlight) && !continuedAtCheckStage(inFlight) && !(p.automatic() && resumableRepair(inFlight)) && !recoveryContinuationDue(inFlight) {
 			return Outcome{}, ExistingRunError{State: inFlight}
 		}
 		inFlight, err = p.reclaimSlot(ctx, inFlight)
@@ -1960,6 +1964,13 @@ func (p Pipeline) resumeRun(ctx context.Context, state runstate.State, item bead
 	// not finished (keptchecks.go).
 	pickedUpAtChecks := state.RedeployStop != nil && state.RedeployStop.Phase == runstate.PhaseChecking
 	state.RedeployStop = nil
+	// A development manager's run.recover request to continue this run is
+	// answered by this process taking it up, whoever fired it; and a recovery
+	// hold she left on it no longer describes a run that is going again. Both are
+	// written with the run's first save, and the request itself stays on the
+	// record as the account of why it went on (recoveryrequest.go).
+	state.TakeUpRecoveryContinuation(runstate.RecoverContinue, p.clock().Now())
+	state.RecoveryHold = nil
 	// The invariants are re-read rather than carried in run state: they are the
 	// repository's current constraints, and a resumed attempt must be held to what
 	// holds now rather than to what held when the interrupted process started.
@@ -5443,10 +5454,14 @@ func (a *activeRun) holdForDirective() error {
 // wait begins: a process that dies here must leave a run that can be told from
 // an interrupted one and picked up again, rather than one nothing will resume.
 func (a *activeRun) recordDirectivePause(paused directive.Directive) error {
-	// The developer's attempt is behind this run and the gate is what it stopped
-	// short of, so the recorded phase says so. Left at developing, a resumed run
-	// would be handed a second developer attempt it does not need.
-	if a.state.Phase == runstate.PhaseDeveloping {
+	// The phase is saved as the run has it, as the dependency pause saves it
+	// (recordDependencyPause). Every round of a developer run's gate has already
+	// left developing (leaveDeveloping), so a run saved at developing here is one
+	// whose developer had not finished, and a continuation — run.recover's
+	// included — hands that developer back its attempt rather than starting the
+	// checks on unfinished work. A document run invokes no developer, and keeps
+	// the move to checking it always had.
+	if a.state.Document != nil && a.state.Phase == runstate.PhaseDeveloping {
 		a.state.Phase = runstate.PhaseChecking
 	}
 	a.state.DirectivePause = &runstate.DirectivePause{
@@ -5513,6 +5528,45 @@ func pauseWorkItemForDependencies(workItemID string, blockers []string) Outcome 
 		Paused:             true,
 		PausedByDependency: &paused,
 	}
+}
+
+// waitInFlightOnDependencies is the dispatch of an item that waits on unfinished
+// work. Nothing is started, as before. What it adds is the run already in flight
+// for the item with no process behind it — one a redeploy put down, or one whose
+// process died — which this used to leave exactly as it was: still counted
+// against the developer slots, and asked again at every pull that re-adopted it,
+// each time refused for the same dependency and each time recording nothing.
+// Such a run is taken under its lease and given the durable wait the pipeline's
+// own gate would have given it (recordDependencyPause), at the phase it was
+// interrupted at, so it gives its slot back and is continued like any other
+// dependency wait once that work closes. A run another process holds is that
+// process's to pause, and is left alone.
+func (p Pipeline) waitInFlightOnDependencies(ctx context.Context, workItemID string, blockers []string) (Outcome, error) {
+	paused := pauseWorkItemForDependencies(workItemID, blockers)
+	inFlight, lease, err := p.Store.Adopt(ctx, workItemID)
+	if err != nil {
+		// No run in flight, a live holder, or a store that would not answer: in
+		// every case nothing is started, and nothing was ever written here.
+		return paused, nil
+	}
+	defer lease.Release()
+	paused.RunID = inFlight.RunID
+	paused.Status = inFlight.Status
+	paused.Phase = inFlight.Phase
+	// A run interrupted inside its integration, or one whose promotion is already
+	// recorded, is not waiting on anything: its change may already be on the
+	// target, and what it is owed is reconciliation's settlement of that step,
+	// which a wait would hide from it for as long as the dependency stays open.
+	if inFlight.Document != nil || integrationOwed(inFlight) || (inFlight.DependencyPause != nil && slices.Equal(inFlight.DependencyPause.Blockers, blockers)) {
+		return paused, nil
+	}
+	waiting := inFlight
+	waiting.DependencyPause = &runstate.DependencyPause{Blockers: blockers}
+	waiting.UpdatedAt = p.clock().Now()
+	if err := p.Store.Save(waiting); err != nil {
+		return paused, fmt.Errorf("record that run %s waits on %s: %w", inFlight.RunID, strings.Join(blockers, ", "), err)
+	}
+	return paused, nil
 }
 
 // holdForDependency stops a run in flight for work its item has since been made

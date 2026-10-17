@@ -1810,8 +1810,10 @@ live, wait recorded, reservation released, continuation started, repair
 started, rerun holds the item, integration completed, item given back, question
 recorded, unresolved hold recorded. Any other refuses the whole block. It
 answers met, not met, or unknown, with what was read and when. Whatever could
-not be read makes the answer unknown, never met. Item given back, question
-recorded, and unresolved hold recorded are recorded by recovery actions this
+not be read makes the answer unknown, never met. Unresolved hold recorded
+reads the hold `run.recover` writes, and continuation started reads a
+continuation it asked for as unknown until the work session has taken it up.
+Item given back and question recorded are recorded by recovery actions this
 build does not carry out yet, so they answer unknown.
 
 Neither tool takes the run's lease: a reading is never a second owner of the
@@ -1874,9 +1876,94 @@ briefing. The pass's record keeps the observation's identifier and the identity
 of every condition it carried, which is what a later observation reads to say
 when a condition was first seen and how often it has recurred.
 
+A run carrying an unresolved recovery hold is reported as its own condition,
+owned by the role the hold names and needing the hold's next action. So is a
+run carrying a `run.recover` request whose write was not read back, owned by
+the development manager.
+
 Neither tool takes any lease or changes anything. What comes back is redacted,
 handed back as untrusted evidence in the same message, and audited like every
 tool.
+
+### Carrying out a recovery decision on one run
+
+`run.recover` carries out one of the development manager's recovery decisions
+on one run. Only she holds it; the reply of any other role carrying the block
+is refused. It is asked with one block, at most two requests a reply and two
+rounds a message:
+
+````text
+```yoyodyne-recover
+{"requests":[{"request":"dm-1016-1","run":"run-1a2b3c4d","observation":"health-20261016T151500Z-1a2b3c4d","expect_status":"running","expect_phase":"developing","action":"wait","reason":"a dependency was added while the developer worked","wait":{"on":"dependencies"}}]}
+```
+````
+
+A request names an identifier she makes up and never uses again, the run, the
+`health.observe` observation the decision rests on, the saved status and phase
+she expects the run to have, optionally the stop she is answering as
+`{"attempt":N,"at":"…"}`, one action, and why. The actions are one closed list:
+continue, repair, rerun, finish the merge, wait, give the item back, record an
+unresolved hold, ask the lead product manager, and release the reservation. A
+hold also says who moves next, what that is, and when it is looked at again,
+and names a managing role, never the operator. A wait says what it waits on,
+and the one kind this build records is the run's item's dependencies closing.
+
+The harness takes the run's lease and reads its record strictly under it before
+it decides anything, and acts only if no other process holds the lease: a live
+or uncertain worker keeps its run whatever its age. Then, at that moment, it
+refuses the request where the run is not at the status and phase she expected,
+where a later stop has replaced the one she answered, where the observation is
+more than fifteen minutes old or is not kept, and where the action does not fit
+the run as it stands. Each action reads what it rests on as it acts:
+
+- **continue** records a request for the work session to take the same run up
+  from its recorded phase, in its own branch, worktree and session. It is
+  refused for a run that has ended, for one the pipeline cannot take up from
+  its record, and while the run's item still waits on unfinished work. A
+  watching `yoyo work` session takes it up at its next pull, beside the runs a
+  redeploy put down, and says why in what it started.
+- **finish the merge** records a request for the work session to finish the
+  integration of an approved change the environment stopped short of its
+  promotion. The work session's carry-out of recorded decisions makes it
+  through the same resumer `yoyo triage resume` uses, with that resumer's
+  checks; a refusal there is written onto the request, and it is not tried again
+  until she asks again.
+- **wait** records a dependency wait at the phase the run was interrupted at. It
+  is refused when the item waits on nothing, and for a run interrupted inside
+  its integration or with its promotion recorded: that run is owed the
+  settlement of its integration, which reconciliation makes and a wait would
+  hide. The run keeps its item, branch,
+  worktree, session and every counter, and gives back its developer slot,
+  because the wait is written; a watching session continues it at the first
+  pull after that work closes.
+- **record an unresolved hold** writes the hold. A run carrying one is not
+  settled by `yoyo reconcile` or by the claim audit, however long it sits, and
+  every health observation reports it until something later replaces it.
+- **release the reservation** is refused for every run in this build. A run in
+  flight is continued, waits, or is held. A run that has ended holds no
+  developer slot and no files, because both are counted only from runs still in
+  flight, and `run.verify` "reservation released" reads met for it; if its item
+  is still claimed after the stop, that claim is given back by giving the item
+  back. The answer says all of this.
+- **repair**, **rerun**, **give the item back** and **ask the lead product
+  manager** are refused as not yet built, naming stopped-run recovery
+  (yoyodyne-ifd.428.99), which builds them.
+
+Every request is answered applied, refused or unknown, with what was done or
+why not, whose move comes next and what it is, and the `run.verify` expected
+state that checks the effect. Applied means the change was written with the
+request, in one write, and read back; it does not mean the run recovered. Refused
+means nothing was changed, the run's record included. Unknown means the write
+could not be read back. Nobody acts on that run until a later request — a
+repeat of the same one is the plainest — has the harness read it back under the
+lease, which it does before anything else. A repeat with the same identifier
+and content is answered from the record without acting again, even while
+another process holds the run. One with the same identifier and other content is
+refused.
+
+The request's identifiers and closed values are audited like every tool; its
+reason and a hold's sentences are kept on the run's record with the request,
+which is where `run.inspect` shows them.
 
 ### A program manager's lane report
 

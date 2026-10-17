@@ -135,7 +135,8 @@ func TestVerifyAnswersUnknownWhereTheEvidenceCannotBeRead(t *testing.T) {
 }
 
 // Each state this build records is met where the record shows it and not met
-// where it does not; the ones only later recovery work records are unknown.
+// where it does not; the ones only later recovery work records are unknown, and
+// a continuation asked for and not yet taken up is unknown too.
 func TestVerifyDecidesEachStateFromTheRecord(t *testing.T) {
 	t.Parallel()
 
@@ -148,6 +149,13 @@ func TestVerifyDecidesEachStateFromTheRecord(t *testing.T) {
 	rerun.RunID, rerun.StartedAt = "run-9f8e7d6c", observed
 	paused := runningState()
 	paused.DependencyPause = &runstate.DependencyPause{Blockers: []string{"yoyodyne-other"}}
+	held := runningState()
+	held.RecoveryHold = &runstate.RecoveryHold{RequestID: "dm-1", Owner: domain.RoleDevelopmentManager, NextAction: "ask the architect", FollowUp: "at the next pass", At: observed}
+	asked := runningState()
+	asked.RecoveryContinuation = &runstate.RecoveryContinuation{RequestID: "dm-2", Action: runstate.RecoverContinue, Reason: "the redeploy is over", RequestedAt: observed}
+	takenAt := observed.Add(time.Minute)
+	taken := asked
+	taken.RecoveryContinuation = &runstate.RecoveryContinuation{RequestID: "dm-2", Action: runstate.RecoverContinue, Reason: "the redeploy is over", RequestedAt: observed, TakenUpAt: &takenAt}
 	cases := []struct {
 		runs   fakeRuns
 		expect Expected
@@ -169,7 +177,10 @@ func TestVerifyDecidesEachStateFromTheRecord(t *testing.T) {
 		{fakeRuns{state: running}, ExpectIntegrationCompleted, NotMet},
 		{fakeRuns{state: finished}, ExpectItemGivenBack, Unknown},
 		{fakeRuns{state: finished}, ExpectQuestionRecorded, Unknown},
-		{fakeRuns{state: finished}, ExpectUnresolvedHoldRecorded, Unknown},
+		{fakeRuns{state: held}, ExpectUnresolvedHoldRecorded, Met},
+		{fakeRuns{state: running}, ExpectUnresolvedHoldRecorded, NotMet},
+		{fakeRuns{state: asked}, ExpectContinuationStarted, Unknown},
+		{fakeRuns{state: taken}, ExpectContinuationStarted, Met},
 	}
 	covered := map[Expected]bool{}
 	for _, c := range cases {

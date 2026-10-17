@@ -1034,6 +1034,11 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// every observation, and the observations kept under the product's state.
 		// It is wired for every role because which role may ask is the bundle's.
 		HealthObserver: conversationHealthObserver(parts),
+		// How the development manager carries a recovery decision out on one run:
+		// under the run's lease, against what she expected of it and the
+		// observation she decided from. Wired for every role, as the reads are;
+		// only her bundle holds the grant.
+		RunRecoverer: conversationRunRecoverer(parts),
 		// Where a recorded recommendation about an operator's idea is kept. It is
 		// wired for every role because the authority to record one is decided in
 		// the chat package's table rather than here, and a store nobody may write

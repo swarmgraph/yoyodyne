@@ -26,6 +26,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/publish"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runinspect"
+	"github.com/mason-bryant/yoyodyne/internal/runrecover"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -229,6 +230,37 @@ func conversationRunInspector(parts components) chat.RunInspector {
 		return nil
 	}
 	return runinspect.Inspector{Runs: parts.store, Remains: remainsOf(parts), RedactValues: parts.redactValues}
+}
+
+// conversationRunRecoverer is the run.recover hand, or nil where there is no
+// run store to act on, which the conversation refuses plainly. It acts through
+// the run store under each run's lease, checks requests against the health
+// observations kept under the product's state, reads what an item waits on from
+// the tracker as it acts, and takes the pipeline's own rules for what can be
+// continued or finished.
+func conversationRunRecoverer(parts components) chat.RunRecoverer {
+	if parts.store == nil {
+		return nil
+	}
+	recoverer := runrecover.Recoverer{
+		Runs:        parts.store,
+		Continuable: orchestrator.RecoveryContinuable,
+		Finishable:  orchestrator.RecoveryFinishable,
+		Waitable:    orchestrator.RecoveryWaitable,
+		Blockers: func(ctx context.Context, workItemID string) ([]string, error) {
+			item, err := parts.tracker().Show(ctx, workItemID)
+			if err != nil {
+				return nil, err
+			}
+			return orchestrator.BlockingDependencies(item), nil
+		},
+	}
+	// An interface holding a nil store is not nil, so it is set only where there
+	// is one; a request is then refused for want of the observation it names.
+	if store, err := runstate.NewHealthObservationStore(parts.stateRoot, parts.config.Product.ID); err == nil {
+		recoverer.Observations = store
+	}
+	return recoverer
 }
 
 func remainsOf(parts components) readmodel.Remains {

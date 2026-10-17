@@ -187,8 +187,12 @@ const DecisionContinueStall = "continue-stall"
 
 // harnessOwnTask reports a task the harness fires with nobody having decided
 // it, which is never recorded against the item's triage record as a decision.
+//
+// A finished merge asked for through run.recover is the development manager's
+// decision, but it is recorded on the run rather than on the item's triage
+// record, so it is handled the same way: nothing about it is written there.
 func harnessOwnTask(decision string) bool {
-	return decision == DecisionContinueChecks || decision == DecisionContinueStall
+	return decision == DecisionContinueChecks || decision == DecisionContinueStall || decision == DecisionFinishMerge
 }
 
 // CarryOut fires the decisions the development manager recorded. It decides
@@ -239,6 +243,10 @@ type CarryOut struct {
 	// without it leaves such a stoppage on the docket for her, which is what it
 	// was before yoyodyne-a0s.
 	Stalls CarryOutStalls
+	// Integrations finishes the merges the development manager asked for through
+	// run.recover (recoveryrequest.go). Optional: a carry-out wired without it
+	// leaves such a request on the run for `yoyo triage resume`.
+	Integrations CarryOutIntegrations
 	// Holds is the operator's pause over everything the harness spends. Optional,
 	// and a carry-out wired without one is one nothing can pause, which is what
 	// every provider invocation was before the switch existed.
@@ -435,6 +443,13 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		if !outstanding {
 			task, outstanding, err = c.stallTask(entry, item)
+			if err != nil {
+				problems = append(problems, err)
+				return
+			}
+		}
+		if !outstanding {
+			task, outstanding, err = c.finishMergeTask(entry, item)
 			if err != nil {
 				problems = append(problems, err)
 				return
@@ -973,6 +988,14 @@ func (c CarryOut) Carry(ctx context.Context, task CarryOutTask) (account Carried
 	}
 	if task.Decision == DecisionContinueStall {
 		return c.continueStall(ctx, task, carried)
+	}
+	if task.Decision == DecisionFinishMerge {
+		if c.Integrations == nil {
+			carried.Gate = runstate.TriageGateHarness
+			carried.Problem = fmt.Sprintf("nothing is wired to this harness to finish run %s's merge", task.RunID)
+			return carried, Outcome{}, nil
+		}
+		return c.finishMerge(ctx, task, carried)
 	}
 	hold, held, err := c.paused()
 	if err != nil {

@@ -2205,6 +2205,17 @@ func (s *State) recordedTexts() []recordedText {
 	for index := range s.SweepContinuations {
 		nested("sweep_continuations[].reason", at("sweep_continuations", index, "reason"), &s.SweepContinuations[index].Reason, MaxSelectionReasonBytes)
 	}
+	for index := range s.RecoveryRequests {
+		unstated("recovery_requests[].reason", at("recovery_requests", index, "reason"), &s.RecoveryRequests[index].Reason, MaxRecordedTextBytes)
+	}
+	if s.RecoveryHold != nil {
+		unstated("recovery_hold.next_action", "recovery_hold.next_action", &s.RecoveryHold.NextAction, MaxRecordedTextBytes)
+		unstated("recovery_hold.follow_up", "recovery_hold.follow_up", &s.RecoveryHold.FollowUp, MaxRecordedTextBytes)
+	}
+	if s.RecoveryContinuation != nil {
+		unstated("recovery_continuation.reason", "recovery_continuation.reason", &s.RecoveryContinuation.Reason, MaxRecordedTextBytes)
+		unstated("recovery_continuation.refused", "recovery_continuation.refused", &s.RecoveryContinuation.Refused, MaxRecordedTextBytes)
+	}
 	for index := range s.CheckStageContinuations {
 		continuation := &s.CheckStageContinuations[index]
 		nested("check_stage_continuations[].reason", at("check_stage_continuations", index, "reason"), &continuation.Reason, MaxSelectionReasonBytes)
@@ -3670,6 +3681,13 @@ type State struct {
 	// differently once it is known to have begun in the session a re-adoption
 	// resumed.
 	Readopted *RedeployStop `json:"readopted,omitempty"`
+	// RecoveryRequests, RecoveryHold and RecoveryContinuation are what the
+	// development manager's run.recover requests wrote on this run
+	// (recovery.go): every request that reached its write, the unresolved hold
+	// one left standing, and the continuation one asked the work session for.
+	RecoveryRequests     []RecoveryRequest     `json:"recovery_requests,omitempty"`
+	RecoveryHold         *RecoveryHold         `json:"recovery_hold,omitempty"`
+	RecoveryContinuation *RecoveryContinuation `json:"recovery_continuation,omitempty"`
 	// HomeMigration is the one write to a run record the harness makes outside
 	// a run: `yoyo home migrate` moving the run's worktree into the machine home
 	// and rewriting WorktreePath to where it now is, with the path it had kept
@@ -4178,6 +4196,7 @@ func (s State) Validate() error {
 		}
 	}
 	problems = append(problems, s.validateIntegrationResume()...)
+	problems = append(problems, s.validateRecovery()...)
 	problems = append(problems, s.validateSweepContinuations()...)
 	problems = append(problems, s.validateCheckStageContinuations()...)
 	if s.ReviewRounds < 0 {

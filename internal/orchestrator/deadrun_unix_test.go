@@ -428,9 +428,9 @@ func TestTheSweepTimesADeadOutageWaitFromItsProbe(t *testing.T) {
 	}
 }
 
-// A directive park and a tracker park are settled past the grace exactly as a
-// dependency park is, each named in the account for what it was.
-func TestTheSweepSettlesDirectiveAndTrackerParksNothingContinued(t *testing.T) {
+// A directive park is settled past the grace, named in the account for what it
+// was.
+func TestTheSweepSettlesDirectiveParksNothingContinued(t *testing.T) {
 	t.Parallel()
 
 	for _, test := range []struct {
@@ -446,14 +446,6 @@ func TestTheSweepSettlesDirectiveAndTrackerParksNothingContinued(t *testing.T) {
 			},
 			clears: func(state runstate.State) bool { return state.DirectivePause == nil },
 			says:   "unresolved directive directive-0123",
-		},
-		{
-			name: "tracker",
-			park: func(state *runstate.State) {
-				state.TrackerPause = &runstate.TrackerPause{Boundary: runstate.RetryDependencyRead, Attempts: 3, WaitedSeconds: 7200, Failure: "bd show timed out"}
-			},
-			clears: func(state runstate.State) bool { return state.TrackerPause == nil },
-			says:   "it parked because",
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -473,6 +465,41 @@ func TestTheSweepSettlesDirectiveAndTrackerParksNothingContinued(t *testing.T) {
 				t.Fatalf("settled run = %#v, %v; want it terminal with the park cleared", settled, err)
 			}
 		})
+	}
+}
+
+// A run parked on a tracker read that went unanswered, with no process behind
+// it, is not ended for having sat still: a watching session's pull continues
+// it once the tracker answers. Swept hours past the grace, at its review, it is
+// left exactly as it was — its phase, its review, its identity, its counters.
+// This is the shape the run of stopped-run delivery (yoyodyne-5v6) was ended in
+// (docs/diagnoses/yoyodyne-06m-tracker-read-park-ended-on-age.md).
+func TestTheSweepLeavesATrackerReadParkToThePull(t *testing.T) {
+	t.Parallel()
+
+	parked := parkRunOnADependency(t)
+	state := parked.repark(t, func(state *runstate.State) {
+		state.Phase = runstate.PhaseReviewing
+		state.ReviewRounds = 1
+		state.TrackerPause = &runstate.TrackerPause{Boundary: runstate.RetryDependencyRead, Attempts: 3, WaitedSeconds: 7200, Failure: "bd show was cancelled"}
+	})
+	before, err := parked.store.Load(state.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, after := range []time.Duration{DefaultVanishedGrace, 6 * time.Hour} {
+		swept := parked.sweepAt(t, state.UpdatedAt.Add(after), nil)
+		if swept.Action != ActionResumable || !strings.Contains(swept.Detail, "takes it up again at its next pull") {
+			t.Fatalf("sweep %s after the park = %#v, want it left to the pull", after, swept)
+		}
+	}
+	kept, err := parked.store.Load(state.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !kept.Status.InFlight() || kept.Phase != runstate.PhaseReviewing || kept.TrackerPause == nil || kept.RunID != before.RunID ||
+		kept.ReviewRounds != before.ReviewRounds || kept.RepairAttempts != before.RepairAttempts || !kept.UpdatedAt.Equal(before.UpdatedAt) {
+		t.Fatalf("the sweep changed the parked run:\nbefore %#v\nafter  %#v", before, kept)
 	}
 }
 
