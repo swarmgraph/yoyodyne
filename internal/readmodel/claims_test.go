@@ -343,6 +343,12 @@ func TestAClaimOverAChangeStillOnItsBranchIsNotGivenBack(t *testing.T) {
 			s.Status, s.Phase = runstate.StatusTimedOut, runstate.PhaseChecking
 			s.CheckStage = &runstate.CheckStage{StartedAt: auditNoon.Add(-10 * time.Hour), BoundSeconds: 1800, Command: "make race", StoppedAtBound: true}
 		},
+		// The same continuation, for a check its own execution.check_timeout
+		// stopped inside a stage that still had room.
+		"a check its own limit stopped": func(s *runstate.State) {
+			s.Status, s.Phase = runstate.StatusTimedOut, runstate.PhaseChecking
+			s.CheckStage = &runstate.CheckStage{StartedAt: auditNoon.Add(-10 * time.Hour), BoundSeconds: 10800, Command: "make race", CheckStoppedAtLimit: true, CheckLimitSeconds: 1800, CheckElapsedSeconds: 1800}
+		},
 	} {
 		run := ended("run-holding", "yoyodyne-ifd.9", runstate.StatusFailed, 9*time.Hour)
 		run.Branch = "yoyodyne/yoyodyne-ifd-9/holding"
