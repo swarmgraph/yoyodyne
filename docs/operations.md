@@ -3873,7 +3873,11 @@ has the disagreement written on its record and is put once on the development
 manager's docket as an unfinished publication, naming the item, the run, the
 pull request and what the forge says of it now, with the cause given as
 uncertain: the change may have merged and nothing confirmed it. A later sweep
-finds the same run again and adds nothing. The sweep only records and lists —
+finds the same run again and adds nothing: the entry keeps the time the
+disagreement was found, so a wait or other decision the development manager
+records on it stands on every later sweep until it lapses or the run's record
+changes. Once a listed run's change does reach the target branch, the next
+sweep takes its entry off the list. The sweep only records and lists —
 it merges nothing, re-runs nothing, closes no pull request and spends no budget
 — and `--json` carries what it found under `merge_disagreements`. A watch
 session (`yoyo work --watch`) makes the same read once as it starts, and says on

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -245,6 +246,139 @@ func TestARunRecordedAsMergedWhoseCommitIsAbsentIsListedOnce(t *testing.T) {
 	}
 	if entries := fixture.entries(t); len(entries) != 1 {
 		t.Fatalf("docket after a second sweep = %#v, want still one entry", entries)
+	}
+}
+
+// sweepEvery puts the fixture's sweeps and docket on a clock the test moves, so
+// each sweep happens at a later moment than the last and than any decision
+// recorded between them.
+func (f *disagreementFixture) sweepEvery(t *testing.T) *steppingClock {
+	t.Helper()
+	clock := &steppingClock{now: time.Now().UTC().Truncate(time.Second)}
+	f.reconciler.Clock = clock
+	f.docketer.Clock = clock
+	return clock
+}
+
+// disagreementEntry is the one entry the docket stands at for the fixture's
+// run, failing the test where there is not exactly one.
+func (f *disagreementFixture) disagreementEntry(t *testing.T) triage.Entry {
+	t.Helper()
+	entries := f.entries(t)
+	if len(entries) != 1 {
+		t.Fatalf("docket = %#v, want exactly one entry", entries)
+	}
+	return entries[0]
+}
+
+// Sweeping an unchanged run record again and again lists it once, and the entry
+// keeps the moment the disagreement was found rather than taking each sweep's.
+func TestSweepsOverAnUnchangedRunKeepItsOneEntryAndItsTime(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	fixture.forgetMerge(t)
+	clock := fixture.sweepEvery(t)
+
+	fixture.sweep(t)
+	first := fixture.disagreementEntry(t)
+	for sweep := 2; sweep <= 3; sweep++ {
+		clock.now = clock.now.Add(time.Hour)
+		findings := fixture.sweep(t)
+		if len(findings) != 1 || findings[0].Recorded || findings[0].Docketed {
+			t.Fatalf("sweep %d = %#v, want the run found again with nothing new written", sweep, findings)
+		}
+		if built, err := fixture.docketer.Build(); err != nil || built.Added != 0 {
+			t.Fatalf("docket build after sweep %d added %d, error %v; want nothing added", sweep, built.Added, err)
+		}
+		entry := fixture.disagreementEntry(t)
+		if !entry.RecordedAt.Equal(first.RecordedAt) {
+			t.Fatalf("after sweep %d the entry is dated %s, want its original %s", sweep, entry.RecordedAt, first.RecordedAt)
+		}
+	}
+	state, err := fixture.run.store.Load(pipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !first.RecordedAt.Equal(state.MergeDisagreement.FoundAt.UTC()) {
+		t.Errorf("entry dated %s, want the moment the disagreement was found, %s", first.RecordedAt, state.MergeDisagreement.FoundAt)
+	}
+}
+
+// A wait the development manager records on the entry still stands after later
+// sweeps and a rebuilt docket: none of them lists the run again, and none takes
+// her decision off it before the moment it names.
+func TestAWaitRecordedOnADisagreementOutlastsLaterSweeps(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	fixture.forgetMerge(t)
+	clock := fixture.sweepEvery(t)
+
+	fixture.sweep(t)
+	listed := fixture.disagreementEntry(t)
+	clock.now = clock.now.Add(time.Minute)
+	waited := triage.Closure{
+		SchemaVersion: triage.ClosureSchemaVersion,
+		Key:           listed.Key,
+		ProductID:     listed.ProductID,
+		RunID:         listed.RunID,
+		WorkItemID:    listed.WorkItemID,
+		Decision:      "wait",
+		DecidedBy:     "the development manager in conversation chat-0123456789abcdef",
+		ClosedAt:      clock.now,
+		RevisitAfter:  clock.now.Add(24 * time.Hour),
+	}
+	if took, err := fixture.docket.Close(waited); err != nil || !took {
+		t.Fatalf("Close() = %v, %v; want the wait recorded", took, err)
+	}
+
+	for sweep := 1; sweep <= 2; sweep++ {
+		clock.now = clock.now.Add(time.Hour)
+		if findings := fixture.sweep(t); len(findings) != 1 || findings[0].Docketed {
+			t.Fatalf("sweep %d after the wait = %#v, want the run found again and not listed again", sweep, findings)
+		}
+		if built, err := fixture.docketer.Build(); err != nil || built.Added != 0 {
+			t.Fatalf("docket build after sweep %d added %d, error %v; want nothing added", sweep, built.Added, err)
+		}
+		entry := fixture.disagreementEntry(t)
+		if entry.Closed == nil || entry.Closed.Decision != "wait" || !entry.Closed.Holds(clock.now) {
+			t.Fatalf("after sweep %d the entry's decision = %#v, want the wait still holding", sweep, entry.Closed)
+		}
+		if !entry.RecordedAt.Equal(listed.RecordedAt) {
+			t.Fatalf("after sweep %d the entry is dated %s, want its original %s", sweep, entry.RecordedAt, listed.RecordedAt)
+		}
+	}
+}
+
+// A listed run whose change then reaches the target branch is taken off the
+// list by the next sweep, and later sweeps leave it off.
+func TestADisagreementWhoseCommitArrivesIsTakenOffTheList(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	unlanded := fixture.forgetMerge(t)
+	clock := fixture.sweepEvery(t)
+
+	fixture.sweep(t)
+	if entry := fixture.disagreementEntry(t); entry.Closed != nil {
+		t.Fatalf("entry = %#v, want it listed and open", entry.Closed)
+	}
+
+	// The change lands: the remote's main comes to carry the run's commit.
+	gitOutput(t, fixture.run.repository, "update-ref", "refs/heads/landing", unlanded)
+	gitOutput(t, fixture.run.remote, "fetch", fixture.run.repository, "+refs/heads/landing:refs/heads/main")
+
+	for sweep := 1; sweep <= 2; sweep++ {
+		clock.now = clock.now.Add(time.Hour)
+		findings := fixture.sweep(t)
+		if len(findings) != 1 || !findings[0].OnTarget || findings[0].Failure != "" || findings[0].Settled != (sweep == 1) {
+			t.Fatalf("sweep %d after the change landed = %#v, want the run found on its target and its entry closed by the first", sweep, findings)
+		}
+		entry := fixture.disagreementEntry(t)
+		if entry.Closed == nil || entry.Closed.Decision != settledPublicationDecision || !entry.Closed.Holds(clock.now) {
+			t.Fatalf("after sweep %d the entry's decision = %#v, want it closed as settled", sweep, entry.Closed)
+		}
 	}
 }
 
