@@ -121,6 +121,9 @@ func TestARestartLetsACheckRunningAcrossTwoNewBuildsFinish(t *testing.T) {
 			t.Error("the run was not asked to stop before its next check")
 			return h.complete(id), nil
 		}
+		if drained, _ := drainedForRedeploy(ctx); drained.WaitedFor != "make race" {
+			t.Errorf("the stop names %q as the check waited for, want make race", drained.WaitedFor)
+		}
 		return pausedAtChecks(ctx, id)
 	}
 
@@ -429,6 +432,129 @@ func TestARunAskedToStopForARestartFinishesItsRunningCheckAndStartsNoOther(t *te
 	}
 	if outcome.CheckStage == nil || !slices.Equal(outcome.CheckStage.Kept, commands[:2]) || !slices.Equal(outcome.CheckStage.Ran, commands[2:]) {
 		t.Fatalf("check stage = %#v, want the first two kept and only the third run", outcome.CheckStage)
+	}
+}
+
+// askedAtCheck runs the pipeline under a hosting session's check yield and
+// asks it to stop for a restart, naming the check it waits for, as soon as
+// the check that touches marker says it is running; that check is then
+// released and let end by itself.
+func askedAtCheck(t *testing.T, pipeline Pipeline, itemID, dir, marker, check string) Outcome {
+	t.Helper()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	ctx, yield := withCheckYield(ctx, cancel)
+	asked := RedeployDrain{At: time.Date(2026, 10, 17, 7, 2, 12, 0, time.UTC), Bound: 15 * time.Minute, SessionID: "watch-" + marker, WaitedFor: check}
+	go func() {
+		for {
+			if _, err := os.Stat(filepath.Join(dir, marker)); err == nil {
+				yield.ask(asked)
+				time.Sleep(100 * time.Millisecond)
+				if ctx.Err() != nil {
+					t.Errorf("the running check was stopped by the ask: %v", context.Cause(ctx))
+				}
+				_ = os.WriteFile(filepath.Join(dir, "release-"+marker), nil, 0o600)
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+			}
+		}
+	}()
+	paused, err := pipeline.Run(ctx, itemID)
+	if err != nil {
+		t.Fatalf("Run() error = %v, want a run stopped for a restart reported as a pause", err)
+	}
+	if !paused.Paused || paused.RedeployStop == nil || paused.RedeployStop.Phase != runstate.PhaseChecking {
+		t.Fatalf("outcome = %#v, want a run paused at its checks", paused)
+	}
+	return paused
+}
+
+// A run picked back up at its checks after one restart, with a long check
+// running when a second new build arrives, finishes that check rather than
+// starting it over: each build stops the run before its next check, so every
+// check runs exactly once across both restarts. The item's notes say which
+// check each restart waited for and which checks had not started, rather than
+// calling the unstarted ones checks that run again.
+func TestARunPickedUpAtItsChecksLetsItsRunningCheckFinishAcrossASecondRestart(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-resume", Title: "Task", Status: "open"}}
+	dir := t.TempDir()
+	at := func(name string) string { return "'" + filepath.Join(dir, name) + "'" }
+	counted := keptChecksFixture{dir: dir}
+	// The second and third checks are the long ones: each says it is running
+	// and then runs until it is released, for at most a minute.
+	long := func(name string) string {
+		return "printf x >> " + at(name) + " && touch " + at("running-"+name) + " && i=0 && while [ ! -f " + at("release-running-"+name) + " ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done"
+	}
+	commands := []string{"printf x >> " + at("first"), long("second"), long("third"), "printf x >> " + at("fourth")}
+	develop := func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}
+	runs := func() []int {
+		return []int{counted.runs(t, "first"), counted.runs(t, "second"), counted.runs(t, "third"), counted.runs(t, "fourth")}
+	}
+
+	// The first new build arrives while the second check runs.
+	first := orchestratortest.RoleBackend(develop, approveVerdict)
+	askedAtCheck(t, automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, first, commands), first), tracker.Item.ID, dir, "running-second", commands[1])
+	if got := runs(); !slices.Equal(got, []int{1, 1, 0, 0}) {
+		t.Fatalf("runs of each check after the first restart = %v, want [1 1 0 0]", got)
+	}
+
+	// The run is picked back up at its checks, and the second new build arrives
+	// while its next long check, the third, runs.
+	second := orchestratortest.RoleBackend(develop, approveVerdict)
+	paused := askedAtCheck(t, automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, commands), second), tracker.Item.ID, dir, "running-third", commands[2])
+	if got := runs(); !slices.Equal(got, []int{1, 1, 1, 0}) {
+		t.Fatalf("runs of each check after the second restart = %v, want [1 1 1 0]: the third check finished and was not started over", got)
+	}
+	stopped, err := store.Load(paused.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stopped.Readopted == nil || stopped.Readopted.Phase != runstate.PhaseChecking {
+		t.Fatalf("readopted = %#v, want the run picked up at its checks before the second restart", stopped.Readopted)
+	}
+	if got := stopped.RedeployStop.Checks; got == nil || got.WaitedFor != commands[2] || got.CutShort != "" {
+		t.Fatalf("the second stop's checks = %#v, want the third check waited for and none cut short", got)
+	}
+
+	third := orchestratortest.RoleBackend(develop, approveVerdict)
+	outcome, err := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, third, commands), third).Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("resumed Run() error = %v", err)
+	}
+	if outcome.RunID != paused.RunID || outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("the picked-up run did not finish the same change: %#v", outcome)
+	}
+	if got := runs(); !slices.Equal(got, []int{1, 1, 1, 1}) {
+		t.Fatalf("runs of each check = %v, want [1 1 1 1]: no check run twice across two restarts", got)
+	}
+	if outcome.CheckStage == nil || !slices.Equal(outcome.CheckStage.Kept, commands[:3]) || !slices.Equal(outcome.CheckStage.Ran, commands[3:]) {
+		t.Fatalf("check stage = %#v, want the first three kept and only the fourth run", outcome.CheckStage)
+	}
+	for _, want := range []string{
+		commands[1] + " was running when the bound ran out, so the session let it finish rather than start it over",
+		commands[2] + " was running when the bound ran out, so the session let it finish rather than start it over",
+		"The restart waited for " + commands[1] + ", which was running when the new build arrived, to finish rather than start it over.",
+		"Not started before the restart, so running now for the first time on this change: " + commands[2] + ", " + commands[3] + ".",
+		"The restart waited for " + commands[2] + ", which was running when the new build arrived, to finish rather than start it over.",
+		"Not started before the restart, so running now for the first time on this change: " + commands[3] + ".",
+	} {
+		if !strings.Contains(tracker.Notes, want) {
+			t.Fatalf("the item's notes do not say %q:\n%s", want, tracker.Notes)
+		}
+	}
+	for _, wrong := range []string{"Running again", "rather than waited out"} {
+		if strings.Contains(tracker.Notes, wrong) {
+			t.Fatalf("the item's notes say %q of a run whose checks were waited for:\n%s", wrong, tracker.Notes)
+		}
 	}
 }
 

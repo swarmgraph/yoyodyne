@@ -591,7 +591,7 @@ func TestACheckStoppedByItsCallersDeadlineSaysSo(t *testing.T) {
 	if len(results) != 1 || results[0].Process.Status != execution.ProcessTimedOut {
 		t.Fatalf("results = %#v, want the check timed out", results)
 	}
-	if !results[0].StoppedByCaller || results[0].StoppedByStage || results[0].Timeout != 30*time.Minute {
-		t.Fatalf("result = %#v, want it stopped by its caller with its own budget untouched", results[0])
+	if !results[0].StoppedByCaller || results[0].StoppedByStage || results[0].Timeout != 30*time.Minute || results[0].NotLaunched {
+		t.Fatalf("result = %#v, want it stopped by its caller after it launched, with its own budget untouched", results[0])
 	}
 }

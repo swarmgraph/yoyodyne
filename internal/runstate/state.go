@@ -2499,6 +2499,28 @@ type RedeployStop struct {
 	// SessionID is the watch session that stopped the run, so the run's record
 	// and the watch log can be read against each other.
 	SessionID string `json:"session_id,omitempty"`
+	// Checks is what the stop did to the run's checks, recorded for a run
+	// stopped at its checks, so the run picked back up can say which check the
+	// restart waited for and which it had not started rather than calling every
+	// unfinished check one that runs again. It is absent on a stop at any other
+	// phase, and on one a build from before it was recorded made.
+	Checks *RedeployStopChecks `json:"checks,omitempty"`
+}
+
+// RedeployStopChecks is what a stop at a run's checks did to them. A check in
+// none of its fields was either passed, and is kept (KeptChecks), or had not
+// started when the run stopped.
+type RedeployStopChecks struct {
+	// WaitedFor is the check that was running when the session's drain bound
+	// ran out and that it let finish before the run stopped.
+	WaitedFor string `json:"waited_for,omitempty"`
+	// CutShort is a check still running when the run was stopped, as one still
+	// going past the time a restart waits for it is, which runs again from its
+	// start when the run is picked back up.
+	CutShort string `json:"cut_short,omitempty"`
+	// CouldNotRun is each check that ran before the stop and said it could not
+	// run at all; it is not kept, so it runs again.
+	CouldNotRun []string `json:"could_not_run,omitempty"`
 }
 
 // Bound is the drain limit that ran out.

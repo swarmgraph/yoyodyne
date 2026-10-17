@@ -6250,8 +6250,10 @@ func (s Scheduler) waitForRunningCheck(state runstate.State, index int, landings
 	if yield == nil {
 		return runstate.WatchCheckWait{}, false
 	}
+	check := oneline.Fold(stage.Command, 512)
+	stop.WaitedFor = check
 	yield.ask(stop)
-	return runstate.WatchCheckWait{RunID: state.RunID, WorkItemID: state.WorkItemID, Check: oneline.Fold(stage.Command, 512), Until: until}, true
+	return runstate.WatchCheckWait{RunID: state.RunID, WorkItemID: state.WorkItemID, Check: check, Until: until}, true
 }
 
 // checkYieldGrace is how long past a running check's own limit a session waits

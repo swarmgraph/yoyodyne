@@ -103,6 +103,9 @@ func TestARunPickedUpAfterARestartAtItsChecksRunsOnlyTheChecksThatHadNotPassed(t
 	if stopped.KeptChecks == nil || len(stopped.KeptChecks.Checks) != 1 || stopped.KeptChecks.Checks[0].Command != fixture.commands[0] {
 		t.Fatalf("kept checks at the stop = %#v, want only the first check, which had passed", stopped.KeptChecks)
 	}
+	if got := stopped.RedeployStop.Checks; got == nil || got.CutShort != fixture.commands[1] || got.WaitedFor != "" {
+		t.Fatalf("the stop's checks = %#v, want the second check recorded as cut short", got)
+	}
 
 	second := orchestratortest.RoleBackend(develop, approveVerdict)
 	outcome, err := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, second, fixture.commands), second).Run(context.Background(), tracker.Item.ID)
@@ -136,7 +139,9 @@ func TestARunPickedUpAfterARestartAtItsChecksRunsOnlyTheChecksThatHadNotPassed(t
 	}
 	for _, want := range []string{
 		"Kept their results, because they had already passed on this same change before the restart: " + fixture.commands[0] + ".",
-		"Running again, because they had not finished before the restart: " + fixture.commands[1] + ", " + fixture.commands[2] + ".",
+		fixture.commands[1] + " was still running when the run was stopped, so it runs again from its start",
+		"Running again from its start, because it was still running when the run was stopped: " + fixture.commands[1] + ".",
+		"Not started before the restart, so running now for the first time on this change: " + fixture.commands[2] + ".",
 		"kept from before the restart onto a new build, not run again",
 	} {
 		if !strings.Contains(tracker.Notes, want) {
