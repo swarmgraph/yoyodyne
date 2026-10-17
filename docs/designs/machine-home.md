@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-17T10:12:04.075342Z
       reason: 'yoyodyne-ifd.434.28: the product moves its own state to the new home. The supervisor stops new work across the machine, lets what is running finish (and, once yoyodyne-ifd.428.99.6 lands, waits runs at a step boundary with their work kept), gives up after a bound rather than starve the factory, moves by the same steps yoyo home migrate runs, finishes an interrupted move from a record of it, and undoes a move whose step keeps failing. yoyo home migrate stays for override. Validation check 6 and the enforced list follow; the build work is listed for the development manager.'
+    - action: amended
+      by: architect
+      at: 2026-10-17T12:26:26.10179Z
+      reason: 'Answers the Lead Product Manager''s report-4a260a2e: the move section now says what a supervisor does when it starts and finds moving.json with no step of the move begun. It takes over a file left by a supervisor that is no longer running, keeps the recorded creation time and drain limit, and gives up as step 4 says once that limit has passed; an unreadable file is removed. The build list, the enforced list and validation check 6 follow. No other requirement changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,6 +33,11 @@ approvals:
       by: harness
       at: 2026-10-17T10:12:04.075342Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1143, for document-1143.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-17T12:26:26.10179Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1150, for document-1150.1 under the automatic approval policy
 ---
 # The machine home
 
@@ -294,6 +303,26 @@ with a step not marked done does no work in either home. The supervisor, on its
 next start, finishes the remaining steps before it starts any child, and then
 starts again as above.
 
+A supervisor can also stop while it waits in step 3, before any step of the
+move has begun: `moving.json` is there and `home-move.json` is not. A
+supervisor that starts and finds the old home so never leaves the file in place
+with nothing waiting on it. Where the supervisor the file names is no longer
+running, whether it is this product's own supervisor from before it stopped or
+another product's, the starting supervisor takes the file over: it rewrites the
+file to name itself, only if the file still names the supervisor that is gone,
+so two supervisors starting at once cannot both take it, and it keeps the
+creation time and the drain limit the file recorded. It then goes on waiting
+only until that limit has passed since the recorded creation time, and gives
+up exactly as step 4 says, recording the attempt with what was still running
+and counting it toward the three in a row. Where the supervisor the file names
+is still running, the file stays with it, as step 2 says. A `moving.json` that
+cannot be read is removed, and the attempt is recorded as one that gave up,
+naming why. In every case work starts again on the old home without anyone
+deleting the file by hand. Restarting the clock on each start was rejected,
+because repeated restarts could then hold the factory indefinitely; removing
+the file on every start was rejected, because it throws away a wait that may
+be nearly done.
+
 A step that fails is tried again after one, five, and fifteen minutes. If it
 fails a fourth time, the supervisor undoes the steps already done, in reverse
 order, each of them also a rename: moved worktrees are repaired again at their
@@ -330,8 +359,9 @@ against this item:
 2. The supervisor's move: the check that both homes are on one file system,
    starting the drain, waiting for every product, the drain limit, the
    six-hour wait, the warning after three attempts in a row that gave up,
-   stopping and starting children, and the act recorded in each project's
-   state.
+   a start that finds `moving.json` with no step of the move begun and keeps
+   to the limit it recorded or removes it, stopping and starting children, and
+   the act recorded in each project's state.
 3. One piece of code for the steps of the move, each step checking whether it
    is already done, shared by the supervisor and `yoyo home migrate`, with
    `home-move.json`, the refusal to do work while it shows a step not done,
@@ -404,9 +434,13 @@ on, and never as passed. Evidence is kept with the validation project's record.
    repository shows its new path; the run record carries a migration note with
    the old path beside the new; the old home holds a marker naming the new one;
    an older build started on the old home says where the state went; and
-   running `yoyo home migrate` afterwards changes nothing. Three further cases:
+   running `yoyo home migrate` afterwards changes nothing. Four further cases:
    with the drain limit set to one minute and a run that outlasts it, the
    attempt gives up and work starts again on the old home; with the supervisor
+   killed while it waits for the run in flight, before any step of the move,
+   its next start either goes on waiting under the limit `moving.json`
+   recorded or removes the file once that limit has passed, and work starts
+   again on the old home with no person deleting the file; with the supervisor
    killed after two steps of the move, its next start finishes the move before
    starting any child; and with one step made to fail four times, the steps
    already done are undone and work starts again on the old home with a
@@ -450,6 +484,9 @@ A measurement that was not taken is recorded as not taken, never as zero.
 - No run is ended to make room for the move, and a run that waited at a step
   boundary for it spends no repair and no re-run.
 - A home named by any setting is never moved by the product.
+- A `moving.json` with no step of the move begun is never kept past the drain
+  limit it records, whoever created it and whether or not that supervisor is
+  still running.
 - While `home-move.json` shows a step not done, no process does work in either
   home except finishing or undoing the move.
 - The intent repository's target is a promotion target under the lease, and the
