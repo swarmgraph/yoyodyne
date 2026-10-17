@@ -251,10 +251,12 @@ func TestARunRecordedAsMergedWhoseCommitIsAbsentIsListedOnce(t *testing.T) {
 
 // sweepEvery puts the fixture's sweeps and docket on a clock the test moves, so
 // each sweep happens at a later moment than the last and than any decision
-// recorded between them.
+// recorded between them. It starts a minute ahead, because a run record refuses
+// a write dated before the run started, and the landed run may have started
+// within the current second.
 func (f *disagreementFixture) sweepEvery(t *testing.T) *steppingClock {
 	t.Helper()
-	clock := &steppingClock{now: time.Now().UTC().Truncate(time.Second)}
+	clock := &steppingClock{now: time.Now().UTC().Add(time.Minute).Truncate(time.Second)}
 	f.reconciler.Clock = clock
 	f.docketer.Clock = clock
 	return clock
@@ -280,7 +282,9 @@ func TestSweepsOverAnUnchangedRunKeepItsOneEntryAndItsTime(t *testing.T) {
 	fixture.forgetMerge(t)
 	clock := fixture.sweepEvery(t)
 
-	fixture.sweep(t)
+	if findings := fixture.sweep(t); len(findings) != 1 || !findings[0].Docketed || findings[0].Failure != "" {
+		t.Fatalf("first sweep = %#v, want the run listed", findings)
+	}
 	first := fixture.disagreementEntry(t)
 	for sweep := 2; sweep <= 3; sweep++ {
 		clock.now = clock.now.Add(time.Hour)
@@ -315,7 +319,9 @@ func TestAWaitRecordedOnADisagreementOutlastsLaterSweeps(t *testing.T) {
 	fixture.forgetMerge(t)
 	clock := fixture.sweepEvery(t)
 
-	fixture.sweep(t)
+	if findings := fixture.sweep(t); len(findings) != 1 || !findings[0].Docketed || findings[0].Failure != "" {
+		t.Fatalf("first sweep = %#v, want the run listed", findings)
+	}
 	listed := fixture.disagreementEntry(t)
 	clock.now = clock.now.Add(time.Minute)
 	waited := triage.Closure{
@@ -360,7 +366,9 @@ func TestADisagreementWhoseCommitArrivesIsTakenOffTheList(t *testing.T) {
 	unlanded := fixture.forgetMerge(t)
 	clock := fixture.sweepEvery(t)
 
-	fixture.sweep(t)
+	if findings := fixture.sweep(t); len(findings) != 1 || !findings[0].Docketed || findings[0].Failure != "" {
+		t.Fatalf("first sweep = %#v, want the run listed", findings)
+	}
 	if entry := fixture.disagreementEntry(t); entry.Closed != nil {
 		t.Fatalf("entry = %#v, want it listed and open", entry.Closed)
 	}
