@@ -5962,7 +5962,13 @@ for different target branches move independently. A pass ends on its own — whe
 nothing can move, when what is left waits on the operator, a provider or the
 forge, or when it stops on something that needs a look — and a session draining
 to restart into a new build waits for its passes like its recurring firings, and
-stops them past the drain bound. A candidate's checks and review write to that
+stops them past the drain bound — except a pass whose candidate's checks are
+running, which is let finish them, each check up to its configured
+`check_timeout`, because a candidate's checks count only whole and a stage
+stopped part-way runs every check again. Past the bound no queue starts a new
+check stage; the session that comes back runs it. While the session waits, its
+line names the queue, the candidate's generation, the check, and the latest
+moment that check can run to. A candidate's checks and review write to that
 candidate's own event stream under the product's merge queues.
 
 **What you can see.** `yoyo status` prints each queue under the four lines, and

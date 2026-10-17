@@ -590,6 +590,14 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 	if err := w.paused(runstate.MergeQueueStageChecks); err != nil {
 		return generation, false, err
 	}
+	// A session about to restart onto a new build starts no check stage: the
+	// session that comes back runs it. One already going is left to finish, so
+	// it is noted while it goes (queueCheckStages).
+	stages := queueCheckStagesOf(ctx)
+	if !stages.begin(key, generation.Number, w.now()) {
+		return generation, false, mergeQueueWait{reason: "the watch session working this queue is about to restart onto a new build, so the candidate's checks are run by the session that comes back"}
+	}
+	defer stages.end(key)
 	hold, err := w.holdStage(lease, key, generation, runstate.MergeQueueStageChecks)
 	if err != nil {
 		return generation, false, err
@@ -609,6 +617,13 @@ func (w MergeQueueWorker) check(ctx context.Context, lease *runstate.Lease, key 
 		// narrows what a landing has to answer for.
 		Env:  []string{checks.Narrowing{Whole: true, Reason: "a merge queue candidate is checked whole"}.Env()},
 		Gate: launched.gate,
+		// Which check the stage is on, and when it launched under what limit,
+		// are what a restart waits for the stage by.
+		Started: func(command string, _ time.Duration) { stages.started(key, command, w.now()) },
+		CheckBound: func(string) time.Duration {
+			stages.launched(key, p.checkTimeout(), w.now())
+			return 0
+		},
 		// A candidate is checked for a landing, so its heavy checks are let
 		// start ahead of every run's gate (heavychecks.go).
 		Permit: checks.PermitRequest{Priority: domain.HeavyCheckForLanding},

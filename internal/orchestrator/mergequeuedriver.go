@@ -28,6 +28,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -294,6 +295,11 @@ type mergeQueuePasses struct {
 	done   chan mergeQueuePassDone
 	ctx    context.Context
 	cancel context.CancelFunc
+	// stops stops one queue's pass, so a restart onto a new build can stop the
+	// passes not in their checks while it waits for those that are, and checks
+	// is the check stages the passes have going (queueCheckStages).
+	stops  map[runstate.MergeQueueKey]context.CancelFunc
+	checks *queueCheckStages
 }
 
 type mergeQueuePassDone struct {
@@ -304,23 +310,71 @@ type mergeQueuePassDone struct {
 }
 
 func newMergeQueuePasses(ctx context.Context) *mergeQueuePasses {
-	passCtx, cancel := context.WithCancel(ctx)
+	checks := &queueCheckStages{}
+	passCtx, cancel := context.WithCancel(withQueueCheckStages(ctx, checks))
 	return &mergeQueuePasses{
 		inFlight: map[runstate.MergeQueueKey]bool{},
 		done:     make(chan mergeQueuePassDone, maxMergeQueuePassesInFlight+1),
 		ctx:      passCtx, cancel: cancel,
+		stops:  map[runstate.MergeQueueKey]context.CancelFunc{},
+		checks: checks,
 	}
 }
 
 func (m *mergeQueuePasses) idle() bool { return len(m.inFlight) == 0 && !m.held }
+
+// stopForRestart is a session past its drain bound stopping its queue passes:
+// none starts a new check stage from here, each pass whose candidate's checks
+// are running within their limits is left to finish them, and every other pass
+// and the look at the held changes are stopped. It returns the check stages
+// left running, which the restart waits for.
+func (m *mergeQueuePasses) stopForRestart(now time.Time) []runstate.WatchCheckWait {
+	m.checks.close()
+	waiting := m.checks.waiting(now)
+	if len(waiting) == 0 {
+		m.cancel()
+		return nil
+	}
+	for key, stop := range m.stops {
+		if _, checking := waiting[key]; !checking {
+			stop()
+		}
+	}
+	return m.checkWaits(now)
+}
+
+// checkWaits is the check stages of the passes in flight the restart waits
+// for, in the order of their queues, past the drain bound. Reading it closes
+// the passes to new check stages, since only a session past its bound asks.
+func (m *mergeQueuePasses) checkWaits(now time.Time) []runstate.WatchCheckWait {
+	m.checks.close()
+	var waits []runstate.WatchCheckWait
+	for key, wait := range m.checks.waiting(now) {
+		if m.inFlight[key] {
+			waits = append(waits, wait)
+		}
+	}
+	slices.SortFunc(waits, func(a, b runstate.WatchCheckWait) int { return strings.Compare(a.Queue, b.Queue) })
+	return waits
+}
+
+// release lets go of an ended pass's own context.
+func (m *mergeQueuePasses) release(key runstate.MergeQueueKey) {
+	if stop, ok := m.stops[key]; ok {
+		stop()
+		delete(m.stops, key)
+	}
+}
 
 // startQueuePasses launches a pass of every queue with work in it and no pass
 // in flight, and a look at the held changes where one is due.
 func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueues, passes *mergeQueuePasses) {
 	if now := s.now(); !passes.held && (passes.heldAt.IsZero() || now.Sub(passes.heldAt) >= mergeQueueHeldEvery) {
 		passes.held, passes.heldAt = true, now
+		heldCtx, stop := context.WithCancel(passes.ctx)
+		passes.stops[runstate.MergeQueueKey{}] = stop
 		go func() {
-			held := queues.TakeHeld(passes.ctx)
+			held := queues.TakeHeld(heldCtx)
 			passes.done <- mergeQueuePassDone{held: &held}
 		}()
 	}
@@ -334,8 +388,10 @@ func (s Scheduler) startQueuePasses(schedule *Schedule, queues ScheduleMergeQueu
 			continue
 		}
 		passes.inFlight[key] = true
+		passCtx, stop := context.WithCancel(passes.ctx)
+		passes.stops[key] = stop
 		go func(key runstate.MergeQueueKey) {
-			passes.done <- mergeQueuePassDone{key: key, pass: queues.Pass(passes.ctx, key)}
+			passes.done <- mergeQueuePassDone{key: key, pass: queues.Pass(passCtx, key)}
 		}(key)
 	}
 }
@@ -356,12 +412,14 @@ func (s Scheduler) collectQueuePasses(schedule *Schedule, passes *mergeQueuePass
 		}
 		if done.held != nil {
 			passes.held = false
+			passes.release(runstate.MergeQueueKey{})
 			if done.held.Held > 0 {
 				schedule.QueueHeld = done.held
 			}
 			continue
 		}
 		delete(passes.inFlight, done.key)
+		passes.release(done.key)
 		schedule.QueuePasses = append(schedule.QueuePasses, ScheduledQueuePass{Key: done.key, Pass: done.pass})
 		switch done.pass.Outcome {
 		case runstate.MergeQueuePassStopped:

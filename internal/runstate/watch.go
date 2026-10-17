@@ -637,18 +637,27 @@ type WatchDrain struct {
 	PullSkipped bool `json:"pull_skipped,omitempty"`
 }
 
-// WatchCheckWait is one run a session past its drain bound is waiting on
-// because a check is running in it: which run, for which item, which check,
-// and the latest moment that check can run to under its own limit.
+// WatchCheckWait is one run, or one merge queue's candidate, a session past
+// its drain bound is waiting on because a check is running in it: which run
+// for which item, or which queue's candidate generation, which check, and the
+// latest moment that check can run to under its own limit.
 type WatchCheckWait struct {
-	RunID      string    `json:"run_id"`
-	WorkItemID string    `json:"work_item_id,omitempty"`
+	RunID      string `json:"run_id,omitempty"`
+	WorkItemID string `json:"work_item_id,omitempty"`
+	// Queue is the target branch of the merge queue whose candidate is being
+	// checked, and Generation that candidate's generation, where the wait is on
+	// a queue rather than a run.
+	Queue      string    `json:"queue,omitempty"`
+	Generation uint64    `json:"generation,omitempty"`
 	Check      string    `json:"check"`
 	Until      time.Time `json:"until"`
 }
 
 // Says is the wait in the words the drain's clause names it in.
 func (w WatchCheckWait) Says() string {
+	if w.Queue != "" {
+		return fmt.Sprintf("the merge queue for %s, checking candidate generation %d, to finish %s, until %s at the latest", w.Queue, w.Generation, w.Check, w.Until.UTC().Format(time.RFC3339))
+	}
 	run := "run " + w.RunID
 	if w.WorkItemID != "" && w.WorkItemID != w.RunID {
 		run += " (" + w.WorkItemID + ")"
@@ -658,8 +667,8 @@ func (w WatchCheckWait) Says() string {
 
 func (w WatchCheckWait) validate() error {
 	var problems []error
-	if strings.TrimSpace(w.RunID) == "" {
-		problems = append(problems, errors.New("a wait on a running check names no run"))
+	if strings.TrimSpace(w.RunID) == "" && strings.TrimSpace(w.Queue) == "" {
+		problems = append(problems, errors.New("a wait on a running check names no run and no merge queue"))
 	}
 	if strings.TrimSpace(w.Check) == "" {
 		problems = append(problems, errors.New("a wait on a running check names no check"))
@@ -693,7 +702,7 @@ func (d WatchDrain) Says() string {
 				for _, wait := range d.CheckWaits {
 					checks = append(checks, wait.Says())
 				}
-				waits = append(waits, "the check running in "+strings.Join(checks, ", and ")+", so that check is not started over on the new build; each such run is stopped before its next check starts, and the checks it has passed keep their results")
+				waits = append(waits, "the check running in "+strings.Join(checks, ", and ")+", so that check is not started over on the new build; each such run is stopped before its next check starts, and the checks it has passed keep their results, and each such merge queue is stopped once its candidate's checks have ended")
 			}
 			if d.Publishing > 0 {
 				waits = append(waits, fmt.Sprintf("%d document landing run(s) to finish, because a restart never stops one part-way", d.Publishing))

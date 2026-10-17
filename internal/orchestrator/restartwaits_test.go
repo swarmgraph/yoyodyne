@@ -480,3 +480,143 @@ func TestAPassPastTheRestartBoundLeavesItsDocumentForTheSessionThatComesBack(t *
 		t.Fatalf("waits = %+v, %v; want nothing left waiting", waits, err)
 	}
 }
+
+// restartQueues is two merge queues for a restart to find: one whose
+// candidate's checks are running, and one whose pass is at its review.
+type restartQueues struct {
+	checking, reviewing runstate.MergeQueueKey
+	started             chan struct{}
+	release             chan struct{}
+	checkStopped        atomic.Bool
+	reviewStopped       atomic.Bool
+	passes              atomic.Int32
+	at                  func() time.Time
+}
+
+func (q *restartQueues) Pending() ([]runstate.MergeQueueKey, error) {
+	if q.passes.Load() >= 2 {
+		return nil, nil
+	}
+	return []runstate.MergeQueueKey{q.checking, q.reviewing}, nil
+}
+
+func (q *restartQueues) Pass(ctx context.Context, key runstate.MergeQueueKey) runstate.MergeQueuePass {
+	q.passes.Add(1)
+	if key == q.reviewing {
+		<-ctx.Done()
+		q.reviewStopped.Store(true)
+		return runstate.MergeQueuePass{Outcome: runstate.MergeQueuePassWaiting, Says: "stopped at its review"}
+	}
+	stages := queueCheckStagesOf(ctx)
+	if !stages.begin(key, 3, q.at()) {
+		return runstate.MergeQueuePass{Outcome: runstate.MergeQueuePassWaiting, Says: "no check stage started"}
+	}
+	defer stages.end(key)
+	stages.started(key, "make race", q.at())
+	stages.launched(key, 45*time.Minute, q.at())
+	close(q.started)
+	select {
+	case <-q.release:
+		return runstate.MergeQueuePass{Outcome: runstate.MergeQueuePassLanded, Says: "the candidate's checks passed and it landed"}
+	case <-ctx.Done():
+		q.checkStopped.Store(true)
+		return runstate.MergeQueuePass{Outcome: runstate.MergeQueuePassWaiting, Says: "stopped in its checks"}
+	}
+}
+
+func (q *restartQueues) TakeHeld(context.Context) MergeQueueHeldPass { return MergeQueueHeldPass{} }
+
+// A merge queue candidate whose checks are running when the restart limit runs
+// out is let finish them rather than having every check run again on the new
+// build: the session waits for that pass, says which queue's check it is
+// waiting on, and restarts once it has ended. A queue pass that is not in its
+// checks is stopped at the limit as before, and no queue starts a new check
+// stage past it.
+func TestARestartLetsAMergeQueueCandidatesChecksFinish(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness()
+	harness.drainLimit = 15 * time.Minute
+	harness.poll = 5 * time.Millisecond
+	deployment := &deployedOver{}
+	sessions := &recordedSessions{}
+	began := harness.clock()
+	queues := &restartQueues{
+		checking:  runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "main"},
+		reviewing: runstate.MergeQueueKey{Repository: "yoyodyne", TargetBranch: "release"},
+		started:   make(chan struct{}),
+		release:   make(chan struct{}),
+		at:        harness.clock,
+	}
+	// With no work item ready the session sleeps between pulls; it goes on
+	// watching through every sleep.
+	harness.onSleep = func(*scheduleHarness, int) bool { return true }
+	var stage atomic.Int32
+	var pullsPastBound atomic.Int32
+	harness.onPull = func(h *scheduleHarness, pulls int) {
+		switch stage.Load() {
+		case 0:
+			if pulls == 0 {
+				return
+			}
+			<-queues.started
+			deployment.deploy()
+			stage.Store(1)
+		case 1:
+			h.mu.Lock()
+			h.now = began.Add(h.drainLimit)
+			h.mu.Unlock()
+			stage.Store(2)
+		case 2:
+			if pullsPastBound.Add(1) < 5 {
+				return
+			}
+			if queues.checkStopped.Load() {
+				t.Error("the candidate's checks were stopped at the restart limit")
+			}
+			stage.Store(3)
+			close(queues.release)
+		}
+	}
+	open := func(ctx context.Context) (Pull, error) {
+		pull, err := harness.open(ctx)
+		pull.MergeQueues = queues
+		return pull, err
+	}
+	scheduler := Scheduler{Open: open, Watching: true, Sleep: harness.sleep, Now: harness.clock, Sessions: sessions, SessionID: "watch-drain", Deployment: deployment}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Stopped != ScheduleRedeployed || !sessions.restarted() {
+		t.Fatalf("stopped = %q, want the session restarted once the candidate's checks ended: %s", schedule.Stopped, schedule.Render())
+	}
+	if queues.checkStopped.Load() {
+		t.Fatal("the candidate's checks were stopped, so they would run again on the new build")
+	}
+	if !queues.reviewStopped.Load() {
+		t.Fatal("the queue pass at its review was not stopped at the restart limit")
+	}
+	if got := schedule.Drain.QueueChecksWaited; len(got) != 1 || got[0] != "main" {
+		t.Fatalf("queue checks waited = %v, want the main queue's candidate", got)
+	}
+	said := false
+	for _, transition := range sessions.recorded() {
+		if drain := transition.draining; drain != nil && len(drain.CheckWaits) == 1 && drain.CheckWaits[0].Queue == "main" &&
+			drain.CheckWaits[0].Generation == 3 && drain.CheckWaits[0].Check == "make race" &&
+			strings.Contains(drain.Says(), "the merge queue for main, checking candidate generation 3, to finish make race") {
+			said = true
+		}
+	}
+	if !said {
+		t.Fatal("no line the session wrote said it was waiting on the merge queue's running check")
+	}
+	if stages := (&queueCheckStages{}); !stages.begin(queues.checking, 4, began) {
+		t.Fatal("a fresh record refused a check stage")
+	}
+	closed := &queueCheckStages{}
+	closed.close()
+	if closed.begin(queues.checking, 4, began) {
+		t.Fatal("a check stage started past the restart limit")
+	}
+}

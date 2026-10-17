@@ -29,6 +29,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/oneline"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -382,4 +383,133 @@ func renderRedeployStopNotes(outcome Outcome) string {
 		"The session that comes back re-adopts this run at its first pull and continues it from here; `yoyo run` on this item continues it too, if no session does.",
 	)
 	return strings.Join(lines, "\n")
+}
+
+// queueCheckStagesKey is the context key a session's queueCheckStages travels under, on
+// the context its merge queue passes work in.
+type queueCheckStagesKey struct{}
+
+// queueCheckStages is the merge queue check stages a session's queue passes have
+// going. A candidate's checks are one stage whose results count only whole —
+// a stage stopped part-way is set aside and every check in it runs again — so
+// a restart onto a new build does not stop a queue pass in its checks: it
+// waits for the stage to end, each check held to its configured limit, and
+// stops the pass once it is past them. Once the drain bound has run out no
+// queue starts a new check stage; the session that comes back runs it.
+//
+// It is written from the passes' goroutines and read from the session's, so it
+// is guarded.
+type queueCheckStages struct {
+	mu     sync.Mutex
+	closed bool
+	stages map[runstate.MergeQueueKey]*queueCheckStage
+}
+
+// queueCheckStage is one queue's check stage in progress: which generation,
+// the check it is on, when that check launched and under what limit, and when
+// any of that last changed.
+type queueCheckStage struct {
+	generation uint64
+	check      string
+	launched   time.Time
+	limit      time.Duration
+	changed    time.Time
+}
+
+func withQueueCheckStages(ctx context.Context, checks *queueCheckStages) context.Context {
+	return context.WithValue(ctx, queueCheckStagesKey{}, checks)
+}
+
+func queueCheckStagesOf(ctx context.Context) *queueCheckStages {
+	checks, _ := ctx.Value(queueCheckStagesKey{}).(*queueCheckStages)
+	return checks
+}
+
+// begin is a queue's check stage starting. It is refused once the drain bound
+// has run out; where it agrees, end is owed.
+func (q *queueCheckStages) begin(key runstate.MergeQueueKey, generation uint64, now time.Time) bool {
+	if q == nil {
+		return true
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.closed {
+		return false
+	}
+	if q.stages == nil {
+		q.stages = map[runstate.MergeQueueKey]*queueCheckStage{}
+	}
+	q.stages[key] = &queueCheckStage{generation: generation, changed: now}
+	return true
+}
+
+// started is the stage beginning a check, and launched that check launching
+// under its limit.
+func (q *queueCheckStages) started(key runstate.MergeQueueKey, check string, now time.Time) {
+	q.update(key, func(stage *queueCheckStage) {
+		stage.check, stage.launched, stage.limit, stage.changed = check, time.Time{}, 0, now
+	})
+}
+
+func (q *queueCheckStages) launched(key runstate.MergeQueueKey, limit time.Duration, now time.Time) {
+	q.update(key, func(stage *queueCheckStage) {
+		stage.launched, stage.limit, stage.changed = now, limit, now
+	})
+}
+
+func (q *queueCheckStages) update(key runstate.MergeQueueKey, change func(*queueCheckStage)) {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if stage, ok := q.stages[key]; ok {
+		change(stage)
+	}
+}
+
+func (q *queueCheckStages) end(key runstate.MergeQueueKey) {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	delete(q.stages, key)
+}
+
+// close is the drain bound having run out: no queue starts a check stage from
+// here.
+func (q *queueCheckStages) close() {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	q.closed = true
+}
+
+// waiting is each queue whose check stage the restart is waiting for at a
+// moment, with the latest time its current check can run to: its launch plus
+// its limit, or, for a check not yet launched — between two checks, or waiting
+// for a heavy check's place — checkYieldGrace from the stage's last change. A
+// stage past that and the grace after it is not waited for.
+func (q *queueCheckStages) waiting(now time.Time) map[runstate.MergeQueueKey]runstate.WatchCheckWait {
+	if q == nil {
+		return nil
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	waits := map[runstate.MergeQueueKey]runstate.WatchCheckWait{}
+	for key, stage := range q.stages {
+		until := stage.changed.Add(checkYieldGrace)
+		if !stage.launched.IsZero() && stage.limit > 0 {
+			until = stage.launched.Add(stage.limit)
+		}
+		if !now.Before(until.Add(checkYieldGrace)) {
+			continue
+		}
+		check := nonEmpty(stage.check, "its first check")
+		waits[key] = runstate.WatchCheckWait{Queue: key.TargetBranch, Generation: stage.generation, Check: oneline.Fold(check, 512), Until: until}
+	}
+	return waits
 }

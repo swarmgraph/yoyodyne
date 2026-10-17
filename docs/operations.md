@@ -3093,6 +3093,12 @@ recording its verdict is still hosted past the bound:
   gets up to a minute's grace to record its verdict and move the run on to its
   review or a repair; the next look stops it there. This brief wait uses the
   ordinary loop too, so pulls and recurring tasks continue.
+- A merge queue pass whose candidate's checks are running is let finish
+  them, each check up to its configured `execution.check_timeout`, and then
+  stopped; a candidate's checks count only whole, so a stage stopped part-way
+  would run every check again. Every other queue pass is stopped at the bound,
+  and past it no queue starts a new check stage. The session's line names the
+  queue, the candidate's generation, the check, and until when.
 - A document landing run — a confirmed document a role wrote, landed through
   its reviewed run — is never stopped for a restart, at any step: its checks,
   its review, or its promotion. It is short and bounded by its own checks' and

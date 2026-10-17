@@ -1364,6 +1364,10 @@ type ScheduleDrain struct {
 	// stopped, so each landing is recorded as unverified; nothing is left for
 	// the session that comes back.
 	Landings []string `json:"landings,omitempty"`
+	// QueueChecksWaited names the merge queues, by target branch, whose
+	// candidate's checks were running when the bound ran out and were let finish
+	// rather than run again whole on the new build.
+	QueueChecksWaited []string `json:"queue_checks_waited,omitempty"`
 	// ChecksWaited names the work items whose runs had a check running when the
 	// bound ran out and were left to finish it rather than stopped part-way
 	// through it; each then stopped itself before its next check. Records from
@@ -1607,6 +1611,9 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 	boundSaid := false
 	var boundSaidAt time.Time
 	waitingSaid := ""
+	// queueWaits is the merge queue check stages the last look past the bound
+	// left running, which the restart waits for; see queueCheckStages.
+	var queueWaits []runstate.WatchCheckWait
 	// runs is the durable run state as the last pull read it, held outside the
 	// loop because the drain bound is applied at the top of the loop, before a
 	// pull is opened, and applying it means reading which phase each hosted run
@@ -2192,7 +2199,10 @@ pulling:
 			}
 			if running == 0 && drain.expired(s.now()) && publications.active() == 0 {
 				firings.cancel(RedeployDrain{At: s.now(), Bound: drain.limit, SessionID: s.SessionID})
-				queuePasses.cancel()
+				// A merge queue pass in its candidate's checks is let finish them
+				// rather than having every check in the stage run again on the new
+				// build; every other pass is stopped (queueCheckStages).
+				queuePasses.stopForRestart(s.now())
 			}
 			// Past the bound the session hosts nothing more. The runs still going
 			// are stopped where they are — each at a phase the session that comes
@@ -2223,6 +2233,13 @@ pulling:
 				// restart.
 				recheckSoon = s.stopHosted(&schedule, &drain, hosted, landings, mine, runs) > 0
 				drain.publishing += publications.active()
+				queueWaits = queuePasses.checkWaits(s.now())
+				drain.checkWaits = append(drain.checkWaits, queueWaits...)
+				for _, wait := range queueWaits {
+					if !slices.Contains(schedule.Drain.QueueChecksWaited, wait.Queue) {
+						schedule.Drain.QueueChecksWaited = append(schedule.Drain.QueueChecksWaited, wait.Queue)
+					}
+				}
 				reached := drain.record(running)
 				session.draining(reached)
 				// Said once, as it happens, in whatever state the session is in:
@@ -2251,7 +2268,7 @@ pulling:
 			// two recurring passes before it read their endings, and the session
 			// went on pulling nothing for forty minutes until it was restarted by
 			// hand. The stopped runs are collected below, after the loop.
-			if drain.boundReached && liveHosted(mine, hosted) == 0 && publications.active() == 0 {
+			if drain.boundReached && liveHosted(mine, hosted) == 0 && publications.active() == 0 && len(queueWaits) == 0 {
 				schedule.Stopped = ScheduleRedeployed
 				break
 			}
@@ -3507,6 +3524,10 @@ func stopping(schedule Schedule) string {
 				said, schedule.Drain.Bound)
 		default:
 			said = fmt.Sprintf("%s; the drain bound of %s ran out", said, schedule.Drain.Bound)
+		}
+		if len(schedule.Drain.QueueChecksWaited) > 0 {
+			said += fmt.Sprintf("; the checks of the candidate in %d merge queue(s) were let finish rather than run again on the new build: %s",
+				len(schedule.Drain.QueueChecksWaited), strings.Join(schedule.Drain.QueueChecksWaited, ", "))
 		}
 		if len(schedule.Drain.ChecksWaited) > 0 {
 			said += fmt.Sprintf("; the check running in %d run(s) was let finish rather than started over on the new build, and each run stopped before its next check, keeping the results of the checks it had passed: %s",

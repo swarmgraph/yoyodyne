@@ -146,6 +146,20 @@ func TestASessionRestartingIntoADeployedBuildIsNeitherIdleNorAbsent(t *testing.T
 		t.Fatalf("stall = %+v, want a check wait past the stage's end read as what the line otherwise says", stall)
 	}
 
+	// A session waiting for a document landing run past its bound is on its way
+	// back however far past the bound that runs, for as long as its line saying
+	// so is fresh, and is read as stuck only once that line has gone stale.
+	publishingAt := overrunAt.Add(time.Hour)
+	publishing := runstate.WatchTransition{SessionID: "watch-1", State: runstate.WatchIdle, At: publishingAt.Add(-time.Minute),
+		Draining: &runstate.WatchDrain{Since: since, BoundSeconds: 900, Until: since.Add(15 * time.Minute), Hosting: 1, BoundReached: true, Publishing: 1}}
+	if stall := WhyNothingStarts(Conditions{Sessions: held(publishing), Now: publishingAt}); stall.Reason != ReasonRedeploying ||
+		!strings.Contains(stall.Says, "document landing run(s) to finish") {
+		t.Fatalf("stall = %+v, want a session waiting for a document landing read as restarting, saying so", stall)
+	}
+	if stall := WhyNothingStarts(Conditions{Sessions: held(publishing), Now: publishing.At.Add(DrainOverrunGrace)}); stall.Reason != ReasonDrainOverrun {
+		t.Fatalf("stall = %+v, want a stale line waiting for a document landing read as a session draining past its bound", stall)
+	}
+
 	// A poll that declined to pull into a free seat because the bound was under
 	// a poll away is the session's own decision, not a queue nobody is pulling.
 	nearSince := moment.Add(-14 * time.Minute)
