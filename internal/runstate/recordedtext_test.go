@@ -131,6 +131,7 @@ var structuredStrings = map[string]string{
 	"check_stage.command":                                           "a command the configuration declares",
 	"checks_passed.content":                                         "a digest the worktree manager computes over the change",
 	"developer_summary.content":                                     "a digest the worktree manager computes over the change",
+	"earlier_developer_summaries[].content":                         "a digest the worktree manager computes over the change",
 	"checks_passed.commit":                                          "the harness commit the record already holds",
 	"checks_passed.check_set":                                       "a digest of the check commands the configuration declares",
 	"check_stage_continuations[].commit":                            "the harness commit the record already holds",

@@ -63,8 +63,8 @@ func TestReviewReceivesTheDeveloperSummaryOfEachAttempt(t *testing.T) {
 		if !strings.Contains(request.Prompt, provider.DeveloperFinalTextByAttempt[i]) {
 			t.Errorf("review %d lost its developer's compatibility account:\n%s", i, request.Prompt)
 		}
-		if strings.Contains(request.Prompt, provider.DeveloperFinalTextByAttempt[1-i]) {
-			t.Errorf("review %d received the other attempt's summary", i)
+		if i == 0 && strings.Contains(request.Prompt, provider.DeveloperFinalTextByAttempt[1]) {
+			t.Errorf("review %d received a later attempt's summary", i)
 		}
 		if strings.Contains(request.Prompt, "yoyodyne-verification") {
 			t.Errorf("review %d received the execution block as summary prose", i)
@@ -79,6 +79,9 @@ func TestReviewReceivesTheDeveloperSummaryOfEachAttempt(t *testing.T) {
 	}
 	if state.DeveloperSummary == nil || state.DeveloperSummary.Attempt != 1 || state.DeveloperSummary.Text != outcome.Summary {
 		t.Fatalf("durable summary = %#v, want the repaired attempt's account %q", state.DeveloperSummary, outcome.Summary)
+	}
+	if len(state.EarlierDeveloperSummaries) != 1 || state.EarlierDeveloperSummaries[0].Attempt != 0 || state.EarlierDeveloperSummaries[0].Text != provider.DeveloperFinalTextByAttempt[0] {
+		t.Fatalf("earlier summaries = %#v, want the first attempt's account kept", state.EarlierDeveloperSummaries)
 	}
 	events, err := store.LoadEvents(outcome.RunID)
 	if err != nil {
@@ -211,8 +214,9 @@ func TestResumedReviewReceivesTheLatestDeveloperSummaryWithItsContext(t *testing
 			want := first.DeveloperFinalText
 			if mode == "after repair" {
 				want = first.DeveloperFinalTextByAttempt[1]
-				if strings.Contains(prompt, first.DeveloperFinalTextByAttempt[0]) {
-					t.Fatal("re-adoption supplied the account before the repair")
+				earlier := strings.Index(prompt, "### Attempt 0: the developer's own account (untrusted)\n\n"+first.DeveloperFinalTextByAttempt[0])
+				if earlier < 0 || earlier > strings.Index(prompt, want) {
+					t.Fatal("re-adoption lost the account before the repair, or did not show it before the latest")
 				}
 			}
 			if !strings.Contains(prompt, want) {
@@ -256,8 +260,65 @@ func TestADeveloperInvocationRetainsTheLatestAccountUntilItsReplacement(t *testi
 		t.Fatalf("developer attempts = %d, want a first invocation and a repair", provider.DeveloperAttempts)
 	}
 	reviews := provider.RequestsForRole(domain.RoleReviewer)
-	if !strings.Contains(reviews[1].Prompt, "Replacement account.") || strings.Contains(reviews[1].Prompt, "Original account.") {
-		t.Fatal("completed repair did not replace the previous account for review")
+	latest := strings.Index(reviews[1].Prompt, "## Developer's final summary (untrusted claims)")
+	if latest < 0 || !strings.Contains(reviews[1].Prompt[latest:], "Replacement account.") || strings.Contains(reviews[1].Prompt[latest:], "Original account.") {
+		t.Fatal("completed repair did not replace the previous account as the latest one for review")
+	}
+}
+
+func TestTheDeveloperIsToldEachAttemptsSummaryStandsOnItsOwn(t *testing.T) {
+	t.Parallel()
+	if !strings.Contains(developerContract(scratchForTest, nil), "Each attempt's summary stands on its own.") {
+		t.Fatal("the developer contract does not say each attempt's summary stands on its own")
+	}
+	repair, err := repairPrompt("", "", scratchForTest, nil, []runstate.Finding{{Severity: "major", Message: "fix"}}, 1, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(repair, "stands on its own rather than pointing to an earlier attempt's summary") {
+		t.Fatal("the repair prompt does not ask for a summary that stands on its own")
+	}
+}
+
+// On the waiting-reason work (yoyodyne-37h) a reviewer refused a sound change
+// because the repair's summary said "as described in the previous attempt" and
+// only the latest summary reached it. A second-attempt review carries both,
+// each labelled with its attempt and as the developer's own untrusted account,
+// the newest last.
+func TestASecondAttemptReviewCarriesEveryAttemptsSummary(t *testing.T) {
+	t.Parallel()
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	attempts := 0
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		attempts++
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte(strings.Repeat("implemented\n", attempts)), 0o600)
+	}, repairVerdict, approveVerdict)
+	provider.DeveloperFinalTextByAttempt = []string{
+		"First attempt: the wait reason is read from the tracker because the run record cannot hold it.",
+		"Second attempt: fixed the finding, as described in the previous attempt.",
+	}
+	pipeline, _ := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+	if _, err := pipeline.Run(context.Background(), tracker.Item.ID); err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	reviews := provider.RequestsForRole(domain.RoleReviewer)
+	if len(reviews) != 2 {
+		t.Fatalf("reviews = %d, want the original and repaired change", len(reviews))
+	}
+	if strings.Contains(reviews[0].Prompt, "Developer's summaries of earlier attempts") {
+		t.Fatal("a first-attempt review was shown an earlier-attempts section")
+	}
+	prompt := reviews[1].Prompt
+	untrusted := strings.Index(prompt, "# Untrusted review evidence")
+	section := strings.Index(prompt, "## Developer's summaries of earlier attempts (untrusted claims)")
+	first := strings.Index(prompt, "### Attempt 0: the developer's own account (untrusted)\n\n"+provider.DeveloperFinalTextByAttempt[0])
+	latestHeading := strings.Index(prompt, "## Developer's final summary (untrusted claims)")
+	latestLabel := strings.Index(prompt, "Latest completed developer account: recorded at attempt 1")
+	second := strings.Index(prompt, provider.DeveloperFinalTextByAttempt[1])
+	patch := strings.Index(prompt, "# The whole change under review")
+	if untrusted < 0 || section < untrusted || first < section || latestHeading < first || latestLabel < latestHeading || second < latestLabel || patch < second {
+		t.Fatalf("the second review did not carry both summaries, labelled and oldest first, inside the untrusted evidence:\n%s", prompt)
 	}
 }
 
