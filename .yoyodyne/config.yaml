@@ -373,6 +373,9 @@ document_checks:
 path_checks:
   - command: make adoption
     paths: scripts/walk-adoption.paths
+  - command: make codex-resume
+    paths: scripts/codex-resume.paths
+    needs_provider_clis: true
 
 # Every agent is stated in full: nothing about them is inherited. A model
 # selector that names a family, such as "opus", floats to that family's current
