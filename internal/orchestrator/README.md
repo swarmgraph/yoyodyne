@@ -59,7 +59,9 @@ field holds X" questions are answered in `internal/runstate/state.go`.
    `integrate` → `finish`. Promotion races: `contendedIntegration`,
    `prepareIntegrationRetry`, `lostRacesBeforeGivingBackTheSlot` and
    `blockOnLostRaces` (a run that keeps losing gives back its slot with its
-   work kept), `recordRebase`, `continueOnRebaseConflict`,
+   work kept), `replayOntoTarget` (a replay the harness stopped on its time
+   limit is asked again, `replayKilledRetries` times, on a doubled limit),
+   `recordRebase`, `continueOnRebaseConflict`,
    `moveOntoTargetForRepair`, `blockOnRebaseConflict`, `blockOnDivergedTarget`,
    `blockOnPromotedDivergence`. Budget: `repairBudget`, `repair`,
    `chargeReplayStop`, `blockOnChargedReplay`.

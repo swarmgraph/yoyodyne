@@ -144,7 +144,9 @@ const (
 	// conflicted one does, and was being reported as a conflict: terminal, and
 	// telling an operator to settle one that did not exist (run b82c1c5a, under
 	// load against the local Git budget; yoyodyne-ifd.406). Only the integration
-	// stop records it, because a replay happens only there.
+	// stop records it, because a replay happens only there. A replay stopped on
+	// its time limit is retried by the harness first (RetryReplay), so this is
+	// recorded for one only once those retries are spent.
 	CauseReplayKilled EnvironmentalCause = "replay-killed"
 	// CauseDivergedTarget is an approved change whose target branch the harness
 	// would not bring onto the remote's before promoting: the two histories have

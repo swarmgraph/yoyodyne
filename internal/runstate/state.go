@@ -2693,6 +2693,14 @@ const (
 	// writes nothing to the store, and its copy is published only whole
 	// (gitworktree.ErrExportsUnprepared).
 	RetryTrackerExport = "exporting the tracker for the run's worktree"
+	// RetryReplay is an approved change's replay onto a moved target that the
+	// harness stopped on its own budget, with the worktree put back on its
+	// branch (gitworktree.ErrReplayKilled). It is not a transport failure and is
+	// not waited out on the recovery window: the run asks again a fixed number
+	// of times on a growing budget (replayKilledRetries in the orchestrator),
+	// and records each wait here so the run's record says the replay was
+	// retried rather than only that it finally stopped.
+	RetryReplay = "replaying the change onto the moved target"
 )
 
 // MaxRetries bounds how many recoverable failures one run records. The window
