@@ -248,3 +248,64 @@ func TestACopyTheSupervisorCannotAccountForIsReportedAndLeftRunning(t *testing.T
 		t.Errorf("the supervisor said the copy %d times over two looks, want once: %q", said, logged)
 	}
 }
+
+// startRecordingChild is a part that keeps a record of every start the
+// supervisor made of it, as the dashboard does, and so stops the earlier
+// copies it started when asked.
+type startRecordingChild struct {
+	*tabledChild
+	earlier []int
+}
+
+func (c *startRecordingChild) StopEarlierCopies(context.Context) ([]EarlierCopy, error) {
+	var stopped []EarlierCopy
+	for _, pid := range c.earlier {
+		c.table.exit(pid)
+		stopped = append(stopped, EarlierCopy{PID: pid, Said: fmt.Sprintf("pid %d serving on port 8765", pid), Stopped: Stopped{WasRunning: true, PID: pid}})
+	}
+	c.earlier = nil
+	return stopped, nil
+}
+
+// A running copy the supervisor started before the one it runs now, which the
+// part's start records name, is stopped at the supervisor's look at builds and
+// the stop said — never reported as a copy the supervisor cannot account for.
+func TestAnEarlierCopyTheSupervisorStartedIsStoppedRatherThanReportedAsAStranger(t *testing.T) {
+	t.Parallel()
+
+	store := newStore(t)
+	clock := &clock{now: time.Date(2026, 10, 16, 13, 0, 0, 0, time.UTC)}
+	binary := newBinary(t, "2222222222222222")
+	table := newProcessTable()
+	dashboard := &startRecordingChild{tabledChild: &tabledChild{deployableChild: newDeployable(config.ServiceDashboard, binary, nil), table: table, clock: clock}}
+	var mu sync.Mutex
+	var logged []string
+	supervisor := deploySupervisor(t, store, clock, binary, dashboard)
+	supervisor.Copies = table
+	supervisor.Collect = table.collect
+	supervisor.Log = func(format string, args ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		logged = append(logged, fmt.Sprintf(format, args...))
+	}
+	earlier := table.start("dashboard", "1111111111111111", time.Date(2026, 10, 16, 5, 43, 0, 0, time.UTC))
+	dashboard.earlier = []int{earlier}
+
+	supervisor.Tick(context.Background())
+
+	if running := table.running("dashboard"); len(running) != 1 || running[0].PID == earlier {
+		t.Errorf("running copies = %+v, want the supervisor's current copy alone", running)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	stoppedSaid := false
+	for _, line := range logged {
+		if strings.Contains(line, "cannot account for") {
+			t.Errorf("the supervisor said %q of a copy it started", line)
+		}
+		stoppedSaid = stoppedSaid || (strings.Contains(line, "stopped the dashboard service's earlier copy") && strings.Contains(line, fmt.Sprintf("pid %d", earlier)))
+	}
+	if !stoppedSaid {
+		t.Errorf("the supervisor said %q, want the earlier copy's stop said", logged)
+	}
+}

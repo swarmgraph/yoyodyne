@@ -9,12 +9,18 @@ package cli
 // dashboard records itself under that identity, publishes its generated token
 // to the token file, and serves nothing but its health answer until the
 // supervisor has made one request carrying that token and had it accepted.
-// Only then is the start counted, and only then is any other dashboard on the
-// port stopped.
+// Only then is the start counted, and only then is every earlier dashboard the
+// supervisor started stopped, whatever port it serves on, with any dashboard
+// somebody started by hand on the new one's port.
 //
 // So a dashboard is taken up only where its start identity is the one the
 // supervisor recorded and its process is the one that start launched; one
-// started by hand, or one whose record says otherwise, is not this part.
+// started by hand, or one whose record says otherwise, is not this part. The
+// supervisor keeps a record of every start it made until it has seen that
+// start's dashboard stop (runstate.DashboardStore.Starts), so an earlier copy
+// is recognised as its own by its start identity after a later start has
+// replaced it — including one left on a port the configuration has since
+// moved away from.
 // Moving onto a deployed build is a replacement — the new one started and
 // confirmed ready before the old one stops — so the port is never left with no
 // dashboard ready on it. Reattaching to a dashboard that survived the
@@ -166,8 +172,8 @@ func (c dashboardChild) Ensure(ctx context.Context) (supervise.Ensured, error) {
 }
 
 // Replace starts a dashboard from the binary, confirms it ready, and then stops
-// every other dashboard of this product on the port: the one it replaces, or
-// one somebody started there by hand. Where the new one could not bind because
+// every earlier dashboard the supervisor started, on whatever port, and one
+// somebody started by hand on the new one's port. Where the new one could not bind because
 // a dashboard from a build that cannot share the port holds it, that one is
 // stopped first and the start made again, once.
 func (c dashboardChild) Replace(ctx context.Context) (supervise.Ensured, error) {
@@ -185,11 +191,23 @@ func (c dashboardChild) Replace(ctx context.Context) (supervise.Ensured, error) 
 	if err != nil {
 		return supervise.Ensured{}, err
 	}
-	// The new dashboard is serving whatever comes of this: one that would not
-	// stop is still running, and the supervisor's look at the copies of each
-	// part says so.
-	_ = c.stopOthers(ctx, startID)
+	// The new dashboard is serving whatever comes of this: an earlier copy that
+	// would not stop is still running, said by the supervisor, and stopped at
+	// its next look at builds (StopEarlierCopies).
+	ensured.Earlier, _ = c.stopOthers(ctx, startID, true)
 	return ensured, nil
+}
+
+// StopEarlierCopies stops every dashboard the supervisor started before the one
+// it runs now, whatever port each serves on. It stops nothing while the one it
+// runs now is not running, since an earlier copy may then be the only one
+// serving and the start that follows stops it once it is ready.
+func (c dashboardChild) StopEarlierCopies(ctx context.Context) ([]supervise.EarlierCopy, error) {
+	instance, running, err := c.current()
+	if err != nil || !running {
+		return nil, err
+	}
+	return c.stopOthers(ctx, instance.StartID, false)
 }
 
 // errDashboardPortHeld is a dashboard that exited before it was ready because
@@ -315,27 +333,83 @@ func (c dashboardChild) token(ctx context.Context) (string, error) {
 	return supplied.Value, nil
 }
 
-// stopOthers stops every recorded dashboard of this product on the port but
-// the one just confirmed.
-func (c dashboardChild) stopOthers(ctx context.Context, keep string) error {
-	looks, err := c.store.Instances()
+// stopOthers stops every running dashboard the supervisor started but the one
+// to keep, recognised by its start identity and process and never by its port,
+// and, where samePort is set, every other dashboard of this product on the
+// configured port, which is one somebody started by hand there. It returns the
+// supervisor's earlier copies and what stopping each came to, and forgets the
+// start of each that has stopped.
+func (c dashboardChild) stopOthers(ctx context.Context, keep string, samePort bool) ([]supervise.EarlierCopy, error) {
 	var problems []error
+	starts, err := c.store.Starts()
 	if err != nil {
 		problems = append(problems, err)
 	}
+	launched := make(map[string]int, len(starts))
+	for _, start := range starts {
+		launched[start.StartID] = start.PID
+	}
+	looks, lookErr := c.store.Instances()
+	if lookErr != nil {
+		problems = append(problems, lookErr)
+	}
+	stillRunning := map[string]bool{}
+	var earlier []supervise.EarlierCopy
 	for _, look := range looks {
-		if look.Instance.StartID == keep || look.Instance.Port != c.port || !look.Live {
+		instance := look.Instance
+		if instance.StartID == keep || !look.Live {
 			continue
 		}
-		startID := look.Instance.StartID
-		if _, err := c.stopper()(ctx, look.Instance.PID, func() (bool, error) {
+		pid, recorded := launched[instance.StartID]
+		ours := recorded && pid == instance.PID
+		if !ours && (!samePort || instance.Port != c.port) {
+			continue
+		}
+		startID := instance.StartID
+		stopped, err := c.stopper()(ctx, instance.PID, func() (bool, error) {
 			found, ok, err := c.store.Instance(startID)
 			return ok && found.Live, err
-		}); err != nil {
+		})
+		if err != nil || stopped.Detail != "" {
+			stillRunning[startID] = true
+		}
+		if err != nil {
+			problems = append(problems, err)
+		}
+		if !ours {
+			continue
+		}
+		said := supervise.EarlierCopy{PID: instance.PID, Said: describeDashboardCopy(instance), Stopped: stopped}
+		if err != nil {
+			said.Problem = err.Error()
+		}
+		earlier = append(earlier, said)
+	}
+	// A start whose dashboard is not running is one nothing will ever need to
+	// recognise again; one whose dashboard would not stop is kept, so the next
+	// look still knows it for the supervisor's. Where the dashboards' records
+	// could not all be read, nothing is forgotten, since an unread one may be
+	// running.
+	for startID := range launched {
+		if lookErr != nil || startID == keep || stillRunning[startID] {
+			continue
+		}
+		if err := c.store.ForgetStart(startID); err != nil {
 			problems = append(problems, err)
 		}
 	}
-	return errors.Join(problems...)
+	return earlier, errors.Join(problems...)
+}
+
+// describeDashboardCopy is one dashboard in words: its process, the port it
+// serves on, its build, and the start it was.
+func describeDashboardCopy(instance runstate.DashboardInstance) string {
+	build := "on a build that recorded no revision"
+	if instance.Build != "" {
+		build = "on build " + shortBuild(instance.Build)
+	}
+	return fmt.Sprintf("pid %d serving on port %d %s, started %s as %s",
+		instance.PID, instance.Port, build, instance.StartedAt.Local().Format("2006-01-02 15:04 MST"), instance.StartID)
 }
 
 // stopUnsharedHolders stops the dashboards of this product that recorded

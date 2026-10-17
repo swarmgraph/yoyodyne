@@ -316,6 +316,11 @@ type Sources struct {
 	// the file each reads now. It is optional, and a reading without it says
 	// nothing about the parts' builds rather than reporting every part current.
 	ConfigReaders ConfigReaders
+	// Dashboards is the dashboard's own records, which say which running
+	// dashboards the supervisor started by the start records it kept. It is
+	// optional, and a reading without it tells no earlier copy of the
+	// supervisor's from one somebody else started.
+	Dashboards Dashboards
 	// ProgramManagers is every configured agent on the program manager role,
 	// with its lane and its schedule, and RestartRequests is the log of their
 	// requests that the supervisor restart a part. LaneReports, Passes, and

@@ -268,7 +268,7 @@ func TestMoreThanOneCopyAndACopyOnAnOldBuildAreInTheReadModel(t *testing.T) {
 		t.Errorf("factory problems = %+v, want the extra copy among them", standing.FactoryProblems)
 	}
 	rendered := standing.Render() + standing.RenderServices()
-	for _, want := range []string{"Waiting on the development manager", "the slack service has 2 copies running, where one should run", "(not the supervisor's, left running)"} {
+	for _, want := range []string{"Waiting on the development manager", "the slack service has 2 copies running, where one should run", "(not started by the supervisor, so it is left running; `kill 99` stops it)"} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("rendered:\n%s\nwant %q in it", rendered, want)
 		}

@@ -233,8 +233,9 @@ the part is doing:
   pass could post a message whose cursor was never written, and the sink in its
   place would post it again; waiting the pass out is what rules that out.
 - **The dashboard is replaced rather than restarted.** The supervisor starts a
-  new dashboard from the binary on the same port, waits until that one has
-  accepted a request carrying its token, and only then stops the old one, so
+  new dashboard from the binary on the configured port, waits until that one has
+  accepted a request carrying its token, and only then stops the old one —
+  and every earlier dashboard it started, whatever port it serves on — so
   there is no moment at which no dashboard is ready
   ([the dashboard under the product](#the-dashboard-under-the-product)). A
   replacement that cannot be made ready is stopped, the old dashboard goes on
@@ -344,13 +345,23 @@ is compared with nothing and moved by nothing, and its line names no build.
 **More than one copy of a part is a problem with an owner.** `--json` carries
 under `standing.services.copies` every part the supervisor starts, and the
 supervisor itself, with each running copy: its `pid`, `build`, `started_at`,
-whether it is the copy the supervisor runs (`supervised`), and whether it is on
-a build other than the one on disk (`behind`). A part with more than one copy
+whether it is the copy the supervisor runs (`supervised`), whether it is a
+dashboard the supervisor started before the one it runs (`earlier`), and
+whether it is on a build other than the one on disk (`behind`). A part with more than one copy
 running gets a line of its own under its part:
 
 ```text
-  the slack service has 2 copies running, where one should run: pid 48214 on build 3d3d367a1b2c since 2026-10-04 17:35 PDT (the supervisor's); pid 51116 on build c2a73cb68732, an old build, since 2026-10-03 06:09 PDT (not the supervisor's, left running)
+  the slack service has 2 copies running, where one should run: pid 48214 on build 3d3d367a1b2c since 2026-10-04 17:35 PDT (the supervisor's); pid 51116 on build c2a73cb68732, an old build, since 2026-10-03 06:09 PDT (not started by the supervisor, so it is left running; `kill 51116` stops it)
 ```
+
+The supervisor knows a dashboard for its own by the start record it keeps of
+every dashboard it starts, and never by the port it serves on. When it moves
+the dashboard onto a new build it stops every earlier copy it started once the
+new one is ready, even one left on a port the configuration has since moved
+away from, and says each in its log; one that would not stop is shown as an
+earlier copy the supervisor started and is stopped at its next look at builds,
+every thirty seconds. A copy is said to be not started by the supervisor only
+when no start record it kept names it.
 
 The same sentence is on the fourth line under **Waiting on the development
 manager**, as a `service-copies` entry: the supervisor collects every copy it
@@ -6019,9 +6030,13 @@ later dashboard wrote over it.
 **Moving onto a new build has no gap.** The new dashboard is started on the
 same port while the old one still serves it — a supervised dashboard binds its
 port so that the dashboard replacing it can bind it too — and the old one is
-stopped only once the new one has been confirmed ready. A dashboard somebody
-started by hand on the same port is stopped at the same moment; one on another
-port is left alone. A dashboard from a build before this, which cannot share
+stopped only once the new one has been confirmed ready. The supervisor knows
+the old one, and every earlier dashboard it started, by the start record it
+keeps of each start rather than by the port it serves on, so one left on a
+port the configuration has since moved away from is stopped too, and each stop
+is said in the supervisor's log. A dashboard somebody started by hand on the
+new one's port is stopped at the same moment; one started by hand on another
+port is left alone and reported as not started by the supervisor. A dashboard from a build before this, which cannot share
 its port, is stopped first where the new one's log says the port is held, and
 the new one is started again once; that is the one move with a moment of no
 dashboard, and it happens once, as the product takes the dashboard over.

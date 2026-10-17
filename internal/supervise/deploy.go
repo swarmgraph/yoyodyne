@@ -273,6 +273,7 @@ func (s *Supervisor) replace(ctx context.Context, child Child, replacer Replaces
 		s.log("the %s service %s", child.Name(), state.Redeploy)
 		return
 	}
+	s.sayEarlier(child.Name(), ensured.Earlier)
 	state.State = runstate.ChildRunning
 	state.Reason = ""
 	state.PID = ensured.PID
