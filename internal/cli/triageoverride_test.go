@@ -109,7 +109,7 @@ func TestAnOperatorOverrideMakesTheRefusedDecisionRecordable(t *testing.T) {
 	}
 
 	// So the development manager escalates, which blocks the item and reaches the
-	// operator. That is the point the operator reads the refusal and rules on it.
+	// Lead Product Manager. The cap is then crossed by the operator's hand.
 	escalated := sendTriageTurn(t, session, "Nothing here is going to move without you.")
 	if !escalated.Applied || len(tracker.blocked) != 1 {
 		t.Fatalf("the escalation was not carried out: outcome %#v, blocked %#v", escalated, tracker.blocked)
@@ -283,12 +283,16 @@ func triageDecisionReply(prose, decision, reason string) string {
 	return prose + "\n\n```yoyodyne-tracker\n{\"actions\":[" + action + "]}\n```\n"
 }
 
-// escalationReply is the decision that reaches the operator: a blocker on the
-// item and, in the same reply, a report at warning severity, without which the
-// harness refuses the escalation whole.
+// escalationReply takes the refused decision up the escalation ladder: a
+// blocker on the item and, in the same reply, a report at warning severity
+// addressed to the Lead Product Manager, without which the harness refuses the
+// escalation whole. Raising a cap is no reason on the operator's closed list, so
+// the escalation names her rather than him.
 func escalationReply() string {
-	return triageDecisionReply("This one needs you.", "escalate", "the round cap refuses every decision that would move it") +
-		"\n```yoyodyne-report\n{\"reports\":[{\"severity\":\"warning\",\"message\":\"" +
+	action := fmt.Sprintf(`{"action":"triage","id":%q,"run":%q,"decision":"escalate","to":"product-manager","reason":%q}`,
+		cappedItem, cappedRun, "the round cap refuses every decision that would move it")
+	return "This one needs the Lead Product Manager.\n\n```yoyodyne-tracker\n{\"actions\":[" + action + "]}\n```\n" +
+		"\n```yoyodyne-report\n{\"reports\":[{\"severity\":\"warning\",\"for\":\"product-manager\",\"message\":\"" +
 		cappedItem + " is past its review round cap; its last round was an approval and the promotion then conflicted.\"}]}\n```\n"
 }
 
