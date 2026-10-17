@@ -1899,7 +1899,9 @@ var standingWarningAgeSeconds = 5 * 60;
           add("Process " + running.pid,
             (running.build ? "build " + running.build.slice(0, 12) + (running.behind ? ", an old build" : "") : "a build that recorded no revision") +
             ", started " + (named(running.started_at) ? dayAndClock(running.started_at) : "at a time not recorded") +
-            (running.supervised ? "; the supervisor's" : "; not the supervisor's, left running"), "card-field-prose");
+            (running.supervised ? "; the supervisor's"
+              : running.earlier ? "; an earlier copy the supervisor started, which it stops at its next look at builds"
+              : "; not started by the supervisor, so it is left running; `kill " + running.pid + "` stops it"), "card-field-prose");
         });
         break;
       case "failing-task":

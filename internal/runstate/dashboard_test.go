@@ -5,6 +5,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -98,6 +100,81 @@ func TestTheSupervisorsRecordOfTheDashboardsStartIsKept(t *testing.T) {
 	start, found, err := store.Start()
 	if err != nil || !found || start.StartID != startID || start.PID != 4242 || !start.StartedAt.Equal(at) {
 		t.Errorf("Start() = %+v, %v, %v", start, found, err)
+	}
+}
+
+// A dashboard is the supervisor's when its start identity is among the starts
+// the supervisor recorded and its process is the one that start launched,
+// whatever port it serves on. A later start keeps the earlier one — even one a
+// build that kept only the latest start recorded — until it is forgotten.
+func TestADashboardIsTheSupervisorsByItsStartRecordWhateverItsPort(t *testing.T) {
+	t.Parallel()
+
+	store := newDashboardStore(t)
+	register := func(instance DashboardInstance) {
+		t.Helper()
+		lease, err := store.Register(instance)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = lease.Release() })
+	}
+	at := time.Date(2026, 10, 16, 5, 43, 0, 0, time.UTC)
+	earlier := dashboardInstance(t, 8765)
+	register(earlier)
+	if err := store.RecordStart(DashboardStart{StartID: earlier.StartID, PID: earlier.PID, Port: 8765, StartedAt: at}); err != nil {
+		t.Fatal(err)
+	}
+	// A build that kept only the latest start wrote nothing under starts/.
+	if err := os.Remove(filepath.Join(store.Directory(), dashboardStartsFolder, earlier.StartID+".json")); err != nil {
+		t.Fatal(err)
+	}
+	later := dashboardInstance(t, 8080)
+	register(later)
+	if err := store.RecordStart(DashboardStart{StartID: later.StartID, PID: later.PID, Port: 8080, StartedAt: at.Add(8 * time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	byHand := dashboardInstance(t, 8765)
+	byHand.Supervised = false
+	register(byHand)
+	// A start whose process is not the one serving under its identity is not
+	// the supervisor's dashboard either.
+	otherProcess := dashboardInstance(t, 8080)
+	otherProcess.PID = os.Getpid() + 1
+	register(otherProcess)
+	if err := os.WriteFile(filepath.Join(store.Directory(), dashboardStartsFolder, otherProcess.StartID+".json"),
+		[]byte(`{"schema_version":1,"product_id":"yoyodyne","start_id":"`+otherProcess.StartID+`","pid":`+strconv.Itoa(os.Getpid())+`,"port":8080,"started_at":"2026-10-16T06:00:00Z"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	starts, err := store.Starts()
+	if err != nil || len(starts) != 3 || starts[0].StartID != earlier.StartID {
+		t.Fatalf("Starts() = %+v, %v, want the earlier start kept, oldest first, beside the later two", starts, err)
+	}
+	ids := func(instances []DashboardInstance) []string {
+		var said []string
+		for _, instance := range instances {
+			said = append(said, instance.StartID)
+		}
+		sort.Strings(said)
+		return said
+	}
+	want := []string{earlier.StartID, later.StartID}
+	sort.Strings(want)
+	started, err := store.StartedBySupervisor()
+	if err != nil || strings.Join(ids(started), " ") != strings.Join(want, " ") {
+		t.Errorf("StartedBySupervisor() = %v, %v, want the copies on ports 8765 and 8080 the supervisor started, and neither of the others", ids(started), err)
+	}
+
+	if err := store.ForgetStart(earlier.StartID); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ForgetStart(later.StartID); err != nil {
+		t.Fatal(err)
+	}
+	started, err = store.StartedBySupervisor()
+	if err != nil || len(started) != 1 || started[0].StartID != later.StartID {
+		t.Errorf("StartedBySupervisor() after forgetting = %v, %v, want the latest start alone, which supervised.json keeps", ids(started), err)
 	}
 }
 

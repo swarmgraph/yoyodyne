@@ -16,6 +16,11 @@ package supervise
 //     its process and every uncollected child with it;
 //   - a copy that is gone has its record removed, so the records are the parts
 //     running rather than every start the product has made;
+//   - a copy still running that the supervisor started before the one it runs
+//     now, which a part that keeps a record of each start can name
+//     (StopsEarlierCopies; the dashboard does), is stopped and the stop said.
+//     A replacement stops these as soon as it is ready; this look stops any
+//     that stop did not, whatever port or build it is on;
 //   - a copy still running that is not the supervisor's is one it did not start
 //     and cannot account for. It is said in the log once, with its process,
 //     build, and start time, and left running: stopping a process nobody can
@@ -27,6 +32,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -43,9 +49,58 @@ type Identified interface {
 	HolderPID(ctx context.Context) int
 }
 
+// StopsEarlierCopies is a child that keeps a record of every start the
+// supervisor made of it, and so can tell the copies the supervisor started
+// before the one it runs now from copies nobody can account for, and stop them.
+type StopsEarlierCopies interface {
+	StopEarlierCopies(ctx context.Context) ([]EarlierCopy, error)
+}
+
+// EarlierCopy is one copy of a part the supervisor started before the one it
+// runs now, and what stopping it came to.
+type EarlierCopy struct {
+	PID int
+	// Said is the copy in words: its process, where it served, its build, and
+	// the start it was.
+	Said    string
+	Stopped Stopped
+	// Problem is why it could not be stopped, where it could not.
+	Problem string
+}
+
+// sayEarlier logs each earlier copy a child stopped, or could not, which is the
+// supervisor's record that it did.
+func (s *Supervisor) sayEarlier(name config.ServiceName, copies []EarlierCopy) {
+	for _, earlier := range copies {
+		switch {
+		case earlier.Problem != "":
+			s.log("the %s service's earlier copy %s, which the supervisor started, could not be stopped and is tried again at the next look at builds: %s", name, earlier.Said, earlier.Problem)
+		case earlier.Stopped.Detail != "":
+			s.log("asked the %s service's earlier copy %s, which the supervisor started, to stop; %s", name, earlier.Said, earlier.Stopped.Detail)
+		default:
+			s.log("stopped the %s service's earlier copy %s, which the supervisor started and a newer copy has replaced", name, earlier.Said)
+		}
+	}
+}
+
 // settleCopies is one look over the recorded copies of every part the
 // supervisor hosts, and of the supervisor.
-func (s *Supervisor) settleCopies() {
+func (s *Supervisor) settleCopies(ctx context.Context) {
+	earlier := map[int]bool{}
+	for _, child := range s.Children {
+		stops, ok := child.(StopsEarlierCopies)
+		if !ok {
+			continue
+		}
+		copies, err := stops.StopEarlierCopies(ctx)
+		if err != nil {
+			s.sayOnce(fmt.Sprintf("which copies of the %s service the supervisor started could not all be read, so one it started may be left running until the next look: %v", child.Name(), err))
+		}
+		s.sayEarlier(child.Name(), copies)
+		for _, said := range copies {
+			earlier[said.PID] = true
+		}
+	}
 	if s.Copies == nil {
 		return
 	}
@@ -86,7 +141,7 @@ func (s *Supervisor) settleCopies() {
 			s.log("collected the %s service's copy pid %d, %s, started %s, which had exited after it was stopped; nothing of it was running",
 				reader.Service, reader.PID, describeCopyBuild(reader.Build), reader.StartedAt.Local().Format(time.RFC3339))
 			process.Look = runstate.ProcessLook{}
-		case process.Running() && reader.PID != running && running > 0:
+		case process.Running() && reader.PID != running && running > 0 && !earlier[reader.PID]:
 			if key := reader.InstanceID(); !s.unaccounted[key] {
 				s.unaccounted[key] = true
 				s.log("found a copy of the %s service the supervisor did not start and cannot account for: pid %d, %s, started %s; it is left running rather than stopped blindly, and `yoyo status` reports it",

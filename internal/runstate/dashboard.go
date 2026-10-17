@@ -14,6 +14,13 @@ package runstate
 //     still serving is the operating system's answer rather than the record's.
 //   - supervised.json: the supervisor's own record of the dashboard it started
 //     — the start identity a dashboard is taken up against.
+//   - starts/<start id>.json: the supervisor's record of every start it made
+//     whose dashboard it has not yet seen stop, the latest among them. A
+//     dashboard is the supervisor's own because its start identity is one of
+//     these and its process the one that start launched — never because of the
+//     port it serves on, which a configuration or a build can move — so an
+//     earlier copy is still recognised, and stopped, once a later start has
+//     replaced supervised.json.
 //   - token: the generated token, written whole by rename into a directory of
 //     mode 0700, in a file of mode 0600, never through a symbolic link, and
 //     refused rather than repaired where either is not as it should be. A token
@@ -46,6 +53,7 @@ const (
 	dashboardDirectory       = "dashboard"
 	dashboardInstancesFolder = "instances"
 	dashboardStartFile       = "supervised.json"
+	dashboardStartsFolder    = "starts"
 	// DashboardTokenFile is the generated token's file name in the dashboard
 	// directory.
 	DashboardTokenFile = "token"
@@ -437,7 +445,10 @@ func (s *DashboardStore) held(directory *repowrite.PinnedRoot, startID string) (
 	return true, nil
 }
 
-// RecordStart writes the supervisor's record of the dashboard it started.
+// RecordStart writes the supervisor's record of the dashboard it started, as
+// the latest start and among every start it made. The start it replaces as the
+// latest is kept among them first, which is how a start recorded by a build
+// that kept only the latest is still recognised as the supervisor's after it.
 func (s *DashboardStore) RecordStart(start DashboardStart) error {
 	start.SchemaVersion = DashboardSchemaVersion
 	start.ProductID = s.productID
@@ -453,6 +464,22 @@ func (s *DashboardStore) RecordStart(start DashboardStart) error {
 		return err
 	}
 	defer directory.Close()
+	if err := directory.MakeDirectory(dashboardStartsFolder, 0o700); err != nil {
+		return fmt.Errorf("create the dashboard starts directory: %w", err)
+	}
+	if previous, found, err := s.readStart(directory, dashboardStartFile); err == nil && found && previous.StartID != start.StartID {
+		kept := filepath.Join(dashboardStartsFolder, previous.StartID+".json")
+		if _, err := directory.Lstat(kept); errors.Is(err, fs.ErrNotExist) {
+			if earlier, err := encodeRecord("dashboard start", previous); err == nil {
+				if err := directory.WriteFile(kept, earlier, 0o600, false); err != nil {
+					return fmt.Errorf("keep the record of the dashboard's earlier start %s: %w", previous.StartID, err)
+				}
+			}
+		}
+	}
+	if err := directory.WriteFile(filepath.Join(dashboardStartsFolder, start.StartID+".json"), encoded, 0o600, false); err != nil {
+		return fmt.Errorf("record the dashboard's start %s: %w", start.StartID, err)
+	}
 	if err := directory.WriteFile(dashboardStartFile, encoded, 0o600, false); err != nil {
 		return fmt.Errorf("record the dashboard's start: %w", err)
 	}
@@ -470,7 +497,11 @@ func (s *DashboardStore) Start() (DashboardStart, bool, error) {
 		return DashboardStart{}, false, err
 	}
 	defer directory.Close()
-	encoded, err := directory.ReadFile(dashboardStartFile)
+	return s.readStart(directory, dashboardStartFile)
+}
+
+func (s *DashboardStore) readStart(directory *repowrite.PinnedRoot, name string) (DashboardStart, bool, error) {
+	encoded, err := directory.ReadFile(name)
 	if errors.Is(err, fs.ErrNotExist) {
 		return DashboardStart{}, false, nil
 	}
@@ -487,6 +518,90 @@ func (s *DashboardStore) Start() (DashboardStart, bool, error) {
 		return DashboardStart{}, false, err
 	}
 	return start, true, nil
+}
+
+// Starts is every start the supervisor recorded and has not forgotten, the
+// latest among them, oldest first.
+func (s *DashboardStore) Starts() ([]DashboardStart, error) {
+	directory, err := s.existing()
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer directory.Close()
+	var starts []DashboardStart
+	var problems []error
+	seen := map[string]bool{}
+	latest, found, err := s.readStart(directory, dashboardStartFile)
+	if err != nil {
+		problems = append(problems, err)
+	}
+	if found {
+		starts = append(starts, latest)
+		seen[latest.StartID] = true
+	}
+	entries, err := directory.ReadDirectory(dashboardStartsFolder)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		problems = append(problems, fmt.Errorf("list the dashboard's starts: %w", err))
+	}
+	for _, entry := range entries {
+		startID, isRecord := strings.CutSuffix(entry.Name(), ".json")
+		if !isRecord || !ValidDashboardStartID(startID) || seen[startID] {
+			continue
+		}
+		start, found, err := s.readStart(directory, filepath.Join(dashboardStartsFolder, entry.Name()))
+		if err != nil {
+			problems = append(problems, fmt.Errorf("the dashboard's start %s: %w", startID, err))
+			continue
+		}
+		if found && start.StartID == startID {
+			starts = append(starts, start)
+			seen[startID] = true
+		}
+	}
+	sort.Slice(starts, func(i, j int) bool { return starts[i].StartedAt.Before(starts[j].StartedAt) })
+	return starts, errors.Join(problems...)
+}
+
+// ForgetStart removes the record of an earlier start whose dashboard has
+// stopped. The latest start is kept in supervised.json whatever this removes.
+func (s *DashboardStore) ForgetStart(startID string) error {
+	if !ValidDashboardStartID(startID) {
+		return fmt.Errorf("dashboard start identity %q is not one", startID)
+	}
+	directory, err := s.existing()
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	defer directory.Close()
+	if err := directory.Remove(filepath.Join(dashboardStartsFolder, startID+".json")); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("forget the dashboard's start %s: %w", startID, err)
+	}
+	return nil
+}
+
+// StartedBySupervisor is every running dashboard the supervisor started: each
+// whose start identity is among the starts it recorded, run by the process
+// that start launched. Which port each serves on has no part in it.
+func (s *DashboardStore) StartedBySupervisor() ([]DashboardInstance, error) {
+	starts, err := s.Starts()
+	launched := make(map[string]int, len(starts))
+	for _, start := range starts {
+		launched[start.StartID] = start.PID
+	}
+	looks, lookErr := s.Instances()
+	var started []DashboardInstance
+	for _, look := range looks {
+		if pid, ours := launched[look.Instance.StartID]; ours && look.Live && pid == look.Instance.PID {
+			started = append(started, look.Instance)
+		}
+	}
+	return started, errors.Join(err, lookErr)
 }
 
 // DashboardTokenReceipt is what publishing the token left: the file it wrote,

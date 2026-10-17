@@ -15,6 +15,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
+	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
 	"github.com/mason-bryant/yoyodyne/internal/supervise"
@@ -38,6 +39,11 @@ type fakeDashboards struct {
 	answerAs     string
 	supplied     string
 	launches     []slack.Launch
+	// readers, where set, is where each dashboard records itself as reading the
+	// configuration, as `yoyo dashboard` does, and refuse is the processes that
+	// do not stop when asked.
+	readers *runstate.ConfigReaderStore
+	refuse  map[int]bool
 }
 
 func newFakeDashboards(t *testing.T, store *runstate.DashboardStore) *fakeDashboards {
@@ -61,10 +67,14 @@ func (f *fakeDashboards) Launch(spec slack.Launch) (int, error) {
 	defer f.mu.Unlock()
 	f.launches = append(f.launches, spec)
 	startID := spec.Args[slices.Index(spec.Args, "--start-id")+1]
+	port, err := strconv.Atoi(spec.Args[slices.Index(spec.Args, "--port")+1])
+	if err != nil {
+		f.t.Fatal(err)
+	}
 	f.next++
 	pid := f.next
 	instance := runstate.DashboardInstance{StartID: startID, PID: pid, Build: "deployed-build", StartedAt: time.Now().UTC(),
-		URL: "http://127.0.0.1:8765/", Port: 8765, ReadyURL: "http://127.0.0.1:45999/", Supervised: true}
+		URL: "http://127.0.0.1:" + strconv.Itoa(port) + "/", Port: port, ReadyURL: "http://127.0.0.1:45999/", Supervised: true}
 	switch {
 	case f.tokenProblem != "":
 		instance.TokenProblem = f.tokenProblem
@@ -83,8 +93,29 @@ func (f *fakeDashboards) Launch(spec slack.Launch) (int, error) {
 		f.t.Fatal(err)
 	}
 	f.alive[pid] = lease
+	f.recordReader(instance)
 	f.events = append(f.events, "launch "+startID)
 	return pid, nil
+}
+
+// recordReader records a dashboard as reading the configuration, which is the
+// record every reading of the copies of a part counts.
+func (f *fakeDashboards) recordReader(instance runstate.DashboardInstance) {
+	if f.readers == nil {
+		return
+	}
+	if err := f.readers.Record(runstate.ConfigReader{Service: string(config.ServiceDashboard), PID: instance.PID, Build: instance.Build,
+		ConfigPath: "/repo/.yoyodyne/config.yaml", StartedAt: instance.StartedAt, Keys: []string{"product"}}); err != nil {
+		f.t.Fatal(err)
+	}
+}
+
+// alivePID is the process check the configuration readers' store asks.
+func (f *fakeDashboards) alivePID(pid int) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	_, alive := f.alive[pid]
+	return alive, nil
 }
 
 // handStarted registers a dashboard somebody started by hand on the port.
@@ -99,6 +130,7 @@ func (f *fakeDashboards) handStarted(port int) runstate.DashboardInstance {
 		f.t.Fatal(err)
 	}
 	f.alive[instance.PID] = lease
+	f.recordReader(instance)
 	return instance
 }
 
@@ -115,6 +147,10 @@ func (f *fakeDashboards) stop(_ context.Context, pid int, _ func() (bool, error)
 	lease, alive := f.alive[pid]
 	if !alive {
 		return supervise.Stopped{}, nil
+	}
+	if f.refuse[pid] {
+		f.events = append(f.events, "refused "+strconv.Itoa(pid))
+		return supervise.Stopped{WasRunning: true, PID: pid}, errors.New("it was still holding its lease when the wait ran out")
 	}
 	_ = lease.Release()
 	delete(f.alive, pid)
@@ -321,5 +357,178 @@ func TestASuppliedTokenConfirmsTheDashboardAndIsNeverPublished(t *testing.T) {
 	}
 	if serving := child.Serving(context.Background()); serving.TokenFile != "" {
 		t.Errorf("Serving() named a token file %q for a supplied token", serving.TokenFile)
+	}
+}
+
+// recordedSupervision is the supervisor's record as the read model asks about
+// it, naming the dashboard the supervisor runs now.
+type recordedSupervision struct{ dashboard int }
+
+func (recordedSupervision) Running() (bool, error) { return true, nil }
+
+func (r recordedSupervision) Load() (runstate.Supervision, bool, error) {
+	return runstate.Supervision{PID: 4242, Children: []runstate.SupervisedChild{
+		{Service: config.ServiceDashboard, State: runstate.ChildRunning, PID: r.dashboard},
+	}}, true, nil
+}
+
+// copiesProblems is every entry the reading raises about more than one copy of
+// a part, on the attention line and among the factory problems.
+func copiesProblems(standing readmodel.Standing) []readmodel.Attention {
+	var raised []readmodel.Attention
+	for _, entry := range append(slices.Clone(standing.NeedsHuman), standing.FactoryProblems...) {
+		if entry.Kind == readmodel.AttentionServiceCopies {
+			raised = append(raised, entry)
+		}
+	}
+	return raised
+}
+
+func dashboardReaders(t *testing.T, child dashboardChild, fakes *fakeDashboards) {
+	t.Helper()
+	readers, err := runstate.NewConfigReaderStore(child.logRoot, child.product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakes.readers = readers.WithProcessCheck(fakes.alivePID)
+}
+
+func readCopies(child dashboardChild, fakes *fakeDashboards, supervised int) readmodel.Standing {
+	return readmodel.ReadStanding(context.Background(), readmodel.Sources{
+		Supervision:   recordedSupervision{dashboard: supervised},
+		ConfigReaders: fakes.readers,
+		Dashboards:    child.store,
+	})
+}
+
+// The supervisor knows a dashboard it started by the start record it kept and
+// not by the port it serves on: handing the dashboard to a build configured for
+// another port stops the copy it started on the old port once the new one is
+// ready, says that it did, forgets that start, and leaves the problems list
+// naming no stray copy.
+func TestHandingTheDashboardToABuildOnAnotherPortStopsTheCopyOnTheOldPort(t *testing.T) {
+	t.Parallel()
+	child, fakes := newDashboardChild(t)
+	dashboardReaders(t, child, fakes)
+	first, err := child.Ensure(context.Background())
+	if err != nil || !first.Started {
+		t.Fatalf("Ensure() = %+v, %v", first, err)
+	}
+
+	child.port = 8080
+	replaced, err := child.Replace(context.Background())
+	if err != nil || !replaced.Started || replaced.PID == first.PID {
+		t.Fatalf("Replace() onto port 8080 = %+v, %v", replaced, err)
+	}
+	if launch := fakes.launches[1]; !slices.Contains(launch.Args, "8080") {
+		t.Errorf("the replacement was launched with %v, want port 8080", launch.Args)
+	}
+	events := fakes.said()[2:]
+	readyAt := slices.IndexFunc(events, func(event string) bool { return strings.HasPrefix(event, "ready ") })
+	if at := slices.Index(events, "stop "+strconv.Itoa(first.PID)); at < 0 || at < readyAt {
+		t.Errorf("events = %v, want the copy on port 8765 stopped after the replacement was confirmed ready", events)
+	}
+	if len(replaced.Earlier) != 1 || replaced.Earlier[0].PID != first.PID || replaced.Earlier[0].Problem != "" ||
+		!strings.Contains(replaced.Earlier[0].Said, "port 8765") {
+		t.Errorf("Replace() said it stopped %+v, want the copy on port 8765, stopped", replaced.Earlier)
+	}
+	if starts, err := child.store.Starts(); err != nil || len(starts) != 1 || starts[0].PID != replaced.PID {
+		t.Errorf("Starts() = %+v, %v, want only the replacement's start kept", starts, err)
+	}
+
+	standing := readCopies(child, fakes, replaced.PID)
+	if raised := copiesProblems(standing); len(raised) != 0 {
+		t.Errorf("the problems list raised %+v after the handover, want no stray copy", raised)
+	}
+	for _, copies := range standing.Services.Copies {
+		if copies.Service == string(config.ServiceDashboard) && copies.Count() != 1 {
+			t.Errorf("dashboard copies = %+v, want the replacement alone", copies)
+		}
+	}
+}
+
+// A dashboard the supervisor did not start is never stopped for being on
+// another port, by a handover or by the supervisor's later looks, and the
+// problems list goes on reporting it as not the supervisor's, naming its
+// process and what stops it.
+func TestADashboardTheSupervisorDidNotStartIsReportedAndLeftRunning(t *testing.T) {
+	t.Parallel()
+	child, fakes := newDashboardChild(t)
+	dashboardReaders(t, child, fakes)
+	if _, err := child.Ensure(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	stranger := fakes.handStarted(9999)
+
+	child.port = 8080
+	replaced, err := child.Replace(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if later, err := child.StopEarlierCopies(context.Background()); err != nil || len(later) != 0 {
+		t.Errorf("StopEarlierCopies() = %+v, %v, want nothing to stop", later, err)
+	}
+	if slices.Contains(fakes.said(), "stop "+strconv.Itoa(stranger.PID)) {
+		t.Errorf("events = %v, the dashboard the supervisor did not start was stopped", fakes.said())
+	}
+	for _, earlier := range replaced.Earlier {
+		if earlier.PID == stranger.PID {
+			t.Errorf("Replace() said %+v as the supervisor's earlier copy", earlier)
+		}
+	}
+
+	raised := copiesProblems(readCopies(child, fakes, replaced.PID))
+	if len(raised) == 0 {
+		t.Fatal("the problems list raised nothing, want the dashboard the supervisor did not start")
+	}
+	pid := strconv.Itoa(stranger.PID)
+	for _, entry := range raised {
+		what := entry.What()
+		for _, want := range []string{"pid " + pid, "not started by the supervisor, so it is left running; `kill " + pid + "` stops it"} {
+			if !strings.Contains(what, want) {
+				t.Errorf("what = %q, want %q in it", what, want)
+			}
+		}
+	}
+}
+
+// An earlier copy that would not stop at the handover is still the
+// supervisor's: the problems list says so rather than calling it a stranger,
+// its start is kept, and the supervisor's next look stops it.
+func TestAnEarlierDashboardThatWouldNotStopIsStoppedAtTheNextLook(t *testing.T) {
+	t.Parallel()
+	child, fakes := newDashboardChild(t)
+	dashboardReaders(t, child, fakes)
+	first, err := child.Ensure(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	fakes.refuse = map[int]bool{first.PID: true}
+
+	child.port = 8080
+	replaced, err := child.Replace(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(replaced.Earlier) != 1 || replaced.Earlier[0].Problem == "" {
+		t.Errorf("Replace() said %+v, want the copy that would not stop with why", replaced.Earlier)
+	}
+	raised := copiesProblems(readCopies(child, fakes, replaced.PID))
+	if len(raised) == 0 || !strings.Contains(raised[0].What(), "an earlier copy the supervisor started") || strings.Contains(raised[0].What(), "not started by the supervisor") {
+		t.Errorf("the problems list raised %+v, want the copy said as an earlier one of the supervisor's", raised)
+	}
+
+	fakes.mu.Lock()
+	fakes.refuse = nil
+	fakes.mu.Unlock()
+	later, err := child.StopEarlierCopies(context.Background())
+	if err != nil || len(later) != 1 || later[0].PID != first.PID || later[0].Problem != "" {
+		t.Errorf("StopEarlierCopies() = %+v, %v, want the copy on port 8765 stopped", later, err)
+	}
+	if raised := copiesProblems(readCopies(child, fakes, replaced.PID)); len(raised) != 0 {
+		t.Errorf("the problems list raised %+v once the earlier copy stopped, want nothing", raised)
+	}
+	if starts, _ := child.store.Starts(); len(starts) != 1 {
+		t.Errorf("Starts() = %+v, want the earlier start forgotten", starts)
 	}
 }

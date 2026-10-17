@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -46,6 +47,11 @@ type ServiceCopy struct {
 	Supervised bool `json:"supervised"`
 	// Behind is a copy on a build other than the one on disk.
 	Behind bool `json:"behind"`
+	// Earlier is a copy the supervisor started before the one its record
+	// names, known by the start record it kept of it rather than by the port it
+	// serves on; the supervisor stops it at its next look at builds. Only the
+	// dashboard keeps such records.
+	Earlier bool `json:"earlier,omitempty"`
 }
 
 // Count is how many copies are running.
@@ -87,17 +93,25 @@ func (c ServiceCopy) describe() string {
 			build += ", an old build,"
 		}
 	}
-	whose := "not the supervisor's, left running"
-	if c.Supervised {
+	var whose string
+	switch {
+	case c.Supervised:
 		whose = "the supervisor's"
+	case c.Earlier:
+		whose = "an earlier copy the supervisor started, which it stops at its next look at builds"
+	default:
+		whose = fmt.Sprintf("not started by the supervisor, so it is left running; `kill %d` stops it", c.PID)
 	}
 	return fmt.Sprintf("pid %d %s since %s (%s)", c.PID, build, localMoment(c.StartedAt), whose)
 }
 
 // readServiceCopies is the running copies of each part the supervisor's record
 // says it hosts — every child that is a process it starts — and of the
-// supervisor, from the records the copies wrote as they started.
-func readServiceCopies(record runstate.Supervision, readers []runstate.ConfigReader) []ServiceCopies {
+// supervisor, from the records the copies wrote as they started. started is
+// the process of each running dashboard the supervisor started, by the start
+// records it kept, which is what tells an earlier copy of its own from one
+// somebody else started.
+func readServiceCopies(record runstate.Supervision, readers []runstate.ConfigReader, started map[int]bool) []ServiceCopies {
 	supervised := map[string]int{runstate.ConfigReaderSupervisor: record.PID}
 	for _, child := range record.Children {
 		switch child.State {
@@ -120,12 +134,14 @@ func readServiceCopies(record runstate.Supervision, readers []runstate.ConfigRea
 			copies = &ServiceCopies{Service: reader.Service, Deployed: record.Deployed, Copies: []ServiceCopy{}}
 			byService[reader.Service] = copies
 		}
+		supervisedCopy := pid > 0 && reader.PID == pid
 		copies.Copies = append(copies.Copies, ServiceCopy{
 			PID:        reader.PID,
 			Build:      reader.Build,
 			StartedAt:  reader.StartedAt,
-			Supervised: pid > 0 && reader.PID == pid,
+			Supervised: supervisedCopy,
 			Behind:     record.Deployed != "" && reader.Build != "" && reader.Build != record.Deployed,
+			Earlier:    !supervisedCopy && reader.Service == string(config.ServiceDashboard) && started[reader.PID],
 		})
 	}
 	all := make([]ServiceCopies, 0, len(byService))
@@ -139,10 +155,11 @@ func readServiceCopies(record runstate.Supervision, readers []runstate.ConfigRea
 
 // serviceCopiesAttention is more than one copy of a part running, as the
 // attention line and the factory problems carry it. It is the development
-// manager's: the supervisor collects every copy it stopped and leaves a
-// running one it did not start rather than stopping a process nobody can
-// account for, so what is left is finding what started it and having that
-// fixed, which is the reliability work she resolves.
+// manager's: the supervisor collects every copy it stopped, stops every
+// earlier copy it started, and leaves a running one it did not start rather
+// than stopping a process nobody can account for, so what is left is finding
+// what started it and having that fixed, which is the reliability work she
+// resolves.
 func serviceCopiesAttention(copies ServiceCopies) Attention {
 	return Attention{Kind: AttentionServiceCopies, ID: copies.Service, Mover: MoverDevelopmentManager, ServiceCopies: &copies}
 }

@@ -37,6 +37,12 @@ type ConfigReaders interface {
 	Running() ([]runstate.ConfigReader, error)
 }
 
+// Dashboards is the dashboard's own records, asked which running dashboards
+// the supervisor started. It is satisfied by *runstate.DashboardStore.
+type Dashboards interface {
+	StartedBySupervisor() ([]runstate.DashboardInstance, error)
+}
+
 // readConfigMismatches is every running part that cannot read something in
 // its configuration, and what could not be read of the records whole.
 func readConfigMismatches(sources Sources) ([]runstate.ConfigMismatch, string) {
@@ -94,7 +100,17 @@ func readServices(sources Sources) (*Services, string) {
 		if err != nil {
 			problem = joinProblems(problem, fmt.Sprintf("which copies of the product's parts are running could not be read whole: %v", err))
 		}
-		services.Copies = readServiceCopies(recorded, readers)
+		started := map[int]bool{}
+		if sources.Dashboards != nil {
+			instances, err := sources.Dashboards.StartedBySupervisor()
+			if err != nil {
+				problem = joinProblems(problem, fmt.Sprintf("which running dashboards the supervisor started could not be read whole: %v", err))
+			}
+			for _, instance := range instances {
+				started[instance.PID] = true
+			}
+		}
+		services.Copies = readServiceCopies(recorded, readers, started)
 	}
 	if sources.Machine != nil {
 		availability := ReadWatchAvailability(sources)

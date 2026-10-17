@@ -84,6 +84,9 @@ type Ensured struct {
 	// the operator's to settle, so the supervisor degrades the child with it at
 	// once rather than spending the restart bound finding out five times.
 	Unstartable string
+	// Earlier is each copy the supervisor started before this one that the
+	// start stopped, or tried to: a replacement stops them once it is ready.
+	Earlier []EarlierCopy
 }
 
 // Stopped is what one Stop did.
@@ -257,7 +260,7 @@ func (s *Supervisor) Tick(ctx context.Context) {
 		s.look(ctx, child, state, now)
 	}
 	if s.deployLook {
-		s.settleCopies()
+		s.settleCopies(ctx)
 	}
 	s.record(now)
 	for _, resident := range s.Residents {
@@ -423,6 +426,7 @@ func (s *Supervisor) start(ctx context.Context, child Child, state *runstate.Sup
 		s.degrade(child, state, ensured.Unstartable)
 		return
 	}
+	s.sayEarlier(child.Name(), ensured.Earlier)
 	state.State = runstate.ChildRunning
 	state.Reason = ""
 	state.NextStartAt = time.Time{}

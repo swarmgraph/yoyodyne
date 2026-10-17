@@ -694,6 +694,9 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewConfigReaderStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.ConfigReaders = store
 	}
+	if store, err := runstate.NewDashboardStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.Dashboards = store
+	}
 	if store, err := runstate.NewSupervisionStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Supervision = store
 		sources.Machine = store
