@@ -54,7 +54,7 @@ func TestACarriedOutRerunIsNotHeldAsTheHarnessesMove(t *testing.T) {
 	if held.Decided(item) {
 		t.Fatalf("held for %q as the harness's move, want the re-run read as carried out by %s", reason, later.RunID)
 	}
-	for _, want := range []string{"has been carried out", later.RunID, "ended timed out", "she decides what happens next"} {
+	for _, want := range []string{"has been carried out", later.RunID, "was stopped when it ran past a time limit", "on her docket", "she decides what happens next"} {
 		if !strings.Contains(reason, want) {
 			t.Fatalf("held for %q, want it to say %q", reason, want)
 		}

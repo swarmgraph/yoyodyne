@@ -322,16 +322,29 @@ func refusedCarryOut(refused runstate.TriageCarryOut) string {
 // is the development manager's rather than the harness's — her decision still to
 // make, or the work she decided to wait on about that run, where waitsOn names it.
 func rerunCarriedOut(later runstate.State, waitsOn string) string {
-	ended := "is still in flight"
-	if later.Status.Terminal() {
-		ended = "ended " + strings.ReplaceAll(string(later.Status), "_", " ")
-	}
-	next := "she decides what happens next, and nothing pulls it until she has"
+	next := "its stoppage is on her docket and she decides what happens next, and nothing pulls the item until she has"
 	if waitsOn != "" {
 		next = fmt.Sprintf("she decided to wait on %s about that run, and once it is closed the stoppage is back on her docket for a decision", waitsOn)
 	}
-	return fmt.Sprintf("the re-run the development manager decided about it has been carried out: run %s started at %s and %s, so the harness has nothing left to carry out and %s",
-		later.RunID, later.StartedAt.UTC().Format(time.RFC3339), ended, next)
+	return fmt.Sprintf("the re-run the development manager decided about it has been carried out: run %s started %s and %s, so the harness has nothing left to carry out and %s",
+		later.RunID, localMoment(later.StartedAt), howRunEnded(later), next)
+}
+
+// howRunEnded says how a run ended in ordinary words, for a sentence a person
+// reads.
+func howRunEnded(run runstate.State) string {
+	switch run.Status {
+	case runstate.StatusTimedOut:
+		return "was stopped when it ran past a time limit"
+	case runstate.StatusFailed:
+		return "failed"
+	case runstate.StatusCancelled:
+		return "was stopped before it finished"
+	case runstate.StatusSucceeded:
+		return "finished"
+	default:
+		return "is still going"
+	}
 }
 
 // stoppedAt is when a run stopped, which is when the item it was carrying came
