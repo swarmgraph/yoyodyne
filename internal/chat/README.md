@@ -245,7 +245,7 @@ removes them from the record once a turn has delivered them.
 | `usagelimit.go`, `providerwait.go`, `provideroutage.go`, `hold.go` | provider refusals, waits that put the conversation down, the operator hold |
 | `rebuild.go` | continuing on a provider that never held the session |
 | `requestsize.go` | measuring the selected endpoint's input, shortening history and then the briefing before sending, and retrying a size refusal once |
-| `steer.go`, `work.go`, `milestone.go` | console slash commands: `/work`, `/stop`, surveys (`SurveyWork`), `StartWork`, `StopWork` |
+| `steer.go`, `work.go`, `milestone.go` | console slash commands: `/work`, `/stop`, `commandMenu` (the list a slash opens at the prompt, read out of `commandHelp`), surveys (`SurveyWork`), `StartWork`, `StopWork` |
 | `turncommand.go` | a command typed while a turn is being answered: carried out at once on a copy of the conversation, what it would write kept and written when the turn ends |
 | `triage.go`, `triagestop.go`, `repair.go` | development manager decisions on stopped runs |
 | `proposal.go`, `admission.go`, `resemblance.go`, `condition.go`, `concern.go`, `decision.go`, `withdraw.go` | proposals, admission without asking, duplicates, concerns, batch decisions |

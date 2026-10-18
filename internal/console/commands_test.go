@@ -25,7 +25,8 @@ func commandsUnderTest(t *testing.T) (*terminal, func(string), *recorder, prompt
 	console, keys, out := terminalUnderTest(t, 60)
 	OfferCommands(console, testCommands...)
 	lines := prompting(context.Background(), console, "you> ", nil)
-	out.await(t, "the prompt", func(s *screen) bool { return s.lastLine() == "you> " })
+	// The screen drops the space a row ends in, so the empty prompt reads "you>".
+	out.await(t, "the prompt", func(s *screen) bool { return s.lastLine() == "you>" })
 	return console, func(typed string) { keys.Write([]byte(typed)) }, out, lines
 }
 
@@ -35,7 +36,7 @@ func listed(s *screen) (names []string, chosen string) {
 	rows := s.lines()
 	prompt := -1
 	for index, row := range rows {
-		if strings.HasPrefix(row, "you> ") {
+		if strings.HasPrefix(row, "you>") {
 			prompt = index
 		}
 	}
@@ -159,9 +160,6 @@ func TestReturnCompletesANameAndSendsOneTypedInFull(t *testing.T) {
 	if line := lines.line(t); line != "/help" {
 		t.Fatalf("line = %q", line)
 	}
-
-	console := out
-	_ = console
 }
 
 // TestANameTypedInFullIsSentWhereALongerOneBeginsWithIt is /stop typed whole
@@ -187,7 +185,7 @@ func TestCompletingACommandThatTakesAnArgumentLeavesRoomForIt(t *testing.T) {
 	typed("/sh\t")
 	out.await(t, "the name completed with a space and the list gone", func(s *screen) bool {
 		names, _ := listed(s)
-		return len(names) == 0 && s.lastLine() == "you> /show "
+		return len(names) == 0 && s.lastLine() == "you> /show"
 	})
 	typed("yoyodyne-1\r")
 	if line := lines.line(t); line != "/show yoyodyne-1" {
