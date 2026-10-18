@@ -113,7 +113,7 @@ func (r Reconciler) FindMergeDisagreements(ctx context.Context) ([]MergeDisagree
 	}
 	closed, unread, err := r.closedItems(ctx, items)
 	if err != nil {
-		return nil, fmt.Errorf("read which work items are closed to find runs recorded as merged that are not on their target branch: %w", err)
+		return nil, &ClosedItemsUnread{Need: "find runs recorded as merged that are not on their target branch", Err: err}
 	}
 	var findings []MergeDisagreementFinding
 	for _, state := range candidates {
@@ -146,12 +146,17 @@ const maxItemReadsPastACut = 40
 // rows it returned are used and each named item they left out is read on its
 // own, up to maxItemReadsPastACut; one that could not be read is returned in
 // unread with why, because an item not known to be closed is not known to be
-// open either. A tracker that cannot list is read one item at a time.
+// open either. A tracker that cannot list is read one item at a time. Where the
+// sweep shares one listing between its steps (ClosedListing), that is the
+// listing read.
 func (r Reconciler) closedItems(ctx context.Context, named []string) (map[string]bool, map[string]string, error) {
 	closed := make(map[string]bool)
 	unread := make(map[string]string)
 	listed := make(map[string]bool)
 	lister, canList := r.Tracker.(closedItemLister)
+	if r.ClosedListing != nil {
+		lister, canList = r.ClosedListing, true
+	}
 	limit := len(named)
 	if canList {
 		items, err := lister.List(ctx, "closed")
