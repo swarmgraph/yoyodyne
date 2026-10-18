@@ -50,7 +50,7 @@ func NewPublicationFixture(t *testing.T) (PublicationFixture, runstate.State) {
 	return PublicationFixture{Repository: repository, WorktreeRoot: worktreeRoot, Store: store, Tracker: tracker}, state
 }
 
-// refresh is the later sweep that re-asks the forge about what the run left
+// Refresh is the later sweep that re-asks the forge about what the run left
 // recorded.
 func (f PublicationFixture) Refresh(t *testing.T, forge orchestrator.ReconcilePullRequests) []orchestrator.PublicationRefresh {
 	t.Helper()

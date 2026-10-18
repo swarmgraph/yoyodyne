@@ -136,13 +136,13 @@ type QueuedFixture struct {
 	Store        *runstate.Store
 	Tracker      RecordingTracker
 	Forge        *orchestratortest.Forge
-	// worktrees wraps the repository access the settlement makes, so a test can
+	// Worktrees wraps the repository access the settlement makes, so a test can
 	// drop the connection at one step of it. A fixture that sets none settles
 	// through the real observer.
 	Worktrees func(orchestrator.ReconcileWorktrees) orchestrator.ReconcileWorktrees
-	// sleep takes the backoff without taking the time.
+	// Sleep takes the backoff without taking the time.
 	Sleep func(context.Context, time.Duration) error
-	// docket is the triage docket the sweep dockets and settles publications on,
+	// Docket is the triage docket the sweep dockets and settles publications on,
 	// where a test reads it; a fixture that sets none sweeps without one.
 	Docket *MemoryDocket
 }
@@ -161,7 +161,7 @@ func NewQueuedFixture(t *testing.T) QueuedFixture {
 	}
 }
 
-// run drives a whole run, which ends with its merge queued rather than made.
+// Run drives a whole run, which ends with its merge queued rather than made.
 func (f QueuedFixture) Run(t *testing.T) orchestrator.Outcome {
 	t.Helper()
 	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
@@ -178,7 +178,7 @@ func (f QueuedFixture) Run(t *testing.T) orchestrator.Outcome {
 	return outcome
 }
 
-// reconcile is the later sweep that asks the forge what became of the queued
+// Reconcile is the later sweep that asks the forge what became of the queued
 // merge and settles the run on the answer.
 func (f QueuedFixture) Reconcile(t *testing.T) []orchestrator.Reconciliation {
 	t.Helper()
@@ -189,7 +189,7 @@ func (f QueuedFixture) Reconcile(t *testing.T) []orchestrator.Reconciliation {
 	return results
 }
 
-// converge is the other half of that sweep: the local state brought onto what
+// Converge is the other half of that sweep: the local state brought onto what
 // the forge has, once the runs themselves are settled.
 func (f QueuedFixture) Converge(t *testing.T) orchestrator.Convergence {
 	t.Helper()
