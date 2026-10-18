@@ -136,6 +136,13 @@ type terminal struct {
 	chosen   int
 	entering bool
 
+	// commands is what a slash on an empty line lists (commands.go). menuOpen
+	// says that slash was typed and Esc has not put the list away, and
+	// menuChosen is which of the commands still listed is under the marker.
+	commands   []Command
+	menuOpen   bool
+	menuChosen int
+
 	// status is the account of work in progress and resting is what is left on
 	// that line between turns. They share one row of the region, and work in
 	// progress covers what is merely true for as long as it lasts: what the
@@ -443,6 +450,11 @@ func (t *terminal) drawRegion() string {
 	// rather than the whole message, so the erase climbs back over rows the
 	// region really put on the screen.
 	composed, cursor = boundComposed(composed, cursor, width, rows)
+	// The list of commands goes under the line being composed, in whatever rows
+	// the window has left below it. It is below the cursor, so the erase, which
+	// clears from where the region begins to the end of the screen, takes it
+	// without climbing over it.
+	menu := t.menuRegion(width, rows-drawnRows(composed, width))
 	// A newline the operator typed is written as one: the message occupies as
 	// many rows as it has lines, and the rest of the region is measured from the
 	// same text, so what is erased is what was drawn.
@@ -456,6 +468,11 @@ func (t *terminal) drawRegion() string {
 		out.WriteString(" \r")
 		endRow++
 		endColumn = 0
+	}
+	for _, line := range menu {
+		out.WriteString("\n")
+		out.WriteString(line)
+		endRow++
 	}
 	targetRow, targetColumn := place(composed, cursor, width)
 	if targetColumn >= width {
@@ -992,6 +1009,14 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 			raised = append(raised, pressed.signal)
 			continue
 		}
+		// The list of commands takes the keys it moves and completes with while it
+		// is showing, Esc among them: putting the list away is what Esc is pressed
+		// for there, even beside a turn, and a second press stops the turn.
+		if t.steerMenu(pressed) {
+			t.ending = time.Time{}
+			t.killing = false
+			continue
+		}
 		if t.stopsTurn(pressed) {
 			t.ending = time.Time{}
 			if err := t.redraw(); err != nil {
@@ -1007,10 +1032,13 @@ func (t *terminal) consume(data []byte, late bool) (string, bool, []signalKey, e
 		}
 		t.ending = time.Time{}
 		if pressed.code != keyEnter {
+			t.openMenu(pressed)
 			t.apply(pressed)
+			t.pointMenu()
 			continue
 		}
 		t.killing = false
+		t.menuOpen = false
 		line := string(t.line)
 		// A message whose last character is a backslash is one the operator is
 		// carrying on: the newline that asks the terminal for nothing at all, and

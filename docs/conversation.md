@@ -842,6 +842,18 @@ everything else is said to the Lead Product Manager:
 /exit                    end the conversation, stopping anything it is running
 ```
 
+On a terminal you do not have to remember these. A slash typed on an empty
+prompt lists every command under the line you are typing, each with the line
+`/help` gives it, and the list is read from `/help` itself, so the two always
+name the same commands. Typing more of the name narrows the list to the commands
+that begin with it; up and down move the marker; Tab puts the marked name in the
+line, followed by a space where the command needs something typed after it; and
+return does the same for a name you have not finished, and sends one you have.
+Esc puts the list away and leaves what you typed as it was, and the list stays
+away until the line is empty again. A slash anywhere else in a message, or a
+command brought back with up, opens nothing. On a stream that is not a terminal
+there is no list, and a line is read exactly as it always was.
+
 A slash means the same thing in `yoyo chat --message`: the harness carries the
 command out and the Lead Product Manager is never asked, because it cannot carry out
 a command and a turn spent trying is a turn you paid for. The four that only
@@ -3262,7 +3274,9 @@ what you are composing uses the keys a shell's own line editor does:
 - Ctrl-Y to put back what those last deleted. Several deletions in a row are put
   back together, and what you deleted from one message can be put into the next.
 
-Any other key is ignored rather than typed into the message.
+Any other key is ignored rather than typed into the message. Tab is ignored too,
+except while the list of commands a slash opens is showing, where it completes
+the marked name (see the commands above).
 
 Up and down move between the lines of a message of more than one line. On its
 first line, up brings back the message you sent before it, and each further

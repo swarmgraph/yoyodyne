@@ -63,6 +63,37 @@ terminal it waits on screen, and up on an empty line takes it back to change or
 withdraw.
 `
 
+// commandMenu is the list a slash on an empty prompt opens, read out of
+// commandHelp rather than written beside it, so the list and /help cannot
+// disagree about what commands there are or what each does. A command /help
+// shows in more than one form is listed once, by the first, and a command whose
+// form takes a line of its own is described by the line under it.
+func commandMenu() []console.Command {
+	lines := strings.Split(commandHelp, "\n")
+	var commands []console.Command
+	listed := map[string]bool{}
+	for index, line := range lines {
+		if !strings.HasPrefix(line, "  /") {
+			continue
+		}
+		form, description, described := strings.Cut(strings.TrimSpace(line), "  ")
+		if !described && index+1 < len(lines) {
+			description = lines[index+1]
+		}
+		name, _ := splitCommand(form)
+		if listed[name] {
+			continue
+		}
+		listed[name] = true
+		commands = append(commands, console.Command{
+			Name:        name,
+			Description: strings.TrimSpace(description),
+			Argument:    strings.Contains(form, "<"),
+		})
+	}
+	return commands
+}
+
 // IsCommand reports whether what the operator said is a command the harness
 // carries out rather than something said to the product manager. It is one rule
 // in one place because a single message follows it too: `/reports` typed at
