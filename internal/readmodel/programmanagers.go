@@ -8,8 +8,8 @@ package readmodel
 // hourly line, and the other instances' opening lines — so that the page, the
 // terminal, and the channel cannot disagree about one. The query carries the
 // instance's lane, its status, the blockers its lane report names that the
-// record can find, the claims it cannot, where its report is, and its open
-// restart requests.
+// record can find, the claims it cannot, where its report is, its open
+// restart requests, and the requests for its pass with what became of each.
 //
 // # The status is derived, never written
 //

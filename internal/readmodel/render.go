@@ -644,7 +644,8 @@ func age(elapsed time.Duration) string {
 // lane report opens with — Completed and Handed off over the last 24 hours, and
 // Blocked on a human — one line per entry, each named by what it is, and
 // "none" in words where a list is empty, so the layout never depends on how the
-// instance wrote its report.
+// instance wrote its report. Last come the requests made for its pass, where
+// anybody has asked, each with what became of it.
 // It is empty where no instance is configured and none has asked for anything,
 // and says so where the instances were listed but something behind them could
 // not be read.
@@ -663,6 +664,7 @@ func (s Standing) RenderProgramManagers() string {
 		}
 		fmt.Fprintf(&rendered, "  %s — %s — %s%s\n", instance.Agent, lane, instance.Status, instance.why())
 		rendered.WriteString(instance.RenderOpeningLists("    "))
+		rendered.WriteString(instance.RenderPassRequests("    "))
 	}
 	if s.ProgramManagersProblem != "" {
 		rendered.WriteString(partialRead + s.ProgramManagersProblem + "\n")
@@ -699,6 +701,21 @@ func (p ProgramManager) RenderOpeningLists(indent string) string {
 		blocked = append(blocked, block.Says())
 	}
 	list("Blocked on a human", blocked)
+	return rendered.String()
+}
+
+// RenderPassRequests is the requests made for the instance's pass, one line
+// each saying who asked, when, and what became of it, and nothing for an
+// instance nobody has asked.
+func (p ProgramManager) RenderPassRequests(indent string) string {
+	if len(p.PassRequests) == 0 {
+		return ""
+	}
+	var rendered strings.Builder
+	fmt.Fprintf(&rendered, "%sPass requests:\n", indent)
+	for _, request := range p.PassRequests {
+		fmt.Fprintf(&rendered, "%s  - %s\n", indent, request.Says())
+	}
 	return rendered.String()
 }
 
