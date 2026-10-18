@@ -42,19 +42,16 @@ func (v Verdict) Valid() bool {
 type Decider string
 
 const (
-	// DeciderOperator is the person, deciding directly or in the stead of the
-	// owning role. It is the only one anything produces today: every decision is
-	// recorded through `yoyo amendment`, and an owning role that runs argues about
-	// a proposal rather than deciding it.
+	// DeciderOperator is the person, deciding a proposal reserved to him (see
+	// Proposal.ReservedForOperator) or overriding the owning role on any other,
+	// through `yoyo amendment`.
 	DeciderOperator Decider = "operator"
-	// DeciderOwner is the owning role itself, deciding about its own document.
-	// Nothing produces it yet, and it is here rather than added later because the
-	// distinction it draws is what the Authority field would otherwise lose: a
-	// record that said only "the architect's authority" could not tell an operator
-	// standing in for an absent role apart from that role having answered. What
-	// would make it real is the harness carrying out a decision for a role from
-	// its own reply, the way it already carries out the product manager's tracker
-	// actions.
+	// DeciderOwner is the owning role itself, deciding about its own document from
+	// its conversation: the harness carries the decision out from the role's
+	// reply, as it carries out the role's tracker actions, and DecideAsOwner is
+	// the only way to make one. It is recorded apart from the operator because
+	// the Authority field alone could not tell an operator standing in for the
+	// role apart from the role having answered.
 	DeciderOwner Decider = "owner"
 )
 
@@ -81,8 +78,12 @@ type Decision struct {
 	// with no reason is one the same argument arrives to make again, and optional
 	// on an approval, where what follows is the owner's own revision saying why
 	// the document changed.
-	Reason    string    `json:"reason,omitempty"`
-	DecidedAt time.Time `json:"decided_at"`
+	Reason string `json:"reason,omitempty"`
+	// Conversation is the conversation an owning role decided from, so the
+	// decision leads back to the turn that argued it. It is set on an owner's
+	// decision and on nothing else.
+	Conversation string    `json:"conversation,omitempty"`
+	DecidedAt    time.Time `json:"decided_at"`
 }
 
 // Validate reports every contract violation in the decision at once.
@@ -109,6 +110,14 @@ func (d Decision) Validate() error {
 	case len(reason) > MaxReasonBytes:
 		problems = append(problems, fmt.Errorf("reason is %d bytes, limit is %d", len(reason), MaxReasonBytes))
 	}
+	switch conversation := strings.TrimSpace(d.Conversation); {
+	case d.Decider == DeciderOwner && conversation == "":
+		problems = append(problems, errors.New("an owning role's decision names the conversation it was made in"))
+	case d.Decider != DeciderOwner && conversation != "":
+		problems = append(problems, errors.New("only an owning role's decision names a conversation"))
+	case len(conversation) > MaxReasonBytes:
+		problems = append(problems, fmt.Errorf("conversation is %d bytes, limit is %d", len(conversation), MaxReasonBytes))
+	}
 	if d.DecidedAt.IsZero() {
 		problems = append(problems, errors.New("decided_at is required"))
 	}
@@ -116,6 +125,46 @@ func (d Decision) Validate() error {
 		return fmt.Errorf("invalid decision on %q: %w", d.ProposalID, err)
 	}
 	return nil
+}
+
+// MayDecideAsOwner reports why a role may not decide this proposal from its own
+// conversation, or nil where it may. Two things refuse it: the document is not
+// the role's, which is the boundary this whole mechanism holds, and the
+// proposal is reserved to the operator, which is the one decision the owner of
+// the brief and the goals does not hold.
+func (p Proposal) MayDecideAsOwner(role domain.AgentRole) error {
+	if role != p.Owner {
+		return fmt.Errorf("%s proposes a change to %s, a %s document, which is the %s's to decide and not the %s's",
+			p.ID, p.Artifact, p.Kind, p.Owner.Title(), role.Title())
+	}
+	if p.ReservedForOperator() {
+		return fmt.Errorf("%s is the operator's to decide, because %s; say what you recommend and he decides it",
+			p.ID, p.reservedReason())
+	}
+	return nil
+}
+
+// DecideAsOwner settles a proposal from the owning role's own conversation. It
+// writes the same decision `yoyo amendment approve` and `decline` write, under
+// the same authority, and records that the owner made it and where.
+func (p Proposal) DecideAsOwner(role domain.AgentRole, verdict Verdict, reason, conversation string, now time.Time) (Decision, error) {
+	if err := p.MayDecideAsOwner(role); err != nil {
+		return Decision{}, err
+	}
+	decision := Decision{
+		SchemaVersion: SchemaVersion,
+		ProposalID:    p.ID,
+		Verdict:       verdict,
+		Authority:     p.Owner,
+		Decider:       DeciderOwner,
+		Reason:        strings.TrimSpace(reason),
+		Conversation:  strings.TrimSpace(conversation),
+		DecidedAt:     now.UTC(),
+	}
+	if err := decision.Validate(); err != nil {
+		return Decision{}, err
+	}
+	return decision, nil
 }
 
 // Decide settles a proposal, under the authority of the role that owns the
@@ -147,6 +196,9 @@ func (d Decision) Render() string {
 	}
 	fmt.Fprintf(&rendered, "  %s by %s under the %s's authority, %s\n",
 		d.Verdict, who, d.Authority, d.DecidedAt.UTC().Format(time.RFC3339))
+	if conversation := strings.TrimSpace(d.Conversation); conversation != "" {
+		fmt.Fprintf(&rendered, "      decided in conversation %s\n", conversation)
+	}
 	if reason := strings.TrimSpace(d.Reason); reason != "" {
 		for _, line := range indent(reason) {
 			rendered.WriteString(line)
@@ -208,6 +260,40 @@ func Find(records []Record, id string) (Proposal, bool) {
 	return Proposal{}, false
 }
 
+// minNamedPrefix is the fewest hexadecimal characters a proposal may be named
+// by, which is the short form reports and notes already cite proposals in.
+const minNamedPrefix = 8
+
+// Named returns the one proposal a role named, by its whole id or by a prefix
+// of the hexadecimal part at least eight characters long, with or without the
+// "amendment-" in front. A prefix that names more than one proposal is refused
+// rather than resolved to the first, because a decision on the wrong document is
+// worse than a refusal that asks for the whole id.
+func Named(records []Record, named string) (Proposal, error) {
+	trimmed := strings.TrimSpace(named)
+	if found, ok := Find(records, trimmed); ok {
+		return found, nil
+	}
+	hex := strings.TrimPrefix(trimmed, "amendment-")
+	if len(hex) < minNamedPrefix || strings.Trim(hex, "0123456789abcdef") != "" {
+		return Proposal{}, fmt.Errorf("%q names no proposed change; name one by its whole id, such as amendment-0123456789abcdef0123456789abcdef, or by at least %d characters of it", trimmed, minNamedPrefix)
+	}
+	var matched []Proposal
+	for _, proposal := range Proposals(records) {
+		if strings.HasPrefix(strings.TrimPrefix(proposal.ID, "amendment-"), hex) {
+			matched = append(matched, proposal)
+		}
+	}
+	switch len(matched) {
+	case 0:
+		return Proposal{}, fmt.Errorf("no proposed change %q was raised for this product", trimmed)
+	case 1:
+		return matched[0], nil
+	default:
+		return Proposal{}, fmt.Errorf("%q names %d proposed changes; name the one you mean by its whole id", trimmed, len(matched))
+	}
+}
+
 // DecisionOn returns what was decided about a proposal, and whether anything
 // was. The first decision is the one that stands: a log is append-only and two
 // decisions on one proposal can only be a race or a mistake, and treating the
@@ -235,9 +321,9 @@ func Pending(records []Record) []Proposal {
 	return pending
 }
 
-// PendingFor returns the proposals awaiting one role's decision, which is what
-// that role is shown when it runs and what an operator deciding in its stead
-// asks for.
+// PendingFor returns the undecided proposals against one role's documents,
+// which is what that role is shown when it runs: the ones it decides, and the
+// ones reserved to the operator that it argues for him.
 func PendingFor(records []Record, owner domain.AgentRole) []Proposal {
 	var pending []Proposal
 	for _, proposal := range Pending(records) {

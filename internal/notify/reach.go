@@ -166,8 +166,11 @@ var reaches = map[Kind]Reach{
 	// the hidden one — which is the silence this whole change is against.
 	KindReportFiled:    ReachThread,
 	KindProposalRaised: ReachChannel,
-	KindExchangeTurn:   ReachChannel,
-	KindExchangeClosed: ReachChannel,
+	// A decision the owning role made is news and asks nothing of anybody, so it
+	// is said in the thread of the work that raised the proposal.
+	KindAmendmentDecided: ReachThread,
+	KindExchangeTurn:     ReachChannel,
+	KindExchangeClosed:   ReachChannel,
 	// What a reply in a thread did, and what later became of it. All five are
 	// addressed to the person who typed the words being read back to them, and all
 	// five reach that person by name wherever they are posted — so the channel

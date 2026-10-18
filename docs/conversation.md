@@ -299,7 +299,7 @@ might lead to already has a path with an approval on it and none of those paths
 runs through here: work reaches the queue as a proposal, under whatever approval
 [your project asks for](configuration.md#what-reaches-the-queue); a change to the
 brief or the goals is yours to make; a change to a design or a decision record is
-the architect's, through `yoyo amendment`. That separation is the point. Research
+the architect's, decided in her conversation. That separation is the point. Research
 that could quietly turn an idea into approved work would be a way to approve work
 by asking a model to look something up.
 

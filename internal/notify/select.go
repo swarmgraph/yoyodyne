@@ -551,7 +551,54 @@ func FromProposal(proposal amendment.Proposal) (Notification, error) {
 			At:       proposal.RaisedAt,
 			Severity: report.SeverityNote,
 			Refs:     Refs{RunID: proposal.RunID, WorkItemID: proposal.WorkItemID},
-			Detail:   Detail{Artifact: proposal.Artifact},
+			Detail:   Detail{Artifact: proposal.Artifact, Mover: proposalMove(proposal)},
+			Text:     text,
+		},
+	}, nil
+}
+
+// proposalMove is whose move a raised proposal is: its owner's, which decides
+// it from its conversation, or the operator's for a change of fundamental
+// intent. It is derived from the proposal's own record, as the attention line's
+// is, so the channel and the terminal name the same person.
+func proposalMove(proposal amendment.Proposal) string {
+	if proposal.ReservedForOperator() {
+		return "the operator's — it is a change of fundamental intent, and nothing reaches the document until he decides it with `yoyo amendment`."
+	}
+	return "the " + proposal.Owner.Title() + "'s — it decides the change from its conversation, and nothing reaches the document until it does."
+}
+
+// FromDecision says that an owning role decided a change proposed to its own
+// document. It is said afterwards, in the owner's voice, because the decision
+// was the owner's to make: the operator is told what was decided on his behalf
+// and asked nothing. A decision the operator recorded himself is not said
+// here; he made it.
+func FromDecision(proposal amendment.Proposal, decision amendment.Decision) (Notification, error) {
+	if decision.Decider != amendment.DeciderOwner {
+		return Notification{}, fmt.Errorf("decision on %s was recorded by the %s rather than by its owner, and only an owner's decision is reported afterwards", proposal.ID, decision.Decider)
+	}
+	topic, err := topicForItem(proposal.WorkItemID)
+	if err != nil {
+		return Notification{}, fmt.Errorf("address the decision on %s: %w", proposal.ID, err)
+	}
+	text := fmt.Sprintf("%s %s", decision.Verdict, proposal.ID)
+	if reason := strings.TrimSpace(decision.Reason); reason != "" {
+		text += " — " + reason
+	}
+	move := "nobody's — the change was turned down, and the reason is on the proposal."
+	if decision.Verdict == amendment.VerdictApproved {
+		text += "; nothing was written to the document yet"
+		move = "the " + decision.Authority.Title() + "'s — it makes the approved change in " + proposal.Artifact + " as a revision."
+	}
+	return Notification{
+		Topic:   topic,
+		Speaker: Persona(decision.Authority, ""),
+		Event: Event{
+			Kind:     KindAmendmentDecided,
+			At:       decision.DecidedAt,
+			Severity: report.SeverityNote,
+			Refs:     Refs{RunID: proposal.RunID, WorkItemID: proposal.WorkItemID, ConversationID: decision.Conversation},
+			Detail:   Detail{Artifact: proposal.Artifact, Mover: move},
 			Text:     text,
 		},
 	}, nil

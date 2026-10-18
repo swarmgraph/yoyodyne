@@ -96,6 +96,13 @@ func (s *AmendmentStore) Decide(decision amendment.Decision) error {
 		return fmt.Errorf("%s is the %s's to decide, and the decision claims the %s's authority",
 			decision.ProposalID, proposal.Owner, decision.Authority)
 	}
+	// An owner's decision is refused here as well as where it is made, so no
+	// path that writes one can settle a change the operator keeps.
+	if decision.Decider == amendment.DeciderOwner {
+		if err := proposal.MayDecideAsOwner(decision.Authority); err != nil {
+			return err
+		}
+	}
 	return s.write(amendment.Record{Decision: &decision})
 }
 

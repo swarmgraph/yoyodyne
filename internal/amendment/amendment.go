@@ -88,6 +88,14 @@ type Entry struct {
 	// them to guess what would settle it.
 	Change string `json:"change"`
 	Why    string `json:"why"`
+	// Intent is the proposer's claim about what the change does to what the
+	// document intends, in the terms of the operator's test: "consistent" where
+	// the goals would admit and refuse exactly the work they did before, and
+	// "fundamental" where they would not. It is optional, and it matters only on
+	// the brief and the goals: a change to one of those that does not say it is
+	// consistent is decided by the operator rather than by its owner. See
+	// ReservedForOperator.
+	Intent artifact.Intent `json:"intent,omitempty"`
 }
 
 // Validate reports every contract violation in the entry at once.
@@ -95,6 +103,9 @@ func (e Entry) Validate() error {
 	var problems []error
 	if err := domain.ValidateIdentifier("artifact", strings.TrimSpace(e.Artifact)); err != nil {
 		problems = append(problems, err)
+	}
+	if e.Intent != "" && !e.Intent.Valid() {
+		problems = append(problems, fmt.Errorf("intent %q must be %q or %q, or left out", e.Intent, artifact.IntentConsistent, artifact.IntentFundamental))
 	}
 	problems = append(problems, boundText("change", e.Change), boundText("why", e.Why))
 	if err := errors.Join(problems...); err != nil {
@@ -214,7 +225,39 @@ type Proposal struct {
 	Owner    domain.AgentRole `json:"owner"`
 	Change   string           `json:"change"`
 	Why      string           `json:"why"`
-	RaisedAt time.Time        `json:"raised_at"`
+	// Intent is what the proposer said the change does to the document's intent,
+	// exactly as Entry.Intent, and empty where it said nothing.
+	Intent   artifact.Intent `json:"intent,omitempty"`
+	RaisedAt time.Time       `json:"raised_at"`
+}
+
+// ReservedForOperator reports whether this proposal is the operator's to decide
+// rather than its owner's.
+//
+// The owning role decides an amendment to its own document: the architect a
+// design, a specification, or a decision record, and the Lead Product Manager a
+// document in the product home. What stays with the operator is a change of
+// fundamental intent, which the brief reserves to him: a change to the brief
+// or the goals, unless the proposal says it is
+// consistent with what they intend. A proposal that says nothing stays his,
+// because the default is the operator's and it takes a recorded claim to move
+// off it — the rule internal/artifact/rewording.go holds for revisions.
+func (p Proposal) ReservedForOperator() bool {
+	switch p.Kind {
+	case artifact.KindBrief, artifact.KindGoals:
+		return p.Intent != artifact.IntentConsistent
+	default:
+		return false
+	}
+}
+
+// reservedReason says why a reserved proposal is the operator's, in the words a
+// refusal and a listing both use.
+func (p Proposal) reservedReason() string {
+	if p.Intent == artifact.IntentFundamental {
+		return fmt.Sprintf("it is a change to a %s document that says it changes what the goals intend", p.Kind)
+	}
+	return fmt.Sprintf("it is a change to a %s document that does not say whether it changes what the goals intend", p.Kind)
 }
 
 var idPattern = regexp.MustCompile(`^amendment-[a-f0-9]{32}$`)
@@ -274,7 +317,7 @@ func (p Proposal) Validate() error {
 	if p.RaisedAt.IsZero() {
 		problems = append(problems, errors.New("raised_at is required"))
 	}
-	problems = append(problems, Entry{Artifact: p.Artifact, Change: p.Change, Why: p.Why}.Validate())
+	problems = append(problems, Entry{Artifact: p.Artifact, Change: p.Change, Why: p.Why, Intent: p.Intent}.Validate())
 	if err := errors.Join(problems...); err != nil {
 		return fmt.Errorf("invalid proposed amendment %q: %w", p.ID, err)
 	}
@@ -357,6 +400,7 @@ func Collect(entries []Entry, attribution Attribution, artifacts Artifacts, now 
 			Owner:         owner,
 			Change:        strings.TrimSpace(entry.Change),
 			Why:           strings.TrimSpace(entry.Why),
+			Intent:        entry.Intent,
 			RaisedAt:      now.UTC(),
 		}
 		if err := proposal.Validate(); err != nil {
@@ -382,11 +426,15 @@ func (p Proposal) Render() string {
 		fmt.Fprintf(&rendered, " on %s", p.WorkItemID)
 	}
 	fmt.Fprintf(&rendered, " (%s)\n", p.RunID)
-	// The authority rather than a decider, because no role records a decision:
-	// saying the owner decides would promise an answer nothing produces, and this
-	// same line is shown to the owning role itself, which is told in the same
-	// breath that it cannot decide from there.
-	fmt.Fprintf(&rendered, "      decided under the %s's authority; raised %s\n", p.Owner, p.RaisedAt.UTC().Format(time.RFC3339))
+	// Who decides is said on every rendering, because the same line is shown to
+	// the owning role, to the operator, and on the channel, and each of them has
+	// to know from it whether the decision is theirs.
+	if p.ReservedForOperator() {
+		fmt.Fprintf(&rendered, "      decided by the operator, under the %s's authority, because %s; raised %s\n",
+			p.Owner, p.reservedReason(), p.RaisedAt.UTC().Format(time.RFC3339))
+	} else {
+		fmt.Fprintf(&rendered, "      decided by the %s, whose document it is; raised %s\n", p.Owner, p.RaisedAt.UTC().Format(time.RFC3339))
+	}
 	for _, line := range indent("change: " + p.Change) {
 		rendered.WriteString(line)
 	}
@@ -412,7 +460,7 @@ func indent(text string) []string {
 // drift.
 const Contract = `# Proposing a change to an artifact you do not own
 
-The canonical documents — the brief, the goals and non-goals, the designs, the specifications, and the decision records — each belong to one role. If you are not that role you may not edit one, and you may not work around one you believe is wrong. What you can do is propose the change, which reaches the role that owns the document and the operator, and one of them decides.
+The canonical documents — the brief, the goals and non-goals, the designs, the specifications, and the decision records — each belong to one role. If you are not that role you may not edit one, and you may not work around one you believe is wrong. What you can do is propose the change, which reaches the role that owns the document, and that role decides it. A change to the brief or the goals that would change what they admit or refuse is the operator's to decide instead, and so is one that does not say whether it would.
 
 A proposal is not an edit you have written in advance. Nothing in it is ever put into the document, an approved one is still made by the owner rather than applied for you, and your own work carries on unchanged either way — a proposal never blocks you and never waits. So propose the change you would argue for in a sentence, not the paragraph you would like the document to say: what should become true of it, and why.
 
@@ -422,6 +470,6 @@ To propose, end what you say with at most one block of this shape:
 {"proposals":[{"artifact":"artifact-id","change":"what should become true of the document","why":"what makes the case for it"}]}
 ` + "```" + `
 
-"artifact" is the id of an existing document — the file name of the artifact, without its extension. A proposal naming a document nobody records reaches nobody, because there is no owner to decide it. One block carries at most ` + maxProposalsPerReplyText + ` proposals, and each one takes an artifact, a change, and a reason and nothing else. If you are also reporting something, put this block before the report block, which is always last. Leave the block out entirely when you have nothing to propose, which is most of the time.
+"artifact" is the id of an existing document — the file name of the artifact, without its extension. A proposal naming a document nobody records reaches nobody, because there is no owner to decide it. One block carries at most ` + maxProposalsPerReplyText + ` proposals, and each one takes an artifact, a change, and a reason, and optionally an "intent", and nothing else. "intent" is "consistent" where the goals would admit and refuse exactly the work they did before the change, and "fundamental" where they would not; it matters only on a change to the brief or the goals, where leaving it out sends the change to the operator. If you are also reporting something, put this block before the report block, which is always last. Leave the block out entirely when you have nothing to propose, which is most of the time.
 
 Writing the block is not the same as the proposal being recorded. The harness refuses one that names a document it has no record of, and one against a document you own yourself, and it can only tell you so after the reply that carried it: if it invokes you again, that turn opens with the refusal in its own words and you propose again from there — and if it does not, the refusal is on the run for the operator and you never hear it. So nothing you write may assert that a proposal has been raised: at the moment you write it you do not know, and a document, a comment, or a note claiming a proposal nobody is holding is a false record that outlives this work. Say what you propose in your reply, where it is read beside the block that carried it.`
