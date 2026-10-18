@@ -219,6 +219,31 @@ redirect the first Go command in a run fails at setup with `operation not
 permitted`, which reads as a broken toolchain. A project whose checks are not Go
 is unaffected by a variable its tools never read.
 
+On the network, a developer's sandbox permits this much and no more:
+
+- **Claude Code.** Commands may bind a local port, accept connections on it,
+  and connect to localhost, so a test that starts a server on `127.0.0.1` runs
+  in the developer's own checks. The harness passes
+  `sandbox.network.allowLocalBinding: true` in the settings it gives every
+  developer invocation, first and resumed; nothing in the repository's
+  `.claude/settings.json` is needed for it. Every other outbound connection
+  still goes through the CLI's filtering proxy, as before. The bind is allowed
+  on any local address rather than loopback alone, so a test should bind
+  `127.0.0.1` rather than every interface, or a machine on the same network can
+  connect to it while the test runs. No other role is given it.
+- **Codex.** Commands may not bind a port or reach any host: the developer's
+  permission profile below switches its network off. Codex allows local
+  binding only through its own network proxy, which needs the profile's
+  network switched on, and the sandbox rules it uses then also let commands
+  send to port 53 on any host. That was read from codex-cli 0.162.0-alpha.17.2
+  without a provider call; the supported version is the one named below. So a
+  test that starts a server fails with `bind: operation not permitted` in a
+  Codex developer's own checks, and is judged by the harness's run of the
+  checks afterwards, which no developer sandbox confines.
+
+Local binding changes nothing a developer may write: the Claude Code setting
+names no path, and the Codex profile grants none.
+
 `PATH` is the harness's own with the provider CLIs left off it: `claude`,
 `codex`, and the executable every entry under `providers` names in their place.
 A directory on the path that holds one of them is replaced, for the length of

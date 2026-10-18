@@ -189,6 +189,33 @@ func TestEveryInvocationSelectsItsProfileAheadOfResumeAndNoSandboxMode(t *testin
 	}
 }
 
+// The only network setting a profile carries is the one switching its network
+// off, on a fresh launch and on a resume, so a developer's commands can reach
+// no other host and cannot bind a local port either. Codex grants local
+// binding only through its managed network proxy, which needs the profile's
+// network switched on, and the proxy's sandbox rules also let commands send to
+// port 53 on any host; docs/configuration/runs.md says what a Codex developer
+// can and cannot do on the network as a result.
+func TestEveryProfileSwitchesItsNetworkOffAndGrantsNothingElse(t *testing.T) {
+	t.Parallel()
+	for _, role := range domain.Roles() {
+		for _, session := range []string{"", "session-one"} {
+			repository, worktree := sandboxRepository(t, true)
+			command := sandboxCommand(t, repository, worktree, session, role)
+			prefix := "permissions." + profileNameArgument(t, command.Args) + ".network"
+			var network []string
+			for _, value := range configValues(command.Args, "exec") {
+				if strings.HasPrefix(value, prefix) {
+					network = append(network, value)
+				}
+			}
+			if want := []string{prefix + ".enabled=false"}; !reflect.DeepEqual(network, want) {
+				t.Errorf("%s (session %q) network settings = %q, want only %q", role, session, network, want)
+			}
+		}
+	}
+}
+
 // A read-only role's profile reads and writes nothing: no directory, not even
 // the temporary ones, on a fresh launch or a resume of a session a developer
 // saved.
