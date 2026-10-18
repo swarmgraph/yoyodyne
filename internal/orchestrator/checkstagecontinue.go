@@ -130,7 +130,7 @@ var ErrNotContinuableAtChecks = errors.New("the stopped run is not one the harne
 // continuedChecksDocketDecision is the word the closure a continuation makes
 // carries, so a reader of a closed entry can tell a stoppage the harness
 // continued from one the development manager decided about.
-const continuedChecksDocketDecision = "continued at its checks"
+const continuedChecksDocketDecision = triage.ContinuedChecksDecision
 
 // Due reports a run the harness would continue at its checks now, as far as its
 // record can say: it is one the stage bound stopped with continuations left.

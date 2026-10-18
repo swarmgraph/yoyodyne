@@ -231,6 +231,14 @@ func continuations(state runstate.State) []Continuation {
 		if c.TakenUpAt != nil {
 			continuation.At = *c.TakenUpAt
 		}
+		// What it is waiting on, and for a finished merge what it came to, are
+		// said beside her reasoning so the one entry is the request's whole account.
+		if c.Waiting != "" && c.WaitingSince != nil {
+			continuation.Reason += fmt.Sprintf(" — waiting since %s: %s", c.WaitingSince.UTC().Format(time.RFC3339), c.Waiting)
+		}
+		if c.TakenUpAt != nil && c.Action == runstate.RecoverFinishMerge && state.Integration != nil {
+			continuation.Reason += fmt.Sprintf(" — merged into %s at %s", state.Integration.TargetBranch, state.Integration.TargetCommit)
+		}
 		all = append(all, continuation)
 	}
 	sort.SliceStable(all, func(a, b int) bool { return all[a].At.Before(all[b].At) })

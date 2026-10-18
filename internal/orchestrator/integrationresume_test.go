@@ -40,6 +40,9 @@ type resumeHarness struct {
 	// recorded is the run as it was created, which is what a refusal has to
 	// leave.
 	recorded runstate.State
+	// runsRoot is the state root the stores are opened over, so a test can open
+	// them again as a session started afterwards would.
+	runsRoot string
 }
 
 func (h *resumeHarness) resumer() IntegrationResumer {
@@ -139,6 +142,7 @@ func newResumeHarness(t *testing.T, state runstate.State) *resumeHarness {
 		capacity:  2,
 		outcome:   Outcome{RunID: state.RunID, WorkItemID: state.WorkItemID, Status: runstate.StatusSucceeded},
 		recorded:  state,
+		runsRoot:  root,
 	}
 }
 

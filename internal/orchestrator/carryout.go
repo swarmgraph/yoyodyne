@@ -424,15 +424,28 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		return item
 	}
+	considered := make(map[string]bool, len(entries))
 	consider := func(entry triage.Entry, item outstandingItem) {
-		task, outstanding, held, err := item.taskFor(entry, now, history)
+		considered[entry.RunID] = true
+		// A request to finish the merge is asked first: finishMergeTask leaves it
+		// to a triage decision about the run recorded after it, and one recorded
+		// before it is a decision the request has decided past.
+		task, outstanding, err := c.finishMergeTask(entry, item)
 		if err != nil {
 			problems = append(problems, err)
 			return
 		}
-		if held != nil {
-			reading.held = append(reading.held, *held)
-			return
+		if !outstanding {
+			var held *heldDecision
+			task, outstanding, held, err = item.taskFor(entry, now, history)
+			if err != nil {
+				problems = append(problems, err)
+				return
+			}
+			if held != nil {
+				reading.held = append(reading.held, *held)
+				return
+			}
 		}
 		if !outstanding {
 			task, outstanding, err = c.checkStageTask(entry, item)
@@ -443,13 +456,6 @@ func (c CarryOut) read() (carryOutReading, error) {
 		}
 		if !outstanding {
 			task, outstanding, err = c.stallTask(entry, item)
-			if err != nil {
-				problems = append(problems, err)
-				return
-			}
-		}
-		if !outstanding {
-			task, outstanding, err = c.finishMergeTask(entry, item)
 			if err != nil {
 				problems = append(problems, err)
 				return
@@ -567,6 +573,32 @@ func (c CarryOut) read() (carryOutReading, error) {
 			}, item)
 		}
 	}
+	// A request to finish a merge is recorded on the run, so it is walked from
+	// the runs as well. Neither walk above reaches a run the docket holds no
+	// stopped-run entry of and whose item's latest decision is about another run
+	// or is missing, and a request nothing walks is one nobody carries out and
+	// nobody refuses.
+	if c.Integrations != nil {
+		if recorded, err := history(); err != nil {
+			problems = append(problems, fmt.Errorf("requests to finish a merge that only a run's own record carries were not looked for: %w", err))
+		} else {
+			for _, state := range recorded {
+				if considered[state.RunID] || state.WorkItemID == "" || !state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge) {
+					continue
+				}
+				item := itemFor(state.WorkItemID)
+				if item.problem != nil {
+					continue
+				}
+				consider(triage.Entry{
+					Key:        triage.Key(triage.ClassStoppedRun, state.RunID),
+					Class:      triage.ClassStoppedRun,
+					RunID:      state.RunID,
+					WorkItemID: state.WorkItemID,
+				}, item)
+			}
+		}
+	}
 	// A re-arm is fired on its own path, and what that path holds back is written
 	// down here with everything else the sweep holds back, so a re-arm no pass
 	// attempts is as visible on the item as a re-run no pass attempts.
@@ -642,6 +674,14 @@ func (c CarryOut) RecordUnattempted(ctx context.Context, poll time.Duration, pas
 		}
 		if task.Decision == DecisionContinueChecks {
 			if err := c.noteCheckStageWait(ctx, task.RunID, held.why, held.clears); err != nil {
+				problems = append(problems, err)
+			}
+			continue
+		}
+		// A request to finish a merge is on the run, so what holds it back is
+		// written there, where whoever reads the run next finds it.
+		if task.Decision == DecisionFinishMerge && c.Integrations != nil {
+			if err := c.Integrations.Wait(ctx, task.RunID, held.why); err != nil {
 				problems = append(problems, err)
 			}
 			continue

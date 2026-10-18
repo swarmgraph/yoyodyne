@@ -1511,3 +1511,30 @@ func TestFoldKeepsOneLiveEntryPerRun(t *testing.T) {
 		t.Fatalf("Fold of one entry = %#v, want it untouched", again)
 	}
 }
+
+// A wait of either kind gives way to the harness taking the stopped work on
+// itself, so the wait never puts the stoppage back; a decision that settled the
+// stoppage outright, and any closure the development manager makes, does not.
+func TestAWaitGivesWayToTheHarnessTakingTheWorkOn(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 10, 17, 19, 40, 0, 0, time.UTC)
+	timed := Closure{Decision: "wait", ClosedAt: at, RevisitAfter: at.Add(2 * time.Hour)}
+	named := Closure{Decision: "wait", ClosedAt: at, WaitsOn: "yoyodyne-blocker"}
+	settled := Closure{Decision: "repair", ClosedAt: at}
+	for _, word := range []string{ResumedDecision, ContinuedChecksDecision, ContinuedStallDecision, SettledDecision} {
+		taken := Closure{Decision: word, ClosedAt: at.Add(time.Hour)}
+		if !taken.TakesTheWorkOn() || !taken.Supersedes(timed) || !taken.Supersedes(named) {
+			t.Errorf("a %q closure does not replace a standing wait", word)
+		}
+		if taken.Supersedes(settled) {
+			t.Errorf("a %q closure replaced a settled decision", word)
+		}
+	}
+	if (Closure{Decision: "wait", ClosedAt: at.Add(time.Hour)}).Supersedes(timed) {
+		t.Error("a second wait replaced a standing one")
+	}
+	if (Closure{Decision: "rerun", ClosedAt: at.Add(time.Hour)}).TakesTheWorkOn() {
+		t.Error("a decision the development manager makes reads as the harness taking the work on")
+	}
+}

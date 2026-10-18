@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -16,7 +17,9 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
+	"github.com/mason-bryant/yoyodyne/internal/runrecover"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // interruptedAt puts the fixture's paused run back as a process that died
@@ -352,6 +355,217 @@ func TestAFinishedMergeAskedForIsCarriedOutAndARefusalIsRecorded(t *testing.T) {
 		if after.RecoveryContinuation == nil || after.RecoveryContinuation.TakenUpAt == nil || after.Phase != runstate.PhaseIntegrating {
 			t.Fatalf("after the carry-out the request is %#v at %q; want it taken up with the run at its promotion", after.RecoveryContinuation, after.Phase)
 		}
+	}
+}
+
+// A request to finish a merge that the recovery tool accepted is carried out
+// by a work session that started after it was accepted, and after an earlier
+// session found every developer slot occupied and wrote that onto the request
+// and the item. Two shapes are tried. In one the development manager records a
+// wait beside the request, as a triage decision about the run and a closure of
+// its stoppage: the wait does not hide the request, because the request is what
+// she is waiting on. In the other the docket never recorded the stoppage, so
+// the request is reachable only from the run, which is walked too.
+func TestAFinishMergeRequestIsCarriedOutByASessionStartedAfterItWasAccepted(t *testing.T) {
+	t.Parallel()
+
+	for _, shape := range []string{"a wait beside it", "never docketed"} {
+		root := t.TempDir()
+		harness := newResumeHarness(t, approvedStoppedState())
+		harness.capacity = 1
+		docketRoot := harness.runsRoot
+		if shape == "never docketed" {
+			empty, err := runstate.NewDocketStore(root, "yoyodyne")
+			if err != nil {
+				t.Fatalf("NewDocketStore() error = %v", err)
+			}
+			harness.docket, docketRoot = empty, root
+		}
+		occupant := approvedStoppedState()
+		occupant.RunID, occupant.WorkItemID = "run-"+strings.Repeat("e", 32), "yoyodyne-occupant"
+		occupant.Status, occupant.Phase, occupant.CompletedAt = runstate.StatusRunning, runstate.PhaseDeveloping, nil
+		occupant.IntegrationStop, occupant.Environmental, occupant.Failure = nil, nil, ""
+		if err := harness.runs.Create(occupant); err != nil {
+			t.Fatalf("Create(occupant) error = %v", err)
+		}
+
+		// The development manager asks, through the recovery tool itself.
+		observations, err := runstate.NewHealthObservationStore(root, "yoyodyne")
+		if err != nil {
+			t.Fatalf("NewHealthObservationStore() error = %v", err)
+		}
+		askedAt := docketedNow.Add(30 * time.Second)
+		if err := observations.Save("health-finish", askedAt.Add(-time.Minute), json.RawMessage(`{}`)); err != nil {
+			t.Fatalf("Save(observation) error = %v", err)
+		}
+		recoverer := runrecover.Recoverer{Runs: harness.runs, Observations: observations, Finishable: RecoveryFinishable, Now: func() time.Time { return askedAt }}
+		accepted := recoverer.Recover(context.Background(), domain.RoleDevelopmentManager, runrecover.Request{
+			ID: "dm-finish", Run: docketedRunID, Observation: "health-finish", ExpectStatus: runstate.StatusFailed, ExpectPhase: runstate.PhaseIntegrating,
+			Action: runstate.RecoverFinishMerge, Reason: "approved with its checks passing; only the replay onto a moved main ran out of time",
+		})
+		if accepted.Outcome != runrecover.Applied {
+			t.Fatalf("%s: Recover() = %#v, want the request accepted", shape, accepted)
+		}
+
+		// The first session finds every slot occupied, and says so on the run and the item.
+		first := CarryOut{Docket: harness.docket, Decisions: harness.runs.Triage(), Reruns: harness.runs.Reruns(), Runs: harness.runs,
+			Integrations: RecoveredIntegrations{Runs: harness.runs, Resumer: harness.resumer(), Items: harness.tracker, Clock: docketClock{}}}
+		tasks, err := first.Outstanding()
+		if err != nil || len(tasks) != 1 || tasks[0].Decision != DecisionFinishMerge {
+			t.Fatalf("%s: first session Outstanding() = %#v, %v; want the request offered", shape, tasks, err)
+		}
+		if carried, _, _ := first.Carry(context.Background(), tasks[0]); carried.Carried || !carried.Waiting || carried.Gate != runstate.TriageGateCapacity {
+			t.Fatalf("%s: first session Carry() = %#v, want it waiting on a developer slot", shape, carried)
+		}
+		waiting := harness.reload(t).RecoveryContinuation
+		if !waiting.Outstanding() || !strings.Contains(waiting.Waiting, "every developer slot is occupied") || waiting.WaitingSince == nil {
+			t.Fatalf("%s: after the wait the request is %#v, want it outstanding and saying what it waits on", shape, waiting)
+		}
+		if !strings.Contains(harness.tracker.Notes, "request dm-finish") || !strings.Contains(harness.tracker.Notes, "is waiting") {
+			t.Fatalf("%s: item notes = %q, want the wait noted on the item", shape, harness.tracker.Notes)
+		}
+
+		if shape == "a wait beside it" {
+			if _, err := harness.runs.Triage().RecordDecision(context.Background(), docketedItem,
+				triageDecided(runstate.TriageDecisionWait, docketedRunID), docketedNow.Add(time.Minute)); err != nil {
+				t.Fatalf("RecordDecision() error = %v", err)
+			}
+			if _, err := harness.docket.Close(triage.Closure{SchemaVersion: triage.ClosureSchemaVersion, Key: triage.Key(triage.ClassStoppedRun, docketedRunID),
+				ProductID: "yoyodyne", RunID: docketedRunID, WorkItemID: docketedItem, Decision: runstate.TriageDecisionWait,
+				Reason: "the harness has been asked to finish the merge", DecidedBy: "the development manager", ClosedAt: docketedNow.Add(time.Minute),
+				RevisitAfter: docketedNow.Add(3 * time.Hour)}); err != nil {
+				t.Fatalf("Close() error = %v", err)
+			}
+		}
+
+		// The occupant finishes, and a session started afterwards opens the same
+		// stores afresh: nothing the first session held carries over.
+		done, err := harness.runs.Load(occupant.RunID)
+		if err != nil {
+			t.Fatalf("Load(occupant) error = %v", err)
+		}
+		completed := docketedNow.Add(2 * time.Minute)
+		done.Status, done.CompletedAt = runstate.StatusSucceeded, &completed
+		if err := harness.runs.Save(done); err != nil {
+			t.Fatalf("Save(occupant) error = %v", err)
+		}
+		restarted, err := runstate.NewStore(harness.runsRoot, "yoyodyne")
+		if err != nil {
+			t.Fatalf("NewStore() error = %v", err)
+		}
+		docket, err := runstate.NewDocketStore(docketRoot, "yoyodyne")
+		if err != nil {
+			t.Fatalf("NewDocketStore() error = %v", err)
+		}
+		harness.runs, harness.docket = restarted, docket
+		later := docketClockAt{at: docketedNow.Add(5 * time.Minute)}
+		resumer := harness.resumer()
+		resumer.Clock = later
+		second := CarryOut{Docket: docket, Decisions: restarted.Triage(), Reruns: restarted.Reruns(), Runs: restarted, Clock: later,
+			Integrations: RecoveredIntegrations{Runs: restarted, Resumer: resumer, Items: harness.tracker, Clock: later}}
+		tasks, err = second.Outstanding()
+		if err != nil || len(tasks) != 1 || tasks[0].Decision != DecisionFinishMerge || tasks[0].RunID != docketedRunID {
+			t.Fatalf("%s: restarted session Outstanding() = %#v, %v; want the request offered", shape, tasks, err)
+		}
+		carried, _, _ := second.Carry(context.Background(), tasks[0])
+		if !carried.Carried || len(harness.started) != 1 || harness.started[0].runID != docketedRunID {
+			t.Fatalf("%s: restarted session Carry() = %#v, started %#v; want the merge finished", shape, carried, harness.started)
+		}
+		after := harness.reload(t)
+		if after.RecoveryContinuation == nil || after.RecoveryContinuation.TakenUpAt == nil || after.RecoveryContinuation.Waiting != "" || after.Phase != runstate.PhaseIntegrating {
+			t.Fatalf("%s: after the restart the request is %#v at %q; want it taken up with the run at its promotion", shape, after.RecoveryContinuation, after.Phase)
+		}
+		if shape == "a wait beside it" {
+			// The harness took the stopped work on itself, so its closure replaces
+			// her wait, and the stoppage stays off her list past the wait's time to
+			// look again.
+			closure, closed := harness.closure(t)
+			if !closed || closure.Decision != resumedDocketDecision {
+				t.Fatalf("closure = %#v, %t; want the harness's resumption to replace the wait", closure, closed)
+			}
+			if !closure.Holds(docketedNow.Add(6 * time.Hour)) {
+				t.Fatalf("closure %#v stops holding after the wait's time to look again; the stoppage would come back", closure)
+			}
+		}
+		if !strings.Contains(harness.tracker.Notes, "run.recover (request dm-finish)") {
+			t.Fatalf("%s: item notes = %q, want the resumption noted on the item naming the request", shape, harness.tracker.Notes)
+		}
+		if again, err := second.Outstanding(); err != nil || len(again) != 0 {
+			t.Fatalf("%s: Outstanding() after the merge = %#v, %v; want nothing offered again", shape, again, err)
+		}
+	}
+}
+
+// Which triage decision about a run replaces a request to finish its merge:
+// one recorded at or after the request, other than a wait. A decision
+// recorded before it is one the request decided past.
+func TestOnlyALaterDecisionOtherThanAWaitReplacesAFinishMergeRequest(t *testing.T) {
+	t.Parallel()
+
+	asked := runstate.RecoveryContinuation{RequestID: "dm-finish", Action: runstate.RecoverFinishMerge, RequestedAt: docketedNow}
+	for _, tried := range []struct {
+		decision   string
+		at         time.Time
+		supersedes bool
+	}{
+		{runstate.TriageDecisionWait, docketedNow.Add(time.Hour), false},
+		{runstate.TriageDecisionRepair, docketedNow.Add(-time.Hour), false},
+		{runstate.TriageDecisionRerun, docketedNow.Add(-time.Hour), false},
+		{runstate.TriageDecisionRepair, docketedNow.Add(time.Hour), true},
+		{runstate.TriageDecisionRerun, docketedNow, true},
+		{runstate.TriageDecisionEscalate, docketedNow.Add(time.Hour), true},
+		{runstate.TriageDecisionProceed, docketedNow.Add(time.Hour), false},
+	} {
+		decision := triageDecided(tried.decision, docketedRunID)
+		decision.DecidedAt = tried.at
+		if got := supersedesFinishMerge(decision, asked); got != tried.supersedes {
+			t.Errorf("a %s decided %s the request: supersedes = %t, want %t", tried.decision, tried.at.Sub(docketedNow), got, tried.supersedes)
+		}
+	}
+}
+
+// unreadableRecords is a run store whose list of every recorded run cannot be
+// read, while each run and the runs in flight still can.
+type unreadableRecords struct{ *runstate.Store }
+
+func (unreadableRecords) Recorded() ([]runstate.State, error) {
+	return nil, errors.New("the run directory could not be listed")
+}
+
+// When the run records cannot be read, the walk that finds requests to finish
+// a merge from the runs says so, naming what it could not look for.
+func TestAnUnreadableRunHistoryIsReportedByTheFinishMergeWalk(t *testing.T) {
+	t.Parallel()
+
+	harness := newResumeHarness(t, approvedStoppedState())
+	runs := unreadableRecords{harness.runs}
+	carry := CarryOut{Docket: harness.docket, Decisions: harness.runs.Triage(), Reruns: harness.runs.Reruns(), Runs: runs,
+		Integrations: RecoveredIntegrations{Runs: harness.runs, Resumer: harness.resumer()}}
+	if _, err := carry.Outstanding(); err == nil || !strings.Contains(err.Error(), "requests to finish a merge that only a run's own record carries were not looked for") {
+		t.Fatalf("Outstanding() error = %v, want the missed walk named", err)
+	}
+}
+
+// A request the integration resumer refuses is refused on the run and noted on
+// the item, and is not offered again.
+func TestARefusedFinishMergeRequestIsNotedOnTheItem(t *testing.T) {
+	t.Parallel()
+
+	state := approvedStoppedState()
+	state.RecoveryContinuation = &runstate.RecoveryContinuation{RequestID: "dm-finish", Action: runstate.RecoverFinishMerge, Reason: "finish it", RequestedAt: docketedNow}
+	harness := newResumeHarness(t, state)
+	harness.ownership.ReadyErr = fmt.Errorf("%w: primary repository has uncommitted changes: AGENTS.md", gitworktree.ErrPrimaryNotReady)
+	carry := CarryOut{Docket: harness.docket, Decisions: harness.runs.Triage(), Reruns: harness.runs.Reruns(), Runs: harness.runs,
+		Integrations: RecoveredIntegrations{Runs: harness.runs, Resumer: harness.resumer(), Items: harness.tracker}}
+	tasks, err := carry.Outstanding()
+	if err != nil || len(tasks) != 1 {
+		t.Fatalf("Outstanding() = %#v, %v; want the request offered", tasks, err)
+	}
+	if carried, _, _ := carry.Carry(context.Background(), tasks[0]); carried.Carried {
+		t.Fatalf("Carry() = %#v, want it refused", carried)
+	}
+	if !strings.Contains(harness.tracker.Notes, "did not finish the merge") || !strings.Contains(harness.tracker.Notes, "AGENTS.md") {
+		t.Fatalf("item notes = %q, want the refusal and its reason noted", harness.tracker.Notes)
 	}
 }
 

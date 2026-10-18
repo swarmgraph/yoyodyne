@@ -111,7 +111,7 @@ var ErrNotHarnessContinuedStall = errors.New("the stopped run is not a stall the
 // continuedStallDocketDecision is the word the closure a continuation makes
 // carries, so a reader of a closed entry can tell a stall the harness continued
 // from one the development manager decided about.
-const continuedStallDocketDecision = "continued after a stall"
+const continuedStallDocketDecision = triage.ContinuedStallDecision
 
 // Due reports a run the harness would continue now, as far as its record can
 // say: a settled first silent-stream stall whose continuation is not spent. It

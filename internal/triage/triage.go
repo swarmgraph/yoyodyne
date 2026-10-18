@@ -952,11 +952,40 @@ func (c Closure) Holds(at time.Time) bool {
 // WaitsOnWork reports a decision to wait that names the work item it waits on.
 func (c Closure) WaitsOnWork() bool { return strings.TrimSpace(c.WaitsOn) != "" }
 
+// The words the harness's own closure carries when it takes the stopped work on
+// itself: making an approved change's integration live again, continuing a run
+// at its checks or after a stall, and confirming a publication's merge. They
+// are declared here because Supersedes reads them; the packages that write the
+// closures name these constants rather than spelling the words again.
+const (
+	ResumedDecision         = "resumed"
+	ContinuedChecksDecision = "continued at its checks"
+	ContinuedStallDecision  = "continued after a stall"
+	SettledDecision         = "settled"
+)
+
+// TakesTheWorkOn reports a closure the harness made because it took the
+// stopped work on itself, by continuing the run or confirming its merge.
+func (c Closure) TakesTheWorkOn() bool {
+	switch strings.TrimSpace(c.Decision) {
+	case ResumedDecision, ContinuedChecksDecision, ContinuedStallDecision, SettledDecision:
+		return true
+	}
+	return false
+}
+
 // Supersedes reports this closure taking the place of a decision still holding
-// over the same entry. Only a wait on named work gives way, and only to the
-// harness: to the closure saying the item it waits on has landed, and to the
-// entry's own item closing, since a closed item asks nobody anything.
+// over the same entry. Only a wait gives way, and only to the harness. Any wait
+// gives way to the harness taking the work on itself (TakesTheWorkOn): the
+// stoppage is then no question for anybody, and a wait left standing would put
+// it back in front of the development manager when its time to look again came.
+// A wait on named work also gives way to the closure saying the item it waits
+// on has landed, and to the entry's own item closing, since a closed item asks
+// nobody anything.
 func (c Closure) Supersedes(standing Closure) bool {
+	if c.TakesTheWorkOn() && (standing.WaitsOnWork() || !standing.RevisitAfter.IsZero()) {
+		return true
+	}
 	if !standing.WaitsOnWork() {
 		return false
 	}
