@@ -52,6 +52,9 @@ const (
 	// prompt it clears what is being typed, and twice on an empty prompt ends the
 	// conversation; while a turn is being answered it stops the turn.
 	keyInterrupt
+	// keyTab completes a command's name where the list of commands is showing
+	// (commands.go), and is ignored everywhere else.
+	keyTab
 )
 
 type key struct {
@@ -93,6 +96,8 @@ func decodeKey(buffer []byte) (key, int, bool) {
 		return key{code: keyEnter}, 1, true
 	case 0x03:
 		return key{code: keyInterrupt}, 1, true
+	case '\t':
+		return key{code: keyTab}, 1, true
 	case 0x7f, 0x08:
 		return key{code: keyBackspace}, 1, true
 	case 0x01:
@@ -284,6 +289,11 @@ func reportedKey(code, modifiers int) key {
 			return key{code: keyNewline}
 		}
 		return key{code: keyEnter}
+	case '\t':
+		if held == 0 {
+			return key{code: keyTab}
+		}
+		return key{code: keyIgnored}
 	case 0x7f, '\b':
 		if held&(modifierAlt|modifierCtrl) != 0 {
 			return key{code: keyKillWord}

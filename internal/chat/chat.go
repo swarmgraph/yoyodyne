@@ -3557,6 +3557,9 @@ func (s *Session) converse(ctx context.Context, screen console.Console) error {
 	// Up at the prompt recalls what the operator typed in this conversation
 	// before, including in the processes that held it before this one.
 	console.Remember(screen, s.typedMessages()...)
+	// A slash on an empty prompt lists the commands /help lists, narrowing as the
+	// name is typed, where the console is a terminal that can show one.
+	console.OfferCommands(screen, commandMenu()...)
 	// What the harness says in answer to a command is dressed as its own kind of
 	// thing, because it is something the operator asked for and has to act on
 	// rather than part of the conversation.
