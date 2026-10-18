@@ -14,12 +14,15 @@ import (
 // countingTracker is a tracker that answers as bd does and counts what it is
 // asked. Where gate is set, the whole listing and the readiness query each wait
 // until the other has started, so a reading that asks for them one after the
-// other never gets an answer.
+// other never gets an answer. Where hold is set, the whole listing also waits
+// until the test closes it, so a caller can be made to meet a listing that is
+// still being read.
 type countingTracker struct {
 	every []beads.WorkItem
 	ready []beads.WorkItem
 	fail  error
 	gate  bool
+	hold  chan struct{}
 
 	mu       sync.Mutex
 	listings []string
@@ -40,6 +43,13 @@ func (c *countingTracker) List(ctx context.Context, status string) ([]beads.Work
 		close(c.listing)
 		select {
 		case <-c.readying:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	if c.hold != nil {
+		select {
+		case <-c.hold:
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -169,14 +179,17 @@ func TestAWaiterOnTheSharedListingStopsWithItsOwnContext(t *testing.T) {
 	every, ready := sharedListingItems()
 	tracker := newCountingTracker(every, ready)
 	tracker.gate = true
+	tracker.hold = make(chan struct{})
 	sources, shared := Sources{Tracker: tracker}.sharing()
-	// Only the listing is asked of the tracker here, and it waits for the
-	// readiness query the shared tracker started beside it.
+	// The shared tracker starts the listing and the readiness query together,
+	// so the gate between them opens at once; the hold is what keeps the
+	// listing under way until the cancelled waiter has given up on it.
 	waiting, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := sources.Tracker.List(waiting, "open"); !errors.Is(err, context.Canceled) {
 		t.Fatalf("a cancelled waiter got %v; want its own context's end", err)
 	}
+	close(tracker.hold)
 	items, err := shared.List(context.Background(), "open")
 	if err != nil || len(items) != 1 || items[0].ID != "yoyodyne-ifd.1" {
 		t.Fatalf("open = %+v, %v; want the open item from the listing already under way", items, err)
