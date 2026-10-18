@@ -232,6 +232,13 @@ type RecoveryContinuation struct {
 	// again by itself; a new request replaces it.
 	Refused   string     `json:"refused,omitempty"`
 	RefusedAt *time.Time `json:"refused_at,omitempty"`
+	// Waiting is what an outstanding continuation was last found waiting on
+	// when the work session tried it — the intake hold, the operator's pause, or
+	// every developer slot occupied — and WaitingSince is when that wait was
+	// first written. Nothing is refused by it: the next pull asks again, and
+	// taking the continuation up or refusing it clears it.
+	Waiting      string     `json:"waiting,omitempty"`
+	WaitingSince *time.Time `json:"waiting_since,omitempty"`
 }
 
 func (c RecoveryContinuation) Validate() error {
@@ -250,6 +257,12 @@ func (c RecoveryContinuation) Validate() error {
 	}
 	if (c.Refused == "") != (c.RefusedAt == nil) {
 		problems = append(problems, errors.New("refused and refused_at are recorded together"))
+	}
+	if (c.Waiting == "") != (c.WaitingSince == nil) {
+		problems = append(problems, errors.New("waiting and waiting_since are recorded together"))
+	}
+	if c.Waiting != "" && (c.TakenUpAt != nil || c.Refused != "") {
+		problems = append(problems, errors.New("only an outstanding continuation is waiting"))
 	}
 	return errors.Join(problems...)
 }
@@ -272,7 +285,26 @@ func (s *State) TakeUpRecoveryContinuation(action RecoveryAction, at time.Time) 
 		return false
 	}
 	at = at.UTC()
-	s.RecoveryContinuation.TakenUpAt = &at
+	taken := *s.RecoveryContinuation
+	taken.TakenUpAt = &at
+	taken.Waiting, taken.WaitingSince = "", nil
+	s.RecoveryContinuation = &taken
+	return true
+}
+
+// WaitRecoveryContinuation records what an outstanding continuation of this
+// kind is waiting on, and reports whether that changed the record: a wait
+// already written in the same words is left with the time it was first
+// written. The caller saves the run.
+func (s *State) WaitRecoveryContinuation(action RecoveryAction, why string, at time.Time) bool {
+	why = strings.TrimSpace(why)
+	if !s.RecoveryContinuationOutstanding(action) || why == "" || s.RecoveryContinuation.Waiting == why {
+		return false
+	}
+	at = at.UTC()
+	waiting := *s.RecoveryContinuation
+	waiting.Waiting, waiting.WaitingSince = why, &at
+	s.RecoveryContinuation = &waiting
 	return true
 }
 

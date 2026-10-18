@@ -1926,8 +1926,14 @@ the run as it stands. Each action reads what it rests on as it acts:
   integration of an approved change the environment stopped short of its
   promotion. The work session's carry-out of recorded decisions makes it
   through the same resumer `yoyo triage resume` uses, with that resumer's
-  checks; a refusal there is written onto the request, and it is not tried again
-  until she asks again.
+  checks, at the first pull that can take it, including in a session started
+  after the request was accepted. It is found from the run's own record, so it
+  needs no docket entry, and a wait she records about the same run beside it
+  does not set it aside; any other decision about the run recorded after the
+  request does. While it waits for the intake hold, the operator's pause, or a
+  free developer slot, what it waits on is written onto the request and noted
+  on the item. A refusal there is written onto the request and noted on the
+  item, and it is not tried again until she asks again.
 - **wait** records a dependency wait at the phase the run was interrupted at. It
   is refused when the item waits on nothing, and for a run interrupted inside
   its integration or with its promotion recorded: that run is owed the

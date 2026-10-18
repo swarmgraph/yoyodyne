@@ -804,8 +804,9 @@ func carryOutFrom(parts components) *orchestrator.CarryOut {
 		Stalls: stallContinuerFrom(parts),
 		// A merge the development manager asked through run.recover to have
 		// finished, carried out through the same resumer `yoyo triage resume`
-		// carries one out through, with its checks.
-		Integrations: orchestrator.RecoveredIntegrations{Runs: parts.store, Resumer: integrationResumerFrom(parts)},
+		// carries one out through, with its checks. What became of the request is
+		// noted on the item through the same tracker.
+		Integrations: orchestrator.RecoveredIntegrations{Runs: parts.store, Resumer: integrationResumerFrom(parts), Items: parts.tracker()},
 		// The same pause every run and every turn reads. A carry-out spends on a
 		// provider, so `yoyo pause` covers it exactly as it covers them — and it is
 		// read here rather than left to the pipeline because a repair writes to the

@@ -16,6 +16,7 @@ package orchestrator
 // the step that takes it up (resumeRun, IntegrationResumer.supersedeOnRun), and
 // a refusal the work session will not retry by itself is written onto the
 // request, where run.inspect, run.verify and the next health observation read it.
+// A finished merge's waits are written there too, and both are noted on the item.
 //
 // The rules a request is accepted on are here rather than in the tool, because
 // they are the rules the pipeline applies when it takes the run up: a request
@@ -139,9 +140,14 @@ const DecisionFinishMerge = "finish-merge"
 
 // CarryOutIntegrations finishes the merges the development manager asked for
 // through run.recover. It is satisfied by RecoveredIntegrations.
+//
+// Asked is the request the run's record carries, where one is outstanding.
+// Wait writes what an attempt found it waiting on onto that request, so the run
+// says what it waits on whichever session reads it next.
 type CarryOutIntegrations interface {
-	Due(runID string) (bool, error)
+	Asked(runID string) (runstate.RecoveryContinuation, bool, error)
 	Finish(ctx context.Context, runID string) (IntegrationResumeResult, error)
+	Wait(ctx context.Context, runID, why string) error
 }
 
 // RecoveryRuns is the run store the work session reads and settles requests
@@ -154,10 +160,17 @@ type RecoveryRuns interface {
 
 // RecoveredIntegrations carries out run.recover's finish-the-merge requests
 // through the integration resumer.
+//
+// Items is the run's work item, where a refusal and each new wait are noted as
+// well as on the request, so the item says what became of the request without
+// anybody opening the run. Optional: wired without it, the run alone says so.
 type RecoveredIntegrations struct {
 	Runs    RecoveryRuns
 	Resumer IntegrationResumer
-	Clock   execution.Clock
+	Items   interface {
+		RecordOutcome(context.Context, string, string) (beads.WorkItem, error)
+	}
+	Clock execution.Clock
 }
 
 func (r RecoveredIntegrations) now() execution.Clock {
@@ -167,13 +180,47 @@ func (r RecoveredIntegrations) now() execution.Clock {
 	return r.Clock
 }
 
-// Due reports a run whose record asks for its merge to be finished.
-func (r RecoveredIntegrations) Due(runID string) (bool, error) {
+// Asked reports the request to finish its merge that a run's record carries,
+// where one is outstanding.
+func (r RecoveredIntegrations) Asked(runID string) (runstate.RecoveryContinuation, bool, error) {
 	state, err := r.Runs.Read(runID)
 	if err != nil {
-		return false, err
+		return runstate.RecoveryContinuation{}, false, err
 	}
-	return state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge), nil
+	if !state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge) {
+		return runstate.RecoveryContinuation{}, false, nil
+	}
+	return *state.RecoveryContinuation, true, nil
+}
+
+// Wait writes onto the request what the attempt found it waiting on, and notes
+// it on the item the first time it is found waiting on that. A wait already
+// written in the same words is left alone, so a pull every minute through a
+// long hold writes once.
+func (r RecoveredIntegrations) Wait(ctx context.Context, runID, why string) error {
+	state, lease, err := r.Runs.AdoptRun(ctx, runID)
+	if err != nil {
+		return fmt.Errorf("record what finishing run %s's merge waits on: %w", runID, err)
+	}
+	defer lease.Release()
+	if !state.WaitRecoveryContinuation(runstate.RecoverFinishMerge, why, r.now().Now()) {
+		return nil
+	}
+	if err := r.Runs.Save(state); err != nil {
+		return fmt.Errorf("record what finishing run %s's merge waits on: %w", runID, err)
+	}
+	return r.note(ctx, state.WorkItemID, fmt.Sprintf("Finishing the merge of run %s, which the development manager asked for through run.recover (request %s), is waiting: %s. Nothing is refused; the next pull that can take it tries again.",
+		runID, state.RecoveryContinuation.RequestID, strings.TrimSpace(why)))
+}
+
+func (r RecoveredIntegrations) note(ctx context.Context, workItemID, note string) error {
+	if r.Items == nil || strings.TrimSpace(workItemID) == "" {
+		return nil
+	}
+	if _, err := r.Items.RecordOutcome(ctx, workItemID, singleLine(note, runstate.MaxBlockerBytes)); err != nil {
+		return fmt.Errorf("note on %s what became of the request to finish its merge: %w", workItemID, err)
+	}
+	return nil
 }
 
 // Finish resumes the run's integration on the request its record carries. A
@@ -191,7 +238,7 @@ func (r RecoveredIntegrations) Finish(ctx context.Context, runID string) (Integr
 		return IntegrationResumeResult{RunID: runID}, fmt.Errorf("run %s carries no request to finish its merge", runID)
 	}
 	reason := fmt.Sprintf("the development manager asked through run.recover (request %s) for the integration of run %s to be finished: %s", asked.RequestID, runID, asked.Reason)
-	result, err := r.Resumer.Resume(ctx, IntegrationResumeRequest{Run: runID, Reason: reason})
+	result, err := r.Resumer.Resume(ctx, IntegrationResumeRequest{Run: runID, Reason: reason, Asked: true})
 	if result.Resumed || result.IntakeHeld != nil || result.CapacityFull != nil || err == nil {
 		return result, err
 	}
@@ -216,24 +263,34 @@ func (r RecoveredIntegrations) refuse(ctx context.Context, runID, requestID, why
 	if refused.Refused == "" {
 		refused.Refused = "the integration resumer refused it and said nothing more"
 	}
+	refused.Waiting, refused.WaitingSince = "", nil
 	state.RecoveryContinuation = &refused
-	return r.Runs.Save(state)
+	if err := r.Runs.Save(state); err != nil {
+		return err
+	}
+	return r.note(ctx, state.WorkItemID, fmt.Sprintf("The harness did not finish the merge of run %s that the development manager asked for through run.recover (request %s), and will not try again unless she asks again: %s",
+		runID, requestID, refused.Refused))
 }
 
 // finishMergeTask reports a run.recover request to finish this entry's run's
-// merge, and whether there is one. A decision the development manager recorded
-// about the stoppage on the item's triage record is carried out instead, as it
-// is for every task the harness fires itself.
+// merge, and whether there is one.
+//
+// The request and the item's triage record are both the development manager's,
+// so the later of the two is what she decided. A decision about the run recorded
+// after the request is carried out instead, except a wait: a wait does nothing,
+// and the request it was recorded beside is what she is waiting on. A decision
+// recorded before the request is one the request has decided past, whatever the
+// stoppage's docket entry says.
 func (c CarryOut) finishMergeTask(entry triage.Entry, item outstandingItem) (CarryOutTask, bool, error) {
 	if c.Integrations == nil {
 		return CarryOutTask{}, false, nil
 	}
-	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() && !decision.DecidedAt.Before(entry.RecordedAt) {
-		return CarryOutTask{}, false, nil
-	}
-	due, err := c.Integrations.Due(entry.RunID)
+	asked, due, err := c.Integrations.Asked(entry.RunID)
 	if err != nil || !due {
 		return CarryOutTask{}, false, err
+	}
+	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && supersedesFinishMerge(decision, asked) {
+		return CarryOutTask{}, false, nil
 	}
 	return CarryOutTask{
 		WorkItemID: entry.WorkItemID,
@@ -244,15 +301,26 @@ func (c CarryOut) finishMergeTask(entry triage.Entry, item outstandingItem) (Car
 	}, true, nil
 }
 
+// supersedesFinishMerge reports a triage decision about a run that replaces the
+// request to finish its merge: one about the stopped run, other than a wait,
+// recorded at or after the request.
+func supersedesFinishMerge(decision runstate.TriageDecision, asked runstate.RecoveryContinuation) bool {
+	return !decision.InFlight() && decision.Decision != runstate.TriageDecisionWait && !decision.DecidedAt.Before(asked.RequestedAt)
+}
+
 // finishMerge carries one such request out. Like the harness's own
-// continuations, nothing it meets is written onto the item's triage record: a
-// wait is said on the pass and asked again at the next pull, and a refusal is
-// written onto the request by RecoveredIntegrations.
+// continuations, nothing it meets is written onto the item's triage record,
+// because the request is on the run rather than there: a wait is written onto
+// the request and asked again at the next pull, and a refusal is written onto
+// the request by RecoveredIntegrations, each noted on the item as well.
 func (c CarryOut) finishMerge(ctx context.Context, task CarryOutTask, carried CarriedOut) (CarriedOut, Outcome, error) {
 	waiting := func(gate, what string) (CarriedOut, Outcome, error) {
 		carried.Gate = gate
 		carried.Waiting = true
 		carried.Problem = fmt.Sprintf("finishing run %s's merge, as the development manager asked, is waiting on %s: %s; the next pull asks again", task.RunID, gate, what)
+		if err := c.Integrations.Wait(ctx, task.RunID, what); err != nil {
+			carried.RecordProblem = strings.TrimSpace(carried.RecordProblem + " " + err.Error())
+		}
 		return carried, Outcome{}, nil
 	}
 	hold, held, err := c.paused()

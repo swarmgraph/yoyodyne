@@ -150,6 +150,12 @@ type IntegrationResumer struct {
 type IntegrationResumeRequest struct {
 	Run    string
 	Reason string
+	// Asked says the resumption carries out the development manager's run.recover
+	// request to finish this merge. The request on the run is then what the
+	// resumption is made on where the docket holds no entry of the stoppage at
+	// all, as for a run whose docketing was never written: the request is hers,
+	// and the run's own record is what RecoveryFinishable accepted it on.
+	Asked bool
 }
 
 // IntegrationResumeResult is what the action did. It reports the resumption it
@@ -229,6 +235,9 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	}
 
 	entry, err := docketedStoppage(r.Docket, runID, "resume")
+	if errors.As(err, &NoDocketedStoppageError{}) && request.Asked {
+		entry, err = r.askedStoppage(runID, err)
+	}
 	if err != nil {
 		return IntegrationResumeResult{}, err
 	}
@@ -351,6 +360,31 @@ func (r IntegrationResumer) Resume(ctx context.Context, request IntegrationResum
 	outcome, runErr := r.Start(ctx, entry.WorkItemID, prior.RunID)
 	result.Outcome = outcome
 	return result, runErr
+}
+
+// askedStoppage is the stoppage a run.recover request to finish the merge stands
+// for when the docket holds no entry of it. It is the entry the docket would
+// hold, keyed as the docket keys it; with nothing on the docket to close, the
+// closure the resumption then attempts is reported beside it rather than
+// refusing it. A run whose record carries no such request is refused as it
+// would have been.
+func (r IntegrationResumer) askedStoppage(runID string, refused error) (triage.Entry, error) {
+	state, err := r.Runs.Load(runID)
+	if err != nil {
+		return triage.Entry{}, fmt.Errorf("read run %s, whose stoppage is not on the docket, for the request to finish its merge: %w", runID, err)
+	}
+	if !state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge) {
+		return triage.Entry{}, refused
+	}
+	return triage.Entry{
+		SchemaVersion: triage.SchemaVersion,
+		Key:           triage.Key(triage.ClassStoppedRun, runID),
+		Class:         triage.ClassStoppedRun,
+		ProductID:     state.ProductID,
+		RunID:         runID,
+		WorkItemID:    state.WorkItemID,
+		RecordedAt:    state.UpdatedAt,
+	}, nil
 }
 
 // restoreWorktree puts a retired worktree back from its branch and records on
