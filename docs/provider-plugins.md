@@ -451,11 +451,22 @@ The CLI finds these on its own, so each is turned off on the command line, on
   plugins and their skills out.
 - Nothing turns off the Codex home's own `AGENTS.md` or `AGENTS.override.md`:
   no setting or flag names them, and `--ignore-user-config` does not reach them.
-  Where the account's home holds either, the invocation runs under a temporary
-  home the harness makes beside it, linking every other entry of the account's
-  home — authentication, sessions, configuration — and leaving those two out.
-  It is removed when the invocation ends; removing it removes the links, never
-  what they point at. A home that holds neither is used as it is.
+  Where the account's home holds either, the invocation runs under a home the
+  harness keeps for it inside the account's home, `.yoyodyne-codex-home`,
+  linking every other entry of the account's home — authentication, sessions,
+  configuration — and leaving those two out. It has the same path for every
+  invocation under that account and is never removed, because Codex records
+  where each session is kept by its path under the home it ran in, and a resume
+  looks it up there: a home with a new path each time leaves the next turn
+  failing with "no rollout found". Each invocation brings it up to date instead:
+  an entry the account's home has gained is linked in, and the filtered copy of
+  `config.toml` (below) is rewritten, or put back to a link once the account's
+  file needs no filtering. Before linking, the harness makes a `sessions`
+  directory in the account's home if it has none, so every session is written
+  into the account's own. What Codex writes through a link lands in the
+  account's home; what it creates in the kept home, such as the databases in
+  which it records its sessions where the account's home has none, stays there
+  for the next turn. A home that holds neither is used as it is.
 - The account's `config.toml` can carry instruction text as well.
   `--config developer_instructions=""` empties that setting on every turn.
   `model_instructions_file`, which replaces Codex's own base instructions, and
@@ -492,7 +503,7 @@ session record Codex writes before it reaches the provider. The
 setting names were read from the CLI's own help and its list of configuration
 keys, and `codex features list` lists the features. Codex was also seen to save
 `auth.json` through a link rather than replace it, so a login refreshed during
-an invocation under the made home is written to the account's own file. The
+an invocation under the kept home is written to the account's own file. The
 recorded help in `internal/backend/codex/testdata/cli-help` was taken from
 0.159.2 and is the same, byte for byte, as 0.160.0's; it lists `--config` and
 `--disable` on `exec`, and every invocation is checked against it.

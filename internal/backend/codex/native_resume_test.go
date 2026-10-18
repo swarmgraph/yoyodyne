@@ -80,7 +80,14 @@ func TestNativeResumeReplacesSavedDirectoryGrants(t *testing.T) {
 	if err != nil {
 		t.Skipf("native resume requires an installed Codex CLI: %v", err)
 	}
+	// The account's home holds a personal instruction file and nothing else, so
+	// every turn runs under the home the harness makes for it, and the first
+	// turn's session is the first thing ever written to the account's home: the
+	// resumes below find it only if the made home kept it.
 	home := t.TempDir()
+	if err := os.WriteFile(filepath.Join(home, "AGENTS.md"), []byte("PERSONAL_AGENTS_MARKER\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	// Codex 0.159.2's macOS sandbox rejects double quotes in writable roots
 	// while compiling its Seatbelt profile. Keep those in the argument-encoding
 	// tests; native execution exercises supported paths, including spaces.
@@ -311,7 +318,16 @@ func (r *sandboxCLIRunner) Run(ctx context.Context, command execution.Command, o
 		}
 	}
 	command.Args = append(prefix, args...)
-	command.Env = append(execution.ExplicitEnvironment(command.Env), ProviderHomeVariable+"="+r.home)
+	// The adapter names the home it chose, which is a made one where the
+	// account's holds an instruction file; only an invocation naming none is
+	// given the fixture's.
+	home := r.home
+	for _, entry := range command.Env {
+		if named, found := strings.CutPrefix(entry, ProviderHomeVariable+"="); found {
+			home = named
+		}
+	}
+	command.Env = append(execution.ExplicitEnvironment(command.Env), ProviderHomeVariable+"="+home)
 	process, err := runner.Run(ctx, command, observer)
 	// Backend.Run deliberately discards raw stdout after parsing it. Keep the
 	// fixture's own runner result for command evidence and launch diagnostics.

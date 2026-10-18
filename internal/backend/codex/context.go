@@ -3,6 +3,7 @@ package codex
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,8 +34,9 @@ import (
 // does not reach it — so where the home has one the invocation runs under a
 // home the harness makes for it: every entry of the account's home linked in,
 // the instruction files left out. Authentication, sessions, and configuration
-// are the account's own through those links, so resume and the effort rule are
-// unchanged; codex-cli 0.160.0 was seen to save auth.json through a link rather
+// are the account's own through those links, and the made home keeps one path
+// and everything Codex writes into it from one invocation to the next, so
+// resume and the effort rule are unchanged; codex-cli 0.160.0 was seen to save auth.json through a link rather
 // than replace it, so a login refreshed during a run lands in the account's home.
 //
 // The account's config.toml can carry instruction text too, and a developer's
@@ -122,67 +124,123 @@ func withoutInstructionKeys(content string) (string, bool) {
 	return strings.Join(kept, ""), removed
 }
 
+// madeHomeName is the directory inside the account's home that an invocation
+// runs under where the account's home has to be filtered. It is never linked
+// into itself.
+const madeHomeName = ".yoyodyne-codex-home"
+
 // prepareProviderHome is the provider home an invocation runs under. Where the
 // account's home holds no instruction file and its config.toml sets no
-// instruction key it is that home and nothing is made; otherwise it is a
-// temporary directory linking every other entry of the account's home, with a
-// copy of config.toml that leaves the instruction keys out, which the caller
-// removes when the invocation ends. Removing it removes the links and the copy
-// and never what the links point at.
-func prepareProviderHome(home string) (prepared string, made bool, err error) {
+// instruction key it is that home; otherwise it is madeHomeName inside it,
+// linking every other entry of the account's home, with a copy of config.toml
+// that leaves the instruction keys out.
+//
+// The made home has the same path for every invocation under the account and
+// is kept rather than removed, because Codex records where each session's
+// rollout file is by the path under the home it ran in, and a resume looks the
+// rollout up there: under a home with a new path each time, the next turn finds
+// the file it recorded gone and fails with "no rollout found", however the file
+// itself was kept. So each invocation brings the made home up to date instead
+// of building one: an entry the account's home has gained is linked, and the
+// config.toml copy is rewritten or put back to a link. What Codex writes through
+// a link lands in the account's home; what it creates in the made home stays
+// there for the next invocation. The sessions directory is made in the
+// account's home before linking, so the rollouts are the account's own.
+// Concurrent invocations under one account bring it up to date together, so
+// nothing here removes what another may be using.
+func prepareProviderHome(home string) (string, error) {
 	personal := false
 	for _, name := range instructionFileNames {
 		if _, err := os.Lstat(filepath.Join(home, name)); err == nil {
 			personal = true
 		} else if !errors.Is(err, os.ErrNotExist) {
-			return "", false, fmt.Errorf("inspect the Codex provider home: %w", err)
+			return "", fmt.Errorf("inspect the Codex provider home: %w", err)
 		}
 	}
 	config, filtered := "", false
 	if content, err := os.ReadFile(filepath.Join(home, "config.toml")); err == nil {
 		config, filtered = withoutInstructionKeys(string(content))
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return "", false, fmt.Errorf("read the Codex provider home's configuration: %w", err)
+		return "", fmt.Errorf("read the Codex provider home's configuration: %w", err)
 	}
 	if !personal && !filtered {
-		return home, false, nil
+		return home, nil
 	}
+	// The account's home is resolved through its own symlinks once, because the
+	// pinned root that writes into it refuses a symlinked component, and the
+	// links name what they point at by this path.
+	home, err := filepath.EvalSymlinks(home)
+	if err != nil {
+		return "", fmt.Errorf("resolve the Codex provider home: %w", err)
+	}
+	account, err := repowrite.OpenPinnedRoot(home)
+	if err != nil {
+		return "", fmt.Errorf("open the Codex provider home: %w", err)
+	}
+	defer account.Close()
+	for _, name := range sessionDirectories {
+		if exists, err := account.Exists(name); err != nil {
+			return "", fmt.Errorf("inspect the Codex provider home: %w", err)
+		} else if !exists {
+			if err := account.MakeDirectory(name, 0o700); err != nil {
+				return "", fmt.Errorf("make %s in the Codex provider home: %w", name, err)
+			}
+		}
+	}
+	if err := account.MakeDirectory(madeHomeName, 0o700); err != nil {
+		return "", fmt.Errorf("make the Codex provider home for harness invocations: %w", err)
+	}
+	made, err := account.OpenDirectory(madeHomeName)
+	if err != nil {
+		return "", fmt.Errorf("open the Codex provider home for harness invocations: %w", err)
+	}
+	defer made.Close()
 	entries, err := os.ReadDir(home)
 	if err != nil {
-		return "", false, fmt.Errorf("read the Codex provider home: %w", err)
+		return "", fmt.Errorf("read the Codex provider home: %w", err)
 	}
-	temporary, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil {
-		return "", false, fmt.Errorf("resolve temporary directory: %w", err)
-	}
-	prepared, err = os.MkdirTemp(temporary, "yoyodyne-codex-home-")
-	if err != nil {
-		return "", false, fmt.Errorf("create the Codex provider home: %w", err)
-	}
-	root, err := repowrite.OpenPinnedRoot(prepared)
-	if err != nil {
-		_ = os.RemoveAll(prepared)
-		return "", false, fmt.Errorf("open the Codex provider home: %w", err)
-	}
-	defer root.Close()
 	for _, entry := range entries {
-		if isPersonalInstructionFile(entry.Name()) {
+		name := entry.Name()
+		if name == madeHomeName || isPersonalInstructionFile(name) {
 			continue
 		}
-		if entry.Name() == "config.toml" && filtered {
-			if err := root.WriteFile("config.toml", []byte(config), 0o600, true); err != nil {
-				_ = os.RemoveAll(prepared)
-				return "", false, fmt.Errorf("write the Codex provider home's configuration: %w", err)
+		if name == "config.toml" && filtered {
+			if err := made.WriteFile("config.toml", []byte(config), 0o600, false); err != nil {
+				return "", fmt.Errorf("write the Codex provider home's configuration: %w", err)
 			}
 			continue
 		}
-		if err := root.Symlink(filepath.Join(home, entry.Name()), entry.Name()); err != nil {
-			_ = os.RemoveAll(prepared)
-			return "", false, fmt.Errorf("link %s into the Codex provider home: %w", entry.Name(), err)
+		if err := linkInto(made, filepath.Join(home, name), name); err != nil {
+			return "", err
 		}
 	}
-	return prepared, true, nil
+	return filepath.Join(home, madeHomeName), nil
 }
+
+// linkInto links name in the made home to target unless the made home already
+// has it. An earlier invocation's filtered config.toml copy is the one entry
+// put back to a link, once the account's file no longer needs filtering;
+// anything else already there, Codex's own file or a link, is left as it is.
+func linkInto(made *repowrite.PinnedRoot, target, name string) error {
+	info, err := made.Lstat(name)
+	if err == nil && name == "config.toml" && info.Mode().IsRegular() {
+		if err := made.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("replace the Codex provider home's configuration: %w", err)
+		}
+	} else if err == nil {
+		return nil
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("inspect %s in the Codex provider home: %w", name, err)
+	}
+	if err := made.Symlink(target, name); err != nil && !errors.Is(err, fs.ErrExist) {
+		return fmt.Errorf("link %s into the Codex provider home: %w", name, err)
+	}
+	return nil
+}
+
+// sessionDirectories are the directories of a provider home Codex writes a
+// session into.
+var sessionDirectories = []string{"sessions"}
 
 func isPersonalInstructionFile(name string) bool {
 	for _, personal := range instructionFileNames {

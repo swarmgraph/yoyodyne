@@ -646,17 +646,12 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if err != nil {
 		return backend.RunResult{}, err
 	}
-	home, madeHome, err := prepareProviderHome(home)
+	prepared, err := prepareProviderHome(home)
 	if err != nil {
 		return backend.RunResult{}, err
 	}
-	if madeHome {
-		defer func() {
-			if err := os.RemoveAll(home); err != nil {
-				runErr = errors.Join(runErr, fmt.Errorf("remove the Codex provider home made for this invocation: %w", err))
-			}
-		}()
-		environment = withProviderHome(environment, home)
+	if prepared != home {
+		environment = withProviderHome(environment, prepared)
 	}
 	environment = execution.WithAgentRole(environment, request.Role)
 	if profile == profileDeveloper {

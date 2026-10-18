@@ -73,7 +73,10 @@ func codexRunEffort(t *testing.T, effort, reported string) {
 	// invocation is launched, so this double's answers are the least interesting
 	// part of it and its command lines are the whole point.
 	cli := &scriptedCodexCLI{reportedEffort: reported}
-	pipeline.Backend = codex.Backend{Runner: cli}
+	// An empty account home of the test's own: with none named, the adapter
+	// falls back to the Codex home of whoever runs the suite, and keeps the home
+	// it runs under inside that one when it holds an instruction file.
+	pipeline.Backend = codex.Backend{Runner: cli, ConfigDir: t.TempDir()}
 
 	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
 	if err != nil {

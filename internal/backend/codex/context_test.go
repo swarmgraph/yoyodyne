@@ -129,8 +129,8 @@ func TestNoPersonalSkillPluginOrInstructionFileReachesAnyRoleFreshOrResumed(t *t
 			if runner.auth[0] != `{"auth_mode":"chatgpt"}` {
 				t.Fatalf("%s, session %q: the account's authentication was not reachable: %q", role, session, runner.auth[0])
 			}
-			if _, err := os.Stat(runner.homes[0]); !os.IsNotExist(err) {
-				t.Fatalf("%s, session %q: the home made for the invocation outlived it: %v", role, session, err)
+			if resolved, _ := filepath.EvalSymlinks(home); runner.homes[0] != filepath.Join(resolved, madeHomeName) {
+				t.Fatalf("%s, session %q: ran under %q, want the made home inside the account's", role, session, runner.homes[0])
 			}
 			for _, marker := range []string{"PERSONAL_SKILL_MARKER", "PERSONAL_AGENTS_MARKER", "PERSONAL_OVERRIDE_MARKER"} {
 				if strings.Contains(runner.prompts[0], marker) {
@@ -429,4 +429,153 @@ func TestTheStartingEventSaysWhatWasLoaded(t *testing.T) {
 		}
 	}
 	t.Fatalf("no run.started event in %+v", events)
+}
+
+// rolloutRunner stands in for the CLI where the session lives, the way
+// codex-cli 0.162 keeps it: a fresh turn writes its rollout under the sessions
+// directory of the provider home it was handed, creating the directory if it is
+// not there, and records the rollout's path under that home in a state file at
+// the top of the home; a resumed turn looks the rollout up by the recorded path
+// and fails the way codex-cli does when nothing is there.
+type rolloutRunner struct {
+	fakeRunner
+	homes []string
+}
+
+func (r *rolloutRunner) Run(ctx context.Context, command execution.Command, observer execution.OutputObserver) (execution.ProcessResult, error) {
+	home := ""
+	for _, entry := range command.Env {
+		if value, found := strings.CutPrefix(entry, ProviderHomeVariable+"="); found {
+			home = value
+		}
+	}
+	r.homes = append(r.homes, home)
+	state := filepath.Join(home, "state_5.sqlite")
+	if resume := slices.Index(command.Args, "resume"); resume >= 0 {
+		thread := command.Args[resume+1]
+		recorded, _ := os.ReadFile(state)
+		if _, err := os.Stat(string(recorded)); len(recorded) == 0 || err != nil {
+			r.results = append(r.results, execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stdout: lines(
+				`{"type":"error","message":"thread/resume failed: no rollout found for thread id ` + thread + ` (code -32600)"}`,
+			)})
+			return r.fakeRunner.Run(ctx, command, observer)
+		}
+		r.results = append(r.results, execution.ProcessResult{Status: execution.ProcessSucceeded, Stdout: lines(
+			`{"type":"thread.started","thread_id":"`+thread+`"}`,
+			`{"type":"turn.completed"}`,
+		)})
+		return r.fakeRunner.Run(ctx, command, observer)
+	}
+	rollout := filepath.Join(home, "sessions", "2026", "10", "17", "rollout-session-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(rollout), 0o700); err != nil {
+		return execution.ProcessResult{}, err
+	}
+	if err := os.WriteFile(rollout, []byte("{}\n"), 0o600); err != nil {
+		return execution.ProcessResult{}, err
+	}
+	if err := os.WriteFile(state, []byte(rollout), 0o600); err != nil {
+		return execution.ProcessResult{}, err
+	}
+	r.results = append(r.results, completedTurn()...)
+	return r.fakeRunner.Run(ctx, command, observer)
+}
+
+// A home the harness makes for an invocation keeps its path and what Codex
+// wrote into it: on an account home with no sessions directory yet, the next
+// turn resumes the session a first turn started natively, rather than failing
+// to find the rollout the first turn recorded under its home.
+func TestTheNextTurnResumesTheSessionAFirstTurnStartedUnderAMadeHome(t *testing.T) {
+	t.Parallel()
+	for name, files := range map[string]map[string]string{
+		"an instruction file": {
+			"AGENTS.md": "PERSONAL_AGENTS_MARKER\n",
+			"auth.json": `{"auth_mode":"chatgpt"}`,
+		},
+		"an instruction key in config.toml": {
+			"config.toml": "model_instructions_file = \"/elsewhere/model.md\"\n",
+			"auth.json":   `{"auth_mode":"chatgpt"}`,
+		},
+	} {
+		for _, role := range []domain.AgentRole{domain.RoleDeveloper, domain.RoleReviewer} {
+			home := filepath.Join(t.TempDir(), "codex-home")
+			writeFiles(t, home, files)
+			repository, worktree := sandboxRepository(t, true)
+			runner := &rolloutRunner{}
+			provider := Backend{Runner: runner, ConfigDir: home}
+			request := backend.RunRequest{
+				RunID: testRunID, Role: role, WorkingDirectory: worktree, RepositoryRoot: repository,
+				Prompt: "first turn", Model: "gpt-6-astra",
+			}
+			first, err := provider.Run(context.Background(), request)
+			if err != nil || first.SessionID != "session-1" {
+				t.Fatalf("%s, %s: first turn: session %q, %v", name, role, first.SessionID, err)
+			}
+			request.Prompt, request.SessionID = "second turn", first.SessionID
+			second, err := provider.Run(context.Background(), request)
+			if err != nil || second.IsError || second.SessionID != first.SessionID {
+				t.Fatalf("%s, %s: second turn did not resume %q: session %q, error result %t, %v", name, role, first.SessionID, second.SessionID, second.IsError, err)
+			}
+			if resume := slices.Index(runner.commands[1].Args, "resume"); resume < 0 || runner.commands[1].Args[resume+1] != "session-1" {
+				t.Fatalf("%s, %s: the second turn was not a native resume: %v", name, role, runner.commands[1].Args)
+			}
+			if runner.homes[0] == home || runner.homes[0] != runner.homes[1] {
+				t.Fatalf("%s, %s: the turns ran under %v, want one made home", name, role, runner.homes)
+			}
+			if _, err := os.Lstat(filepath.Join(runner.homes[0], "AGENTS.md")); !os.IsNotExist(err) {
+				t.Fatalf("%s, %s: the made home holds the instruction file: %v", name, role, err)
+			}
+			// The rollout is the account's own, in its sessions directory.
+			info, err := os.Lstat(filepath.Join(home, "sessions", "2026", "10", "17", "rollout-session-1.jsonl"))
+			if err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("%s, %s: the rollout is not in the account's home: %v", name, role, err)
+			}
+			if content, _ := os.ReadFile(filepath.Join(home, "config.toml")); files["config.toml"] != "" && string(content) != files["config.toml"] {
+				t.Fatalf("%s, %s: the account's config.toml was changed to %q", name, role, content)
+			}
+		}
+	}
+}
+
+// Each invocation brings the made home up to date with the account's: an entry
+// the account has gained is linked, the configuration copy goes back to a link
+// once the account's file needs no filtering, and what Codex created in the
+// made home is left there.
+func TestTheMadeHomeIsBroughtUpToDateAndKept(t *testing.T) {
+	t.Parallel()
+	home := filepath.Join(t.TempDir(), "codex-home")
+	writeFiles(t, home, map[string]string{
+		"AGENTS.md":   "PERSONAL\n",
+		"auth.json":   "login\n",
+		"config.toml": "compact_prompt = \"mine\"\nmodel = \"x\"\n",
+	})
+	made, err := prepareProviderHome(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Lstat(filepath.Join(home, "sessions")); err != nil || !info.IsDir() {
+		t.Fatalf("the account's home was given no sessions directory: %v", err)
+	}
+	if content, _ := os.ReadFile(filepath.Join(made, "config.toml")); string(content) != "model = \"x\"\n" {
+		t.Fatalf("the made home's config.toml = %q", content)
+	}
+	writeFiles(t, made, map[string]string{"state_5.sqlite": "codex's own\n"})
+	writeFiles(t, home, map[string]string{"models_cache.json": "new\n", "config.toml": "model = \"y\"\n"})
+	again, err := prepareProviderHome(home)
+	if err != nil || again != made {
+		t.Fatalf("second home = %q, %v; want %q", again, err, made)
+	}
+	for name, want := range map[string]string{"models_cache.json": "new\n", "config.toml": "model = \"y\"\n", "auth.json": "login\n", "state_5.sqlite": "codex's own\n"} {
+		content, err := os.ReadFile(filepath.Join(made, name))
+		if err != nil || string(content) != want {
+			t.Fatalf("%s = %q, %v; want %q", name, content, err, want)
+		}
+	}
+	if info, _ := os.Lstat(filepath.Join(made, "config.toml")); info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("config.toml was not put back to a link")
+	}
+	for _, name := range []string{"AGENTS.md", madeHomeName} {
+		if _, err := os.Lstat(filepath.Join(made, name)); !os.IsNotExist(err) {
+			t.Fatalf("the made home holds %s: %v", name, err)
+		}
+	}
 }
