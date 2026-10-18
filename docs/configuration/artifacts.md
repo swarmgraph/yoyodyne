@@ -848,29 +848,31 @@ yoyo amendment approve <id> --reason ...  # record the change as authorized
 yoyo amendment decline <id> --reason ...  # turn it down, keeping why
 ```
 
-**Every decision is yours, whoever owns the document.** An owning role that runs
-is shown what has been proposed against its documents and argues for or against
-it — proposals against the brief and the goals are carried into the Lead Product
-Manager's conversation, and proposals against the designs, the specifications,
-and the decision records are carried into the architect's, each told in so many
-words that it cannot decide one. An owner may write its own documents, which is
-how an approved change is made: it writes the revision as a typed action, you
-approve it, and the harness performs the write — see [writing a document from a
-conversation](../artifacts.md#writing-a-document-from-a-conversation). What no
-owner can do is decide the proposal from there. Both owners can now be
-asked directly: `yoyo agent chat architect` is where the argument about a design
-happens. But no agent records a decision, `yoyo amendment` is the only thing that
-does, and the record says you exercised the owner's authority rather than that
-the owner answered — the same override path `yoyo invariant` documents. A decline
-keeps the reason it was turned down with, because a proposal refused silently is
-one the same argument arrives to make again.
+**The role that owns the document decides it.** Proposals against the designs,
+the specifications, and the decision records are carried into the architect's
+conversation, and proposals against the documents in the product home into the
+Lead Product Manager's, and each decides the ones against its own documents with
+the `amendment` action in its tracker block — `approve` or `decline`, with the
+reason. The harness writes that decision onto the proposal exactly as `yoyo
+amendment approve` or `decline` would, under the owner's authority, naming the
+owner as the one who decided and the conversation it decided in, and refuses a
+decision on a document the role does not own. You are told afterwards and are
+not asked. An owner may write its own documents, which is how an approved change
+is made: it writes the revision as a typed action, confirmation follows the
+document's policy, and the harness performs the write — see [writing a document
+from a conversation](../artifacts.md#writing-a-document-from-a-conversation).
 
-An owning role recording its own decision is vocabulary the record already has
-and nothing produces: what would make it real is a decision the harness carries
-out for a role from its own reply, the way it carries out the Lead Product Manager's
-tracker actions. Until something does that, read "under the architect's
-authority" on a decision as your judgement standing in for the role, taken after
-hearing it rather than instead of hearing it.
+**What stays yours is a change of fundamental intent.** A proposal against the
+brief or the goals is yours to decide unless it says it is
+consistent with what they intend — the proposer marks it `"intent":
+"consistent"` or `"fundamental"`, and one that says nothing stays yours. The Lead
+Product Manager is refused a decision on one of those and argues it for you
+instead. `yoyo amendment` records your decisions, and decides any other proposal
+nobody has decided yet when you want to override the owner; the record says you
+exercised the owner's authority rather than that the owner answered — the same
+override path `yoyo invariant` documents. A decline keeps the reason it was
+turned down with, because a proposal refused silently is one the same argument
+arrives to make again.
 
 The reviewer is deliberately not given this block. What it finds wrong with a
 change is a finding, which decides whether the change is repaired; a reviewer

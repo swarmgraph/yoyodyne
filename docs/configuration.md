@@ -1919,35 +1919,43 @@ yoyo amendment approve <id> --reason ...  # record the change as authorized
 yoyo amendment decline <id> --reason ...  # turn it down, keeping why
 ```
 
-**Every decision is yours, whoever owns the document.** An owning role that runs
-is shown what has been proposed against its documents and argues for or against
-it — proposals against the brief and the goals are carried into the Lead Product
-Manager's conversation, and proposals against the designs, the specifications,
-and the decision records are carried into the architect's, each told in so many
-words that it cannot decide one. An owner may write its own documents, which is
-how an approved change is made: it writes the revision as a typed action,
-confirmation follows the document's policy, and the harness performs the write — see [writing a document from a
-conversation](artifacts.md#writing-a-document-from-a-conversation). What no
-owner can do is decide the proposal from there. Both owners can now be
-asked directly: `yoyo agent chat architect` is where the argument about a design
-happens. And the argument is made on a cadence rather than only when you open
-the conversation: a [recurring task](#working-the-amendment-queue-on-a-cadence)
-wakes the owner with the undecided proposals, oldest first and bounded, and
-records what it recommended on each — approve, decline, or merge with another,
-with the reason — as one batch on the firing's report, which is sent to you
-once as one decision list and named on `yoyo status` until you have decided it. But no agent records a decision, `yoyo
-amendment` is the only thing that does, and the record says you exercised the
-owner's authority rather than that the owner answered — the same override path
-`yoyo invariant` documents. A decline keeps the reason it was turned down with,
-because a proposal refused silently is one the same argument arrives to make
-again.
+**The role that owns the document decides it.** Proposals against the
+designs, the specifications, and the decision records are carried into the
+architect's conversation, and proposals against the documents in the product
+home into the Lead Product Manager's, and each decides the ones against its own
+documents with the `amendment` action in its tracker block — `approve` or
+`decline`, with the reason. The harness writes that decision onto the proposal
+exactly as `yoyo amendment approve` or `decline` would, under the owner's
+authority, with the owner named as the one who decided and the conversation it
+decided in; it refuses a decision on a document the role does not own. You are
+told afterwards — the decision is said in the thread of the work that raised
+the proposal — and are not asked. An owner may write its own documents, which
+is how an approved change is made: it writes the revision as a typed action,
+confirmation follows the document's policy, and the harness performs the write
+— see [writing a document from a
+conversation](artifacts.md#writing-a-document-from-a-conversation).
 
-An owning role recording its own decision is vocabulary the record already has
-and nothing produces: what would make it real is a decision the harness carries
-out for a role from its own reply, the way it carries out the Lead Product Manager's
-tracker actions. Until something does that, read "under the architect's
-authority" on a decision as your judgement standing in for the role, taken after
-hearing it rather than instead of hearing it.
+**What stays yours is a change of fundamental intent.** A proposal against the
+brief or the goals is the operator's to decide unless it says
+it is consistent with what they intend — the proposer marks it with `"intent":
+"consistent"` or `"fundamental"`, and one that says nothing stays yours, because
+the default is the operator's and it takes a recorded claim to move off it. The
+Lead Product Manager is refused a decision on one of those and argues it for you
+instead. Every proposal says, wherever it is listed, whether its owner or you
+decide it. `yoyo amendment` still decides any proposal nobody has decided yet,
+which is how you override an owner — the same override path `yoyo invariant`
+documents — and the record says you exercised the owner's authority rather
+than that the owner answered. A decline keeps the reason it was turned down
+with, because a proposal refused silently is one the same argument arrives to
+make again.
+
+The argument is made on a cadence as well as when you open the conversation: a
+[recurring task](#working-the-amendment-queue-on-a-cadence) wakes the owner
+with the undecided proposals, oldest first and bounded. It decides the ones
+that are its own, and records what it recommends on the ones you decide —
+approve, decline, or merge with another, with the reason — as one batch on the
+firing's report, which is sent to you once as one decision list and named on
+`yoyo status` until you have decided it.
 
 The reviewer is deliberately not given this block. What it finds wrong with a
 change is a finding, which decides whether the change is repaired; a reviewer
@@ -8450,11 +8458,11 @@ A project with no such task has none of the three.
 
 ### Working the amendment queue on a cadence
 
-The third standing loop is the one that argues the [proposed
+The third standing loop is the one that decides the [proposed
 amendments](#proposing-a-change-to-a-document-you-do-not-own). A developer that
 finds a design wrong proposes the change and carries on; the proposal waits on
-the architect's argument and your decision; and until something woke her for
-it, the argument happened only when somebody opened her conversation. This
+the architect's decision; and until something woke her for it, that happened
+only when somebody opened her conversation. This
 project stood at forty-four undecided proposals against the designs, the oldest
 weeks old, before the pass existed.
 
@@ -8473,36 +8481,42 @@ recurring_tasks:
     prompt: |
       Work the changes other roles have proposed to your documents. The
       undecided ones are carried into this turn already, oldest first and at
-      most ten a pass, and nothing else wakes you to argue them, so a queue
+      most ten a pass, and nothing else wakes you to decide them, so a queue
       nobody wakes you for is a queue nothing drains.
-      Argue every one you are shown: read the document it names, and
-      recommend approve, decline, or merge with another, with the reason, in
-      the "recommendations" of your block. You decide nothing and edit
-      nothing here -- the operator records each decision under your
-      authority, and an approved change is then yours to make as a revision.
-      Say in your summary how many you argued and how many wait behind them.
+      Read the document each one names, and decide every one that is yours
+      with the "amendment" action, approve or decline, with your reason. A
+      change the wake says the operator decides is a change of fundamental
+      intent: recommend approve, decline, or merge with another for it, with
+      the reason, in the "recommendations" of your block. Deciding edits no
+      document -- an approved change is then yours to make as a revision.
+      Say in your summary how many you decided, how many you recommended to
+      the operator, and how many wait behind them.
       When nothing is undecided, that is the report.
       Name every work item by what it is, with its identifier after it:
       "retiring the maintenance job (434.9)", never "434.9" on its own. An
       identifier alone is a defect -- nobody reading later knows the item.
 ```
 
-What the pass produces is a batch of recommendations and never a decision.
-The harness puts the undecided proposals in the wake, oldest first and at most
-ten a pass — a proposal the architect already argued on an earlier pass is not
-put again while it waits on you, and the batch closes at the first proposal
-that would take the wake past its size bound, so what she is put is always the
-oldest she has not argued. She argues each back in her account, and the
-firing's report in `yoyo sweeps` lists them in one batch.
+What the pass produces is the architect's decisions on her own documents, and
+recommendations on anything you decide. The harness puts the undecided
+proposals in the wake, oldest first and at most ten a pass, and the batch closes
+at the first proposal that would take the wake past its size bound. A proposal
+she decides is put to her on every pass until she has decided it, whatever an
+earlier pass said about it; one you decide that she already argued on an
+earlier pass is not put again while it waits on you. Each decision she makes is
+recorded on the proposal with the `amendment` action and said to you afterwards;
+the firing's report in `yoyo sweeps` lists what she recommended.
 
-**The batch reaches you once, as one decision list.** Each pass that argued
-something still undecided is a [finding that needs your
-hand](operations.md#where-a-finding-that-needs-your-hand-goes): it is sent to
-you directly, tagged by member id, through the same operator-action message
-every such finding uses, naming each proposal with what she recommends and why,
-and it is not sent again. `yoyo status` names it on the needs-a-human line —
-never folded into the count of things not named — until every proposal in it is
-decided. **Deciding is yours**, from the same two verbs as before:
+**What she recommends to you reaches you once, as one decision list.** Each pass
+that argued something you decide that is still undecided is a [finding that
+needs your hand](operations.md#where-a-finding-that-needs-your-hand-goes): it is
+sent to you directly, tagged by member id, through the same operator-action
+message every such finding uses, naming each proposal with what she recommends
+and why, and it is not sent again. `yoyo status` names it on the needs-a-human
+line — never folded into the count of things not named — until every proposal
+in it is decided. A recommendation on a proposal its owner decides is in no
+batch, because nothing about it is yours. Deciding the rest is yours, from the
+same two verbs as before:
 
 ```sh
 yoyo status                                     # each pass's batch waiting on you, and each undecided proposal
@@ -8513,20 +8527,21 @@ yoyo amendment decline <id> --reason ...        # turn it down, keeping why
 
 A `merge` recommendation names the proposal it folds into; the record has no
 merge of its own, so it is carried out as one approval and one decline whose
-reason names the other. A proposal you decide between her pass and your reading
-is dropped from the batch wherever the batch is read — `yoyo status` derives it
+reason names the other. A proposal decided between her pass and your reading is
+dropped from the batch wherever the batch is read — `yoyo status` derives it
 from the sweep records and the amendment log together — so the batch is always
 what you still have to decide rather than what she once said, and a batch whose
 every proposal is decided stops being named. The same cadence works for the
-Lead Product Manager over the brief and the goals; nothing
-about the mechanism is the architect's except that her documents are where
-proposals accumulate.
+Lead Product Manager over the product home, which is where the proposals you
+decide arrive: changes to the brief or the goals that do not
+say they are consistent with what those documents intend.
 
 Whether the queue is draining is answered the way the pile's is: `yoyo status`
 carries the undecided count and the oldest undecided proposal's age on every
 reading, and names the queue on the needs-a-human line once that age passes a
-week, as the operator's — a queue this old says the task is not keeping up, or
-is not enabled.
+week, as the move of whoever decides its oldest proposal — the owning role, or
+you where that one is a change of fundamental intent. A queue this old says the
+task is not keeping up, or is not enabled.
 
 ### A program manager instance's passes
 

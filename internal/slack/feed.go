@@ -538,10 +538,23 @@ func (f *HarnessFeed) Poll(ctx context.Context, cursors Cursors) (Batch, error) 
 	// The amendment log advances by record rather than by proposal, so that a
 	// line which will not decode — which says nothing about whether it was a
 	// proposal or a decision — holds a position the proposals behind it are
-	// counted past. A decision is read past in silence, exactly as a conversation
-	// event that is not a milestone is.
+	// counted past. A decision the owning role made is said afterwards, because
+	// it was made on the operator's behalf and he is owed the account; one he
+	// recorded himself is read past in silence, exactly as a conversation event
+	// that is not a milestone is.
 	raised, err := f.logDeliveries(amendmentStream, "proposals", f.amendmentCursor(cursors, records, tornRecords), len(records), tornRecords, since,
 		func(index int) (time.Time, notify.Notification, error) {
+			if decision := records[index].Decision; decision != nil {
+				if decision.Decider != amendment.DeciderOwner {
+					return time.Time{}, notify.Notification{}, nil
+				}
+				proposal, found := amendment.Find(records, decision.ProposalID)
+				if !found {
+					return time.Time{}, notify.Notification{}, nil
+				}
+				notification, err := notify.FromDecision(proposal, *decision)
+				return decision.DecidedAt, notification, err
+			}
 			proposal := records[index].Proposal
 			if proposal == nil {
 				return time.Time{}, notify.Notification{}, nil
@@ -1509,7 +1522,8 @@ func (f *HarnessFeed) operatorActionDeliveries(cursor Cursor, filed []report.Rep
 }
 
 // amendmentBatches is the owners' argued batches as findings, and whether the
-// passes were read whole. A sweep log that could not be read to the end yields
+// passes were read whole. Only what the operator decides is in them: a
+// recommendation on a proposal its owner decides is not put to him. A sweep log that could not be read to the end yields
 // what it did read, and is said here rather than failing the poll: a finding a
 // pass could not be read for is said on a later poll.
 func (f *HarnessFeed) amendmentBatches(proposals []amendment.Record) ([]readmodel.OperatorAction, bool) {
@@ -1520,7 +1534,7 @@ func (f *HarnessFeed) amendmentBatches(proposals []amendment.Record) ([]readmode
 	if err != nil {
 		f.say("the recurring passes could not be read to the end, so an owner's batch of recommendations may not be said this pass: %v", err)
 	}
-	return readmodel.AmendmentBatchActions(readmodel.RecommendedAmendments(sweeps, proposals)), err == nil
+	return readmodel.AmendmentBatchActions(readmodel.OperatorsRecommendations(readmodel.RecommendedAmendments(sweeps, proposals), proposals)), err == nil
 }
 
 func (f *HarnessFeed) say(format string, args ...any) {

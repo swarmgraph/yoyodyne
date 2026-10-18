@@ -86,6 +86,11 @@ func bundles() []Bundle {
 				// design): another role that wants a pass asks her for one. It records
 				// a request the scheduler takes, and invokes nothing.
 				capability.PassRequest,
+				// Deciding a change other roles proposed to a document in the product
+				// home. A proposal against the brief or the goals that
+				// does not say it is consistent with their intent is refused at the act,
+				// because a change of fundamental intent stays the operator's.
+				capability.AmendmentDecide,
 			},
 		},
 		{
@@ -110,6 +115,10 @@ func bundles() []Bundle {
 				// And observes the factory's health, for the same reason.
 				capability.HealthObserve,
 				capability.HealthFollow,
+				// Deciding a change other roles proposed to a design, a specification,
+				// or a decision record. Which proposals are hers follows from the
+				// document's kind, and the act refuses any other.
+				capability.AmendmentDecide,
 				capability.ExchangeAsk,
 				capability.ExchangeAnswer,
 				capability.AgentContextMutate,

@@ -293,7 +293,7 @@
         "raised_at": "2026-09-19T11:20:00Z"
       },
       "what": "a change to v1-harness-design is proposed and undecided (amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c)",
-      "whose": "the architect's — nothing reaches the document until they or the operator decide it",
+      "whose": "the architect's — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided",
       "label": "proposed document change"
     },
     {
@@ -318,7 +318,7 @@
         "raised_at": "2026-09-19T12:45:00Z"
       },
       "what": "a change to observability-and-dashboard is proposed and undecided (amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d)",
-      "whose": "the architect's — nothing reaches the document until they or the operator decide it",
+      "whose": "the architect's — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided",
       "label": "proposed document change"
     },
     {

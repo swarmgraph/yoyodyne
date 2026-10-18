@@ -354,6 +354,10 @@ var expresses = map[string]expression{
 		question: "does the deciding role hold the capability the proposed-against document belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate, capability.InvariantMutate},
 	},
+	"amendment.decide-as-owner": {
+		question: "does the deciding role hold amendment.decide, and is the proposal against a document of its own that the operator does not keep?",
+		asks:     []capability.Capability{capability.AmendmentDecide},
+	},
 	"amendment.operator-decides": {
 		question: "the authority follows from the document, which is to say from the capability its kind belongs to",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate, capability.InvariantMutate},

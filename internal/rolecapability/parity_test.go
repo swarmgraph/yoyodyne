@@ -222,8 +222,17 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // directives resolved into the operating rules, which only a person's hands could
 // do (yoyodyne-ifd.430.32). Deciding what still directs the queue is hers alone,
 // so it is held under the capability only she holds.
+//
+// The product manager's and the architect's `amendment` decides a change another
+// role proposed to a document the role owns, under its own authority. It is the
+// same 2026-09-26 rule applied to amendments, which only the operator could
+// decide: on 2026-10-13 his status listed about 29 batches of design changes,
+// each with the architect's recommendation attached, as needing his hand
+// (yoyodyne-i92, under the architect's ruling for yoyodyne-ifd.437.14). It is
+// held under amendment.decide, and a change to the brief or the goals that does not say it is consistent with their intent stays his.
 var grantedSinceTheConversion = map[domain.AgentRole][]string{
-	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive"},
+	domain.RoleProductManager:     {"repair", "label", "inflight", "withdraw", "directive", "amendment"},
+	domain.RoleArchitect:          {"amendment"},
 	domain.RoleDevelopmentManager: {"brake", "label"},
 }
 

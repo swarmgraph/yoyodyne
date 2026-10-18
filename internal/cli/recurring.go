@@ -1236,14 +1236,18 @@ target already carries. Each is stated once, as left, and closing it is
 somebody's decision rather than the harness's.
 
 On a pass of a role that owns documents -- the architect over the designs and
-decisions, the product manager over the brief and goals -- the harness puts the
+decisions, the product manager over the product home -- the harness puts the
 undecided changes other roles proposed to those documents in front of it,
-oldest first and at most ten a pass, and the account carries what it recommended
-on each: approve, decline, or merge with another, with the reason. Those are
-shown after the findings. They are recommendations and never decisions: "yoyo
-amendment approve" and "yoyo amendment decline" record each one, under the
-owner's authority. Each pass's batch is said to you once, directly, as one
-decision list, and "yoyo status" names it until every proposal in it is decided.
+oldest first and at most ten a pass. The role decides the ones against its own
+documents with its "amendment" action, which records the decision under its
+own authority, and you are told afterwards. On a change to the brief or the
+goals that does not say it is consistent with their intent, which is yours to
+decide, the account carries what it recommended instead: approve, decline, or
+merge with another, with the reason. Those are shown after the findings. A
+recommendation settles nothing: "yoyo amendment approve" and "yoyo amendment
+decline" record your decision, under the owner's authority. Each pass's batch
+of the changes you decide is said to you once, directly, as one decision list,
+and "yoyo status" names it until every proposal in it is decided.
 
 Four outcomes look alike and are not: a pass that found nothing shows its own
 summary and no findings, which on a healthy harness is most of them; a pass that

@@ -34,11 +34,18 @@ func slowPublicationFixture(t *testing.T) (*orchestratortest.Backend, *runstate.
 	return provider, runs, options, started
 }
 
+// startWatchBound is how long whenStarted waits for the slow check to start.
+// Reaching the check takes a design, a document, and the steps between, which
+// under the race detector and a loaded machine can take far longer than when
+// the test runs alone, so the bound is set well past the run's own one-minute
+// check limit rather than near how long the test usually takes.
+const startWatchBound = 5 * time.Minute
+
 // whenStarted calls act once the slow check is running, and gives up after a
 // bound of its own so nothing it starts outlives the test.
 func whenStarted(started string, act func()) {
 	go func() {
-		for end := time.Now().Add(30 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		for end := time.Now().Add(startWatchBound); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 			if _, err := os.Stat(started); err == nil {
 				act()
 				return
@@ -154,7 +161,9 @@ func TestAStopRequestStillEndsADocumentRunPastItsMessageDeadline(t *testing.T) {
 			t.Fatal(err)
 		}
 	case <-time.After(30 * time.Second):
-		t.Fatal("the stop was never asked")
+		// Send has returned, so the run is over and the stop, if it was asked,
+		// was recorded moments ago; this only waits out its being passed back.
+		t.Fatal("the stop was never asked: the run ended before its check was seen to start")
 	}
 	run := onlyDocumentRun(t, runs)
 	if run.Status != runstate.StatusCancelled || run.Integration != nil || run.RecordedStopClass() != runstate.StopManager {
