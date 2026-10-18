@@ -187,9 +187,6 @@ func TestAHandlingNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 		reason  ownership.OperatorReason
 	}{
 		{name: "no reason", extra: `,"needs":"operator"`},
-		// The October 2 regression: a critical report about internal scheduling
-		// recovery, handled as though only a person could act.
-		{name: "internal scheduling recovery", extra: `,"needs":"operator"`},
 		{name: "a protected file", extra: `,"needs":"operator","operator_reason":"protected-file"`, applied: true, reason: ownership.OperatorProtectedFile},
 		{name: "a person-only remedy", extra: `,"needs":"operator","person_only":{"reason":"credential","target":"the forge login","step":"log in to the forge again"}`, applied: true, reason: ownership.OperatorCredential},
 	} {
@@ -232,6 +229,50 @@ func TestAHandlingNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 	}
 }
 
+// The October 2 regression: a critical report about the scheduler's own
+// recovery was handled as though only a person could act. Handling it as the
+// operator's is refused, naming the Lead Product Manager's rung; handling it
+// again as the development manager's, which is whose remedy it is, goes
+// through, and the record does not name the operator. The report's critical
+// severity is no reason on his list.
+func TestAReportAboutTheSchedulersOwnRecoveryStaysWithTheRoleWhoseRemedyItIs(t *testing.T) {
+	t.Parallel()
+
+	const reported = "report-a29273d0eff69eeeeb8f457b7d135108"
+	reports := &fakeReports{}
+	seedReports(t, reports,
+		collectedReport(reported, report.SeverityCritical, "scheduled dispatch stopped for hours and the scheduler recovered it on its own", 2),
+	)
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", FinalText: trackerReply("Only a person can act on this.",
+			`{"action":"handle","report":"`+reported+`","needs":"operator","reason":"the scheduler's recovery needs looking at"}`)},
+		{SessionID: "session-1", FinalText: trackerReply("It is the development manager's, then.",
+			`{"action":"handle","report":"`+reported+`","reason":"the development manager owns the scheduler's recovery and is resolving the cause; nothing here is a person's act"}`)},
+		{SessionID: "session-1", FinalText: "Recorded."},
+		{SessionID: "session-1", FinalText: "Nothing more."},
+	}}
+	options := testOptions(t, provider)
+	options.Reports = reports
+	options.Tracker = &fakeTracker{}
+	reply, err := openTestSession(t, options).Send(context.Background(), "deal with the scheduler report")
+	if err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	if len(reply.Actions) != 2 {
+		t.Fatalf("actions = %#v, want the refused handling and the one that followed", reply.Actions)
+	}
+	if reply.Actions[0].Applied || !strings.Contains(reply.Actions[0].Failure, ownership.Rung(domain.RoleProductManager)) {
+		t.Fatalf("first handling = %#v, want it refused naming the rung", reply.Actions[0])
+	}
+	if !reply.Actions[1].Applied {
+		t.Fatalf("second handling = %#v, want it recorded", reply.Actions[1])
+	}
+	if len(reports.handled) != 1 || reports.handled[0].NeedsOperator || reports.handled[0].OperatorReason != "" ||
+		!strings.Contains(reports.handled[0].Reason, "development manager") {
+		t.Fatalf("handlings = %#v, want one handling that keeps the report with the development manager", reports.handled)
+	}
+}
+
 // A reason not on the list is refused where the handling is read, before
 // anything is looked up.
 func TestAHandlingsOperatorReasonIsHeldToTheList(t *testing.T) {
@@ -254,29 +295,45 @@ func TestAHandlingsOperatorReasonIsHeldToTheList(t *testing.T) {
 func TestAnAskNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 	t.Parallel()
 
+	carried := `{"severity":"warning","message":"the forge login has lapsed and only the operator can renew it; may the architect go ahead once he has?"}`
 	for _, testCase := range []struct {
-		name  string
-		role  domain.AgentRole
-		extra string
-		put   bool
+		name   string
+		role   domain.AgentRole
+		extra  string
+		report string
+		put    bool
+		// noReport is a valid reason with nothing to carry the question to him.
+		noReport bool
 	}{
-		{name: "the architect with no reason", role: domain.RoleArchitect},
-		{name: "a program manager with a reason off the list", role: domain.RoleProgramManager, extra: `,"operator_reason":"approval"`},
-		{name: "the Lead Product Manager with no reason", role: domain.RoleProductManager},
-		{name: "the architect for a credential", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`, put: true},
+		{name: "the architect with no reason", role: domain.RoleArchitect, report: carried},
+		{name: "a program manager with a reason off the list", role: domain.RoleProgramManager, extra: `,"operator_reason":"approval"`, report: carried},
+		{name: "the Lead Product Manager with no reason", role: domain.RoleProductManager, report: carried},
+		// A scheduled pass's reply is read by nobody, so an ask with no report
+		// carrying it would reach no person; it is refused rather than said to
+		// have been put to him.
+		{name: "the architect for a credential with no report", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`, noReport: true},
+		{name: "the architect for a credential, with a report addressed to a role", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`,
+			report: `{"severity":"warning","for":"development-manager","message":"the forge login has lapsed."}`, noReport: true},
+		{name: "the architect for a credential", role: domain.RoleArchitect, extra: `,"operator_reason":"credential"`, report: carried, put: true},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
+			answer := "Asking.\n\n" + askBlock(`{"ask":{"role":"operator"`+testCase.extra+`,"question":"may I go ahead?"}}`)
+			if testCase.report != "" {
+				answer = reportReply(answer, testCase.report)
+			}
 			provider := &fakeBackend{results: []backendapi.RunResult{
-				{SessionID: "session-1", FinalText: "Asking.\n\n" + askBlock(`{"ask":{"role":"operator"`+testCase.extra+`,"question":"may I go ahead?"}}`)},
+				{SessionID: "session-1", FinalText: answer},
 				{SessionID: "session-1", FinalText: "Carrying on."},
 			}}
 			channel := &fakeExchanges{answers: []string{"never reached"}}
+			reports := &fakeReports{}
 			options := testOptions(t, provider)
 			options.Role = testCase.role
 			options.Agent = string(testCase.role)
 			options.Exchanges = channel
+			options.Reports = reports
 			session := openTestSession(t, options)
 
 			reply, err := session.Send(context.Background(), "Carry on.")
@@ -290,6 +347,18 @@ func TestAnAskNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 				t.Fatalf("provider invocations = %d, want what became of the ask handed back as a second round", len(provider.requests))
 			}
 			handedBack := provider.requests[1].Prompt
+			if testCase.noReport {
+				if len(reply.RefusedAsks) != 1 || len(reply.Exchanges) != 1 || strings.Contains(reply.Exchanges[0].State, "put to the operator") {
+					t.Fatalf("refused asks = %q, exchanges = %+v, want the ask refused for want of a report", reply.RefusedAsks, reply.Exchanges)
+				}
+				if !strings.Contains(reply.RefusedAsks[0], "no report at warning or above to carry it to him") {
+					t.Fatalf("refused ask reads %q, want it to say no report carried it", reply.RefusedAsks[0])
+				}
+				if !strings.Contains(handedBack, "was not put to anybody") || !strings.Contains(handedBack, "reaches him only through a report") {
+					t.Fatalf("the hand-back does not say the question needs a report to reach him:\n%s", handedBack)
+				}
+				return
+			}
 			if !testCase.put {
 				if len(reply.RefusedAsks) != 1 || !strings.Contains(reply.RefusedAsks[0], ownership.Rung(testCase.role)) {
 					t.Fatalf("refused asks = %q, want the rung named", reply.RefusedAsks)
@@ -305,8 +374,15 @@ func TestAnAskNamingTheOperatorNeedsAClosedListReason(t *testing.T) {
 			if len(reply.Exchanges) != 1 || !strings.Contains(reply.Exchanges[0].State, "put to the operator") || reply.Exchanges[0].Question != "may I go ahead?" {
 				t.Fatalf("exchanges = %+v, want the question put to the operator", reply.Exchanges)
 			}
-			if !strings.Contains(handedBack, "Your question is the operator's") {
+			if !strings.Contains(handedBack, "Your question is the operator's") || !strings.Contains(handedBack, "through the report you filed") {
 				t.Fatalf("the asking role was not told where its question went:\n%s", handedBack)
+			}
+			// What reaches him is the report, which outlives the reply: a test that
+			// found the question only on this reply's screen output would pass for
+			// an ask that reached nobody.
+			if len(reports.appended) != 1 || reports.appended[0].Severity != report.SeverityWarning || reports.appended[0].For != "" ||
+				!strings.Contains(reports.appended[0].Message, "may the architect go ahead") {
+				t.Fatalf("collected reports = %#v, want the report carrying the question kept", reports.appended)
 			}
 			var told strings.Builder
 			session.reportExchanges(&told, reply)

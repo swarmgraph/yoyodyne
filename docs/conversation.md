@@ -2179,8 +2179,12 @@ closes it with what it took from the exchange. Closing is the ordinary ending.
 **You are not on the channel, and an ask names you only for a reason on your
 closed list.** A role may write `"role": "operator"` with `"operator_reason"`
 set to `fundamental-intent`, `credential`, `repository-setting`, or
-`protected-file`; the question is then shown to you beside its reply, opens no
-exchange, and the role carries on without an answer. One that names you without
+`protected-file`, and with a report at `warning` severity or above in the same
+reply, addressed to no role, asking it. That report is what reaches you, in [the
+pile you read](reporting.md#what-agents-report-and-where-it-reaches-you) and the
+summaries built from it; the ask opens no exchange, the question is listed with
+the reply as well, and the role carries on without an answer. An ask of you with
+no such report is refused, because nothing would carry it to you. One that names you without
 such a reason is refused and handed back to the role with the rung it takes the
 question to instead — the development manager for a developer, the Lead Product
 Manager or the architect for the development manager, the Lead Product Manager

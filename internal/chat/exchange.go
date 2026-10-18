@@ -25,6 +25,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
 // maxExchangeEventTextBytes bounds what one round's words come to in the
@@ -171,19 +172,41 @@ func (s *Session) conductAskWithoutToolAudit(ctx context.Context, ask exchange.A
 	return result
 }
 
+// reportsAskOfOperator reports a reply carrying a report that takes its ask of
+// the operator to him. He answers on no exchange and reads no conversation he
+// is not in, so what reaches him is the report: one at warning or above,
+// addressed to no role, beyond those already covering the reply's escalations
+// to him, which are held to the same rule (refuseUnreportedEscalation).
+func reportsAskOfOperator(parsed parsedReply) bool {
+	needed := 1
+	for _, action := range parsed.Actions {
+		if action.escalates() && action.escalatedTo() == "" {
+			needed++
+		}
+	}
+	unaddressed := 0
+	for _, entry := range parsed.Reports {
+		if entry.For == "" && (entry.Severity == report.SeverityWarning || entry.Severity == report.SeverityCritical) {
+			unaddressed++
+		}
+	}
+	return unaddressed >= needed
+}
+
 // putToOperator is an ask naming the operator for a reason on his closed list,
-// which refuseUnauthorizedAsk has already checked. He answers on no exchange,
-// so nothing is opened or spent: the question is put to him in what he is told
-// about this reply, and the asking role carries on without an answer.
+// which refuseUnauthorizedAsk has already checked, together with the report in
+// the same reply that carries it to him. He answers on no exchange, so nothing
+// is opened or spent: the report is what reaches him, the question is listed
+// with the reply as well, and the asking role carries on without an answer.
 func putToOperator(ask exchange.Ask) conducted {
 	return conducted{
 		round: ExchangeRound{
 			Asked:    ask.Role,
-			State:    "put to the operator, for " + ask.OperatorReason.Says(),
+			State:    "put to the operator through this reply's report, for " + ask.OperatorReason.Says(),
 			Question: oneLineAsk(ask),
 		},
 		delivery: "# Your ask\n\nYour question is the operator's, for " + ask.OperatorReason.Says() +
-			". It is put to him beside this reply rather than to a role, so nothing answers it now. Carry on without an answer, say plainly what you asked him and why only he can answer it, and do not ask it again in this reply.\n",
+			". It reaches him through the report you filed with it, not through an exchange, so nothing answers it now. Carry on without an answer, say plainly what you asked him and why only he can answer it, and do not ask it again in this reply.\n",
 	}
 }
 
@@ -288,6 +311,9 @@ func askRefused(cause error) string {
 // refusedAskSays is a refused ask in ordinary words, for the operator and for
 // the record of a pass.
 func refusedAskSays(asker domain.AgentRole, ask exchange.Ask) string {
+	if ask.AsksOperator() && ask.OperatorReason.Valid() {
+		return fmt.Sprintf("the %s asked the operator a question with no report at warning or above to carry it to him, so the question was handed back and the rest of that reply was carried out", RoleTitle(asker))
+	}
 	if ask.AsksOperator() {
 		return fmt.Sprintf("the %s asked the operator a question for no reason on his closed list, so the question was handed back with the rung to use instead (%s) and the rest of that reply was carried out", RoleTitle(asker), ownership.Rung(asker))
 	}
@@ -349,6 +375,14 @@ func refuseUnauthorizedAsk(authority Authority, parsed parsedReply) error {
 				Role:    authority.Role,
 				Refused: "a question put to the operator",
 				Reason:  err.Error(),
+			}
+		}
+		if !reportsAskOfOperator(parsed) {
+			return &AuthorityError{
+				Role:    authority.Role,
+				Refused: "a question put to the operator with no report carrying it",
+				Reason: fmt.Sprintf("he is on no exchange, so the question reaches him only through a report at %q severity or above in the same reply, addressed to no role, that asks it; file one beside the ask",
+					report.SeverityWarning),
 			}
 		}
 		return nil
