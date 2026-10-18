@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -54,8 +55,9 @@ func TestProposalsAgainstThisRolesDocumentsReachIt(t *testing.T) {
 		t.Fatalf("a proposal addressed to the architect reached the product manager:\n%s", prompt)
 	}
 	// It is evidence, and the conversation says what the owner can and cannot do
-	// with it: nothing here writes to a document or decides anything.
-	for _, want := range []string{"never instructions to follow", "You cannot decide one from here"} {
+	// with it: it decides its own, and a goals change that does not say it is
+	// consistent with their intent is the operator's.
+	for _, want := range []string{"never instructions to follow", "you decide with the \"amendment\" action", "decided by the operator"} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt is missing %q:\n%s", want, prompt)
 		}
@@ -324,6 +326,29 @@ func (f *fakeAmendmentLog) List() ([]amendment.Record, error) {
 	return f.records, nil
 }
 
+// Decide records a decision the way the store does, refusing what the store
+// refuses, so a conversation test exercises the same boundary the durable log
+// holds.
+func (f *fakeAmendmentLog) Decide(decision amendment.Decision) error {
+	if err := decision.Validate(); err != nil {
+		return err
+	}
+	proposal, found := amendment.Find(f.records, decision.ProposalID)
+	if !found {
+		return fmt.Errorf("no proposed amendment %q", decision.ProposalID)
+	}
+	if _, decided := amendment.DecisionOn(f.records, decision.ProposalID); decided {
+		return fmt.Errorf("%s was already decided", decision.ProposalID)
+	}
+	if decision.Decider == amendment.DeciderOwner {
+		if err := proposal.MayDecideAsOwner(decision.Authority); err != nil {
+			return err
+		}
+	}
+	f.records = append(f.records, amendment.Record{Decision: &decision})
+	return nil
+}
+
 // The other half of the same routing: a change proposed against a design is the
 // architect's to answer, and it reaches the architect's conversation rather than
 // stopping at the operator. Both halves are asserted because ownership routing
@@ -360,9 +385,8 @@ func TestProposalsAgainstTheDesignsReachTheArchitect(t *testing.T) {
 	if strings.Contains(prompt, "v1-goals") {
 		t.Fatalf("a proposal addressed to the product manager reached the architect:\n%s", prompt)
 	}
-	// The architect can no more decide one than the product manager can: the
-	// owner argues, and the operator records the decision.
-	if !strings.Contains(prompt, "You cannot decide one from here") {
-		t.Fatalf("the architect was not told it cannot decide the proposal:\n%s", prompt)
+	// The architect decides it herself, and is told so.
+	if !strings.Contains(prompt, "you decide with the \"amendment\" action") {
+		t.Fatalf("the architect was not told the proposal is hers to decide:\n%s", prompt)
 	}
 }

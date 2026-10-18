@@ -64,21 +64,23 @@ package orchestrator
 // A role that owns documents — the architect the designs, specifications, and
 // decisions; the product manager the brief and the goals — is woken with the
 // undecided changes other roles have proposed to them, oldest first and bounded
-// to what one pass can argue, and asked to recommend on each: approve, decline,
-// or merge with another, with the reason. The recommendations ride the account
-// and the account is the batch the operator decides from. Nothing here decides
-// a proposal: no role records a decision and the operator does, from `yoyo
-// amendment`, under the owner's authority. What this adds is that the argument
-// the owner is entitled to make is made on a cadence rather than only when
-// somebody opens the conversation — forty-four proposals stood undecided for
-// weeks before it did, because nothing woke the architect to argue them.
+// to what one pass can take. The role decides each that is its own with the
+// conversation's "amendment" action, under its own authority
+// (internal/chat/amendmentdecision.go); a change to the brief or the goals that does not say it is consistent with their intent is the
+// operator's, and on one of those the role recommends instead — approve,
+// decline, or merge with another, with the reason — and the recommendations are
+// the batch the operator decides from. What this adds is that the owner's
+// decisions are made on a cadence rather than only when somebody opens the
+// conversation — forty-four proposals stood undecided for weeks before it did,
+// because nothing woke the architect to argue them.
 //
 // The proposals ride the wake rather than the conversation's own delivery of
 // them, for the reason the brake's entries do: the conversation carries each
 // proposal into a turn once, ever, and a cadence needs the queue as it stands
-// on each firing — minus what the owner already argued on an earlier pass, so a
-// batch nobody has decided is not re-argued every cadence and the pass moves on
-// to what has not been argued yet.
+// on each firing — minus the operator's proposals the owner already argued on
+// an earlier pass, so a batch waiting on him is not re-argued every cadence and
+// the pass moves on to what has not been argued yet. A proposal the owner
+// decides itself is put to it on every pass until it is decided.
 
 import (
 	"context"
@@ -1552,7 +1554,8 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 const maxWakeAmendmentBytes = 32 << 10
 
 // amendmentBatch is what one firing puts to an owning role: the undecided
-// proposals against its documents that no earlier pass argued, oldest first and
+// proposals against its documents, less the operator's ones an earlier pass
+// already argued, oldest first and
 // bounded, with the counts of what was left out so the role and the record both
 // know they are looking at part of the queue.
 type amendmentBatch struct {
@@ -1562,9 +1565,9 @@ type amendmentBatch struct {
 	// pending is every proposal undecided against the role's documents when the
 	// batch was read, keyed by id: what a recommendation is checked against.
 	pending map[string]bool
-	// waiting is how many undecided proposals nobody has argued are behind the
-	// bound, and argued how many undecided ones already carry the role's
-	// recommendation from an earlier pass and are waiting on the operator.
+	// waiting is how many undecided proposals are behind the bound, and argued
+	// how many undecided ones the operator decides already carry the role's
+	// recommendation from an earlier pass and are waiting on him.
 	waiting int
 	argued  int
 	// problem is what stopped the batch being read whole, for the record.
@@ -1611,7 +1614,10 @@ func (t Trigger) amendmentBatch(task config.RecurringTask) amendmentBatch {
 	// oldest of what it has not argued rather than whatever happened to fit.
 	bytes, full := 0, false
 	for _, proposal := range pending {
-		if argued[proposal.ID] {
+		// Only a proposal the operator decides is waiting on him once the role has
+		// argued it. One the role decides itself is put to it again until it is
+		// decided, whatever an earlier pass said, because nobody else will.
+		if argued[proposal.ID] && proposal.ReservedForOperator() {
 			batch.argued++
 			continue
 		}
@@ -1684,7 +1690,7 @@ func (b amendmentBatch) check(role domain.AgentRole, merged *sweep.Result) strin
 // section is what the wake says about the proposals, or nothing for a role
 // with none undecided against its documents. It says three things the role
 // cannot otherwise know: what is put to it now, how much of the queue that is,
-// and that recommending is the whole of what it can do about any of it.
+// and which of it the role decides and which it argues for the operator.
 func (b amendmentBatch) section(role domain.AgentRole) string {
 	if !b.any() {
 		return ""
@@ -1704,8 +1710,9 @@ func (b amendmentBatch) section(role domain.AgentRole) string {
 		fmt.Fprintf(&rendered, "; %d already carry your recommendation from an earlier pass and await the operator's decision", b.argued)
 	}
 	rendered.WriteString(".\n\n")
-	rendered.WriteString("Argue each one: read the document it names, and recommend approve, decline, or merge with another, with the reason, in the \"recommendations\" of your block. ")
-	fmt.Fprintf(&rendered, "You decide nothing from here and edit nothing: the operator records each decision with `yoyo amendment` under the %s's authority, and an approved change is then yours to make in the document as a revision.\n\n", role)
+	rendered.WriteString("Read the document each one names, and decide each one that says it is decided by you: record \"amendment\" in a yoyodyne-tracker block with \"decision\" \"approve\" or \"decline\" and your reason. The operator is told afterwards and is not asked. ")
+	rendered.WriteString("A proposal that says it is decided by the operator is a change of fundamental intent: recommend approve, decline, or merge with another for it, with the reason, in the \"recommendations\" of your block, and he decides it. ")
+	fmt.Fprintf(&rendered, "Nothing you decide edits a document: an approved change is then yours to make in the document as a revision, as the %s.\n\n", role)
 	for _, proposal := range b.proposals {
 		rendered.WriteString(proposal.Render())
 	}

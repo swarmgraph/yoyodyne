@@ -96,15 +96,26 @@ func TestAnOwningRoleIsPutTheUndecidedProposalsAndItsRecommendationsAreRecorded(
 		"# Changes proposed to documents you own",
 		"puts 2 of them to you here, oldest first",
 		older.ID, newer.ID,
-		"yoyo amendment",
-		"under the architect's authority",
+		"decided by the architect, whose document it is",
+		`record "amendment"`,
 		"argue the proposed changes",
 		`"recommendations"`,
-		"not decisions",
+		"gets no recommendation",
 	} {
 		if !strings.Contains(message, want) {
 			t.Errorf("the wake does not carry %q:\n%s", want, message)
 		}
+	}
+	// Nothing in the wake says the operator decides a proposal the architect
+	// owns: the recommendation contract asks for recommendations only on the
+	// ones he decides.
+	for _, stale := range []string{"the operator reads the batch and records each decision", "one entry for every proposed change put to you on this pass, and none for a proposal you were not shown", "You decide nothing"} {
+		if strings.Contains(message, stale) {
+			t.Errorf("the wake still says %q:\n%s", stale, message)
+		}
+	}
+	if !strings.Contains(message, "decided by you is yours to settle") {
+		t.Errorf("the wake does not say the architect settles her own proposals:\n%s", message)
 	}
 	if strings.Index(message, older.ID) > strings.Index(message, newer.ID) {
 		t.Errorf("the wake puts the newer proposal ahead of the older one:\n%s", message)
@@ -126,15 +137,30 @@ func TestAnOwningRoleIsPutTheUndecidedProposalsAndItsRecommendationsAreRecorded(
 	}
 }
 
-// A proposal the role already argued on an earlier pass is not put to it again
-// while the operator has not decided it: the pass moves on to what has not
-// been argued, and says how many await the operator.
+// proposedToTheProductManager is one undecided change against the goals that
+// does not say whether it changes what they intend, which the operator decides.
+func proposedToTheProductManager(index int, age time.Duration) amendment.Proposal {
+	proposal := proposedToTheArchitect(index, age)
+	proposal.Artifact, proposal.Kind, proposal.Owner = "v1-goals", artifact.KindGoals, domain.RoleProductManager
+	return proposal
+}
+
+func productManagerTask() map[string]config.RecurringTask {
+	tasks := architectTask()
+	task := tasks["architect-amendments"]
+	task.Role = domain.RoleProductManager
+	return map[string]config.RecurringTask{"product-manager-amendments": task}
+}
+
+// A proposal the operator decides that the role already argued on an earlier
+// pass is not put to it again while he has not decided it: the pass moves on to
+// what has not been argued, and says how many await the operator.
 func TestAProposalAlreadyArguedIsNotPutAgain(t *testing.T) {
 	t.Parallel()
 
 	store := sweepStore(t)
-	argued := proposedToTheArchitect(1, 20*24*time.Hour)
-	fresh := proposedToTheArchitect(2, 2*24*time.Hour)
+	argued := proposedToTheProductManager(1, 20*24*time.Hour)
+	fresh := proposedToTheProductManager(2, 2*24*time.Hour)
 	amendments := recurringAmendments{records: []amendment.Record{{Proposal: &argued}, {Proposal: &fresh}}}
 	clock := &movingRecurringClock{now: recurringNow}
 	role := &wokenRole{answers: []scriptedTurn{
@@ -143,7 +169,7 @@ func TestAProposalAlreadyArguedIsNotPutAgain(t *testing.T) {
 		{result: &sweep.Result{Status: sweep.StatusComplete, Summary: "one more argued",
 			Recommendations: []sweep.Recommendation{recommendation(fresh, sweep.RecommendDecline, "no")}}},
 	}}
-	trigger := Trigger{Tasks: architectTask(), Claims: store, Reports: store, Roles: role, Clock: clock, Amendments: amendments}
+	trigger := Trigger{Tasks: productManagerTask(), Claims: store, Reports: store, Roles: role, Clock: clock, Amendments: amendments}
 	if _, err := trigger.Fire(context.Background()); err != nil {
 		t.Fatalf("first Fire() error = %v", err)
 	}
@@ -175,6 +201,34 @@ func TestAProposalAlreadyArguedIsNotPutAgain(t *testing.T) {
 	}
 	if strings.Contains(third, fresh.ID) {
 		t.Errorf("the third wake puts an argued proposal to her again:\n%s", third)
+	}
+}
+
+// A proposal the role decides itself is put to it on every pass until it is
+// decided, whatever an earlier pass recommended: nobody else will decide it, so
+// a proposal already waiting before the role could decide is offered again.
+func TestAProposalTheRoleDecidesIsPutAgainUntilDecided(t *testing.T) {
+	t.Parallel()
+
+	store := sweepStore(t)
+	argued := proposedToTheArchitect(1, 20*24*time.Hour)
+	amendments := recurringAmendments{records: []amendment.Record{{Proposal: &argued}}}
+	clock := &movingRecurringClock{now: recurringNow}
+	role := &wokenRole{answers: []scriptedTurn{
+		{result: &sweep.Result{Status: sweep.StatusComplete, Summary: "one argued",
+			Recommendations: []sweep.Recommendation{recommendation(argued, sweep.RecommendApprove, "yes")}}},
+		{result: complete("decided it")},
+	}}
+	trigger := Trigger{Tasks: architectTask(), Claims: store, Reports: store, Roles: role, Clock: clock, Amendments: amendments}
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatalf("first Fire() error = %v", err)
+	}
+	clock.now = recurringNow.Add(7 * time.Hour)
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatalf("second Fire() error = %v", err)
+	}
+	if second := role.messages[1]; !strings.Contains(second, argued.ID) || strings.Contains(second, "await the operator") {
+		t.Errorf("the second wake does not put the architect's own proposal to her again:\n%s", second)
 	}
 }
 
