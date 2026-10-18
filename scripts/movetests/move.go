@@ -381,21 +381,28 @@ func (m *model) groupFile(p *plan, name string, file *ast.File, src []byte, base
 }
 
 // harnessFile appends the shared helpers one test file declares to the harness
-// file named after it.
+// file named after it. The imports the helpers need go straight after the
+// package clause, where Go requires them, even in a file an earlier group
+// wrote; tidyImports then merges them with the imports already there.
 func (m *model) harnessFile(p *plan, file *ast.File, src []byte, base int, before []byte, units []*unit, harnessName string, renames map[string]string) ([]byte, error) {
-	var out bytes.Buffer
-	if len(before) > 0 {
-		out.Write(before)
-	} else {
-		out.WriteString("package " + harnessName + "\n\n")
+	if len(before) == 0 {
+		before = []byte("package " + harnessName + "\n")
 	}
-	fmt.Fprintf(&out, "import %q\n", m.path)
+	header, err := parser.ParseFile(token.NewFileSet(), "", before, parser.PackageClauseOnly)
+	if err != nil {
+		return nil, err
+	}
+	clauseEnd := lineEnd(before, int(header.Name.End())-1)
+	var out bytes.Buffer
+	out.Write(before[:clauseEnd])
+	fmt.Fprintf(&out, "\nimport %q\n", m.path)
 	for _, decl := range file.Decls {
 		if d, ok := decl.(*ast.GenDecl); ok && d.Tok == token.IMPORT {
 			out.Write(src[int(d.Pos())-base : int(d.End())-base])
 			out.WriteString("\n")
 		}
 	}
+	out.Write(before[clauseEnd:])
 	comments := commentEdits(m, file, base, renames)
 	for _, u := range units {
 		edits := append(m.edits(p, u, base, true, harnessName), comments...)
