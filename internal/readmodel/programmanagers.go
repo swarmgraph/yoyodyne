@@ -78,6 +78,74 @@ type FirstSeen interface {
 	FirstSeen() (map[string]time.Time, error)
 }
 
+// PassRequests is the requests made for each instance's pass, as the read model
+// asks about them. It is satisfied by *runstate.PassRequestStore.
+type PassRequests interface {
+	List(agent string) ([]runstate.PassRequest, error)
+}
+
+// maxPassRequestsShown bounds the requests an instance carries: every one still
+// open, and the latest of the rest up to this many, so what became of a recent
+// request is always there and a long history is not.
+const maxPassRequestsShown = 5
+
+// maxPassRequestProblemBytes bounds a failed request's problem as its line says
+// it; the request's own record keeps the whole of it.
+const maxPassRequestProblemBytes = 300
+
+// ProgramManagerPassRequest is one request for an instance's pass, carried
+// whole in the store's own type, with what became of it and since when.
+type ProgramManagerPassRequest struct {
+	runstate.PassRequest
+	State runstate.PassRequestState `json:"state"`
+	Since time.Time                 `json:"since"`
+}
+
+// Says is the request in one line: who asked and when, and what became of it.
+func (r ProgramManagerPassRequest) Says() string {
+	line := fmt.Sprintf("%s, asked by %s at %s: ", r.ID, r.AskedBy.Describe(), localMoment(r.RequestedAt))
+	switch r.State {
+	case runstate.PassRequestStateJoined:
+		line += fmt.Sprintf("added to %s, whose pass answers it", r.JoinedTo)
+	case runstate.PassRequestStateTaken:
+		line += fmt.Sprintf("taken at %s as the pass %s, which has not ended", localMoment(r.Since), r.Pass)
+	case runstate.PassRequestStateCompleted:
+		line += fmt.Sprintf("completed at %s by the pass %s", localMoment(r.Since), r.Pass)
+	case runstate.PassRequestStateFailed:
+		line += fmt.Sprintf("failed at %s in the pass %s", localMoment(r.Since), r.Pass)
+		if strings.TrimSpace(r.Problem) != "" {
+			line += ": " + singleLine(r.Problem, maxPassRequestProblemBytes)
+		}
+	default:
+		line += "waiting to be taken at the scheduler's next pull"
+		if r.Waiting != "" && r.WaitingSince != nil {
+			line += fmt.Sprintf("; since %s %s", localMoment(*r.WaitingSince), r.Waiting)
+		}
+	}
+	return line
+}
+
+// readPassRequests is the requests an instance carries: every open one, and the
+// latest of the rest, oldest first.
+func readPassRequests(sources Sources, agent string) ([]ProgramManagerPassRequest, string) {
+	shown := []ProgramManagerPassRequest{}
+	if sources.PassRequests == nil {
+		return shown, ""
+	}
+	requests, err := sources.PassRequests.List(agent)
+	if err != nil {
+		return shown, fmt.Sprintf("the pass requests of %s could not be read, so what became of one cannot be said: %v", agent, err)
+	}
+	for index, request := range requests {
+		if !request.Open() && index < len(requests)-maxPassRequestsShown {
+			continue
+		}
+		state, since := request.State()
+		shown = append(shown, ProgramManagerPassRequest{PassRequest: request, State: state, Since: since})
+	}
+	return shown, ""
+}
+
 // ProgramManagerInstance is one configured program manager instance, as the
 // configuration names it: the agent, the lane it owns, and its schedule.
 type ProgramManagerInstance struct {
@@ -214,6 +282,11 @@ type ProgramManager struct {
 	// answered, oldest first, carried whole in the store's own type. It is empty
 	// rather than absent for an instance with none.
 	RestartRequests []runstate.RestartRequest `json:"restart_requests"`
+	// PassRequests is the requests made for the instance's pass — every one
+	// still open, and the latest of the rest — each with what became of it:
+	// waiting, taken, joined to another, completed, or failed, and since when.
+	// It is empty rather than absent for an instance nobody has asked.
+	PassRequests []ProgramManagerPassRequest `json:"pass_requests"`
 }
 
 // ReadProgramManagers is every program manager instance: each one the
@@ -423,7 +496,8 @@ func deriveProgramManager(sources Sources, instance ProgramManagerInstance, reco
 		}
 	}
 
-	var problem string
+	var problem, requestsProblem string
+	derived.PassRequests, requestsProblem = readPassRequests(sources, instance.Agent)
 	if sources.LaneReports != nil {
 		derived.ReportPath = sources.LaneReports.ReportPath(instance.Agent)
 		current, written, err := sources.LaneReports.Current(instance.Agent)
@@ -467,7 +541,7 @@ func deriveProgramManager(sources Sources, instance ProgramManagerInstance, reco
 	default:
 		derived.Status = ProgramManagerWorking
 	}
-	return derived, problem
+	return derived, joinProblems(problem, requestsProblem)
 }
 
 // staleness is whether an instance has gone without a completed pass for twice
