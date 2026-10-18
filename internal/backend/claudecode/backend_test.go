@@ -400,13 +400,76 @@ func TestADeveloperRunIsSandboxedAndCarriesTheAttributionGuard(t *testing.T) {
 	if !json.Valid([]byte(developerSettings)) {
 		t.Fatalf("developer settings are not valid JSON, so Claude Code would refuse them: %s", developerSettings)
 	}
-	sandbox := `"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false}`
+	sandbox := `"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,`
 	if !strings.Contains(developerSettings, sandbox) {
 		t.Fatalf("a developer run's Bash is not confined: %s", developerSettings)
 	}
 	guard := `"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"yoyo goals guard"}]}]`
 	if !strings.Contains(developerSettings, guard) {
 		t.Fatalf("a developer run carries no PreToolUse guard on Bash, so a `bd update <id> --notes` in one would destroy an attribution unremarked: %s", developerSettings)
+	}
+}
+
+// A developer's Bash may bind a local port, on a fresh invocation and on a
+// resumed one, and that is the whole of what its sandbox opens: the network
+// block holds the one grant and nothing that reaches another host or a Unix
+// socket, no filesystem block widens what it may write, nothing in the
+// settings grants a permission rule, and commands still cannot leave the
+// sandbox. No other role is given the grant.
+//
+// This reads the settings the CLI was actually passed. That Claude Code turns
+// them into a profile under which a bind succeeds is a fact about the CLI, and
+// is shown by a developer run's own `make test` passing the tests that start a
+// server on 127.0.0.1.
+func TestADeveloperSandboxAllowsLocalBindingAndNothingElseFreshOrResumed(t *testing.T) {
+	t.Parallel()
+
+	for _, session := range []string{"", "session-1"} {
+		runner := &fakeRunner{results: claudeCompletedTurn()}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), backendapi.RunRequest{
+			RunID: testRunID, Role: domain.RoleDeveloper, WorkingDirectory: t.TempDir(),
+			Prompt: "do the work", SessionID: session,
+		}); err != nil {
+			t.Fatalf("session %q: %v", session, err)
+		}
+		args := runner.commands[0].Args
+		if session != "" {
+			if resumed, _ := optionValue(args, "--resume"); resumed != session {
+				t.Fatalf("session %q is not resumed: %v", session, args)
+			}
+		}
+		settings := invocationSettings(t, args)
+		sandbox, _ := settings["sandbox"].(map[string]any)
+		if sandbox["enabled"] != true || sandbox["failIfUnavailable"] != true || sandbox["allowUnsandboxedCommands"] != false {
+			t.Fatalf("session %q: the sandbox is not enforced: %v", session, sandbox)
+		}
+		network, _ := sandbox["network"].(map[string]any)
+		if !reflect.DeepEqual(network, map[string]any{"allowLocalBinding": true}) {
+			t.Fatalf("session %q: sandbox.network = %v, want local binding and no other network grant", session, network)
+		}
+		for key := range sandbox {
+			if !slices.Contains([]string{"enabled", "failIfUnavailable", "allowUnsandboxedCommands", "network"}, key) {
+				t.Fatalf("session %q: the sandbox carries %q, which widens it beyond local binding: %v", session, key, sandbox)
+			}
+		}
+		if permissions, found := settings["permissions"]; found {
+			t.Fatalf("session %q: the settings grant permission rules, which could widen what Bash may reach or write: %v", session, permissions)
+		}
+	}
+
+	for _, role := range domain.Roles() {
+		if role == domain.RoleDeveloper || !supportedRole(role) {
+			continue
+		}
+		request := backendapi.RunRequest{RunID: testRunID, Role: role, WorkingDirectory: t.TempDir(), Prompt: "do the work"}
+		runner := &fakeRunner{results: claudeCompletedTurn()}
+		if _, err := (Backend{Runner: runner, Clock: fixedClock{}}).Run(context.Background(), request); err != nil {
+			t.Fatalf("%s: %v", role, err)
+		}
+		sandbox, _ := invocationSettings(t, runner.commands[0].Args)["sandbox"].(map[string]any)
+		if network, found := sandbox["network"]; found {
+			t.Fatalf("%s is given a network grant meant for developers alone: %v", role, network)
+		}
 	}
 }
 

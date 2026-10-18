@@ -80,7 +80,17 @@ const defaultAfterReplyTimeout = 5 * time.Minute
 // is where the harness itself was invoked from -- and where it is not, Claude
 // Code reports the hook as failed and runs the command, which is the behaviour
 // there was before this. The guard can therefore be missing, but not wrong.
-const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false},` +
+//
+// The sandbox's one network grant is `sandbox.network.allowLocalBinding`, so a
+// test that starts a server on 127.0.0.1 runs in a developer's own `make test`
+// instead of failing with "bind: operation not permitted". It lets Bash bind a
+// local port, accept connections on it, and connect to localhost; every other
+// outbound connection still goes through the CLI's filtering proxy. It names no
+// domain, no Unix socket, and no write path, so which hosts a run may reach and
+// what it may write are unchanged. docs/configuration/runs.md says what each
+// provider's developer sandbox permits on the network.
+const developerSettings = `{"sandbox":{"enabled":true,"failIfUnavailable":true,"allowUnsandboxedCommands":false,` +
+	`"network":{"allowLocalBinding":true}},` +
 	`"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"yoyo goals guard"}]}]}}`
 
 // developerTools scopes built-in writes to the worktree project root. Bash is
