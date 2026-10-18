@@ -39,6 +39,11 @@
 // the type already has, the tool reports the collision and -rename gives the
 // member another name, as Type.member=NewName.
 //
+// The comments of what moves are renamed with it. A name that mixes cases is
+// renamed wherever a comment uses it; a lower-case one, which is as often a
+// plain word, only where a comment quotes it as code; and any renamed name as
+// the first word of its own doc or field comment (commentRenames).
+//
 // What the tool writes is a starting point that compiles, not a finished
 // change: read the diff, and run the moved package's tests and the package's
 // own before handing it over.

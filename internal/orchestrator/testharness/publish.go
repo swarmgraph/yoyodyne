@@ -82,7 +82,7 @@ func DriftRemoteTarget(t *testing.T, remote, branch string) {
 	RunPipelineGit(t, clone, "push", "origin", "HEAD:refs/heads/"+branch)
 }
 
-// NewPublishingPipeline is the Automatic pipeline with Publishing turned on.
+// NewPublishingPipeline is the automatic pipeline with publishing turned on.
 func NewPublishingPipeline(t *testing.T, repository string, tracker orchestrator.WorkTracker, provider backend.Backend, forge orchestrator.PullRequests, commands []string) (orchestrator.Pipeline, *runstate.Store) {
 	t.Helper()
 	pipeline, store := NewAutomaticPipeline(t, repository, tracker, provider, commands)
@@ -105,7 +105,7 @@ func PublishedRepository(t *testing.T) (string, string) {
 	return repository, AddBareRemote(t, repository)
 }
 
-// AddBareRemote gives an existing repository the remote Publishing pushes to,
+// AddBareRemote gives an existing repository the remote publishing pushes to,
 // carrying its target branch.
 func AddBareRemote(t *testing.T, repository string) string {
 	t.Helper()
@@ -125,7 +125,7 @@ func PublishedCommit(t *testing.T, repository, branch string) string {
 	return strings.TrimSpace(GitOutput(t, repository, "for-each-ref", "--format=%(objectname)", "refs/heads/"+branch))
 }
 
-// QueuedFixture is a Publishing run whose forge queues the merge, built over
+// QueuedFixture is a publishing run whose forge queues the merge, built over
 // artifacts a second process can also see. Reconciliation is that second
 // process: it settles a queued merge from the repository, the worktree root, and
 // the run state store the run itself used.
@@ -218,4 +218,25 @@ func (f QueuedFixture) Reconciler(t *testing.T) orchestrator.Reconciler {
 		reconciler.Docket = DocketerOverStore(f.Docket, f.Store, DocketConfig())
 	}
 	return reconciler
+}
+
+// RewriteRemoteTarget replaces the remote target branch with a history that does
+// not contain the one this repository has. It is the movement DriftRemoteTarget
+// is not: a fast-forward answers a target that grew, and nothing answers a
+// target somebody rewrote.
+func RewriteRemoteTarget(t *testing.T, remote, branch string) {
+	t.Helper()
+	clone := filepath.Join(t.TempDir(), "rewritten")
+	RunPipelineGit(t, filepath.Dir(clone), "clone", remote, clone)
+	RunPipelineGit(t, clone, "config", "user.name", "Someone Else")
+	RunPipelineGit(t, clone, "config", "user.email", "someone@example.invalid")
+	DisablePipelineMaintenance(t, clone)
+	RunPipelineGit(t, clone, "checkout", "--orphan", "rewritten")
+	RunPipelineGit(t, clone, "rm", "-r", "-f", "-q", ".")
+	if err := os.WriteFile(filepath.Join(clone, "rewritten.txt"), []byte("a history of its own\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	RunPipelineGit(t, clone, "add", ".")
+	RunPipelineGit(t, clone, "commit", "-m", "a rewritten history")
+	RunPipelineGit(t, clone, "push", "--force", "origin", "HEAD:refs/heads/"+branch)
 }

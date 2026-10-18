@@ -50,22 +50,16 @@ func (m *model) move(r moveRequest) error {
 	if err != nil {
 		return err
 	}
-	commentRenames := map[string]string{}
-	for obj := range p.exported {
-		// A short lower-case name is too likely to be an ordinary word in a
-		// comment to be renamed there.
-		if strings.ToLower(obj.Name()) == obj.Name() && len(obj.Name()) < 8 {
-			continue
-		}
-		if name := p.nameOf(obj); name != obj.Name() {
-			commentRenames[obj.Name()] = name
-		}
-	}
 	var names []string
+	var files []*ast.File
 	for name := range m.files {
 		names = append(names, name)
 	}
 	sort.Strings(names)
+	for _, name := range names {
+		files = append(files, m.files[name])
+	}
+	commentRenames := p.commentRenames(files, m.info)
 	written := 0
 	for _, name := range names {
 		file, src := m.files[name], m.sources[name]
@@ -316,13 +310,133 @@ func (m *model) edits(p *plan, u *unit, base int, inHarness bool, harnessName st
 	return edits
 }
 
-// commentEdits renames, in every comment of a file, the helpers the harness
-// now exports under another name.
-func commentEdits(m *model, file *ast.File, base int, renames map[string]string) []edit {
+// commentRenames is how the comments of the moved and shared code are to name
+// what the harness now exports under another name.
+type commentRenames struct {
+	// words are renamed wherever a comment uses them as a whole word.
+	words map[string]string
+	// quoted are renamed where a comment quotes them as code, between
+	// backquotes and alone there.
+	quoted map[string]string
+	// first holds the doc and line comments of the renamed declarations and
+	// members whose first word is the old name, with the name it becomes: Go's
+	// convention opens a comment with the name it documents, whatever that name
+	// is, so this one word is renamed even where words leaves it alone.
+	first map[*ast.Comment]string
+}
+
+// commentRenames gathers, from files, what every comment naming a renamed
+// declaration or member has to say instead.
+//
+// A name that mixes cases, such as pipelineRepository or onSleep, is renamed
+// wherever a comment uses it. A lower-case name is a plain word ("publishing",
+// "slept") that a comment as often uses in its ordinary sense, so it is renamed
+// only where the comment quotes it as code. Any renamed name is renamed as the
+// first word of its own comment. A name two renamed declarations or members
+// would turn into different names is left alone, except as the first word of
+// each one's own comment.
+func (p *plan) commentRenames(files []*ast.File, info *types.Info) commentRenames {
+	r := commentRenames{words: map[string]string{}, quoted: map[string]string{}, first: map[*ast.Comment]string{}}
+	ambiguous := map[string]bool{}
+	word := func(obj types.Object) {
+		name := p.nameOf(obj)
+		if name == obj.Name() {
+			return
+		}
+		if previous, ok := r.quoted[obj.Name()]; ok && previous != name {
+			ambiguous[obj.Name()] = true
+		}
+		r.quoted[obj.Name()] = name
+		if strings.ToLower(obj.Name()) != obj.Name() {
+			r.words[obj.Name()] = name
+		}
+	}
+	for obj := range p.exported {
+		word(obj)
+	}
+	for obj := range p.inMember {
+		word(obj)
+	}
+	for name := range ambiguous {
+		delete(r.words, name)
+		delete(r.quoted, name)
+	}
+	renamed := func(groups []*ast.CommentGroup, names ...*ast.Ident) {
+		for _, id := range names {
+			obj := info.Defs[id]
+			if obj == nil || !(p.exported[obj] || p.inMember[obj]) || p.nameOf(obj) == obj.Name() {
+				continue
+			}
+			for _, group := range groups {
+				if group == nil {
+					continue
+				}
+				comment := group.List[0]
+				if i, j := firstWord(comment.Text); comment.Text[i:j] == obj.Name() {
+					r.first[comment] = p.nameOf(obj)
+				}
+			}
+		}
+	}
+	for _, file := range files {
+		for _, decl := range file.Decls {
+			ast.Inspect(decl, func(n ast.Node) bool {
+				switch d := n.(type) {
+				case *ast.FuncDecl:
+					renamed([]*ast.CommentGroup{d.Doc}, d.Name)
+				case *ast.GenDecl:
+					if len(d.Specs) == 1 {
+						switch s := d.Specs[0].(type) {
+						case *ast.TypeSpec:
+							renamed([]*ast.CommentGroup{d.Doc}, s.Name)
+						case *ast.ValueSpec:
+							renamed([]*ast.CommentGroup{d.Doc}, s.Names...)
+						}
+					}
+				case *ast.TypeSpec:
+					renamed([]*ast.CommentGroup{d.Doc, d.Comment}, d.Name)
+				case *ast.ValueSpec:
+					renamed([]*ast.CommentGroup{d.Doc, d.Comment}, d.Names...)
+				case *ast.Field:
+					renamed([]*ast.CommentGroup{d.Doc, d.Comment}, d.Names...)
+				}
+				return true
+			})
+		}
+	}
+	return r
+}
+
+// firstWord is where the first word of a comment's text starts and ends, past
+// its // or /* and the space after it; the two are equal where the comment
+// opens with no identifier.
+func firstWord(text string) (int, int) {
+	i := 2
+	for i < len(text) && (text[i] == ' ' || text[i] == '\t') {
+		i++
+	}
+	j := i
+	if j < len(text) && identStart(text[j]) {
+		for j < len(text) && identChar(text[j]) {
+			j++
+		}
+	}
+	return i, j
+}
+
+// commentEdits renames, in every comment of a file, the helpers and members
+// the harness now exports under another name.
+func commentEdits(file *ast.File, base int, renames commentRenames) []edit {
 	var edits []edit
 	for _, group := range file.Comments {
 		for _, comment := range group.List {
 			text, off := comment.Text, int(comment.Pos())-base
+			first := -1
+			if name, ok := renames.first[comment]; ok {
+				i, j := firstWord(text)
+				first = i
+				edits = append(edits, edit{off + i, j - i, name})
+			}
 			for i := 0; i < len(text); {
 				if !identStart(text[i]) || (i > 0 && identChar(text[i-1])) {
 					i++
@@ -332,7 +446,12 @@ func commentEdits(m *model, file *ast.File, base int, renames map[string]string)
 				for j < len(text) && identChar(text[j]) {
 					j++
 				}
-				if name, ok := renames[text[i:j]]; ok {
+				quoted := i > 0 && text[i-1] == '`' && j < len(text) && text[j] == '`'
+				name, ok := renames.words[text[i:j]]
+				if !ok && quoted {
+					name, ok = renames.quoted[text[i:j]]
+				}
+				if ok && i != first {
 					edits = append(edits, edit{off + i, j - i, name})
 				}
 				i = j
@@ -352,14 +471,14 @@ func identChar(c byte) bool {
 
 // groupFile is a moved test file: the original text, its package renamed,
 // less the declarations that do not move, with every name qualified.
-func (m *model) groupFile(p *plan, name string, file *ast.File, src []byte, base int, units []*unit, packageName, harnessPath, harnessName string, renames map[string]string) ([]byte, error) {
+func (m *model) groupFile(p *plan, name string, file *ast.File, src []byte, base int, units []*unit, packageName, harnessPath, harnessName string, renames commentRenames) ([]byte, error) {
 	moving := map[*unit]bool{}
 	var edits []edit
 	for _, u := range units {
 		moving[u] = true
 		edits = append(edits, m.edits(p, u, base, false, harnessName)...)
 	}
-	edits = append(edits, commentEdits(m, file, base, renames)...)
+	edits = append(edits, commentEdits(file, base, renames)...)
 	for _, u := range m.units {
 		if u.file == name && !moving[u] {
 			start, end := wholeLines(src, int(u.start)-base, int(u.end)-base)
@@ -384,7 +503,7 @@ func (m *model) groupFile(p *plan, name string, file *ast.File, src []byte, base
 // file named after it. The imports the helpers need go straight after the
 // package clause, where Go requires them, even in a file an earlier group
 // wrote; tidyImports then merges them with the imports already there.
-func (m *model) harnessFile(p *plan, file *ast.File, src []byte, base int, before []byte, units []*unit, harnessName string, renames map[string]string) ([]byte, error) {
+func (m *model) harnessFile(p *plan, file *ast.File, src []byte, base int, before []byte, units []*unit, harnessName string, renames commentRenames) ([]byte, error) {
 	if len(before) == 0 {
 		before = []byte("package " + harnessName + "\n")
 	}
@@ -403,7 +522,7 @@ func (m *model) harnessFile(p *plan, file *ast.File, src []byte, base int, befor
 		}
 	}
 	out.Write(before[clauseEnd:])
-	comments := commentEdits(m, file, base, renames)
+	comments := commentEdits(file, base, renames)
 	for _, u := range units {
 		edits := append(m.edits(p, u, base, true, harnessName), comments...)
 		out.WriteString("\n")

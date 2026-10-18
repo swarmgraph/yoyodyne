@@ -198,7 +198,7 @@ func TestPipelineOpensAPullRequestThatSaysWhatItContains(t *testing.T) {
 }
 
 // The shape yoyodyne-ifd.321 was admitted on, end to end, replaying the
-// yoyodyne-ifd.121.5 handoff that yoyodyne-ifd.387 was admitted on: Publishing
+// yoyodyne-ifd.121.5 handoff that yoyodyne-ifd.387 was admitted on: publishing
 // commits each attempt, so the second review judges a branch that already
 // carries the first one — a reduction that takes three thousand lines out of a
 // README. The patch it is handed is the branch's whole diff against the run's
@@ -262,7 +262,7 @@ func TestPipelineTellsAReviewerWhatThePatchOfAContinuedRunSpans(t *testing.T) {
 		"-line 3499 of the README before the reduction",
 		"+the repair",
 		// And the listing names both files as work already on the branch — the
-		// repair too, because Publishing commits each attempt before its review
+		// repair too, because publishing commits each attempt before its review
 		// — with the README at the size it was reduced to.
 		"## Files in this change",
 		fmt.Sprintf("- M README.md (%d bytes) — already committed on this branch", len(reduced)),
@@ -302,7 +302,7 @@ func TestPipelineTellsAReviewerWhatThePatchOfAContinuedRunSpans(t *testing.T) {
 }
 
 // A repository with no remote is the degradation the design requires: the run
-// behaves exactly as it did before Publishing existed, and says why.
+// behaves exactly as it did before publishing existed, and says why.
 func TestPipelineWithoutARemoteRunsExactlyAsItDidBefore(t *testing.T) {
 	t.Parallel()
 
@@ -674,7 +674,7 @@ func TestPipelineRefusesToMergeAPullRequestThatIsNotWhatIntegrated(t *testing.T)
 	}
 }
 
-// Publishing and Automatic integration are separate opt-ins, so a project can
+// Publishing and automatic integration are separate opt-ins, so a project can
 // have the harness open pull requests and still merge them itself. The run then
 // stops where a human-integration run always stopped: checks pass, nothing is
 // promoted, and the worktree is preserved — with the work now published.
@@ -753,7 +753,7 @@ func TestPipelineWaitsForTheForgeToReportItsOwnMerge(t *testing.T) {
 }
 
 // A repository with no remote reports the same thing on every pass. A resumed
-// run that said nothing about Publishing would read as a run whose policy had
+// run that said nothing about publishing would read as a run whose policy had
 // quietly changed between processes.
 func TestResumedRunReportsTheSkippedPublicationToo(t *testing.T) {
 	t.Parallel()

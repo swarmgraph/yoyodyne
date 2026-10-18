@@ -8,6 +8,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
+	"github.com/mason-bryant/yoyodyne/internal/publish"
 )
 
 // Sweep is the reconciler the reconcile verb builds: the forge's checks read,
@@ -27,4 +28,18 @@ func (f QueuedFixture) Sweep(t *testing.T, forge *orchestratortest.CheckedForge,
 	pipeline.Publisher = forge
 	reconciler.Continue = pipeline.Continue
 	return reconciler
+}
+
+// JobFailure is a head level with main whose adoption job the forge ended
+// itself — here cancelled — with its only annotation the forge's own on
+// .github. The shape is that of pull request 863's reading at 04:15Z on
+// 2026-09-28, whose record kept no conclusion; the conclusion here is the
+// fixture's, not that run's. checkRun is the check run the forge reports, and
+// a re-run is given a new one.
+func JobFailure(checkRun int64) publish.CheckReading {
+	return publish.CheckReading{
+		Files:   []string{"feature.txt"},
+		Failing: []publish.FailedCheck{{Name: "adoption", Paths: []string{".github"}, ID: checkRun, Conclusion: "cancelled"}},
+		Passing: 1,
+	}
 }
