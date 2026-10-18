@@ -512,6 +512,28 @@ func TestOnlyALaterDecisionOtherThanAWaitReplacesAFinishMergeRequest(t *testing.
 	}
 }
 
+// unreadableRecords is a run store whose list of every recorded run cannot be
+// read, while each run and the runs in flight still can.
+type unreadableRecords struct{ *runstate.Store }
+
+func (unreadableRecords) Recorded() ([]runstate.State, error) {
+	return nil, errors.New("the run directory could not be listed")
+}
+
+// When the run records cannot be read, the walk that finds requests to finish
+// a merge from the runs says so, naming what it could not look for.
+func TestAnUnreadableRunHistoryIsReportedByTheFinishMergeWalk(t *testing.T) {
+	t.Parallel()
+
+	harness := newResumeHarness(t, approvedStoppedState())
+	runs := unreadableRecords{harness.runs}
+	carry := CarryOut{Docket: harness.docket, Decisions: harness.runs.Triage(), Reruns: harness.runs.Reruns(), Runs: runs,
+		Integrations: RecoveredIntegrations{Runs: harness.runs, Resumer: harness.resumer()}}
+	if _, err := carry.Outstanding(); err == nil || !strings.Contains(err.Error(), "requests to finish a merge that only a run's own record carries were not looked for") {
+		t.Fatalf("Outstanding() error = %v, want the missed walk named", err)
+	}
+}
+
 // A request the integration resumer refuses is refused on the run and noted on
 // the item, and is not offered again.
 func TestARefusedFinishMergeRequestIsNotedOnTheItem(t *testing.T) {

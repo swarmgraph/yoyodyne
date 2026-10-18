@@ -579,7 +579,9 @@ func (c CarryOut) read() (carryOutReading, error) {
 	// or is missing, and a request nothing walks is one nobody carries out and
 	// nobody refuses.
 	if c.Integrations != nil {
-		if recorded, err := history(); err == nil {
+		if recorded, err := history(); err != nil {
+			problems = append(problems, fmt.Errorf("requests to finish a merge that only a run's own record carries were not looked for: %w", err))
+		} else {
 			for _, state := range recorded {
 				if considered[state.RunID] || state.WorkItemID == "" || !state.RecoveryContinuationOutstanding(runstate.RecoverFinishMerge) {
 					continue
