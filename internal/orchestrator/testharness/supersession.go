@@ -36,12 +36,12 @@ func (f QueuedFixture) OrphanOf(t *testing.T, landed orchestrator.Outcome, workI
 
 // DeadRun records a run that published and then died before anything was
 // judged, leaving the pair the operator found: the branch on the remote exactly
-// as Publishing left it, and the request the forge holds for it.
+// as publishing left it, and the request the forge holds for it.
 func (f QueuedFixture) DeadRun(t *testing.T, landed orchestrator.Outcome, workItemID, runID string, number int, started time.Time) runstate.State {
 	t.Helper()
 	short := runID[len("run-"):][:8]
 	branch := fmt.Sprintf("yoyodyne/%s/%s", workItemID, short)
-	// The branch sits on the remote exactly as Publishing left it, which is what
+	// The branch sits on the remote exactly as publishing left it, which is what
 	// the deletion is a compare-and-swap against.
 	RunPipelineGit(t, f.Repository, "push", "origin", landed.BaseCommit+":refs/heads/"+branch)
 	head := PublishedCommit(t, f.Remote, branch)

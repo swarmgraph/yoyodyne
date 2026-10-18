@@ -391,7 +391,8 @@ held to 256 KB, and a new file to 64 KB. Lines taken out of a file cost little,
 because a diff that only removes is described rather than shown once the bound
 is reached. New files cost their whole size, and this group's new files come to
 about 200 KB: 167 KB of tests and helpers, and 32 KB of the move tool. The
-moved `publish_test.go` was 83 KB, so its queued-merge and settled-merge tests are in `publish_queue_test.go`.
+moved `publish_test.go` was 83 KB, so its queued-merge and settled-merge tests
+are in `publish_queue_test.go`.
 
 ### What the move did to the binaries
 
@@ -466,6 +467,57 @@ parallel with everything else in the package. Moving them out takes about 30
 seconds off the package's wall time at this load. 43 movable tests remain in
 `pipeline_test.go`.
 
+### The third group: protection and landing (yoyodyne-ifd.429.14.2)
+
+On commit f2592b91, `go run ./scripts/movetests` counted 80 tests in the six
+files of item 3 in the plan below, and 62 of them could move. This change moved
+all 62 into `internal/orchestrator/landingtests`. They cover the paths a change
+may not touch, a protected target reached through its pull request, a target
+whose checks are red, the checks a landing runs, the line a stopped landing
+leaves, and what becomes of the work item once the change lands. Each keeps its
+name and its assertions.
+
+| file | tests | moved | stay |
+| --- | --- | --- | --- |
+| `protectedpath_test.go` | 19 | 14 | 5 |
+| `protectedtarget_test.go` | 7 | 7 | 0 |
+| `redtarget_test.go` | 12 | 8 | 4 |
+| `landingstop_test.go` | 10 | 9 | 1 |
+| `landingchecks_test.go` | 10 | 9 | 1 |
+| `landing_test.go` | 22 | 15 | 7 |
+
+The 18 that stay reach `developerContract`, `grantEvidence`, `redTargetMarker`,
+`redLandingMarker`, `updatingQueuedHead`, `mentionsPath`, `shortCommit`,
+`renderLandingStop`, `renderFailureNotes`, `settleUndischarged`,
+`arrangeUndischarged`, `undischargedParking`, or `itemSettled`. No exchange was
+needed: Git draws every one of the six files' diffs as removals alone. The new
+tests come to 171 KB in six files, the largest 46 KB, and the helpers they added
+to `testharness` to about 15 KB.
+
+The move tool now renames, in the comments of what it moves, a helper or member
+it exports: a name that mixes cases wherever a comment uses it, a lower-case
+one only where a comment quotes it as code, and any of them as the first word of
+its own comment. It used to rename only top-level names, and any lower-case one
+of eight letters or more wherever it appeared. That turned the ordinary words
+"publishing" and "automatic" into the helpers `Publishing` and `Automatic` in
+eleven comment lines of the first two groups, which read as they did before
+the move again.
+
+Timed side by side from 06:08 PDT on 2026-10-18, with
+`go test -count=1 -json`, at a one-minute load between 7 and 16:
+
+| tree | `internal/orchestrator` | `internal/orchestrator/landingtests` |
+| --- | --- | --- |
+| before, f2592b91 | passed, 1,057s | |
+| after, this change | passed, 1,065s | passed, 89s |
+
+The 62 tests' own elapsed times add up to 934 seconds, but at this load the
+package's wall time did not move: the two runs are within nine seconds of each
+other, the after run the slower, and its first minute and a half was shared
+with the new package's binary. One pass each at a load that moved is not
+evidence either way. What the move does show is the new binary passing in about
+a minute and a half, beside the package rather than inside it.
+
 ### What is left
 
 About 950 tests that can move, in groups of the size above. By subject and by
@@ -476,7 +528,7 @@ what they cost, a plan the development manager can take or change:
    `mergequeuepromotion_test.go`, and `queuedchecks_test.go`.
 3. Protection and landing: `protectedpath_test.go`, `protectedtarget_test.go`,
    `redtarget_test.go`, `landingstop_test.go`, `landingchecks_test.go`, and
-   `landing_test.go`.
+   `landing_test.go`. Moved by the third group above.
 4. Reconciliation and recovery: `reconcile_test.go`, `recovery_test.go`,
    `converge_test.go`, `runretirement_test.go`, `supersession_test.go`, and
    `integrationresume_test.go`.

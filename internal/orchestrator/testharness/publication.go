@@ -22,7 +22,7 @@ type PublicationFixture struct {
 	Tracker      *orchestratortest.Tracker
 }
 
-// NewPublicationFixture drives a whole Publishing run that ends blocked with
+// NewPublicationFixture drives a whole publishing run that ends blocked with
 // nothing integrated, and hands back the record it left. That is the run this
 // sweep exists for: its pull request is recorded exactly as it stood when the
 // run ended, and no settle path is ever going to ask about it again.
