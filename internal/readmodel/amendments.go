@@ -13,6 +13,12 @@ package readmodel
 // and that batch is the operator's to decide from — which nothing said either,
 // because the sweep log is read by `yoyo sweeps` and nothing else.
 //
+// The owning role now decides its own proposals from its conversation, so the
+// batch the operator is put is only what is his: the owner's recommendations
+// on changes to the brief or the goals that change their intent
+// or do not say. A recommendation on anything else is the owner arguing with
+// itself, and the decision it argues for is the owner's to record.
+//
 // So both are derived here, from the amendment log and the sweep log and
 // nowhere else. The count-and-age line is the sibling of the report pile's, on
 // the same threshold and for the same reason; the recommendations are read
@@ -182,7 +188,7 @@ func (r amendmentReading) attention() []Attention {
 // them: one operator-action finding per pass that argued something still
 // undecided.
 func (r amendmentReading) batchAttention() []Attention {
-	actions := AmendmentBatchActions(r.recommended)
+	actions := AmendmentBatchActions(OperatorsRecommendations(r.recommended, r.records))
 	attention := make([]Attention, 0, len(actions))
 	for _, action := range actions {
 		attention = append(attention, operatorActionAttention(action))
@@ -198,7 +204,28 @@ func (r amendmentReading) ageAttention() (Attention, bool) {
 	if r.queue.OldestAge <= maxUndecidedAmendmentAge {
 		return Attention{}, false
 	}
-	return amendmentQueueAttention(r.queue), true
+	var oldest amendment.Proposal
+	for _, proposal := range amendment.Pending(r.records) {
+		if oldest.ID == "" || proposal.RaisedAt.Before(oldest.RaisedAt) {
+			oldest = proposal
+		}
+	}
+	return amendmentQueueAttention(r.queue, oldest), true
+}
+
+// OperatorsRecommendations narrows the owners' recommendations to the
+// proposals the operator decides: changes to the brief or the goals that change their intent or do not say. Every other proposal is its
+// owner's to decide from its conversation, so a recommendation on one is not a
+// decision anybody puts to him — listing it as needing his hand would be an
+// approval routed to him that a role can make.
+func OperatorsRecommendations(recommended []RecommendedAmendment, records []amendment.Record) []RecommendedAmendment {
+	var kept []RecommendedAmendment
+	for _, entry := range recommended {
+		if proposal, found := amendment.Find(records, entry.Proposal); found && proposal.ReservedForOperator() {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
 }
 
 // AmendmentBatchKeyPrefix opens the key of every batch finding, so a surface

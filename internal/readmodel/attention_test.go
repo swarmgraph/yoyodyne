@@ -97,7 +97,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 			`yoyodyne-ifd.212 is admitted for "conversation:architect" rather than a developer run`},
 		AttentionReports: {reportsAttention(pile),
 			"3 of 12 collected report(s) are unhandled, the oldest filed 9d ago, worst warning"},
-		AttentionAmendmentQueue: {amendmentQueueAttention(amendment.Queue{Proposed: 5, Undecided: 4, Oldest: moment.Add(-20 * 24 * time.Hour), OldestAge: 20 * 24 * time.Hour, Owners: []domain.AgentRole{domain.RoleArchitect}}),
+		AttentionAmendmentQueue: {amendmentQueueAttention(amendment.Queue{Proposed: 5, Undecided: 4, Oldest: moment.Add(-20 * 24 * time.Hour), OldestAge: 20 * 24 * time.Hour, Owners: []domain.AgentRole{domain.RoleArchitect}}, proposedChange()),
 			"4 of 5 proposed change(s) are undecided, the oldest raised 20d ago, against the architect's documents"},
 		AttentionOwedStep: {owedStepAttention(owed),
 			"cleanup of the branch and worktree for yoyodyne-ifd.410 is not finished"},
