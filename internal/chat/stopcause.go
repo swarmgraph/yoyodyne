@@ -346,10 +346,13 @@ func (s *Session) stopCauseReports(account runstate.StopCauseAccount, ask StopCa
 // stopCauseReportMessage is the report filed about a cause: what stopped the
 // runs and where, how many and which, what was at fault, what happened, and
 // the remedy, in that order. A later report says which handled report it
-// follows and how many runs the cause stopped since.
+// follows and how many runs the cause stopped since. A person reads it, so it
+// names the cause in words only; the cause's identifier is in what the program
+// manager is told (StopCauseTally.Line, renderStopCauseResult), which is where
+// a stop is counted against the report that names it.
 func stopCauseReportMessage(tally runstate.StopCauseTally, standing runstate.StopCauseStanding, current runstate.StopCauseReportRef, fault runstate.StopFault, remedy, reading string) string {
 	var message strings.Builder
-	fmt.Fprintf(&message, "Post-mortem: %d run(s) stopped because %s (recorded as %s). Runs: %s.", tally.Count(), tally.Cause.Describe(), tally.Cause.ID(), tally.DescribeRuns())
+	fmt.Fprintf(&message, "Post-mortem: %d run(s) stopped because %s. Runs: %s.", tally.Count(), tally.Cause.Describe(), tally.DescribeRuns())
 	if standing.Due == runstate.StopCauseDueRecurred || standing.Due == runstate.StopCauseDueTopPriority {
 		fmt.Fprintf(&message, " This cause was reported before as %s, which the Lead Product Manager handled at %s; it has stopped %d run(s) since", current.Report, runstate.LocalStamp(standing.Handled), standing.SinceHandled)
 		if standing.Due == runstate.StopCauseDueTopPriority {
