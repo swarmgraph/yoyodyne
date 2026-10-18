@@ -2240,6 +2240,7 @@ func (s *State) recordedTexts() []recordedText {
 	if s.RecoveryContinuation != nil {
 		unstated("recovery_continuation.reason", "recovery_continuation.reason", &s.RecoveryContinuation.Reason, MaxRecordedTextBytes)
 		unstated("recovery_continuation.refused", "recovery_continuation.refused", &s.RecoveryContinuation.Refused, MaxRecordedTextBytes)
+		unstated("recovery_continuation.waiting", "recovery_continuation.waiting", &s.RecoveryContinuation.Waiting, MaxRecordedTextBytes)
 	}
 	for index := range s.CheckStageContinuations {
 		continuation := &s.CheckStageContinuations[index]
