@@ -129,8 +129,8 @@ func TestNoPersonalSkillPluginOrInstructionFileReachesAnyRoleFreshOrResumed(t *t
 			if runner.auth[0] != `{"auth_mode":"chatgpt"}` {
 				t.Fatalf("%s, session %q: the account's authentication was not reachable: %q", role, session, runner.auth[0])
 			}
-			if _, err := os.Stat(runner.homes[0]); !os.IsNotExist(err) {
-				t.Fatalf("%s, session %q: the home made for the invocation outlived it: %v", role, session, err)
+			if resolved, _ := filepath.EvalSymlinks(home); runner.homes[0] != filepath.Join(resolved, madeHomeName) {
+				t.Fatalf("%s, session %q: ran under %q, want the made home inside the account's", role, session, runner.homes[0])
 			}
 			for _, marker := range []string{"PERSONAL_SKILL_MARKER", "PERSONAL_AGENTS_MARKER", "PERSONAL_OVERRIDE_MARKER"} {
 				if strings.Contains(runner.prompts[0], marker) {
@@ -431,11 +431,12 @@ func TestTheStartingEventSaysWhatWasLoaded(t *testing.T) {
 	t.Fatalf("no run.started event in %+v", events)
 }
 
-// rolloutRunner stands in for the CLI where the session lives: a fresh turn
-// writes its rollout under the sessions directory of the provider home it was
-// handed, creating the directory if it is not there, and a top-level history
-// file beside it; a resumed turn finds its rollout there or fails the way
-// codex-cli does when it cannot.
+// rolloutRunner stands in for the CLI where the session lives, the way
+// codex-cli 0.162 keeps it: a fresh turn writes its rollout under the sessions
+// directory of the provider home it was handed, creating the directory if it is
+// not there, and records the rollout's path under that home in a state file at
+// the top of the home; a resumed turn looks the rollout up by the recorded path
+// and fails the way codex-cli does when nothing is there.
 type rolloutRunner struct {
 	fakeRunner
 	homes []string
@@ -449,10 +450,11 @@ func (r *rolloutRunner) Run(ctx context.Context, command execution.Command, obse
 		}
 	}
 	r.homes = append(r.homes, home)
-	sessions := filepath.Join(home, "sessions", "2026", "10", "17")
+	state := filepath.Join(home, "state_5.sqlite")
 	if resume := slices.Index(command.Args, "resume"); resume >= 0 {
 		thread := command.Args[resume+1]
-		if _, err := os.Stat(filepath.Join(sessions, "rollout-"+thread+".jsonl")); err != nil {
+		recorded, _ := os.ReadFile(state)
+		if _, err := os.Stat(string(recorded)); len(recorded) == 0 || err != nil {
 			r.results = append(r.results, execution.ProcessResult{Status: execution.ProcessFailed, ExitCode: 1, Stdout: lines(
 				`{"type":"error","message":"thread/resume failed: no rollout found for thread id ` + thread + ` (code -32600)"}`,
 			)})
@@ -464,23 +466,24 @@ func (r *rolloutRunner) Run(ctx context.Context, command execution.Command, obse
 		)})
 		return r.fakeRunner.Run(ctx, command, observer)
 	}
-	if err := os.MkdirAll(sessions, 0o700); err != nil {
+	rollout := filepath.Join(home, "sessions", "2026", "10", "17", "rollout-session-1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(rollout), 0o700); err != nil {
 		return execution.ProcessResult{}, err
 	}
-	if err := os.WriteFile(filepath.Join(sessions, "rollout-session-1.jsonl"), []byte("{}\n"), 0o600); err != nil {
+	if err := os.WriteFile(rollout, []byte("{}\n"), 0o600); err != nil {
 		return execution.ProcessResult{}, err
 	}
-	if err := os.WriteFile(filepath.Join(home, "history.jsonl"), []byte("{\"session_id\":\"session-1\"}\n"), 0o600); err != nil {
+	if err := os.WriteFile(state, []byte(rollout), 0o600); err != nil {
 		return execution.ProcessResult{}, err
 	}
 	r.results = append(r.results, completedTurn()...)
 	return r.fakeRunner.Run(ctx, command, observer)
 }
 
-// A home the harness makes for an invocation keeps what Codex wrote into it:
-// on an account home with no sessions directory yet, the session a first turn
-// starts is in the account's home when the turn ends, and the next turn resumes
-// it natively rather than failing to find its rollout.
+// A home the harness makes for an invocation keeps its path and what Codex
+// wrote into it: on an account home with no sessions directory yet, the next
+// turn resumes the session a first turn started natively, rather than failing
+// to find the rollout the first turn recorded under its home.
 func TestTheNextTurnResumesTheSessionAFirstTurnStartedUnderAMadeHome(t *testing.T) {
 	t.Parallel()
 	for name, files := range map[string]map[string]string{
@@ -515,23 +518,17 @@ func TestTheNextTurnResumesTheSessionAFirstTurnStartedUnderAMadeHome(t *testing.
 			if resume := slices.Index(runner.commands[1].Args, "resume"); resume < 0 || runner.commands[1].Args[resume+1] != "session-1" {
 				t.Fatalf("%s, %s: the second turn was not a native resume: %v", name, role, runner.commands[1].Args)
 			}
-			for _, made := range runner.homes {
-				if made == home {
-					t.Fatalf("%s, %s: ran under the account's own home", name, role)
-				}
-				if _, err := os.Lstat(made); !os.IsNotExist(err) {
-					t.Fatalf("%s, %s: the home made for the invocation outlived it: %v", name, role, err)
-				}
+			if runner.homes[0] == home || runner.homes[0] != runner.homes[1] {
+				t.Fatalf("%s, %s: the turns ran under %v, want one made home", name, role, runner.homes)
 			}
-			// What Codex wrote is the account's, inside the sessions directory and
-			// at the top of the home alike.
-			for _, file := range []string{"sessions/2026/10/17/rollout-session-1.jsonl", "history.jsonl"} {
-				info, err := os.Lstat(filepath.Join(home, filepath.FromSlash(file)))
-				if err != nil || !info.Mode().IsRegular() {
-					t.Fatalf("%s, %s: %s is not in the account's home: %v", name, role, file, err)
-				}
+			if _, err := os.Lstat(filepath.Join(runner.homes[0], "AGENTS.md")); !os.IsNotExist(err) {
+				t.Fatalf("%s, %s: the made home holds the instruction file: %v", name, role, err)
 			}
-			// The harness's filtered copy of config.toml is never written back.
+			// The rollout is the account's own, in its sessions directory.
+			info, err := os.Lstat(filepath.Join(home, "sessions", "2026", "10", "17", "rollout-session-1.jsonl"))
+			if err != nil || !info.Mode().IsRegular() {
+				t.Fatalf("%s, %s: the rollout is not in the account's home: %v", name, role, err)
+			}
 			if content, _ := os.ReadFile(filepath.Join(home, "config.toml")); files["config.toml"] != "" && string(content) != files["config.toml"] {
 				t.Fatalf("%s, %s: the account's config.toml was changed to %q", name, role, content)
 			}
@@ -539,39 +536,46 @@ func TestTheNextTurnResumesTheSessionAFirstTurnStartedUnderAMadeHome(t *testing.
 	}
 }
 
-// A file Codex creates at the top of a made home replaces the account's file of
-// the same name, as it would have in the account's own home, and one it wrote
-// through a link is left as it was written.
-func TestKeepingWhatCodexWroteReplacesAndLeavesLinksAlone(t *testing.T) {
+// Each invocation brings the made home up to date with the account's: an entry
+// the account has gained is linked, the configuration copy goes back to a link
+// once the account's file needs no filtering, and what Codex created in the
+// made home is left there.
+func TestTheMadeHomeIsBroughtUpToDateAndKept(t *testing.T) {
 	t.Parallel()
 	home := filepath.Join(t.TempDir(), "codex-home")
-	writeFiles(t, home, map[string]string{"AGENTS.md": "PERSONAL\n", "auth.json": "old login\n", "models_cache.json": "old\n"})
-	made, release, err := prepareProviderHome(home)
-	if err != nil || release == nil {
-		t.Fatalf("made = %q, %v", made, err)
+	writeFiles(t, home, map[string]string{
+		"AGENTS.md":   "PERSONAL\n",
+		"auth.json":   "login\n",
+		"config.toml": "compact_prompt = \"mine\"\nmodel = \"x\"\n",
+	})
+	made, err := prepareProviderHome(home)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if info, err := os.Lstat(filepath.Join(home, "sessions")); err != nil || !info.IsDir() {
-		t.Fatalf("the account's home was given no sessions directory before the invocation: %v", err)
+		t.Fatalf("the account's home was given no sessions directory: %v", err)
 	}
-	// Written through the link, as codex-cli saves auth.json.
-	if err := os.WriteFile(filepath.Join(made, "auth.json"), []byte("new login\n"), 0o600); err != nil {
-		t.Fatal(err)
+	if content, _ := os.ReadFile(filepath.Join(made, "config.toml")); string(content) != "model = \"x\"\n" {
+		t.Fatalf("the made home's config.toml = %q", content)
 	}
-	// Replaced rather than written through, as an atomic save would.
-	if err := os.Remove(filepath.Join(made, "models_cache.json")); err != nil {
-		t.Fatal(err)
+	writeFiles(t, made, map[string]string{"state_5.sqlite": "codex's own\n"})
+	writeFiles(t, home, map[string]string{"models_cache.json": "new\n", "config.toml": "model = \"y\"\n"})
+	again, err := prepareProviderHome(home)
+	if err != nil || again != made {
+		t.Fatalf("second home = %q, %v; want %q", again, err, made)
 	}
-	writeFiles(t, made, map[string]string{"models_cache.json": "new\n", "log/codex-tui.log": "a line\n"})
-	if err := release(); err != nil {
-		t.Fatal(err)
-	}
-	for file, want := range map[string]string{"auth.json": "new login\n", "models_cache.json": "new\n", "log/codex-tui.log": "a line\n", "AGENTS.md": "PERSONAL\n"} {
-		content, err := os.ReadFile(filepath.Join(home, filepath.FromSlash(file)))
+	for name, want := range map[string]string{"models_cache.json": "new\n", "config.toml": "model = \"y\"\n", "auth.json": "login\n", "state_5.sqlite": "codex's own\n"} {
+		content, err := os.ReadFile(filepath.Join(made, name))
 		if err != nil || string(content) != want {
-			t.Fatalf("%s = %q, %v; want %q", file, content, err, want)
+			t.Fatalf("%s = %q, %v; want %q", name, content, err, want)
 		}
 	}
-	if _, err := os.Lstat(made); !os.IsNotExist(err) {
-		t.Fatalf("the made home outlived its release: %v", err)
+	if info, _ := os.Lstat(filepath.Join(made, "config.toml")); info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("config.toml was not put back to a link")
+	}
+	for _, name := range []string{"AGENTS.md", madeHomeName} {
+		if _, err := os.Lstat(filepath.Join(made, name)); !os.IsNotExist(err) {
+			t.Fatalf("the made home holds %s: %v", name, err)
+		}
 	}
 }

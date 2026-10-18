@@ -646,17 +646,12 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if err != nil {
 		return backend.RunResult{}, err
 	}
-	home, releaseHome, err := prepareProviderHome(home)
+	prepared, err := prepareProviderHome(home)
 	if err != nil {
 		return backend.RunResult{}, err
 	}
-	if releaseHome != nil {
-		defer func() {
-			if err := releaseHome(); err != nil {
-				runErr = errors.Join(runErr, err)
-			}
-		}()
-		environment = withProviderHome(environment, home)
+	if prepared != home {
+		environment = withProviderHome(environment, prepared)
 	}
 	environment = execution.WithAgentRole(environment, request.Role)
 	if profile == profileDeveloper {
