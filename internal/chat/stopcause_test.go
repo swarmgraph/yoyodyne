@@ -132,6 +132,17 @@ func TestACauseGetsOneReportAndRecurrencesAreCarriedInTheDigest(t *testing.T) {
 			t.Errorf("the report does not say %q:\n%s", want, filed.Message)
 		}
 	}
+	// The report is read by a person and names the cause in words only; the
+	// cause's identifier stays in what the program manager is told.
+	if strings.Contains(filed.Message, checkLimit.ID()) || strings.Contains(filed.Message, "recorded as") {
+		t.Errorf("the report names the cause's identifier %q:\n%s", checkLimit.ID(), filed.Message)
+	}
+	if told := renderStopCauseResult(*first.StopCauses); !strings.Contains(told, "about "+checkLimit.ID()) {
+		t.Errorf("the program manager's result does not name the cause %q:\n%s", checkLimit.ID(), told)
+	}
+	if !strings.Contains(strings.Join(first.StopCauses.Digest, "\n"), checkLimit.ID()+" — 2 stop(s)") {
+		t.Errorf("digest = %v, want the cause's identifier with its count", first.StopCauses.Digest)
+	}
 	if len(first.Reports) != 1 {
 		t.Errorf("reply.Reports = %d, want the post-mortem carried as the reply's report", len(first.Reports))
 	}
