@@ -421,31 +421,40 @@ for this first group, and it is not met yet.
 
 ### The second group: the first half of `pipeline_test.go` (yoyodyne-ifd.429.14.1)
 
-On commit 7a3ec0c8, `go run ./scripts/movetests` counted 101 tests in
-`pipeline_test.go`, and 86 of them could move. This change moved 43 of them
-into `internal/orchestrator/pipelinetests`. They cover claiming the item, what
-a run records about itself, the developer's checks, the reviewer's verdict, and
-the repair loop. Each keeps its name and its assertions.
+On commit 7a3ec0c8, and again on c4b7e92d, `go run ./scripts/movetests`
+counted 101 tests in `pipeline_test.go`, and 86 of them could move. This change
+moved 43 of them into `internal/orchestrator/pipelinetests`. They cover
+claiming the item, what a run records about itself, the developer's checks,
+the reviewer's verdict, the repair loop, and the relaunch of an attempt the
+provider killed. Each keeps its name and its assertions.
 
-The 43 are the first 43 in the file, with two exchanged for two from later in
+The 43 are the first 43 in the file, with four exchanged for four from later in
 the file:
 
-- `TestPipelineNamesADirtyCheckoutBeforeAskingWhetherTheProviderIsInstalled`
-  and `TestPipelineRefusesAutomaticIntegrationThatIsNotGatedByAReviewer` stay.
-- `TestPipelineReportsOutstandingCleanupWithoutRecastingASucceededRun` and
-  `TestPipelineKeepsCompletionOrderingWhenPersistenceOrTheTrackerFails` move
-  in their place.
+- `TestPipelineNamesADirtyCheckoutBeforeAskingWhetherTheProviderIsInstalled`,
+  `TestPipelineRefusesAutomaticIntegrationThatIsNotGatedByAReviewer`,
+  `TestPipelinePreservesFailedWorkAndRecordsFailure`, and
+  `TestPipelineReportsElapsedAndBudgetWhenACheckTimesOut` stay.
+- `TestPipelineReportsOutstandingCleanupWithoutRecastingASucceededRun`,
+  `TestPipelineKeepsCompletionOrderingWhenPersistenceOrTheTrackerFails`,
+  `TestRunRelaunchesAfterATransientProviderDeath`, and
+  `TestRunRelaunchesATransientlyKilledReview` move in their place.
 
 The reason is the one the first group met. With the first 43 exactly, Git drew
-`pipeline_test.go`'s diff with 89 added lines, because it paired tests that
-stay with tests that moved. The file's diff would then have been shown whole,
-at 128 KB, beside 121 KB of new tests. With the exchange the diff is removals
-alone. The new tests come to 121 KB in three files under the 64 KB bound for a
-new file: `pipeline_test.go`, `review_test.go`, and `repair_test.go`. The
-helpers they added to `testharness` come to 3 KB.
+`pipeline_test.go`'s diff with added lines, because it paired tests that stay
+with tests that moved, and the file's diff would then have been shown whole.
+The first two exchanges were enough on 7a3ec0c8; on c4b7e92d, where three of
+the moved tests had changed since, Git drew 271 added lines with them alone,
+and the second two were the smallest further exchange that made the diff
+removals alone again. The new tests come to 125 KB in four files under the
+64 KB bound for a new file: `pipeline_test.go`, `review_test.go`,
+`repair_test.go`, and `relaunch_test.go`. The helpers they added to
+`testharness` come to about 9 KB.
 
 Timed side by side from 08:22 PDT on 2026-10-15, with
-`go test -count=1 -json`, at a one-minute load between 12 and 31:
+`go test -count=1 -json`, at a one-minute load between 12 and 31, on
+7a3ec0c8 and on this group as it then stood (the first two exchanges only;
+the group was not timed again on c4b7e92d):
 
 | tree | `internal/orchestrator` | `internal/orchestrator/pipelinetests` |
 | --- | --- | --- |
