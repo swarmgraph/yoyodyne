@@ -213,7 +213,7 @@ var ErrCheckoutNotReady = errors.New("the primary checkout is not one a promotio
 // resumedDocketDecision is the word the closure a resumption makes carries, so
 // a reader of a closed entry can tell a stoppage the harness resumed from one
 // the development manager decided about.
-const resumedDocketDecision = "resumed"
+const resumedDocketDecision = triage.ResumedDecision
 
 // Resume resumes one approved change's integration.
 //

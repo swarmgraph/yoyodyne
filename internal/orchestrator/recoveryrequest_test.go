@@ -475,6 +475,18 @@ func TestAFinishMergeRequestIsCarriedOutByASessionStartedAfterItWasAccepted(t *t
 		if after.RecoveryContinuation == nil || after.RecoveryContinuation.TakenUpAt == nil || after.RecoveryContinuation.Waiting != "" || after.Phase != runstate.PhaseIntegrating {
 			t.Fatalf("%s: after the restart the request is %#v at %q; want it taken up with the run at its promotion", shape, after.RecoveryContinuation, after.Phase)
 		}
+		if shape == "a wait beside it" {
+			// The harness took the stopped work on itself, so its closure replaces
+			// her wait, and the stoppage stays off her list past the wait's time to
+			// look again.
+			closure, closed := harness.closure(t)
+			if !closed || closure.Decision != resumedDocketDecision {
+				t.Fatalf("closure = %#v, %t; want the harness's resumption to replace the wait", closure, closed)
+			}
+			if !closure.Holds(docketedNow.Add(6 * time.Hour)) {
+				t.Fatalf("closure %#v stops holding after the wait's time to look again; the stoppage would come back", closure)
+			}
+		}
 		if !strings.Contains(harness.tracker.Notes, "run.recover (request dm-finish)") {
 			t.Fatalf("%s: item notes = %q, want the resumption noted on the item naming the request", shape, harness.tracker.Notes)
 		}

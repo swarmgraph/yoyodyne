@@ -2491,7 +2491,11 @@ when, and the line counting what the docket could not list says how many of
 those are waits; once the wait runs out it is among the undecided again, at the
 age it had when it first stopped. A wait that names the work it waits on has no
 such window, and comes back when that work is closed instead, as the next
-section says. **A repair or
+section says. Neither kind comes back once the harness has taken the stopped
+work on itself — resumed its integration, continued it at its checks or after a
+stall, or confirmed its merge: the harness's own closure replaces the wait, so
+a merge finished on her request does not return to her when the wait would have
+run out. **A repair or
 a re-run the harness tried to carry out and could not comes back the same way**:
 the entry is listed again carrying the decision she made and the gate that
 stopped it — which gate, what it said, and what would clear it — so a decision

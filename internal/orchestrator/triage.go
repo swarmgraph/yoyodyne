@@ -951,7 +951,7 @@ func (d Docketer) supersededBy(state runstate.State) string {
 // settledPublicationDecision is the word a closure the harness makes carries, so
 // a reader of a closed publication entry can tell a stoppage that stopped being
 // one from a stoppage somebody decided about.
-const settledPublicationDecision = "settled"
+const settledPublicationDecision = triage.SettledDecision
 
 // SettlePublication closes the docket entries a run's publication had open, once
 // a sweep has finished that publication. It reports how many it closed.
