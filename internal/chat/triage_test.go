@@ -150,8 +150,8 @@ func TestAnEscalationBlocksTheItemAndReachesTheOperator(t *testing.T) {
 
 	answer := reportReply(
 		trackerReply("This one is upstream of the change.",
-			`{"action":"triage","id":"yoyodyne-ifd.1.9","run":"`+stoppedRun+`","decision":"escalate","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
-		`{"severity":"warning","message":"yoyodyne-ifd.1.9 has been round triage twice; its criteria are disputed rather than its change."}`,
+			`{"action":"triage","id":"yoyodyne-ifd.1.9","run":"`+stoppedRun+`","decision":"escalate","to":"operator","operator_reason":"repository-setting","reason":"the merge needs a branch protection changed, which the harness's token cannot do"}`),
+		`{"severity":"warning","message":"yoyodyne-ifd.1.9 needs a branch protection changed that only a person can make."}`,
 	)
 	tracker := &fakeTracker{items: map[string]beads.WorkItem{
 		"yoyodyne-ifd.1.9": {ID: "yoyodyne-ifd.1.9", Title: "the item that keeps coming back", Status: "open"},
@@ -192,13 +192,13 @@ func TestAnEscalationWithNoReportIsRefusedAndChangesNothing(t *testing.T) {
 		{
 			name: "no report at all",
 			reply: trackerReply("Somebody should look at this.",
-				`{"action":"triage","id":"yoyodyne-ifd.90","run":"`+stoppedRun+`","decision":"escalate","reason":"it needs a branch protection changed"}`),
+				`{"action":"triage","id":"yoyodyne-ifd.90","run":"`+stoppedRun+`","decision":"escalate","operator_reason":"repository-setting","reason":"it needs a branch protection changed"}`),
 		},
 		{
 			name: "a report that asks for nothing",
 			reply: reportReply(
 				trackerReply("Somebody should look at this.",
-					`{"action":"triage","id":"yoyodyne-ifd.90","run":"`+stoppedRun+`","decision":"escalate","reason":"it needs a branch protection changed"}`),
+					`{"action":"triage","id":"yoyodyne-ifd.90","run":"`+stoppedRun+`","decision":"escalate","operator_reason":"repository-setting","reason":"it needs a branch protection changed"}`),
 				`{"severity":"note","message":"the forge dropped the merge."}`),
 		},
 	} {
@@ -400,6 +400,8 @@ func TestTheDecisionsThatSpendABudgetAreRefusedWithoutOne(t *testing.T) {
 			answer := trackerReply("Decided.",
 				`{"action":"triage","id":"yoyodyne-ifd.90","run":"`+stoppedRun+`","decision":"`+decision+`"`+crossed+`,"reason":"the docket entry says so"}`)
 			if decision == "escalate" {
+				answer = trackerReply("Decided.",
+					`{"action":"triage","id":"yoyodyne-ifd.90","run":"`+stoppedRun+`","decision":"escalate","operator_reason":"repository-setting","reason":"the docket entry says so"}`)
 				answer = reportReply(answer, `{"severity":"warning","message":"yoyodyne-ifd.90 needs a repository setting only a person can change."}`)
 			}
 			tracker := &fakeTracker{items: map[string]beads.WorkItem{
@@ -840,8 +842,8 @@ func TestADurableEscalationIsReportedAsLandedHoweverItsBlockWasReported(t *testi
 
 			answer := reportReply(
 				trackerReply("This one is upstream of the change.",
-					`{"action":"triage","id":"yoyodyne-ifd.142","run":"`+stoppedRun+`","decision":"escalate","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
-				`{"severity":"warning","message":"yoyodyne-ifd.142 has been round triage twice; its criteria are disputed rather than its change."}`,
+					`{"action":"triage","id":"yoyodyne-ifd.142","run":"`+stoppedRun+`","decision":"escalate","to":"product-manager","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
+				`{"severity":"warning","for":"product-manager","message":"yoyodyne-ifd.142 has been round triage twice; its criteria are disputed rather than its change."}`,
 			)
 			tracker := &fakeTracker{
 				items: map[string]beads.WorkItem{
@@ -865,7 +867,7 @@ func TestADurableEscalationIsReportedAsLandedHoweverItsBlockWasReported(t *testi
 			}
 			for _, want := range []string{
 				"did not finish, and part of it stands",
-				"landed, and is not to be done again: the blocker naming the operator",
+				"landed, and is not to be done again: the blocker naming the Lead Product Manager",
 				"escalating again would block it twice over",
 			} {
 				if !strings.Contains(rendered, want) {
@@ -886,8 +888,8 @@ func TestABlockedItemsPriorStateIsNotReadAsThisEscalationLanding(t *testing.T) {
 
 	answer := reportReply(
 		trackerReply("This one is upstream of the change.",
-			`{"action":"triage","id":"yoyodyne-ifd.142","run":"`+stoppedRun+`","decision":"escalate","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
-		`{"severity":"warning","message":"yoyodyne-ifd.142 has been round triage twice; its criteria are disputed rather than its change."}`,
+			`{"action":"triage","id":"yoyodyne-ifd.142","run":"`+stoppedRun+`","decision":"escalate","to":"product-manager","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
+		`{"severity":"warning","for":"product-manager","message":"yoyodyne-ifd.142 has been round triage twice; its criteria are disputed rather than its change."}`,
 	)
 	tracker := &fakeTracker{
 		items: map[string]beads.WorkItem{
@@ -907,7 +909,7 @@ func TestABlockedItemsPriorStateIsNotReadAsThisEscalationLanding(t *testing.T) {
 		t.Fatalf("outcome = %#v, want a failure that settled nothing from a blocker it did not place", outcome)
 	}
 	rendered := renderTrackerOutcomes(domain.RoleDevelopmentManager, reply.Actions)
-	if !strings.Contains(rendered, "not known to have landed: the blocker naming the operator") {
+	if !strings.Contains(rendered, "not known to have landed: the blocker naming the Lead Product Manager") {
 		t.Fatalf("the account does not leave the blocker unsettled:\n%s", rendered)
 	}
 }
@@ -921,8 +923,8 @@ func TestAnUnconfirmedTriageWriteSaysItDidNotFinishRatherThanThatItFailed(t *tes
 
 	answer := reportReply(
 		trackerReply("This one is upstream of the change.",
-			`{"action":"triage","id":"yoyodyne-ifd.142","run":"`+stoppedRun+`","decision":"escalate","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
-		`{"severity":"warning","message":"yoyodyne-ifd.142 has been round triage twice; its criteria are disputed rather than its change."}`,
+			`{"action":"triage","id":"yoyodyne-ifd.142","run":"`+stoppedRun+`","decision":"escalate","to":"product-manager","reason":"the findings dispute the acceptance criteria, and another attempt loses the same argument"}`),
+		`{"severity":"warning","for":"product-manager","message":"yoyodyne-ifd.142 has been round triage twice; its criteria are disputed rather than its change."}`,
 	)
 	tracker := &fakeTracker{
 		items: map[string]beads.WorkItem{
@@ -952,7 +954,7 @@ func TestAnUnconfirmedTriageWriteSaysItDidNotFinishRatherThanThatItFailed(t *tes
 		}
 		for _, want := range []string{
 			"did not finish, and what it may have changed is not settled",
-			"not known to have landed: the blocker naming the operator",
+			"not known to have landed: the blocker naming the Lead Product Manager",
 		} {
 			if !strings.Contains(account, want) {
 				t.Fatalf("the account is missing %q:\n%s", want, account)
@@ -1178,6 +1180,8 @@ func TestWhichEntriesADecisionClosesFollowsWhatItAnswers(t *testing.T) {
 			answer := trackerReply("Decided.",
 				`{"action":"triage","id":"yoyodyne-ifd.70","run":"`+stoppedRun+`","decision":"`+decided.decision+`","reason":"the forge still has it"}`)
 			if decided.decision == "escalate" {
+				answer = trackerReply("Decided.",
+					`{"action":"triage","id":"yoyodyne-ifd.70","run":"`+stoppedRun+`","decision":"escalate","operator_reason":"repository-setting","reason":"the forge needs a branch protection changed"}`)
 				answer = reportReply(answer,
 					`{"severity":"warning","message":"yoyodyne-ifd.70 needs a branch protection changed."}`)
 			}
@@ -1507,16 +1511,19 @@ func TestADecisionAboutAnAttemptThatNeverBecameARunNamesTheItemAndNoRun(t *testi
 
 	for _, decided := range []struct {
 		decision string
+		extra    string
 		revisit  bool
 	}{
 		{decision: "wait", revisit: true},
-		{decision: "escalate"},
+		// A dirty primary checkout is no reason on the operator's closed list, so
+		// this escalation names the one that is: the harness's login there lapsed.
+		{decision: "escalate", extra: `,"operator_reason":"credential"`},
 	} {
 		t.Run(decided.decision, func(t *testing.T) {
 			t.Parallel()
 
 			answer := trackerReply("Decided.",
-				`{"action":"triage","id":"yoyodyne-ifd.90","decision":"`+decided.decision+`","reason":"the primary checkout is dirty, and only a person can clean it"}`)
+				`{"action":"triage","id":"yoyodyne-ifd.90","decision":"`+decided.decision+`"`+decided.extra+`,"reason":"the primary checkout is dirty, and only a person can clean it"}`)
 			if decided.decision == "escalate" {
 				answer = reportReply(answer, `{"severity":"warning","message":"yoyodyne-ifd.90 cannot be dispatched while the primary checkout has uncommitted changes."}`)
 			}

@@ -599,6 +599,19 @@ var expresses = map[string]expression{
 		question: "none: these refusals are about the table rather than about any role's authority",
 		gap:      "a registry refusing its own construction says nothing about what a role may do once it is built",
 	},
+	"ownership.operator-routing": {
+		question: "none: naming the operator is refused for every role alike unless the reason is on his closed list",
+		gap:      "the closed list of reasons the operator is named for is a rule about him rather than a capability any role holds, so no bundle can widen it",
+	},
+	"conversation.escalation-ladder": {
+		question: "does the role hold the capability triage belongs to?",
+		asks:     []capability.Capability{capability.WorkTriage},
+		gap:      "whom an escalation may name — a rung above the development manager, or the operator for a closed-list reason — is the escalation ladder's rule rather than a capability",
+	},
+	"triage.escalation-target": {
+		question: "none: a durable decision naming a target off the ladder is malformed whoever recorded it",
+		gap:      "the record's validation holds the target to the ladder for every writer alike, so there is no role to ask about",
+	},
 	"rolecapability.harness-held": {
 		question: "which capabilities belong to no role at all?",
 		asks:     []capability.Capability{capability.PromotionLease, capability.TargetBranchMutate},

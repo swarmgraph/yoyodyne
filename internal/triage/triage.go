@@ -2498,7 +2498,7 @@ func (e Entry) renderCrossingStanding() string {
 		return ""
 	}
 	if counters.CrossingsSpent() {
-		return fmt.Sprintf("      A further cap crossing for %s is not yours: %d of %d crossing(s) on your own authority are recorded, and past the bound the caps are the operator's again. Escalate, and say which cap and why.\n",
+		return fmt.Sprintf("      A further cap crossing for %s is not yours: %d of %d crossing(s) on your own authority are recorded, and past the bound a crossing is not a development manager's to record. Escalate to the Lead Product Manager, and say which cap and why.\n",
 			e.WorkItemID, counters.Crossings, counters.CrossingsBound)
 	}
 	return fmt.Sprintf("      %d of %s cap crossing(s) on your own authority are recorded against %s; each further one is reported to the operator as you record it.\n",

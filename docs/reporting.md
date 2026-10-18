@@ -804,8 +804,12 @@ actually covered what it was said to.
 
 One handling is not a closing. A report whose answer is a change only you can
 make by hand — a file the harness may not write, a credential, a workspace
-setting — is handled with `"needs": "operator"` and a reason saying what you
-have to do, and that record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
+setting — is handled with `"needs": "operator"`, `"operator_reason"` naming
+which reason on your closed list it is (`fundamental-intent`, `credential`,
+`repository-setting`, or `protected-file`), and a reason saying what you have to
+do. A handling that names you for anything else is refused, records nothing,
+and names the rung to use instead: a report whose remedy is a role's stays that
+role's, whatever its severity, and an acknowledgement is not a reason. That record is [a finding that needs your hand](#a-finding-that-needs-your-hand):
 said to you once, directly, and named on `yoyo status` until a later handling of
 the same report records the change made. It is a field the harness reads rather
 than a sentence in the reason, because a sentence is what six such reports were

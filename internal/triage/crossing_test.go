@@ -61,8 +61,8 @@ func TestARenderedEntrySaysWhereTheDelegatedCrossingsStand(t *testing.T) {
 	for _, want := range []string{
 		"A further cap crossing for yoyodyne-task is not yours",
 		"5 of 5 crossing(s) on your own authority are recorded",
-		"past the bound the caps are the operator's again",
-		"Escalate, and say which cap and why.",
+		"past the bound a crossing is not a development manager's to record. Escalate to the Lead Product Manager",
+		"and say which cap and why.",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered entry at the bound is missing %q:\n%s", want, rendered)

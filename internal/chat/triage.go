@@ -87,6 +87,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
@@ -253,11 +254,13 @@ type triageSettlement struct {
 // this package, so what lands there is a sentence rather than the vocabulary
 // word that produced it.
 var triageVerbs = map[string]string{
-	decisionRepair:   "Triaged: handed back for one bounded repair of the change it already has",
-	decisionRerun:    "Triaged: to be run again from the start",
-	decisionRescope:  "Triaged: re-scoped, with what was out of scope split out",
-	decisionRearm:    "Triaged: its dropped merge to be re-armed once",
-	decisionWait:     "Triaged: waiting, with nothing to be done about it yet",
+	decisionRepair:  "Triaged: handed back for one bounded repair of the change it already has",
+	decisionRerun:   "Triaged: to be run again from the start",
+	decisionRescope: "Triaged: re-scoped, with what was out of scope split out",
+	decisionRearm:   "Triaged: its dropped merge to be re-armed once",
+	decisionWait:    "Triaged: waiting, with nothing to be done about it yet",
+	// An escalation names its target in its own sentence, built by
+	// escalationVerb; this is the operator's half of it.
 	decisionEscalate: "Escalated to the operator by triage",
 	decisionStop:     "Triaged: stopped in flight, with its change preserved",
 	decisionProceed:  "Triaged: left to finish in flight",
@@ -412,9 +415,17 @@ type Stoppages interface {
 // and the prose the role wrote is still the operator's to read.
 type EscalationError struct {
 	WorkItemID string
+	// For is the role the missing report had to be addressed to, on an
+	// escalation to a role; empty on one to the operator.
+	For domain.AgentRole
 }
 
 func (e *EscalationError) Error() string {
+	if e.For != "" {
+		return fmt.Sprintf(
+			"the development manager escalated %s to the %s without a report at %q severity or above addressed \"for\" %q; nothing was carried out, because an escalation the role it names never sees is not an escalation",
+			e.WorkItemID, e.For.Title(), report.SeverityWarning, e.For)
+	}
 	return fmt.Sprintf(
 		"the development manager escalated %s without reporting it at %q severity or above; nothing was carried out, because an escalation the operator never sees is not an escalation",
 		e.WorkItemID, report.SeverityWarning)
@@ -459,7 +470,70 @@ func (a TrackerAction) triageProblems() []error {
 	problems = append(problems, a.crossingProblems()...)
 	problems = append(problems, a.supersededProblems()...)
 	problems = append(problems, a.waitsOnProblems()...)
+	problems = append(problems, a.escalationProblems()...)
 	return problems
+}
+
+// escalationProblems holds an escalation to the escalation ladder
+// (`docs/designs/ownership-and-the-operator.md`): it names the Lead Product
+// Manager on the item's intent or the architect on its design, and it names the
+// operator only for a reason on his closed list. One that names him for
+// anything else — or names nobody, which is naming him — is refused with the
+// rung to use instead, so nothing is recorded and the item is not blocked.
+func (a TrackerAction) escalationProblems() []error {
+	to := strings.TrimSpace(a.To)
+	if strings.TrimSpace(a.Decision) != decisionEscalate {
+		var problems []error
+		if to != "" {
+			problems = append(problems, fmt.Errorf("only the %q decision names \"to\", and this one is %q", decisionEscalate, strings.TrimSpace(a.Decision)))
+		}
+		if a.OperatorReason != "" {
+			problems = append(problems, fmt.Errorf("only the %q decision and a handling name \"operator_reason\", and this is %q", decisionEscalate, strings.TrimSpace(a.Decision)))
+		}
+		return problems
+	}
+	if to == "" || ownership.NamesOperator(to) {
+		if err := ownership.CheckOperatorRouting(domain.RoleDevelopmentManager, a.OperatorReason); err != nil {
+			return []error{fmt.Errorf("escalating %s: %w", strings.TrimSpace(a.ID), err)}
+		}
+		return nil
+	}
+	targets := ownership.EscalatesTo(domain.RoleDevelopmentManager)
+	if !slices.Contains(targets, domain.AgentRole(to)) {
+		return []error{fmt.Errorf("triage escalates to %q, which is not a rung above the development manager; %s",
+			to, ownership.Rung(domain.RoleDevelopmentManager))}
+	}
+	if a.OperatorReason != "" {
+		return []error{fmt.Errorf("an escalation to the %s carries no \"operator_reason\"; that is for an escalation to the operator", domain.AgentRole(to).Title())}
+	}
+	return nil
+}
+
+// escalatedTo is the role an escalation names, and empty where it names the
+// operator. Validation has already held it to the ladder.
+func (a TrackerAction) escalatedTo() domain.AgentRole {
+	to := strings.TrimSpace(a.To)
+	if to == "" || ownership.NamesOperator(to) {
+		return ""
+	}
+	return domain.AgentRole(to)
+}
+
+// escalationTarget is whom an escalation hands its entry to, in the words the
+// item's note and the reply say it with.
+func (a TrackerAction) escalationTarget() string {
+	if role := a.escalatedTo(); role != "" {
+		return "the " + role.Title()
+	}
+	return "the operator"
+}
+
+// escalationVerb is the sentence an escalation records on its item.
+func (a TrackerAction) escalationVerb() string {
+	if a.escalatedTo() != "" {
+		return "Escalated to " + a.escalationTarget() + " by triage"
+	}
+	return triageVerbs[decisionEscalate] + ", for " + a.OperatorReason.Says()
 }
 
 // waitsOnProblems holds the work item a wait names to the one decision that
@@ -638,25 +712,52 @@ func refuseUnreportedEscalation(parsed parsedReply) error {
 	// would leave the rest blocked with nothing reaching the operator about
 	// them. So the count of warning-or-above reports must cover the count of
 	// escalations, and the refusal names every item that would go unaccounted.
-	var escalated []string
+	//
+	// An escalation to a role reaches that role through a report addressed to
+	// it, which is what puts it on the role's list and in front of its next
+	// pass, so each one is matched to a report "for" that role first; what is
+	// left covers the escalations to the operator.
+	var operator []string
+	byRole := map[domain.AgentRole][]string{}
+	var roles []domain.AgentRole
 	for _, action := range parsed.Actions {
-		if action.escalates() {
-			escalated = append(escalated, strings.TrimSpace(action.ID))
+		if !action.escalates() {
+			continue
 		}
+		role := action.escalatedTo()
+		if role == "" {
+			operator = append(operator, strings.TrimSpace(action.ID))
+			continue
+		}
+		if _, seen := byRole[role]; !seen {
+			roles = append(roles, role)
+		}
+		byRole[role] = append(byRole[role], strings.TrimSpace(action.ID))
 	}
-	if len(escalated) == 0 {
+	if len(operator) == 0 && len(roles) == 0 {
 		return nil
 	}
-	reported := 0
+	reportedFor := map[domain.AgentRole]int{}
 	for _, entry := range parsed.Reports {
 		if entry.Severity == report.SeverityWarning || entry.Severity == report.SeverityCritical {
-			reported++
+			reportedFor[entry.For]++
 		}
 	}
-	if reported >= len(escalated) {
+	spare := 0
+	for addressee, count := range reportedFor {
+		if needed := len(byRole[addressee]); count > needed {
+			spare += count - needed
+		}
+	}
+	for _, role := range roles {
+		if escalated := byRole[role]; reportedFor[role] < len(escalated) {
+			return &EscalationError{WorkItemID: strings.Join(escalated[reportedFor[role]:], ", "), For: role}
+		}
+	}
+	if spare >= len(operator) {
 		return nil
 	}
-	return &EscalationError{WorkItemID: strings.Join(escalated[reported:], ", ")}
+	return &EscalationError{WorkItemID: strings.Join(operator[spare:], ", ")}
 }
 
 // carryOutTriage records one triage decision. Whether the run it names is this
@@ -729,10 +830,12 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		// decision points at. They are the conversation's own facts rather than
 		// anything the reply asserted: a role that could name itself could name
 		// another.
-		DecidedBy:    RoleTitle(s.state.Role),
-		Conversation: s.state.ConversationID,
-		Turn:         s.state.Turns,
-		WaitsOn:      waitsOn,
+		DecidedBy:      RoleTitle(s.state.Role),
+		Conversation:   s.state.ConversationID,
+		Turn:           s.state.Turns,
+		WaitsOn:        waitsOn,
+		EscalatedTo:    escalatedTo(action, decision),
+		OperatorReason: operatorReasonOf(action, decision),
 	})
 	if err != nil {
 		outcome.refused(refusedPastCap(err))
@@ -747,22 +850,26 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		outcome.noteLanded("%s", spent.landed)
 	}
 	verb := triageVerbs[decision]
-	if decision == decisionWait {
+	switch decision {
+	case decisionWait:
 		verb = waitVerb(waitsOn)
+	case decisionEscalate:
+		verb = action.escalationVerb()
 	}
 	note := s.trackerProvenance(verb+", on the stopped work of run "+run, action.Reason)
 	if decision == decisionEscalate {
 		// An escalation is recorded as a blocker rather than as a note, because
-		// the item itself has to say it is waiting on a person: a note leaves the
-		// item looking like work in flight, which is the state this whole workflow
-		// exists to stop somebody discovering by accident.
+		// the item itself has to say it is waiting on the role or the person it was
+		// handed to: a note leaves the item looking like work in flight, which is
+		// the state this whole workflow exists to stop somebody discovering by
+		// accident.
 		if _, err := s.options.Tracker.Block(ctx, id, note); err != nil {
 			outcome.fail(err)
 			s.settleTrackerBlock(ctx, outcome, id, note)
 			return
 		}
-		outcome.applied("escalated %s to the operator and blocked it, on the stopped work of run %s%s",
-			id, run, s.closeDocketEntry(ctx, decision, run, action.Reason))
+		outcome.applied("escalated %s to %s and blocked it, on the stopped work of run %s%s",
+			id, action.escalationTarget(), run, s.closeDocketEntry(ctx, decision, run, action.Reason))
 		return
 	}
 	if decision == decisionRetireRaise {
@@ -782,6 +889,22 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 		id, decision, waitsOnClause(waitsOn), run, spent.clause, lifted, s.closeDocketEntryWaiting(ctx, decision, run, action.Reason, waitsOn))
 }
 
+// escalatedTo and operatorReasonOf are what an escalation writes on the durable
+// decision, and nothing for any other decision.
+func escalatedTo(action TrackerAction, decision string) domain.AgentRole {
+	if decision != decisionEscalate {
+		return ""
+	}
+	return action.escalatedTo()
+}
+
+func operatorReasonOf(action TrackerAction, decision string) ownership.OperatorReason {
+	if decision != decisionEscalate || action.escalatedTo() != "" {
+		return ""
+	}
+	return action.OperatorReason
+}
+
 // carryOutRunlessTriage records a decision about an attempt that never became a
 // run: onto the item, as a note or, for an escalation, a blocker, and then onto
 // the docket, closing the item's open attempts. Validation has already held it
@@ -794,8 +917,11 @@ func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOut
 		return
 	}
 	verb := triageVerbs[decision]
-	if decision == decisionWait {
+	switch decision {
+	case decisionWait:
 		verb = waitVerb(waitsOn)
+	case decisionEscalate:
+		verb = action.escalationVerb()
 	}
 	note := s.trackerProvenance(verb+", on an attempt to dispatch it that never became a run", action.Reason)
 	if decision == decisionEscalate {
@@ -804,8 +930,8 @@ func (s *Session) carryOutRunlessTriage(ctx context.Context, outcome *TrackerOut
 			s.settleTrackerBlock(ctx, outcome, id, note)
 			return
 		}
-		outcome.applied("escalated %s to the operator and blocked it, on an attempt to dispatch it that never became a run%s",
-			id, s.closeRunlessDocketEntries(ctx, id, decision, action.Reason, ""))
+		outcome.applied("escalated %s to %s and blocked it, on an attempt to dispatch it that never became a run%s",
+			id, action.escalationTarget(), s.closeRunlessDocketEntries(ctx, id, decision, action.Reason, ""))
 		return
 	}
 	if _, err := s.options.Tracker.Update(ctx, id, beads.WorkItemChange{AppendNotes: note}); err != nil {
@@ -973,7 +1099,7 @@ func (s *Session) settleTrackerNote(ctx context.Context, outcome *TrackerOutcome
 // so a blocker that landed leaves both marks on the item, and either of them is
 // evidence the invocation ran. Settling this against the note alone would rest
 // the whole answer on the half of that command whose absence proves least, on
-// the one decision whose failure has a person waiting behind it.
+// the one decision whose failure has somebody waiting behind it.
 //
 // The status is only evidence where the item was not already blocked when the
 // action started, which is what the reading taken before the write is for: an
@@ -982,7 +1108,8 @@ func (s *Session) settleTrackerNote(ctx context.Context, outcome *TrackerOutcome
 // having done. A prior reading that failed says nothing either way, and the
 // status is passed over rather than guessed at.
 func (s *Session) settleTrackerBlock(ctx context.Context, outcome *TrackerOutcome, id, note string) {
-	const what = "the blocker naming the operator"
+	target := outcome.Action.escalationTarget()
+	what := "the blocker naming " + target
 	item, err := s.settlingRead(ctx, id)
 	if err != nil {
 		outcome.noteUnknown("%s; the tracker would not say whether the write reached %s: %s", what, id, err)
@@ -994,7 +1121,7 @@ func (s *Session) settleTrackerBlock(ctx context.Context, outcome *TrackerOutcom
 		outcome.noteLanded("%s; %s is blocked and carries it, so the write landed and escalating again would block it twice over", what, id)
 		return
 	}
-	outcome.noteUnknown("%s; reading %s afterwards finds neither the blocker nor the reason, so nothing on the item yet says a person is waiting on it", what, id)
+	outcome.noteUnknown("%s; reading %s afterwards finds neither the blocker nor the reason, so nothing on the item yet says %s is waiting on it", what, id, target)
 }
 
 // carriesNote reports an item whose notes hold the write one action was making.

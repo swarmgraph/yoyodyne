@@ -214,7 +214,9 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 			continue
 		}
 		decision, decided := counters.DecisionOf(run.RunID)
-		if !decided || decision.Decision != runstate.TriageDecisionEscalate {
+		// An escalation to a role is that role's, and reaches it through the report
+		// addressed to it; only one to the operator is a finding for him.
+		if !decided || !decision.EscalatesToOperator() {
 			continue
 		}
 		if why, recorded := escalationEnding(run, items, look); why != "" {

@@ -1249,8 +1249,11 @@ three places the moment it is recorded.** Three things make one, and the
 brake's hold becomes a fourth once it is yours:
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
-  `"needs": "operator"` for a report whose answer is a change only you can make,
-  with the reason saying what you have to do. That handling does not close the
+  `"needs": "operator"` for a report whose answer is yours for a reason on your
+  closed list, named in `"operator_reason"` (`fundamental-intent`, `credential`,
+  `repository-setting`, or `protected-file`) or by a `person_only` remedy, with
+  the reason saying what you have to do. A handling that names you without one
+  is refused and records nothing. That handling does not close the
   report; it records the finding, and a later handling of the same report
   without `needs` is what records the change made. She is not handed the report
   again as unhandled, so her turns list the findings she has handed you, with
@@ -1259,9 +1262,11 @@ brake's hold becomes a fourth once it is yours:
 - **A run stopping on a condition only a person can clear.** The harness does
   not judge a stoppage itself; the development manager does, on
   [her docket](conversation.md#deciding-what-becomes-of-stopped-work), and her
-  `escalate` decision is the one typed record that says a stopped run needs a
-  person rather than a repair, a re-run, or a wait — a target branch that
-  diverged from the forge, a stop no budget answers. A publication nothing
+  `escalate` decision to you is the one typed record that says a stopped run
+  needs a person rather than a repair, a re-run, a wait, or a role above her. It
+  names you only for a reason on your closed list, and is refused otherwise; an
+  escalation to the Lead Product Manager or the architect is theirs and never
+  reaches this line. A publication nothing
   asked the forge to merge is not one of these: it is hers to decide, by a
   re-arm the harness carries out or a re-run
   ([below](#recovering-interrupted-runs)). That decision is the finding, standing while it is
