@@ -2,6 +2,7 @@ package beads
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
@@ -15,7 +16,8 @@ import (
 // to nobody.
 //
 // It reports a state the tracker already holds; it decides nothing about
-// readiness, which stays the tracker's answer.
+// readiness, which stays the tracker's answer except where every such block is
+// a wait on the item itself (AwaitedByWhatHoldsIt).
 type InheritedBlock struct {
 	// Through is the chain of ancestors from the item's parent up to the one
 	// that waits, nearest first, so the last of them is the one with the link.
@@ -96,6 +98,43 @@ func InheritedBlocks(item WorkItem, lookup func(id string) (WorkItem, bool, erro
 		current = ancestor
 	}
 	return blocks, nil
+}
+
+// AwaitedByWhatHoldsIt reports an item whose inherited blocks are all waits on
+// the item itself: the rebuild a development manager files under a stopped item
+// and then has that item wait on. The tracker passes a waiting item's hold down
+// to everything under it, so such a child is held until its parent stops
+// waiting, and its parent waits until the child closes. Neither ever moves, so
+// the backlog offers such a child to the scheduler although the tracker does
+// not, and an item's read says so.
+//
+// blocks is what InheritedBlocks found for the item. Every ancestor in them must
+// wait on this very item: one waiting on anything else holds it as it always
+// did. And the item must record no blocking link of its own that is not plainly
+// closed, because a listing may carry a link without its status, and a link to
+// work somebody is doing right now is exactly what such a listing cannot show.
+// A child the tracker holds for a reason the reading cannot see — an ancestor
+// outside what lookup answered among them — has no waiting ancestor here and is
+// left as the tracker answers.
+func AwaitedByWhatHoldsIt(item WorkItem, blocks []InheritedBlock) bool {
+	if len(blocks) == 0 {
+		return false
+	}
+	id := strings.TrimSpace(item.ID)
+	for _, dependency := range item.Dependencies {
+		if strings.EqualFold(strings.TrimSpace(dependency.Type), BlocksDependency) &&
+			strings.TrimSpace(dependency.Status) != statusClosed {
+			return false
+		}
+	}
+	for _, block := range blocks {
+		if !slices.ContainsFunc(block.WaitsOn, func(dependency Dependency) bool {
+			return strings.TrimSpace(dependency.ID) == id
+		}) {
+			return false
+		}
+	}
+	return true
 }
 
 // awaitedTitle is the title of the work an ancestor waits on: the one its link

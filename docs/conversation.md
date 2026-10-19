@@ -896,7 +896,13 @@ simply not offering it. The third is how Beads treats a parent that waits: it
 holds back every item under it, and the child's own links say nothing about
 it, so the queue names the parent — and the grandparent, where the wait is
 further up — and what it waits on, in the words [an item
-read](#steering-the-work-from-the-conversation) uses. A tracker slice it cannot read,
+read](#steering-the-work-from-the-conversation) uses. There is one exception to
+taking the tracker's answer: a child that every waiting parent above it waits on
+itself. That is the rebuild the development manager files under a stopped item
+and then has the item wait on, and Beads would hold it back until its parent
+stopped waiting, which is never. So the queue offers it, provided it records no
+link of its own to work that is not plainly closed; a child whose parent waits on
+anything else stays held as the tracker holds it. A tracker slice it cannot read,
 including that readiness answer, fails the whole report instead of returning the
 half it could: a survey describing part of what is happening is still worth
 reading, and half a queue answers "what happens next" wrongly rather than
@@ -1050,8 +1056,12 @@ Each item is named by its title and then its identifier, and by its identifier
 alone where the tracker gave no title. A wait further up names every link —
 `its parent 'Middle' (yoyodyne-ifd.9.1), whose parent is 'Top' (yoyodyne-ifd.9),
 which waits on …` — and an item no parent of which waits says nothing. A parent the tracker would not describe is said as unread rather
-than read as holding nothing. This reports what the tracker already holds; it
-changes nothing about what blocks an item or what is ready. On 2026-10-05 a
+than read as holding nothing. Where the parent that waits is waiting on the
+item itself, the line ends instead by saying that the tracker holds it back with
+that parent, but the parent is waiting on this item itself, so the scheduler
+offers it all the same and nothing holds it, which is what the queue does with
+such a child. This reports what the tracker already holds; it changes nothing
+about what blocks an item or what is ready. On 2026-10-05 a
 slice of automatic document publication (`yoyodyne-ifd.433.21.1`) went about
 nineteen hours without a run this way, read as ready by three roles while its
 parent waited on the architect's design.
@@ -1060,8 +1070,12 @@ The same holding back is why a link or a reparent that would make an item wait
 on its own work is refused before anything is written. An item linked to wait on
 something broken out of it — a design created under the implementation that
 needs it, or a closing measure under the item coordinating it — waits on work
-the tracker holds back until that item stops waiting, so neither is ever
-offered, and nor is any sibling the held work waits on. The harness walks what
+the tracker holds back until that item stops waiting, so Beads never offers
+either, nor any sibling the held work waits on. The queue's exception above
+offers such a child to the scheduler only when it waits on nothing unfinished
+of its own, which a closing measure waiting on its siblings does not, and a
+design is the architect's rather than the scheduler's to take, so the link is
+still refused. The harness walks what
 the item would come to wait on, through each link and each parent that holds
 work back, and where that leads back to the item or to work broken out of it,
 the action fails naming every step and nothing changes:

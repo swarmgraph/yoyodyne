@@ -7,11 +7,14 @@ package chat
 // nothing holding it, and roles read it as ready while the tracker offered it to
 // nobody. So a read walks the item's parents as the tracker holds them now and
 // says, after the item, which of them waits and on what. It reports a state the
-// tracker already holds and changes nothing about readiness.
+// tracker already holds and changes nothing about readiness; where every parent
+// that waits is waiting on the item itself, it says the scheduler offers the
+// item anyway (beads.AwaitedByWhatHoldsIt).
 
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 )
@@ -47,6 +50,14 @@ func (s *Session) renderInheritedBlocks(ctx context.Context, item beads.WorkItem
 	}
 	if described == "" {
 		return ""
+	}
+	if beads.AwaitedByWhatHoldsIt(item, blocks) {
+		waits := make([]string, 0, len(blocks))
+		for _, block := range blocks {
+			waits = append(waits, block.Describe())
+		}
+		return fmt.Sprintf("\ninherited block: %s. The tracker holds it back with that parent, but the parent is waiting on this item itself, "+
+			"so the scheduler offers it all the same and nothing holds it.\n", strings.Join(waits, "; and "))
 	}
 	return fmt.Sprintf("\ninherited block: %s.\n", described)
 }

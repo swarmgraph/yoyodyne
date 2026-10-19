@@ -116,6 +116,26 @@ func TestAnItemReadSaysNothingOfAnInheritedBlockWhereThereIsNone(t *testing.T) {
 	}
 }
 
+// The long-paste rebuild (yoyodyne-etw.1): its parent waits on it, so the
+// tracker holds it back with that parent while the scheduler offers it. The read
+// says both, rather than that it is held until the work it is itself finishes.
+func TestAnItemReadSaysTheSchedulerOffersAChildItsParentWaitsOn(t *testing.T) {
+	t.Parallel()
+
+	items := map[string]beads.WorkItem{
+		"yoyodyne-etw.1": {ID: "yoyodyne-etw.1", Title: "Rebuild from current main", Status: "open", IssueType: "feature",
+			Parent: "yoyodyne-etw"},
+		"yoyodyne-etw": {ID: "yoyodyne-etw", Title: "Long paste", Status: "blocked", IssueType: "feature",
+			Dependencies: []beads.Dependency{{ID: "yoyodyne-etw.1", Type: beads.BlocksDependency, Status: "open"}}},
+	}
+	detail := readItemAsRole(t, items, "yoyodyne-etw.1")
+	want := "inherited block: blocked through its parent 'Long paste' (yoyodyne-etw), which waits on 'Rebuild from current main' (yoyodyne-etw.1, open). " +
+		"The tracker holds it back with that parent, but the parent is waiting on this item itself, so the scheduler offers it all the same and nothing holds it."
+	if !strings.Contains(detail, want) {
+		t.Fatalf("the read does not say the scheduler offers it:\n%s", detail)
+	}
+}
+
 // A parent the tracker would not describe is said as unread rather than read as
 // holding nothing.
 func TestAnItemReadSaysWhenItsParentCouldNotBeRead(t *testing.T) {

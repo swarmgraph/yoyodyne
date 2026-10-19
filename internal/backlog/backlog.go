@@ -378,7 +378,8 @@ type Entry struct {
 	// the item does not record itself. The tracker holds such an item back with
 	// its ancestor and its own links say nothing, so without this the queue could
 	// only say the tracker did not offer it. It explains and decides nothing:
-	// readiness stays the tracker's answer.
+	// readiness stays the tracker's answer, except for the child every waiting
+	// ancestor waits on, which Order offers and which therefore carries none.
 	InheritedBlocks []beads.InheritedBlock `json:"inherited_blocks,omitempty"`
 }
 
@@ -408,6 +409,13 @@ type Queue struct {
 // saying whether that work is done, so inferring the opposite from their
 // presence would hold an item back for a blocker that finished long ago. The
 // tracker answers this from its own dependency graph; this only asks.
+//
+// One answer of the tracker's is not taken: an open child it holds back only
+// because the items it was broken out of wait on that child itself. The tracker
+// passes a waiting parent's hold down to its children, so a rebuild filed under
+// a stopped item that then waits on it would never be offered, and the item
+// would wait on it for ever. Such a child is offered here; see
+// beads.AwaitedByWhatHoldsIt for exactly when.
 //
 // Blocked work is the one thing the tracker cannot be asked, because it answers
 // by the same status field nobody maintains: an item whose blockers all closed
@@ -478,6 +486,10 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 	queue := Queue{Entries: make([]Entry, 0, len(admitted))}
 	for position, item := range admitted {
 		_, reportedReady := pullable[item.ID]
+		// The one tracker answer not taken; see the comment above Order.
+		if !reportedReady && item.Status == statusOpen {
+			reportedReady = beads.AwaitedByWhatHoldsIt(item, inherited(item))
+		}
 		holding := held.hold(item)
 		awaiting := holding.Reason
 		// A child building on its parent's unlanded change is held only where
