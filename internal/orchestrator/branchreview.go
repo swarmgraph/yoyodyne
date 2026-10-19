@@ -443,7 +443,7 @@ func (b BranchReviewer) collectReports(outcome *BranchReviewOutcome, entries []r
 	}
 	before := outcome.ReportProblem
 	allowed := false
-	for _, granted := range toolcatalog.Granted(domain.RoleReviewer) {
+	for _, granted := range agentTools(domain.RoleReviewer, Pipeline{Config: b.Config}.reviewer()) {
 		allowed = allowed || granted.Name == registered.Name
 	}
 	if unreadable != "" {

@@ -180,7 +180,7 @@ func TestRunParsesStructuredSuccessAndToolActivity(t *testing.T) {
 	if runner.prompts[0] != "implement the task" {
 		t.Fatalf("prompt = %q", runner.prompts[0])
 	}
-	settings, err := settingsFor(developerSettings, domain.RoleDeveloper, "/worktree")
+	settings, err := settingsFor(developerSettings, true, "/worktree")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1205,7 +1205,7 @@ func TestRunKeepsReviewersReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	settings, err = settingsFor(settings, domain.RoleReviewer, "/worktree")
+	settings, err = settingsFor(settings, false, "/worktree")
 	if err != nil {
 		t.Fatal(err)
 	}

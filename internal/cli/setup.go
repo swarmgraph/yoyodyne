@@ -320,7 +320,7 @@ func (s *setup) record(step setupStep) {
 // otherwise resolve to an ancestor's, and setup would report a project it never
 // touched as configured.
 func (s *setup) load() (config.Resolved, error) {
-	return config.LoadResolved(s.configPath())
+	return loadActivatedConfiguration(s.configPath())
 }
 
 // A project with no configuration of its own may have one kept outside it, in
@@ -1414,7 +1414,7 @@ func enableSlackReporting(path, channel string) error {
 		return err
 	}
 	defer os.Remove(temporary)
-	if _, err := config.LoadResolved(temporary); err != nil {
+	if _, err := loadActivatedConfiguration(temporary); err != nil {
 		return fmt.Errorf("the configuration this would write does not load: %w", err)
 	}
 	return os.Rename(temporary, path)

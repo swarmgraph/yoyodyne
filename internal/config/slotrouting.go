@@ -89,7 +89,7 @@ func (r Resolved) roleEndpoints(providers *backend.Registry, slot int, name stri
 	if strings.TrimSpace(agent.Account) == "" {
 		fields["account"] += "; derived:accounts, first active account compatible with " + string(agent.Backend)
 	}
-	pair := ResolvedEndpointPair{Slot: slot, Role: agent.Role, Posture: backend.PostureFor(agent.Role), Origin: r.origin(prefix + ".model")}
+	pair := ResolvedEndpointPair{Slot: slot, Role: agent.Role, Posture: agent.Posture(), Origin: r.origin(prefix + ".model")}
 	primarySpec := domain.EndpointSpec{}
 	var alternateSpec *domain.EndpointSpec
 	if routing != nil {

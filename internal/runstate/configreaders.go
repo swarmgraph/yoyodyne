@@ -573,12 +573,12 @@ func (s *ConfigReaderStore) SettingsDrift() ([]SettingsDrift, error) {
 		}
 		services, known := resolved[reader.ConfigPath]
 		if !known {
-			loaded, loadErr := config.LoadResolved(reader.ConfigPath)
+			loaded, loadErr := config.LoadServices(reader.ConfigPath)
 			if loadErr != nil {
 				problems = append(problems, fmt.Errorf("whether the %s service's settings changed could not be read: %w", reader.Service, loadErr))
 				continue
 			}
-			services = loaded.Config.Services
+			services = loaded
 			resolved[reader.ConfigPath] = services
 		}
 		changes := ChangedSettings(reader.Settings, services.StartSettings(config.ServiceName(reader.Service)))

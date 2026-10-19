@@ -79,7 +79,7 @@ func NamedRoot(request RunRequest) string {
 	if strings.TrimSpace(request.RepositoryRoot) != "" {
 		return request.RepositoryRoot
 	}
-	if PostureFor(request.Role) == PostureWorktreeWrite {
+	if posture, err := RequestPosture(request); err == nil && posture == PostureWorktreeWrite {
 		return request.WorkingDirectory
 	}
 	return ""

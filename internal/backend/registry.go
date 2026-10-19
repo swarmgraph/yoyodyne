@@ -19,9 +19,11 @@ package backend
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
@@ -68,6 +70,19 @@ func PostureFor(role domain.AgentRole) Posture {
 	default:
 		return ""
 	}
+}
+
+// PostureHeld is the posture a role needs when the harness acts for it with the
+// given capability set rather than the role's whole bundle. Only narrowing is
+// possible: a role whose posture is worktree-write and whose set does not hold
+// the worktree write is read-only, and every other answer is the role's own, so
+// no set makes a read-only role a writer.
+func PostureHeld(role domain.AgentRole, holds []capability.Capability) Posture {
+	posture := PostureFor(role)
+	if posture == PostureWorktreeWrite && !slices.Contains(holds, capability.WorktreeMutate) {
+		return PostureReadOnly
+	}
+	return posture
 }
 
 // Descriptor is everything the harness knows about one provider without running

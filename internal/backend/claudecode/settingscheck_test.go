@@ -139,7 +139,7 @@ func TestACLIThatAppliedTheDevelopersSettingsIsInForce(t *testing.T) {
 	if checked != given {
 		t.Fatalf("checked settings %s, want the developer's %s", checked, given)
 	}
-	for _, flag := range append(contextArgs(domain.RoleDeveloper), "--permission-mode", worktreeWriteSessionMode, "--allowedTools", "--no-session-persistence") {
+	for _, flag := range append(contextArgs(true), "--permission-mode", worktreeWriteSessionMode, "--allowedTools", "--no-session-persistence") {
 		if !slices.Contains(launched.Args, flag) {
 			t.Fatalf("check launched with %v, want %s as the developer has it", launched.Args, flag)
 		}
