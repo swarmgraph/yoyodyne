@@ -634,6 +634,36 @@ func (c Client) List(ctx context.Context, status string) ([]WorkItem, error) {
 	return items, err
 }
 
+// ListStatuses reports the work items holding any of the statuses given, in
+// one bd command, as List reads them otherwise: the whole set, asked again
+// after the same waits, and recorded the same way. Each item carries its own
+// status, so a caller that needs the statuses apart reads them out of the one
+// answer.
+//
+// It exists because every bd command opens the whole store under one lock, and
+// what a command costs is opening the store rather than the size of what it
+// answers (docs/diagnoses/yoyodyne-ifd-428-99-11-clean-up-closed-items-read.md):
+// a reader that needs three statuses holds the store once rather than three
+// times, and every other tracker call waits behind it once. bd takes several
+// statuses comma-separated on one flag; repeating the flag keeps only the last.
+// TestStatusesListingConformance pins it against bd itself.
+func (c Client) ListStatuses(ctx context.Context, statuses []string) ([]WorkItem, error) {
+	if len(statuses) == 0 {
+		return nil, errors.New("a listing of several statuses needs at least one status")
+	}
+	wanted := make([]string, 0, len(statuses))
+	for _, status := range statuses {
+		trimmed := strings.TrimSpace(status)
+		if !statusPattern.MatchString(trimmed) {
+			return nil, fmt.Errorf("invalid Beads status %q", status)
+		}
+		wanted = append(wanted, trimmed)
+	}
+	items, err := c.listPatiently(ctx, []string{"--status=" + strings.Join(wanted, ",")})
+	c.recordListing(ctx, err)
+	return items, err
+}
+
 // listingWaits are the pauses between the attempts one listing makes, and so
 // how many it makes: one more than there are waits.
 //

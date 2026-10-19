@@ -37,7 +37,16 @@ func (r cappedTracker) Run(ctx context.Context, command execution.Command, _ exe
 	case "ready":
 		items, err = r.harness.Ready(ctx)
 	case "list":
-		items, err = r.harness.List(ctx, status)
+		// Several statuses arrive comma-separated on one flag, as bd takes them,
+		// and are listed one after another.
+		for _, one := range strings.Split(status, ",") {
+			listed, listErr := r.harness.List(ctx, one)
+			if listErr != nil {
+				err = listErr
+				break
+			}
+			items = append(items, listed...)
+		}
 	default:
 		return execution.ProcessResult{}, fmt.Errorf("unexpected tracker command: %v", command.Args)
 	}
@@ -50,7 +59,7 @@ func (r cappedTracker) Run(ctx context.Context, command execution.Command, _ exe
 	}
 	// A listing of every item holds the items of the status being cut, so it is
 	// cut with it: that listing is the one a standing reads each status from.
-	forced := verb == r.cutVerb && (verb == "ready" || status == r.cutStatus || status == "")
+	forced := verb == r.cutVerb && (verb == "ready" || slices.Contains(strings.Split(status, ","), r.cutStatus) || status == "")
 	if forced {
 		cap = 2
 	}

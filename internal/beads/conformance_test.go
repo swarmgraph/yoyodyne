@@ -1126,6 +1126,56 @@ func TestUnfilteredListingConformance(t *testing.T) {
 	}
 }
 
+// TestStatusesListingConformance pins what ListStatuses rests on: that bd lists
+// several statuses given comma-separated on one --status, each item carrying
+// its own status, and leaves out every status not named. The scheduler reads
+// its open, blocked, and claimed work out of that one listing, so a bd that
+// read the flag as one status name would answer nothing, and one that ignored
+// it would hand the queue closed work.
+func TestStatusesListingConformance(t *testing.T) {
+	t.Parallel()
+
+	project := newTracker(t)
+	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	ctx := context.Background()
+
+	create := func(title string) WorkItem {
+		t.Helper()
+		item, err := client.Create(ctx, NewWorkItem{Title: title, Description: "d", Type: "task"})
+		if err != nil {
+			t.Fatalf("Create(%q) error = %v", title, err)
+		}
+		return item
+	}
+	open := create("Still queued")
+	blocked := create("Stopped for somebody")
+	if _, err := client.Block(ctx, blocked.ID, "waiting on a person"); err != nil {
+		t.Fatalf("Block() error = %v", err)
+	}
+	claimed := create("Being worked")
+	if _, err := client.claim(ctx, claimed.ID); err != nil {
+		t.Fatalf("claim() error = %v", err)
+	}
+	closed := create("Landed")
+	if _, err := client.Complete(ctx, closed.ID, "landed"); err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	listed, err := client.ListStatuses(ctx, []string{statusOpen, statusBlocked, statusInProgress})
+	if err != nil {
+		t.Fatalf("ListStatuses() error = %v", err)
+	}
+	for id, want := range map[string]string{open.ID: statusOpen, blocked.ID: statusBlocked, claimed.ID: statusInProgress} {
+		item, found := itemIn(listed, id)
+		if !found || item.Status != want {
+			t.Fatalf("ListStatuses() gives %s as %#v (found = %v), want it listed %s", id, item, found, want)
+		}
+	}
+	if item, found := itemIn(listed, closed.ID); found {
+		t.Fatalf("ListStatuses() carries the closed item %#v, want only the statuses named", item)
+	}
+}
+
 // blocksEdge is the bd relation that makes one item wait for another. It is
 // spelled again here rather than taken from the client, because a check of what
 // bd answers that named the relation the way the reading under test names it
