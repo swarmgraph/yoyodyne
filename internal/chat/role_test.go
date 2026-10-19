@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	backendapi "github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
@@ -708,5 +709,42 @@ func TestEveryKindOfTurnIsHeldToTheDefinitionsSet(t *testing.T) {
 				t.Fatalf("the tracker was written: created %d, closed %d", len(tracker.created), len(tracker.closed))
 			}
 		})
+	}
+}
+
+// The prompt a conversation sends is built from the session's own row: an
+// architect whose definition removed the ask and the design write is not told
+// it holds either, while the shipped architect is told of both.
+func TestTheSystemPromptSentIsTheDefinitionsSet(t *testing.T) {
+	t.Parallel()
+
+	askTool := "## " + string(capability.ExchangeAsk) + " "
+	provider := &fakeBackend{results: []backendapi.RunResult{
+		{SessionID: "session-1", ResolvedModel: "claude-opus-5-20260514", FinalText: "Noted."},
+	}}
+	options, _ := documentOptions(t, provider)
+	options.Agent = string(domain.RoleArchitect)
+	bundle, _ := rolecapability.MustDefault().Bundle(domain.RoleArchitect)
+	options.Role = domain.RoleArchitect
+	options.Capabilities = slices.DeleteFunc(slices.Clone(bundle.Holds), func(held capability.Capability) bool {
+		return held == capability.ExchangeAsk || held == capability.ArtifactDesignMutate
+	})
+	session, err := Open(options)
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	if _, err := session.Send(context.Background(), "Where is the promotion lease recorded?"); err != nil {
+		t.Fatalf("Send() error = %v", err)
+	}
+	shipped := SystemPrompt(domain.RoleArchitect, options.Admission, session.artifactFiling(), options.Persona)
+	if !strings.Contains(shipped, askTool) || !strings.Contains(shipped, artifact.WriteFence) {
+		t.Fatal("the shipped architect's prompt describes no ask or no design write, so this test asserts nothing")
+	}
+	sent := provider.requests[0].SystemPrompt
+	if strings.Contains(sent, askTool) || strings.Contains(sent, artifact.WriteFence) {
+		t.Fatal("the prompt sent to a narrowed architect still describes the ask or the design write its definition removed")
+	}
+	if !strings.HasPrefix(sent, contracts[domain.RoleArchitect]) {
+		t.Fatal("the prompt sent to a narrowed architect is not the architect's contract")
 	}
 }

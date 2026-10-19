@@ -294,6 +294,7 @@ func converseWith(ctx context.Context, prepared preparedChat, request conversati
 	screen := console.Open(console.Options{In: stdin, Out: stdout})
 	defer screen.Close()
 	printChatHeader(screen, role, session.Evidence(), session.Freshness(ctx))
+	printDefinitionHeader(screen, prepared.agent)
 	converseErr := session.Converse(ctx, screen)
 	// What was decided about is the console's to dress, and it is asked before
 	// the console is closed: restoring the terminal changes how it reads input,
@@ -1511,6 +1512,17 @@ func printChatHeader(writer io.Writer, role domain.AgentRole, evidence chat.Evid
 	fmt.Fprintln(writer, "this conversation. /help lists them.")
 	fmt.Fprintln(writer, "End with /exit.")
 	fmt.Fprintln(writer)
+}
+
+// printDefinitionHeader says, under the role's own header, that this agent
+// fills a role definition and so may ask for less than the description above:
+// the tools and actions it holds are the definition's, which `yoyo config show`
+// lists. An agent on a shipped role prints nothing here.
+func printDefinitionHeader(writer io.Writer, agent config.AgentConfig) {
+	if agent.Definition == nil {
+		return
+	}
+	fmt.Fprintf(writer, "This agent fills the role definition %q, so the tools and actions it holds are that definition's rather than the role's as described above; `yoyo config show` lists them.\n", agent.Definition.Name)
 }
 
 // printOtherRoleHeader opens a conversation with a role that is not the product

@@ -441,8 +441,10 @@ plus the definition's additions, minus its removals.
   derives the agent's row from the set, so a definition that removes
   `exchange.ask` takes the agent off the ask channel and one that removes
   `backlog.admit` from a Lead Product Manager takes away closing and admitting
-  while leaving decomposition underneath admitted work. The tools the
-  conversation lists and carries out are the set's too, and so are the report
+  while leaving decomposition underneath admitted work. The instructions each
+  turn is sent describe only the actions and tools the set holds, `yoyo chat`
+  says under its header which definition the agent fills, and the tools the
+  conversation carries out are the set's too, and so are the report
   and amendment tools a developer or reviewer run carries out. The answering
   end of an exchange reads the answering agent's set the same way.
 - The tool access the provider holds the agent to is the role's own, except

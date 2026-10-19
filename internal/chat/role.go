@@ -549,6 +549,21 @@ func (s *Session) authorize(parsed parsedReply) error {
 // is taken. Capabilities is the agent's role-definition set where it fills one;
 // the harness opens every conversation through one call that sets it from the
 // configured agent, and internal/cli holds that there is no other.
+// systemPrompt is what every turn of this conversation is sent ahead of its
+// prompt, built from the session's own row of the table rather than the
+// shipped role's, so an agent filling a role definition is told only the tools
+// and actions its set holds.
+func (s *Session) systemPrompt() string {
+	writes := false
+	for _, held := range s.grantedTools() {
+		writes = writes || held.Tool.ID == capability.ArtifactDesignMutate || held.Tool.ID == capability.ArtifactProductMutate
+	}
+	if s.options.Capabilities == nil {
+		return SystemPrompt(s.state.Role, s.options.Admission, s.artifactFiling(), s.options.Persona)
+	}
+	return systemPromptFor(s.authority(), writes, s.options.Admission, s.artifactFiling(), s.options.Persona)
+}
+
 func (s *Session) authority() Authority {
 	if s.options.Capabilities != nil {
 		authority, _ := AuthorityHeld(s.state.Role, s.options.Capabilities)
@@ -590,6 +605,16 @@ func SystemPrompt(role domain.AgentRole, admission Admission, filing []artifact.
 		// with no authority statement at all, so it says exactly that instead.
 		return fmt.Sprintf("You are the %s for this product. The harness holds no conversation contract for this role and you have no authority here: say so and answer nothing else.", role)
 	}
+	return systemPromptFor(authority, true, admission, filing, persona)
+}
+
+// systemPromptFor is SystemPrompt for one row of the table: the shipped role's,
+// or the one an agent filling a role definition holds (AuthorityHeld). Every
+// clause is read off that row, so an agent is told only what it may ask for;
+// writes says whether it holds a document write at all, which the ownership
+// table alone cannot say for a definition that removed it.
+func systemPromptFor(authority Authority, writes bool, admission Admission, filing []artifact.KindHome, persona string) string {
+	role := authority.Role
 	contract := authority.Contract
 	if clause := admissionClause(authority, admission); clause != "" {
 		contract += "\n\n" + clause
@@ -597,7 +622,7 @@ func SystemPrompt(role domain.AgentRole, admission Admission, filing []artifact.
 	// The write clause is generated from the ownership table rather than written
 	// into each contract, so a role is never told it may write a kind the table
 	// says is somebody else's, and the two cannot drift.
-	if clause := artifact.WriteContract(role, filing); clause != "" {
+	if clause := artifact.WriteContract(role, filing); writes && clause != "" {
 		contract += "\n\n" + clause
 	}
 	trimmed := strings.TrimSpace(persona)

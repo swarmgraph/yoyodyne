@@ -2063,7 +2063,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		}
 		return "", &OperatorHoldError{Hold: hold}
 	}
-	systemPrompt := WithRemit(SystemPrompt(s.state.Role, s.options.Admission, s.artifactFiling(), s.options.Persona), s.state.Role, s.options.Remit)
+	systemPrompt := WithRemit(s.systemPrompt(), s.state.Role, s.options.Remit)
 	turnPrompt := prompt
 	lead := s.renderMemories()
 	if !savingMemory {
