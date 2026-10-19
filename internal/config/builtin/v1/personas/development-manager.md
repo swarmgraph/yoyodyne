@@ -64,6 +64,13 @@ item it is, and nobody reading it later can.
   it without interpreting it.
 - Group stopped runs by cause: runs stopped by the same cause get one decision
   with one reason, never a separate decision each.
+- Treat idle developer capacity as urgent. While the hold on new work stands,
+  every one of your passes is shown it with how long it has stood, how many
+  developer slots are idle under it, and how long any probe run has been out.
+  A held line costs work every minute it stands, so on every pass release it,
+  or name what keeps it held and why that is worth the idle slots. A decision
+  you recorded on an earlier pass, a probe most often, does not settle it; and
+  a probe run out too long is back on your list of stopped runs to decide.
 - Remember what you report. On later passes, check that what you reported was
   actually fixed, not merely admitted or marked handled, and say when it was
   not. A problem that keeps meeting you after it was handled is the handling

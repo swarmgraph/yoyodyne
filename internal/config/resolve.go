@@ -252,6 +252,7 @@ func newResolution() *resolution {
 				SchedulingWaitProblemAfter:            Duration(time.Hour),
 				BrakeCooldown:                         defaultBrakeCooldown,
 				BrakeEscalationCycles:                 defaultBrakeEscalationCycles,
+				BrakeProbeOverdueAfter:                defaultBrakeProbeOverdueAfter,
 				// The declarative path is what a new run executes unless the project
 				// says otherwise, so it is a harness default like every other value
 				// here rather than the absence of a key. A project that wrote nothing
@@ -352,6 +353,7 @@ func newResolution() *resolution {
 			"execution.scheduling_wait_problem_after":              OriginDefault,
 			"execution.brake_cooldown":                             OriginDefault,
 			"execution.brake_escalation_cycles":                    OriginDefault,
+			"execution.brake_probe_overdue_after":                  OriginDefault,
 			"execution.declarative_delivery":                       OriginDefault,
 			"execution.merge_queue":                                OriginDefault,
 			"triage.stuck_merge_age":                               OriginDefault,
@@ -404,6 +406,7 @@ func (r *resolution) apply(applied layer) error {
 		setValue(r.origins, "execution.scheduling_wait_problem_after", execution.SchedulingWaitProblemAfter, &r.config.Execution.SchedulingWaitProblemAfter, applied.origin)
 		setValue(r.origins, "execution.brake_cooldown", execution.BrakeCooldown, &r.config.Execution.BrakeCooldown, applied.origin)
 		setValue(r.origins, "execution.brake_escalation_cycles", execution.BrakeEscalationCycles, &r.config.Execution.BrakeEscalationCycles, applied.origin)
+		setValue(r.origins, "execution.brake_probe_overdue_after", execution.BrakeProbeOverdueAfter, &r.config.Execution.BrakeProbeOverdueAfter, applied.origin)
 		// A supplied slot list replaces the inherited one entirely, and is copied
 		// rather than aliased, for the reasons the check list is: which slot
 		// prefers what is one statement, and a layer's own slice must not become

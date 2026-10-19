@@ -604,6 +604,7 @@ func standingSources(configPath string) readmodel.Sources {
 	cfg := resolved.Config
 	sources.Capacity = cfg.Execution.MaxConcurrentDevelopers
 	sources.Slots = cfg.Execution.DeveloperSlots
+	sources.BrakeProbeOverdueAfter = cfg.Execution.BrakeProbeOverdueAfter.Duration()
 	sources.SchedulingWaitProblemAfter = cfg.Execution.SchedulingWaitProblemAfter.Duration()
 	// What each agent asks for and may be served by instead, read against the
 	// refusal log below for the one thing the two say together: whether the

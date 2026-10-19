@@ -380,6 +380,10 @@ execution:
   # releases it. The default is two hours at the default cooldown. "0" never
   # escalates on its own, and the loop stands until she does or the line mends.
   brake_escalation_cycles: %d
+  # How long a probe run may stay out before it is put back on her list of
+  # stopped runs, naming the run and how long it has been out, so a hold never
+  # waits unwatched on a run that neither lands nor blocks. "0" never puts it back.
+  brake_probe_overdue_after: %s
   # Every new run compiles the built-in delivery definition and records where it
   # sent the run, beside the run's own record. The delivery is the same delivery
   # either way -- the definition's steps perform nothing -- so what this buys is
@@ -509,6 +513,7 @@ approvals:
 		renderScaffoldDuration(effective.Execution.SchedulingWaitProblemAfter),
 		renderScaffoldDuration(effective.Execution.BrakeCooldown),
 		effective.Execution.BrakeEscalationCycles,
+		renderScaffoldDuration(effective.Execution.BrakeProbeOverdueAfter),
 		effective.Execution.DeclarativeDelivery,
 		effective.Execution.MergeQueue,
 		renderScaffoldDuration(effective.Triage.StuckMergeAge),

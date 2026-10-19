@@ -363,7 +363,18 @@ func (p *sweepDocketPass) Window() string {
 	if d.now != nil {
 		now = d.now()
 	}
-	return rendered + "\n" + d.standing().RenderOperatorWaits(now)
+	standing := d.standing()
+	// The brake's hold is put to her on every turn of every pass while it
+	// stands, beside the docket rather than inside the record it is built
+	// from, and a probe run out past its time is on the docket itself:
+	// readmodel/heldline.go says why.
+	if held := standing.HeldLine; held != nil {
+		if entry := held.OverdueEntry(); entry != "" {
+			rendered += "\nAlso stopped, though no run record has ended:\n" + entry
+		}
+		rendered += "\n" + held.Render()
+	}
+	return rendered + "\n" + standing.RenderOperatorWaits(now)
 }
 
 func (p *sweepDocketPass) Delivered() string {
