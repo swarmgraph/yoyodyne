@@ -17,6 +17,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/directive"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -291,6 +292,7 @@ func TestAnEscalatedStoppageIsAFindingForTheOperatorWhileItStands(t *testing.T) 
 			Reason:       "the target branch diverged from the forge and only a person can say which history is right",
 			DecidedBy:    "development-manager",
 			Conversation: "chat-dm", Turn: 12, DecidedAt: decided,
+			OperatorReason: ownership.OperatorRepositorySetting,
 		}
 	}
 	sources.Decisions = recordedDecisions{
@@ -363,6 +365,7 @@ func TestAnEscalationEndsWhenItsItemIsParkedOrItsChangeIsGone(t *testing.T) {
 			Decision: runstate.TriageDecisionEscalate, RunID: run,
 			Reason:    "only a person can say which history is right",
 			DecidedBy: "development-manager", Conversation: "chat-dm", Turn: 12, DecidedAt: decided,
+			OperatorReason: ownership.OperatorRepositorySetting,
 		}
 	}
 	sources := quietSources()

@@ -47,6 +47,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
@@ -151,7 +152,10 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 //     the item stands; a caller that cannot passes nil;
 //   - the run's branch and worktree both gone, where the caller can look in the
 //     repository; a caller that cannot passes nil, and a look that did not reach
-//     the repository ends nothing, since a record is not a look.
+//     the repository ends nothing, since a record is not a look;
+//   - the escalation giving no reason from the operator's closed list, which
+//     every escalation recorded before the list was enforced does: it goes back
+//     to the development manager (escalationEnding).
 //
 // On 2026-09-28 the escalation of run-95b34031 still named the operator two
 // days after the Lead Product Manager parked its item, with the run's branch
@@ -191,6 +195,14 @@ type EndedEscalation struct {
 	WorkItemID string `json:"work_item_id"`
 	Why        string `json:"why"`
 	Recorded   bool   `json:"recorded,omitempty"`
+	// DecidedAt is when the escalation that ended was decided, which is what
+	// tells the ending recorded on the run apart from a later escalation of it.
+	DecidedAt time.Time `json:"decided_at"`
+	// ReturnedTo is the role the escalation went back to, on one that named the
+	// operator without a reason from his closed list: the development manager,
+	// whose docket the stoppage is put back on. It is empty on every other
+	// ending, which leaves nothing for anybody to decide.
+	ReturnedTo Mover `json:"returned_to,omitempty"`
 }
 
 // Escalations is every escalation to the operator the development manager
@@ -219,8 +231,8 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 		if !decided || !decision.EscalatesToOperator() {
 			continue
 		}
-		if why, recorded := escalationEnding(run, items, look); why != "" {
-			ended = append(ended, EndedEscalation{RunID: run.RunID, WorkItemID: workItemID, Why: why, Recorded: recorded})
+		if why, recorded, returnedTo := escalationEnding(run, decision, items, look); why != "" {
+			ended = append(ended, EndedEscalation{RunID: run.RunID, WorkItemID: workItemID, Why: why, Recorded: recorded, DecidedAt: decision.DecidedAt, ReturnedTo: returnedTo})
 			continue
 		}
 		actions = append(actions, OperatorAction{
@@ -241,27 +253,52 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 	return actions, ended, strings.Join(problems, "; ")
 }
 
-// escalationEnding is what has ended one escalated run's escalation, and
-// whether that is already recorded on the run; empty where nothing has.
-func escalationEnding(run runstate.State, items EscalatedItems, look Look) (string, bool) {
-	if run.EscalationEnded != nil && strings.TrimSpace(run.EscalationEnded.Why) != "" {
-		return run.EscalationEnded.Why, true
+// escalationEnding is what has ended one escalated run's escalation, whether
+// that is already recorded on the run, and the role it went back to where it
+// went back to one; empty where nothing has ended it.
+//
+// An escalation that names the operator and gives no reason from his closed
+// list was recorded before the list was enforced, and is not his: it goes back
+// down the ladder to the development manager, whose decision about the stopped
+// run it always was. Every other ending is asked first, because each says more
+// about where the work now stands than that.
+func escalationEnding(run runstate.State, decision runstate.TriageDecision, items EscalatedItems, look Look) (string, bool, Mover) {
+	// An ending recorded before this escalation was decided ended an earlier one
+	// of the same run, and says nothing about this one.
+	if ending := run.EscalationEnded; ending != nil && strings.TrimSpace(ending.Why) != "" && !ending.At.Before(decision.DecidedAt) {
+		return ending.Why, true, ""
 	}
 	if items != nil {
 		item := items(run.WorkItemID)
 		switch {
 		case !item.Admitted:
-			return fmt.Sprintf("%s is no longer in the backlog: it was closed or retired", run.WorkItemID), false
+			return fmt.Sprintf("%s is no longer in the backlog: it was closed or retired", run.WorkItemID), false, ""
 		case strings.TrimSpace(item.Parked) != "":
-			return runstate.BoundEscalationEnding(fmt.Sprintf("%s was parked, so nothing about it waits on the operator: %s", run.WorkItemID, item.Parked)), false
+			return runstate.BoundEscalationEnding(fmt.Sprintf("%s was parked, so nothing about it waits on the operator: %s", run.WorkItemID, item.Parked)), false, ""
 		}
 	}
 	if look != nil {
 		if found := look(run); found.Recorded() && found.Looked() && !found.Holds() {
-			return runstate.BoundEscalationEnding(fmt.Sprintf("run %s's branch and worktree are both gone, so there is no change of it left for anybody to act on: %s", run.RunID, found.Describe())), false
+			return runstate.BoundEscalationEnding(fmt.Sprintf("run %s's branch and worktree are both gone, so there is no change of it left for anybody to act on: %s", run.RunID, found.Describe())), false, ""
 		}
 	}
-	return "", false
+	if !decision.OperatorReason.Valid() {
+		return unreasonedEscalationEnding(run.RunID), false, MoverDevelopmentManager
+	}
+	return "", false, ""
+}
+
+// unreasonedEscalationEnding is what an item is told when its escalation to the
+// operator goes back to the development manager for giving no closed-list
+// reason: who owns it now, and why.
+func unreasonedEscalationEnding(runID string) string {
+	reasons := make([]string, 0, len(ownership.OperatorReasons()))
+	for _, reason := range ownership.OperatorReasons() {
+		reasons = append(reasons, reason.Says())
+	}
+	return runstate.BoundEscalationEnding(fmt.Sprintf(
+		"it was recorded before an escalation to the operator had to give a reason, and it gives none only he can act on — %s — so it is not his; what becomes of run %s is the development manager's decision, and the run is listed under her as a stoppage waiting on that decision",
+		strings.Join(reasons, "; "), runID))
 }
 
 // sortOperatorActions orders findings oldest first, the key breaking a tie, so
