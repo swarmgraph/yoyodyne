@@ -1902,3 +1902,47 @@ func TestDoctorReportsAStaleSupervisorWithoutChangingItsRecords(t *testing.T) {
 		t.Fatalf("doctor created lock: %v", err)
 	}
 }
+
+// A dashboard that started on a port the configuration has since moved away
+// from is named with the setting and what becomes of it, in words rather than a
+// command alone: one the supervisor did not start is left running, and the
+// finding says so and how to stop it; one on the configured port says nothing.
+func TestDoctorNamesADashboardWhosePortChangedAndWhyItWasNotRestarted(t *testing.T) {
+	t.Parallel()
+	world := newWorld(t)
+	world.configuration = servicesConfig("dashboard:\n    enabled: true\n    port: 9123\n")
+	store, err := runstate.NewConfigReaderStore(world.stateRoot, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := func(pid int, port string) {
+		if err := store.Record(runstate.ConfigReader{
+			Service: "dashboard", PID: pid, Build: currentBuild,
+			ConfigPath: filepath.Join(world.project, config.DirectoryName, "config.yaml"),
+			StartedAt:  time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC), Keys: config.SchemaKeys(),
+			Settings: map[string]string{config.SettingDashboardPort: port, config.SettingDashboardToken: "generated"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		world.alive[pid] = true
+	}
+	record(4242, "8765")
+	record(4243, "9123")
+
+	report := world.diagnose()
+	finding, found := findingFor(report, "changed-settings:dashboard")
+	if !found || finding.Status != StatusWarning {
+		t.Fatalf("changed-settings:dashboard = %#v, want a warning: %s", finding, render(report))
+	}
+	for _, want := range []string{"the dashboard service", "pid 4242", "services.dashboard.port is 9123 in the configuration and it started with 8765"} {
+		if !strings.Contains(finding.Summary, want) {
+			t.Errorf("summary %q does not name %q", finding.Summary, want)
+		}
+	}
+	if !strings.Contains(finding.Detail, "not started by the supervisor, so the supervisor leaves it running") || finding.Remedy != "kill 4242" {
+		t.Errorf("detail %q, remedy %q, want why it was not restarted and how to stop it", finding.Detail, finding.Remedy)
+	}
+	if strings.Contains(render(report), "pid 4243") {
+		t.Errorf("the dashboard on the configured port was named: %s", render(report))
+	}
+}

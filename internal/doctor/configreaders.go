@@ -25,6 +25,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/supervise"
 )
 
 const configReadersCheck = "config-readers"
@@ -103,6 +104,74 @@ func (d *diagnosis) checkConfigReaders(resolved config.Resolved) []Finding {
 		Summary: "every running part of the product reads every key in the configuration",
 		Detail:  strings.Join(described, "; "),
 	}}
+}
+
+const changedSettingsCheck = "changed-settings"
+
+// checkChangedSettings is one finding per running part holding a setting from
+// its start that the configuration has since changed: which part, which
+// setting, and what becomes of it — the supervisor restarting it, where its
+// restart stands, or why the supervisor is not the one to — in the words
+// `yoyo status` says it in. A part the supervisor is about to restart is a
+// note; one nothing will restart is a warning, since it goes on serving on the
+// old value until somebody does.
+func (d *diagnosis) checkChangedSettings(resolved config.Resolved) []Finding {
+	root, err := d.stateRootPath()
+	if err != nil {
+		return nil
+	}
+	productID := resolved.Config.Product.ID
+	store, err := runstate.NewConfigReaderStore(root, productID)
+	if err != nil {
+		return nil
+	}
+	if d.env.ProcessRunning != nil {
+		store = store.WithProcessCheck(d.env.ProcessRunning)
+	}
+	drifts, driftErr := store.SettingsDrift()
+	var findings []Finding
+	if len(drifts) > 0 {
+		var running bool
+		var record runstate.Supervision
+		if supervision, err := runstate.NewSupervisionStore(root, productID); err == nil {
+			running, _ = supervision.Running()
+			record, _, _ = supervision.Load()
+		}
+		started := map[int]bool{}
+		if dashboards, err := runstate.NewDashboardStore(root, productID); err == nil {
+			instances, _ := dashboards.StartedBySupervisor()
+			for _, instance := range instances {
+				started[instance.PID] = true
+			}
+		}
+		for _, drift := range drifts {
+			supervised := supervise.SupervisedCopy(drift, record, started)
+			status := StatusWarning
+			remedy := "yoyo stop && yoyo start"
+			switch {
+			case supervised && running:
+				status, remedy = StatusOK, ""
+			case !supervised:
+				remedy = fmt.Sprintf("kill %d", drift.PID)
+			}
+			findings = append(findings, Finding{
+				Check:   changedSettingsCheck + ":" + drift.Service,
+				Status:  status,
+				Summary: drift.Says(),
+				Detail:  supervise.SettingsDriftWhy(drift, running, record, supervised),
+				Remedy:  remedy,
+			})
+		}
+	}
+	if driftErr != nil {
+		findings = append(findings, Finding{
+			Check:   changedSettingsCheck,
+			Status:  StatusWarning,
+			Summary: "whether a setting a running part of the product holds from its start has changed was not fully checked",
+			Detail:  driftErr.Error(),
+		})
+	}
+	return findings
 }
 
 // configMismatchCommand is what restarts the part now. The watch, the sink,

@@ -67,6 +67,66 @@ type ConfigReader struct {
 	// any provider command it launches is looked for. It is empty on a record a
 	// build wrote before parts recorded it, which says nothing either way.
 	SearchPath string `json:"search_path,omitempty"`
+	// Settings are the settings the part read once as it started and holds for
+	// as long as it runs, by their configuration key, each with the value it
+	// started with (config.Services.StartSettings names them). A setting it
+	// does not record is one nothing compares.
+	Settings map[string]string `json:"settings,omitempty"`
+}
+
+// SettingChange is one setting a running part holds from its start whose value
+// in the configuration is now different.
+type SettingChange struct {
+	Key        string `json:"key"`
+	Started    string `json:"started"`
+	Configured string `json:"configured"`
+}
+
+// Says is the change in words: the setting, what the configuration says now,
+// and what the part started with.
+func (c SettingChange) Says() string {
+	return fmt.Sprintf("%s is %s in the configuration and it started with %s", c.Key, c.Configured, c.Started)
+}
+
+// ChangedSettings is each setting recorded at a part's start whose value in
+// configured is different, in the order of their keys. A setting configured
+// does not name is not compared.
+func ChangedSettings(started, configured map[string]string) []SettingChange {
+	var changes []SettingChange
+	for key, value := range started {
+		now, known := configured[key]
+		if !known || now == value {
+			continue
+		}
+		changes = append(changes, SettingChange{Key: key, Started: value, Configured: now})
+	}
+	sort.Slice(changes, func(i, j int) bool { return changes[i].Key < changes[j].Key })
+	return changes
+}
+
+// DescribeSettingChanges is the changes in one clause.
+func DescribeSettingChanges(changes []SettingChange) string {
+	said := make([]string, 0, len(changes))
+	for _, change := range changes {
+		said = append(said, change.Says())
+	}
+	return strings.Join(said, ", and ")
+}
+
+// SettingsDrift is a running part that holds settings from its start that the
+// configuration it reads has since changed.
+type SettingsDrift struct {
+	Service    string          `json:"service"`
+	PID        int             `json:"pid"`
+	StartedAt  time.Time       `json:"started_at"`
+	ConfigPath string          `json:"config_path"`
+	Changes    []SettingChange `json:"changes"`
+}
+
+// Says is the part and what changed under it.
+func (d SettingsDrift) Says() string {
+	return fmt.Sprintf("the %s service, running as pid %d since %s, started before its settings changed: %s",
+		d.Service, d.PID, d.StartedAt.Local().Format("2006-01-02 15:04 MST"), DescribeSettingChanges(d.Changes))
 }
 
 // InstanceID identifies a process's record without replacing another running
@@ -496,6 +556,41 @@ func (s *ConfigReaderStore) load(path string) (ConfigReader, error) {
 // comparison never writes state.
 func (s *ConfigReaderStore) Mismatches() ([]ConfigMismatch, error) {
 	return s.mismatchesIn(os.ReadFile, false)
+}
+
+// SettingsDrift is every running part whose recorded start settings differ from
+// what the configuration it reads says now, resolved as the part resolves it. A
+// configuration that cannot be resolved is a problem in the returned error
+// rather than a part reported current. It writes nothing.
+func (s *ConfigReaderStore) SettingsDrift() ([]SettingsDrift, error) {
+	readers, err := s.Running()
+	problems := []error{err}
+	resolved := map[string]config.Services{}
+	var drifts []SettingsDrift
+	for _, reader := range readers {
+		if len(reader.Settings) == 0 {
+			continue
+		}
+		services, known := resolved[reader.ConfigPath]
+		if !known {
+			loaded, loadErr := config.LoadResolved(reader.ConfigPath)
+			if loadErr != nil {
+				problems = append(problems, fmt.Errorf("whether the %s service's settings changed could not be read: %w", reader.Service, loadErr))
+				continue
+			}
+			services = loaded.Config.Services
+			resolved[reader.ConfigPath] = services
+		}
+		changes := ChangedSettings(reader.Settings, services.StartSettings(config.ServiceName(reader.Service)))
+		if len(changes) == 0 {
+			continue
+		}
+		drifts = append(drifts, SettingsDrift{
+			Service: reader.Service, PID: reader.PID, StartedAt: reader.StartedAt,
+			ConfigPath: reader.ConfigPath, Changes: changes,
+		})
+	}
+	return drifts, errors.Join(problems...)
 }
 
 // TemplateMismatches compares newly introduced template keys against every

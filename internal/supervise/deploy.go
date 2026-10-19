@@ -311,7 +311,7 @@ func (s *Supervisor) restarting(except Child) string {
 		if _, self := child.(RestartsItself); self {
 			continue
 		}
-		if state, known := s.states[child.Name()]; known && state.RestartingInto != "" {
+		if state, known := s.states[child.Name()]; known && (state.RestartingInto != "" || state.SettingsRestarting) {
 			return string(child.Name())
 		}
 	}

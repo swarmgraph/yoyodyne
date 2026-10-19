@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -298,6 +299,31 @@ func (s Services) EnabledServices() []ServiceName {
 		}
 	}
 	return enabled
+}
+
+// The settings a part reads once, as it starts, and holds for as long as it
+// runs, by their key in the configuration. A change to one reaches the part only
+// when it is started again, which is what the supervisor does when it finds one
+// changed (internal/supervise/settings.go).
+const (
+	SettingDashboardPort  = "services.dashboard.port"
+	SettingDashboardToken = "services.dashboard.token"
+)
+
+// StartSettings is each setting the named part records as held from its start,
+// with its value here as the part would read it. The dashboard binds its port
+// and reads where its token comes from once, and records both. The sink and the
+// scheduler record none yet, so a change to a setting either holds from its
+// start is not compared with anything.
+func (s Services) StartSettings(name ServiceName) map[string]string {
+	switch name {
+	case ServiceDashboard:
+		return map[string]string{
+			SettingDashboardPort:  strconv.Itoa(s.Dashboard.Port),
+			SettingDashboardToken: string(s.Dashboard.Token),
+		}
+	}
+	return nil
 }
 
 // Loopback reports whether the dashboard's bind address is a loopback address,

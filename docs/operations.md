@@ -246,7 +246,11 @@ the part is doing:
   serving a stale build for days again.
 
 A part somebody started by hand, and the supervisor took back, is moved exactly
-as one the supervisor started. Every move is recorded as a restart and not as
+as one the supervisor started. The same look applies a changed setting a part
+holds from its start, with no new build: change `services.dashboard.port` and
+the supervisor replaces the dashboard with one on the new port within thirty
+seconds, under these same rules
+([the dashboard under the product](#the-dashboard-under-the-product) says how). Every move is recorded as a restart and not as
 a death — the part's `restarts` and `restarted_at` in the record, apart from
 the `failures` the backoff and the five-in-two-minutes bound count — so a day
 of deploys never leaves a part degraded, and a part that dies on its own with
@@ -6099,6 +6103,40 @@ port is left alone and reported as not started by the supervisor. A dashboard fr
 its port, is stopped first where the new one's log says the port is held, and
 the new one is started again once; that is the one move with a moment of no
 dashboard, and it happens once, as the product takes the dashboard over.
+
+**A changed port or token source is applied by the supervisor, with no new
+build.** The dashboard reads `services.dashboard.port` and
+`services.dashboard.token` once, as it starts, and records the values it
+started on beside the configuration keys it reads (under
+`projects/<product>/state/config-readers/`). Every thirty seconds, on the same
+look at builds, the supervisor reads the configuration again and compares it
+with what the dashboard it runs started on. Where either has changed, it
+replaces the dashboard exactly as a deploy does — a new one started on the
+configuration as it stands now and confirmed ready, and only then the old one
+stopped — so a port change moves the dashboard to the new port within thirty
+seconds of the file being saved, and nobody stops anything by hand. It is held
+to the rules a deploy is held to: one part at a time, not while the provider
+cannot be reached or is not logged in, and never the scheduler, since stopping
+it cancels the runs it hosts. A replacement that cannot be made ready on the
+new value — a port another process holds — leaves the old dashboard serving
+and is tried again at the next look. Each such restart is recorded on the
+dashboard's record apart from its deaths and its deploys, as
+`settings_restarts`, `settings_restarted_at`, and `settings_applied`, the
+last naming the setting, its new value, and the one it started with, and the
+supervisor's log says each one. A configuration that does not load leaves the
+dashboard as it is.
+
+While a changed setting has not been applied, `yoyo status` says so under
+**Services** and `yoyo doctor` gives a `changed-settings:dashboard` finding,
+both in the same words: which part, which setting, what it is now and what
+the part started on, and what becomes of it — that the supervisor restarts it
+at its next look, what it is waiting on (`settings` in `--json`), that no
+supervisor is running and `yoyo start` is what applies it, or that it is a
+dashboard somebody started by hand, which the supervisor leaves running, with
+the process to stop. A dashboard started by hand serves on the port it was
+given, so only its token source is compared. The Slack sink and the scheduler
+record no such settings yet, so a change to a setting either of them holds
+from its start is not compared with anything.
 
 **What `yoyo status` says.** The dashboard's line under **Services** says the
 process, the address it serves at, whether it is ready and since when, where
