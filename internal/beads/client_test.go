@@ -397,6 +397,33 @@ func TestClientListsWorkItemsWithoutChangingAnything(t *testing.T) {
 	}
 }
 
+// Several statuses are one bd command, comma-separated on one flag, because bd
+// keeps only the last of a repeated --status.
+func TestListStatusesAsksOnceForEveryStatus(t *testing.T) {
+	listed := `[{"id":"yoyodyne-1","title":"First","status":"open","priority":1,"issue_type":"task"},
+	            {"id":"yoyodyne-2","title":"Second","status":"in_progress","priority":2,"issue_type":"task"}]`
+	runner := &fakeRunner{responses: []string{listed}}
+	client := Client{Runner: runner, Binary: "bd-test", Dir: "/repo"}
+
+	items, err := client.ListStatuses(context.Background(), []string{"open", "blocked", "in_progress"})
+	if err != nil {
+		t.Fatalf("ListStatuses() error = %v", err)
+	}
+	if len(items) != 2 || items[0].Status != "open" || items[1].Status != "in_progress" {
+		t.Fatalf("ListStatuses() = %#v", items)
+	}
+	wantArgs := [][]string{{"list", "--json", "--limit=0", "--status=open,blocked,in_progress"}}
+	if !reflect.DeepEqual(runner.args, wantArgs) {
+		t.Fatalf("bd args = %#v, want %#v", runner.args, wantArgs)
+	}
+
+	for _, statuses := range [][]string{nil, {"open", "--all"}, {"open,closed"}} {
+		if _, err := (Client{Runner: &fakeRunner{}}).ListStatuses(context.Background(), statuses); err == nil {
+			t.Fatalf("ListStatuses(%q) error = nil, want it refused", statuses)
+		}
+	}
+}
+
 // An old tracker that refuses --limit is read again to count its default page,
 // but that page is never handed to a caller as a complete listing. Other
 // failures are not asked twice.

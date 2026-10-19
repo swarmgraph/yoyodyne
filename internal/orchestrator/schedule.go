@@ -834,6 +834,10 @@ type Pull struct {
 	// its deadline at the next pull. A drain never reads it.
 	RedeployDrainLimit time.Duration
 	Start              Starter
+	// listings is this pull's one reading of each tracker listing it makes,
+	// shared by everything in the pull that asks (cyclelistings.go). Schedule
+	// sets it once per pull; a pull without it reads the tracker directly.
+	listings *cycleListings
 }
 
 // ScheduleOutages is the product's record of the provider answering nobody, as
@@ -2298,6 +2302,7 @@ pulling:
 			}
 			continue
 		}
+		pull = pull.sharingListings()
 		// A pull that was assembled and is not usable is a decision somebody made
 		// about the configuration rather than a reading that failed, so it stops the
 		// pass at once. Waiting out a window for a capacity of zero to become
@@ -5414,8 +5419,10 @@ func (s Scheduler) settleCarryOut(schedule *Schedule, started *Started, carried 
 // pass cannot go on without; this is only the audit's, and routing it through the
 // retry would make a held intake — which is answered from a switch and needs no
 // tracker at all — stop being answerable on a machine whose tracker is down. The
-// queue below still meets the same store and still rides it out, so a session in
-// contention behaves exactly as it did.
+// queue below is not asked again behind a failure here: the pull's listings are
+// shared (cyclelistings.go), so the queue is handed this same failure and the
+// pass treats the tracker as unreadable at once. A watch waits and reads again
+// with a new pull; a pass that is not watching stops.
 func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]beads.WorkItem, bool) {
 	if pull.Claims == nil {
 		return nil, false
@@ -6873,7 +6880,7 @@ type pulled struct {
 // consulted, and the queue below reads it for coverage. One reading serves both,
 // so a pull spawns `bd` for it once.
 func (p Pull) claimed(ctx context.Context) ([]beads.WorkItem, error) {
-	items, err := p.Tracker.List(ctx, claimedStatus)
+	items, err := p.list(ctx, claimedStatus)
 	if err != nil {
 		return nil, fmt.Errorf("list %s work items: %w", claimedStatus, err)
 	}
@@ -6888,18 +6895,22 @@ func (p Pull) claimed(ctx context.Context) ([]beads.WorkItem, error) {
 // The claimed slice is passed in rather than read here because the pull has
 // already read it for the claim audit; see Pull.claimed. Where that reading did
 // not happen — the audit's read failed, and it is reported rather than retried —
-// this makes it, because the coverage below is not optional the way the audit is
-// and a pull that skipped it would start a parent beside the child running it.
+// this asks for it, because the coverage below is not optional the way the audit
+// is and a pull that skipped it would start a parent beside the child running it.
+// In a scheduling pass the pull's shared listings answer with the audit's
+// failure rather than asking the tracker again (cyclelistings.go), so the queue
+// fails as unreadable and the session reads again after its wait, with a new
+// pull.
 func (p Pull) queue(ctx context.Context, claimed []beads.WorkItem, read bool) (pulled, error) {
 	var admitted []beads.WorkItem
 	for _, status := range scheduledStatuses {
-		items, err := p.Tracker.List(ctx, status)
+		items, err := p.list(ctx, status)
 		if err != nil {
 			return pulled{}, fmt.Errorf("list %s work items: %w", status, err)
 		}
 		admitted = append(admitted, items...)
 	}
-	ready, err := p.Tracker.Ready(ctx)
+	ready, err := p.ready(ctx)
 	if err != nil {
 		return pulled{}, fmt.Errorf("list the work items the tracker reports as ready: %w", err)
 	}
