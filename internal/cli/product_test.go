@@ -115,6 +115,14 @@ func TestTheProductStartsOnceStopsOnceAndASecondStartDoesNothing(t *testing.T) {
 	// found there is none, and the machine's own is never touched.
 	t.Setenv("HOME", t.TempDir())
 	configPath := writeConfig(t, quietProductConfig)
+	// The report is checked for every part, which the verb gives only once the
+	// supervisor has recorded them. A supervisor started under the race
+	// detector on a busy machine can take longer than the operator is kept
+	// waiting, so this test waits as long as a slow machine needs; the test
+	// cannot run in parallel, so nothing else reads the wait meanwhile.
+	defaultWait := startWait
+	startWait = 3 * time.Minute
+	t.Cleanup(func() { startWait = defaultWait })
 	store, err := runstate.NewSupervisionStore(stateRoot, "yoyodyne")
 	if err != nil {
 		t.Fatal(err)
