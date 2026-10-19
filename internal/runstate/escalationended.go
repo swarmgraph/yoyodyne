@@ -11,7 +11,8 @@ import (
 
 // EscalationEnding is the record that the development manager's escalation of a
 // run's stoppage to the operator has ended, and what ended it: the item parked,
-// retired, or closed, or the run's branch and worktree both gone.
+// retired, or closed, the run's branch and worktree both gone, or the escalation
+// giving no reason from the operator's closed list, which hands it back to her.
 type EscalationEnding struct {
 	At time.Time `json:"at"`
 	// Why is what ended it, in the words the work item was told.

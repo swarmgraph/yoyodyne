@@ -12,6 +12,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/notify"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -317,13 +318,14 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	cursors := harness.poll(t, harness.start(), notify.KindRunStarted, notify.KindChecksPassed, notify.KindBlockerRecorded)
 
 	decision := runstate.TriageDecision{
-		Decision:     runstate.TriageDecisionEscalate,
-		RunID:        stopped.RunID,
-		Reason:       "the target branch diverged from the forge; only the operator can say which history is right",
-		DecidedBy:    "development-manager",
-		Conversation: "chat-0123456789abcdef0123456789abcdef",
-		Turn:         7,
-		DecidedAt:    moment.Add(time.Hour),
+		Decision:       runstate.TriageDecisionEscalate,
+		RunID:          stopped.RunID,
+		Reason:         "the target branch diverged from the forge; only the operator can say which history is right",
+		DecidedBy:      "development-manager",
+		Conversation:   "chat-0123456789abcdef0123456789abcdef",
+		Turn:           7,
+		DecidedAt:      moment.Add(time.Hour),
+		OperatorReason: ownership.OperatorRepositorySetting,
 	}
 	if _, err := harness.runs.Triage().RecordDecision(context.Background(), stopped.WorkItemID, decision, decision.DecidedAt); err != nil {
 		t.Fatalf("RecordDecision() error = %v", err)
@@ -361,7 +363,7 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	// The development manager decides the run again: the escalation is
 	// superseded, the finding ends, and its mark is forgotten.
 	later := decision
-	later.Decision, later.DecidedAt = runstate.TriageDecisionWait, moment.Add(2*time.Hour)
+	later.Decision, later.DecidedAt, later.OperatorReason = runstate.TriageDecisionWait, moment.Add(2*time.Hour), ""
 	if _, err := harness.runs.Triage().RecordDecision(context.Background(), stopped.WorkItemID, later, later.DecidedAt); err != nil {
 		t.Fatalf("RecordDecision() error = %v", err)
 	}

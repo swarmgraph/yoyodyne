@@ -1538,3 +1538,30 @@ func TestAWaitGivesWayToTheHarnessTakingTheWorkOn(t *testing.T) {
 		t.Error("a decision the development manager makes reads as the harness taking the work on")
 	}
 }
+
+// The harness's closure handing an escalation back holds nothing, so the
+// stoppage is a question again, and it takes the place of the settlement it
+// answers and of nothing else.
+func TestAnEscalationHandedBackIsAQuestionAgain(t *testing.T) {
+	t.Parallel()
+
+	at := time.Date(2026, 10, 18, 17, 0, 0, 0, time.UTC)
+	returned := Closure{Decision: EscalationReturnedDecision, ClosedAt: at}
+	if returned.Holds(at.Add(time.Hour)) {
+		t.Fatal("the closure handing an escalation back holds, want the entry undecided again")
+	}
+	escalated := Closure{Decision: "escalate", ClosedAt: at.Add(-time.Hour)}
+	if !returned.Supersedes(escalated) {
+		t.Fatal("the closure handing an escalation back does not supersede the escalation")
+	}
+	for name, standing := range map[string]Closure{
+		"a timed wait":           {Decision: "wait", RevisitAfter: at.Add(time.Hour)},
+		"a wait on named work":   {Decision: "wait", WaitsOn: "yoyodyne-ifd.1"},
+		"the harness's own take": {Decision: ResumedDecision},
+		"an earlier hand-back":   returned,
+	} {
+		if returned.Supersedes(standing) {
+			t.Fatalf("the closure handing an escalation back supersedes %s", name)
+		}
+	}
+}

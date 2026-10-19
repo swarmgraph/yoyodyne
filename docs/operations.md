@@ -1278,7 +1278,10 @@ brake's hold becomes a fourth once it is yours:
   handed you. A later decision on the run or a later run ends it. So does the
   item being **parked**, **retired**, or **closed** by a role, or the escalated
   run's **branch and worktree both being gone**, since then there is nothing
-  left for a person to decide. `yoyo status` and the dashboard drop it as
+  left for a person to decide. So does an escalation that gives no reason from
+  your closed list, which every one recorded before the list was enforced does:
+  it was never yours, and it goes back to the development manager, whose
+  decision about the stopped run it is. `yoyo status` and the dashboard drop it as
   soon as they read that. The branch and worktree are looked for in the
   repository, never read off the run's removal flags. The next
   [`yoyo reconcile`](#recovering-interrupted-runs) writes what ended it
@@ -1288,7 +1291,11 @@ brake's hold becomes a fourth once it is yours:
   `escalation_ended`. The channel reads that record, and the sweep says
   what it ended under `escalations_ended` in `--json`. The development
   manager's docket already counts her escalation as settled and lists no
-  escalated stoppage, so nothing about the ending returns one to her. Until
+  escalated stoppage, so nothing about the ending returns one to her — except
+  the one that went back to her for giving no closed-list reason: the sweep
+  puts that stoppage back on her docket as one nobody has decided about, and
+  the note on the item says it is her decision now. Her held work on `yoyo
+  status` counts it under her. Until
   yoyodyne-ifd.428.54, parking the item and losing the change ended nothing:
   on 2026-09-28 the escalation of run-95b34031 still named you over
   yoyodyne-ifd.78 two days after the Lead Product Manager parked it, with
@@ -3394,8 +3401,10 @@ list reads which entries are on closed work the same way, and an item that
 could not be read either is listed with that said rather than taken for open
 or closed.
 It also tells the item of each escalation to you that has ended — the item
-parked, retired, or closed, or the escalated run's branch and worktree both
-gone — once, and records the ending on the run (`escalations_ended` in
+parked, retired, or closed, the escalated run's branch and worktree both
+gone, or the escalation giving no reason from your closed list, which puts the
+stoppage back on the development manager's docket — once, and records the
+ending on the run (`escalations_ended` in
 `--json`; see [where a finding that needs your hand
 goes](#where-a-finding-that-needs-your-hand-goes)).
 An unfinished publication's entry is the exception and stays, because an item

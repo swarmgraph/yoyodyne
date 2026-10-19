@@ -7,8 +7,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
 // EscalationSettlement is what the reconcile sweep did about one escalation to
@@ -106,14 +108,21 @@ func (r Reconciler) endEscalation(ctx context.Context, ending readmodel.EndedEsc
 		return settlement, true
 	}
 	defer lease.Release()
-	// Re-read under the lease: another sweep may have told the item already.
-	if state.EscalationEnded != nil {
+	// Re-read under the lease: another sweep may have told the item already. An
+	// ending recorded before the escalation was decided was an earlier one's.
+	if state.EscalationEnded != nil && !state.EscalationEnded.At.Before(ending.DecidedAt) {
 		return EscalationSettlement{}, false
 	}
 	now := r.clock().Now()
+	if ending.ReturnedTo != "" {
+		if err := r.returnEscalation(state.RunID, settlement.Why, now); err != nil {
+			settlement.Failure = err.Error()
+			return settlement, true
+		}
+	}
 	recordCtx, cancel := trackerCallContext(ctx)
 	defer cancel()
-	if _, err := r.Tracker.RecordOutcome(recordCtx, ending.WorkItemID, renderEscalationEnded(state.RunID, settlement.Why)); err != nil {
+	if _, err := r.Tracker.RecordOutcome(recordCtx, ending.WorkItemID, renderEscalationEnded(state.RunID, settlement.Why, ending.ReturnedTo)); err != nil {
 		settlement.Failure = fmt.Sprintf("the escalation of run %s to the operator has ended and %s could not be told so: %v", state.RunID, ending.WorkItemID, err)
 		return settlement, true
 	}
@@ -125,11 +134,59 @@ func (r Reconciler) endEscalation(ctx context.Context, ending readmodel.EndedEsc
 	return settlement, true
 }
 
+// returnEscalation puts a stoppage whose escalation went back to the
+// development manager on her docket again: each of the run's entries the
+// escalation settled is answered by a closure that holds nothing, so the next
+// build lists it as undecided. An entry already put back, or settled since by
+// anything but the escalation, is left as it is, which is what makes a second
+// sweep after a failed note harmless.
+func (r Reconciler) returnEscalation(runID, why string, now time.Time) error {
+	if r.Docket.Docket == nil {
+		return fmt.Errorf("the escalation of run %s goes back to the development manager and no docket was wired to put it back on, so the next sweep will try again", runID)
+	}
+	entries, err := r.Docket.Docket.List()
+	if err != nil {
+		return fmt.Errorf("read the docket to put run %s back in front of the development manager: %w", runID, err)
+	}
+	for _, entry := range entries {
+		if strings.TrimSpace(entry.RunID) != runID || entry.Closed == nil ||
+			strings.TrimSpace(entry.Closed.Decision) != runstate.TriageDecisionEscalate || !entry.Closed.Holds(now) {
+			continue
+		}
+		// Strictly after the escalation, so the docket reads this as the closure
+		// standing over the entry rather than one made at the same moment.
+		returnedAt := now
+		if !returnedAt.After(entry.Closed.ClosedAt) {
+			returnedAt = entry.Closed.ClosedAt.Add(time.Second)
+		}
+		if _, err := r.Docket.Docket.Close(triage.Closure{
+			SchemaVersion: triage.ClosureSchemaVersion,
+			Key:           entry.Key,
+			ProductID:     entry.ProductID,
+			RunID:         entry.RunID,
+			WorkItemID:    entry.WorkItemID,
+			Decision:      triage.EscalationReturnedDecision,
+			Reason:        singleLine(fmt.Sprintf("%s escalated this to the operator at %s: %s; it goes back to her because %s", strings.TrimSpace(entry.Closed.DecidedBy), entry.Closed.ClosedAt.UTC().Format(time.RFC3339), strings.TrimSpace(entry.Closed.Reason), why), triage.MaxMessageBytes),
+			DecidedBy:     "the harness, finding the escalation gave the operator no reason from his closed list",
+			ClosedAt:      returnedAt,
+		}); err != nil {
+			return fmt.Errorf("put the %s entry of run %s back in front of the development manager: %w", entry.Class, runID, err)
+		}
+	}
+	return nil
+}
+
 // renderEscalationEnded is what the item is told: which escalation ended, what
-// ended it, and that nothing of it waits on the operator any more.
-func renderEscalationEnded(runID, why string) string {
-	return strings.Join([]string{
+// ended it, that nothing of it waits on the operator any more, and, where it
+// went back to a role, that the role decides it now.
+func renderEscalationEnded(runID, why string, returnedTo readmodel.Mover) string {
+	lines := []string{
 		fmt.Sprintf("The development manager's escalation of run %s to the operator has ended: %s.", runID, strings.TrimSuffix(why, ".")),
 		"Nothing about it waits on the operator any more, so `yoyo status`, the dashboard, and the channel no longer name it as needing the operator's hand. The escalation itself stays recorded on the triage record as the decision that was made.",
-	}, "\n")
+	}
+	if returnedTo != "" {
+		lines = append(lines, fmt.Sprintf("It is %s decision now: the stopped run is back on the %s's triage docket as one nobody has decided about, and she may decide it again — a repair, a re-run, a wait, an escalation to the Lead Product Manager or the architect, or one to the operator for a reason on his closed list.",
+			returnedTo.Possessive(), domain.AgentRole(returnedTo).Title()))
+	}
+	return strings.Join(lines, "\n")
 }
