@@ -5419,8 +5419,10 @@ func (s Scheduler) settleCarryOut(schedule *Schedule, started *Started, carried 
 // pass cannot go on without; this is only the audit's, and routing it through the
 // retry would make a held intake — which is answered from a switch and needs no
 // tracker at all — stop being answerable on a machine whose tracker is down. The
-// queue below still meets the same store and still rides it out, so a session in
-// contention behaves exactly as it did.
+// queue below is not asked again behind a failure here: the pull's listings are
+// shared (cyclelistings.go), so the queue is handed this same failure and the
+// pass treats the tracker as unreadable at once. A watch waits and reads again
+// with a new pull; a pass that is not watching stops.
 func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]beads.WorkItem, bool) {
 	if pull.Claims == nil {
 		return nil, false
