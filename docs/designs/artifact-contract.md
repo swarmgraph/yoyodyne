@@ -34,6 +34,10 @@ revisions:
       by: architect
       at: 2026-10-15T18:27:59.222309Z
       reason: 'Answers the reviewer''s refusal on pull request #1295 (report-4b5da912), whose finding still applies to the copy that later landed through pull request #1296. Points 5 and 6 now say what the publication code does, read at 1ca86a02. Only a copy found changed when the run''s checkout is cut is held for the development manager. A failing check, a refusing reviewer, a conflict found while landing, and a file a document run may not write each return to the writer, and runs stopped for reasons outside the work are tried at most three times before the development manager decides. The enforced list names both rules.'
+    - action: amended
+      by: architect
+      at: 2026-10-19T04:42:29.50717Z
+      reason: 'Approved proposals amendment-8f47877a and amendment-4154b71c: point 3 now covers every kind the Lead Product Manager owns, created or revised. A document she marks consistent with intent, with its directing work item opening its reason, is confirmed under the authority the operator gave her on 2026-09-26 and recorded as her approval. One she marks as a change of fundamental intent always waits for the operator. With neither mark, the brief and goals still wait for the operator and the other three kinds follow their approval policy. The enforced list and the closing line follow. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 4
@@ -50,6 +54,11 @@ approvals:
       by: harness
       at: 2026-10-15T18:27:59.222309Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1030, for document-1030.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 7
+      by: harness
+      at: 2026-10-19T04:42:29.50717Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1253, for document-1253.1 under the automatic approval policy
 ---
 # The artifact contract: specification shape and identity
 
@@ -90,7 +99,12 @@ The Lead Product Manager's role key in configuration and revision logs is `produ
 
 1. **Written by its owner.** A role writes a document only of a kind it owns, whole, as a typed write from its conversation. The harness generates the frontmatter and records the revision under the owning role. Any other role proposes an amendment to the owner and waits.
 2. **Checked before it is recorded.** The body is checked for a coined word or joined word the register of terms does not define, and for a link to a file or heading that is not there. Either refuses the write back to the writer in the same message, naming each one and its line; nothing is recorded.
-3. **Confirmed as its kind's approval policy says.** Where the policy is automatic, the harness confirms the revision without asking the operator and records the policy that confirmed it. Otherwise the operator approves it with the harness's approve command, recorded against that revision; an approval is never recorded by editing a document by hand. A revision of the brief or goals needs the operator's approval unless the Lead Product Manager records it as consistent with intent, with the directing work item opening its reason.
+3. **Confirmed as its kind's approval policy says.** Where the policy is automatic, the harness confirms the revision without asking the operator and records the policy that confirmed it. Otherwise the operator approves it with the harness's approve command, recorded against that revision; an approval is never recorded by editing a document by hand. A document of a kind the Lead Product Manager owns — a brief, goals, non-goals, rules, or guidance — is confirmed by what she records about its intent, whether she is creating it or revising it:
+   - **Consistent with intent**, with the work item directing it opening its reason: the harness confirms it under the authority the operator gave her on 2026-09-26, without asking him, and records the approval as hers, never as the operator's.
+   - **A change of fundamental intent**: it waits for the operator's approval, whatever its kind's approval policy says.
+   - **Neither recorded**: a brief or goals waits for the operator's approval; a non-goals, rules, or guidance document is confirmed as its kind's approval policy says.
+
+   A change is consistent with intent when the goals, after it, admit and refuse exactly the work they admitted and refused before. Whether a change meets that is hers to decide and record; a change that adds, removes, or narrows a goal never does.
 4. **Landed through a run of its own.** A confirmed or approved document lands through a run that changes exactly that file and nothing else. The project's declared checks for documents run on it, or every configured check where it declares none, and an independent reviewer judges it before it is integrated the way any change is, through the pull request and the merge queue where those are enabled. No developer rewrites it.
 5. **Returned to its writer when the document fails.** The findings go back to the conversation that wrote the document when its run's checks fail, when its reviewer refuses it, or when its change conflicts with the target branch while it is being landed onto a target branch that has moved since the run began; a conflict names the conflicting paths. A document that would change a file a document run may not write is refused and returned the same way. Revising it there opens a fresh run. After three returned runs for one document in one conversation, automatic publication of it stops and the writer revises its plan. A run stopped by something outside the work, such as the machine being busy, is not a return: the same text is tried again, up to three runs in all, and if the last of those stops the same way it is held for the development manager to decide.
 6. **Held for the development manager when the target branch's copy changed before the run began.** When a run's checkout is cut from the target branch, the harness compares the document there with the copy its text was written against. If they differ, the run stops before anything is committed, the harness does not start it again on its own, and it is held for the development manager; its record names the document, the commit the text was written against, and the commit the target branch has now. She either retries it or retires it. A retry starts a fresh run of the same text and closes the earlier run's pull request; it is refused before any run starts when the target branch already carries a later confirmed revision of the same document, and the refusal names that revision and when it was confirmed. Retiring closes the run's pull request and lands nothing. Whatever the writer still has to say is a fresh revision written from the target branch's copy. Only this check holds a run for the development manager: a conflict found later, while the change is being landed, is a return under point 5.
@@ -106,7 +120,7 @@ Enforced in code, whatever a configuration or a role's instructions say:
 
 - the kind list above, and the owner of each kind; a write of a kind the writer does not own is refused;
 - the word and link checks, before anything is recorded;
-- confirmation by the kind's approval policy, and the operator's approval for the brief and goals unless consistency is recorded with its directing item;
+- confirmation by the kind's approval policy, and, for a document of a kind the Lead Product Manager owns, the three cases of point 3: confirmation under her authority only where she recorded it consistent with intent and its directing work item opens its reason, recorded as her approval and never as the operator's; the operator's approval wherever she recorded a change of fundamental intent; and the operator's approval for a brief or goals where she recorded neither;
 - that a landing run changes only the one document;
 - that a failing check, a refusing reviewer, a conflict found while landing, and a file a document run may not write each return the document to its writer, a conflict naming its paths;
 - the bound on documents waiting to land, and the stop after three returned runs;
@@ -114,4 +128,4 @@ Enforced in code, whatever a configuration or a role's instructions say:
 - that a run whose document's copy on the target branch changed before its checkout was cut stops before anything is committed and is not started again by the harness, and that a retry of it is refused when the target branch already carries a later confirmed revision of the same document;
 - that runs refuse to start over an uncommitted document in an artifact home.
 
-Left to the roles: what a document says, and whether a revision of the brief or goals is consistent with intent, which the Lead Product Manager decides and records.
+Left to the roles: what a document says, and whether a document of a kind the Lead Product Manager owns is consistent with intent, which she decides and records.
