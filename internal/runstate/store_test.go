@@ -1429,8 +1429,14 @@ func TestAdoptWaitsOutALeaseNobodyHoldsAnyMore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Adopt() error = %v, want the run adopted once the phantom lock went away", err)
 	}
-	if waits != 1 {
-		t.Fatalf("Adopt() found the lock held %d times, want once: the phantom it waited out", waits)
+	// Once is the stand-in this test made. It can be more: the stand-in's
+	// descriptor is copied into every process another test in this binary forks
+	// while it is open, and each copy holds the lock until its process starts
+	// its program, which on a loaded machine can be a while after the stand-in
+	// is closed. That is the very phantom adoption waits out, so it is counted
+	// as one, not refused as a second.
+	if waits < 1 {
+		t.Fatalf("Adopt() found the lock held %d times, want at least once: the phantom it waited out", waits)
 	}
 	if adopted.RunID != state.RunID {
 		t.Fatalf("Adopt() = %q, want %q", adopted.RunID, state.RunID)

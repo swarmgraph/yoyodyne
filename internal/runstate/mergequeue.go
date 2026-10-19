@@ -72,10 +72,6 @@ const (
 	mergeQueueRecordLock  = "queue.lock"
 	mergeQueueWorkerLease = "worker.lock"
 	mergeQueueWorkerLabel = "merge queue worker"
-	// mergeQueueRecordWait bounds the wait for the record's lock. What holds it
-	// is another process's read, one small write, and a readback, so the bound
-	// is there for a holder that is wedged rather than for one that is working.
-	mergeQueueRecordWait = 30 * time.Second
 )
 
 var mergeQueueEntryIDPattern = regexp.MustCompile(`^mqe-[a-f0-9]{32}$`)
@@ -637,6 +633,12 @@ func (s *MergeQueueStore) openQueue(key MergeQueueKey) (*repowrite.PinnedRoot, e
 
 // lockQueue pins a queue's directory and takes its record lock, which is held
 // only for one admission's read, write, and readback.
+//
+// The lock is waited for until ctx ends, with no time limit of its own. A limit
+// turned a busy machine into an approved change that failed to join the queue.
+// What holds the lock is another process's read, one small write, and a
+// readback, and a holder that dies lets go with it, because the kernel drops a
+// dead process's locks, so the wait ends once the machine gets round to it.
 func (s *MergeQueueStore) lockQueue(ctx context.Context, key MergeQueueKey) (*repowrite.PinnedRoot, func(), error) {
 	queueRoot, err := s.openQueue(key)
 	if err != nil {
@@ -647,9 +649,7 @@ func (s *MergeQueueStore) lockQueue(ctx context.Context, key MergeQueueKey) (*re
 		queueRoot.Close()
 		return nil, nil, fmt.Errorf("open the merge queue lock for %s: %w", key.TargetBranch, err)
 	}
-	waitCtx, cancel := context.WithTimeout(ctx, mergeQueueRecordWait)
-	defer cancel()
-	if err := lockStateFile(waitCtx, file); err != nil {
+	if err := lockStateFile(ctx, file); err != nil {
 		file.Close()
 		queueRoot.Close()
 		return nil, nil, fmt.Errorf("lock the merge queue for %s: %w", key.TargetBranch, err)

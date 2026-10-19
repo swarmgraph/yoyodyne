@@ -85,6 +85,55 @@ func TestConcurrentAdmissionsEachGetOneOrderAndKeepIt(t *testing.T) {
 	}
 }
 
+// slowLockHolder is how long the tests of a slow lock holder hold a lock: past
+// the thirty seconds these waits were once limited to, so a limit brought back
+// fails them rather than passing unnoticed.
+const slowLockHolder = 35 * time.Second
+
+// An admission made while another process holds the queue's lock waits for the
+// lock to be let go, however long that is, and is then admitted: a busy machine
+// delays an approved change joining the queue but never refuses it.
+func TestASlowHolderOfTheQueueDelaysAnAdmissionWithoutFailingIt(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	_, unlock, err := newMergeQueueStore(t, root).lockQueue(t.Context(), mainQueue)
+	if err != nil {
+		t.Fatalf("lockQueue() error = %v", err)
+	}
+	type admitted struct {
+		entry MergeQueueEntry
+		err   error
+		at    time.Time
+	}
+	done := make(chan admitted, 1)
+	asked := testAdmission(t, mainQueue)
+	go func() {
+		entry, _, err := newMergeQueueStore(t, root).Admit(context.Background(), asked)
+		done <- admitted{entry: entry, err: err, at: time.Now()}
+	}()
+	select {
+	case early := <-done:
+		unlock()
+		t.Fatalf("Admit() returned (%v) while the queue's lock was held", early.err)
+	case <-time.After(slowLockHolder):
+	}
+	let := time.Now()
+	unlock()
+	var got admitted
+	select {
+	case got = <-done:
+	case <-time.After(2 * time.Minute):
+		t.Fatal("Admit() never returned once the queue's lock was let go")
+	}
+	if got.err != nil || got.entry.RunID != asked.RunID || got.entry.Order != 1 {
+		t.Fatalf("Admit() = %#v, %v; want the change admitted first once the lock was let go", got.entry, got.err)
+	}
+	if got.at.Before(let) {
+		t.Fatal("Admit() returned before the queue's lock was let go")
+	}
+}
+
 func TestRepeatedAdmissionIsTheEntryAlreadyThere(t *testing.T) {
 	t.Parallel()
 

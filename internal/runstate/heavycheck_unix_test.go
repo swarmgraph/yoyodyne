@@ -34,7 +34,11 @@ func newHeavyCheckStoreForTest(t *testing.T) *HeavyCheckStore {
 		t.Fatal(err)
 	}
 	store.poll = 10 * time.Millisecond
-	store.cleanupWait = 300 * time.Millisecond
+	// The watch for a check's last processes is the harness's own: a process
+	// another test forks carries a copy of a permit's file until it starts its
+	// program, and a shorter watch on a loaded machine can end before that
+	// copy goes, leaving a check that ended cleanly holding its place.
+	store.cleanupWait = heavyCheckCleanupWait
 	return store
 }
 
@@ -49,11 +53,14 @@ func heavyAsk(run, command string, limit int, priority domain.HeavyCheckPriority
 // file, writes it down through the grant, and lets go of this process's copy
 // of the file, as a gated launch does. Like a gated launch, the script does
 // nothing until it has been written down: it waits for a file the test makes
-// only then, for at most five seconds.
+// only then. The wait is bounded by the clock rather than by a count of short
+// sleeps, so a loaded machine slow to write the launch down never lets the
+// script start early, and it ends by itself within sixty seconds however the
+// test ends.
 func launchHeld(t *testing.T, grant *HeavyCheckGrant, script string) *exec.Cmd {
 	t.Helper()
 	open := filepath.Join(t.TempDir(), "open")
-	gated := "i=0; while [ ! -e '" + open + "' ] && [ $i -lt 500 ]; do sleep 0.01; i=$((i+1)); done; " + script
+	gated := "end=$(( $(date +%s) + 60 )); while [ ! -e '" + open + "' ] && [ \"$(date +%s)\" -lt \"$end\" ]; do sleep 0.05; done; " + script
 	command := exec.Command("/bin/sh", "-c", gated)
 	command.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	command.ExtraFiles = []*os.File{grant.Hold()}
@@ -288,7 +295,10 @@ func TestARunningCheckKeepsItsPlaceAcrossARestartAndIsNotStartedTwice(t *testing
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
 	marker := filepath.Join(t.TempDir(), "starts")
-	command := launchHeld(t, grant, "echo started >> '"+marker+"'; sleep 0.8")
+	// The check runs until the test has seen both runs waiting behind it, not
+	// for a fixed while a loaded machine could outlast before they ask.
+	held, release := heldUntil(t)
+	command := launchHeld(t, grant, "echo started >> '"+marker+"'; "+held)
 	// The harness dies here: nothing it would have recorded is, and the check
 	// goes on without it. The restarted harness is a new store over the same
 	// record.
@@ -307,6 +317,7 @@ func TestARunningCheckKeepsItsPlaceAcrossARestartAndIsNotStartedTwice(t *testing
 	other, otherWaiting, otherFailed := acquireLater(restarted, heavyAsk("run-b", "make race", 1, domain.HeavyCheckOrdinary))
 	expectWaiting(t, otherWaiting, otherFailed)
 	expectStillWaiting(t, again, againFailed)
+	release()
 	_ = command.Wait()
 	// The run's own new launch and the other run's are let start one at a
 	// time, in the order they asked, once the first launch is gone.
@@ -427,11 +438,10 @@ func TestManyRunsAtOnceNeverRunMoreThanTheirPlaces(t *testing.T) {
 	// the whole suite spend most of their time queued for its lock, so this
 	// test reads it less often and allows minutes: what it proves is the
 	// bound and that everything finishes, not how fast. The waiting runs' reads
-	// share that lock with a started check writing its process down, which
-	// waits at most thirty seconds for it, so they read seldom enough to leave
-	// it free under the race detector beside the whole suite. A read every
-	// quarter second still starved it there, so they read once a second.
-	store.poll = time.Second
+	// share that lock with a started check writing its process down and its end,
+	// which wait for it as long as it takes, as the harness's own do; reading
+	// once a second, as the harness does, keeps that wait short.
+	store.poll = heavyCheckPoll
 
 	var running, most atomic.Int32
 	var wait sync.WaitGroup
@@ -483,6 +493,61 @@ func TestManyRunsAtOnceNeverRunMoreThanTheirPlaces(t *testing.T) {
 	}
 }
 
+// A check given its place and started while something else holds the record's
+// lock waits for the lock to be let go, however long that is, and then runs:
+// a busy machine delays a check run but never fails it before it starts.
+func TestASlowHolderOfTheRecordDelaysAStartingCheckWithoutFailingIt(t *testing.T) {
+	t.Parallel()
+	store := newHeavyCheckStoreForTest(t)
+
+	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
+	holder, err := store.open(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	type ran struct {
+		result execution.ProcessResult
+		err    error
+		at     time.Time
+	}
+	done := make(chan ran, 1)
+	go func() {
+		result, err := execution.OSProcessRunner{}.Run(context.Background(), execution.Command{
+			Name: "/bin/sh", Args: []string{"-c", "exit 0"}, Dir: t.TempDir(), Timeout: time.Minute,
+			Gate: &execution.LaunchGate{Hold: grant.Hold(), Register: grant.Register},
+		}, nil)
+		done <- ran{result: result, err: err, at: time.Now()}
+	}()
+	// The check is started and waiting to be written down for as long as the
+	// lock is held; it neither runs nor fails meanwhile.
+	select {
+	case early := <-done:
+		holder.close()
+		t.Fatalf("the check ended (%v, %v) while the record's lock was held", early.result.Status, early.err)
+	case <-time.After(slowLockHolder):
+	}
+	let := time.Now()
+	holder.close()
+	var finished ran
+	select {
+	case finished = <-done:
+	case <-time.After(2 * time.Minute):
+		t.Fatal("the check never ran once the record's lock was let go")
+	}
+	if finished.err != nil || finished.result.Status != execution.ProcessSucceeded {
+		t.Fatalf("Run() = %v, %v; want the check run once the lock was let go", finished.result.Status, finished.err)
+	}
+	if finished.at.Before(let) {
+		t.Fatal("the check ended before the record's lock was let go")
+	}
+	if _, err := grant.Finish("succeeded, exit code 0"); err != nil {
+		t.Fatal(err)
+	}
+	if registered, _ := recordOf(t, store).Permit(grant.Permit.ID); registered.LaunchedAt == nil || registered.LaunchedAt.Before(let) {
+		t.Fatalf("permit = %#v, want the launch written down once the lock was let go", registered)
+	}
+}
+
 // A machine restarted since a check started has none of its processes left.
 func TestACheckFromBeforeTheMachineRestartedIsReleased(t *testing.T) {
 	t.Parallel()
@@ -490,8 +555,11 @@ func TestACheckFromBeforeTheMachineRestartedIsReleased(t *testing.T) {
 	store.boot = func() string { return "boot-1" }
 
 	grant := acquireSoon(t, store, heavyAsk("run-a", "make race", 1, domain.HeavyCheckOrdinary))
-	command := launchHeld(t, grant, "sleep 0.5")
-	defer func() { _ = command.Wait() }()
+	// The check is still running when the record is read after the restart,
+	// however slowly the machine gets there: the boot alone is what releases it.
+	held, release := heldUntil(t)
+	command := launchHeld(t, grant, held)
+	defer func() { release(); _ = command.Wait() }()
 	store.boot = func() string { return "boot-2" }
 	settled, err := store.Settle(context.Background())
 	if err != nil {

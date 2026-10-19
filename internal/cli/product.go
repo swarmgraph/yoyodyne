@@ -64,7 +64,9 @@ import (
 // its first look, which is immediate, but the sink's start asks the keychain
 // and a keychain that prompts can take a while; past this the verb says the
 // supervisor is still bringing the parts up and where to read how they stand.
-const startWait = 15 * time.Second
+// It is a variable only so the test of the verb's whole report can wait past
+// it for a supervisor a loaded machine is slow to start; nothing else sets it.
+var startWait = 15 * time.Second
 
 // schedulerLogFile is where the supervised scheduler says what it is doing,
 // beside the watch log it writes its transitions to.

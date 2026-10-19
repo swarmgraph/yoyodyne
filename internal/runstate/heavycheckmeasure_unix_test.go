@@ -88,7 +88,7 @@ func TestAHeavyCheckReleasedBeforeItFinishesIsStillMeasuredToItsExit(t *testing.
 	_ = command.Wait()
 	// The next request for a place settles the record first, and finds every
 	// process of this check gone.
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(time.Minute)
 	for {
 		record, err := store.Settle(t.Context())
 		if err != nil {
