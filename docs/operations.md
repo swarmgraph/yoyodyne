@@ -2482,6 +2482,22 @@ the queue keep the retry they already had — read again for up to five minutes,
 and a conversation's calls keep
 [theirs](#the-read-a-dispatch-makes-before-there-is-a-run).
 
+**The clean-up is the exception, and says so the first time.** `yoyo reconcile`,
+which every maintenance pass runs, needs to know which work items are closed
+for two of its steps: checking runs recorded as merged against their target
+branch, and closing the docket entries of closed items. It reads the tracker's
+closed work once for the sweep and both steps use that reading; a reading that
+failed is not kept, so the second step asks again. A step that still cannot
+read it does nothing of what it needed it for, and the sweep ends failed, so
+the maintenance pass's record says `read which work items are closed to …`
+with the tracker's own words. The pass is raised as a finding only after three
+such failures in a row, so the sweep also files a report for the development
+manager on the first one, naming what the tracker said, including which
+commands held the store. While that report is unhandled, later failures file
+nothing more; once she has handled it, the next failure files a new one.
+[The diagnosis](diagnoses/yoyodyne-ifd-428-99-11-clean-up-closed-items-read.md)
+records the two failures this was written for.
+
 **`yoyo status` says since when.** Every listing the harness's own tracker
 client makes writes how it ended to `tracker-listings.json` under the product's
 state: the moment the first listing failed after the last one that answered,
@@ -3897,7 +3913,9 @@ every run recorded as merged — ended succeeded, its promotion recorded, nothin
 retiring it, no merge still queued — whose work item is still open, where the
 change could only be on the remote: a landing through the pull request, or a
 request the record says the forge merged. Which items are still open is read
-with one listing of the tracker's closed work per sweep, not one read per run.
+with one listing of the tracker's closed work per sweep, not one read per run,
+and the step that closes the docket entries of closed items reads the same
+listing rather than asking again.
 A run whose commit, or its pull
 request's merge commit, is there is left alone. One whose change is not there
 has the disagreement written on its record and is put once on the development

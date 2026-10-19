@@ -240,6 +240,10 @@ type Reconciler struct {
 	// how long the forge took, so a pass can say it. Optional: a sweep wired
 	// without it asks exactly the same questions and tallies nothing.
 	Forge *ForgeQuestions
+	// ClosedListing is the one reading of the tracker's closed work this sweep's
+	// steps share (closedlisting.go). Optional: a sweep wired without it lists
+	// the closed work through Tracker each time a step needs it.
+	ClosedListing *ClosedListing
 }
 
 // DefaultVanishedGrace is how long a run the harness stopped on time is left
