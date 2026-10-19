@@ -363,7 +363,7 @@ func TestAnEscalatedStoppageIsSaidToTheOperatorOnce(t *testing.T) {
 	// The development manager decides the run again: the escalation is
 	// superseded, the finding ends, and its mark is forgotten.
 	later := decision
-	later.Decision, later.DecidedAt = runstate.TriageDecisionWait, moment.Add(2*time.Hour)
+	later.Decision, later.DecidedAt, later.OperatorReason = runstate.TriageDecisionWait, moment.Add(2*time.Hour), ""
 	if _, err := harness.runs.Triage().RecordDecision(context.Background(), stopped.WorkItemID, later, later.DecidedAt); err != nil {
 		t.Fatalf("RecordDecision() error = %v", err)
 	}
