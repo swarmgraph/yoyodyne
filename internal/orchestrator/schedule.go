@@ -1008,6 +1008,12 @@ type Started struct {
 	// triage record where it outlives this pass.
 	Declined string `json:"declined,omitempty"`
 	Failure  string `json:"failure,omitempty"`
+	// NoteProblem is a run that paused and made its pause durable, and whose note
+	// saying so on its work item could not be written (PauseNoteError). It is not
+	// a Failure: the run is exactly as paused and resumable as one whose note was
+	// written, so it counts toward nothing the brake counts, and the failed write
+	// is said here instead so the item going quiet is still explained.
+	NoteProblem string `json:"note_problem,omitempty"`
 	// Probe marks the run the brake started under its own hold to find out
 	// whether the line is fine. It is on the record because what became of it
 	// decided the hold, and a reader of the schedule has to be able to see which
@@ -1806,17 +1812,23 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			// the brake on 2026-09-19 were of this class, all three on 2026-09-21
 			// were the one diverged target, and a brake tripped on them summons a
 			// decision about a change nobody judged.
+		case started.stoppedOutsideTheWork():
+			// The run's record names a stop cause outside the work — a move to a
+			// new build, a login the provider refused, the harness's own process
+			// going away. It is a verdict on nothing for the reason the
+			// environment's stops are, and neither counts nor clears.
 		case started.Readopted != "" && unstartedAttempt(*started):
 			// A re-adoption that never reached the run says nothing about the
 			// machine either, and is tried again at the next pull.
+		case started.Outcome.Paused:
+			// A paused run is owed a continuation rather than having failed, and
+			// that holds whether or not the note saying so reached its item.
 		case started.blockedRun():
 			blockedInARow++
 			if blockedInARow > schedule.BlockedInARow {
 				schedule.BlockedInARow = blockedInARow
 			}
 			storm = append(storm, started.blockedEntry())
-		case started.Outcome.Paused:
-			// A parked run is owed a continuation rather than having failed.
 		default:
 			blockedInARow = 0
 			storm = nil
@@ -4016,10 +4028,10 @@ const (
 // harness did not place, and nothing here revises a record it did not write.
 //
 // A probe another process recorded in flight and no process is running is a
-// session that died holding it. It is settled here as a probe that ended
-// without a record, which restarts the cooldown rather than starting a second
-// probe on the spot: the ending is unknown, and an unknown ending is not a
-// landing.
+// session that died holding it — a harness restart, most often. It is settled
+// here as a probe that ended without a record, which is not a landing and not a
+// blocking: the session going away is a stop from outside the work, so it is
+// not a cycle and the next probe is due at once rather than a cooldown later.
 //
 // While a summons of hers is being taken, or waits for her conversation, the
 // cooldown running out probes nothing: the summons is how she is asked, and a
@@ -4075,7 +4087,9 @@ func (s Scheduler) workBrake(schedule *Schedule, pull Pull, hold runstate.Intake
 }
 
 // settleLostProbe closes a probe whose session died before its ending was
-// written: the record says a probe is in flight, and nothing is running it.
+// written: the record says a probe is in flight, and nothing is running it. The
+// session that is reading it is the cause having cleared, so the next probe is
+// due now.
 func (s Scheduler) settleLostProbe(schedule *Schedule, pull Pull, now time.Time) {
 	if _, err := pull.Brake.ReviseBrake(func(trip *runstate.IntakeBrake) error {
 		if trip.Probe == nil || !trip.Probe.InFlight() {
@@ -4083,8 +4097,8 @@ func (s Scheduler) settleLostProbe(schedule *Schedule, pull Pull, now time.Time)
 		}
 		ended := now
 		trip.Probe.EndedAt = &ended
-		trip.Probe.Reason = "its ending was never recorded, and no run of it is in flight; the session that started it died holding it"
-		trip.CooldownEndsAt = now.Add(pull.BrakeCooldown)
+		trip.Probe.Reason = "its ending was never recorded, and no run of it is in flight; the session that started it went away holding it, which decides nothing about the line, so another probe starts now"
+		trip.CooldownEndsAt = now
 		return nil
 	}); err != nil {
 		schedule.BrakeProblem = appendProblem(schedule.BrakeProblem, fmt.Sprintf(
@@ -4231,6 +4245,20 @@ func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, firings 
 			return
 		}
 		s.summon(ctx, schedule, firings, brake, summons, revised)
+	case started.endedOutsideTheWork():
+		// Something outside the work stopped the probe — a move to a new build, a
+		// login the provider refused, the environment — so it says nothing about
+		// whether the line is fine, and the hold is not kept a whole cooldown on
+		// it. The next probe is due at once, and starts at the first poll that can
+		// start anything: the gates read before the hold (a provider answering
+		// nobody, a usage window, the machine refusing runs) are what hold it until
+		// the cause has cleared.
+		revise("the probe's ending", func(trip *runstate.IntakeBrake) {
+			trip.Probe.EndedAt = &now
+			trip.Probe.RunID = started.Outcome.RunID
+			trip.Probe.Reason = runstate.BoundBrakeText("it was stopped by something outside the work, which decides nothing about the line, so another probe starts once that has cleared: " + started.ending())
+			trip.CooldownEndsAt = now
+		})
 	default:
 		revise("the probe's ending", func(trip *runstate.IntakeBrake) {
 			trip.Probe.EndedAt = &now
@@ -5490,8 +5518,46 @@ func priceRun(spend ScheduleSpend, outcome Outcome) (float64, string) {
 // blockedRun reports a run that ended without getting its work anywhere: it
 // failed outright, or it stopped on a durable blocker. Both are the storm the
 // brake counts, and neither is a run somebody is owed a continuation of.
+//
+// A paused run is never one, whatever else came back with it: it is owed a
+// continuation. Nor is a run whose record names a stop cause outside the work —
+// a move to a new build, a provider that refused the login, the harness's own
+// process going away — because the brake counts verdicts on a change, and
+// those are verdicts on nothing. The cause is the one the run recorded where it
+// stopped (runstate.StopSideOf), read rather than decided again here.
 func (s Started) blockedRun() bool {
+	if s.Outcome.Paused || s.stoppedOutsideTheWork() {
+		return false
+	}
 	return s.Failure != "" || s.Outcome.Blocked
+}
+
+// stoppedOutsideTheWork reports a run whose record names a stop cause that is
+// outside the work. A record that names no cause, or names it unknown, is not
+// read as one: a cause nobody recorded is not guessed in either direction.
+func (s Started) stoppedOutsideTheWork() bool {
+	class := s.Outcome.StopClass
+	if class == "" || class == runstate.StopUnknown {
+		return false
+	}
+	return runstate.StopSideOf(class) == runstate.StopSideOutside
+}
+
+// endedOutsideTheWork reports a run something outside the work ended or put
+// down: the environment, the provider turning it away, a stop cause outside the
+// work on its record, or a pause for the session's own move to a new build, for
+// the provider being stopped on time, or for a provider nobody is logged into or
+// nobody can reach. It is what a probe ending this way is read as — not a
+// blocking, and not a reason to wait a whole cooldown for the next probe either.
+func (s Started) endedOutsideTheWork() bool {
+	if s.environmental || s.providerAway() || s.stoppedOutsideTheWork() {
+		return true
+	}
+	if !s.Outcome.Paused {
+		return false
+	}
+	_, outage := runstate.PausedForProviderOutage(s.Outcome.PauseCause)
+	return s.Outcome.RedeployStop != nil || s.Outcome.ProviderStop != "" || outage
 }
 
 // providerAway reports a start the provider turned away before any run was
@@ -6633,7 +6699,10 @@ func (s *Started) record(done completed) {
 	}
 	var capacity runstate.CapacityError
 	var existing ExistingRunError
+	var note PauseNoteError
 	switch {
+	case done.outcome.Paused && errors.As(done.err, &note):
+		s.NoteProblem = done.err.Error()
 	case errors.As(done.err, &capacity) && capacity.Landings:
 		s.Declined = fmt.Sprintf("the last free document landing went to another document before this one was reserved (%d landing, limit %d)",
 			capacity.Active, capacity.Limit)
@@ -7020,6 +7089,9 @@ func (s Schedule) Render() string {
 		}
 		if started.Failure != "" {
 			fmt.Fprintf(&rendered, "  failed: %s\n", started.Failure)
+		}
+		if started.NoteProblem != "" {
+			fmt.Fprintf(&rendered, "  the run is paused and resumable, and the note saying so on its work item could not be written: %s\n", started.NoteProblem)
 		}
 	}
 	for _, deferred := range s.Deferred {
