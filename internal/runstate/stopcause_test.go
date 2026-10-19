@@ -84,6 +84,44 @@ func TestAStopCauseIsReadFromTheRunRecord(t *testing.T) {
 	}
 }
 
+// Every cause the run record can print is sorted by name, so none of them
+// reaches the default; a cause this build has never heard of is sorted as about
+// the work and said to be unrecognised.
+func TestEveryStopCauseIsSortedByNameAndAnUnrecognisedOneIsAboutTheWork(t *testing.T) {
+	t.Parallel()
+
+	for _, class := range StopClasses() {
+		if !StopRecognised(class) {
+			t.Errorf("stop cause %q is sorted by the default rather than by name", class)
+		}
+	}
+	invented := StopClass("a-cause-from-a-newer-build")
+	if StopRecognised(invented) || StopSideOf(invented) != StopSideWork {
+		t.Errorf("an invented cause is recognised = %t, sorted %s, want unrecognised and about the work", StopRecognised(invented), StopSideOf(invented))
+	}
+}
+
+// The hold on new work leaves out only the causes outside the work and the
+// cancellations. The harness's own failures around a run, a record that names
+// no cause, and an unrecognised cause are counted.
+func TestTheHoldKeepsOutOnlyOutsideCausesAndCancellations(t *testing.T) {
+	t.Parallel()
+
+	for class, want := range map[StopClass]bool{
+		StopCancelled: true, StopOperator: true, StopManager: true,
+		StopRedeploy: true, StopProvider: true, StopProviderIdle: true, StopUsagePause: true,
+		StopDeveloperAccount: true, StopReviewAccount: true, StopDeadClaim: true,
+		StopOutside: true, StopPublish: true, CauseTransportFailure.StopClass(): true,
+		StopHarness: false, StopRecording: false, StopCleanup: false, StopUnknown: false,
+		StopChecks: false, StopReview: false, StopRepairBudget: false,
+		CauseCheckTimeLimit.StopClass(): false, "a-cause-from-a-newer-build": false,
+	} {
+		if got := StopKeptOutOfHold(class); got != want {
+			t.Errorf("StopKeptOutOfHold(%s) = %t, want %t", class, got, want)
+		}
+	}
+}
+
 // Every stop cause the run record can print is said in ordinary words, so a
 // post-mortem never names a cause by the harness's identifier alone.
 func TestEveryStopCauseIsSaidInOrdinaryWords(t *testing.T) {

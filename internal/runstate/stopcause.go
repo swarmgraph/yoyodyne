@@ -34,6 +34,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -71,9 +72,10 @@ const (
 	// StopSideBound is a limit the harness sets on the work running out: a time
 	// limit, a repair or relaunch budget, a size bound.
 	StopSideBound StopSide = "bound"
-	// StopSideOutside is everything else: the provider, the machine, the forge,
-	// the tracker, a person or a manager stopping the run, or the harness's own
-	// step failing around the work.
+	// StopSideOutside is the provider, the machine, the forge, the tracker, a
+	// person or a manager stopping the run, or the harness's own step failing
+	// around the work. The hold on new work still counts the last of these
+	// (StopKeptOutOfHold).
 	StopSideOutside StopSide = "outside"
 )
 
@@ -93,20 +95,65 @@ func (s StopSide) Describe() string {
 	}
 }
 
-// StopSideOf is the class a recorded stop cause falls in.
+// StopSideOf is the class a recorded stop cause falls in. Every class it sorts
+// is named, the causes outside the work among them, and a cause it does not
+// name is about the work: an unrecognised cause is counted rather than excused,
+// because sorting it outside by default is what let a harness fault that kept
+// recurring escape the hold on new work (recoverable-and-terminal-failures,
+// "Trip the brake"). StopRecognised says which causes are named here.
 func StopSideOf(class StopClass) StopSide {
+	side, _ := stopSideListed(class)
+	return side
+}
+
+// StopRecognised reports whether StopSideOf names a cause rather than sorting
+// it by default. A cause that is not is the one a reader is told about each
+// time it is met.
+func StopRecognised(class StopClass) bool {
+	_, listed := stopSideListed(class)
+	return listed
+}
+
+func stopSideListed(class StopClass) (StopSide, bool) {
 	switch class {
 	case StopChecks, StopReview, StopIntegration, StopIntegrationPolicy, StopEscalated:
-		return StopSideWork
+		return StopSideWork, true
 	case StopCheckTimeout, StopProviderBudget, StopRelaunchBudget, StopRepairBudget,
 		StopIntegrationBudget, StopPromotionWait, StopContextBound, StopStateBound,
 		StopEventBound, StopReviewBound, StopRecoveryWindow,
 		CauseCheckStageBound.StopClass(), CauseCheckTimeLimit.StopClass(),
 		CauseWorktreeCheckoutKilled.StopClass():
-		return StopSideBound
-	default:
-		return StopSideOutside
+		return StopSideBound, true
+	case StopPublish, StopCleanup, StopRecording, StopProvider, StopOutside,
+		StopCancelled, StopHarness, StopUnknown, StopProviderIdle, StopUsagePause,
+		StopOperator, StopManager, StopRedeploy, StopDeadClaim,
+		StopDeveloperAccount, StopReviewAccount:
+		return StopSideOutside, true
 	}
+	if EnvironmentalCause(class).Valid() {
+		return StopSideOutside, true
+	}
+	return StopSideWork, false
+}
+
+// stopsTheHoldCounts are the causes StopSideOf puts outside the work that the
+// hold on new work counts all the same: the harness's own step failing around
+// the run, and a record that names no cause. A harness that keeps failing is
+// what the hold exists to stop, and nothing else would stop it
+// (recoverable-and-terminal-failures, "Trip the brake").
+var stopsTheHoldCounts = []StopClass{StopHarness, StopRecording, StopCleanup, StopUnknown}
+
+// StopKeptOutOfHold reports whether the hold on new work leaves a stop of this
+// cause out of its count. Only the causes outside the work — the provider, the
+// forge, the machine, a move to a new build, the environment — and a run
+// cancelled by a person, a manager, or its context are left out. Everything
+// else counts, an unrecognised cause included.
+func StopKeptOutOfHold(class StopClass) bool {
+	if slices.Contains(stopsTheHoldCounts, class) {
+		return false
+	}
+	side, listed := stopSideListed(class)
+	return listed && side == StopSideOutside
 }
 
 // StopCauseKey is one cause: the three facts two stops must agree on to be

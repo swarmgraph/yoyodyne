@@ -4120,7 +4120,11 @@ so the harness will not catch it up — is a verdict on nothing and counts
 toward nothing, and neither does a dispatch or a run the provider turned away
 because nobody is logged into it or nobody can reach it, nor any run whose
 record names a stop cause outside the work — a move to a new build, a login the
-provider refused, the harness's own process going away. A paused run never
+provider refused, the harness's own process going away — or a cancellation.
+Those are the only stops it leaves out: a run the harness's own step failed
+around, such as a state it could not save, still counts, and so does a stop
+cause the running build does not recognise, which the session's log also names
+each time it meets one. A paused run never
 counts, even when the note saying so on its work item could not be written:
 the session says the note failed instead. That is
 [a wait](operations.md#waiting-out-a-provider-nobody-can-reach) no run can end,
@@ -4139,9 +4143,10 @@ once it has passed with nothing recorded, the session starts one probe run under
 the hold, and the probe landing reopens intake while the probe blocking keeps it
 held, restarts the cooldown, and summons her again with the probe's own
 stoppage beside the three. A probe stopped from outside the work is neither a
-landing nor a blocking: it spends no cycle, summons nobody, and the next probe
-starts at the first poll that can start one rather than a cooldown later —
-as it does when the session that started a probe went away holding it. So a
+landing nor a blocking: it spends no cycle and summons nobody, and the next
+probe still waits the cooldown, as it does when the session that started a
+probe went away holding it — so probes never start back to back, however often
+such a stop recurs. So a
 broken machine is probed once per cooldown and
 put to her each time, and a machine that was fine is choosing again within a
 cooldown of the trip whether or not anybody answered. Thirty minutes is the

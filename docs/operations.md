@@ -1450,10 +1450,13 @@ ended by something outside the work, a dirty checkout or a transport that did
 not answer, is a verdict on nothing and counts toward nothing, and neither does a provider
 answering nobody, nor any run whose record names a stop cause outside the work,
 such as a move to a new build, a login the provider refused, or the harness's
-own process going away. A paused run never counts, even when the note saying so
+own process going away, nor a cancellation. A run the harness's own step failed
+around does count, and so does a stop cause the running build does not
+recognise; the session's log names such a cause each time it meets one. A
+paused run never counts, even when the note saying so
 on its work item could not be written. A probe stopped from outside the work
-spends no cycle and summons nobody, and the next probe starts at the first poll
-that can start one rather than a cooldown later. A
+spends no cycle and summons nobody, and the next probe still waits the
+cooldown, so probes never start back to back. A
 promotion refused because the target branch
 [diverged from the forge](#unwedging-a-target-branch-that-diverged-from-the-forge)
 is in the same class: a catch-up the harness will not make is a stop the
