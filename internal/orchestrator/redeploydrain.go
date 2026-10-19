@@ -328,7 +328,7 @@ func (a *activeRun) pauseForRedeploy(drained RedeployDrain) (Outcome, error) {
 		// the run nothing. It is still reported, for the same reason every other
 		// pause reports it: an operator watching the tracker would otherwise see
 		// the item simply stop moving.
-		return a.outcome, fmt.Errorf("record the redeploy stop on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the redeploy stop", Err: err}
 	}
 	return a.outcome, nil
 }

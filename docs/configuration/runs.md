@@ -1006,7 +1006,11 @@ target branch that has
 [diverged from the forge](../operations.md#unwedging-a-target-branch-that-diverged-from-the-forge)
 so the harness will not catch it up — is a verdict on nothing and counts
 toward nothing, and neither does a dispatch or a run the provider turned away
-because nobody is logged into it or nobody can reach it. That is
+because nobody is logged into it or nobody can reach it, nor any run whose
+record names a stop cause outside the work — a move to a new build, a login the
+provider refused, the harness's own process going away. A paused run never
+counts, even when the note saying so on its work item could not be written:
+the session says the note failed instead. That is
 [a wait](../operations.md#waiting-out-a-provider-nobody-can-reach) no run can end,
 and a brake tripped on it prescribes a decision about a change nobody judged —
 which is what happened on 2026-09-17 over an expired login, again on
@@ -1022,7 +1026,11 @@ long the brake waits for that decision before it decides on evidence instead:
 once it has passed with nothing recorded, the session starts one probe run under
 the hold, and the probe landing reopens intake while the probe blocking keeps it
 held, restarts the cooldown, and summons her again with the probe's own
-stoppage beside the three. So a broken machine is probed once per cooldown and
+stoppage beside the three. A probe stopped from outside the work is neither a
+landing nor a blocking: it spends no cycle, summons nobody, and the next probe
+starts at the first poll that can start one rather than a cooldown later —
+as it does when the session that started a probe went away holding it. So a
+broken machine is probed once per cooldown and
 put to her each time, and a machine that was fine is choosing again within a
 cooldown of the trip whether or not anybody answered. Thirty minutes is the
 default: a summoned turn is minutes, so that is several answers' worth of

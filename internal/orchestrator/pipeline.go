@@ -7657,7 +7657,7 @@ func (a *activeRun) pause(paused usageLimitPause) (Outcome, error) {
 		// written costs the run nothing: it stays claimed and resumable either
 		// way. It is still reported, because an operator watching the tracker
 		// would otherwise see the item simply stop moving.
-		return a.outcome, fmt.Errorf("record the pause on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the pause", Err: err}
 	}
 	return a.outcome, nil
 }
@@ -7683,7 +7683,7 @@ func (a *activeRun) pauseForProviderStop(stopped providerStop) (Outcome, error) 
 	if _, err := a.pipeline.Tracker.RecordOutcome(recordCtx, a.state.WorkItemID, renderProviderStopNotes(a.outcome)); err != nil {
 		// The stop is already durable, so a note that could not be written costs
 		// the run nothing. It is still reported, for the same reason a pause is.
-		return a.outcome, fmt.Errorf("record the stopped provider invocation on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the stopped provider invocation", Err: err}
 	}
 	return a.outcome, nil
 }
@@ -7714,7 +7714,7 @@ func (a *activeRun) pauseForDirective(paused directivePause) (Outcome, error) {
 		// the run nothing. It is still reported, for the same reason the other two
 		// pauses report it: an operator watching the tracker would otherwise see
 		// the item simply stop moving.
-		return a.outcome, fmt.Errorf("record the directive pause on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the directive pause", Err: err}
 	}
 	return a.outcome, nil
 }
@@ -7745,7 +7745,7 @@ func (a *activeRun) pauseForDependency(paused dependencyPause) (Outcome, error) 
 		// the run nothing. It is still reported, for the same reason the other
 		// pauses report it: an operator watching the tracker would otherwise see
 		// the item simply stop moving.
-		return a.outcome, fmt.Errorf("record the dependency pause on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the dependency pause", Err: err}
 	}
 	return a.outcome, nil
 }
@@ -7776,7 +7776,7 @@ func (a *activeRun) pauseForTracker(paused trackerPause) (Outcome, error) {
 		// the run nothing — and here it is the likeliest outcome of all, since what
 		// parked the run is the same store this note goes to. It is still reported,
 		// for the same reason the other pauses report it.
-		return a.outcome, fmt.Errorf("record the tracker pause on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the tracker pause", Err: err}
 	}
 	return a.outcome, nil
 }
@@ -7807,7 +7807,7 @@ func (a *activeRun) pauseForOperatorHold(paused operatorHoldPause) (Outcome, err
 		// The park is already durable, so a note that could not be written costs
 		// the run nothing. It is still reported, for the same reason the other
 		// pauses report it.
-		return a.outcome, fmt.Errorf("record the operator's pause on the work item: %w", err)
+		return a.outcome, PauseNoteError{What: "the operator's pause", Err: err}
 	}
 	return a.outcome, nil
 }

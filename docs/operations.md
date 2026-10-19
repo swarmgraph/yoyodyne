@@ -1441,7 +1441,12 @@ reaches you, or one the harness escalated at that bound. Only verdicts and
 check failures against a change that was present count toward the trip — a run
 ended by something outside the work, a dirty checkout or a transport that did
 not answer, is a verdict on nothing and counts toward nothing, and neither does a provider
-answering nobody. A
+answering nobody, nor any run whose record names a stop cause outside the work,
+such as a move to a new build, a login the provider refused, or the harness's
+own process going away. A paused run never counts, even when the note saying so
+on its work item could not be written. A probe stopped from outside the work
+spends no cycle and summons nobody, and the next probe starts at the first poll
+that can start one rather than a cooldown later. A
 promotion refused because the target branch
 [diverged from the forge](#unwedging-a-target-branch-that-diverged-from-the-forge)
 is in the same class: a catch-up the harness will not make is a stop the
