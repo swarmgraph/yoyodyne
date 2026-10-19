@@ -2596,8 +2596,11 @@ still going into the run's event log, and then ends it. The run's record
 (`after_reply`) and the log say which of the two happened: the work finished on
 its own, or it was still running at the bound and was ended. While the wait
 lasts, `yoyo status` and the dashboard show the run as `reply written, waiting
-for background processes: 2m of 5m` instead of `developing`. The run then goes
-on to its checks with the reply it wrote. Nothing is recorded as a stall, so
+for background processes: 2m of 5m` instead of `developing`. A developer turn
+that ended this way is then sent back once rather than taken as a finished
+attempt, without spending a repair attempt; [a turn left running background
+work](work.md#a-turn-left-running-background-work) says why and what follows.
+Nothing is recorded as a stall, so
 the harness does not spend its one resumption of a stalled run on it, and no
 decision is asked of the development manager. Until yoyodyne-ifd.435.6 that state was read as silence: on
 2026-09-28 run-008b0e25 wrote its final reply at 11:58:33 PDT and was stopped as

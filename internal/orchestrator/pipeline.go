@@ -4052,6 +4052,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 		}
 	}
 	reasked := false
+	sentBackForBackground := false
 	for {
 		// A stop is asked for before the hold, so a run the operator both stopped
 		// and paused stops rather than parking on a hold nothing will lift for it.
@@ -4223,6 +4224,26 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			// invocation asking again would spend the largest thing the harness buys
 			// on the same question.
 			var unaccounted unaccountedReply
+			// A turn that ended with its own background work still running is not
+			// a finished attempt: its reply was written before that work said
+			// anything, so it is sent back once, in its own session and within this
+			// attempt, before anything is published, checked, or charged to a
+			// repair (backgroundwork.go). A reply that also accounted for nothing is
+			// answered by the same send-back, which asks for the account too, so it
+			// spends the one re-ask that reply is owed.
+			if background, outlived := outlivedReply(providerResult); outlived && (recorded == nil || errors.As(recorded, &unaccounted)) {
+				if !sentBackForBackground {
+					sentBackForBackground = true
+					if recorded != nil {
+						reasked = true
+					}
+					sessionID = a.carrySession(providerResult.SessionID, sessionID)
+					prompt = a.openWithDeveloperRefusals(backgroundWorkPrompt(a.deliveredInvariants().Text(), a.scratch, background, a.pipeline.Config.Checks))
+					a.sendBackForBackgroundWork(ctx, background)
+					continue
+				}
+				a.acceptDespiteBackgroundWork(background)
+			}
 			if errors.As(recorded, &unaccounted) {
 				if !reasked {
 					reasked = true
@@ -9375,6 +9396,8 @@ const developerContractTemplate = `You are the developer for one bounded Yoyodyn
 Work only inside the current assigned worktree. Do not create, remove, or switch branches or worktrees. Do not commit, push, or integrate the change; the harness does all three. Do not modify upstream product, goal, design, or specification artifacts; propose the change instead, in the block described below. Implement the assigned work, run relevant focused checks, and finish with a concise summary of changes, verification, and any remaining risk.
 
 The reply you end on is the whole of what this run records about itself: the summary above, the landing you claim, anything you report, and anything you propose are all read off it and nothing else. So it has to be the account. An invocation that ends on interim progress — a check still running, something you will report once it lands — accounts for nothing, and is asked for the account once more; a second reply that accounts for nothing ends the run with the work unrecorded. Finish what you left in flight before you reply.
+
+Never end a turn to wait on work you started in the background — a test suite, a timing run, a build. Nothing brings you back when it finishes: the turn you end is the end of your work, so whatever that work finds never reaches your reply. Run what you need in the foreground and wait for it within the turn; if something takes too long to run here, say so in your account instead. A turn that ends with processes you started still running is sent back to you once, in the same session and without spending a repair attempt; if the next turn ends the same way, the harness ends those processes and takes your reply as it stands.
 
 Each attempt's summary stands on its own. When you are handed your change back for a repair, the summary you end that attempt on says in full what the change does, why, and how you verified it, including anything an earlier attempt's summary said that still holds: never write "as described in the previous attempt" or point to an earlier summary instead of saying it. The reviewer is shown every attempt's summary, but it judges the latest one, and a summary that points elsewhere is one it cannot check.
 
