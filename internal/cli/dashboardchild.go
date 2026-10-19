@@ -72,7 +72,14 @@ type dashboardChild struct {
 	log      string
 	port     int
 	source   config.DashboardTokenSource
-	tokens   dashboard.TokenStores
+	// configured reads the services section as the configuration says it now,
+	// which is what a start launches on; nil keeps port and source, the values
+	// the supervisor read as it started.
+	configured func() (config.Services, error)
+	// readers is where each dashboard records the settings it started on; nil
+	// opens the product's records under logRoot.
+	readers *runstate.ConfigReaderStore
+	tokens  dashboard.TokenStores
 	// client makes the readiness request; nil uses one with a short timeout.
 	client *http.Client
 	// wait and poll bound the wait for readiness, and look and stop are the
@@ -177,6 +184,9 @@ func (c dashboardChild) Ensure(ctx context.Context) (supervise.Ensured, error) {
 // a dashboard from a build that cannot share the port holds it, that one is
 // stopped first and the start made again, once.
 func (c dashboardChild) Replace(ctx context.Context) (supervise.Ensured, error) {
+	// Started on the configuration as it stands, so a replacement applies a
+	// port or token source changed since the supervisor started.
+	c = c.onConfiguration()
 	ensured, startID, err := c.launch(ctx)
 	if errors.Is(err, errDashboardPortHeld) {
 		stopped, stopErr := c.stopUnsharedHolders(ctx)
@@ -196,6 +206,58 @@ func (c dashboardChild) Replace(ctx context.Context) (supervise.Ensured, error) 
 	// its next look at builds (StopEarlierCopies).
 	ensured.Earlier, _ = c.stopOthers(ctx, startID, true)
 	return ensured, nil
+}
+
+// onConfiguration is the child with the port and token source the configuration
+// says now. A configuration that cannot be read keeps the values it had, so a
+// broken edit leaves the dashboard where it was rather than stopping it.
+func (c dashboardChild) onConfiguration() dashboardChild {
+	if c.configured == nil {
+		return c
+	}
+	services, err := c.configured()
+	if err != nil {
+		return c
+	}
+	c.port, c.source = services.Dashboard.Port, services.Dashboard.Token
+	return c
+}
+
+// ChangedSettings is each setting the dashboard the supervisor runs holds from
+// its start whose value in the configuration is now different, from the
+// settings that dashboard recorded as it started. A dashboard that recorded none
+// is compared with nothing.
+func (c dashboardChild) ChangedSettings(context.Context) ([]runstate.SettingChange, error) {
+	if c.configured == nil {
+		return nil, nil
+	}
+	instance, running, err := c.current()
+	if err != nil || !running {
+		return nil, err
+	}
+	readers := c.readers
+	if readers == nil {
+		if readers, err = runstate.NewConfigReaderStore(c.logRoot, c.product); err != nil {
+			return nil, err
+		}
+	}
+	// Another part's record that could not be read says nothing about this
+	// dashboard's, so it stops the comparison only where this one is not found.
+	processes, readErr := readers.Running()
+	var started map[string]string
+	for _, reader := range processes {
+		if reader.Service == string(config.ServiceDashboard) && reader.PID == instance.PID {
+			started = reader.Settings
+		}
+	}
+	if len(started) == 0 {
+		return nil, readErr
+	}
+	services, err := c.configured()
+	if err != nil {
+		return nil, fmt.Errorf("read the configuration: %w", err)
+	}
+	return runstate.ChangedSettings(started, services.StartSettings(config.ServiceDashboard)), nil
 }
 
 // StopEarlierCopies stops every dashboard the supervisor started before the one

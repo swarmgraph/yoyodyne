@@ -437,7 +437,7 @@ func (p *product) supervise(ctx context.Context, stdout, stderr io.Writer) int {
 	if retired, problem := p.retireMaintenanceJob(ctx, "the supervisor"); retired != "" || problem != "" {
 		log("%s", firstNonEmptyString(retired, problem))
 	}
-	if err := writeConfigReaderAt(p.resolved, runstate.ConfigReaderSupervisor, p.stateRoot); err != nil {
+	if err := writeConfigReaderAt(p.resolved, runstate.ConfigReaderSupervisor, p.stateRoot, nil); err != nil {
 		fmt.Fprintf(stderr, "the supervisor could not record which configuration keys its build reads: %v\n", err)
 	}
 	hold, err := p.restartHold()
@@ -913,6 +913,7 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				return nil, nil, nil, err
 			}
 			program := p.program
+			configPath := p.resolved.Path
 			children = append(children, dashboardChild{
 				store:    store,
 				product:  productID,
@@ -925,7 +926,11 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				log:      home.ProductDirectoryWithin(p.stateRoot, string(productID)) + "/" + dashboardLogFile,
 				port:     services.Dashboard.Port,
 				source:   services.Dashboard.Token,
-				tokens:   dashboardTokenStores(p.stateRoot),
+				configured: func() (config.Services, error) {
+					resolved, err := config.LoadResolved(configPath)
+					return resolved.Config.Services, err
+				},
+				tokens: dashboardTokenStores(p.stateRoot),
 				build: func() string {
 					revision, _ := supervise.Revision(program)
 					return revision

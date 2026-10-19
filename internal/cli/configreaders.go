@@ -30,20 +30,27 @@ import (
 // comparison says nothing about, which is every part before this existed, and
 // refusing to start over it would be the reporting failing the work.
 func recordConfigReader(resolved config.Resolved, service string, stderr io.Writer) {
-	if err := writeConfigReader(resolved, service); err != nil {
+	recordConfigReaderHolding(resolved, service, nil, stderr)
+}
+
+// recordConfigReaderHolding is recordConfigReader for a part that holds
+// settings from its start, recorded with the values it started with so the
+// supervisor can tell when the configuration has changed one under it.
+func recordConfigReaderHolding(resolved config.Resolved, service string, settings map[string]string, stderr io.Writer) {
+	if err := writeConfigReader(resolved, service, settings); err != nil {
 		fmt.Fprintf(stderr, "the %s service could not record which configuration keys its build reads, so nothing will say if a later configuration carries one it cannot: %v\n", service, err)
 	}
 }
 
-func writeConfigReader(resolved config.Resolved, service string) error {
+func writeConfigReader(resolved config.Resolved, service string, settings map[string]string) error {
 	stateRoot, err := productStateRoot(resolved)
 	if err != nil {
 		return err
 	}
-	return writeConfigReaderAt(resolved, service, stateRoot)
+	return writeConfigReaderAt(resolved, service, stateRoot, settings)
 }
 
-func writeConfigReaderAt(resolved config.Resolved, service, stateRoot string) error {
+func writeConfigReaderAt(resolved config.Resolved, service, stateRoot string, settings map[string]string) error {
 	store, err := runstate.NewConfigReaderStore(stateRoot, resolved.Config.Product.ID)
 	if err != nil {
 		return err
@@ -60,6 +67,7 @@ func writeConfigReaderAt(resolved config.Resolved, service, stateRoot string) er
 		StartedAt:  time.Now().UTC(),
 		Keys:       config.SchemaKeys(),
 		SearchPath: os.Getenv("PATH"),
+		Settings:   settings,
 	})
 }
 

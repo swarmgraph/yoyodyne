@@ -142,6 +142,19 @@ type SupervisedChild struct {
 	// having been deployed to five times in two minutes.
 	Restarts    int       `json:"restarts,omitempty"`
 	RestartedAt time.Time `json:"restarted_at,omitempty"`
+	// Settings says, while a setting the running child holds from its start has
+	// a different value in the configuration, which setting and where applying
+	// it stands: what it waits on, or why the supervisor does not restart it.
+	// SettingsRestarting is a child asked to stop so it starts on the new value,
+	// for as long as it is letting go. SettingsRestarts counts the restarts made
+	// to apply a changed setting, SettingsRestartedAt is the last, and
+	// SettingsApplied says which settings it changed. Like Restarts they are
+	// counted apart from Failures: a part restarted for a setting did not die.
+	Settings            string    `json:"settings,omitempty"`
+	SettingsRestarting  bool      `json:"settings_restarting,omitempty"`
+	SettingsRestarts    int       `json:"settings_restarts,omitempty"`
+	SettingsRestartedAt time.Time `json:"settings_restarted_at,omitempty"`
+	SettingsApplied     string    `json:"settings_applied,omitempty"`
 	// URL is where a child that serves is served, Health how its own health
 	// answer stood at the supervisor's last look, and TokenFile the file a
 	// person reads its token from. They are the dashboard's, and the token's

@@ -35,6 +35,7 @@ import (
 	"io"
 	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
@@ -104,7 +105,16 @@ func serveDashboard(ctx context.Context, args []string, stdout, stderr io.Writer
 	// And which configuration keys this build reads, so a later landing that
 	// adds one this build does not know is named against this process rather
 	// than shown as the decoder's error on every page.
-	recordConfigReader(resolved, string(config.ServiceDashboard), stderr)
+	// The port and the token source are read once, here, and held for as long
+	// as it serves; recording what it started with is what lets the supervisor
+	// see one change and replace it with a dashboard on the new value. A
+	// dashboard started by hand serves on the port it was given rather than the
+	// configured one, so only its token source is the configuration's.
+	held := map[string]string{config.SettingDashboardToken: string(resolved.Config.Services.Dashboard.Token)}
+	if supervised {
+		held[config.SettingDashboardPort] = strconv.Itoa(*port)
+	}
+	recordConfigReaderHolding(resolved, string(config.ServiceDashboard), held, stderr)
 	records, err := runstate.NewDashboardStore(stateRoot, productID)
 	if err != nil {
 		fmt.Fprintln(stderr, err)

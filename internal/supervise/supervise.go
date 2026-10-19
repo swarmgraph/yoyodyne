@@ -186,6 +186,9 @@ type Supervisor struct {
 	// takeUp is the deployed build a pass has asked the supervisor to take up
 	// by re-executing into it, which Run does once the tick asking it is over.
 	takeUp string
+	// applying is the changed settings each child was stopped to start on, said
+	// once it has started again.
+	applying map[config.ServiceName]string
 	// unaccounted is each copy the supervisor has already said it cannot
 	// account for, so the log says each once.
 	unaccounted map[string]bool
@@ -293,6 +296,7 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 			state.PID = identified.HolderPID(ctx)
 		}
 		s.deploy(ctx, child, state, now, returned)
+		s.settings(ctx, child, state, now)
 		s.serving(ctx, child, state)
 		return
 	}
@@ -317,9 +321,10 @@ func (s *Supervisor) look(ctx context.Context, child Child, state *runstate.Supe
 				short(state.RestartingInto), state.NextStartAt.UTC().Format(time.RFC3339))
 			s.log("the %s service let its lease go to restart itself into build %s, which is a restart rather than a death", child.Name(), short(state.RestartingInto))
 			return
-		case state.RestartingInto != "":
-			// Asked to stop to move it onto the deployed build, and now gone:
-			// started from that build, with nothing counted against it.
+		case state.RestartingInto != "" || state.SettingsRestarting:
+			// Asked to stop to move it onto the deployed build, or to start it on a
+			// changed setting, and now gone: started from the binary on the
+			// configuration as it stands, with nothing counted against it.
 			state.PID = 0
 			s.start(ctx, child, state, now)
 			return
@@ -447,12 +452,17 @@ func (s *Supervisor) start(ctx context.Context, child Child, state *runstate.Sup
 			state.Build = s.deployed
 			state.BuildSince = now
 		}
+		if state.SettingsRestarting {
+			s.startedOnSettings(child, state, now)
+		}
 		return
 	}
 	// Running by the time it was asked: somebody else's start, or the
 	// child's own restart. Reattached rather than counted as this
-	// supervisor's start.
+	// supervisor's start, and started on the configuration as it stood then.
 	state.Reattached = true
+	state.SettingsRestarting = false
+	delete(s.applying, child.Name())
 	s.log("the %s service was already running and was reattached", child.Name())
 }
 
@@ -693,6 +703,7 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		if child.Redeploy != "" {
 			fmt.Fprintf(&said, "; %s", child.Redeploy)
 		}
+		said.WriteString(describeSettings(child))
 	case runstate.ChildDegraded:
 		fmt.Fprintf(&said, "degraded, %s", child.Reason)
 	case runstate.ChildDown:
@@ -707,6 +718,25 @@ func DescribeChild(child runstate.SupervisedChild) string {
 		fmt.Fprintf(&said, "%s", child.State)
 	}
 	return said.String()
+}
+
+// describeSettings is a setting the running child holds that has changed, and
+// where applying it stands, and the last restart the supervisor made to apply
+// one, in the reader's own zone.
+func describeSettings(child runstate.SupervisedChild) string {
+	var said string
+	if child.Settings != "" {
+		said += "; " + child.Settings
+	}
+	if child.SettingsRestarts > 0 {
+		times := "once"
+		if child.SettingsRestarts > 1 {
+			times = fmt.Sprintf("%d times", child.SettingsRestarts)
+		}
+		said += fmt.Sprintf("; restarted by the supervisor to apply a changed setting %s, most recently at %s, when %s",
+			times, child.SettingsRestartedAt.Local().Format("2006-01-02 15:04 MST"), child.SettingsApplied)
+	}
+	return said
 }
 
 // describeBuild is which build a running child is on and since when, in the

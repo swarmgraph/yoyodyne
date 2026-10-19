@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"slices"
 	"strconv"
 	"strings"
@@ -44,6 +45,10 @@ type fakeDashboards struct {
 	// do not stop when asked.
 	readers *runstate.ConfigReaderStore
 	refuse  map[int]bool
+	// configPath, where set, is the configuration each dashboard records itself
+	// as reading, with the port and token source it started on, as `yoyo
+	// dashboard` records them.
+	configPath string
 }
 
 func newFakeDashboards(t *testing.T, store *runstate.DashboardStore) *fakeDashboards {
@@ -104,8 +109,16 @@ func (f *fakeDashboards) recordReader(instance runstate.DashboardInstance) {
 	if f.readers == nil {
 		return
 	}
-	if err := f.readers.Record(runstate.ConfigReader{Service: string(config.ServiceDashboard), PID: instance.PID, Build: instance.Build,
-		ConfigPath: "/repo/.yoyodyne/config.yaml", StartedAt: instance.StartedAt, Keys: []string{"product"}}); err != nil {
+	reader := runstate.ConfigReader{Service: string(config.ServiceDashboard), PID: instance.PID, Build: instance.Build,
+		ConfigPath: "/repo/.yoyodyne/config.yaml", StartedAt: instance.StartedAt, Keys: []string{"product"}}
+	if f.configPath != "" {
+		reader.ConfigPath = f.configPath
+		reader.Settings = map[string]string{config.SettingDashboardToken: string(config.DashboardTokenGenerated)}
+		if instance.Supervised {
+			reader.Settings[config.SettingDashboardPort] = strconv.Itoa(instance.Port)
+		}
+	}
+	if err := f.readers.Record(reader); err != nil {
 		f.t.Fatal(err)
 	}
 }
@@ -530,5 +543,108 @@ func TestAnEarlierDashboardThatWouldNotStopIsStoppedAtTheNextLook(t *testing.T) 
 	}
 	if starts, _ := child.store.Starts(); len(starts) != 1 {
 		t.Errorf("Starts() = %+v, want the earlier start forgotten", starts)
+	}
+}
+
+// dashboardOnPort is a project configuration that runs the dashboard on port.
+func dashboardOnPort(port int) string {
+	return `version: 1
+extends: builtin:v1
+product:
+  id: yoyodyne
+  repository: .
+services:
+  dashboard:
+    enabled: true
+    port: ` + strconv.Itoa(port) + `
+`
+}
+
+// Changing services.dashboard.port in the configuration, with no new build
+// deployed, has the supervisor itself replace the dashboard it runs with one on
+// the new port at its next look at settings, ready before the copy on the old
+// port is stopped, and record that it did and which setting changed. Until it
+// does, `yoyo status` says which part, which setting, and what becomes of it.
+func TestChangingTheDashboardPortWithoutANewBuildMovesTheDashboardOntoIt(t *testing.T) {
+	t.Parallel()
+	child, fakes := newDashboardChild(t)
+	dashboardReaders(t, child, fakes)
+	path := writeProjectConfig(t, dashboardOnPort(8765))
+	child.config = path
+	child.configured = func() (config.Services, error) {
+		resolved, err := config.LoadResolved(path)
+		return resolved.Config.Services, err
+	}
+	fakes.configPath = path
+	child.readers = fakes.readers
+
+	supervision, err := runstate.NewSupervisionStore(child.logRoot, child.product)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, held, err := supervision.Lease()
+	if err != nil || !held {
+		t.Fatalf("Lease() = %v, %v", held, err)
+	}
+	t.Cleanup(func() { _ = lease.Release() })
+	now := time.Date(2026, 10, 17, 12, 0, 0, 0, time.UTC)
+	supervisor := &supervise.Supervisor{
+		Records:  supervision,
+		Product:  child.product,
+		Children: []supervise.Child{child},
+		Now:      func() time.Time { return now },
+		Log:      t.Logf,
+		PID:      4242,
+		Build:    "deployed-build",
+	}
+	supervisor.Tick(context.Background())
+	first, running, err := child.current()
+	if err != nil || !running || first.Port != 8765 {
+		t.Fatalf("current() = %+v, %v, %v, want the dashboard serving on port 8765", first, running, err)
+	}
+
+	if err := os.WriteFile(path, []byte(dashboardOnPort(9123)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	standing := readmodel.ReadStanding(context.Background(), readmodel.Sources{Supervision: supervision, ConfigReaders: fakes.readers, Dashboards: child.store})
+	if standing.Services == nil || len(standing.Services.Settings) != 1 {
+		t.Fatalf("services = %+v, want the dashboard named as holding a changed setting", standing.Services)
+	}
+	said := standing.RenderServices()
+	for _, want := range []string{"the dashboard service, running as pid " + strconv.Itoa(first.PID), "services.dashboard.port is 9123 in the configuration and it started with 8765", "the supervisor restarts it on the new value at its next look"} {
+		if !strings.Contains(said, want) {
+			t.Errorf("RenderServices() = %q, want %q", said, want)
+		}
+	}
+
+	now = now.Add(supervise.DeployEvery)
+	supervisor.Tick(context.Background())
+	moved, running, err := child.current()
+	if err != nil || !running || moved.Port != 9123 || moved.PID == first.PID {
+		t.Fatalf("current() = %+v, %v, %v, want a new dashboard serving on port 9123", moved, running, err)
+	}
+	if launch := fakes.launches[len(fakes.launches)-1]; !slices.Contains(launch.Args, "9123") {
+		t.Errorf("the replacement was launched with %v, want port 9123", launch.Args)
+	}
+	events := fakes.said()
+	readyAt := slices.Index(events, "ready "+moved.StartID)
+	if at := slices.Index(events, "stop "+strconv.Itoa(first.PID)); at < 0 || at < readyAt {
+		t.Errorf("events = %v, want the copy on port 8765 stopped after the one on 9123 was confirmed ready", events)
+	}
+	if alive, _ := fakes.alivePID(first.PID); alive {
+		t.Errorf("the dashboard on port 8765, pid %d, is still running", first.PID)
+	}
+	recorded, _, err := supervision.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := recorded.Child(config.ServiceDashboard)
+	if got.PID != moved.PID || got.SettingsRestarts != 1 || got.Failures != 0 || got.Restarts != 0 ||
+		!strings.Contains(got.SettingsApplied, "services.dashboard.port is 9123 in the configuration and it started with 8765") {
+		t.Errorf("the supervisor's record of the dashboard = %+v, want one restart to apply the changed port, recorded with the setting", got)
+	}
+	standing = readmodel.ReadStanding(context.Background(), readmodel.Sources{Supervision: supervision, ConfigReaders: fakes.readers, Dashboards: child.store})
+	if len(standing.Services.Settings) != 0 {
+		t.Errorf("services settings = %+v, want nothing once the dashboard is on the new port", standing.Services.Settings)
 	}
 }

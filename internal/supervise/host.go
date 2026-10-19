@@ -90,7 +90,7 @@ func (s *Supervisor) Moving() string {
 		if !known {
 			return string(child.Name())
 		}
-		if state.RestartingInto != "" || state.State == runstate.ChildDown {
+		if state.RestartingInto != "" || state.SettingsRestarting || state.State == runstate.ChildDown {
 			return string(child.Name())
 		}
 	}

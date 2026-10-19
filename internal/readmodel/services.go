@@ -37,6 +37,32 @@ type ConfigReaders interface {
 	Running() ([]runstate.ConfigReader, error)
 }
 
+// SettingsDrifts is the running parts whose settings held from their start the
+// configuration has since changed. It is satisfied by *runstate.ConfigReaderStore,
+// and asked of the ConfigReaders source where that source answers it.
+type SettingsDrifts interface {
+	SettingsDrift() ([]runstate.SettingsDrift, error)
+}
+
+// ServiceSettings is a running part whose settings changed under it, and what
+// becomes of it.
+type ServiceSettings struct {
+	runstate.SettingsDrift
+	// Why is where restarting it on the new value stands, or why the supervisor
+	// is not the one to.
+	Why string `json:"why"`
+	// Supervised is whether the copy is the one the supervisor started.
+	Supervised bool `json:"supervised"`
+	// onChildLine is a change the supervisor's own line for the part already
+	// says, which the services section does not say twice.
+	onChildLine bool
+}
+
+// Says is the part, the settings, and Why, in one line.
+func (s ServiceSettings) Says() string {
+	return s.SettingsDrift.Says() + "; " + s.Why
+}
+
 // Dashboards is the dashboard's own records, asked which running dashboards
 // the supervisor started. It is satisfied by *runstate.DashboardStore.
 type Dashboards interface {
@@ -68,6 +94,9 @@ type Services struct {
 	// every surface reads one vocabulary of child states.
 	Record       runstate.Supervision `json:"record"`
 	Availability *WatchAvailability   `json:"availability,omitempty"`
+	// Settings is each running part holding a setting from its start that the
+	// configuration has since changed, and what becomes of it.
+	Settings []ServiceSettings `json:"settings,omitempty"`
 	// Copies is how many copies of each part the supervisor hosts are running,
 	// and of the supervisor, each with its build; it is absent where nothing
 	// recorded which copies run.
@@ -95,28 +124,54 @@ func readServices(sources Sources) (*Services, string) {
 	}
 	services.Recorded = found
 	services.Record = recorded
+	started := map[int]bool{}
+	if sources.ConfigReaders != nil && sources.Dashboards != nil {
+		instances, err := sources.Dashboards.StartedBySupervisor()
+		if err != nil {
+			problem = joinProblems(problem, fmt.Sprintf("which running dashboards the supervisor started could not be read whole: %v", err))
+		}
+		for _, instance := range instances {
+			started[instance.PID] = true
+		}
+	}
 	if found && sources.ConfigReaders != nil {
 		readers, err := sources.ConfigReaders.Running()
 		if err != nil {
 			problem = joinProblems(problem, fmt.Sprintf("which copies of the product's parts are running could not be read whole: %v", err))
 		}
-		started := map[int]bool{}
-		if sources.Dashboards != nil {
-			instances, err := sources.Dashboards.StartedBySupervisor()
-			if err != nil {
-				problem = joinProblems(problem, fmt.Sprintf("which running dashboards the supervisor started could not be read whole: %v", err))
-			}
-			for _, instance := range instances {
-				started[instance.PID] = true
-			}
-		}
 		services.Copies = readServiceCopies(recorded, readers, started)
+	}
+	if drifts, ok := sources.ConfigReaders.(SettingsDrifts); ok {
+		changed, err := drifts.SettingsDrift()
+		if err != nil {
+			problem = joinProblems(problem, fmt.Sprintf("whether a setting a running part holds from its start has changed could not be read whole: %v", err))
+		}
+		for _, drift := range changed {
+			supervised := supervise.SupervisedCopy(drift, recorded, started)
+			services.Settings = append(services.Settings, ServiceSettings{
+				SettingsDrift: drift,
+				Supervised:    supervised,
+				Why:           supervise.SettingsDriftWhy(drift, running, recorded, supervised),
+				onChildLine:   running && supervised && childSays(recorded, drift),
+			})
+		}
 	}
 	if sources.Machine != nil {
 		availability := ReadWatchAvailability(sources)
 		services.Availability = &availability
 	}
 	return services, problem
+}
+
+// childSays reports whether the supervisor's record of the part's copy says
+// where applying a changed setting stands.
+func childSays(record runstate.Supervision, drift runstate.SettingsDrift) bool {
+	for _, child := range record.Children {
+		if string(child.Service) == drift.Service && child.PID == drift.PID && child.Settings != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Attention is each child the supervisor has left down, as something waiting
@@ -204,6 +259,11 @@ func (s Standing) RenderServices() string {
 	for _, copies := range services.Copies {
 		if copies.Problem() {
 			fmt.Fprintf(&rendered, "  %s\n", copies.Says())
+		}
+	}
+	for _, settings := range services.Settings {
+		if !settings.onChildLine {
+			fmt.Fprintf(&rendered, "  %s\n", settings.Says())
 		}
 	}
 	if s.ServicesProblem != "" {
