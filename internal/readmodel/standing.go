@@ -340,6 +340,10 @@ type Sources struct {
 	Passes          Passes
 	Exchanges       Exchanges
 	FirstSeen       FirstSeen
+	// PassRequests is the requests made for each instance's pass, so whoever
+	// asked can read what became of one. Optional: a reading without it carries
+	// no instance's requests.
+	PassRequests PassRequests
 	// Agents is every configured agent, as the configuration resolved it: what
 	// each asks for and what each may be served by instead. It is the other half
 	// of the hold above, because a refusal holds a role only against what that

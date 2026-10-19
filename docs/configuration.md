@@ -8653,10 +8653,16 @@ above: the pause holds it, a turn in flight on the instance's conversation goes
 first, and a provider answering nobody leaves it waiting with that reason
 written on it. At most one request per instance is open; one made while another
 is open is recorded as joined to it, its focus is added to the open one's, and
-the one pass answers both. The pass's record in `yoyo sweeps` names the request
-and who asked, and the pass closes the request, completed or failed — a failed
-one is not retried, and whoever asked may ask again. A request is never dropped
-for age. A requested pass is not held to the `5m` minimum, and it moves the
+the one pass answers both. The request is recorded as taken, naming the pass,
+before that pass's first turn; the pass's record in `yoyo sweeps` names the
+request and who asked, and the pass closes the request, completed or failed — a
+failed one is not retried, and whoever asked may ask again. A request is never
+dropped for age, and lives in that file rather than in the scheduler, so one
+waiting when the scheduler restarts is taken by the next one, and one whose pass
+a stopped scheduler was carrying is taken again — unless a turn is in flight on
+the instance's conversation, which means another process is still carrying it.
+`yoyo status` lists each instance's requests — every open one and the latest
+five of the rest — as waiting, taken, joined, completed, or failed, with when. A requested pass is not held to the `5m` minimum, and it moves the
 cadence as an events pass does.
 
 **A pass asks for the agent's own model.** The triggers block names none, and the

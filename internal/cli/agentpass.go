@@ -176,6 +176,6 @@ func describeAskedPass(requests *runstate.PassRequestStore, recorded runstate.Pa
 	} else {
 		fmt.Fprintf(&rendered, "The pass inspects %s, in place of the next area in its rotation.\n", recorded.Focus.Describe())
 	}
-	fmt.Fprintln(&rendered, "Nothing has run yet: the scheduler takes the request at its next pull, as it takes any pass — the operator's pause holds it, a turn already in flight on the instance's conversation goes first, and a provider answering nobody leaves it waiting with that reason recorded on it. `yoyo sweeps --task "+recorded.Agent+"` shows the pass once it is taken.")
+	fmt.Fprintln(&rendered, "Nothing has run yet: the scheduler takes the request at its next pull, as it takes any pass — the operator's pause holds it, a turn already in flight on the instance's conversation goes first, and a provider answering nobody leaves it waiting with that reason recorded on it. `yoyo status` shows whether the request is waiting, taken, completed, or failed, and since when, and `yoyo sweeps --task "+recorded.Agent+"` shows the pass once it is taken.")
 	return rendered.String()
 }

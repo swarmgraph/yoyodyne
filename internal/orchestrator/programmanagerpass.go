@@ -55,10 +55,14 @@ package orchestrator
 // triggers say nothing is woken by nothing else ("Passes on request" in the
 // design). The request is taken as a summoned pass is, so the schedule runs on
 // from it, and it is handed whatever events stand past the cursor as a
-// scheduled pass would be. The pass's record names the request and who made
-// it, and closes it, completed or failed, once the pass is over. A request the
+// scheduled pass would be. The request is recorded as taken, by that pass,
+// before its first turn; the pass's record names the request and who made it,
+// and closes it, completed or failed, once the pass is over. A request the
 // provider's outage keeps from being taken waits, with that reason recorded on
-// it, and is never dropped.
+// it, and is never dropped. The request is the store's, not the process's, so
+// one still waiting when the scheduler restarts is taken by the next one, and
+// one whose pass a stopped process was carrying is taken again; one whose pass
+// another process is still carrying, with a turn in flight, is not.
 //
 // # The model
 //
@@ -137,6 +141,7 @@ type PassCursors interface {
 type PassRequests interface {
 	Open(agent string) (runstate.PassRequest, bool, error)
 	Wait(agent, id, reason string, at time.Time) (runstate.PassRequest, error)
+	Take(agent, id, pass string, at time.Time) (runstate.PassRequest, error)
 	Close(agent, id, pass string, outcome runstate.PassRequestOutcome, problem string, at time.Time) (runstate.PassRequest, error)
 }
 
@@ -340,6 +345,15 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 		}
 		return claimedFiring{}, false, readProblem
 	}
+	// A request already taken whose instance has a turn in flight is being
+	// carried by another process's pass, and is not taken a second time; where
+	// no turn is in flight, the process that took it stopped and it is taken
+	// again.
+	if request.TakenAt != nil && t.Conversations != nil {
+		if busy, err := t.Conversations.InFlight(agent); err == nil && busy {
+			return claimedFiring{}, false, readProblem
+		}
+	}
 	claimed, err := t.Claims.Summon(ctx, agent, now)
 	if err != nil {
 		return claimedFiring{}, false, errors.Join(readProblem, fmt.Errorf("claim the requested pass of the program manager instance %s: %w", agent, err))
@@ -354,6 +368,11 @@ func (t Trigger) requestedPass(ctx context.Context, agent string, instance confi
 		unrecorded = unfinished.Error()
 	}
 	pass := passName(claimed)
+	// Recorded on the request before the first turn, so whoever asked reads it
+	// as taken, by which pass, while the pass runs.
+	if _, err := t.Requests.Take(agent, request.ID, pass, now); err != nil {
+		unrecorded = appendProblem(unrecorded, fmt.Sprintf("the pass request %s of %s could not be recorded as taken, so it reads as waiting until the pass closes it: %v", request.ID, agent, err))
+	}
 	return claimedFiring{take: func(ctx context.Context) Fired {
 		fired := t.run(ctx, firing{
 			name:    agent,

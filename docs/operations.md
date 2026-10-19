@@ -5160,8 +5160,13 @@ for a handoff `to`) and `blocked_on_a_human` (each with its `item`, `title`,
 `how`, the `what` the line opens the miss with, `at`, `recorded_at`, what it `says`, and its mover under `waiting_on`,
 always `harness` — the `blockers` each with its mover (`waiting_on`),
 its citation, and the kind of record it resolved to, the `claims` each with its
-`reason`, the report's `report_path` and `report_written_at`, and its open
-`restart_requests`. A record behind them that could not be read is said under
+`reason`, the report's `report_path` and `report_written_at`, its open
+`restart_requests`, and its `pass_requests` — every request for its pass still
+open and the latest five of the rest, each carried whole with its `state`
+(`waiting`, `taken`, `joined`, `completed`, or `failed`) and `since`, when it
+reached that state. The text lists the same requests under the instance's
+opening lists, one line each, as `Pass requests:`, and lists nothing for an
+instance nobody has asked. A record behind them that could not be read is said under
 the line and in `program_managers_problem`, and never read as none: a pass log
 nobody could open calls nobody stale. The channel's hourly line counts the
 stale instances — `Program managers stale: 1 of 2 (factory-pgm)` — inside the

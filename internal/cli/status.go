@@ -771,7 +771,7 @@ func waitingRecordSources(stateRoot string, productID domain.ProductID) readmode
 
 // programManagerSources wires what the read model derives each program manager
 // instance from: the configured instances, their restart requests, their lane
-// reports, the pass records, and the exchanges. The reports, the amendments,
+// reports, the pass records, the exchanges, and the requests for their passes. The reports, the amendments,
 // and the conversations a status also reads are wired by the caller, because
 // the four lines read them too. A store that cannot be built is left unwired,
 // which the reading says rather than reporting what it could not read as none.
@@ -788,6 +788,9 @@ func programManagerSources(sources *readmodel.Sources, cfg config.Config, stateR
 	}
 	if store, err := runstate.NewExchangeStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.Exchanges = store
+	}
+	if store, err := runstate.NewPassRequestStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.PassRequests = store
 	}
 	// Read and never written here: this is the path every request the dashboard
 	// answers goes through, and no request writes anything. The loads that

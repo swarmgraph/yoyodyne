@@ -78,6 +78,9 @@ func instance(every time.Duration, on ...config.TriggerEvent) map[string]config.
 // passHarness is one instance, its cursor, its streams, and the sweep store its
 // passes are claimed and recorded in.
 type passHarness struct {
+	// root is the state the stores are opened over, so a test can open them
+	// again as a restarted scheduler would.
+	root    string
 	trigger Trigger
 	sweeps  *runstate.SweepStore
 	cursors *runstate.PassCursorStore
@@ -98,6 +101,7 @@ func newPassHarness(t *testing.T, instances map[string]config.AgentConfig) *pass
 		t.Fatalf("NewPassCursorStore() error = %v", err)
 	}
 	harness := &passHarness{
+		root:    root,
 		sweeps:  sweeps,
 		cursors: cursors,
 		events:  &recordedEvents{},

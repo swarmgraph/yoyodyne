@@ -277,8 +277,11 @@ type PassRequest struct {
 	Waiting      string     `json:"waiting,omitempty"`
 	WaitingSince *time.Time `json:"waiting_since,omitempty"`
 	// Pass is the pass taken from the request, by its name in the sweep log, and
-	// ClosedAt, Outcome, and Problem are how that pass ended.
+	// TakenAt when it was taken; ClosedAt, Outcome, and Problem are how that pass
+	// ended. A request closed before passes were recorded as taken has a pass and
+	// no TakenAt.
 	Pass     string             `json:"pass,omitempty"`
+	TakenAt  *time.Time         `json:"taken_at,omitempty"`
 	ClosedAt *time.Time         `json:"closed_at,omitempty"`
 	Outcome  PassRequestOutcome `json:"outcome,omitempty"`
 	Problem  string             `json:"problem,omitempty"`
@@ -287,6 +290,40 @@ type PassRequest struct {
 // Open reports a request still waiting for its pass: not joined to another,
 // and not closed.
 func (r PassRequest) Open() bool { return r.JoinedTo == "" && r.ClosedAt == nil }
+
+// PassRequestState is what became of a request, as a person asking reads it.
+type PassRequestState string
+
+const (
+	// PassRequestStateWaiting is a request no pass has been taken from yet.
+	PassRequestStateWaiting PassRequestState = "waiting"
+	// PassRequestStateTaken is a request a pass was taken from that has not
+	// ended.
+	PassRequestStateTaken PassRequestState = "taken"
+	// PassRequestStateJoined is a request added to one already open, answered by
+	// that one's pass.
+	PassRequestStateJoined PassRequestState = "joined"
+	// PassRequestStateCompleted and PassRequestStateFailed are a request whose
+	// pass ended, in the words of its Outcome.
+	PassRequestStateCompleted PassRequestState = PassRequestState(PassRequestCompleted)
+	PassRequestStateFailed    PassRequestState = PassRequestState(PassRequestFailed)
+)
+
+// State is what became of the request, and since when: waiting since it was
+// asked, taken since its pass was, joined since it was asked, or the outcome
+// its pass ended with, since it ended.
+func (r PassRequest) State() (PassRequestState, time.Time) {
+	switch {
+	case r.JoinedTo != "":
+		return PassRequestStateJoined, r.RequestedAt
+	case r.ClosedAt != nil:
+		return PassRequestState(r.Outcome), *r.ClosedAt
+	case r.TakenAt != nil:
+		return PassRequestStateTaken, *r.TakenAt
+	default:
+		return PassRequestStateWaiting, r.RequestedAt
+	}
+}
 
 func (r PassRequest) Validate() error {
 	var problems []error
@@ -316,6 +353,9 @@ func (r PassRequest) Validate() error {
 	}
 	if (r.Waiting == "") != (r.WaitingSince == nil) {
 		problems = append(problems, errors.New("a wait on a pass request names both its reason and since when"))
+	}
+	if r.TakenAt != nil && strings.TrimSpace(r.Pass) == "" {
+		problems = append(problems, errors.New("a pass request recorded as taken names the pass that took it"))
 	}
 	if r.ClosedAt != nil {
 		if r.Outcome != PassRequestCompleted && r.Outcome != PassRequestFailed {
@@ -384,7 +424,7 @@ func (s *PassRequestStore) Request(request PassRequest) (PassRequest, error) {
 	request.RequestedAt = request.RequestedAt.UTC()
 	request.JoinedTo, request.Joined = "", nil
 	request.Waiting, request.WaitingSince = "", nil
-	request.Pass, request.ClosedAt, request.Outcome, request.Problem = "", nil, "", ""
+	request.Pass, request.TakenAt, request.ClosedAt, request.Outcome, request.Problem = "", nil, nil, "", ""
 	if err := request.Validate(); err != nil {
 		return PassRequest{}, err
 	}
@@ -432,6 +472,29 @@ func (s *PassRequestStore) Wait(agent, id, reason string, at time.Time) (PassReq
 		}
 		since := at.UTC()
 		request.Waiting, request.WaitingSince = reason, &since
+		// A pass taken earlier that never ended is not what the request waits
+		// on now, so it no longer reads as taken.
+		request.Pass, request.TakenAt = "", nil
+		return true, nil
+	})
+}
+
+// Take records that a pass was taken from an open request: the pass, by its
+// name in the sweep log, and when, with any wait cleared. The request stays
+// open until that pass ends and closes it, so a process stopped mid-pass leaves
+// it for the next pull to take again; that take names the later pass.
+func (s *PassRequestStore) Take(agent, id, pass string, at time.Time) (PassRequest, error) {
+	pass = strings.TrimSpace(pass)
+	if pass == "" {
+		return PassRequest{}, errors.New("a pass request is taken by a named pass")
+	}
+	return s.update(agent, id, func(request *PassRequest) (bool, error) {
+		if !request.Open() {
+			return false, fmt.Errorf("pass request %s is not open", id)
+		}
+		taken := at.UTC()
+		request.Pass, request.TakenAt = pass, &taken
+		request.Waiting, request.WaitingSince = "", nil
 		return true, nil
 	})
 }

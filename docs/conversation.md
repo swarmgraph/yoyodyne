@@ -2133,7 +2133,9 @@ under a `yoyodyne-pass-request` fence. `focus` is optional: one `area` the
 instance's remit lists, or up to ten repository `paths`, never both. The harness
 records the request as hers, with her conversation and turn, and tells her on
 her next turn that nothing has run yet. The scheduler takes the request at its
-next pull, and the pass it takes records the request and who asked
+next pull, and the pass it takes records the request and who asked; `yoyo
+status` shows under the instance whether the request is waiting, taken,
+completed, or failed, and since when
 ([a program manager instance's passes](configuration.md#a-program-manager-instances-passes)).
 An agent that is not a configured program manager instance, or a focus naming
 both an area and paths, is refused and nothing is recorded.

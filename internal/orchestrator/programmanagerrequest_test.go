@@ -19,7 +19,7 @@ func onRequestOnly() map[string]config.AgentConfig {
 
 func withRequests(t *testing.T, h *passHarness) *runstate.PassRequestStore {
 	t.Helper()
-	requests, err := runstate.NewPassRequestStore(t.TempDir(), "example")
+	requests, err := runstate.NewPassRequestStore(h.root, "example")
 	if err != nil {
 		t.Fatalf("NewPassRequestStore() error = %v", err)
 	}
@@ -125,6 +125,12 @@ func TestARequestedPassIsTakenRecordedWithWhoAskedAndClosed(t *testing.T) {
 	closed := requestNamed(t, requests, asked.ID)
 	if closed.Open() || closed.Outcome != runstate.PassRequestCompleted || closed.Pass != instanceName+"#1" {
 		t.Fatalf("request = %+v, want it closed completed by the pass that answered it", closed)
+	}
+	if closed.TakenAt == nil || !closed.TakenAt.Equal(recurringNow) {
+		t.Errorf("request = %+v, want it recorded as taken when the pass was claimed", closed)
+	}
+	if state, since := closed.State(); state != runstate.PassRequestStateCompleted || since.IsZero() {
+		t.Errorf("State() = %q, %s, want completed with when", state, since)
 	}
 	if again := h.fire(t, recurringNow.Add(time.Hour)); len(again.Fired) != 0 {
 		t.Errorf("fired = %+v, want nothing once the request is answered", again.Fired)
@@ -254,5 +260,118 @@ func TestAScheduledInstanceMayBeAskedForAPassBetweenItsPasses(t *testing.T) {
 	fired := h.fire(t, recurringNow.Add(11*time.Minute))
 	if len(fired.Fired) != 1 || !strings.Contains(h.role.messages[1], asked.ID) {
 		t.Fatalf("fired = %+v, want the request taken between scheduled passes", fired.Fired)
+	}
+}
+
+// restart is the scheduler starting again over the same state: every store
+// opened afresh, nothing carried over in memory but the provider it asks.
+func (h *passHarness) restart(t *testing.T) *runstate.PassRequestStore {
+	t.Helper()
+	sweeps, err := runstate.NewSweepStore(h.root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cursors, err := runstate.NewPassCursorStore(h.root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests, err := runstate.NewPassRequestStore(h.root, "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	restarted := h.trigger
+	restarted.Claims, restarted.Reports, restarted.Cursors, restarted.Requests = sweeps, sweeps, cursors, requests
+	h.trigger, h.sweeps, h.cursors = restarted, sweeps, cursors
+	return requests
+}
+
+// A request still waiting when the scheduler restarts is waiting afterwards,
+// is taken by the restarted scheduler at its next pull, and is taken once.
+func TestARequestWaitingAcrossASchedulerRestartIsTakenOnce(t *testing.T) {
+	t.Parallel()
+
+	h := newPassHarness(t, onRequestOnly())
+	requests := withRequests(t, h)
+	outages, err := runstate.NewProviderOutageStore(t.TempDir(), "example")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := outages.Notice(runstate.ProviderOutageObservation{Cause: domain.ProviderUnreachable, Waiting: "a pass", At: recurringNow}); err != nil {
+		t.Fatal(err)
+	}
+	h.trigger.Outages = outages
+	h.trigger.OutageProbe = time.Hour
+	asked := askForPass(t, requests, runstate.PassAskerProductManager, recurringNow, runstate.PassFocus{})
+	if fired := h.fire(t, recurringNow.Add(time.Minute)); len(fired.Fired) != 0 {
+		t.Fatalf("fired = %+v, want the request held while the provider answers nobody", fired.Fired)
+	}
+
+	requests = h.restart(t)
+	if waiting := requestNamed(t, requests, asked.ID); !waiting.Open() {
+		t.Fatalf("request = %+v, want it still waiting after the restart", waiting)
+	} else if state, _ := waiting.State(); state != runstate.PassRequestStateWaiting {
+		t.Fatalf("State() = %q, want waiting", state)
+	}
+	if _, _, err := outages.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	h.role.answers = []scriptedTurn{{result: complete("taken after the restart")}, {result: complete("should never be asked")}}
+	if fired := h.fire(t, recurringNow.Add(10*time.Minute)); len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the restarted scheduler to take the request", fired.Fired)
+	}
+	for _, at := range []time.Duration{20 * time.Minute, 2 * time.Hour} {
+		if fired := h.fire(t, recurringNow.Add(at)); len(fired.Fired) != 0 {
+			t.Fatalf("fired = %+v at +%s, want the request taken once", fired.Fired, at)
+		}
+	}
+	if len(h.role.messages) != 1 || !strings.Contains(h.role.messages[0], asked.ID) {
+		t.Errorf("messages = %v, want one pass taken from the request", h.role.messages)
+	}
+	if closed := requestNamed(t, requests, asked.ID); closed.Open() || closed.Outcome != runstate.PassRequestCompleted {
+		t.Errorf("request = %+v, want it closed by the one pass", closed)
+	}
+}
+
+// A request whose pass the scheduler had taken when it stopped is taken again
+// once by the scheduler that replaces it, since nothing is carrying it; while a
+// turn is in flight on the instance's conversation, another process is, and it
+// is not taken a second time.
+func TestARequestTakenByAStoppedSchedulerIsTakenAgainOnce(t *testing.T) {
+	t.Parallel()
+
+	h := newPassHarness(t, onRequestOnly())
+	requests := withRequests(t, h)
+	asked := askForPass(t, requests, runstate.PassAskerOperator, recurringNow, runstate.PassFocus{})
+	// The stopped scheduler claimed the pass and recorded the request taken,
+	// and stopped before the pass ended.
+	claimed, err := h.sweeps.Summon(t.Context(), instanceName, recurringNow)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := requests.Take(instanceName, asked.ID, passName(claimed), recurringNow); err != nil {
+		t.Fatal(err)
+	}
+
+	requests = h.restart(t)
+	carrying := busyConversations{instanceName: true}
+	h.trigger.Conversations = carrying
+	if fired := h.fire(t, recurringNow.Add(time.Minute)); len(fired.Fired) != 0 {
+		t.Fatalf("fired = %+v, want a request another process is carrying left to it", fired.Fired)
+	}
+	if taken := requestNamed(t, requests, asked.ID); taken.Pass != instanceName+"#1" {
+		t.Fatalf("request = %+v, want it still taken by the first pass", taken)
+	}
+
+	carrying[instanceName] = false
+	h.role.answers = []scriptedTurn{{result: complete("taken again")}, {result: complete("should never be asked")}}
+	if fired := h.fire(t, recurringNow.Add(2*time.Minute)); len(fired.Fired) != 1 {
+		t.Fatalf("fired = %+v, want the request taken again once nothing carries it", fired.Fired)
+	}
+	if fired := h.fire(t, recurringNow.Add(time.Hour)); len(fired.Fired) != 0 {
+		t.Fatalf("fired = %+v, want it taken once", fired.Fired)
+	}
+	closed := requestNamed(t, requests, asked.ID)
+	if closed.Open() || closed.Pass != instanceName+"#2" || closed.Outcome != runstate.PassRequestCompleted {
+		t.Errorf("request = %+v, want it closed by the second pass", closed)
 	}
 }
