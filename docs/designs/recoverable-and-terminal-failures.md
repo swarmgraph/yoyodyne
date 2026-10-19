@@ -14,12 +14,21 @@ revisions:
       by: architect
       at: 2026-10-12T13:29:00.37981Z
       reason: 'yoyodyne-gms - states the October 11 ruling on checks stopped by their time limit: unfinished rather than failed, rerun from the start on the same candidate at most twice within three times the limit, bounds shared by every path and never reset by a restart, no reruns added by scaling for machine load, spent bounds kept for the development manager; resent with the one undefined joined word in the closing sentence written out in ordinary words after the word check refused the first run'
+    - action: amended
+      by: architect
+      at: 2026-10-19T11:31:07.53834Z
+      reason: 'Answers the reviewer''s reports on the hold on new work (report-c3429c9e and report-17c8bcbf): the brake keeps out of its count only the causes outside the work stopped run recovery lists and cancellations, counts the harness''s own failures and unrecognized causes, and never lets a trial run that stopped for an uncounted cause make the next trial due at once. Changes the brake bullet and adds the order and checks for it; nothing else.'
 approvals:
     - policy: approvals.designs
       revision: 1
       by: harness
       at: 2026-10-12T13:29:00.37981Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 754, for document-754.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-19T11:31:07.53834Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1276, for document-1276.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -61,7 +70,10 @@ The time limit is still the operator's statement about how long the suite may ta
 
 - **Double-promote.** Promotion is a compare-and-swap from the recorded base onto the exact commit the harness made, and a merge is pinned to that commit and confirmed by containment. A retried promotion or merge that finds the target moved is a lost race and replays under `execution.integration_retries_before_reconciliation`; it never forces, and it never asks twice for a merge the forge has already made. `one-promotion-per-target-branch` binds every retry as it binds the first attempt.
 - **Double-spend.** Every wait is recorded on the run before it is taken, every budget is committed before it is spent, and a process that dies mid-wait comes back to the window it had spent. A retry charges no repair attempt and no review round, because nothing about the change was judged.
-- **Trip the brake.** A run stopped by a boundary's window counts toward nothing the failure-storm brake counts: the brake counts verdicts on a change that was present, and a network that stayed down is a verdict on nothing.
+- **Trip the brake.** A run stopped by a boundary's window counts toward nothing the failure-storm brake counts: the brake counts verdicts on a change that was present, and a network that stayed down is a verdict on nothing. Three rules decide the rest, ruled on October 19 after the reviewer's reports on the hold on new work (report-c3429c9e and report-17c8bcbf):
+  - Only the causes outside the work that step 1 of [stopped run recovery](stopped-run-recovery.md) lists, and a run cancelled by a person or by a recorded decision, are kept out of the brake's count. A failure of the harness itself around a run, and any stop cause the harness does not recognize, count as a verdict does: a harness that keeps failing is what the brake exists to stop, and nothing else would stop it. Code that sorts an unrecognized cause outside the count by default is a defect.
+  - A trial run the brake lets through that stops for a cause kept out of the count never makes the next trial due at once. The next trial waits its ordinary spacing, so trials never start back to back, whatever the cause of the stop and even where a cause is sorted wrongly.
+  - Keeping a stop out of the brake's count changes only the brake. Whether a stop charges a repair attempt is still decided by step 1 of stopped run recovery.
 - **Hold a shared lease through an outage.** The pre-merge check and the merge request stay together under the target branch's promotion lease, because the check is the evidence the merge stands on and a promotion admitted between them invalidates it. But a recoverable wait taken while holding that lease is bounded to the promotion queue's own bound, **fifteen minutes in total across every lease-held boundary of one promotion**. Past it the holder releases the lease with the boundary's state recorded — a merge asked and unconfirmed, a confirmation not made, a branch not deleted, a catch-up owed — and ends; reconciliation re-asks each of those under the lease again, briefly, as it already does for a queued merge. So an outage longer than fifteen minutes costs the promoting run its confirmation and nothing else, and costs the runs queued behind it nothing at all. That is the bound the notes on this item asked for, and it replaces holding the lease for the sum of five two-hour windows.
 
 ## What exhausting a window produces
@@ -71,3 +83,7 @@ Never a silent terminal failure. A window that runs out produces exactly what th
 ## What this orders
 
 Two changes to the machinery as shipped, for the product manager to admit: the provider boundary's post-budget window shortened from two hours to thirty minutes, and the lease-held waits bounded to the promotion queue's fifteen minutes with the release-and-record behavior above. Everything else in this design describes the recovery rule as it ships and gives it the taxonomy it was waiting on, including the bounded reruns of a check stopped by its time limit, built by the work that scales each check's time limit with machine load (yoyodyne-ifd.429.41).
+
+One further change, from October 19, reported to the development manager to admit: the code that sorts a stop's cause for the brake counts the harness's own failures and unrecognized causes, keeps out only the causes stopped run recovery lists and cancellations, and gives a trial run that stops for a cause kept out of the count its ordinary spacing before the next one.
+
+A reviewer can check: no stop cause outside step 1's list, other than a cancellation, is kept out of the brake's count; and no trial run starts sooner than its ordinary spacing after the one before it stopped.
