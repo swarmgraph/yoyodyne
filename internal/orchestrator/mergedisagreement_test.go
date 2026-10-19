@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -571,4 +572,64 @@ func TestAnInterruptedLandingTheTargetDoesNotCarryIsLeftAtItsMerge(t *testing.T)
 		t.Errorf("status %s, integration %#v; want the run still at its landing for the next sweep", state.Status, state.Integration)
 	}
 	assertLeftAtItsMerge(t, fixture, fixture.reconcile(t), landed)
+}
+
+// failingListingTracker is the fake tracker whose listing of closed work fails
+// the way the real one did when bd was stopped at its limit on every attempt.
+type failingListingTracker struct {
+	*orchestratortest.Tracker
+	lists int
+}
+
+func (l *failingListingTracker) List(context.Context, string) ([]beads.WorkItem, error) {
+	l.lists++
+	return nil, errors.New("bd list did not answer within its 30s bound on any of 3 attempts over 1m41s: bd list failed with status timed_out and exit code -1")
+}
+
+// A sweep that cannot read which work items are closed checks no run against
+// its target branch, and says so as unread closed work, with the tracker's own
+// words, so the reconcile sweep can tell the development manager the first
+// time rather than only failing.
+func TestASweepThatCannotReadClosedWorkSaysSo(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	fixture.forgetMerge(t)
+	fixture.reconciler.Tracker = &failingListingTracker{Tracker: fixture.run.tracker}
+	findings, err := fixture.reconciler.FindMergeDisagreements(context.Background())
+	unread := UnreadClosedItems(err)
+	if len(findings) != 0 || len(unread) != 1 {
+		t.Fatalf("FindMergeDisagreements() = %#v, %v; want nothing checked and the closed work unread", findings, err)
+	}
+	for _, want := range []string{"read which work items are closed to find runs recorded as merged that are not on their target branch", "did not answer within its 30s bound"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not say %q", err, want)
+		}
+	}
+	if entries := fixture.entries(t); len(entries) != 0 {
+		t.Fatalf("docket = %#v, want nothing listed on a read that did not answer", entries)
+	}
+}
+
+// A sweep given a shared reading of closed work reads through it, so the
+// reconcile sweep's later step that needs the same answer asks nothing more of
+// the tracker.
+func TestASweepReadsClosedWorkThroughTheSharedReading(t *testing.T) {
+	t.Parallel()
+
+	fixture := newDisagreementFixture(t)
+	fixture.forgetMerge(t)
+	tracker := &listingTracker{Tracker: fixture.run.tracker}
+	shared := &ClosedListing{Tracker: tracker}
+	fixture.reconciler.Tracker = fixture.run.tracker
+	fixture.reconciler.ClosedListing = shared
+	if findings := fixture.sweep(t); len(findings) != 1 || !findings[0].Docketed {
+		t.Fatalf("findings = %#v, want the open item's run listed", findings)
+	}
+	if _, err := shared.List(context.Background(), "closed"); err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	if tracker.lists != 1 {
+		t.Fatalf("closed work listed %d times, want once for the sweep and the step after it", tracker.lists)
+	}
 }

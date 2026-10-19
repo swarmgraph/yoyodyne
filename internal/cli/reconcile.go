@@ -72,6 +72,10 @@ type reconcileOutput struct {
 	// work stopped at bd's default limit, and that the items it left out were
 	// read one at a time. Empty where the listing was whole.
 	ListingCut string `json:"listing_cut,omitempty"`
+	// UnreadReport is the report this sweep filed for the development manager
+	// because a step could not read which work items are closed, and empty where
+	// every step could or one filed earlier is still waiting on her.
+	UnreadReport string `json:"closed_items_unread_report,omitempty"`
 	// EscalationsEnded is each escalation to the operator this sweep found had
 	// ended — its item parked, retired, or closed, or its run's branch and
 	// worktree both gone — with the item it told and what ended it.
@@ -135,6 +139,9 @@ type reconcileSweep struct {
 	// ListingCut says the tracker's listing of closed work was cut, and what the
 	// sweep did about it.
 	ListingCut string
+	// UnreadReport is the report filed because a step could not read which work
+	// items are closed.
+	UnreadReport string
 	// EscalationsEnded is each escalation to the operator the sweep ended.
 	EscalationsEnded []orchestrator.EscalationSettlement
 	Supervision      []orchestrator.SupervisionResult
@@ -206,6 +213,10 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// What the sweep asks the forge is tallied, so the pass says how many
 	// publications it asked about and how long the forge took.
 	reconciler.Forge = &orchestrator.ForgeQuestions{}
+	// Which work items are closed is read once for the sweep and shared by the
+	// two steps that need it: see closedlisting.go.
+	closedListing := &orchestrator.ClosedListing{Tracker: parts.tracker()}
+	reconciler.ClosedListing = closedListing
 	results, err := reconciler.Reconcile(ctx)
 	err = errors.Join(err, trackerExportErr)
 	// A promoted run whose record names no pull request is asked about first, by
@@ -259,8 +270,13 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 	// conversation. The places that close an item close its entries as they do,
 	// and this is what catches the ones they missed and the ones left standing
 	// from before any of them did.
-	closedWithItem, listingCut, closedErr := closeEntriesOfClosedItems(ctx, parts)
+	closedWithItem, listingCut, closedErr := closeEntriesOfClosedItems(ctx, parts, closedListing)
 	err = errors.Join(err, closedErr)
+	// A step that could not read which work items are closed is reported to the
+	// development manager the first time, with what the tracker said, rather than
+	// left in the pass's record until the pass has failed three times in a row.
+	unreadReport, unreadReportErr := reportUnreadClosedItems(parts.reports, passFailureAttribution(parts.config), err, time.Now())
+	err = errors.Join(err, unreadReportErr)
 	// An escalation to the operator whose item has since been parked, retired,
 	// or closed, or whose run's change is gone, is told to its item once and
 	// recorded on the run. The read model has already stopped naming it; this is
@@ -299,6 +315,7 @@ func reconcileRuns(ctx context.Context, args []string, stdout, stderr io.Writer)
 		NotDocketed:        docketed.NotDocketed,
 		ClosedWithItem:     closedWithItem,
 		ListingCut:         listingCut,
+		UnreadReport:       unreadReport,
 		EscalationsEnded:   escalationsEnded,
 		Supervision:        supervision,
 		Stall:              stall,
@@ -530,11 +547,11 @@ func checkForStall(ctx context.Context, parts components, threshold time.Duratio
 // it can and says the listing was cut rather than failing (readDocketItems). A
 // docket with nothing standing is not listed against at all, so a product with
 // no entries asks the tracker nothing.
-func closeEntriesOfClosedItems(ctx context.Context, parts components) (int, string, error) {
+func closeEntriesOfClosedItems(ctx context.Context, parts components, tracker itemLister) (int, string, error) {
 	if parts.docket == nil {
 		return 0, "", nil
 	}
-	return sweepClosedItems(ctx, *docketerFrom(parts), parts.tracker())
+	return sweepClosedItems(ctx, *docketerFrom(parts), tracker)
 }
 
 // sweepClosedItems is that sweep over a docket and a tracker it is handed. The
@@ -557,7 +574,7 @@ func sweepClosedItems(ctx context.Context, docketer orchestrator.Docketer, track
 	}
 	read, err := readDocketItems(ctx, tracker, "closed", standing)
 	if err != nil {
-		return 0, "", fmt.Errorf("list the closed work items to close their docket entries: %w", err)
+		return 0, "", &orchestrator.ClosedItemsUnread{Need: "close their docket entries", Err: err}
 	}
 	closed, err := docketer.SettleClosedItems(orchestrator.ClosedItemReasons(read.items, "a reconcile sweep"))
 	return closed, read.cut, err
@@ -609,6 +626,7 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 			NotDocketed:        sweep.NotDocketed,
 			ClosedWithItem:     sweep.ClosedWithItem,
 			ListingCut:         sweep.ListingCut,
+			UnreadReport:       sweep.UnreadReport,
 			EscalationsEnded:   sweep.EscalationsEnded,
 			Supervision:        sweep.Supervision,
 			Stall:              sweep.Stall,
@@ -706,6 +724,9 @@ func reportReconcileResult(stdout, stderr io.Writer, jsonOutput bool, sweep reco
 		}
 		if sweep.ListingCut != "" {
 			fmt.Fprintf(stderr, "closing the docket entries of closed work: %s\n", sweep.ListingCut)
+		}
+		if sweep.UnreadReport != "" {
+			fmt.Fprintf(stderr, "which work items are closed could not be read, and %s says so to the development manager\n", sweep.UnreadReport)
 		}
 		printMergeDisagreements(stdout, stderr, sweep.MergeDisagreements)
 		for _, ended := range sweep.EscalationsEnded {
