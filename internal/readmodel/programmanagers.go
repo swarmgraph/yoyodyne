@@ -136,9 +136,20 @@ func readPassRequests(sources Sources, agent string) ([]ProgramManagerPassReques
 	if err != nil {
 		return shown, fmt.Sprintf("the pass requests of %s could not be read, so what became of one cannot be said: %v", agent, err)
 	}
-	for index, request := range requests {
-		if !request.Open() && index < len(requests)-maxPassRequestsShown {
-			continue
+	// Only the requests that are not open count against the bound, so an open
+	// one never pushes a closed one off the list.
+	rest := 0
+	for _, request := range requests {
+		if !request.Open() {
+			rest++
+		}
+	}
+	for _, request := range requests {
+		if !request.Open() {
+			rest--
+			if rest >= maxPassRequestsShown {
+				continue
+			}
 		}
 		state, since := request.State()
 		shown = append(shown, ProgramManagerPassRequest{PassRequest: request, State: state, Since: since})

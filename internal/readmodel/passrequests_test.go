@@ -126,6 +126,16 @@ func TestOnlyTheLatestClosedPassRequestsAreCarried(t *testing.T) {
 	if len(shown) != maxPassRequestsShown || shown[0].ID != "pass-request-03" || shown[len(shown)-1].ID != "pass-request-07" {
 		t.Errorf("shown = %+v, want the latest %d", shown, maxPassRequestsShown)
 	}
+
+	// An open request made after them is carried beside the latest five
+	// closed ones, and pushes none of them off.
+	requests = append(requests, runstate.PassRequest{ID: "pass-request-08", Agent: "writing-pgm",
+		AskedBy: runstate.PassAskerOperator, RequestedAt: moment.Add(-time.Hour)})
+	sources.PassRequests = fakePassRequests{requests: map[string][]runstate.PassRequest{"writing-pgm": requests}}
+	shown = instanceNamed(t, sources, "writing-pgm").PassRequests
+	if len(shown) != maxPassRequestsShown+1 || shown[0].ID != "pass-request-03" || shown[len(shown)-1].ID != "pass-request-08" || shown[len(shown)-1].State != runstate.PassRequestStateWaiting {
+		t.Errorf("shown = %+v, want the open request and the latest %d closed ones", shown, maxPassRequestsShown)
+	}
 }
 
 // A request log that cannot be read is said, rather than read as nobody having
