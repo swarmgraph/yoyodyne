@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-19T11:31:07.53834Z
       reason: 'Answers the reviewer''s reports on the hold on new work (report-c3429c9e and report-17c8bcbf): the brake keeps out of its count only the causes outside the work stopped run recovery lists and cancellations, counts the harness''s own failures and unrecognized causes, and never lets a trial run that stopped for an uncounted cause make the next trial due at once. Changes the brake bullet and adds the order and checks for it; nothing else.'
+    - action: amended
+      by: architect
+      at: 2026-10-19T18:23:59.886625Z
+      reason: 'yoyodyne-ifd.429.86 - the October 19 ruling on a check failure confined to tests the change does not touch: how the harness decides a test is untouched from paths alone, one rerun of only those tests on the same candidate commit before a repair attempt is spent, a second failure checked on the base commit so a change''s own failure is charged and a failure on main is held for the development manager, the reviewer and the dashboard shown every test that failed and then passed, and the build work it needs. Changes the checks boundary''s first sentence and adds one section, its orders and its checks; nothing else.'
 approvals:
     - policy: approvals.designs
       revision: 1
@@ -29,6 +33,11 @@ approvals:
       by: harness
       at: 2026-10-19T11:31:07.53834Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1276, for document-1276.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-19T18:23:59.886625Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1296, for document-1296.1 under the automatic approval policy
 ---
 # Recoverable and terminal failures: the boundary per failure class, and what a retry may never do
 
@@ -56,7 +65,7 @@ A failure whose class the harness does not recognize is treated as an answer and
 
 **Local Git.** A command the harness's own budget ended is an environmental refusal and is not retried in place: a replay it killed is abandoned and recorded as an integration stop the resume picks up, and a checkout it killed is refused with nothing charged. A conflict is an answer, to a person, with both sides preserved. Neither is a recoverable failure, because the identical command on the same machine at the same load is not a different request.
 
-**The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried. A check stopped by its own time limit, or by the stage's limit, is not a failing check: it did not finish, so it is neither a pass nor a failure, and it earns no credit toward any gate. It is recovered within fixed bounds:
+**The checks and the review.** A failing check and a repair verdict are answers to the developer and are never retried, with one bounded exception: a failure confined to tests the change does not touch, which the next section describes. A check stopped by its own time limit, or by the stage's limit, is not a failing check: it did not finish, so it is neither a pass nor a failure, and it earns no credit toward any gate. It is recovered within fixed bounds:
 
 - It is run again from the start, on the same candidate commit, at most twice, and the first run and both reruns together take at most three times its limit. Both bounds are shared by every path that runs checks, so no path gets an allowance of its own.
 - Each rerun is recorded on the run before it starts. A restart or redeploy of the harness never resets the count: a process that comes back finds the reruns it had already spent.
@@ -65,6 +74,54 @@ A failure whose class the harness does not recognize is treated as an answer and
 - A new candidate commit starts the count again.
 
 The time limit is still the operator's statement about how long the suite may take on this machine, and the two reruns within three times the limit are what keep the load it exists to bound bounded. Treating a stop by the limit as a failing check sent developers to repair changes that nothing was wrong with, and that is the failure this rule removes. A reviewer invocation the provider killed is the provider boundary, and is reissued without a repair attempt being spent.
+
+## A check that fails only in tests the change does not touch
+
+Ruled on October 19 for the item asking how such a failure is run once more before a repair attempt is spent (yoyodyne-ifd.429.86), after the factory-flow program manager's account of two runs that spent every repair attempt on tests they did not touch (report-1d9951df). One of them was the Slack notice for a lapsed provider login (yoyodyne-ifd.431.9), which the reviewer had already approved. A test that fails on some runs and passes on others when the machine is busy is a fault in that test, and fixing each such test stays with its own work (yoyodyne-ifd.429.85, yoyodyne-ifd.429.78, yoyodyne-ifd.428.106). This rule stops such a test from spending a change's repair attempts while it waits to be fixed, without ever letting a real failure through.
+
+### Which tests a change touches
+
+The harness decides from the check's failing tests and the change's paths, and from nothing about any language:
+
+- Each failing test must be named, together with the file it is in, by the reading of the check's output that records failing tests. The project declares how its check output names them; this repository declares it for Go. A failure in which any failing test cannot be named with its file is an ordinary failed check, and nothing in this section applies.
+- A failing test is touched when its own file changed, or when any changed path is in the same directory as its file. A deleted file counts, and a renamed file counts under both its old and its new path, as in [choosing checks by what a change touches](choosing-checks-by-change.md).
+- Where the project declares that design's analyser and it returns complete evidence for the change, a test in any directory the analyser lists as affected is touched too. Where the analyser fails, cannot tell, or one of that design's reasons to run the whole suite holds, only the rule above decides. The analyser only ever adds tests to the touched set; it never takes one out.
+- A failure is confined to untouched tests only when every failing test in it is untouched and there are at most five of them. More than five failing tests is an ordinary failed check, because that many failures together is more likely the change than chance.
+
+### What the harness does
+
+1. It runs only the failing tests again, once, on the same candidate commit, with the check's own command narrowed to those tests and under the check's own time limit. The rerun is recorded on the run before it starts, and a restart of the harness never resets it.
+2. If every one of them passes, the check counts as passed. Both results are kept on the run: the first failure with its output, and the passing rerun. No repair attempt and no review round is spent.
+3. If any of them fails again, the harness runs those tests once on the base commit the candidate was built on, in a checkout it makes for that purpose and removes afterwards.
+   - If they pass on the base, the failure is the change's. It goes to the developer as an ordinary failed check, with both failing outputs, and spends one repair attempt as it does today.
+   - If they fail on the base too, the change did not cause the failure. The change is not integrated, because the check did not pass. The change is kept, no repair attempt is spent, and the run stops for a cause outside the work and goes to the development manager. The harness files a warning report naming each test that fails on the base and the base commit, because a test failing on main stops every change that runs it.
+4. If the rerun or the run on the base is stopped by its time limit, or cannot be started, the first failure stands and is handled as an ordinary failed check, exactly as it was before this rule.
+
+### The bounds
+
+- Each check stage gets at most one such rerun per candidate commit. A new candidate commit starts again.
+- The rule applies at every stage where the harness runs checks on this machine: before review and before promotion.
+- A check stopped by its time limit keeps its own two reruns under the boundary above. A run of it that then finishes with a failure confined to untouched tests may use this rule once; the two allowances are separate and neither extends the other.
+- Exactly one rerun, never more. A test that passes one time in three would land a real fault if it were run until it passed.
+
+### Nothing is hidden
+
+- The reviewer's evidence lists every test that failed and then passed, with the first failure's output.
+- The checks before promotion, and CI on the pull request, the merge queue and main, still run whole, so a test that passed only on its rerun runs again before the change lands.
+- The read model counts, for each test name, how often it failed and then passed and when it last did. A test seen three times in seven days is shown in the dashboard's section for what is broken, stalled, blocked or degraded (yoyodyne-ps2), owned by the development manager, until a fix for it lands or seven days pass without it recurring.
+- A rerun that passed changes nothing for the brake on new work, because no run stopped.
+
+### Checks on CI
+
+Where the full checks run on CI under [checks on CI](checks-on-ci.md), a failure of the required checks confined to untouched tests may be run again once through the forge adapter, for the same commit, where the adapter can ask the forge to run the failed jobs again. Where it cannot, the failure is an ordinary failed check. This is built after the rule for checks on this machine.
+
+### Alternatives rejected
+
+- **Running every failed check again whole.** Rejected because a whole suite takes fifteen to thirty minutes or more when runs overlap, and that load is what makes these tests fail in the first place.
+- **Running any failing test again, touched or not.** Rejected because a test whose code the change edited is most likely failing because of the change, and a rerun would let an intermittent fault the change introduced pass.
+- **More than one rerun.** Rejected because each extra rerun raises the chance that a real but intermittent failure is passed over.
+- **A list of known unreliable tests to skip.** Rejected because it removes coverage without anybody deciding it for each change, and such a list goes stale.
+- **Requiring the analyser before any rerun.** Rejected because a project that declares none would get no relief at all; the directory rule is the floor, and the analyser only makes it stricter.
 
 ## What a retry may never do
 
@@ -86,4 +143,22 @@ Two changes to the machinery as shipped, for the product manager to admit: the p
 
 One further change, from October 19, reported to the development manager to admit: the code that sorts a stop's cause for the brake counts the harness's own failures and unrecognized causes, keeps out only the causes stopped run recovery lists and cancellations, and gives a trial run that stops for a cause kept out of the count its ordinary spacing before the next one.
 
+The rule on failures confined to untouched tests, ruled on October 19 for yoyodyne-ifd.429.86, needs these builds, for the Lead Product Manager to admit and the development manager to break into work items:
+
+1. Naming each failing test with its file from a check's output, declared by the project, and this repository's declaration for Go.
+2. Deciding whether each failing test is touched, from the change's paths and, where declared and complete, the analyser of the design for choosing checks by change.
+3. The single rerun of only the failing tests on the same candidate commit: recorded before it starts, never reset by a restart, at most one per check stage per candidate commit, both results kept on the run and listed in the reviewer's evidence.
+4. The run on the base commit after a second failure: charged to the developer when the base passes; when the base fails too, the run held for the development manager as a stop outside the work, with the warning report naming the tests and the base commit.
+5. The read model's count of tests that failed and then passed, and the dashboard entry for a test seen three times in seven days.
+6. Later, the same rule for required checks on CI, through the forge adapter where it can ask for failed jobs to run again.
+
 A reviewer can check: no stop cause outside step 1's list, other than a cancellation, is kept out of the brake's count; and no trial run starts sooner than its ordinary spacing after the one before it stopped.
+
+A reviewer can check the rule on untouched tests:
+
+- A failure with any failing test touched, unnamed, or more than five failing tests spends a repair attempt exactly as before.
+- A failure confined to untouched tests reruns only those tests, once, on the same commit, and the rerun is on the run record before it starts.
+- A rerun that passes spends no repair attempt, keeps both results, and lists the tests in the reviewer's evidence.
+- A second failure that passes on the base commit spends one repair attempt; one that fails on the base too is not integrated, spends none, goes to the development manager, and files the warning report.
+- A restart never grants a second rerun for the same stage and commit.
+- The checks before promotion and on CI still run whole.
