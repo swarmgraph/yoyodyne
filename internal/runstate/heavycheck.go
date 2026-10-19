@@ -862,14 +862,19 @@ func (s *HeavyCheckStore) held(root *repowrite.PinnedRoot, permit HeavyCheckPerm
 // Register writes the check's process down as started, before its gate opens
 // and before it does any work. A failure leaves the gate shut, so a check that
 // could not be written down never ran.
+//
+// It waits for the record's lock for as long as the lock takes, with no time
+// limit, and so does Finish. A limit here turned a busy machine into a check
+// that failed to start, which spent a repair attempt on work that never ran.
+// Whoever holds the lock reads and writes one small record and lets go, and a
+// holder that dies lets go with it, because the kernel drops a dead process's
+// locks, so the wait ends once the machine gets round to it.
 func (g *HeavyCheckGrant) Register(process execution.StartedProcess) error {
 	var reading HeavyCheckReading
 	if g.read != nil {
 		reading = g.read()
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	session, err := g.store.open(ctx)
+	session, err := g.store.open(context.Background())
 	if err != nil {
 		return err
 	}
@@ -912,8 +917,8 @@ func (g *HeavyCheckGrant) Finish(result string) (HeavyCheckPermit, error) {
 	// unlocked: the lock belongs to the open file the check's processes share
 	// with this copy, so unlocking it would let go of theirs too.
 	_ = g.hold.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// The record's lock is waited for without a time limit, as Register says.
+	ctx := context.Background()
 	wait := g.store.cleanupWait
 	if wait <= 0 {
 		wait = heavyCheckCleanupWait
