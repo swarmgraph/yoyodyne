@@ -472,6 +472,13 @@ type Execution struct {
 	// Zero never escalates on its own, which is the loop as it stood before the
 	// bound existed.
 	BrakeEscalationCycles int `yaml:"brake_escalation_cycles" json:"brake_escalation_cycles"`
+	// BrakeProbeOverdueAfter is how long a probe run started under the brake's
+	// hold may stay out before it is put back on the development manager's list
+	// of stopped runs, naming the run and how long it has been out. A probe
+	// that neither lands nor blocks leaves the hold standing with every idle
+	// developer slot still idle, and a hold waiting on a run nobody is watching
+	// is the stall the brake exists to end. Zero never puts it back.
+	BrakeProbeOverdueAfter Duration `yaml:"brake_probe_overdue_after" json:"brake_probe_overdue_after"`
 	// DeveloperSlots is what each developer slot prefers, one entry per slot in
 	// slot order, and empty for a project whose every slot pulls in the product
 	// manager's order. A slot is one unit of MaxConcurrentDevelopers, so the list
@@ -651,6 +658,10 @@ const (
 	// out the same thing, which is enough evidence that the machine is broken
 	// and that she is not going to say so.
 	defaultBrakeEscalationCycles = 4
+	// defaultBrakeProbeOverdueAfter is forty-five minutes: longer than an
+	// ordinary run takes to land or block, and short enough that a probe gone
+	// quiet costs the idle slots under the hold less than an hour.
+	defaultBrakeProbeOverdueAfter = Duration(45 * time.Minute)
 )
 
 // Triage is what the triage workflow measures against: when work that has
@@ -1168,6 +1179,9 @@ func (c Config) Validate() error {
 	// bound, which describes no number of cycles anybody could count, is refused.
 	if c.Execution.BrakeEscalationCycles < 0 {
 		problems = append(problems, "execution.brake_escalation_cycles cannot be negative")
+	}
+	if c.Execution.BrakeProbeOverdueAfter < 0 {
+		problems = append(problems, "execution.brake_probe_overdue_after cannot be negative")
 	}
 	// An age of zero is not the choice the pauses above make with theirs: it
 	// dockets every approved publication the instant it is made, which is not a

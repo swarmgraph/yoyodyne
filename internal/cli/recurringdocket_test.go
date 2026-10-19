@@ -357,3 +357,92 @@ func TestASweepSaysWhenNothingWaitsOnTheOperatorAndWhenTheLineWasNotRead(t *test
 		t.Errorf("a partial reading rendered as %q, want it said", partial)
 	}
 }
+
+// While the brake holds new work, every pass of the development manager's is
+// put the hold as a decision to make again, with its cost, though she recorded
+// a probe decision before the first of them; and once the probe has been out
+// past execution.brake_probe_overdue_after it is back on her list of stopped
+// runs by itself, naming the run and how long it has been out. On October 18
+// a recorded probe decision took the hold off five passes in a row, with two of
+// three developer slots idle under it for about twelve hours.
+func TestEveryPassIsPutTheHeldLineAndAnOverdueProbeReturnsToTheDocket(t *testing.T) {
+	t.Parallel()
+
+	role := &docketPassRole{}
+	trigger, _, _, clock := docketPassFixture(t, 0, 1, role)
+	holds, err := runstate.NewIntakeHoldStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tripped := clock.at
+	trip := runstate.IntakeBrake{
+		Blocked:        []runstate.BrakeBlockedRun{{RunID: "run-a", WorkItemID: "yoyodyne-ifd.428.104", Reason: "paused for a new build"}},
+		CooldownEndsAt: tripped.Add(30 * time.Minute),
+	}
+	if _, err := holds.Brake(trip, "three runs blocked in a row", tripped); err != nil {
+		t.Fatal(err)
+	}
+	decided := tripped.Add(2 * time.Minute)
+	if _, err := holds.DecideBrake(runstate.BrakeDecisionProbe, "none of the stops was a fault in a change", "chat-dm", decided); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := holds.ReviseBrake(func(brake *runstate.IntakeBrake) error {
+		brake.Probe = &runstate.IntakeProbe{WorkItemID: "yoyodyne-ifd.430.60", RunID: "run-probe", StartedAt: decided}
+		brake.Probes = 1
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	docket := trigger.Docket.(sweepDocket)
+	docket.standing = func() readmodel.Standing {
+		hold, _, err := holds.Held()
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, braked := readmodel.HeldLineOf(hold, 3, 1, "", 45*time.Minute, clock.Now())
+		if !braked {
+			return readmodel.Standing{}
+		}
+		return readmodel.Standing{HeldLine: &line}
+	}
+	trigger.Docket = docket
+
+	clock.at = tripped.Add(12 * time.Minute)
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatalf("first Fire() error = %v", err)
+	}
+	clock.at = tripped.Add(82 * time.Minute)
+	if _, err := trigger.Fire(context.Background()); err != nil {
+		t.Fatalf("second Fire() error = %v", err)
+	}
+	if len(role.messages) != 2 {
+		t.Fatalf("messages = %d, want one turn on each of two passes", len(role.messages))
+	}
+	for index, message := range role.messages {
+		for _, want := range []string{
+			"## The hold on new work: decide it again on this pass",
+			"2 of 3 developer slots are idle under it",
+			`You decided "probe"`,
+			"decide it again now",
+		} {
+			if !strings.Contains(message, want) {
+				t.Errorf("pass %d was not put %q:\n%s", index+1, want, message)
+			}
+		}
+	}
+	if !strings.Contains(role.messages[0], "has been out for 10 minutes") || strings.Contains(role.messages[0], "back on this list as a stopped run") {
+		t.Errorf("the first pass, ten minutes into the probe, should say how long it has been out and not put it back:\n%s", role.messages[0])
+	}
+	second := role.messages[1]
+	entry := "The probe run run-probe of yoyodyne-ifd.430.60, started under the hold on new work at"
+	for _, want := range []string{entry, "has been out for 1 hour 20 minutes, past the 45 minutes", "back on this list as a stopped run"} {
+		if !strings.Contains(second, want) {
+			t.Errorf("the second pass does not carry %q:\n%s", want, second)
+		}
+	}
+	// On the docket, ahead of the hold's own section.
+	if strings.Index(second, "## Triage docket") > strings.Index(second, entry) ||
+		strings.Index(second, entry) > strings.Index(second, "## The hold on new work") {
+		t.Errorf("the overdue probe is not on the docket ahead of the hold:\n%s", second)
+	}
+}

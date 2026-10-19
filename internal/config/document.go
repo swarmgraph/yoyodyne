@@ -127,6 +127,7 @@ type executionDocument struct {
 	SchedulingWaitProblemAfter             *Duration `yaml:"scheduling_wait_problem_after"`
 	BrakeCooldown                          *Duration `yaml:"brake_cooldown"`
 	BrakeEscalationCycles                  *int      `yaml:"brake_escalation_cycles"`
+	BrakeProbeOverdueAfter                 *Duration `yaml:"brake_probe_overdue_after"`
 	// DeveloperSlots is what each developer slot prefers, one entry per slot in
 	// slot order. A supplied list replaces an inherited one wholesale rather than
 	// merging with it, the way the check list does: which slot prefers what is one

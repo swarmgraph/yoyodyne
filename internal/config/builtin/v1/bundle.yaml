@@ -103,6 +103,10 @@ execution:
   # somebody releases it. Four cycles is two hours at the cooldown above. 0 never
   # escalates on its own, and the loop stands until she does or the line mends.
   brake_escalation_cycles: 4
+  # How long a probe run may stay out before it is put back on her list of
+  # stopped runs, naming the run and how long it has been out, so a hold never
+  # waits unwatched on a run that neither lands nor blocks. 0 never puts it back.
+  brake_probe_overdue_after: 45m
 
 # What the operator approves, and what runs without asking.
 #

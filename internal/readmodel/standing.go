@@ -364,6 +364,11 @@ type Sources struct {
 	// is every slot preferring nothing, and the line then reads exactly as it did
 	// before slots could prefer anything.
 	Slots []domain.DeveloperSlot
+	// BrakeProbeOverdueAfter is execution.brake_probe_overdue_after as the
+	// caller read it: how long a probe run under the brake's hold may be out
+	// before the held line puts it back on the development manager's list of
+	// stopped runs. Zero puts none back.
+	BrakeProbeOverdueAfter time.Duration
 	// SchedulingWaitProblemAfter is execution.scheduling_wait_problem_after as
 	// the caller read it. Zero takes DefaultSchedulingWaitProblemAfter.
 	SchedulingWaitProblemAfter time.Duration
@@ -651,6 +656,10 @@ type Standing struct {
 	// own entry says which slot it is in, so this is for the surface that wants
 	// the whole set rather than the lines.
 	DeveloperSlots []DeveloperSlotStanding `json:"developer_slots,omitempty"`
+	// HeldLine is the brake's hold on new work with what it is costing, and nil
+	// where the brake holds nothing. It is what every pass of the development
+	// manager's is shown while the hold stands (heldline.go).
+	HeldLine *HeldLine `json:"held_line,omitempty"`
 
 	Working        []WorkingTurn `json:"working"`
 	WorkingProblem string        `json:"working_problem,omitempty"`
@@ -857,6 +866,20 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// a person. Reading them twice would be two chances for the two lines to
 	// disagree about one file.
 	switches := readSwitches(sources)
+	if switches.intakeHeld {
+		busy, slotsProblem := len(standing.Dispatching), runningProblem
+		for _, run := range running {
+			if !run.documentLanding {
+				busy++
+			}
+		}
+		if slotsProblem != "" {
+			busy = -1
+		}
+		if line, braked := HeldLineOf(switches.intake, sources.Capacity, busy, slotsProblem, sources.BrakeProbeOverdueAfter, now); braked {
+			standing.HeldLine = &line
+		}
+	}
 	refused, waits, queue, stall, notStartableProblem := readNotStartable(ctx, sources, switches, running, now)
 	standing.NotStartable = refused
 	standing.Admitted = len(queue.Entries)

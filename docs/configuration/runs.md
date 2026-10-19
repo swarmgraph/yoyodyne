@@ -910,6 +910,7 @@ execution:
   blocked_runs_before_intake_hold: 3   # the default
   brake_cooldown: 30m                  # the default
   brake_escalation_cycles: 4           # the default: two hours at that cooldown
+  brake_probe_overdue_after: 45m       # the default
 ```
 
 Nothing else about the pass changes, and nothing needed to. Every pull re-reads
@@ -1055,6 +1056,17 @@ cycle the harness stops asking, so she can escalate sooner herself. A hold the
 harness escalated is still hers to release if the line turns out to be fine; a
 probe decision on it is refused, because the bound ended the loop. Zero never
 escalates on its own, which is the loop as it stood before the bound existed.
+
+**And she is put the hold on every pass while it stands.** Every pass of the
+development manager's, scheduled or summoned, carries the hold beside her
+docket as a decision to make again: how long it has stood, how many developer
+slots are idle under it, how long any probe run has been out, and what she
+decided last, which never takes it off a later pass. She releases it or says
+in her account what keeps it held. `brake_probe_overdue_after` is how long a
+probe run may be out before it is put back on her list of stopped runs, naming
+the run and how long it has been out, because a probe that neither lands nor
+blocks leaves the line held with nobody asked about it. The default is 45
+minutes; zero never puts a probe back.
 
 So a brake hold waits on a person only once it is escalated, by her or by the
 harness at that bound. `yoyo release` and the conversation's `/release` still
