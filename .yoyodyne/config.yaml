@@ -167,8 +167,11 @@ execution:
   check_timeout: 45m
   # Stopgap pending the heavyweight-check capacity design (yoyodyne-ifd.429.43):
   # changes touching many packages need more than 30 minutes for tests and race
-  # tests to finish together. Keep every check and gate in place.
-  check_stage_timeout: 60m
+  # tests to finish together. Keep every check and gate in place. Raised from
+  # 60m to 90m because "make test" and "make race" still run the whole suite
+  # when the gate narrows a change to a few packages; it returns to 60m when
+  # scoped local race checks (yoyodyne-ifd.429.46) land.
+  check_stage_timeout: 90m
   # How many of each heavy check may run at once on this machine, across every
   # run and landing: the architect's ruling of 2026-10-12 on the heavy-check
   # capacity design (yoyodyne-ifd.429.43), applied by yoyodyne-ifd.429.48. A
