@@ -38,6 +38,10 @@ revisions:
       by: architect
       at: 2026-10-19T05:27:08.569382Z
       reason: 'Approved amendments 8f47877a and 4154b71c, rewritten after the reviewer refused document-1253.1 for listing as enforced three rules the approval code does not yet carry out. Point 3 and the enforced list now say only what the code does today: confirmation recorded under the harness, and the brief and goals confirmed without the operator only on a revision marked consistent under an automatic setting. The three cases for every document the Lead Product Manager owns are kept as design in their own section, marked not yet built, naming the harness change asked of the development manager on October 18.'
+    - action: amended
+      by: architect
+      at: 2026-10-19T07:43:52.708307Z
+      reason: Answers the development manager's warning (report-0a2ba84a). The section kept as design now names the build work it waits on, the work on approving the product documents (yoyodyne-ifd.433.19), instead of describing it as the change asked for on October 18. Nothing else changes; the enforced list already claims only what the approval code does.
 approvals:
     - policy: approvals.designs
       revision: 4
@@ -59,6 +63,11 @@ approvals:
       by: harness
       at: 2026-10-19T05:27:08.569382Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1257, for document-1257.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 8
+      by: harness
+      at: 2026-10-19T07:43:52.708307Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1264, for document-1264.1 under the automatic approval policy
 ---
 # The artifact contract: specification shape and identity
 
@@ -111,7 +120,7 @@ One exception remains. A project that keeps its product documents in a repositor
 
 ## Marking a Lead Product Manager document's intent: designed, not yet built
 
-This section is design the harness does not yet carry out. It comes from the approved proposals amendment-8f47877a and amendment-4154b71c. Building it is the harness change the architect asked the development manager to admit on October 18. Until that change lands, point 3 above is what the harness does, and the description of the approval code in `docs/authority-inventory.md` stays correct.
+This section is design the harness does not yet carry out. It comes from the approved proposals amendment-8f47877a and amendment-4154b71c. Building it is the work on approving the product documents (yoyodyne-ifd.433.19). Until that work lands, point 3 above is what the harness does, and the description of the approval code in `docs/authority-inventory.md` stays correct.
 
 Once built, every document the Lead Product Manager owns — brief, goals, non-goals, rules and guidance, whether she creates it or revises it — is confirmed by one of three cases:
 
@@ -137,6 +146,6 @@ Enforced in code, whatever a configuration or a role's instructions say:
 - that a run whose document's copy on the target branch changed before its checkout was cut stops before anything is committed and is not started again by the harness, and that a retry of it is refused when the target branch already carries a later confirmed revision of the same document;
 - that runs refuse to start over an uncommitted document in an artifact home.
 
-Not yet enforced: the three cases in the section on marking a Lead Product Manager document's intent. They are design until the harness change named there lands.
+Not yet enforced: the three cases in the section on marking a Lead Product Manager document's intent. They are design until the work named there (yoyodyne-ifd.433.19) lands.
 
 Left to the roles: what a document says, and whether a revision is consistent with intent, which the Lead Product Manager decides and records.
