@@ -71,22 +71,22 @@ func TestATurnEndingOnItsOwnBackgroundWorkIsSentBackWithoutSpendingARepair(t *te
 		t.Fatalf("a developer sent back for its background work did not finish its run: %#v", outcome)
 	}
 	if outcome.RepairAttempts != 0 {
-		t.Fatalf("repair attempts = %d, want a send-back that spends none", outcome.RepairAttempts)
+		t.Fatalf("repair attempts = %d, want the turn sent back without spending one", outcome.RepairAttempts)
 	}
 	if outcome.Summary != "Added feature.txt and ran the configured check in the foreground, which passes. No risk outstanding." {
 		t.Fatalf("summary = %q, want the account the finished turn gave", outcome.Summary)
 	}
 	requests := provider.RequestsForRole(domain.RoleDeveloper)
 	if len(requests) != 2 {
-		t.Fatalf("the developer was invoked %d time(s), want the first turn and one send-back", len(requests))
+		t.Fatalf("the developer was invoked %d time(s), want the first turn and the one it was sent back for", len(requests))
 	}
 	// Only the finished turn reaches the reviewer.
 	if reviews := len(provider.RequestsForRole(domain.RoleReviewer)); reviews != 1 {
-		t.Fatalf("the change was reviewed %d time(s), want once, after the send-back", reviews)
+		t.Fatalf("the change was reviewed %d time(s), want once, after the turn sent back", reviews)
 	}
 	sentBack := requests[1]
 	if sentBack.SessionID != provider.DeveloperSession {
-		t.Fatalf("the send-back ran in session %q, want the session that did the work", sentBack.SessionID)
+		t.Fatalf("the turn sent back ran in session %q, want the session that did the work", sentBack.SessionID)
 	}
 	for _, want := range []string{
 		"Your turn ended while your own background work was still running",
@@ -95,7 +95,7 @@ func TestATurnEndingOnItsOwnBackgroundWorkIsSentBackWithoutSpendingARepair(t *te
 		"spends no repair attempt",
 	} {
 		if !strings.Contains(sentBack.Prompt, want) {
-			t.Fatalf("the send-back does not say %q:\n%s", want, sentBack.Prompt)
+			t.Fatalf("the message the turn was sent back with does not say %q:\n%s", want, sentBack.Prompt)
 		}
 	}
 	said := harnessSaid(t, store, outcome.RunID)
@@ -125,7 +125,7 @@ func TestATurnSentBackForBackgroundWorkIsTakenAsItStandsTheSecondTime(t *testing
 		t.Fatalf("outcome = %#v, want a run that went on with no repair attempt spent", outcome)
 	}
 	if invocations := len(provider.RequestsForRole(domain.RoleDeveloper)); invocations != 2 {
-		t.Fatalf("the developer was invoked %d time(s), want the turn and one send-back", invocations)
+		t.Fatalf("the developer was invoked %d time(s), want the turn and the one it was sent back for", invocations)
 	}
 	said := harnessSaid(t, store, outcome.RunID)
 	if len(said) != 2 || !strings.Contains(said[1], "taken as it stands") || !strings.Contains(said[1], "the harness ended them") {
@@ -157,7 +157,7 @@ func TestAnOrdinaryTurnIsNotSentBackForBackgroundWork(t *testing.T) {
 	}
 }
 
-// What the record and the send-back say about the work left running, for both
+// What the record and the message a turn is sent back with say about the work left running, for both
 // ways it can end.
 func TestBackgroundWorkEndingSaysWhatBecameOfTheWork(t *testing.T) {
 	t.Parallel()

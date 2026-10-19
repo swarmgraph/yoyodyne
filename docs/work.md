@@ -871,12 +871,12 @@ that ended "waiting for the timing runs".
 
 So a turn whose session was still running its own work after the reply is sent
 back once, in the same session and within the same attempt, before anything is
-published, checked, or reviewed. The send-back says what was left running and
-whether it finished on its own or was ended, that the change itself is
-untouched, and that the developer should run what it still needs in the
-foreground and then give its account. It spends no repair attempt. A reply that
-also accounted for nothing is answered by the same send-back, which uses up the
-one re-ask that reply is owed. If the next turn ends the same way, the harness
+published, checked, or reviewed. The message it is sent back with says what
+was left running and whether it finished on its own or was ended, that the
+change itself is untouched, and that the developer should run what it still
+needs in the foreground and then give its account. It spends no repair attempt.
+A reply that also accounted for nothing is answered by the same message, which
+uses up the one extra request for an account that such a reply gets. If the next turn ends the same way, the harness
 has already ended what was left, and the reply is taken as it stands rather than
 asked for a third time. Each of the two is written into the run's event log in
 plain words, so the record says why the developer was asked twice or why a reply

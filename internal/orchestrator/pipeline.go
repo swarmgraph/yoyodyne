@@ -4229,7 +4229,7 @@ func (a *activeRun) develop(ctx context.Context, prompt, sessionID string) error
 			// anything, so it is sent back once, in its own session and within this
 			// attempt, before anything is published, checked, or charged to a
 			// repair (backgroundwork.go). A reply that also accounted for nothing is
-			// answered by the same send-back, which asks for the account too, so it
+			// answered by the same message, which asks for the account too, so it
 			// spends the one re-ask that reply is owed.
 			if background, outlived := outlivedReply(providerResult); outlived && (recorded == nil || errors.As(recorded, &unaccounted)) {
 				if !sentBackForBackground {
