@@ -858,6 +858,31 @@ summary — a run that promises a report and then vanishes is unaccounted work
 wearing a completed status, which is what review, closure, and every report read
 off afterwards.
 
+### A turn left running background work
+
+A developer turn can end on a reply while work it started in the background — a
+test suite, a timing run — is still running. The harness waits that work out
+after the reply and then ends it ([operations](operations.md)), but the reply
+was written before the work said anything, so it cannot say what the work found.
+Taken as the attempt's answer, that turn sent an unfinished change to the checks,
+and whatever they found was charged to a repair attempt the developer never
+really used: on October 17, run-790a9076 lost two of its three attempts to turns
+that ended "waiting for the timing runs".
+
+So a turn whose session was still running its own work after the reply is sent
+back once, in the same session and within the same attempt, before anything is
+published, checked, or reviewed. The message it is sent back with says what
+was left running and whether it finished on its own or was ended, that the
+change itself is untouched, and that the developer should run what it still
+needs in the foreground and then give its account. It spends no repair attempt.
+A reply that also accounted for nothing is answered by the same message, which
+uses up the one extra request for an account that such a reply gets. If the next turn ends the same way, the harness
+has already ended what was left, and the reply is taken as it stands rather than
+asked for a third time. Each of the two is written into the run's event log in
+plain words, so the record says why the developer was asked twice or why a reply
+was taken with background work cut short. The developer's contract tells it in
+advance never to end a turn to wait on its own background work.
+
 Independent review receives the developer's final account beside the patch,
 landing claim, execution record, and the harness's check results. The account is
 saved against the attempt and the content of its change. Every review round

@@ -36,7 +36,12 @@ type Backend struct {
 	// repair. The last entry repeats once the list runs out, the way the review
 	// verdicts do.
 	DeveloperFinalTextByAttempt []string
-	DeveloperAttempts           int
+	// DeveloperAfterReplyByAttempt says, per attempt, what became of work the
+	// developer's session left running after its final reply, as the runner
+	// reports it; nil is a session that exited with its reply. Unlike the texts
+	// above, an attempt past the end of the list left nothing running.
+	DeveloperAfterReplyByAttempt []*execution.AfterReply
+	DeveloperAttempts            int
 }
 
 func (f *Backend) CheckAvailability(context.Context) (backend.Availability, error) {
@@ -113,13 +118,17 @@ func RoleBackend(develop func(backend.RunRequest) error, verdicts ...string) *Ba
 			if texts := provider.DeveloperFinalTextByAttempt; len(texts) > 0 {
 				finalText = texts[min(provider.DeveloperAttempts, len(texts)-1)]
 			}
+			process := execution.ProcessResult{Status: execution.ProcessSucceeded}
+			if attempt := provider.DeveloperAttempts; attempt < len(provider.DeveloperAfterReplyByAttempt) {
+				process.AfterReply = provider.DeveloperAfterReplyByAttempt[attempt]
+			}
 			provider.DeveloperAttempts++
 			return backend.RunResult{
 				Backend:       domain.BackendClaudeCode,
 				SessionID:     provider.DeveloperSession,
 				ResolvedModel: DeveloperResolved,
 				FinalText:     finalText,
-				Process:       execution.ProcessResult{Status: execution.ProcessSucceeded},
+				Process:       process,
 				LastEvent:     request.LastSequence,
 			}, nil
 		case domain.RoleReviewer:
