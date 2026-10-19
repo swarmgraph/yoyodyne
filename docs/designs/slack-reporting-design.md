@@ -46,12 +46,21 @@ revisions:
       by: architect
       at: 2026-10-14T22:36:45.771217Z
       reason: 'yoyodyne-ifd.431.7: names what has to be built before roles answer in Slack threads - how a thread question reaches the named role''s own conversation through the interaction service and its recorded reply is posted under the role''s name, what is already designed and built, and the two items the Lead Product Manager admits before yoyodyne-ifd.68.25 runs again; the default receiver is written as the Lead Product Manager, and the setup line says the tokens go in the project''s secret store as decision 2 already requires'
+    - action: amended
+      by: architect
+      at: 2026-10-18T15:48:54.367086Z
+      reason: 'approved amendment-386bbb56 from the developer on yoyodyne-ifd.68.20 and amendment-6e9f6b10 from the developer on yoyodyne-ifd.168: the app manifest''s permissions gain opening and reading a direct message, the section on where messages go says a message the direct-message classes admit goes to a person and its replies are held to the same operator list, and the reply to an inbound message is one of four kinds, with a carried-out operational directive never reported as resolved; nothing else in the design changed'
 approvals:
     - policy: approvals.designs
       revision: 9
       by: harness
       at: 2026-10-14T22:36:45.771217Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 967, for document-967.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-10-18T15:48:54.367086Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1225, for document-1225.1 under the automatic approval policy
 ---
 # Slack reporting: events out, directives in, one thread per topic
 
@@ -160,6 +169,8 @@ The set is versioned in the envelope and extensible: a new producer adds kinds w
 
 The primary topic is the work item: the first event for `work-item:<id>` opens its thread in the configured channel with a header message naming the item, and every later event for that topic is a reply in it. An ask exchange that concerns a work item posts into that item's thread, because the epic's rule is one thread per *topic* and the item is the topic; an exchange with no item gets its own thread. Product-level events with no topic — pause placed and lifted, intake held and released — post to the channel top level, unthreaded, because they are about the whole line and burying them in any one item's thread would misfile them.
 
+One kind of message is addressed to a person rather than to a topic: a message that *What may arrive as a direct message* admits. It goes to a direct message with each person on the operator list, never into a topic's thread or the channel, because it is about the system being stopped and waiting on a human, or a fact told to that person once, not about any one item. A reply in a direct message the sink opened is acted on only under the same operator list and the same rules as a thread reply (section: *The inbound vocabulary*), so a direct message is a second place a person can be reached and never a second set of rules.
+
 The topic-to-`thread_ts` map is durable at the state root, per product, owned by the sink alone, so a restart posts into the same threads. **Known limit, stated rather than solved:** the map is per machine, so two collaborators' harnesses against one shared repository would open two threads per item. That is team-mode coordination and belongs to yoyodyne-ifd.82.2; this design keeps to one sink per product per workspace and says so in its setup documentation.
 
 ## The inbound vocabulary (built by 68.4; designed now)
@@ -170,15 +181,22 @@ A message in a topic's thread maps onto the existing directive surface and nothi
 - The pausing kinds are **stated, never inferred**, exactly as the CLI requires: a reply opening `ambiguous:` or `artifact: <name>` records that kind, and must state what is unresolved or be refused — the same rule, because a pause nobody can name a reason for is a pause nobody can lift, and a classifier guessing which sentences pause work is the failure the CLI already refused.
 - `resolve <directive-id> <how>` resolves, with the existing unique-prefix rule.
 
-Every inbound message gets an in-thread acknowledgment that is itself an outbound event: the directive as recorded with its id, or the refusal with its reason. A directive recorded from a thread is indistinguishable, downstream, from one recorded by `yoyo directive` — same record, same pause gate, same discoverability — which is what "enforceable regardless of which agent received it" costs and all it costs.
+Every inbound message gets an in-thread acknowledgment that is itself an outbound event, and it is one of four kinds:
 
-**Authorization is allow-listed and defaults closed.** Inbound messages act only when their Slack user id is in the configured operator list; the list lives in `.yoyodyne` because user ids are identity, not secrets. An unlisted user's reply is acknowledged as not acted on — visibly, because a channel that silently ignores some people looks broken rather than closed. The default list is empty, so shipping 68.4 changes nothing for any workspace until an operator names themselves. Rejected for now: operator *commands* (`/stop`, `/hold`) from Slack — directives move intent and commands move the machine, and widening the machine's control surface to a chat workspace is a separate decision; the inbound transport already exists, so adding it later needs no redesign, which is the standard this design is held to.
+- **recorded** — the directive as recorded, with its id;
+- **resolved** — a pausing directive resolved, so the work it paused may resume;
+- **carried out** — an operational directive carried out. It paused nothing, so it is never reported as resolved: that would tell the person who asked that work resumed when nothing had stopped;
+- **refused** — the refusal, with its reason.
+
+A directive recorded from a thread is indistinguishable, downstream, from one recorded by `yoyo directive` — same record, same pause gate, same discoverability — which is what "enforceable regardless of which agent received it" costs and all it costs.
+
+**Authorization is allow-listed and defaults closed.** Inbound messages act only when their Slack user id is in the configured operator list; the list lives in `.yoyodyne` because user ids are identity, not secrets. The same rule governs a reply in a direct message the sink opened. An unlisted user's reply is acknowledged as not acted on — visibly, because a channel that silently ignores some people looks broken rather than closed. The default list is empty, so shipping 68.4 changes nothing for any workspace until an operator names themselves. Rejected for now: operator *commands* (`/stop`, `/hold`) from Slack — directives move intent and commands move the machine, and widening the machine's control surface to a chat workspace is a separate decision; the inbound transport already exists, so adding it later needs no redesign, which is the standard this design is held to.
 
 ## Configuration and credentials
 
 - `SLACK_BOT_TOKEN` and `SLACK_APP_TOKEN` in the sink's environment only. Never in `.yoyodyne`, never in Beads, never in any prompt or context bundle — and structurally never in a run process (decision 2).
 - In `.yoyodyne`: the Slack section — enabled flag, channel, the operator allow-list — validated like everything else, with a project that enables Slack but lacks a channel refused at load, before anything runs.
-- The checked-in app manifest (68.3) declares the least scopes the design needs: posting, per-message display-identity override, Socket Mode connectivity, and reading thread replies in the configured channel. Setup is: create the app from the manifest, install, put the two tokens in the project's secret store, start the sink. The setup document is held to the readme's newcomer standard.
+- The checked-in app manifest (68.3) declares the least scopes the design needs: posting, per-message display-identity override, Socket Mode connectivity, reading thread replies in the configured channel, and opening and reading a direct message with a person on the operator list, for the messages *What may arrive as a direct message* admits. Setup is: create the app from the manifest, install, put the two tokens in the project's secret store, start the sink. The setup document is held to the readme's newcomer standard.
 
 ## What each child builds
 
