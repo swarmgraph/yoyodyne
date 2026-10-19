@@ -286,6 +286,10 @@ recurring_tasks:
 
       Survey the work items carried in your conversation (executor
       conversation:architect) and the undecided proposals to your documents.
+      Decide each proposed change to a document you own: approve or decline it
+      with the amendment action, under your own authority, and report the
+      decision afterwards. Only an amendment to the brief or the goals that
+      changes intent, or does not say which, is the operator's.
       Take work by priority first, then age within each priority, and rule on
       as many as this pass can do properly rather than touching all of them:
       read each item or proposal in full
@@ -293,10 +297,12 @@ recurring_tasks:
       what you decided, and write any design text so that landing it is
       copying.
 
-      Name anything that needs the operator rather than deciding around it.
+      Name only what only a person can do, such as a credential, a repository
+      setting, or a pull request the harness cannot merge. Decide everything
+      your role covers.
 
-      End with a durable report: what you ruled this pass, what needs landing
-      in the repository and where, what is still waiting on you and how old
+      End with a durable report: what you ruled this pass, what you wrote and
+      where each document stands, what is still waiting on you and how old
       the oldest is, and any question for the operator at the top. When
       nothing is waiting, say NOTHING WAITING and stop.
 
