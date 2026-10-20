@@ -1335,6 +1335,13 @@ func (c RepairContinuer) supersedeOnRun(prior runstate.State, granted repairGran
 	// it would make the next round inherit a classification it has not earned, and
 	// the settle would find the class already decided and give back nothing.
 	continued.Environmental = nil
+	// The races the run lost bounded how long one stint held a developer slot
+	// (lostRacesBeforeGivingBackTheSlot), and that stint ended when the run
+	// stopped. This continuation starts another, so it starts counting again,
+	// whatever the run stopped on. Carried over, races lost hours earlier on bases
+	// the target has long left would end the new stint the first time the target
+	// moved, before its change was ever replayed onto where the target went.
+	continued.IntegrationRetries = 0
 	if prior.CheckFailure != nil && prior.CheckFailure.ForgeHeadCommit != "" {
 		// The old head's forge reading remains in the repair input and the
 		// continuation's history above. Artifacts were verified or restored before

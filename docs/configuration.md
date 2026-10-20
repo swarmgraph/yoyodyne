@@ -5807,7 +5807,10 @@ kept, which puts it on the development manager's list to decide when it is
 replayed again. Five is four replays, over three hours of one slot re-earning an
 approval the change already had; the number is fixed in the harness
 (`lostRacesBeforeGivingBackTheSlot` in `internal/orchestrator/pipeline.go`) and
-is not a configuration key.
+is not a configuration key. The five are counted from the last time the run
+started again: a repair the development manager decides starts the count from
+zero, whatever the run stopped on, because the slot the earlier races were
+spending was given back when it stopped.
 
 The budget bounds replays that stop on the change instead: one that conflicts,
 and one whose replayed change is handed back for a failing check, a refused
