@@ -250,11 +250,12 @@ func TestABlockedProbeKeepsTheHoldAndSummonsHerAgain(t *testing.T) {
 // the brake goes round — summons, cooldown, probe, blocked, summons — spending
 // one of her turns and one run per cooldown, and before this nothing about it
 // got louder unless she escalated it. Driven past execution.brake_escalation_cycles
-// with her deciding nothing, the harness escalates the hold to the operator
-// itself: the summonses stop, no further probe starts, the record names the
-// cycles spent and what stopped the last probe, and every surface names the
-// operator and the harness's escalation rather than hers.
-func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
+// with her deciding nothing, the harness escalates the hold to the Lead
+// Product Manager itself, with the operator told: the summonses stop, no
+// further probe starts, the record names the cycles spent and what stopped the
+// last probe, and every surface names the Lead Product Manager and the
+// harness's escalation rather than hers.
+func TestASummonsAndProbeLoopEscalatesToTheLeadProductManagerAtTheBound(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two", "yoyodyne-three", "yoyodyne-four", "yoyodyne-five", "yoyodyne-six", "yoyodyne-seven")...)
@@ -303,7 +304,7 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 		t.Fatalf("summonses named the loop as %q, want each to say which cycle of at most two it was", loops)
 	}
 	if len(harness.releases) != 0 {
-		t.Fatalf("released %d time(s), want an escalated hold left for the operator", len(harness.releases))
+		t.Fatalf("released %d time(s), want an escalated hold left standing for the Lead Product Manager", len(harness.releases))
 	}
 	// The record: escalated by the harness, after two cycles, naming the last
 	// probe and why it blocked.
@@ -421,7 +422,7 @@ func TestHerReleaseStillLiftsAHoldTheHarnessEscalated(t *testing.T) {
 // A brake hold she escalated: no probe starts however long the cooldown has run
 // out, and every surface names the Lead Product Manager as its owner, with the
 // operator told.
-func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
+func TestAnEscalatedBrakeHoldWaitsOnTheLeadProductManager(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two", "yoyodyne-three", "yoyodyne-four")...)
@@ -444,7 +445,7 @@ func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
 		t.Fatalf("started = %s, want nothing started under an escalated hold", schedule.Render())
 	}
 	if len(harness.releases) != 0 {
-		t.Fatalf("released %d time(s), want an escalated hold left for the operator", len(harness.releases))
+		t.Fatalf("released %d time(s), want an escalated hold left standing for the Lead Product Manager", len(harness.releases))
 	}
 	if mover := sessions.lastMover(runstate.WatchBraked); !strings.Contains(mover, "the Lead Product Manager's") || !strings.Contains(mover, "the operator is told") || !strings.Contains(mover, "escalated") {
 		t.Fatalf("braked mover = %q, want the Lead Product Manager named, the operator told, because she escalated it", mover)

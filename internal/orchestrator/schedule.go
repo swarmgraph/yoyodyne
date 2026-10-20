@@ -119,9 +119,10 @@ package orchestrator
 // would otherwise put the whole backlog through a failed run each — and the
 // hold is then worked rather than waited on: the development manager is
 // summoned at once to decide it, and a probe run decides it on evidence if she
-// does not, so a brake hold waits on a person only once it is escalated — by
-// her, or by the harness after that summons-and-probe loop has gone round its
-// configured number of times (see brake, workBrake, and settleProbe). And a
+// does not, so a brake hold leaves the harness's loop only once it is
+// escalated, to the Lead Product Manager with the operator told — by her, or by
+// the harness after that summons-and-probe loop has gone round its configured
+// number of times (see brake, workBrake, and settleProbe). And a
 // session says what it is doing
 // where somebody who is not at its terminal can read it, because an idle
 // session and a dead one are the same silence.
@@ -341,9 +342,10 @@ type ScheduleStaleness interface {
 // each held until somebody noticed. Now the brake summons the development
 // manager the moment it trips, releases on her decision, and — where she has
 // decided nothing by the cooldown — probes the line with one run and releases
-// on that run landing. A brake hold waits on a person only once it is
-// escalated: by her, or by the harness itself once a bounded number of those
-// summons-and-probe cycles have gone round with her not escalating it.
+// on that run landing. A brake hold leaves that loop only once it is
+// escalated, to the Lead Product Manager with the operator told: by her, or by
+// the harness itself once a bounded number of those summons-and-probe cycles
+// have gone round with her not escalating it.
 // ReleaseBrake is here for those two releases; ReviseBrake is how the summons,
 // the decision's carry-out, the probe, and the harness's own escalation are
 // written onto the hold's own record, so every surface reading the hold says
