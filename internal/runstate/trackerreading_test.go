@@ -131,8 +131,9 @@ func TestACallerQueuedBehindAReadingIsHandedIt(t *testing.T) {
 func TestAWaitForTheSharedReadingEndsWithItsContext(t *testing.T) {
 	t.Parallel()
 	store := newTrackerReadingStore(t)
-	holding, release := make(chan struct{}), make(chan struct{})
+	holding, release, held := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	go func() {
+		defer close(held)
 		_, _ = store.Share(context.Background(), 0, func() (TrackerReading, bool) {
 			close(holding)
 			<-release
@@ -140,7 +141,12 @@ func TestAWaitForTheSharedReadingEndsWithItsContext(t *testing.T) {
 		})
 	}()
 	<-holding
-	defer close(release)
+	// The holder keeps its reading once it is let go, so the test waits for it
+	// to finish writing before its directory is removed.
+	defer func() {
+		close(release)
+		<-held
+	}()
 	waiting, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	read := false
