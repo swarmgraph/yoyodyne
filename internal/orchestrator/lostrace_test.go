@@ -457,3 +457,145 @@ func TestARepairOfARunThatLostItsRaceReplaysItOntoTheTargetBeforeItsChecksAndLan
 		t.Fatalf("continuation reason = %q, want it to say the run lost its race", state.RepairContinuations[len(state.RepairContinuations)-1].Reason)
 	}
 }
+
+// A landing attempt refused because main moved once is followed by one prepared
+// on main as it stands after the move, not on the main the first attempt saw:
+// the change is replayed onto the new tip, checked and reviewed again there,
+// and lands on it.
+func TestTheLandingAttemptAfterMainMovesOnceIsPreparedOnTheNewTipAndLands(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := orchestratortest.RoleBackend(implementsFeature, approveVerdict)
+	scriptedRaces(t, repository, provider, 1)
+	pipeline, store := newAutomaticPipeline(t, repository, tracker, provider, []string{"test -f feature.txt"})
+	original := strings.TrimSpace(gitOutput(t, repository, "rev-parse", "main"))
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || outcome.Integration == nil || !outcome.WorkItemClosed {
+		t.Fatalf("Run() outcome = %#v, want the change landed and the item closed", outcome)
+	}
+	moved := strings.TrimSpace(gitOutput(t, repository, "rev-parse", "main~1"))
+	if moved == original {
+		t.Fatal("main never moved, so the test exercised nothing")
+	}
+	if outcome.IntegrationRetries != 1 {
+		t.Fatalf("lost races = %d, want the one move", outcome.IntegrationRetries)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.BaseCommit != moved || state.Integration == nil || state.Integration.PreviousTargetCommit != moved {
+		t.Fatalf("second attempt prepared on %s and landed onto %v; want both on the new tip %s (the first saw %s)",
+			state.BaseCommit, state.Integration, moved, original)
+	}
+	if reviews := provider.RequestsForRole(domain.RoleReviewer); len(reviews) != 2 {
+		t.Fatalf("reviewer invocations = %d, want the first verdict and one on the replayed change", len(reviews))
+	}
+}
+
+// yoyodyne-ifd.428.99.16: races lost in a stint that has ended are not counted
+// against the next one. A run loses four races, then stops on something else
+// and is repaired by the development manager's decision; when main moves once
+// after the repaired change is approved, the run replays it onto the new tip
+// and lands, rather than reading that one move as its fifth lost race and
+// giving up without replaying.
+func TestARepairedRunWhoseTargetMovesOnceReplaysAndLandsWhateverItsEarlierStintLost(t *testing.T) {
+	t.Parallel()
+
+	repository, worktreeRoot, store := restartableFixture(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	build := func(provider *orchestratortest.Backend, checks ...string) Pipeline {
+		pipeline := automatic(newSharedPipeline(t, repository, worktreeRoot, store, tracker, provider, checks), provider)
+		pipeline.Config.Execution.IntegrationRetriesBeforeReconciliation = 0
+		return pipeline
+	}
+	// Four approvals that each lose their race, then a repair verdict on the
+	// fourth replay, which at a budget of zero stops the run on the change.
+	stopping := orchestratortest.RoleBackend(implementsFeature, approveVerdict, approveVerdict, approveVerdict, approveVerdict, repairVerdict)
+	scriptedRaces(t, repository, stopping, 1, 2, 3, 4)
+	pipeline := build(stopping, "test -f feature.txt")
+
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err == nil {
+		t.Fatal("Run() error = nil, want the run stopped on its repair verdict")
+	}
+	stopped, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if stopped.LostItsRace() || stopped.IntegrationRetries != lostRacesBeforeGivingBackTheSlot-1 {
+		t.Fatalf("stopped run: lost its race %t, races %d, failure %q; want it stopped on the change with %d races lost",
+			stopped.LostItsRace(), stopped.IntegrationRetries, stopped.Failure, lostRacesBeforeGivingBackTheSlot-1)
+	}
+
+	docket := &memoryDocket{}
+	if _, err := docketerOverStore(docket, store, pipeline.Config).RecordStoppedRun(stopped); err != nil {
+		t.Fatalf("RecordStoppedRun() error = %v", err)
+	}
+	if _, err := store.Triage().GrantRepair(context.Background(), tracker.Item.ID, triageDecided(runstate.TriageDecisionRepair, outcome.RunID),
+		TriageRepairGrantRounds(pipeline.Config.Triage), time.Now(), TriageCaps(pipeline.Config.Execution, pipeline.Config.Triage)); err != nil {
+		t.Fatalf("GrantRepair() error = %v", err)
+	}
+	worktrees, err := gitworktree.New(gitworktree.Options{Runner: execution.OSProcessRunner{}, RepositoryRoot: repository, WorktreeRoot: worktreeRoot, Timeout: testGitBudget})
+	if err != nil {
+		t.Fatalf("gitworktree.New() error = %v", err)
+	}
+	intake, err := runstate.NewIntakeHoldStore(t.TempDir(), "yoyodyne")
+	if err != nil {
+		t.Fatalf("runstate.NewIntakeHoldStore() error = %v", err)
+	}
+	// The repaired change is approved, main moves once as it is, and the replay
+	// onto the new tip is approved too.
+	continuing := orchestratortest.RoleBackend(implementsFeature, approveVerdict, approveVerdict)
+	var moved string
+	inner := continuing.Respond
+	reviews := 0
+	continuing.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		result, err := inner(request)
+		if err != nil || request.Role != domain.RoleReviewer {
+			return result, err
+		}
+		if reviews++; reviews == 1 {
+			writePipelineFile(t, repository, "after-the-repair.txt", "somebody else's work\n")
+			runPipelineGit(t, repository, "add", "after-the-repair.txt")
+			runPipelineGit(t, repository, "commit", "-m", "main moves once after the repair")
+			moved = strings.TrimSpace(gitOutput(t, repository, "rev-parse", "main"))
+		}
+		return result, err
+	}
+	continuer := RepairContinuer{
+		Docket: docket, Runs: store, Intake: intake, Decisions: store.Triage(), Items: tracker, Worktrees: worktrees,
+		ConfiguredAttempts: pipeline.Config.Execution.RepairAttemptsBeforeReplan,
+		Capacity:           pipeline.Config.Execution.MaxConcurrentDevelopers,
+		Start: func(ctx context.Context, workItemID, runID string) (Outcome, error) {
+			return build(continuing, "test -f feature.txt").Continue(ctx, workItemID, runID)
+		},
+	}
+
+	result, err := continuer.Continue(context.Background(), RepairContinueRequest{Run: outcome.RunID})
+	if err != nil {
+		t.Fatalf("Continue() error = %v", err)
+	}
+	if !result.Continued || result.Outcome.Integration == nil || !tracker.Closed {
+		t.Fatalf("result = %#v, closed = %t; want the repaired change replayed onto the new tip and landed", result, tracker.Closed)
+	}
+	if reviews != 2 {
+		t.Fatalf("reviewer invocations = %d, want the repaired change's verdict and one on its replay", reviews)
+	}
+	state, err := store.Load(outcome.RunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if state.BaseCommit != moved || state.Integration == nil || state.Integration.PreviousTargetCommit != moved {
+		t.Fatalf("landing prepared on %s onto %v; want it on the tip main moved to, %s", state.BaseCommit, state.Integration, moved)
+	}
+	if state.IntegrationRetries != 1 {
+		t.Fatalf("races recorded = %d, want only the one lost since the repair", state.IntegrationRetries)
+	}
+}

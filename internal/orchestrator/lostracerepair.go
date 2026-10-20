@@ -49,11 +49,11 @@ func replaysLostRace(prior runstate.State, found triage.Found) bool {
 }
 
 // putBackAfterLostRace is the record of a run that lost its race made live again
-// at its promotion. The races it lost are cleared with the stop they caused:
-// they bounded how long that stint held a developer slot, the stint ended when
-// it gave the slot back, and this is a new one. Left standing, the first move of
-// the target after the replay would stop the run again as though it had lost
-// five more.
+// at its promotion. The races it lost are cleared with the stop they caused, as
+// every repair continuation clears them (supersedeOnRun): they bounded how long
+// that stint held a developer slot, the stint ended when it gave the slot back,
+// and this is a new one. Left standing, the first move of the target after the
+// replay would stop the run again as though it had lost five more.
 func putBackAfterLostRace(continued *runstate.State, prior runstate.State, reason string, now time.Time) {
 	putBackAtPromotion(continued, prior, reason, now)
 	continued.IntegrationRetries = 0

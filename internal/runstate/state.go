@@ -3524,7 +3524,8 @@ type State struct {
 	// cleared when the run continues, for the next stoppage's own deadline.
 	CheckStageContinuationWaitNoted string `json:"check_stage_continuation_wait_noted,omitempty"`
 	// IntegrationRetries counts the races for its target branch this run has
-	// lost: each one a promotion refused because the target moved, answered by
+	// lost since it last started again, which a repair continuation clears: each
+	// one a promotion refused because the target moved, answered by
 	// replaying the change onto where the target went, re-checking it, and
 	// re-reviewing it. It is recorded before the replay begins, so a process that
 	// dies mid-replay comes back to the count it had. It is also what ends a run
