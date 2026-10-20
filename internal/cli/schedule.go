@@ -106,6 +106,7 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 		Limit:    *limit,
 		Watching: *watch,
 		Budget:   *budget,
+		Log:      stderr,
 		// The configuration is read here rather than above, once per pull. That
 		// is the decision the design question asked for: capacity and priority
 		// changes take effect at the next selection, which keeps the answer the

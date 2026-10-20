@@ -157,6 +157,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
 	"strings"
@@ -985,6 +986,10 @@ type Scheduler struct {
 	Interval func(interval time.Duration) <-chan time.Time
 	// Now stamps the recorded transitions. It defaults to the wall clock.
 	Now func() time.Time
+	// Log is where the session says what it met and could not sort, such as a
+	// stop cause this build does not recognise. The command wires its error
+	// output, which is the session's log; a scheduler without one says nothing.
+	Log io.Writer
 	// besideTurns, where set, counts each turn taken beside the pull that is not
 	// a recurring firing until it has been handed back to be collected, so a test
 	// whose injected Sleep does not wait in real time can wait one out; see
@@ -1819,8 +1824,8 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		case started.stoppedOutsideTheWork():
 			// The run's record names a stop cause outside the work — a move to a
 			// new build, a login the provider refused, the harness's own process
-			// going away. It is a verdict on nothing for the reason the
-			// environment's stops are, and neither counts nor clears.
+			// going away — or a cancellation. It is a verdict on nothing for the
+			// reason the environment's stops are, and neither counts nor clears.
 		case started.Readopted != "" && unstartedAttempt(*started):
 			// A re-adoption that never reached the run says nothing about the
 			// machine either, and is tried again at the next pull.
@@ -1836,6 +1841,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 		default:
 			blockedInARow = 0
 			storm = nil
+		}
+		if class := started.unrecognisedStop(); class != "" && s.Log != nil {
+			fmt.Fprintf(s.Log, "%s: run%s stopped for a reason this build does not recognise (%q), so it counts towards the hold on new work as a stop about the work would\n",
+				started.WorkItemID, namedRun(started.Outcome.RunID), class)
 		}
 		if cost, problem := priceRun(spend, started.Outcome); problem != "" {
 			schedule.SpendProblem = problem
@@ -4036,7 +4045,8 @@ const (
 // session that died holding it — a harness restart, most often. It is settled
 // here as a probe that ended without a record, which is not a landing and not a
 // blocking: the session going away is a stop from outside the work, so it is
-// not a cycle and the next probe is due at once rather than a cooldown later.
+// not a cycle. The next probe still waits a cooldown, because no probe ending
+// makes the next one due at once (settleProbe).
 //
 // While a summons of hers is being taken, or waits for her conversation, the
 // cooldown running out probes nothing: the summons is how she is asked, and a
@@ -4093,8 +4103,8 @@ func (s Scheduler) workBrake(schedule *Schedule, pull Pull, hold runstate.Intake
 
 // settleLostProbe closes a probe whose session died before its ending was
 // written: the record says a probe is in flight, and nothing is running it. The
-// session that is reading it is the cause having cleared, so the next probe is
-// due now.
+// next probe is due a cooldown from now, as after any probe that decided
+// nothing.
 func (s Scheduler) settleLostProbe(schedule *Schedule, pull Pull, now time.Time) {
 	if _, err := pull.Brake.ReviseBrake(func(trip *runstate.IntakeBrake) error {
 		if trip.Probe == nil || !trip.Probe.InFlight() {
@@ -4102,8 +4112,12 @@ func (s Scheduler) settleLostProbe(schedule *Schedule, pull Pull, now time.Time)
 		}
 		ended := now
 		trip.Probe.EndedAt = &ended
-		trip.Probe.Reason = "its ending was never recorded, and no run of it is in flight; the session that started it went away holding it, which decides nothing about the line, so another probe starts now"
-		trip.CooldownEndsAt = now
+		trip.Probe.Reason = "its ending was never recorded, and no run of it is in flight; the session that started it went away holding it, which decides nothing about the line, so another probe starts once the usual wait between probes has passed"
+		if trip.Decision == runstate.BrakeDecisionProbe {
+			trip.Decision = ""
+			trip.DecidedAt = nil
+		}
+		trip.CooldownEndsAt = now.Add(pull.BrakeCooldown)
 		return nil
 	}); err != nil {
 		schedule.BrakeProblem = appendProblem(schedule.BrakeProblem, fmt.Sprintf(
@@ -4252,17 +4266,23 @@ func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, firings 
 		s.summon(ctx, schedule, firings, brake, summons, revised)
 	case started.endedOutsideTheWork():
 		// Something outside the work stopped the probe — a move to a new build, a
-		// login the provider refused, the environment — so it says nothing about
-		// whether the line is fine, and the hold is not kept a whole cooldown on
-		// it. The next probe is due at once, and starts at the first poll that can
-		// start anything: the gates read before the hold (a provider answering
-		// nobody, a usage window, the machine refusing runs) are what hold it until
-		// the cause has cleared.
+		// login the provider refused, the environment, a cancellation — so it says
+		// nothing about whether the line is fine: it spends no cycle and summons
+		// nobody. The next probe still waits the cooldown, as after any other
+		// probe that decided nothing. Making it due at once would let a stop that
+		// keeps recurring, or one sorted outside the work by mistake, start
+		// probes back to back with no limit (recoverable-and-terminal-failures,
+		// "Trip the brake"); a decision of hers to probe is spent on this one for
+		// the same reason.
 		revise("the probe's ending", func(trip *runstate.IntakeBrake) {
 			trip.Probe.EndedAt = &now
 			trip.Probe.RunID = started.Outcome.RunID
-			trip.Probe.Reason = runstate.BoundBrakeText("it was stopped by something outside the work, which decides nothing about the line, so another probe starts once that has cleared: " + started.ending())
-			trip.CooldownEndsAt = now
+			trip.Probe.Reason = runstate.BoundBrakeText("it was stopped by something outside the work, which decides nothing about the line, so another probe starts once the usual wait between probes has passed: " + started.ending())
+			if trip.Decision == runstate.BrakeDecisionProbe {
+				trip.Decision = ""
+				trip.DecidedAt = nil
+			}
+			trip.CooldownEndsAt = now.Add(cooldown)
 		})
 	default:
 		revise("the probe's ending", func(trip *runstate.IntakeBrake) {
@@ -5529,9 +5549,11 @@ func priceRun(spend ScheduleSpend, outcome Outcome) (float64, string) {
 // A paused run is never one, whatever else came back with it: it is owed a
 // continuation. Nor is a run whose record names a stop cause outside the work —
 // a move to a new build, a provider that refused the login, the harness's own
-// process going away — because the brake counts verdicts on a change, and
-// those are verdicts on nothing. The cause is the one the run recorded where it
-// stopped (runstate.StopSideOf), read rather than decided again here.
+// process going away — or a cancellation, because the brake counts verdicts on
+// a change, and those are verdicts on nothing. The cause is the one the run
+// recorded where it stopped, sorted by runstate.StopKeptOutOfHold rather than
+// decided again here, so the harness's own step failing around the run and a
+// cause this build does not recognise are counted.
 func (s Started) blockedRun() bool {
 	if s.Outcome.Paused || s.stoppedOutsideTheWork() {
 		return false
@@ -5539,15 +5561,24 @@ func (s Started) blockedRun() bool {
 	return s.Failure != "" || s.Outcome.Blocked
 }
 
-// stoppedOutsideTheWork reports a run whose record names a stop cause that is
-// outside the work. A record that names no cause, or names it unknown, is not
-// read as one: a cause nobody recorded is not guessed in either direction.
+// stoppedOutsideTheWork reports a run whose record names a stop cause the
+// brake leaves out of its count (runstate.StopKeptOutOfHold). A record that
+// names no cause is not read as one: a cause nobody recorded is not excused.
 func (s Started) stoppedOutsideTheWork() bool {
 	class := s.Outcome.StopClass
-	if class == "" || class == runstate.StopUnknown {
-		return false
+	return class != "" && runstate.StopKeptOutOfHold(class)
+}
+
+// unrecognisedStop is the stop cause the run recorded where this build does
+// not recognise it, and empty otherwise. The brake counts such a stop, and the
+// session's log names the cause each time it is met so whoever reads it can
+// see what the harness did not know how to sort.
+func (s Started) unrecognisedStop() runstate.StopClass {
+	class := s.Outcome.StopClass
+	if class == "" || runstate.StopRecognised(class) {
+		return ""
 	}
-	return runstate.StopSideOf(class) == runstate.StopSideOutside
+	return class
 }
 
 // endedOutsideTheWork reports a run something outside the work ended or put
