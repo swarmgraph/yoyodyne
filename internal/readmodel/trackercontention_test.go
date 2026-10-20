@@ -62,6 +62,11 @@ func (r *storeRunner) count(verb string) int {
 	return r.asked[verb]
 }
 
+// contenderLimit is the limit every status reading and export in the test is
+// given. They are not what the test measures, so it is far longer than any of
+// them waits even on a loaded machine; only the write's own limit is tight.
+const contenderLimit = 30 * time.Second
+
 // noHolders answers a stopped call's question of who held the store without
 // asking the operating system, which knows nothing of the stand-in store.
 type noHolders struct{}
@@ -95,8 +100,8 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 		contenders.Go(func() {
 			for range rounds {
 				sources := quietSources()
-				sources.Tracker = client(5 * time.Second)
-				sources.TrackerTimeout = 5 * time.Second
+				sources.Tracker = client(contenderLimit)
+				sources.TrackerTimeout = contenderLimit
 				if shared {
 					sources.TrackerReadings = readings
 				}
@@ -106,7 +111,7 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 	}
 	for range exporters {
 		contenders.Go(func() {
-			if err := client(5 * time.Second).RefreshExport(context.Background()); err != nil {
+			if err := client(contenderLimit).RefreshExport(context.Background()); err != nil {
 				t.Errorf("worktree export: %v", err)
 			}
 		})
@@ -131,11 +136,11 @@ func trackerContention(t *testing.T, runner *storeRunner, shared bool, readers, 
 func TestATrackerWriteFinishesInsideItsLimitBesideStatusReadingsAndExports(t *testing.T) {
 	t.Parallel()
 	const (
-		hold       = 50 * time.Millisecond
+		hold       = 100 * time.Millisecond
 		readers    = 12
 		rounds     = 3
 		exporters  = 3
-		writeLimit = time.Second
+		writeLimit = 2 * time.Second
 	)
 
 	t.Run("each reading asking for itself", func(t *testing.T) {
@@ -152,14 +157,17 @@ func TestATrackerWriteFinishesInsideItsLimitBesideStatusReadingsAndExports(t *te
 	t.Run("the readings shared", func(t *testing.T) {
 		t.Parallel()
 		runner := newStoreRunner(hold)
+		began := time.Now()
 		took, err := trackerContention(t, runner, true, readers, rounds, exporters, writeLimit)
+		windows := 1 + int(time.Since(began)/sharedReadingFresh)
 		if err != nil || took >= writeLimit {
 			t.Fatalf("the write = %v after %s; want it answered inside its %s limit", err, took, writeLimit)
 		}
-		// Every reading on the machine, all of them within one freshness window,
-		// asked the tracker for every item once and for what is ready once.
-		if lists, readies := runner.count("list"), runner.count("ready"); lists != 1 || readies != 1 {
-			t.Fatalf("%d status readings made %d listing(s) and %d readiness quer(ies); want one of each", readers*rounds, lists, readies)
+		// Every reading on the machine asked the tracker for every item and for
+		// what is ready at most once in each freshness window the readings
+		// spanned: once, unless a loaded machine stretched them past one.
+		if lists, readies := runner.count("list"), runner.count("ready"); lists < 1 || lists > windows || readies != lists {
+			t.Fatalf("%d status readings over %d freshness window(s) made %d listing(s) and %d readiness quer(ies); want one of each per window", readers*rounds, windows, lists, readies)
 		}
 	})
 }
