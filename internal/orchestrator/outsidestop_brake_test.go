@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -172,13 +174,21 @@ func TestAProbeStoppedFromOutsideTheWorkSpendsNoCycleAndWaitsTheUsualTime(t *tes
 			outside: true,
 		},
 		{
-			name: "a cancellation",
+			name: "a stop the development manager decided",
+			probe: func(h *scheduleHarness, id string) (Outcome, error) {
+				h.retire(id)
+				return Outcome{RunID: "run-" + id, WorkItemID: id, Status: runstate.StatusCancelled,
+					Failure: "the development manager stopped the run", StopClass: runstate.StopManager}, errors.New("the development manager stopped the run")
+			},
+			outside: true,
+		},
+		{
+			name: "a cancellation whose origin is not recorded",
 			probe: func(h *scheduleHarness, id string) (Outcome, error) {
 				h.retire(id)
 				return Outcome{RunID: "run-" + id, WorkItemID: id, Status: runstate.StatusCancelled,
 					Failure: "the run was cancelled", StopClass: runstate.StopCancelled}, errors.New("the run was cancelled")
 			},
-			outside: true,
 		},
 		{
 			name:  "a review that blocked the change",
@@ -315,9 +325,11 @@ func TestAProbeLostToAHarnessRestartWaitsTheUsualTimeBeforeTheNextProbe(t *testi
 }
 
 // What the brake counts reads the stop cause the run recorded, and nothing
-// else: a cause outside the work and a cancellation are never counted; a cause
-// on the work or a bound on it, the harness's own step failing around the run,
-// a cause nobody recorded, and a cause this build does not recognise are.
+// else: a cause outside the work and a stop the operator or the development
+// manager asked for are never counted; a cause on the work or a bound on it,
+// the harness's own step failing around the run, a dead process, a cancellation
+// naming no origin, a publishing failure, a cause nobody recorded, and a cause
+// this build does not recognise are.
 func TestTheBrakeReadsTheRecordedStopCause(t *testing.T) {
 	t.Parallel()
 
@@ -327,12 +339,19 @@ func TestTheBrakeReadsTheRecordedStopCause(t *testing.T) {
 	}{
 		{runstate.StopRedeploy, false},
 		{runstate.StopProvider, false},
+		{runstate.StopProviderIdle, false},
+		{runstate.StopRelaunchBudget, false},
+		{runstate.StopUsagePause, false},
+		{runstate.CauseUsageWindow.StopClass(), false},
 		{runstate.StopDeveloperAccount, false},
-		{runstate.StopDeadClaim, false},
-		{runstate.StopCancelled, false},
+		{runstate.StopReviewAccount, false},
 		{runstate.StopOperator, false},
 		{runstate.StopManager, false},
 		{runstate.CauseTransportFailure.StopClass(), false},
+		{runstate.CauseMergeQueueHeld.StopClass(), false},
+		{runstate.StopDeadClaim, true},
+		{runstate.StopCancelled, true},
+		{runstate.StopPublish, true},
 		{runstate.StopHarness, true},
 		{runstate.StopRecording, true},
 		{runstate.StopCleanup, true},
@@ -347,6 +366,23 @@ func TestTheBrakeReadsTheRecordedStopCause(t *testing.T) {
 		if got := started.blockedRun(); got != test.want {
 			t.Errorf("blockedRun() with stop class %q = %t, want %t", test.class, got, test.want)
 		}
+	}
+	// A publishing failure the forge's retries running out ended is left out;
+	// the same failure with retries still left in the window counts.
+	var spent []runstate.Retry
+	var waited time.Duration
+	for attempt := 1; waited+recovery.Interval(attempt) <= recovery.Window; attempt++ {
+		delay := recovery.Interval(attempt)
+		spent = append(spent, runstate.Retry{Boundary: runstate.RetryMergeConfirmation, Attempt: attempt, DelaySeconds: int64(delay / time.Second)})
+		waited += delay
+	}
+	exhausted := Started{Failure: "stopped", Outcome: Outcome{Blocked: true, StopClass: runstate.StopPublish, Retries: spent}}
+	if exhausted.blockedRun() {
+		t.Error("blockedRun() = true for a publishing failure after the forge's retries ran out, want it left out")
+	}
+	retried := Started{Failure: "stopped", Outcome: Outcome{Blocked: true, StopClass: runstate.StopPublish, Retries: spent[:1]}}
+	if !retried.blockedRun() {
+		t.Error("blockedRun() = false for a publishing failure with retries left, want it counted")
 	}
 	paused := Started{Failure: "record the pause on the work item: timed out", Outcome: Outcome{Paused: true}}
 	if paused.blockedRun() {
@@ -405,5 +441,80 @@ func TestUnrecognisedStopsAndHarnessFailuresCountTowardsTheHold(t *testing.T) {
 	}
 	if strings.Contains(logged, "yoyodyne-two") {
 		t.Errorf("log = %q, want nothing said about a cause the build recognises", logged)
+	}
+}
+
+// diedAtStart is a claim audit that, at the first pull of the session, finds
+// three runs dead together — what one restart of the machine leaves — and
+// nothing at any later pull.
+func diedAtStart(h *scheduleHarness, _ []beads.WorkItem) (ClaimSweep, error) {
+	h.mu.Lock()
+	first := h.audits == 1
+	h.mu.Unlock()
+	if !first {
+		return ClaimSweep{}, nil
+	}
+	var died []runstate.ReleasedClaim
+	for _, id := range []string{"yoyodyne-gone-one", "yoyodyne-gone-two", "yoyodyne-gone-three"} {
+		died = append(died, runstate.ReleasedClaim{WorkItemID: id, RunID: "run-" + id})
+	}
+	return ClaimSweep{Released: died, Died: died}, nil
+}
+
+// Three runs found dead together when the watch session starts count toward
+// the hold on new work as one stop, not three: with the brake at three, the
+// restart alone holds nothing, and the runs after it that land clear it.
+func TestRunsFoundDeadTogetherAtTheSessionsStartCountOnce(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+	harness.blockedRuns = 3
+	harness.audit = diedAtStart
+	harness.summon = func(*scheduleHarness, BrakeSummons, int) (Fired, error) {
+		return Fired{}, errors.New("nobody should be summoned over one restart")
+	}
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Braked != nil || schedule.BlockedInARow != 1 || len(harness.summonses) != 0 {
+		t.Fatalf("braked = %#v, blocked in a row = %d, want the three dead runs counted as one stop and nothing held", schedule.Braked, schedule.BlockedInARow)
+	}
+}
+
+// The one stop the dead runs count as is a real one: with the brake at two, it
+// and one run that blocked after it trip the hold, and the trip names every
+// dead run in the one entry beside the blocked run.
+func TestRunsFoundDeadTogetherCountTowardTheHoldAsOneStop(t *testing.T) {
+	t.Parallel()
+
+	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two")...)
+	harness.blockedRuns = 2
+	harness.audit = diedAtStart
+	harness.run = blockedStorm
+	harness.onSleep = func(*scheduleHarness, int) bool { return false }
+
+	scheduler := Scheduler{Open: harness.open, Watching: true, Sleep: harness.sleep, besideTurns: harness.beside, Now: harness.clock}
+	schedule, err := scheduler.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if schedule.Braked == nil || schedule.Braked.Brake == nil {
+		t.Fatalf("schedule = %s, want the dead runs and one blocked run to trip the hold", schedule.Render())
+	}
+	blocked := schedule.Braked.Brake.Blocked
+	if len(blocked) != 2 || blocked[0].WorkItemID != "yoyodyne-gone-one" || blocked[1].WorkItemID != "yoyodyne-one" {
+		t.Fatalf("trip names %+v, want the dead runs as one entry and then the blocked run", blocked)
+	}
+	for _, run := range []string{"run-yoyodyne-gone-one", "run-yoyodyne-gone-two", "run-yoyodyne-gone-three"} {
+		if !strings.Contains(blocked[0].Reason, run) {
+			t.Errorf("the dead runs' entry says %q, want it to name %s", blocked[0].Reason, run)
+		}
+	}
+	if !strings.Contains(blocked[0].Reason, "3 runs were found dead together, counted as one stop") {
+		t.Errorf("the dead runs' entry says %q, want it to say the three count as one", blocked[0].Reason)
 	}
 }

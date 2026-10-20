@@ -113,6 +113,11 @@ type ClaimSweep struct {
 	// are named rather than counted because what a person does about one is
 	// specific to the item.
 	Problems []string `json:"problems,omitempty"`
+	// Died are the claims this audit gave back whose run it ended itself,
+	// recording that the process carrying it died. A claim whose run had already
+	// ended is not among them: that run's stop was recorded by whatever ended it.
+	// The hold on new work counts them together as one stop (Started.diedTogether).
+	Died []runstate.ReleasedClaim `json:"died,omitempty"`
 }
 
 func (a ClaimAuditor) validate() error {
@@ -200,7 +205,7 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 		// slot and keeps the scheduler passing the item over however open the tracker
 		// says it is. A release made without it would be a fix that reads as one and
 		// leaves the line exactly as idle as it was.
-		settled, problem := a.settle(ctx, dead, recorded[dead.RunID], now)
+		settled, ended, problem := a.settle(ctx, dead, recorded[dead.RunID], now)
 		if problem != "" {
 			sweep.Problems = append(sweep.Problems, problem)
 			continue
@@ -229,13 +234,17 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 			continue
 		}
 		sweep.Released = append(sweep.Released, released)
+		if ended {
+			sweep.Died = append(sweep.Died, released)
+		}
 	}
 	return sweep, nil
 }
 
 // settle ends the record of the run that left the claim, so the developer slot it
 // was filling comes back with the item. It reports whether the claim may now be
-// given back, and the sentence to say where it may not.
+// given back, whether it ended the run itself to get there, and the sentence to
+// say where it may not.
 //
 // A run that already ended is not taken up at all: its slot is free the moment it
 // went terminal, so there is nothing here to settle and nothing to take a lease
@@ -263,16 +272,16 @@ func (a ClaimAuditor) Audit(ctx context.Context, claimed []beads.WorkItem) (Clai
 // This settles a narrower set than `yoyo reconcile` does and never overlaps it:
 // it moves no refs, removes nothing, closes nothing, and touches only runs that
 // have gone quiet past the audit's threshold with no wait recorded on them.
-func (a ClaimAuditor) settle(ctx context.Context, dead readmodel.DeadClaim, recorded runstate.State, now time.Time) (bool, string) {
+func (a ClaimAuditor) settle(ctx context.Context, dead readmodel.DeadClaim, recorded runstate.State, now time.Time) (bool, bool, string) {
 	if recorded.Status.Terminal() {
-		return true, ""
+		return true, false, ""
 	}
 	state, lease, err := a.Runs.AdoptRun(ctx, dead.RunID)
 	switch {
 	case errors.Is(err, runstate.ErrRunHeld):
-		return false, ""
+		return false, false, ""
 	case err != nil:
-		return false, fmt.Sprintf(
+		return false, false, fmt.Sprintf(
 			"%s is claimed with nothing working on it and its run %s could not be taken up to be settled, so the slot it holds is not free and nothing will pull the item: %v",
 			dead.WorkItemID, dead.RunID, err)
 	}
@@ -286,10 +295,10 @@ func (a ClaimAuditor) settle(ctx context.Context, dead readmodel.DeadClaim, reco
 	// developed a second time is the same change bought twice and a conflict at the
 	// end of it.
 	if state.Status.Terminal() {
-		return true, ""
+		return true, false, ""
 	}
 	if readmodel.AwaitingContinuation(state) || state.Integration != nil {
-		return false, ""
+		return false, false, ""
 	}
 	completedAt := now
 	// A stop for a redeploy promises that the next session continues the run, and
@@ -307,11 +316,11 @@ func (a ClaimAuditor) settle(ctx context.Context, dead readmodel.DeadClaim, reco
 	state.CompletedAt = &completedAt
 	state.Failure = settledRunFailure(dead)
 	if err := a.Runs.Save(state); err != nil {
-		return false, fmt.Sprintf(
+		return false, false, fmt.Sprintf(
 			"%s is claimed with nothing working on it and the ending of its run %s could not be recorded, so the slot it holds is not free and nothing will pull the item: %v",
 			dead.WorkItemID, dead.RunID, err)
 	}
-	return true, ""
+	return true, true, ""
 }
 
 // settledRunFailure is what the ended record says about itself, in the words

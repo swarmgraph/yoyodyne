@@ -1823,9 +1823,10 @@ func (s Scheduler) Schedule(ctx context.Context) (Schedule, error) {
 			// decision about a change nobody judged.
 		case started.stoppedOutsideTheWork():
 			// The run's record names a stop cause outside the work — a move to a
-			// new build, a login the provider refused, the harness's own process
-			// going away — or a cancellation. It is a verdict on nothing for the
-			// reason the environment's stops are, and neither counts nor clears.
+			// new build, a login the provider refused, the forge's retries
+			// running out — or a stop the operator or the development manager
+			// asked for. It is a verdict on nothing for the reason the
+			// environment's stops are, and neither counts nor clears.
 		case started.Readopted != "" && unstartedAttempt(*started):
 			// A re-adoption that never reached the run says nothing about the
 			// machine either, and is tried again at the next pull.
@@ -2418,7 +2419,20 @@ pulling:
 		// not pay before, and buys the only thing that ever frees those slots. A
 		// pull wired without an audit spends nothing at all: the reading is the
 		// audit's, so that pull makes it where it always did, in the queue below.
-		claimed, claimedRead := s.audit(ctx, &schedule, pull)
+		claimed, claimedRead, died := s.audit(ctx, &schedule, pull)
+		// The runs this audit ended because the process carrying them died count
+		// toward the hold on new work, and count once however many there are: a
+		// machine restart ends every run it was carrying, and the first audit of
+		// the session that comes back finds them all together. Counting each would
+		// hold new work over one restart; counting none would let a harness whose
+		// process keeps dying never be held (stopped-run-recovery, step 1).
+		if len(died) > 0 {
+			blockedInARow++
+			if blockedInARow > schedule.BlockedInARow {
+				schedule.BlockedInARow = blockedInARow
+			}
+			storm = append(storm, diedTogether(died))
+		}
 		// A provider answering nobody is read before the brake and before anything
 		// is chosen. It is read here rather than folded into the hold below because
 		// it is the opposite kind of stop: nothing a person placed and nothing
@@ -4266,9 +4280,9 @@ func (s Scheduler) settleProbe(ctx context.Context, schedule *Schedule, firings 
 		s.summon(ctx, schedule, firings, brake, summons, revised)
 	case started.endedOutsideTheWork():
 		// Something outside the work stopped the probe — a move to a new build, a
-		// login the provider refused, the environment, a cancellation — so it says
-		// nothing about whether the line is fine: it spends no cycle and summons
-		// nobody. The next probe still waits the cooldown, as after any other
+		// login the provider refused, the environment, a stop the operator or the
+		// development manager asked for — so it says nothing about whether the
+		// line is fine: it spends no cycle and summons nobody. The next probe still waits the cooldown, as after any other
 		// probe that decided nothing. Making it due at once would let a stop that
 		// keeps recurring, or one sorted outside the work by mistake, start
 		// probes back to back with no limit (recoverable-and-terminal-failures,
@@ -5443,14 +5457,14 @@ func (s Scheduler) settleCarryOut(schedule *Schedule, started *Started, carried 
 // shared (cyclelistings.go), so the queue is handed this same failure and the
 // pass treats the tracker as unreadable at once. A watch waits and reads again
 // with a new pull; a pass that is not watching stops.
-func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]beads.WorkItem, bool) {
+func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]beads.WorkItem, bool, []runstate.ReleasedClaim) {
 	if pull.Claims == nil {
-		return nil, false
+		return nil, false, nil
 	}
 	claimed, err := pull.claimed(ctx)
 	if err != nil {
 		schedule.ClaimProblem = fmt.Sprintf("what the tracker holds as claimed could not be read, so an item whose run died stays claimed and nothing will pull it: %v", err)
-		return nil, false
+		return nil, false, nil
 	}
 	sweep, err := pull.Claims.Audit(ctx, claimed)
 	var problems []string
@@ -5471,7 +5485,26 @@ func (s Scheduler) audit(ctx context.Context, schedule *Schedule, pull Pull) ([]
 	// that every claim is pullable — only that this sweep found nothing it could
 	// still act on.
 	schedule.ClaimProblem = strings.Join(problems, "; ")
-	return claimed, true
+	return claimed, true, sweep.Died
+}
+
+// diedTogether is the one stop the hold on new work counts for the runs one
+// claim audit found dead together, named by the first of them and listing the
+// rest, so the development manager summoned over it reads every run it ended.
+func diedTogether(died []runstate.ReleasedClaim) runstate.BrakeBlockedRun {
+	runs := make([]string, 0, len(died))
+	for _, released := range died {
+		runs = append(runs, nonEmpty(released.RunID, released.WorkItemID))
+	}
+	reason := fmt.Sprintf("the process carrying run %s died", runs[0])
+	if len(runs) > 1 {
+		reason = fmt.Sprintf("the processes carrying %d runs were found dead together, counted as one stop: %s", len(runs), strings.Join(runs, ", "))
+	}
+	return runstate.BrakeBlockedRun{
+		RunID:      strings.TrimSpace(died[0].RunID),
+		WorkItemID: died[0].WorkItemID,
+		Reason:     runstate.BoundBrakeText(reason),
+	}
 }
 
 // land closes the conversation-carried entries whose landing is in the
@@ -5548,12 +5581,14 @@ func priceRun(spend ScheduleSpend, outcome Outcome) (float64, string) {
 //
 // A paused run is never one, whatever else came back with it: it is owed a
 // continuation. Nor is a run whose record names a stop cause outside the work —
-// a move to a new build, a provider that refused the login, the harness's own
-// process going away — or a cancellation, because the brake counts verdicts on
-// a change, and those are verdicts on nothing. The cause is the one the run
-// recorded where it stopped, sorted by runstate.StopKeptOutOfHold rather than
-// decided again here, so the harness's own step failing around the run and a
-// cause this build does not recognise are counted.
+// a move to a new build, a provider that refused the login, the forge's retries
+// running out — or a stop the operator or the development manager asked
+// for, because the brake counts verdicts on a change, and those are verdicts on
+// nothing. The cause is the one the run recorded where it stopped, sorted by
+// runstate.StopKeptOutOfHoldAfter rather than decided again here, so the
+// harness's own step failing around the run, a cancellation whose origin is not
+// recorded, a publishing failure, and a cause this build does not recognise
+// are counted.
 func (s Started) blockedRun() bool {
 	if s.Outcome.Paused || s.stoppedOutsideTheWork() {
 		return false
@@ -5562,11 +5597,13 @@ func (s Started) blockedRun() bool {
 }
 
 // stoppedOutsideTheWork reports a run whose record names a stop cause the
-// brake leaves out of its count (runstate.StopKeptOutOfHold). A record that
-// names no cause is not read as one: a cause nobody recorded is not excused.
+// brake leaves out of its count (runstate.StopKeptOutOfHoldAfter, read with the
+// waits the run recorded so the forge's retries running out stay out). A record
+// that names no cause is not read as one: a cause nobody recorded is not
+// excused.
 func (s Started) stoppedOutsideTheWork() bool {
 	class := s.Outcome.StopClass
-	return class != "" && runstate.StopKeptOutOfHold(class)
+	return class != "" && runstate.StopKeptOutOfHoldAfter(class, s.Outcome.Retries)
 }
 
 // unrecognisedStop is the stop cause the run recorded where this build does

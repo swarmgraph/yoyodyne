@@ -41,6 +41,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 )
 
 // StopCauseSchemaVersion is the shape of one entry in the record.
@@ -74,7 +75,7 @@ const (
 	StopSideBound StopSide = "bound"
 	// StopSideOutside is the provider, the machine, the forge, the tracker, a
 	// person or a manager stopping the run, or the harness's own step failing
-	// around the work. The hold on new work still counts the last of these
+	// around the work. The hold on new work still counts some of these
 	// (StopKeptOutOfHold).
 	StopSideOutside StopSide = "outside"
 )
@@ -137,23 +138,100 @@ func stopSideListed(class StopClass) (StopSide, bool) {
 }
 
 // stopsTheHoldCounts are the causes StopSideOf puts outside the work that the
-// hold on new work counts all the same: the harness's own step failing around
-// the run, and a record that names no cause. A harness that keeps failing is
-// what the hold exists to stop, and nothing else would stop it
-// (recoverable-and-terminal-failures, "Trip the brake").
-var stopsTheHoldCounts = []StopClass{StopHarness, StopRecording, StopCleanup, StopUnknown}
+// hold on new work counts all the same. A harness that keeps failing is what
+// the hold exists to stop, and nothing else would stop it
+// (recoverable-and-terminal-failures, "Trip the brake"; stopped-run-recovery,
+// step 1, as ruled on October 19):
+//
+//   - the harness's own step failing around the run, and a record that names no
+//     cause;
+//   - the process carrying the run having died, because the record cannot tell
+//     the harness's own process failing from the machine being shut down. The
+//     scheduler counts the runs one claim audit finds dead together as one stop,
+//     so one restart of the machine counts once;
+//   - a cancellation whose origin is not recorded. A person's stop, a recorded
+//     decision's, and the product's move to a new build each record a cause of
+//     their own (StopOperator, StopManager, StopRedeploy), which stay out;
+//   - a publishing failure, except the forge's retries running out
+//     (StopKeptOutOfHoldAfter) and a merge refused for a reason not about the
+//     change, which records the merge queue's own cause (CauseMergeQueueHeld).
+var stopsTheHoldCounts = []StopClass{
+	StopHarness, StopRecording, StopCleanup, StopUnknown,
+	StopDeadClaim, StopCancelled, StopPublish,
+}
+
+// stopsTheHoldKeepsOut are the causes StopSideOf puts among the bounds that the
+// hold leaves out all the same: the AI provider ending a session more times
+// than the harness restarts it, which step 1 of stopped-run-recovery places
+// outside the work.
+var stopsTheHoldKeepsOut = []StopClass{StopRelaunchBudget}
 
 // StopKeptOutOfHold reports whether the hold on new work leaves a stop of this
 // cause out of its count. Only the causes outside the work — the provider, the
-// forge, the machine, a move to a new build, the environment — and a run
-// cancelled by a person, a manager, or its context are left out. Everything
-// else counts, an unrecognised cause included.
+// forge, a move to a new build, the environment, an unusable provider account —
+// and a run stopped by the operator or the development manager are left out.
+// Everything else counts, an unrecognised cause included (stopsTheHoldCounts).
+// A caller holding the run's recorded waits asks StopKeptOutOfHoldAfter, which
+// also leaves out a boundary's retries running out.
 func StopKeptOutOfHold(class StopClass) bool {
 	if slices.Contains(stopsTheHoldCounts, class) {
 		return false
 	}
+	if slices.Contains(stopsTheHoldKeepsOut, class) {
+		return true
+	}
 	side, listed := stopSideListed(class)
 	return listed && side == StopSideOutside
+}
+
+// forgeRetryBoundaries are the boundaries at which a run meets the forge and
+// can stop because its retries there ran out. Catching the local target up is
+// not one: it reaches the forge too, but its failure never ends a run.
+var forgeRetryBoundaries = []string{
+	RetryPublishBranch, RetryOpenPullRequest, RetryRepublishBranch,
+	RetryRemoteTarget, RetryMerge, RetryMergeConfirmation, RetryDeleteRemoteBranch,
+}
+
+// StopKeptOutOfHoldAfter is StopKeptOutOfHold for a run whose recorded waits
+// are in hand. It also leaves out a publishing failure or a spent recovery
+// window where the last boundary the run waited at is the forge's and its
+// retries there ran out, and a spent recovery window at the provider's
+// boundary, which is the provider ending a session after its retries. Both are
+// on step 1's list outside the work (stopped-run-recovery). A publishing
+// failure whose retries did not run out still counts.
+func StopKeptOutOfHoldAfter(class StopClass, retries []Retry) bool {
+	if StopKeptOutOfHold(class) {
+		return true
+	}
+	if class != StopPublish && class != StopRecoveryWindow {
+		return false
+	}
+	boundary, spent := lastRecoveryWindowSpent(retries)
+	if !spent {
+		return false
+	}
+	if slices.Contains(forgeRetryBoundaries, boundary) {
+		return true
+	}
+	return class == StopRecoveryWindow && boundary == RetryProviderInvocation
+}
+
+// lastRecoveryWindowSpent names the last boundary the run waited at and
+// reports whether its window has no wait left in it, by the same test the run
+// applied before giving up there (recoverFrom in internal/orchestrator).
+func lastRecoveryWindowSpent(retries []Retry) (string, bool) {
+	if len(retries) == 0 {
+		return "", false
+	}
+	boundary := retries[len(retries)-1].Boundary
+	attempts, waited := 0, time.Duration(0)
+	for _, retry := range retries {
+		if retry.Boundary == boundary {
+			attempts++
+			waited += retry.Delay()
+		}
+	}
+	return boundary, waited+recovery.Interval(attempts+1) > recovery.Window
 }
 
 // StopCauseKey is one cause: the three facts two stops must agree on to be

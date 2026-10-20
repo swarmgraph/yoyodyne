@@ -188,6 +188,9 @@ func TestADeadClaimIsGivenBackAndRecorded(t *testing.T) {
 	if len(sweep.Problems) != 0 {
 		t.Fatalf("problems = %v, want none", sweep.Problems)
 	}
+	if len(sweep.Died) != 1 || sweep.Died[0].RunID != "run-264" {
+		t.Fatalf("died = %+v, want the run this audit ended named as one whose process died", sweep.Died)
+	}
 	note, gave := harness.Released["yoyodyne-ifd.264"]
 	if !gave {
 		t.Fatal("the tracker was never asked to give the claim back")
@@ -259,6 +262,11 @@ func TestAClaimLeftByARunThatAlreadyEndedIsNotWrittenTo(t *testing.T) {
 	}
 	if len(harness.saved) != 0 {
 		t.Fatalf("saved = %+v, want a run that already ended left exactly as it is", harness.saved)
+	}
+	// Whatever ended it recorded its stop, so this audit names no death of its
+	// own for the hold on new work to count.
+	if len(sweep.Died) != 0 {
+		t.Fatalf("died = %+v, want a run that already ended not counted as one this audit found dead", sweep.Died)
 	}
 	// And it is never taken up. A record that says a run ended cannot go back to
 	// running, so it is decided from the reading rather than from a lease — which
@@ -723,6 +731,11 @@ func TestDeadRunsFillingTheMachineAreSettledAndTheirItemsPulledAgain(t *testing.
 	}
 	if schedule.ClaimProblem != "" {
 		t.Fatalf("claim problem = %q, want none", schedule.ClaimProblem)
+	}
+	// The two dead runs were found together, so they count toward the hold on
+	// new work as one stop.
+	if schedule.BlockedInARow != 1 {
+		t.Fatalf("blocked in a row = %d, want the two runs found dead together counted once", schedule.BlockedInARow)
 	}
 	// The runs that were filling the machine are ended, so the slots are free.
 	for _, state := range harness.finished {
