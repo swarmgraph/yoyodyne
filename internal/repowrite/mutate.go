@@ -252,6 +252,13 @@ func (r Root) CreateFile(relative string, content []byte) (target string, create
 	return r.landed(clean), true, nil
 }
 
+// CreateFileMode is CreateFile with the caller's modes, for a record that is not
+// a repository document. A name that already exists is reported as an error
+// that is fs.ErrExist, and is left as it was.
+func (r Root) CreateFileMode(relative string, content []byte, file, directory fs.FileMode) error {
+	return r.publish("create", relative, content, false, file, directory)
+}
+
 // ReplaceFile is WriteFile with the caller's modes, for a record that is not a
 // repository document: a file under a state directory wants the permissions
 // its own root does rather than a checkout's.

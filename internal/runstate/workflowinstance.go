@@ -240,7 +240,7 @@ func (s *Store) CreateWorkflowInstance(instance WorkflowInstance) error {
 	if err != nil {
 		return err
 	}
-	return createJSONFile(s.root, path, "workflow instance", instance)
+	return createJSONFile(s.state, path, "workflow instance", instance)
 }
 
 // SaveWorkflowInstance replaces the record of an instance, which is what makes
@@ -253,7 +253,7 @@ func (s *Store) SaveWorkflowInstance(instance WorkflowInstance) error {
 	if err != nil {
 		return err
 	}
-	return replaceJSONFile(s.root, path, "workflow instance", instance)
+	return replaceJSONFile(s.state, path, "workflow instance", instance)
 }
 
 // LoadWorkflowInstance reads one record back, refusing anything this build does

@@ -77,7 +77,7 @@ func TestADeadProcessDoesNotLeaveAConversationTurnWaiting(t *testing.T) {
 	wait := ConversationWait{Agent: conversation.Identity().Agent, Role: conversation.Role,
 		ConversationID: conversation.ConversationID, PID: gone, Since: time.Now(), Reason: "waiting for the provider"}
 	path := filepath.Join(store.Root(), ".waiting-"+conversation.ConversationID+".json")
-	if err := replaceJSONFile(store.Root(), path, "conversation wait", wait); err != nil {
+	if err := replaceJSONFile(stateRoot{given: store.stateRoot, confined: store.stateRoot, anchor: store.anchor}, path, "conversation wait", wait); err != nil {
 		t.Fatal(err)
 	}
 	if waits, err := store.WaitingTurns(); err != nil || len(waits) != 0 {
@@ -101,7 +101,7 @@ func TestWaitingConversationTurnsTolerateFutureFieldsAndRefuseCorruptRecords(t *
 		t.Fatal(err)
 	}
 	record["future_field"] = true
-	if err := replaceJSONFile(store.Root(), path, "conversation wait", record); err != nil {
+	if err := replaceJSONFile(stateRoot{given: store.stateRoot, confined: store.stateRoot, anchor: store.anchor}, path, "conversation wait", record); err != nil {
 		t.Fatal(err)
 	}
 	if waits, err := store.WaitingTurns(); err != nil || len(waits) != 1 || waits[0].ConversationID != wait.ConversationID || waits[0].Reason != wait.Reason {

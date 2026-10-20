@@ -934,6 +934,7 @@ func NewWatchSessionID() (string, error) {
 // never wrote after.
 type WatchStore struct {
 	root      string
+	state     stateRoot
 	productID domain.ProductID
 }
 
@@ -944,8 +945,13 @@ func NewWatchStore(root string, productID domain.ProductID) (*WatchStore, error)
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &WatchStore{
 		root:      home.ProductDirectory(root, string(productID)),
+		state:     state,
 		productID: productID,
 	}, nil
 }
@@ -983,6 +989,7 @@ func (s *WatchStore) Lease(sessionID string) (*Lease, bool, error) {
 		return nil, false, errors.Join(err, lease.Release())
 	}
 	lease.holder = holder
+	lease.clearHolder = func() error { return s.state.remove(holder) }
 	return lease, true, nil
 }
 
@@ -1060,31 +1067,11 @@ func (s *WatchStore) Holder() (WatchHolder, bool, error) {
 }
 
 // stampHolder writes this process's stamp for the watch it now holds. It is
-// replaced by rename rather than written in place, so a reader sees the whole of
-// one stamp or none of it and never half of one.
+// published as a new file rather than written in place, so a reader sees the
+// whole of one stamp or none of it and never half of one.
 func (s *WatchStore) stampHolder(path, sessionID string) error {
-	temporary, err := os.CreateTemp(s.root, ".watch-holder-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary watch holder: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary watch holder: %w", err)
-	}
 	holder := WatchHolder{SessionID: sessionID, PID: os.Getpid(), HeldAt: time.Now().UTC(), Build: buildinfo.Commit()}
-	if err := writeJSONFile(temporary, "watch holder", holder); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary watch holder: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace watch holder: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "watch holder", holder)
 }
 
 // Record appends one transition. It is an append rather than a rewrite for the

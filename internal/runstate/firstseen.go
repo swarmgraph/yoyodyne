@@ -68,6 +68,7 @@ func (r FirstSeenRecord) Validate() error {
 // seen, under the product's state beside the instances' other records.
 type FirstSeenStore struct {
 	root      string
+	state     stateRoot
 	productID domain.ProductID
 }
 
@@ -78,8 +79,13 @@ func NewFirstSeenStore(root string, productID domain.ProductID) (*FirstSeenStore
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &FirstSeenStore{
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
+		state:     state,
 		productID: productID,
 	}, nil
 }
@@ -128,7 +134,7 @@ func (s *FirstSeenStore) Observe(agents []string, now time.Time) (map[string]tim
 	if err := record.Validate(); err != nil {
 		return nil, err
 	}
-	if err := replaceJSONFile(s.root, s.Path(), "program manager first-seen record", record); err != nil {
+	if err := replaceJSONFile(s.state, s.Path(), "program manager first-seen record", record); err != nil {
 		return nil, err
 	}
 	return current, nil
@@ -185,10 +191,7 @@ func missingAny(recorded map[string]time.Time, agents []string) bool {
 }
 
 func (s *FirstSeenStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create program manager directory: %w", err)
-	}
-	file, err := os.OpenFile(s.Path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open program manager first-seen lock: %w", err)
 	}

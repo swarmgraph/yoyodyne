@@ -528,3 +528,39 @@ func TestARootOnAnUnsupportedFilesystemIsRefused(t *testing.T) {
 	_, err = root.MakeDirectory("yoyodyne-never-made", 0o700)
 	wantRefusal(t, err, ReasonFilesystem)
 }
+
+// Writers replacing and removing files in one root at once share the root's
+// holding directory, which each of them creates when it needs it and takes
+// away when it is done. None of them may fail because another took it away.
+func TestConcurrentReplacementsAndRemovalsInOneRootAllSucceed(t *testing.T) {
+	t.Parallel()
+	root, _ := repository(t)
+	errs := make(chan error, 16*20)
+	done := make(chan struct{})
+	for writer := range 16 {
+		go func() {
+			defer func() { done <- struct{}{} }()
+			for round := range 20 {
+				name := filepath.Join("records", "writer-"+string(rune('a'+writer))+".json")
+				if err := root.ReplaceFile(name, []byte{byte(round)}, 0o600, 0o700); err != nil {
+					errs <- err
+				}
+				if round%5 == 4 {
+					if _, err := root.RemoveFile(name); err != nil {
+						errs <- err
+					}
+				}
+			}
+		}()
+	}
+	for range 16 {
+		<-done
+	}
+	close(errs)
+	for err := range errs {
+		t.Errorf("a concurrent write failed: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(root.Path(), removingDirectory)); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the holding directory was left behind: %v", err)
+	}
+}

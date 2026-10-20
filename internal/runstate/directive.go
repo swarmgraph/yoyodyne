@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,7 @@ import (
 // record already said.
 type DirectiveStore struct {
 	root      string
+	state     stateRoot
 	productID domain.ProductID
 }
 
@@ -44,8 +46,13 @@ func NewDirectiveStore(root string, productID domain.ProductID) (*DirectiveStore
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &DirectiveStore{
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "directives"),
+		state:     state,
 		productID: productID,
 	}, nil
 }
@@ -63,28 +70,15 @@ func (s *DirectiveStore) Record(recorded directive.Directive) error {
 	if err := s.validate(recorded); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create directive directory: %w", err)
-	}
 	path, err := s.path(recorded.ID)
 	if err != nil {
 		return err
 	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
-	if err != nil {
-		if errors.Is(err, os.ErrExist) {
+	if err := createJSONFile(s.state, path, "directive", recorded); err != nil {
+		if errors.Is(err, fs.ErrExist) {
 			return fmt.Errorf("directive %s is already recorded", recorded.ID)
 		}
-		return fmt.Errorf("create directive: %w", err)
-	}
-	if err := writeJSONFile(file, "directive", recorded); err != nil {
-		return cleanupFailedCreate(file, path, err)
-	}
-	if err := file.Close(); err != nil {
-		return cleanupFailedCreate(nil, path, fmt.Errorf("close directive: %w", err))
-	}
-	if err := syncDirectory(s.root); err != nil {
-		return cleanupFailedCreate(nil, path, err)
+		return err
 	}
 	return nil
 }

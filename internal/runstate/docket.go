@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +41,7 @@ const closureReasonCutNote = "\n[cut; the work item's own notes carry the whole 
 // have to be defended against it.
 type DocketStore struct {
 	root      string
+	state     stateRoot
 	productID domain.ProductID
 }
 
@@ -52,8 +52,13 @@ func NewDocketStore(root string, productID domain.ProductID) (*DocketStore, erro
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &DocketStore{
 		root:      home.ProductDirectory(root, string(productID)),
+		state:     state,
 		productID: productID,
 	}, nil
 }
@@ -110,7 +115,7 @@ func (s *DocketStore) RecordWindowPosition(position triage.WindowPosition) error
 	if len(position.Key) > triage.MaxKeyBytes {
 		return fmt.Errorf("docket window key is %d bytes, limit is %d", len(position.Key), triage.MaxKeyBytes)
 	}
-	return replaceJSONFile(s.root, s.WindowPath(), "docket window", docketWindow{Position: position})
+	return replaceJSONFile(s.state, s.WindowPath(), "docket window", docketWindow{Position: position})
 }
 
 // RecordOnce records one entry and reports whether this call is what created
@@ -408,36 +413,10 @@ func (s *DocketStore) append(path, what string, encoded []byte) error {
 	if len(encoded) > maxEncodedDocketEntryBytes {
 		return fmt.Errorf("encoded %s is %d bytes, limit is %d", what, len(encoded), maxEncodedDocketEntryBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create docket directory: %w", err)
-	}
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect %s log: %w", what, statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open %s log: %w", what, err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append %s: %w", what, err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append %s: %w", what, io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync %s log: %w", what, err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close %s log: %w", what, err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }

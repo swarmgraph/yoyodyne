@@ -48,7 +48,7 @@ const (
 	removingDirectory = ".yoyodyne-removing"
 	// removalAttempts bounds the retries of a removal whose holding directory
 	// another removal took away between its creation and its use.
-	removalAttempts = 8
+	removalAttempts = 64
 )
 
 func statID(st *unix.Stat_t) fileID { return fileID{dev: uint64(st.Dev), ino: uint64(st.Ino)} }
@@ -571,18 +571,32 @@ func (h *heldDir) swapIn(temporaryName, name string, expected *fileID) (*fileID,
 	return nil, refusal(ReasonChanged, rel+" kept changing while it was replaced")
 }
 
-// holding is the root's holding directory for removals, held. close removes it
-// again where nothing else is using it.
+// holding is the root's holding directory for removals, held. Every removal
+// in the root shares it: each creates it when it needs it and takes it away
+// again when it is empty, so one removal can find it gone between creating it
+// and opening it, and makes it again.
 func (a *anchor) holding() (*heldDir, error) {
-	if err := unix.Mkdirat(a.fd, removingDirectory, 0o700); err != nil && !errors.Is(err, unix.EEXIST) {
-		return nil, pathError("create the holding directory", removingDirectory, err)
-	}
 	root, err := a.hold(".")
 	if err != nil {
 		return nil, err
 	}
 	defer root.close()
-	return root.openChild(removingDirectory)
+	for attempt := 1; ; attempt++ {
+		if err := unix.Mkdirat(a.fd, removingDirectory, 0o700); err != nil && !errors.Is(err, unix.EEXIST) {
+			return nil, pathError("create the holding directory", removingDirectory, err)
+		}
+		holding, err := root.openChild(removingDirectory)
+		if err == nil || !errors.Is(err, fs.ErrNotExist) || attempt == removalAttempts {
+			return holding, err
+		}
+	}
+}
+
+// gone reports whether the root's holding directory is no longer the one held,
+// which it is not once another removal has taken it away.
+func (a *anchor) gone(holding *heldDir) bool {
+	st, err := lstatAt(a.fd, removingDirectory)
+	return err != nil || statID(&st) != holding.id
 }
 
 func (a *anchor) releaseHolding(holding *heldDir) {
@@ -612,12 +626,12 @@ func (h *heldDir) removeChecked(name string, id fileID, confirm func() error) er
 		}
 		aside := "removing-" + rand.Text()
 		err = renameNoReplace(h.fd, name, holding.fd, aside)
-		if errors.Is(err, unix.ENOENT) && attempt < removalAttempts {
-			if _, statErr := lstatAt(h.fd, name); statErr == nil {
-				// The holding directory went away between being made and being used.
-				h.anchor.releaseHolding(holding)
-				continue
-			}
+		if err != nil && attempt < removalAttempts && h.anchor.gone(holding) {
+			// Another removal took the holding directory away between this one
+			// opening it and moving the name into it. Nothing moved, so the
+			// removal starts again with the holding directory made afresh.
+			h.anchor.releaseHolding(holding)
+			continue
 		}
 		if err != nil {
 			h.anchor.releaseHolding(holding)
