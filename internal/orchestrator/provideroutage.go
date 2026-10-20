@@ -279,7 +279,11 @@ func (p Pipeline) requireBackendReady(ctx context.Context, workItemID string, pr
 		detail := fmt.Sprintf("the %s backend is not authenticated; `yoyo doctor` names the login that fixes it (auth method: %s)",
 			named, availability.AuthMethod)
 		refused := ProviderOutageError{Cause: domain.ProviderUnauthenticated, Detail: detail}
-		if recordErr := p.noticeProviderOutage(domain.ProviderUnauthenticated, "", detail, "the dispatch of "+workItemID, ""); recordErr != nil {
+		// No account is chosen yet, so the one recorded is the one every run under
+		// this configuration executes on, which is the login the operator is told
+		// to renew; a pool names none, because which of its accounts the check
+		// read is not something this answer can say.
+		if recordErr := p.noticeProviderOutage(domain.ProviderUnauthenticated, "", detail, "the dispatch of "+workItemID, p.Config.AccountAlias()); recordErr != nil {
 			return errors.Join(refused, recordErr)
 		}
 		return refused

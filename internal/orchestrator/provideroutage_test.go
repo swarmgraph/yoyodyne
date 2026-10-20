@@ -438,6 +438,89 @@ func TestRunWaitsOutAnExpiredLoginDuringReview(t *testing.T) {
 	}
 }
 
+// oauthSessionLapsed is what a Claude Code session whose login lapsed partway
+// through ends on: no status and no remedy beside it.
+const oauthSessionLapsed = "Failed to authenticate: OAuth session expired and could not be refreshed"
+
+// A reviewer refused twice because its login lapsed keeps both its relaunches
+// and is judged once the login works again. The refusal is classified by the
+// Claude Code dialect itself rather than handed to the run already read, so a
+// title the dialect does not know is a test that fails here: read as a death,
+// these two refusals spend a budget of two and block the run with the change
+// unjudged.
+func TestAReviewerRefusedTwiceForALapsedLoginKeepsItsRelaunchesAndResumes(t *testing.T) {
+	t.Parallel()
+
+	repository := pipelineRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	provider := refusingBackend(0, nil, approveVerdict)
+	served := provider.Respond
+	refused := 0
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer && refused < 2 {
+			refused++
+			result := backend.RunResult{
+				Backend: domain.BackendClaudeCode, SessionID: provider.ReviewerSession, IsError: true,
+				StopReason: "api_error", FinalText: oauthSessionLapsed, LastEvent: request.LastSequence,
+			}
+			observation, said := claudecode.Dialect{}.Observe(backend.ProviderEvent{
+				Type: "result", Subtype: "api_error", Terminal: true, Failed: true, Text: oauthSessionLapsed,
+			})
+			if !said {
+				t.Errorf("the dialect said nothing about %q", oauthSessionLapsed)
+			}
+			observation.Record(&result)
+			return result, nil
+		}
+		return served(request)
+	}
+	pipeline, store := newPipeline(t, repository, tracker, provider, []string{"exit 0"})
+	clock := &pausingClock{now: baseTime}
+	pipeline = waiting(automatic(pipeline, provider), clock, 10*time.Minute, 10*time.Minute)
+	pipeline.Config.Execution.TransientRelaunchesBeforeBlocking = 2
+	pipeline.Config.Execution.UsageLimitUnknownResetPause = config.Duration(30 * time.Minute)
+	outages := newOutageStore(t)
+	pipeline.ProviderOutages = outages
+
+	var held []runstate.State
+	clock.onSleep = func() {
+		loaded, err := store.Load(pipelineRunID)
+		if err != nil {
+			t.Errorf("Load() during the wait error = %v", err)
+			return
+		}
+		held = append(held, loaded)
+	}
+	outcome, err := pipeline.Run(context.Background(), tracker.Item.ID)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if clock.waited() != 2*30*time.Minute || len(held) == 0 {
+		t.Fatalf("waited %s, want one probe interval for each refused review", clock.waited())
+	}
+	for _, state := range held {
+		if state.Phase != runstate.PhaseReviewing || state.PauseCause != runstate.PauseProviderUnauthenticated || state.TransientRelaunches != 0 {
+			t.Fatalf("held state = phase %q, pause %q, relaunches %d; want the review held waiting on the login with no relaunch spent",
+				state.Phase, state.PauseCause, state.TransientRelaunches)
+		}
+	}
+	if outcome.Integration == nil || !tracker.Closed || tracker.Blocked {
+		t.Fatalf("the held review did not resume to a finished run: %#v (blocked=%t)", outcome, tracker.Blocked)
+	}
+	if outcome.TransientRelaunches != 0 || outcome.RepairAttempts != 0 {
+		t.Fatalf("outcome = %#v, want both relaunches and every repair attempt kept", outcome)
+	}
+	if reviews := len(provider.RequestsForRole(domain.RoleReviewer)); reviews != 3 {
+		t.Fatalf("review invocations = %d, want the two refused and the one that judged the change", reviews)
+	}
+	if developers := len(provider.RequestsForRole(domain.RoleDeveloper)); developers != 1 {
+		t.Fatalf("developer invocations = %d, want the review resumed from where it was held rather than the run started over", developers)
+	}
+	if _, away, err := outages.Standing(); err != nil || away {
+		t.Fatalf("Standing() after the served review = %t, %v, want the outage cleared", away, err)
+	}
+}
+
 // The 2026-09-17 shape replayed: dispatches refused because the login expired
 // count toward nothing — no brake, no docket, no exclusion — the session waits
 // naming the login, and re-authentication resumes the line without a release.

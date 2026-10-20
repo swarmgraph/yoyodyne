@@ -11,6 +11,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
@@ -36,6 +37,32 @@ func accountLoginCommand(cfg config.Config, named domain.Backend, account config
 	}
 	descriptor, _ := providerDescriptor(cfg, named)
 	return doctor.AccountLoginCommand(descriptor.Adapter, account.Directory, descriptor.Binary)
+}
+
+// outageLoginCommand is the command every surface hands the operator when a
+// provider refused an account for its login: `yoyo status`, the dashboard, and
+// the messages Slack sends read it through the read model's sources. It is
+// accountLoginCommand for the account the refusal named. A refusal met before
+// any account was chosen names none, and is answered for the account a run
+// under this configuration executes on, or for the machine's own login where
+// the configuration pools several and none of them was asked; a provider the
+// refusal did not name is the developer's.
+func outageLoginCommand(cfg config.Config, stateRoot string) func(domain.Backend, string) string {
+	return func(provider domain.Backend, alias string) string {
+		if provider == "" {
+			provider = agentForRole(cfg, domain.RoleDeveloper).Backend
+		}
+		if strings.TrimSpace(alias) == "" {
+			alias = cfg.AccountAlias()
+		}
+		account := config.AccountEndpoint{Alias: alias}
+		if strings.TrimSpace(alias) != "" {
+			if endpoint, err := cfg.Endpoint(stateRoot, alias); err == nil {
+				account = endpoint
+			}
+		}
+		return accountLoginCommand(cfg, provider, account)
+	}
 }
 
 // weeklyBudgetWindow is the seven days a weekly budget is measured over. It is a
