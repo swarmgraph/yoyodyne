@@ -1438,6 +1438,77 @@ func TestBlockedClaimConformance(t *testing.T) {
 	}
 }
 
+// TestChildOfAWaitingParentConformance pins how bd decides that a child of a
+// blocked item is not ready, which is what the backlog's one exception to taking
+// bd's ready list rests on (AwaitedByWhatHoldsIt). bd marks an item held where it
+// has a blocking link to unfinished work, and passes that mark down every
+// parent-child link, so a parent made to wait on its own child holds the child
+// back for as long as the child is unfinished. A blocked status on the parent
+// alone holds nothing back. And bd still lets the child be claimed, which is the
+// whole of whether offering it starts anything.
+func TestChildOfAWaitingParentConformance(t *testing.T) {
+	t.Parallel()
+
+	project := newTracker(t)
+	client := Client{Runner: execution.OSProcessRunner{}, Dir: project, Timeout: conformanceTimeout}
+	ctx := context.Background()
+
+	parent, err := client.Create(ctx, NewWorkItem{Title: "Long paste", Description: "A run stopped on it.", Type: "task"})
+	if err != nil {
+		t.Fatalf("Create() the parent error = %v", err)
+	}
+	rebuild, err := client.Create(ctx, NewWorkItem{
+		Title: "Rebuild from current main", Description: "Filed under the stopped item.", Type: "task", Parent: parent.ID,
+	})
+	if err != nil {
+		t.Fatalf("Create() the rebuild error = %v", err)
+	}
+	offered := func(id string) bool {
+		t.Helper()
+		ready, err := client.Ready(ctx)
+		if err != nil {
+			t.Fatalf("Ready() error = %v", err)
+		}
+		_, found := itemIn(ready, id)
+		return found
+	}
+
+	// The blocked status alone, as the harness writes it when a run stops.
+	if _, err := client.Block(ctx, parent.ID, "A run stopped here."); err != nil {
+		t.Fatalf("Block() the parent error = %v", err)
+	}
+	if !offered(rebuild.ID) {
+		t.Fatalf("Ready() leaves out %s while its parent is blocked by status alone; the hold this pins is the link, "+
+			"and the backlog's exception is built on that", rebuild.ID)
+	}
+
+	// The link: the parent waits on its own child, and bd holds the child back.
+	if err := client.AddBlocker(ctx, parent.ID, rebuild.ID); err != nil {
+		t.Fatalf("AddBlocker() the parent on its child error = %v", err)
+	}
+	if offered(rebuild.ID) {
+		t.Fatalf("Ready() offers %s while its parent waits on it; bd no longer passes a parent's hold down, so the "+
+			"backlog's exception for it offers nothing bd would not", rebuild.ID)
+	}
+	listed, err := client.List(ctx, statusOpen)
+	if err != nil {
+		t.Fatalf("List() error = %v", err)
+	}
+	child, found := itemIn(listed, rebuild.ID)
+	if !found || child.DecomposedFrom() != parent.ID {
+		t.Fatalf("List(open) gives %#v for %s, want it listed under %s; the backlog finds the waiting parent from this", child, rebuild.ID, parent.ID)
+	}
+
+	// And the claim the scheduler makes once the backlog offers it.
+	claimed, _, err := client.Claim(ctx, rebuild.ID)
+	if err != nil {
+		t.Fatalf("Claim() the child its parent waits on error = %v; offering it would start nothing", err)
+	}
+	if claimed.Status != statusInProgress {
+		t.Fatalf("Claim() status = %q, want in_progress", claimed.Status)
+	}
+}
+
 // closedDependencyStatus is finished work, as a dependency reports it. Every
 // reading of a blocker turns on it: work a listing calls closed is work no
 // dependency on it holds anything back for.

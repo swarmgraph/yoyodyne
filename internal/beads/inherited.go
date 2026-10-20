@@ -2,6 +2,7 @@ package beads
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
@@ -15,7 +16,8 @@ import (
 // to nobody.
 //
 // It reports a state the tracker already holds; it decides nothing about
-// readiness, which stays the tracker's answer.
+// readiness, which stays the tracker's answer except where every such block is
+// a wait on the item itself (AwaitedByWhatHoldsIt).
 type InheritedBlock struct {
 	// Through is the chain of ancestors from the item's parent up to the one
 	// that waits, nearest first, so the last of them is the one with the link.
@@ -96,6 +98,73 @@ func InheritedBlocks(item WorkItem, lookup func(id string) (WorkItem, bool, erro
 		current = ancestor
 	}
 	return blocks, nil
+}
+
+// AwaitedByWhatHoldsIt reports an item whose inherited blocks are all waits on
+// the item itself: the rebuild a development manager files under a stopped item
+// and then has that item wait on. The tracker passes a waiting item's hold down
+// to everything under it, so such a child is held until its parent stops
+// waiting, and its parent waits until the child closes. Neither ever moves, so
+// the backlog offers such a child to the scheduler although the tracker does
+// not, and an item's read says so.
+//
+// blocks is what InheritedBlocks found for the item. Every ancestor in them must
+// wait on this very item: one waiting on anything else holds it as it always
+// did. And the item must record no blocking link of its own that is not plainly
+// closed, because a listing may carry a link without its status, and a link to
+// work somebody is doing right now is exactly what such a listing cannot show.
+//
+// And the whole chain of parents, up to the top, must be one lookup answers. A
+// parent lookup does not hold — one somebody is working, one put off, or one
+// already closed — could be held by a parent of its own waiting on other work,
+// which the tracker passes down to this item too and this reading cannot see.
+// So a chain that leaves what lookup answers before reaching its top is read as
+// unknown, and the item is left as the tracker answers. That keeps such a child
+// held in the rarer case where the parent outside is closed and holds nothing,
+// which is the direction to be wrong in: held work costs a pull, and work
+// started against a hold starts beside whatever it was held for.
+func AwaitedByWhatHoldsIt(item WorkItem, blocks []InheritedBlock, lookup func(id string) (WorkItem, bool, error)) bool {
+	if len(blocks) == 0 || !wholeAncestry(item, lookup) {
+		return false
+	}
+	id := strings.TrimSpace(item.ID)
+	for _, dependency := range item.Dependencies {
+		if strings.EqualFold(strings.TrimSpace(dependency.Type), BlocksDependency) &&
+			strings.TrimSpace(dependency.Status) != statusClosed {
+			return false
+		}
+	}
+	for _, block := range blocks {
+		if !slices.ContainsFunc(block.WaitsOn, func(dependency Dependency) bool {
+			return strings.TrimSpace(dependency.ID) == id
+		}) {
+			return false
+		}
+	}
+	return true
+}
+
+// wholeAncestry reports that lookup answers every parent of the item, up to the
+// one broken out of nothing, within the depth any reading here walks.
+func wholeAncestry(item WorkItem, lookup func(id string) (WorkItem, bool, error)) bool {
+	seen := map[string]struct{}{strings.TrimSpace(item.ID): {}}
+	current := item
+	for depth := 0; depth < maxInheritedDepth; depth++ {
+		parent := current.DecomposedFrom()
+		if parent == "" {
+			return true
+		}
+		if _, cycle := seen[parent]; cycle {
+			return false
+		}
+		seen[parent] = struct{}{}
+		ancestor, found, err := lookup(parent)
+		if err != nil || !found {
+			return false
+		}
+		current = ancestor
+	}
+	return false
 }
 
 // awaitedTitle is the title of the work an ancestor waits on: the one its link

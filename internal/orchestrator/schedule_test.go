@@ -6225,6 +6225,72 @@ func (d decidedItems) Counters(workItemID string) (runstate.TriageCounters, erro
 	return d[workItemID], nil
 }
 
+// The long-paste rebuild (yoyodyne-etw.1) at the grain the scheduler reads at.
+// The parent's run stopped with its change kept, the development manager filed a
+// rebuild from current main under it and decided the parent waits on it, and the
+// parent's link to the rebuild is what the tracker holds the rebuild back for:
+// it passes a waiting parent's hold down to its children, so it never offers the
+// rebuild. The pull starts the rebuild and passes over the parent.
+//
+// Beside it, a parent blocked for another reason: it waits on unrelated work,
+// and its child stays held exactly as the tracker holds it.
+func TestSchedulerStartsTheRebuildAStoppedParentWaitsOn(t *testing.T) {
+	t.Parallel()
+
+	stopped := time.Date(2026, 10, 18, 13, 0, 0, 0, time.UTC)
+	parent := beads.WorkItem{
+		ID: "yoyodyne-etw", Title: "Long paste in yoyo chat", Status: "blocked", Priority: 1,
+		Dependencies: []beads.Dependency{{ID: "yoyodyne-etw.1", Type: beads.BlocksDependency}},
+	}
+	rebuild := beads.WorkItem{
+		ID: "yoyodyne-etw.1", Title: "Rebuild from current main: long paste", Status: "open", Priority: 0,
+		Parent: "yoyodyne-etw",
+	}
+	waiting := beads.WorkItem{
+		ID: "yoyodyne-ifd.433.21", Title: "Automatic document publication", Status: "blocked", Priority: 0,
+		Dependencies: []beads.Dependency{{ID: "yoyodyne-ifd.437.14", Type: beads.BlocksDependency}},
+	}
+	held := beads.WorkItem{
+		ID: "yoyodyne-ifd.433.21.1", Title: "Automatic document confirmation", Status: "open", Priority: 0,
+		Parent: "yoyodyne-ifd.433.21",
+	}
+	design := beads.WorkItem{
+		ID: "yoyodyne-ifd.437.14", Title: "Amendment ownership design", Status: "open", Priority: 2,
+		Executor: "conversation:architect",
+	}
+	harness := newScheduleHarness(parent, rebuild, waiting, held, design)
+	// What bd answers: the design alone. Both children are held through their
+	// parents, and both parents are blocked.
+	harness.ReadyItems = map[string]bool{design.ID: true}
+	harness.stoppages = heldStoppages{runs: []runstate.State{stoppedRunOf("run-d8b6bd17", parent.ID, stopped)}}
+	harness.decisions = decidedItems{parent.ID: {
+		WorkItemID: parent.ID,
+		Decisions: []runstate.TriageDecision{{
+			Decision: runstate.TriageDecisionWait, RunID: "run-d8b6bd17", WaitsOn: rebuild.ID, DecidedAt: stopped.Add(time.Hour),
+		}},
+	}}
+
+	schedule, err := Scheduler{Open: harness.open}.Schedule(context.Background())
+	if err != nil {
+		t.Fatalf("Schedule() error = %v", err)
+	}
+	if len(schedule.Started) != 1 || schedule.Started[0].WorkItemID != rebuild.ID {
+		t.Fatalf("started = %#v, want the rebuild the stopped parent waits on: %s", schedule.Started, schedule.Render())
+	}
+	for _, deferred := range schedule.Deferred {
+		if deferred.WorkItemID == rebuild.ID {
+			t.Fatalf("the rebuild was passed over as well as started: %#v", deferred)
+		}
+	}
+	harness.mu.Lock()
+	defer harness.mu.Unlock()
+	for _, item := range harness.Items {
+		if item.ID != rebuild.ID && item.Status == "in_progress" {
+			t.Fatalf("%s was claimed; only the rebuild should have been: %s", item.ID, schedule.Render())
+		}
+	}
+}
+
 // stoppedRunOf is a run that stopped on a durable blocker and left its change
 // behind, which is the shape that holds an item for a person.
 func stoppedRunOf(runID, workItemID string, stopped time.Time) runstate.State {
