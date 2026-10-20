@@ -18,6 +18,10 @@ revisions:
       by: architect
       at: 2026-10-19T19:09:00.497254Z
       reason: 'Answers the reviewer''s report-0b4eddea: failing tests a change did not touch that fail again and also fail on the base commit, ruled outside the work on October 19, are added to step 1''s list so the hold on new work keeps them out of its count, and step 1 now says any cause recoverable-and-terminal-failures places outside the work is added here in the same decision. Adds one slice 1 test, one reviewer check and one rejected alternative; nothing else.'
+    - action: amended
+      by: architect
+      at: 2026-10-20T02:11:47.339332Z
+      reason: 'Answers the reviewer''s report-40dbc3db on the fix counting unrecognised stop causes toward the hold on new work (yoyodyne-ifd.428.99.12): step 1 now names the usage limit, a provider session ending after its retries, an unusable provider account and a stop by the operator or the development manager as outside the work, and rules that a dead process, a cancellation with no recorded origin, and a publishing failure other than the two named count toward the hold. Adds slice 1 tests, one reviewer check and two rejected alternatives; nothing else.'
 approvals:
     - policy: approvals.designs
       revision: 0
@@ -34,6 +38,11 @@ approvals:
       by: harness
       at: 2026-10-19T19:09:00.497254Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1298, for document-1298.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 3
+      by: harness
+      at: 2026-10-20T02:11:47.339332Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1318, for document-1318.1 under the automatic approval policy
 ---
 # Stopped run recovery: every step from the stop to the run going on, and what each step may never do
 
@@ -45,7 +54,7 @@ It replaces the design written on October 9 (document-642.1), which review refus
 
 ## What it rests on, and what was not read
 
-Read at commit fac5822d: recoverable-and-terminal-failures, fresh-factory-health-and-preserved-run-recovery, and [management-and-supervision](management-and-supervision.md). Not read for this design: the code in `internal/orchestrator` (`triage.go`, the carry out files, `rerun.go`, `repaircontinue.go`, `schedule.go`, `pipeline.go`) and `internal/triage/window.go`. Where this design names how the code behaves as it ships, it takes that from tracker notes and reports. A developer building a slice reads the code it changes first. Where the code does something this design does not account for, the slice stops and the architect is asked, rather than the design being bent around it.
+Read at commit fac5822d: recoverable-and-terminal-failures, fresh-factory-health-and-preserved-run-recovery, and [management-and-supervision](management-and-supervision.md). Read at commit 46bbf9eb for the October 19 revision of step 1: recoverable-and-terminal-failures again, and `internal/runstate/stopcause.go`, which names the stop causes a run record prints. Not read for this design: the code in `internal/orchestrator` (`triage.go`, the carry out files, `rerun.go`, `repaircontinue.go`, `schedule.go`, `pipeline.go`) and `internal/triage/window.go`. Where this design names how the code behaves as it ships, it takes that from tracker notes and reports. A developer building a slice reads the code it changes first. Where the code does something this design does not account for, the slice stops and the architect is asked, rather than the design being bent around it.
 
 ## The rules that hold across every step
 
@@ -63,10 +72,19 @@ Reads: what ended the run, the run's counters, and the bounds recoverable-and-te
 Writes: one stop on the run record, carrying the attempt number, the stop time, the step the run was at, the candidate commit, whether the change is kept, the evidence (the failing check's output, the reviewer's findings, the provider's last message, as applies), and one of three causes:
 
 - **About the work:** a failing check, a repair verdict from the reviewer, a conflict on replay that the developer can resolve, a review refusal. While repair attempts remain, the run goes straight back to its developer and is not listed. When they are spent, it stops and is listed.
-- **Outside the work:** a check stopped by its time limit once both reruns or three times its limit are spent; a provider's window spent; a redeploy the watch session could not pick up again; no configured check ran; the reviewer's session ending because its budget ran out before a verdict (yoyodyne-ifd.428.78, as the reports describe it); an approved change that has lost the race to merge as many times as `execution.integration_retries_before_reconciliation` allows (yoyodyne-ifd.428.97); a merge the forge refused for a reason not about the change (yoyodyne-doa); failing tests the change did not touch that fail again when run once more and also fail on the base commit the change was built on, which means the target branch itself is failing (recoverable-and-terminal-failures, as ruled on October 19 for yoyodyne-ifd.429.86). Listed at once.
+- **Outside the work:** a check stopped by its time limit once both reruns or three times its limit are spent; a provider's usage limit spent, whether it paused the run or refused it; the AI provider ending a session, or a session producing no output for longer than it is allowed, once the reissues and the thirty minutes the provider boundary allows are spent; the developer's or the reviewer's provider account being unusable, such as a login that has lapsed; the operator or the development manager stopping the run; a redeploy the watch session could not pick up again; no configured check ran; the reviewer's session ending because its budget ran out before a verdict (yoyodyne-ifd.428.78, as the reports describe it); an approved change that has lost the race to merge as many times as `execution.integration_retries_before_reconciliation` allows (yoyodyne-ifd.428.97); a merge the forge refused for a reason not about the change (yoyodyne-doa); publishing to the forge stopped because the forge boundary's two hours of retries ran out; failing tests the change did not touch that fail again when run once more and also fail on the base commit the change was built on, which means the target branch itself is failing (recoverable-and-terminal-failures, as ruled on October 19 for yoyodyne-ifd.429.86). Listed at once.
 - **Uncertain:** the run may have merged and nothing said so. Listed at once, and only finishing the merge (step 8) may act on it.
 
-Every cause in the list outside the work is kept out of the hold on new work's count, as recoverable-and-terminal-failures says. A cause that recoverable-and-terminal-failures places outside the work is added to this list in the same decision, so the two designs never disagree about which stops the hold counts.
+Every cause in the list outside the work is kept out of the hold on new work's count, as recoverable-and-terminal-failures says. A cause that recoverable-and-terminal-failures places outside the work is added to this list in the same decision, so the two designs never disagree about which stops the hold counts. A provider account that cannot be used stops every run on that account the same way; it is kept out of the hold's count because the harness's pause on new work for provider capacity is what holds work for it (yoyodyne-ifd.435.10), and counting it as well would hold the same work twice for one cause.
+
+Ruled on October 19, answering the reviewer's report-40dbc3db: these stops are not on the list above and count toward the hold on new work, as a failure of the harness itself does:
+
+- **The process carrying the run died.** The run record cannot tell whether the harness's own process failed or the machine was shut down, and a harness process that keeps dying is what the hold exists to stop. Runs whose processes are found dead together when the watch session starts count as one stop, so one restart of the machine counts once and not once for each run it ended.
+- **A cancellation whose origin is not recorded.** A cancellation is kept out only when the run record says it came from a person, from a recorded decision, or from the product restarting onto a new build, which is the redeploy named above. The harness records the origin of every cancellation it makes, and a cancellation that names none counts, as an unrecognised cause does.
+- **Publishing the change to the forge failed** for any reason other than the two listed above: the forge boundary's retries running out, and a merge refused for a reason not about the change. A refusal of the harness's login or permission stops every run in the same way, so holding new work is right; the hold's escalation reaches the Lead Product Manager, who names the operator only where a credential or a repository setting is the cause.
+- **The harness's own steps around the work failing**, such as recording the run or cleaning it up, and **any stop cause the harness does not recognise**, as recoverable-and-terminal-failures already says.
+
+Counting a stop toward the hold changes only the hold. Whether a stop charges a repair attempt is decided by the three causes above, and none of these charges one, because nothing about the change was judged.
 
 A redeploy that the watch session picks up again at its next start, as it did for the change letting owning roles decide proposed changes on October 15, is not listed: the run goes on by step 5 by itself. It is listed only if picking it up is refused.
 
@@ -182,13 +200,13 @@ Left standing, outside this design:
 - the reviewer sending incomplete work back with four repair rounds before a replan (yoyodyne-o1b), which changes how large the budget is but not how it is counted;
 - a parked item never being dispatched (yoyodyne-ifd.428.36).
 
-The reports held behind this design are answered by it: f7f26899, 0ba929cf and 672b2b49, and those behind yoyodyne-ifd.428.78 and yoyodyne-ifd.429.65 as the Lead Product Manager recorded them. Report ba29f069, from the developer on finishing a merge (yoyodyne-ifd.428.99.10), is answered by step 2 as revised on October 17: the harness taking the run on closes the stop and takes the place of an earlier wait. Report 0b4eddea, from the reviewer of the October 19 revision of recoverable-and-terminal-failures, is answered by step 1 as revised on October 19: failing tests that also fail on the base commit are a cause outside the work, kept out of the hold on new work's count.
+The reports held behind this design are answered by it: f7f26899, 0ba929cf and 672b2b49, and those behind yoyodyne-ifd.428.78 and yoyodyne-ifd.429.65 as the Lead Product Manager recorded them. Report ba29f069, from the developer on finishing a merge (yoyodyne-ifd.428.99.10), is answered by step 2 as revised on October 17: the harness taking the run on closes the stop and takes the place of an earlier wait. Report 0b4eddea, from the reviewer of the October 19 revision of recoverable-and-terminal-failures, is answered by step 1 as revised on October 19: failing tests that also fail on the base commit are a cause outside the work, kept out of the hold on new work's count. Report 40dbc3db, from the reviewer of the fix counting unrecognised stop causes toward the hold (yoyodyne-ifd.428.99.12), is answered by step 1 as revised the same evening: the provider's usage limit, a provider session ending after its retries, an unusable provider account, and a stop by the operator or the development manager are named as outside the work; a dead process, a cancellation with no recorded origin, and a failure to publish other than the two named count toward the hold.
 
 ## Slices
 
 Each slice is built and checked on its own. Each carries a test that walks its step from the stop to the checked outcome in a test home. Turning the slices into work items is the development manager's.
 
-1. **Deciding the stop's cause and keeping its evidence.** Tests: a time limit stop after both reruns is listed with no attempt charged; a reviewer session out of budget is listed as outside the work; a failing check after review keeps the reviewer's findings; a spent race to merge is listed with the change kept; failing tests the change did not touch that fail again and also fail on the base commit are listed as outside the work, with no attempt charged, the change kept, and the stop left out of the hold on new work's count.
+1. **Deciding the stop's cause and keeping its evidence.** Tests: a time limit stop after both reruns is listed with no attempt charged; a reviewer session out of budget is listed as outside the work; a failing check after review keeps the reviewer's findings; a spent race to merge is listed with the change kept; failing tests the change did not touch that fail again and also fail on the base commit are listed as outside the work, with no attempt charged, the change kept, and the stop left out of the hold on new work's count; a usage limit stop, an unusable provider account and a stop by the development manager are left out of the hold's count; a dead process, a cancellation naming no origin, and a publishing failure that is neither the forge's retries running out nor a merge refused for a reason not about the change each count toward it; three runs found dead together when the watch session starts count as one stop.
 2. **The list worked out from run records, one entry for each stop.** Tests: a second stop of one run is a second entry; a wait on the first stop leaves the second listed; a decision carried out is never shown as waiting; an unreadable run stays listed as unreadable; a wait recorded on a stop and then the harness confirming that run's merge leaves the stop off the list, and it stays off after the wait's time for looking again has passed; the same for the harness continuing the run by itself.
 3. **The closed list of decisions, their binding, and the one unit of budget.** Tests: a grant above the budget is refused; a decision on a replaced stop is refused as state moved; grant and spend match in attempts.
 4. **Carrying out, with every decision ending in one of three ways.** Tests: a skipped decision is reported by the next health observation; a repeat of the same request does not act twice; an unknown result puts a hold on the run.
@@ -201,7 +219,7 @@ Slices 1 and 2 come first. Slices 3 and 4 depend on them and on the capabilities
 ## Designs and invariants this amends
 
 - **fresh-factory-health-and-preserved-run-recovery:** the closed list of `run.recover` actions becomes the closed list of decisions in step 3, adding repair, rerun, giving the item back and asking the Lead Product Manager. The development manager's decisions and `run.recover` are then one path with one carrier. That revision follows this one.
-- **recoverable-and-terminal-failures:** unchanged; this design applies it, including its October 19 rule on failures confined to tests a change did not touch.
+- **recoverable-and-terminal-failures:** unchanged; this design applies it, including its October 19 rule on failures confined to tests a change did not touch and its rule that only step 1's list and cancellations by a person or a recorded decision are kept out of the hold's count.
 - **management-and-supervision:** unchanged.
 - **The recovery policy reconciliation (yoyodyne-ifd.429.42)** is folded in: its bounded reruns of a check are those of recoverable-and-terminal-failures, applied in steps 1 and 5.
 - **Invariants:** none added. One promotion per target branch binds step 8. Integration needs evidence bound to the reviewed revision binds the kept check results in step 5. The rules above are enforced in code by the slices' tests rather than held over the whole repository, because nothing outside recovery can break them.
@@ -212,6 +230,7 @@ Slices 1 and 2 come first. Slices 3 and 4 depend on them and on the capabilities
 - Every path that resumes a run calls the one function.
 - No cause outside the work charges a repair attempt or a review round.
 - Every cause recoverable-and-terminal-failures places outside the work appears in step 1's list.
+- The code that sorts a stop's cause for the hold on new work keeps out exactly the causes step 1 lists outside the work and cancellations whose recorded origin is a person, a recorded decision or the product's restart, and counts every other cause, including a dead process.
 - Every decision ends carried out and checked, refused with a reason, or unknown with a hold.
 - No wait brings back a stop that a carried out decision or the harness taking the run on has closed.
 - A rerun is counted only when the fresh run holds the item.
@@ -225,3 +244,5 @@ Slices 1 and 2 come first. Slices 3 and 4 depend on them and on the capabilities
 - **Letting a wait outrank the harness's own finished act** was rejected because the wait was recorded about a run that has since moved on, and bringing it back asks the development manager to decide something already done.
 - **Publishing the October 9 copy** was rejected because review refused it, and landing it would publish a contradiction.
 - **Counting failures that also fail on the base commit toward the hold on new work** was rejected because nothing about the change was judged: the target branch itself is failing, which the harness's warning report and the dashboard's section for broken or degraded things already show, and holding unrelated new work for it would stop changes that caused nothing.
+- **Keeping a dead process out of the hold's count** was rejected because the run record cannot tell the harness's own process failing from the machine shutting down, and a harness process that dies again and again would then never be stopped. Counting the runs found dead together at one start as one stop keeps a single machine restart from holding new work on its own.
+- **Counting an unusable provider account toward the hold** was rejected because the harness's pause on new work for provider capacity already holds work for that account, and two holds for one cause would make the development manager clear the same thing twice.
