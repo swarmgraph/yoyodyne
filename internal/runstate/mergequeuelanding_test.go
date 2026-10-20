@@ -52,7 +52,7 @@ func TestOnlyTheQueuesWorkerWritesALanding(t *testing.T) {
 	if err := store.RecordLanding(nil, mainQueue, landing); !errors.Is(err, ErrMergeQueueWorkerLeaseRequired) {
 		t.Fatalf("RecordLanding(no lease) = %v, want the worker lease required", err)
 	}
-	promotion, err := (&Store{root: t.TempDir()}).LeasePromotion(context.Background(), "main")
+	promotion, err := newTestStore(t).LeasePromotion(context.Background(), "main")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -707,6 +707,8 @@ func (d MergeRearmDecision) Rearms() int { return d.Counters.RearmsOf(d.Publicat
 // different items out of each other's way — the harness runs several at once,
 // and every one of them records its review rounds.
 type TriageStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -718,7 +720,12 @@ func NewTriageStore(root string, productID domain.ProductID) (*TriageStore, erro
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &TriageStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "triage"),
 		productID: productID,
 	}, nil
@@ -730,6 +737,7 @@ func NewTriageStore(root string, productID domain.ProductID) (*TriageStore, erro
 // having to be told the state root a second time.
 func (s *Store) Triage() *TriageStore {
 	return &TriageStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "triage"),
 		productID: s.productID,
 	}
@@ -1410,30 +1418,7 @@ func (s *TriageStore) save(workItemID string, counters TriageCounters) error {
 	if err := counters.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create triage counter directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".triage-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary triage counters: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary triage counters: %w", err)
-	}
-	if err := writeJSONFile(temporary, "triage counters", counters); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary triage counters: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path(workItemID)); err != nil {
-		return fmt.Errorf("replace triage counters: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(workItemID), "triage counters", counters)
 }
 
 // lock serializes the read-modify-write on one item's counters across every
@@ -1441,10 +1426,7 @@ func (s *TriageStore) save(workItemID string, counters TriageCounters) error {
 // lease file does: removing it while another process held it would let a third
 // take a lock on a file nobody else can see.
 func (s *TriageStore) lock(ctx context.Context, workItemID string) (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create triage counter directory: %w", err)
-	}
-	file, err := os.OpenFile(s.path(workItemID)+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.path(workItemID) + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open triage counter lock: %w", err)
 	}

@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,6 +35,8 @@ const interventionLockWait = 10 * time.Second
 
 // InterventionStore is one product's log of the operator's hand steps.
 type InterventionStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -47,7 +48,12 @@ func NewInterventionStore(root string, productID domain.ProductID) (*Interventio
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &InterventionStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -78,32 +84,10 @@ func (s *InterventionStore) Record(event intervention.Event) error {
 	}
 	defer unlock()
 	path := s.Path()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect intervention log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open intervention log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err == nil && written != len(encoded) {
-		err = io.ErrShortWrite
-	}
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append intervention: %w", err)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync intervention log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close intervention log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }
@@ -150,10 +134,7 @@ func (s *InterventionStore) List() ([]intervention.Event, error) {
 }
 
 func (s *InterventionStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create intervention directory: %w", err)
-	}
-	file, err := os.OpenFile(s.Path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open intervention log lock: %w", err)
 	}

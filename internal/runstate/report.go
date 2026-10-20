@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 
@@ -25,6 +24,8 @@ const maxEncodedReportBytes = 64 << 10
 // outlives the run or conversation that produced it: a run's state is settled
 // and cleaned up, and what it reported is still the operator's to read.
 type ReportStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -36,7 +37,12 @@ func NewReportStore(root string, productID domain.ProductID) (*ReportStore, erro
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &ReportStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -97,36 +103,10 @@ func (s *ReportStore) appendLine(path, what string, encoded []byte) error {
 	if len(encoded) > maxEncodedReportBytes {
 		return fmt.Errorf("encoded %s is %d bytes, limit is %d", what, len(encoded), maxEncodedReportBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create report directory: %w", err)
-	}
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect %s log: %w", what, statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open %s log: %w", what, err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append %s: %w", what, err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append %s: %w", what, io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync %s log: %w", what, err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close %s log: %w", what, err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }

@@ -22,7 +22,6 @@ package runstate
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"time"
 )
@@ -48,13 +47,10 @@ const (
 // front is told so rather than held forever, and a cancelled start stops waiting
 // immediately.
 func (s *Store) LeaseRotation(ctx context.Context) (*Lease, error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create run state directory: %w", err)
-	}
 	// The lease file outlives every start, for the reason a run's does: removing
 	// it while another process holds it would let a third take a lock on a file
 	// nobody else can see.
-	file, err := os.OpenFile(filepath.Join(s.root, rotationLockName), os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(filepath.Join(s.root, rotationLockName))
 	if err != nil {
 		return nil, fmt.Errorf("open the account rotation lease: %w", err)
 	}

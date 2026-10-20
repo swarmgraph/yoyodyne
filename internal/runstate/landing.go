@@ -23,7 +23,6 @@ package runstate
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -44,11 +43,8 @@ func (s *Store) LeaseLanding(ctx context.Context, targetBranch string, wait time
 	if wait <= 0 {
 		return nil, fmt.Errorf("the wait for a landing on %s must be positive, got %s", branch, wait)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create run state directory: %w", err)
-	}
 	path := filepath.Join(s.root, branchLockName(".landing-", branch))
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(path)
 	if err != nil {
 		return nil, fmt.Errorf("open the landing lease for %s: %w", branch, err)
 	}

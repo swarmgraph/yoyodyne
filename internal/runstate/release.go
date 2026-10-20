@@ -78,34 +78,11 @@ func (s *Store) RecordRelease(released Release) error {
 	if err := released.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create run state directory: %w", err)
-	}
 	path, err := s.releasePath(released.RunID)
 	if err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(s.root, ".release-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary release: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary release: %w", err)
-	}
-	if err := writeJSONFile(temporary, "release", released); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary release: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace release: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "release", released)
 }
 
 // ReleasedWait reports whether the operator has released one run's usage-limit
@@ -152,7 +129,7 @@ func (s *Store) ClearRelease(runID string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.state.remove(path); err != nil {
 		return fmt.Errorf("clear release: %w", err)
 	}
 	return nil

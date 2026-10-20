@@ -186,6 +186,8 @@ type releaseCutFile struct {
 
 // ReleaseCutStore is where the cuts are recorded.
 type ReleaseCutStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -197,7 +199,11 @@ func NewReleaseCutStore(root string, productID domain.ProductID) (*ReleaseCutSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
-	return &ReleaseCutStore{root: home.ProductDirectory(root, string(productID)), productID: productID}, nil
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
+	return &ReleaseCutStore{root: home.ProductDirectory(root, string(productID)), state: state, productID: productID}, nil
 }
 
 // Path names the file, so a refusal can say where the record is.
@@ -281,28 +287,5 @@ func keepStanding(cuts []ReleaseCut) []ReleaseCut {
 }
 
 func (s *ReleaseCutStore) write(recorded releaseCutFile) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".release-cuts-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary release cuts: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary release cuts: %w", err)
-	}
-	if err := writeJSONFile(temporary, "release cuts", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary release cuts: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.Path()); err != nil {
-		return fmt.Errorf("replace release cuts: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.Path(), "release cuts", recorded)
 }

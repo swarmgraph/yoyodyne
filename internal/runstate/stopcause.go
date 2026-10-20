@@ -31,7 +31,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -836,6 +835,8 @@ func (a StopCauseAccount) StopEntries(stops []StopEvent) []StopCauseEntry {
 
 // StopCauseStore keeps every instance's stop cause record for one product.
 type StopCauseStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -848,7 +849,12 @@ func NewStopCauseStore(root string, productID domain.ProductID) (*StopCauseStore
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &StopCauseStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 	}, nil
@@ -858,6 +864,7 @@ func NewStopCauseStore(root string, productID domain.ProductID) (*StopCauseStore
 // here for the reason the pass cursors are.
 func (s *Store) StopCauses() *StopCauseStore {
 	return &StopCauseStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "program-managers"),
 		productID: s.productID,
 	}
@@ -963,11 +970,7 @@ func (s *StopCauseStore) Record(ctx context.Context, agent string, at time.Time,
 }
 
 func (s *StopCauseStore) lock(ctx context.Context, agent string) (func(), error) {
-	directory := filepath.Join(s.root, agent)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, fmt.Errorf("create the program manager directory of %s: %w", agent, err)
-	}
-	file, err := os.OpenFile(s.Path(agent)+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path(agent) + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open the stop cause lock of %s: %w", agent, err)
 	}
@@ -995,33 +998,10 @@ func (s *StopCauseStore) append(entry StopCauseEntry) error {
 		return fmt.Errorf("encoded stop cause entry is %d bytes, limit is %d", len(encoded), maxEncodedStopCauseBytes)
 	}
 	logPath := s.Path(entry.Agent)
-	_, statErr := os.Stat(logPath)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect the stop causes of %s: %w", entry.Agent, statErr)
-	}
-	file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open the stop causes of %s: %w", entry.Agent, err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(logPath, encoded); err != nil {
 		return fmt.Errorf("append stop cause entry: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append stop cause entry: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync the stop causes of %s: %w", entry.Agent, err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close the stop causes of %s: %w", entry.Agent, err)
-	}
-	if created {
-		return syncDirectory(filepath.Dir(logPath))
 	}
 	return nil
 }

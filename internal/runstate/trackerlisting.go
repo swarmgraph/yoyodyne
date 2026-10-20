@@ -79,6 +79,8 @@ func (t TrackerListings) Says() string {
 // TrackerListingStore is where the product's listing record is kept, one file
 // under the product beside the other records the status reads.
 type TrackerListingStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -90,7 +92,12 @@ func NewTrackerListingStore(root string, productID domain.ProductID) (*TrackerLi
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &TrackerListingStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -192,39 +199,13 @@ func (s *TrackerListingStore) read(strict bool) (TrackerListings, error) {
 
 func (s *TrackerListingStore) write(record TrackerListings) error {
 	record.SchemaVersion, record.ProductID = TrackerListingsSchemaVersion, s.productID
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".tracker-listings-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary tracker listing record: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary tracker listing record: %w", err)
-	}
-	if err := writeJSONFile(temporary, "tracker listing record", record); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary tracker listing record: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.Path()); err != nil {
-		return fmt.Errorf("replace tracker listing record: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.Path(), "tracker listing record", record)
 }
 
 // lock serializes the writers: every process that lists the tracker writes
 // here, and two failures counted over one read would lose one of them.
 func (s *TrackerListingStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create product state directory: %w", err)
-	}
-	file, err := os.OpenFile(s.Path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open tracker listing lock: %w", err)
 	}

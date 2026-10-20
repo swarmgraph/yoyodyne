@@ -227,6 +227,8 @@ func (h IntakeHold) Says() string {
 // IntakeHoldStore is where the hold is recorded: one file under the product,
 // because the queue it holds belongs to one.
 type IntakeHoldStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -238,7 +240,12 @@ func NewIntakeHoldStore(root string, productID domain.ProductID) (*IntakeHoldSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &IntakeHoldStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -287,30 +294,7 @@ func (s *IntakeHoldStore) write(recorded IntakeHold) error {
 	if err := recorded.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".intake-hold-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary intake hold: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary intake hold: %w", err)
-	}
-	if err := writeJSONFile(temporary, "intake hold", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary intake hold: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path()); err != nil {
-		return fmt.Errorf("replace intake hold: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(), "intake hold", recorded)
 }
 
 // lock serializes the writers of the hold. Placing a hold was a single rename
@@ -319,10 +303,7 @@ func (s *IntakeHoldStore) write(recorded IntakeHold) error {
 // processes, and a read-modify-write with nothing between them is a decision
 // one of them loses.
 func (s *IntakeHoldStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create product state directory: %w", err)
-	}
-	file, err := os.OpenFile(s.path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open intake hold lock: %w", err)
 	}
@@ -417,7 +398,7 @@ func (s *IntakeHoldStore) lift(held IntakeHold, by string, at time.Time) (Intake
 	if err := s.writeRelease(record); err != nil {
 		return IntakeHold{}, false, err
 	}
-	if err := os.Remove(s.path()); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := s.state.remove(s.path()); err != nil {
 		return IntakeHold{}, false, fmt.Errorf("release intake hold: %w", err)
 	}
 	if err := syncDirectory(s.root); err != nil {
@@ -481,27 +462,7 @@ func (s *IntakeHoldStore) writeRelease(record IntakeRelease) error {
 	if err := record.Validate(); err != nil {
 		return err
 	}
-	temporary, err := os.CreateTemp(s.root, ".intake-release-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary intake release: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary intake release: %w", err)
-	}
-	if err := writeJSONFile(temporary, "intake release", record); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary intake release: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.releasePath()); err != nil {
-		return fmt.Errorf("replace intake release: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.releasePath(), "intake release", record)
 }
 
 // LastRelease is the record of the last hold lifted, or nothing where none has

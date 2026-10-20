@@ -772,10 +772,15 @@ func (h *heldDir) removeEntry(name string, kind entryKind) error {
 	fire(PointBeforeRemove, h.absolute(), name)
 	// The change is the move aside; the directory is checked after it, and a
 	// failed check moves the name back before anything is deleted.
-	return h.removeChecked(name, statID(&st), func() error {
+	if err := h.removeChecked(name, statID(&st), func() error {
 		fire(PointAfterChange, h.absolute(), name)
 		return h.beneath()
-	})
+	}); err != nil {
+		return err
+	}
+	// The name is gone from this directory once it was moved aside, and that
+	// is made durable here as any other change to the directory is.
+	return syncDirectory(h)
 }
 
 // openExisting opens an existing file in h for appending or locking, or

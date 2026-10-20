@@ -1123,6 +1123,8 @@ func (e SweepNotDueError) Unwrap() error { return ErrSweepNotDue }
 // directory under the product, beside the escalations, with one claim file per
 // task and one append-only log of what the firings produced.
 type SweepStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -1134,7 +1136,12 @@ func NewSweepStore(root string, productID domain.ProductID) (*SweepStore, error)
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &SweepStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "sweeps"),
 		productID: productID,
 	}, nil
@@ -1146,6 +1153,7 @@ func NewSweepStore(root string, productID domain.ProductID) (*SweepStore, error)
 // being told the state root a second time.
 func (s *Store) Sweeps() *SweepStore {
 	return &SweepStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "sweeps"),
 		productID: s.productID,
 	}
@@ -1353,22 +1361,7 @@ func (s *SweepStore) Append(recorded Sweep) error {
 	if len(encoded) > maxEncodedSweepBytes {
 		return fmt.Errorf("encoded sweep is %d bytes, limit is %d", len(encoded), maxEncodedSweepBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create sweep directory: %w", err)
-	}
 	path := s.Path()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect the sweep log: %w", statErr)
-	}
-	// Opened for reading as well as appending, so what is already at the end of
-	// the log can be looked at before adding to it. O_APPEND still decides where
-	// the write lands.
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open the sweep log: %w", err)
-	}
 	// A record is written with one Write, and a Write of this size is not atomic:
 	// a process killed partway through one leaves a fragment with no newline on
 	// it. Appending straight onto that fragment would join it to this record and
@@ -1378,29 +1371,20 @@ func (s *SweepStore) Append(recorded Sweep) error {
 	//
 	// A newline first closes the fragment off, which bounds what a crash costs to
 	// the record it actually interrupted. The reader names that line and carries
-	// on, so what is lost is one pass rather than one pass and its successor.
-	if err := closeOffATornFragment(file, &encoded); err != nil {
-		file.Close()
-		return err
+	// on, so what is lost is one pass rather than one pass and its successor. The
+	// end of the log is read through a descriptor opened only for reading; the
+	// append itself goes through the confined writer in checked batches.
+	if current, err := os.Open(path); err == nil {
+		err = closeOffATornFragment(current, &encoded)
+		current.Close()
+		if err != nil {
+			return err
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("open the sweep log: %w", err)
 	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append sweep: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append sweep: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync the sweep log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close the sweep log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }
@@ -1554,30 +1538,7 @@ func (s *SweepStore) save(task string, claimed SweepClaim) error {
 	if err := claimed.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create sweep directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".claim-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary recurring task claim: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary recurring task claim: %w", err)
-	}
-	if err := writeJSONFile(temporary, "recurring task claim", claimed); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary recurring task claim: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path(task)); err != nil {
-		return fmt.Errorf("replace recurring task claim: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(task), "recurring task claim", claimed)
 }
 
 // lock serializes the read-modify-write on one task's claim across every
@@ -1585,10 +1546,7 @@ func (s *SweepStore) save(task string, claimed SweepClaim) error {
 // escalations' does: removing it while another process held it would let a third
 // take a lock on a file nobody else can see.
 func (s *SweepStore) lock(ctx context.Context, task string) (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create sweep directory: %w", err)
-	}
-	file, err := os.OpenFile(s.path(task)+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.path(task) + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open recurring task lock: %w", err)
 	}

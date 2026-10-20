@@ -23,7 +23,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -60,14 +59,11 @@ func (s *Store) LeasePromotion(ctx context.Context, targetBranch string) (*Lease
 	if !validLocalBranch(branch) {
 		return nil, fmt.Errorf("promotion target %q is not a local branch name", targetBranch)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create run state directory: %w", err)
-	}
 	// The lease file outlives every promotion, for the reason a run's does:
 	// removing it while another process holds it would let a third take a lock on
 	// a file nobody else can see.
 	path := filepath.Join(s.root, promotionLockName(branch))
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(path)
 	if err != nil {
 		return nil, fmt.Errorf("open the promotion lease for %s: %w", branch, err)
 	}

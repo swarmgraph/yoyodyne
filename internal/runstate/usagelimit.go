@@ -23,7 +23,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -373,6 +372,8 @@ func (e UsageLimitExhaustion) Describe() string {
 // meet one — a conversation, a review, a scheduler — have nothing else in common
 // to write it on.
 type UsageLimitStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -384,7 +385,12 @@ func NewUsageLimitStore(root string, productID domain.ProductID) (*UsageLimitSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &UsageLimitStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -411,37 +417,11 @@ func (s *UsageLimitStore) Record(exhaustion UsageLimitExhaustion) error {
 	if len(encoded) > maxEncodedUsageLimitBytes {
 		return fmt.Errorf("encoded usage limit refusal is %d bytes, limit is %d", len(encoded), maxEncodedUsageLimitBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create usage limit directory: %w", err)
-	}
 	path := s.Path()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect usage limit log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open usage limit log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append usage limit refusal: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append usage limit refusal: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync usage limit log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close usage limit log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }

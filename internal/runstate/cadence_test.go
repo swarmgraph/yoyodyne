@@ -37,7 +37,7 @@ func TestCadenceAdoptionPreservesFiringsAndSurvivesRestart(t *testing.T) {
 				t.Fatalf("due %s, want %s", claim.NextDue(test.next), test.due)
 			}
 			// A different store is a restarted process reading the same state.
-			restarted := &SweepStore{root: store.root, productID: store.productID}
+			restarted := &SweepStore{root: store.root, state: store.state, productID: store.productID}
 			later, _, err := restarted.Adopt(ctx, "architect-pass", test.next, adopted.Add(2*time.Hour))
 			if err != nil {
 				t.Fatal(err)

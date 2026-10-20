@@ -31,7 +31,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -382,6 +381,8 @@ func NewPassRequestID() (string, error) {
 // PassRequestStore is the program manager instances' pass requests, one log per
 // instance.
 type PassRequestStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -393,7 +394,12 @@ func NewPassRequestStore(root string, productID domain.ProductID) (*PassRequestS
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &PassRequestStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "program-managers"),
 		productID: productID,
 	}, nil
@@ -402,6 +408,7 @@ func NewPassRequestStore(root string, productID domain.ProductID) (*PassRequestS
 // PassRequests is the store under this product's state.
 func (s *Store) PassRequests() *PassRequestStore {
 	return &PassRequestStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "program-managers"),
 		productID: s.productID,
 	}
@@ -629,11 +636,7 @@ func (s *PassRequestStore) lock(agent string) (func(), error) {
 	if err := domain.ValidateIdentifier("agent", agent); err != nil {
 		return nil, err
 	}
-	directory := filepath.Join(s.root, agent)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return nil, fmt.Errorf("create the program manager directory of %s: %w", agent, err)
-	}
-	file, err := os.OpenFile(s.Path(agent)+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path(agent) + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open the pass request lock of %s: %w", agent, err)
 	}
@@ -658,33 +661,10 @@ func (s *PassRequestStore) append(request PassRequest) error {
 		return fmt.Errorf("encoded pass request is %d bytes, limit is %d", len(encoded), maxEncodedPassRequestBytes)
 	}
 	logPath := s.Path(request.Agent)
-	_, statErr := os.Stat(logPath)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect the pass requests of %s: %w", request.Agent, statErr)
-	}
-	file, err := os.OpenFile(logPath, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open the pass requests of %s: %w", request.Agent, err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(logPath, encoded); err != nil {
 		return fmt.Errorf("append pass request: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append pass request: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync the pass requests of %s: %w", request.Agent, err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close the pass requests of %s: %w", request.Agent, err)
-	}
-	if created {
-		return syncDirectory(filepath.Dir(logPath))
 	}
 	return nil
 }

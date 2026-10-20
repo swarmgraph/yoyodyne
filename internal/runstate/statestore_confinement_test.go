@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 )
@@ -149,6 +150,27 @@ func runStoreWriters() []struct {
 		}},
 		{"append a run event", func(t *testing.T, f runStoreFixture) error {
 			return f.store.AppendEvent(conversationEvent(t, Conversation{ConversationID: f.state.RunID}, 2, ""))
+		}},
+		{"take the promotion lease", func(t *testing.T, f runStoreFixture) error {
+			lease, err := f.store.LeasePromotion(context.Background(), "main")
+			if err == nil {
+				err = lease.Release()
+			}
+			return err
+		}},
+		{"take the landing lease", func(t *testing.T, f runStoreFixture) error {
+			lease, err := f.store.LeaseLanding(context.Background(), "main", time.Second, nil)
+			if err == nil {
+				err = lease.Release()
+			}
+			return err
+		}},
+		{"take the account rotation lease", func(t *testing.T, f runStoreFixture) error {
+			lease, err := f.store.LeaseRotation(context.Background())
+			if err == nil {
+				err = lease.Release()
+			}
+			return err
 		}},
 		{"stamp a run's holder", func(t *testing.T, f runStoreFixture) error {
 			path, err := f.store.holderPath(f.state.RunID)
@@ -419,5 +441,81 @@ func TestMergeQueueEventStreamStopsAtALinkAddedBetweenBatches(t *testing.T) {
 	wantConversationRefusal(t, err, repowrite.ReasonLinked)
 	if seen, err := os.ReadFile(stolen); err != nil || len(seen) != len(before)+64<<10 {
 		t.Fatalf("the outside link sees %d bytes, want the stream before and one batch (%d): %v", len(seen), len(before)+64<<10, err)
+	}
+}
+
+// A store that replaces one record, appends to a log and takes a lock, the
+// sweep record, with its directory moved out of the state root on either side
+// of each change: every change is refused and undone.
+func TestSweepStoreWritersRefuseAndUndoWhenTheirDirectoryLeavesTheStateRoot(t *testing.T) {
+	writers := []struct {
+		name  string
+		write func(store *SweepStore) error
+	}{
+		{"append a sweep", func(store *SweepStore) error {
+			at := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+			return store.Append(Sweep{Task: "maintenance", StartedAt: at, EndedAt: at.Add(time.Minute), Problem: "reconcile failed", Steps: []SweepStep{{Name: "reconcile", Outcome: StepFailed, Detail: "reconcile failed"}}})
+		}},
+		{"replace a task's claim", func(store *SweepStore) error {
+			at := time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)
+			return store.save("maintenance", SweepClaim{SchemaVersion: SweepSchemaVersion, ProductID: "yoyodyne", Task: "maintenance", FiredAt: at, Firings: 1, UpdatedAt: at})
+		}},
+		{"take a task's lock", func(store *SweepStore) error {
+			unlock, err := store.lock(context.Background(), "maintenance")
+			if err == nil {
+				unlock()
+			}
+			return err
+		}},
+	}
+	for _, point := range []repowrite.Point{repowrite.PointBeforeChange, repowrite.PointAfterChange} {
+		for _, writer := range writers {
+			t.Run(string(point)+"/"+writer.name, func(t *testing.T) {
+				f := newRunStoreFixture(t)
+				store := f.store.Sweeps()
+				if err := writers[0].write(store); err != nil {
+					t.Fatalf("the first sweep error = %v", err)
+				}
+				moved := filepath.Join(f.outside, "sweeps")
+				ran, before := moveOutAt(t, point, store.Root(), "", moved)
+				err := writer.write(store)
+				if !*ran {
+					t.Fatalf("%s never reached %s (error %v)", writer.name, point, err)
+				}
+				wantConversationRefusal(t, err, repowrite.ReasonMoved)
+				if after := listingWithoutTemporaries(t, moved); after != *before {
+					t.Fatalf("the sweep directory outside the state root changed:\n before: %s\n after:  %s", *before, after)
+				}
+			})
+		}
+	}
+}
+
+// A lease taken by path declares the lease's own directory as its root, so a
+// lease file that is a link, or has a second link from outside, is refused
+// rather than locked.
+func TestALeaseTakenByPathRefusesALinkedLeaseFile(t *testing.T) {
+	t.Parallel()
+	root, outside := stateBase(t)
+	leases := filepath.Join(root, "leases")
+	if err := os.MkdirAll(leases, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(outside, "shared.lock")
+	if err := os.WriteFile(shared, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Link(shared, filepath.Join(leases, "linked.lease")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(leases, "symlinked.lease")); err != nil {
+		t.Fatal(err)
+	}
+	for name, reason := range map[string]repowrite.Reason{"linked.lease": repowrite.ReasonLinked, "symlinked.lease": repowrite.ReasonFinalLink} {
+		lease, _, err := TryLeasePath(filepath.Join(leases, name), "a test lease")
+		if err == nil {
+			lease.Release()
+		}
+		wantConversationRefusal(t, err, reason)
 	}
 }

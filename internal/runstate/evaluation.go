@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,6 +41,8 @@ const maxEncodedEvaluationBytes = 128 << 10
 // reports and the proposed amendments: an evaluation outlives the conversation
 // that reached it.
 type EvaluationStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -53,7 +54,12 @@ func NewEvaluationStore(root string, productID domain.ProductID) (*EvaluationSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &EvaluationStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -80,37 +86,11 @@ func (s *EvaluationStore) Append(recorded evaluation.Evaluation) error {
 	if len(encoded) > maxEncodedEvaluationBytes {
 		return fmt.Errorf("encoded evaluation is %d bytes, limit is %d", len(encoded), maxEncodedEvaluationBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create evaluation directory: %w", err)
-	}
 	path := s.Path()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect evaluation log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open evaluation log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append evaluation: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append evaluation: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync evaluation log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close evaluation log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }

@@ -299,27 +299,7 @@ func (s *DirectiveStore) save(recorded directive.Directive) error {
 	if _, err := os.Stat(path); err != nil {
 		return fmt.Errorf("load existing directive before save: %w", err)
 	}
-	temporary, err := os.CreateTemp(s.root, ".directive-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary directive: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary directive: %w", err)
-	}
-	if err := writeJSONFile(temporary, "directive", recorded); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary directive: %w", err)
-	}
-	if err := os.Rename(temporaryPath, path); err != nil {
-		return fmt.Errorf("replace directive: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, path, "directive", recorded)
 }
 
 func (s *DirectiveStore) validate(recorded directive.Directive) error {

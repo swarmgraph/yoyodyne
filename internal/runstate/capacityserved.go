@@ -113,6 +113,8 @@ type CapacityServedRecord struct {
 // CapacityServedStore is where the product's served moments are kept, one file
 // under the product beside the usage-limit log it is read against.
 type CapacityServedStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -124,7 +126,12 @@ func NewCapacityServedStore(root string, productID domain.ProductID) (*CapacityS
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &CapacityServedStore{
+		state:     state,
 		root:      home.ProductDirectory(root, string(productID)),
 		productID: productID,
 	}, nil
@@ -228,40 +235,14 @@ func (s *CapacityServedStore) read(strict bool) ([]CapacityServed, error) {
 }
 
 func (s *CapacityServedStore) write(record CapacityServedRecord) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create product state directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".capacity-served-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary capacity served record: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary capacity served record: %w", err)
-	}
-	if err := writeJSONFile(temporary, "capacity served record", record); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary capacity served record: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.Path()); err != nil {
-		return fmt.Errorf("replace capacity served record: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.Path(), "capacity served record", record)
 }
 
 // lock serializes the writers. Every process the provider serves writes here —
 // runs, conversations, reviews — and a read-modify-write with nothing between
 // two of them loses one endpoint's moment.
 func (s *CapacityServedStore) lock() (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create product state directory: %w", err)
-	}
-	file, err := os.OpenFile(s.Path()+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.Path() + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open capacity served lock: %w", err)
 	}

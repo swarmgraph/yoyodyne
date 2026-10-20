@@ -342,6 +342,8 @@ func (e EscalationCoolingError) Unwrap() error { return ErrEscalationCooling }
 // stoppage inside it. A file each rather than one shared record is what keeps
 // two stoppages out of each other's way.
 type EscalationStore struct {
+	// state is the state root every write this store makes is confined to.
+	state     stateRoot
 	root      string
 	productID domain.ProductID
 }
@@ -353,7 +355,12 @@ func NewEscalationStore(root string, productID domain.ProductID) (*EscalationSto
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	state, err := newStateRoot(root)
+	if err != nil {
+		return nil, err
+	}
 	return &EscalationStore{
+		state:     state,
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "escalations"),
 		productID: productID,
 	}, nil
@@ -365,6 +372,7 @@ func NewEscalationStore(root string, productID domain.ProductID) (*EscalationSto
 // without being told the state root a second time.
 func (s *Store) Escalations() *EscalationStore {
 	return &EscalationStore{
+		state:     s.state,
 		root:      filepath.Join(filepath.Dir(s.root), "escalations"),
 		productID: s.productID,
 	}
@@ -665,30 +673,7 @@ func (s *EscalationStore) save(docketKey string, escalation Escalation) error {
 	if err := escalation.Validate(); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create triage escalation directory: %w", err)
-	}
-	temporary, err := os.CreateTemp(s.root, ".escalation-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create temporary triage escalation: %w", err)
-	}
-	temporaryPath := temporary.Name()
-	defer os.Remove(temporaryPath)
-	if err := temporary.Chmod(0o600); err != nil {
-		temporary.Close()
-		return fmt.Errorf("secure temporary triage escalation: %w", err)
-	}
-	if err := writeJSONFile(temporary, "triage escalation", escalation); err != nil {
-		temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close temporary triage escalation: %w", err)
-	}
-	if err := os.Rename(temporaryPath, s.path(docketKey)); err != nil {
-		return fmt.Errorf("replace triage escalation: %w", err)
-	}
-	return syncDirectory(s.root)
+	return replaceJSONFile(s.state, s.path(docketKey), "triage escalation", escalation)
 }
 
 // lock serializes the read-modify-write on one stoppage's record across every
@@ -696,10 +681,7 @@ func (s *EscalationStore) save(docketKey string, escalation Escalation) error {
 // re-runs' does: removing it while another process held it would let a third
 // take a lock on a file nobody else can see.
 func (s *EscalationStore) lock(ctx context.Context, docketKey string) (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create triage escalation directory: %w", err)
-	}
-	file, err := os.OpenFile(s.path(docketKey)+".lock", os.O_RDWR|os.O_CREATE, 0o600)
+	file, err := s.state.openLock(s.path(docketKey) + ".lock")
 	if err != nil {
 		return nil, fmt.Errorf("open triage escalation lock: %w", err)
 	}

@@ -980,7 +980,7 @@ func (s *WatchStore) Lease(sessionID string) (*Lease, bool, error) {
 	if !watchSessionIDPattern.MatchString(sessionID) {
 		return nil, false, fmt.Errorf("watch session id %q is invalid", sessionID)
 	}
-	lease, held, err := TryLeasePath(filepath.Join(s.root, watchLeaseFile), "watch session")
+	lease, held, err := tryLeaseIn(s.state, filepath.Join(s.root, watchLeaseFile), "watch session")
 	if err != nil || !held {
 		return nil, held, err
 	}
@@ -1000,7 +1000,7 @@ func (s *WatchStore) Lease(sessionID string) (*Lease, bool, error) {
 // operating system when its holder dies, so the answer is about a process. It
 // stamps nothing, because it is a question rather than a session.
 func (s *WatchStore) Held() (bool, error) {
-	lease, held, err := TryLeasePath(filepath.Join(s.root, watchLeaseFile), "watch session")
+	lease, held, err := tryLeaseIn(s.state, filepath.Join(s.root, watchLeaseFile), "watch session")
 	if err != nil {
 		return false, err
 	}
@@ -1089,37 +1089,11 @@ func (s *WatchStore) Record(transition WatchTransition) error {
 	if len(encoded) > maxEncodedWatchBytes {
 		return fmt.Errorf("encoded watch transition is %d bytes, limit is %d", len(encoded), maxEncodedWatchBytes)
 	}
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create watch directory: %w", err)
-	}
 	path := s.Path()
-	_, statErr := os.Stat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect watch log: %w", statErr)
-	}
-	file, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_APPEND, 0o600)
-	if err != nil {
-		return fmt.Errorf("open watch log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// directory when it creates the log.
+	if err := s.state.appendTo(path, encoded); err != nil {
 		return fmt.Errorf("append watch transition: %w", err)
-	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append watch transition: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync watch log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close watch log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
 	}
 	return nil
 }
