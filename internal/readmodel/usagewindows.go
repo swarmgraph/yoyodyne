@@ -294,7 +294,7 @@ func (d DegradedCapacity) Says() string {
 }
 
 func degradedCapacityAttention(degraded DegradedCapacity) Attention {
-	return Attention{Kind: AttentionCapacityDegraded, ID: degraded.ID(), Mover: MoverNobody, DegradedCapacity: &degraded}
+	return resolved(Attention{Kind: AttentionCapacityDegraded, ID: degraded.ID(), DegradedCapacity: &degraded})
 }
 
 // RenderUsageWindows is each account's usage windows, one line per account,

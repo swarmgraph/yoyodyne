@@ -608,7 +608,7 @@ func (h MergeQueueHandback) validate() []error {
 	if !h.Continuation.valid() {
 		problems = append(problems, fmt.Errorf("continuation %q is not one this build knows", h.Continuation))
 	}
-	if !h.Mover.Valid() || h.Mover == ownership.MoverOperator {
+	if !h.Mover.Valid() || h.Mover.IsOperator() {
 		problems = append(problems, fmt.Errorf("a handback names mover %q, and it names a role, never the operator", h.Mover))
 	}
 	if err := mergeQueueText("handback reason", h.Reason, true); err != nil {

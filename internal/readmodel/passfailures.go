@@ -65,13 +65,14 @@ func readPassFailures(sources Sources) ([]Attention, []OperatorAction, string) {
 		owner := ownership.ResolvePassFailureForRole(watcher, f.Role, f.Agent, remedy)
 		failure := FailingTask{Task: f.Task, Failures: f.Failures, FirstAt: f.FirstAt, RaisedAt: f.RaisedAt,
 			LatestAt: f.LatestAt, Problem: f.Problem, WentWrong: f.WentWrong, FailureOutput: f.FailureOutput, ProductPass: true, Ownership: &owner, ReportID: id}
-		entries = append(entries, failingTaskAttention(failure))
-		if owner.Mover == MoverOperator {
+		entries = append(entries, FailingTaskAttention(failure))
+		if owner.Mover.IsOperator() {
 			actions = append(actions, OperatorAction{
 				Key:      PassFailureKeyPrefix + id,
 				Subject:  f.Task,
 				ReportID: id,
 				Needs:    owner.PersonStep,
+				Reason:   ownership.OperatorReason(owner.PersonReason),
 				RecordedIn: fmt.Sprintf("the handling of %s recorded in %s, for the product pass %s",
 					id, handling.RunID, f.Task),
 				FoundBy: fmt.Sprintf("the %s, handling the report", handling.Role.Title()),

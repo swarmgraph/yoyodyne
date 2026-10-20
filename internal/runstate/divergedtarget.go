@@ -35,6 +35,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // DivergedTargetsSchemaVersion is 1 and has never changed.
@@ -44,10 +45,9 @@ const DivergedTargetsSchemaVersion = 1
 // which is read in a line by somebody deciding what to do.
 const MaxDivergedTargetTextBytes = 4 << 10
 
-// DivergedTargetRecovery is where the steps that settle a divergence are, named
-// by every surface that says one stands. The steps themselves are a person's,
-// so what the harness says is where they are rather than a copy of them.
-const DivergedTargetRecovery = "follow \"Unwedging a target branch that diverged from the forge\" in docs/operations.md, and the next `yoyo reconcile` that finds the branches converged lifts it; nothing needs releasing"
+// DivergedTargetRecovery is where the steps that settle a divergence are
+// (ownership.DivergedTargetRecovery, worded beside the stall's owner).
+const DivergedTargetRecovery = ownership.DivergedTargetRecovery
 
 // DivergedTargets is the product's record of every target branch standing
 // diverged from the remote's.

@@ -42,6 +42,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -379,12 +380,17 @@ func (h CapacityHold) stoppedSays() string {
 	}
 }
 
-// Whose is whose move it is. The window is the provider's, and that is not the
-// whole answer the way it is for a session waiting one out: the configuration
-// that made the window hold every role is the operator's, and changing it is
-// what ends the next one early.
+// Whose is whose move it is: the ownership registry's owner for the hold, and
+// what ends it. The window lifts on the provider's clock, and the configuration
+// that made the window hold every role is what ends the next one early.
 func (h CapacityHold) Whose() string {
-	return "the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does"
+	return h.whose(ownership.Resolve(ownership.KindHold, ownership.Record{Hold: ownership.CapacityHold}).Owner)
+}
+
+// whose is the sentence with its owner given, so an entry read back from a
+// document is worded for the owner that document names.
+func (h CapacityHold) whose(owner Mover) string {
+	return owner.Possessive() + " — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does"
 }
 
 // Mark names the hold durably, so a surface that repeats it while it stands can
@@ -412,7 +418,7 @@ func (h CapacityHold) Attention() (Attention, bool) {
 	if !h.Holding {
 		return Attention{}, false
 	}
-	return Attention{Kind: AttentionHold, ID: HoldCapacity, Mover: MoverOperator, CapacityHold: &h}, true
+	return resolved(Attention{Kind: AttentionHold, ID: HoldCapacity, CapacityHold: &h}), true
 }
 
 // CapacityHoldOf reads the hold from a set of sources, and says why it could

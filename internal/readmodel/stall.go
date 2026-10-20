@@ -44,162 +44,46 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
-// Reason is one member of the fixed set of reasons the harness is choosing no
-// work. The set is closed: a state outside it cannot be reported, which is what
-// makes an unnamed reason impossible rather than unlikely.
-//
-// The values are the tokens a durable cursor already holds — the sink names the
-// state it is standing on by them, so that a different state re-arms its clock
-// rather than inheriting the last one's. They are kept as they were found for
-// that reason: renaming one would re-arm every state standing at the moment this
-// landed, and the hour that costs is an hour of exactly the silence this exists
-// to end.
-type Reason string
+// Reason is why the harness is choosing nothing: the ownership registry's
+// vocabulary (ownership.StallReason), aliased here, because the registry decides
+// whose move each one is. See ownership/stallreason.go for what each means.
+type Reason = ownership.StallReason
 
 const (
-	// ReasonOperatorHold is the switch over everything the harness would spend.
-	ReasonOperatorHold Reason = "hold"
-	// ReasonIntakeHold is the switch over the work the harness chooses for itself.
-	ReasonIntakeHold Reason = "intake"
-	// ReasonNoCapacity is a machine with every developer slot taken. It is the one
-	// reason here that is the harness working rather than the harness stopped.
-	ReasonNoCapacity Reason = "capacity"
-	// ReasonProviderAway is the provider answering nobody: a login nobody has
-	// renewed, or an API nothing reaches. It is distinct from the window below
-	// because no clock ends it — a person logging in or the network returning is
-	// what does — and distinct from the intake hold because no switch lifts it.
-	// It is read ahead of a full machine because the runs holding the slots are
-	// waiting on the same provider.
-	ReasonProviderAway Reason = "provider-away"
-	// ReasonDivergedTarget is a target branch the harness will not catch up to
-	// the remote's, recorded by the run whose promotion was refused on it. It is
-	// distinct from the intake hold because nobody placed it and `yoyo release`
-	// does not lift it, and distinct from the brake because it counts nothing: a
-	// person settling the branches is what ends it, and the convergence sweep
-	// that finds them settled lifts it with nothing to release. It is read ahead
-	// of a full machine because every run holding a slot will stop on it too.
-	ReasonDivergedTarget Reason = "diverged-target"
-	// ReasonProviderWindow is a live session waiting out the provider's usage
-	// window. It is distinct from an idle session because an operator does nothing
-	// at all about it: the window lifts on the provider's clock, and a surface that
-	// reported this as a session finding nothing to start would be sending somebody
-	// to look at a queue that is fine.
-	ReasonProviderWindow Reason = "provider"
-	// ReasonTrackerWait is a dispatch a live session started that is waiting out a
-	// tracker failure before it has claimed anything. It is distinct from an idle
-	// session for the reason the window is: the session found work and started it,
-	// and the dispatch asks the tracker again on its own clock, so a reader told
-	// the session had found nothing to start would be sent to look at a queue that
-	// is fine.
-	ReasonTrackerWait Reason = "tracker"
-	// ReasonStoreUnreadable is a live session whose last poll could not read the
-	// harness's store at all and is reading it again. It is distinct from an idle
-	// session because the queue was never read: a reader told the session had found
-	// nothing to start would take an outage for an empty queue, and on 2026-09-01
-	// that is how a store outage was voiced for its whole length. It is the
-	// harness's to clear, by reading again until the store answers or the session
-	// gives up on it and stops.
-	ReasonStoreUnreadable Reason = "unreadable"
-	// ReasonSessionIdle is a live session that is choosing nothing. It is distinct
-	// from having no session at all because an operator does an entirely different
-	// thing about it, and because telling them to start a session they are already
-	// running is worse than telling them nothing.
-	ReasonSessionIdle Reason = "idle"
-	// ReasonSessionBlocked is a machine refusing starts, with its own cause.
-	ReasonSessionBlocked Reason = "blocked"
-	// ReasonRedeploying is a session restarting into a build deployed over it: it
-	// has found the deploy, its bounded drain has run out with runs still going,
-	// and it is stopping and preserving them, or it has already stopped and is
-	// being re-executed. It is distinct from an idle session and from no session
-	// because an operator does nothing at all about it — the session comes back
-	// on its own within a minute and re-adopts what it stopped — and a surface
-	// that reported it as either would send somebody to start a session that is
-	// already on its way back.
-	ReasonRedeploying Reason = "redeploying"
-	// ReasonDrainOverrun is a session whose drain bound ran out more than
-	// DrainOverrunAfter ago and which has recorded no restart since. Past the
-	// bound the session stops the runs it hosts and restarts at once, waiting
-	// only on a run at its promotion, so one still there this long and not
-	// saying it is waiting on a promotion is a session that stopped restarting
-	// rather than one on its way back: it pulls no new work until it does. It is the harness's, because nothing anybody
-	// configured keeps it there. On 2026-10-05 a session sat like this for
-	// forty minutes, pulling nothing, while every surface read it as working.
-	ReasonDrainOverrun Reason = "drain-overrun"
-	// ReasonNoWatchSession is a product that was being watched and is not any more.
-	ReasonNoWatchSession Reason = "stopped"
-	// ReasonUnwatched is a product no session has ever watched. It is not a line
-	// that stopped: nothing was choosing work here, so nothing is failing to, and
-	// an operator running items by name has a queue by choice.
-	ReasonUnwatched Reason = "unwatched"
+	ReasonOperatorHold    = ownership.StallOperatorHold
+	ReasonIntakeHold      = ownership.StallIntakeHold
+	ReasonNoCapacity      = ownership.StallNoCapacity
+	ReasonProviderAway    = ownership.StallProviderAway
+	ReasonDivergedTarget  = ownership.StallDivergedTarget
+	ReasonProviderWindow  = ownership.StallProviderWindow
+	ReasonTrackerWait     = ownership.StallTrackerWait
+	ReasonStoreUnreadable = ownership.StallStoreUnreadable
+	ReasonSessionIdle     = ownership.StallSessionIdle
+	ReasonSessionBlocked  = ownership.StallSessionBlocked
+	ReasonRedeploying     = ownership.StallRedeploying
+	ReasonDrainOverrun    = ownership.StallDrainOverrun
+	ReasonNoWatchSession  = ownership.StallNoWatchSession
+	ReasonUnwatched       = ownership.StallUnwatched
 )
 
-// Reasons is the whole taxonomy, in the order an operator acts on it. A caller
-// that has to cover every reason reads it from here rather than repeating the
-// list.
-func Reasons() []Reason {
-	return []Reason{
-		ReasonOperatorHold,
-		ReasonIntakeHold,
-		ReasonProviderAway,
-		ReasonDivergedTarget,
-		ReasonNoCapacity,
-		ReasonProviderWindow,
-		ReasonTrackerWait,
-		ReasonStoreUnreadable,
-		ReasonSessionBlocked,
-		ReasonSessionIdle,
-		ReasonDrainOverrun,
-		ReasonRedeploying,
-		ReasonNoWatchSession,
-		ReasonUnwatched,
-	}
-}
+// Reasons is the whole taxonomy, in the order an operator acts on it.
+func Reasons() []Reason { return ownership.StallReasons() }
 
-// Whose is whose move it is, and what settles it. It is half of what a reason is
-// for: a surface that says work is held without saying who by has told the
-// reader something they can do nothing with.
-//
-// Every reason answers. One that did not would be a state named and then left
-// unattributed, which is the hole the taxonomy exists to close, so the zero
-// answer belongs to no reason and a test holds the set to it.
-func (r Reason) Whose() string {
-	switch r {
-	case ReasonOperatorHold:
-		return "the operator's — nothing runs until `yoyo resume` lifts it"
-	case ReasonIntakeHold:
-		// The vocabulary cannot see the hold, so it says what holds for both
-		// holders: the operator's own hold is theirs, and the brake's is the
-		// development manager's or the harness's until she escalates it. The
-		// attention line reads the hold itself and says which.
-		return "the operator's for a hold they placed, and the development manager's or the harness's for one the brake placed — nothing new is chosen until it is released, and `yoyo release` lifts either"
-	case ReasonProviderAway:
-		return "the operator's — log in to the provider, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted"
-	case ReasonDivergedTarget:
-		return "the operator's — " + runstate.DivergedTargetRecovery
-	case ReasonNoCapacity:
-		return "nobody's — a slot frees as a run in flight finishes"
-	case ReasonProviderWindow:
-		return "nobody's — the harness asks again when the provider's usage limit resets"
-	case ReasonTrackerWait:
-		return "nobody's — the dispatch asks the tracker again on its own, and puts the item on the development manager's docket only once the recovery window is spent"
-	case ReasonStoreUnreadable:
-		return "the harness's — the queue could not be read, and it is read again until it answers or the session gives up on it"
-	case ReasonSessionBlocked:
-		return "the harness's — runs are retried at the next poll once the refusing condition clears"
-	case ReasonSessionIdle:
-		return "the operator's — a queue with ready work and an idle session is a stall rather than a rest"
-	case ReasonRedeploying:
-		return "nobody's — the session restarts into the deployed build on its own, and the session that comes back re-adopts the runs it stopped"
-	case ReasonDrainOverrun:
-		return "the harness's — the session should have restarted when its drain bound ran out, and nothing new starts until it does; restarting the watch session takes up the deployed build, and the session that comes back picks up the runs it stopped"
-	case ReasonNoWatchSession, ReasonUnwatched:
-		return "the operator's — nothing pulls the queue until `yoyo work --watch` starts a session"
-	default:
-		return ""
-	}
+// Whose is whose move the stall is, and what settles it, in the ownership
+// registry's answer for the stall's own record (ownership.StallWhose), so the
+// sentence and the entry's owner cannot disagree. It reads the provider's
+// outage cause where the stall carries one; a surface holding only a reason
+// asks the reason itself (ownership.StallReason.Whose).
+func (s Stall) Whose() string { return ownership.StallWhose(s.Reason, s.Cause) }
+
+// ownershipRecord is what the registry's stall rule reads of the stall.
+func (s Stall) ownershipRecord() ownership.Record {
+	return ownership.Record{Stall: s.Reason, OutageCause: s.Cause}
 }
 
 // Conditions are the records one reading of the stall is derived from. They are
@@ -266,6 +150,10 @@ type Stall struct {
 	// Since is when it became this way, which is what makes a standing state worth
 	// saying again: the state does not change and its age does.
 	Since time.Time `json:"since,omitempty"`
+	// Cause is why the provider answers nobody, on ReasonProviderAway: it
+	// decides whether the stall is the operator's login to renew or nobody's
+	// wait for the network.
+	Cause domain.ProviderOutageCause `json:"cause,omitempty"`
 	// Problem is why the question could not be answered. A reading that carries one
 	// names no reason: a stall invented over a record nobody could read is the
 	// confident emptiness every answer in this package is written to avoid.
@@ -315,21 +203,15 @@ func (s Stall) Refusal() string {
 // problem they chose.
 func (s Stall) Waiting() (Attention, bool) {
 	switch s.Reason {
-	case ReasonSessionIdle, ReasonNoWatchSession, ReasonProviderAway, ReasonDivergedTarget:
-		// All three are the operator's: the two session states because a queue
-		// with ready work and nothing pulling it is a stall rather than a rest,
-		// and the provider answering nobody because it is waiting on a person in
-		// the one way a window is not — it is the wait the attention line exists
-		// for, and the only thing that fired on it in September was a brake
-		// naming the wrong remedy. Reason.Whose words the same three the same
-		// way, and a test holds the two together.
+	case ReasonSessionIdle, ReasonNoWatchSession, ReasonProviderAway, ReasonDivergedTarget, ReasonDrainOverrun:
+		// Each is a wait somebody has to end, and the ownership registry says
+		// whose: the harness's for the two session states and a session that
+		// stopped restarting, since the product starts and restarts its own
+		// parts; the operator's for a provider login only he holds and for
+		// saying which history is right on a diverged target; nobody's for a
+		// network that is down.
 		stall := s
-		return Attention{Kind: AttentionStall, ID: string(s.Reason), Mover: MoverOperator, Stall: &stall}, true
-	case ReasonDrainOverrun:
-		// A session that stopped restarting is a factory problem rather than a
-		// wait: nobody configured it, and it is the harness's to fix.
-		stall := s
-		return Attention{Kind: AttentionStall, ID: string(s.Reason), Mover: MoverHarness, Stall: &stall}, true
+		return resolved(Attention{Kind: AttentionStall, ID: string(s.Reason), Stall: &stall}), true
 	default:
 		return Attention{}, false
 	}
@@ -409,6 +291,7 @@ func WhyNothingStarts(conditions Conditions) Stall {
 			Reason: ReasonProviderAway,
 			Says:   conditions.ProviderOutage.Says(),
 			Since:  conditions.ProviderOutage.Since,
+			Cause:  conditions.ProviderOutage.Cause,
 		}
 	case len(conditions.Diverged) > 0:
 		// The first recorded is the one said; the attention line names every
@@ -646,7 +529,7 @@ func divergedTargetStall(diverged runstate.DivergedTarget) Stall {
 // says it in the words it would have used either way.
 func divergedTargetAttention(diverged runstate.DivergedTarget) Attention {
 	stall := divergedTargetStall(diverged)
-	return Attention{Kind: AttentionStall, ID: divergedTargetAttentionID(diverged), Mover: MoverOperator, Stall: &stall}
+	return resolved(Attention{Kind: AttentionStall, ID: divergedTargetAttentionID(diverged), Stall: &stall})
 }
 
 // divergedTargetAttentionID keys a diverged target's attention entry to its

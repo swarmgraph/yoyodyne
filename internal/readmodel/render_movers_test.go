@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -17,7 +18,7 @@ func TestTheFourthLineNamesEachMoverAndSaysAHumanOnlyOfTheOperator(t *testing.T)
 	t.Parallel()
 
 	wants := map[Mover]string{
-		MoverOperator:           "Needs a human (1):\n",
+		ownership.MoverOperator: "Needs a human (1):\n",
 		MoverProductManager:     "Waiting on the Lead Product Manager (1):\n",
 		MoverArchitect:          "Waiting on the architect (1):\n",
 		MoverDevelopmentManager: "Waiting on the development manager (1):\n",
