@@ -396,6 +396,11 @@ type Sources struct {
 	// TrackerTimeout bounds one tracker command, so an unresponsive tracker costs
 	// this answer a line rather than hanging the surface that asked.
 	TrackerTimeout time.Duration
+	// TrackerReadings is the product's one shared reading of the tracker, which
+	// a standing's two tracker commands are answered from where it is set
+	// (sharedlisting.go). It is optional: without it a standing asks the
+	// tracker itself.
+	TrackerReadings TrackerReadings
 	// Now stamps the reading. It defaults to the wall clock and is injected so a
 	// test can pin an elapsed time.
 	Now func() time.Time

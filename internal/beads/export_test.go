@@ -2,11 +2,13 @@ package beads
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 )
@@ -92,4 +94,71 @@ func exportRepository(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return repository
+}
+
+// An export that queued behind one which began after it was asked for is handed
+// that one's snapshot rather than asking bd again, and only while the snapshot
+// published is the one the stamp describes: a snapshot something else replaced
+// since, or an export that began before this one was asked for, is exported
+// again.
+func TestAnExportBegunAfterTheAskIsSharedWhileItsSnapshotStands(t *testing.T) {
+	t.Parallel()
+	repository := exportRepository(t)
+	runner := &fakeRunner{responses: []string{"{\"id\":\"first\"}\n", "{\"id\":\"second\"}\n", "{\"id\":\"third\"}\n"}}
+	client := Client{Dir: repository, Runner: runner}
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(repository, ExportPath)
+	stampPath := filepath.Join(repository, ".beads", exportStampName)
+	stamp := func(started time.Time) {
+		t.Helper()
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		encoded, err := json.Marshal(exportStamp{StartedAt: started, ModifiedAt: info.ModTime(), Size: info.Size()})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(stampPath, encoded, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if kept, err := os.ReadFile(stampPath); err != nil || !strings.Contains(string(kept), "started_at") {
+		t.Fatalf("stamp after an export = %q, %v; want when it began", kept, err)
+	}
+
+	// Stamped as begun after this call asks: what a caller queued behind a
+	// later export finds once it holds the lock.
+	stamp(time.Now().Add(time.Hour))
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 1 {
+		t.Fatalf("bd was asked %d times; want the export begun after the ask shared", len(runner.commands))
+	}
+
+	// The same stamp over a snapshot something else has since replaced.
+	if err := os.WriteFile(path, []byte("{\"id\":\"checked out\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 2 {
+		t.Fatalf("bd was asked %d times; want a replaced snapshot exported again", len(runner.commands))
+	}
+
+	// An export begun before this call asked holds nothing written since.
+	stamp(time.Now().Add(-time.Second))
+	if err := client.RefreshExport(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if len(runner.commands) != 3 {
+		t.Fatalf("bd was asked %d times; want an export begun before the ask taken again", len(runner.commands))
+	}
+	if published, err := os.ReadFile(path); err != nil || string(published) != "{\"id\":\"third\"}\n" {
+		t.Fatalf("published snapshot = %q, %v", published, err)
+	}
 }
