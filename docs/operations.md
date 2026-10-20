@@ -1449,10 +1449,13 @@ check failures against a change that was present count toward the trip — a run
 ended by something outside the work, a dirty checkout or a transport that did
 not answer, is a verdict on nothing and counts toward nothing, and neither does a provider
 answering nobody, nor any run whose record names a stop cause outside the work,
-such as a move to a new build, a login the provider refused, or the harness's
-own process going away, nor a cancellation. A run the harness's own step failed
-around does count, and so does a stop cause the running build does not
-recognise; the session's log names such a cause each time it meets one. A
+such as a move to a new build, a login the provider refused, or the forge's
+retries running out, nor a stop you or the development manager asked for. A run
+the harness's own step failed around does count, and so do a run whose process
+died (the runs one claim audit finds dead together count as one), a
+cancellation that records nobody as having asked for it, any other failure to
+publish to the forge, and a stop cause the running build does not recognise;
+the session's log names such a cause each time it meets one. A
 paused run never counts, even when the note saying so
 on its work item could not be written. A probe stopped from outside the work
 spends no cycle and summons nobody, and the next probe still waits the

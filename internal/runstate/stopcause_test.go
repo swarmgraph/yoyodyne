@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mason-bryant/yoyodyne/internal/recovery"
 )
 
 var stopCauseNow = time.Date(2026, 10, 17, 9, 0, 0, 0, time.UTC)
@@ -102,22 +104,76 @@ func TestEveryStopCauseIsSortedByNameAndAnUnrecognisedOneIsAboutTheWork(t *testi
 }
 
 // The hold on new work leaves out only the causes outside the work and the
-// cancellations. The harness's own failures around a run, a record that names
-// no cause, and an unrecognised cause are counted.
-func TestTheHoldKeepsOutOnlyOutsideCausesAndCancellations(t *testing.T) {
+// stops the operator or the development manager asked for. The harness's own
+// failures around a run, a dead process, a cancellation naming no origin, a
+// publishing failure, a record that names no cause, and an unrecognised cause
+// are counted (stopped-run-recovery, step 1, as ruled on October 19).
+func TestTheHoldKeepsOutOnlyOutsideCausesAndStopsSomebodyAskedFor(t *testing.T) {
 	t.Parallel()
 
 	for class, want := range map[StopClass]bool{
-		StopCancelled: true, StopOperator: true, StopManager: true,
-		StopRedeploy: true, StopProvider: true, StopProviderIdle: true, StopUsagePause: true,
-		StopDeveloperAccount: true, StopReviewAccount: true, StopDeadClaim: true,
-		StopOutside: true, StopPublish: true, CauseTransportFailure.StopClass(): true,
+		StopOperator: true, StopManager: true, StopRedeploy: true,
+		StopProvider: true, StopProviderIdle: true, StopRelaunchBudget: true,
+		StopUsagePause: true, CauseUsageWindow.StopClass(): true,
+		StopDeveloperAccount: true, StopReviewAccount: true,
+		StopOutside: true, CauseTransportFailure.StopClass(): true,
+		CauseMergeQueueHeld.StopClass(): true,
+		StopDeadClaim:                   false, StopCancelled: false, StopPublish: false,
 		StopHarness: false, StopRecording: false, StopCleanup: false, StopUnknown: false,
-		StopChecks: false, StopReview: false, StopRepairBudget: false,
+		StopChecks: false, StopReview: false, StopRepairBudget: false, StopRecoveryWindow: false,
 		CauseCheckTimeLimit.StopClass(): false, "a-cause-from-a-newer-build": false,
 	} {
 		if got := StopKeptOutOfHold(class); got != want {
 			t.Errorf("StopKeptOutOfHold(%s) = %t, want %t", class, got, want)
+		}
+		if got := StopKeptOutOfHoldAfter(class, nil); got != want {
+			t.Errorf("StopKeptOutOfHoldAfter(%s, no waits) = %t, want %t", class, got, want)
+		}
+	}
+}
+
+// spentWindow is the waits a run records at one boundary up to the point its
+// recovery window has no wait left, as recoverFrom would have recorded them.
+func spentWindow(boundary string) []Retry {
+	var retries []Retry
+	var waited time.Duration
+	for attempt := 1; waited+recovery.Interval(attempt) <= recovery.Window; attempt++ {
+		delay := recovery.Interval(attempt)
+		retries = append(retries, Retry{Boundary: boundary, Attempt: attempt, DelaySeconds: int64(delay / time.Second)})
+		waited += delay
+	}
+	return retries
+}
+
+// A publishing failure counts unless the forge's retries ran out, and a spent
+// recovery window is left out only at the forge or the provider. A window that
+// still had room, and one spent at the tracker, count.
+func TestThePublishingFailureTheHoldLeavesOutIsTheForgesRetriesRunningOut(t *testing.T) {
+	t.Parallel()
+
+	oneWait := []Retry{{Boundary: RetryMerge, Attempt: 1, DelaySeconds: 1}}
+	forgeThenTracker := append(spentWindow(RetryMerge), Retry{Boundary: RetryTrackerWrite, Attempt: 1, DelaySeconds: 1})
+	for _, test := range []struct {
+		name    string
+		class   StopClass
+		retries []Retry
+		want    bool
+	}{
+		{"publishing failure with no waits", StopPublish, nil, false},
+		{"publishing failure after one wait at the merge", StopPublish, oneWait, false},
+		{"publishing failure after the merge's retries ran out", StopPublish, spentWindow(RetryMerge), true},
+		{"publishing failure after the merge confirmation's retries ran out", StopPublish, spentWindow(RetryMergeConfirmation), true},
+		{"publishing failure after pushing the branch ran out of retries", StopPublish, spentWindow(RetryPublishBranch), true},
+		{"publishing failure whose last wait was the tracker's", StopPublish, forgeThenTracker, false},
+		{"publishing failure after catching the target up ran out of retries", StopPublish, spentWindow(RetryCatchUpTarget), false},
+		{"recovery window spent at the forge", StopRecoveryWindow, spentWindow(RetryOpenPullRequest), true},
+		{"recovery window spent at the provider", StopRecoveryWindow, spentWindow(RetryProviderInvocation), true},
+		{"recovery window spent at the tracker", StopRecoveryWindow, spentWindow(RetryTrackerWrite), false},
+		{"publishing failure after the provider's retries ran out", StopPublish, spentWindow(RetryProviderInvocation), false},
+		{"checks failing after the forge's retries ran out", StopChecks, spentWindow(RetryMerge), false},
+	} {
+		if got := StopKeptOutOfHoldAfter(test.class, test.retries); got != test.want {
+			t.Errorf("%s: StopKeptOutOfHoldAfter(%s) = %t, want %t", test.name, test.class, got, test.want)
 		}
 	}
 }

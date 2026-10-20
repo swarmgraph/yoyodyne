@@ -75,8 +75,10 @@ const (
 	// StopOutside is something outside the work refusing the round rather than the work
 	// failing, which is the stop the round's budgets are given back for.
 	StopOutside StopClass = "outside"
-	// StopCancelled is the operator asking the run to stop, or the context the run
-	// was given being cancelled.
+	// StopCancelled is the context the run was given being cancelled with no
+	// origin recorded beside it. A stop the operator or the development manager
+	// asked for, and a move to a new build, record StopOperator, StopManager, and
+	// StopRedeploy instead.
 	StopCancelled StopClass = "cancelled"
 	// StopHarness is the harness's own step failing around the work: a state it
 	// could not save, a tracker it could not write before the work was done, a
