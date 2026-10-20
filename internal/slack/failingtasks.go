@@ -97,7 +97,7 @@ func (f *HarnessFeed) failingTaskDeliveries(cursor Cursor, streams map[string]st
 		default:
 			continue
 		}
-		attention := readmodel.Attention{Kind: readmodel.AttentionFailingTask, ID: task.Task, Mover: task.Mover(), FailingTask: &task}
+		attention := readmodel.FailingTaskAttention(task)
 		deliveries = append(deliveries, Delivery{
 			Stream: failingTaskStream,
 			Cursor: Cursor{Delivered: append([]string(nil), marked.Delivered...)},

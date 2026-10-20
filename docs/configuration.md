@@ -4132,7 +4132,8 @@ again on 2026-09-21 when all three were one diverged target.
 
 **The brake's hold does not wait on you while the harness is still working
 it.** She decides what happens to it — to
-release it, to keep it and probe the line, or to escalate it to you — and the
+release it, to keep it and probe the line, or to escalate it to the Lead
+Product Manager, which you are told of — and the
 watching session acts on the decision at its next poll. `brake_cooldown` is how
 long the brake waits for that decision before it decides on evidence instead:
 once it has passed with nothing recorded, the session starts one probe run under
@@ -4155,8 +4156,8 @@ blocked probe summons her again and restarts the cooldown, so the brake goes
 round — one of her turns and one probe run per cooldown — and before the bound
 nothing about it got louder unless she escalated it. `brake_escalation_cycles`
 is how many of those summons-and-probe cycles the harness goes round before it
-escalates the hold to you itself: the cycle that reaches it is not put to her
-again, no further probe starts, and you are sent
+escalates the hold to the Lead Product Manager itself: the cycle that reaches
+it is not put to her again, no further probe starts, and you are sent
 [one direct message](reporting.md#a-brake-hold-the-harness-escalates), tagged
 by member id, naming the cycles spent and what stopped the last probe. It is a
 count of cycles rather than a length of time because the loop is what it

@@ -23,13 +23,13 @@ func held(sessions ...runstate.WatchTransition) func() ([]runstate.WatchTransiti
 func TestEveryReasonSaysWhoseMoveItIs(t *testing.T) {
 	t.Parallel()
 	for _, reason := range Reasons() {
-		if strings.TrimSpace(reason.Whose()) == "" {
-			t.Fatalf("reason %q says whose move it is: %q", reason, reason.Whose())
+		if strings.TrimSpace(Stall{Reason: reason}.Whose()) == "" {
+			t.Fatalf("reason %q says whose move it is: %q", reason, Stall{Reason: reason}.Whose())
 		}
 	}
 	// And nothing outside the set has an answer, so a reason invented at a call
 	// site cannot borrow one.
-	if Reason("something-nobody-named").Whose() != "" {
+	if (Stall{Reason: "something-nobody-named"}).Whose() != "" {
 		t.Fatalf("a reason outside the taxonomy was given a whose-move")
 	}
 }
@@ -400,8 +400,8 @@ func TestASessionRetryingAFailedReadIsNotSaidAsIdle(t *testing.T) {
 	if !stall.Since.Equal(outage.At) {
 		t.Fatalf("since = %s, want when the failing read was recorded", stall.Since)
 	}
-	if !strings.HasPrefix(stall.Reason.Whose(), "the harness's") {
-		t.Fatalf("whose = %q, want the harness's", stall.Reason.Whose())
+	if !strings.HasPrefix(stall.Whose(), "the harness's") {
+		t.Fatalf("whose = %q, want the harness's", stall.Whose())
 	}
 	if _, waiting := stall.Waiting(); waiting {
 		t.Fatal("a read the harness is retrying was put on the attention line as waiting on a person")
@@ -533,7 +533,7 @@ func TestAStallHoldingNothingBackIsNotAttention(t *testing.T) {
 		ready:    []beads.WorkItem{{ID: "item-1"}},
 	}}
 	standing = ReadStanding(context.Background(), sources)
-	if len(standing.NeedsHuman) != 1 || standing.NeedsHuman[0].Whose() != ReasonNoWatchSession.Whose() {
+	if len(standing.NeedsHuman) != 1 || standing.NeedsHuman[0].Whose() != (Stall{Reason: ReasonNoWatchSession}).Whose() {
 		t.Fatalf("needs a human = %+v", standing.NeedsHuman)
 	}
 	// Since-when is said once, on the line whose job it is. The attention line

@@ -368,10 +368,10 @@ func laneHumanBlockAttention(instances []ProgramManager) []Attention {
 			if id == "" {
 				id = block.Cites
 			}
-			entries = append(entries, Attention{
-				Kind: AttentionLaneHumanBlock, ID: id, Mover: block.Mover, WorkItemID: block.Item,
+			entries = append(entries, resolved(Attention{
+				Kind: AttentionLaneHumanBlock, ID: id, WorkItemID: block.Item,
 				LaneHumanBlock: &LaneHumanBlock{Agent: instance.Agent, Entry: block},
-			})
+			}))
 		}
 	}
 	return entries

@@ -11,6 +11,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/artifact"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -121,7 +122,7 @@ func TestAQueueNothingIsDrainingIsNamedByItsAge(t *testing.T) {
 	// A queue of design changes is the architect's to drain, and nothing about
 	// it is put to the operator.
 	for _, entry := range standing.NeedsHuman {
-		if entry.Mover == MoverOperator {
+		if entry.Mover == ownership.MoverOperator {
 			t.Fatalf("NeedsHuman puts %s %s to the operator, though the architect decides every proposal in it", entry.Kind, entry.ID)
 		}
 	}
@@ -157,7 +158,7 @@ func TestTheOperatorsListCarriesOnlyTheAmendmentsHeDecides(t *testing.T) {
 			movers[entry.ID] = entry.Mover
 		}
 	}
-	if movers[design.ID] != MoverArchitect || movers[unstated.ID] != MoverOperator || movers[consistent.ID] != MoverProductManager {
+	if movers[design.ID] != MoverArchitect || movers[unstated.ID] != ownership.MoverOperator || movers[consistent.ID] != MoverProductManager {
 		t.Fatalf("amendment movers = %v, want the design the architect's, the unstated goals change the operator's, and the consistent one the Lead Product Manager's", movers)
 	}
 	operator := standing.RenderOperatorWaits(moment)
@@ -237,7 +238,7 @@ func TestTheOwnersRecommendationsAreTheBatchTheOperatorDecides(t *testing.T) {
 	rendered := standing.Render()
 	for _, want := range []string{
 		"the Lead Product Manager's batch of 2 proposed changes needs your hand: decide " + first.ID + " approve;",
-		"only a person can act on this; " + amendmentBatchEnds,
+		"only a person can act on this, for a change to the fundamental goals, which only the operator decides; " + amendmentBatchEnds,
 		"a change to v1-goals is proposed and undecided (" + first.ID + ") — the operator's",
 		"a change to v1-goals is proposed and undecided (" + unargued.ID + ") — the operator's",
 	} {

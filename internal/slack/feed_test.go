@@ -625,7 +625,7 @@ func TestABrakeTripIsSaidToTheOperatorDirectlyOnceAndItsEscalationOnceMore(t *te
 	if err != nil {
 		t.Fatalf("render the escalation: %v", err)
 	}
-	if !strings.Contains(message.Body, "the development manager escalated it to the operator") {
+	if !strings.Contains(message.Body, "the development manager escalated it to the Lead Product Manager, and the operator is told") {
 		t.Fatalf("escalation reads as %q, which does not say she escalated it", message.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindIntakeHeld)
@@ -1500,8 +1500,8 @@ func TestAnEscalatedBrakeHoldIsSaidToTheOperatorDirectlyOnce(t *testing.T) {
 		if err != nil {
 			t.Fatalf("render the hold: %v", err)
 		}
-		if !strings.Contains(rendered.Body, "Next: the operator's — the harness escalated it") {
-			t.Fatalf("hold reads as %q, which does not say the harness escalated it to the operator", rendered.Body)
+		if !strings.Contains(rendered.Body, "Next: the Lead Product Manager's — the harness escalated it") {
+			t.Fatalf("hold reads as %q, which does not say the harness escalated it to the Lead Product Manager", rendered.Body)
 		}
 		byHer(t, harness, escalatedAt.Add(10*time.Minute))
 		harness.poll(t, cursors)

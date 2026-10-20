@@ -54,13 +54,15 @@ leaves nothing to clean up and the next `yoyo start` simply starts one.
 part every few seconds. A part that dies is started again after a backoff that
 doubles from a second and is capped at thirty; a part that dies within two
 minutes of a start five times in a row is, on the sixth, left down and shown as
-**degraded** — on `yoyo status`'s "Needs a human" line, with the reason the
-supervisor recorded and who it is waiting on, and in the channel's hourly lines,
-which read the same model:
+**degraded** — on `yoyo status`'s "Needs a human" line, under the harness's
+head, since a part left down is the harness's to bring back rather than the
+operator's, with the reason the supervisor recorded, and in the channel's hourly
+lines, which read the same model:
 
 ```text
-Needs a human (1):
-  the scheduler service is degraded: died 6 times within 2m0s of being started, most recently at 2026-09-19T12:03:00Z, so it is left down — the operator's — the supervisor has stopped restarting it; fix the cause, then `yoyo stop` and `yoyo start` bring it back, or start the part by hand and the supervisor takes it back
+Needs a human: nothing
+Waiting on the harness (1):
+  the scheduler service is degraded: died 6 times within 2m0s of being started, most recently at 2026-09-19T12:03:00Z, so it is left down — the harness's — the supervisor has stopped restarting it; once the cause is fixed, `yoyo stop` and `yoyo start` bring it back, or the part started by hand is taken back by the supervisor
 ```
 
 A part that cannot be started at all — the Slack service with this product's
@@ -1249,13 +1251,18 @@ them, and the finding it produced reached you a month after the first of them
 was filed, because you asked why.
 
 **A finding that needs your hand is a class the harness reads, and it goes to
-three places the moment it is recorded.** Three things make one, and the
-brake's hold becomes a fourth once it is yours:
+three places the moment it is recorded.** Three things make one. Who owns each
+is the ownership registry's answer (`internal/ownership`), which names you only
+for a reason on your closed list — `fundamental-intent`, `credential`,
+`repository-setting`, `protected-file`, `human-gate`, `own-hold`, or
+`diverged-history` — and `yoyo status` prints that reason beside each entry that
+is yours. A finding recorded with no such reason is not yours: the registry
+gives it back to the role that raised it, the Lead Product Manager for a
+handling and the development manager for an escalation.
 
 - **The Lead Product Manager handling a report as yours.** Her `handle` action takes
   `"needs": "operator"` for a report whose answer is yours for a reason on your
-  closed list, named in `"operator_reason"` (`fundamental-intent`, `credential`,
-  `repository-setting`, or `protected-file`) or by a `person_only` remedy, with
+  closed list, named in `"operator_reason"` or by a `person_only` remedy, with
   the reason saying what you have to do. A handling that names you without one
   is refused and records nothing. That handling does not close the
   report; it records the finding, and a later handling of the same report
@@ -1315,14 +1322,15 @@ brake's hold becomes a fourth once it is yours:
   message is the pass's decision list — each proposal with what its owner
   recommends, then the reasons. A proposal you decide drops out of it, and the
   finding ends when the last one in it is decided.
-- **The failure-storm brake's hold, once it is yours.** The hold names the runs
-  it counted — each with its item and what stopped it. The trip is sent to you
-  directly once, tagged, the moment it is recorded, naming those runs and
-  `yoyo release`. While the development manager and the harness are working it,
-  it is theirs to move and the message says so; once she escalates it to you,
-  or the harness does at the bound on its loop, that is said to you directly
-  once more — once for the hold, whichever of the two escalated it and however
-  many times — and its one line on `yoyo status` names you as the one to move.
+The failure-storm brake's hold is not one of them, escalated or not. The hold
+names the runs it counted — each with its item and what stopped it. The trip is
+sent to you directly once, tagged, the moment it is recorded, naming those runs
+and `yoyo release`. While the development manager and the harness are working
+it, it is theirs to move and the message says so; once she escalates it, or the
+harness does at the bound on its loop, it is the Lead Product Manager's to
+decide, never yours, and you are told so directly once more — once for the hold,
+whichever of the two escalated it and however many times — and may release it.
+Its one line on `yoyo status` names her as the one to move.
   [The configuration guide](configuration.md#watching-instead-of-draining) says
   what the brake counts, what it does not, and how it is worked.
 
@@ -1427,7 +1435,8 @@ invoked at once to sort it out and nothing waits. So the poll that trips the
 brake also summons her [sweep](configuration.md#recurring-tasks) out of its
 cadence, with the runs that blocked and the reason each blocked in the message
 that wakes her, and she decides what happens to the hold: release it, keep it
-and probe the line, or keep it and escalate it to you. The watching session
+and probe the line, or keep it and escalate it to the Lead Product Manager,
+which you are told of. The watching session
 acts on her decision at its next poll. Where she records none by
 `execution.brake_cooldown` — thirty minutes by default — the session decides on
 evidence instead: it starts one probe run under the hold, and the probe landing
@@ -1440,11 +1449,12 @@ machine that was fine is choosing again within a cooldown of the trip whether or
 not anybody answered. That loop is bounded: after
 `execution.brake_escalation_cycles` of those summons-and-probe cycles — four by
 default, which is two hours at the default cooldown — with her not escalating
-the hold, the harness escalates it to you itself, sends you one direct message
-naming the cycles spent and what stopped the last probe, and starts no further
-probe. So the brake hold that waits on you is one she escalated, which she
-does by recording the decision and reporting it at `warning` severity so it
-reaches you, or one the harness escalated at that bound. Only verdicts and
+the hold, the harness escalates it to the Lead Product Manager itself, sends you
+one direct message naming the cycles spent and what stopped the last probe, and
+starts no further probe. So an escalated brake hold — one she escalated, by
+recording the decision and reporting it at `warning` severity, or one the
+harness escalated at that bound — is the Lead Product Manager's to decide, and
+you are told of it and may release it; it never waits on you. Only verdicts and
 check failures against a change that was present count toward the trip — a run
 ended by something outside the work, a dirty checkout or a transport that did
 not answer, is a verdict on nothing and counts toward nothing, and neither does a provider
@@ -2172,8 +2182,12 @@ The provider is not authenticated; the operator must log in: every role is waiti
 Running: nothing
 ...
 Needs a human (1):
-  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted
+  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider again; the harness resumes on its own once it answers, and nothing is released or restarted (the operator's because it is a credential or account only a person holds)
 ```
+
+A provider that cannot be reached at all is nobody's to act on rather than the
+operator's: it is listed under "Waiting on nobody's move", and the network
+coming back ends it.
 
 The channel says it once the moment it is seen, tagged to the operators by
 member id, and once more when the provider answers again: see
@@ -4510,7 +4524,7 @@ section as what settles it:
 
 ```text
 Needs a human (1):
-  the target branch main will not catch up to the remote's, so the harness chooses no work for it: main on origin is at 9f1c2ab, which does not contain the local main at 4d7e805; only a person can say which history is right; 1 promotion refused since 2026-09-21T08:00:00Z — the operator's — follow "Unwedging a target branch that diverged from the forge" in docs/operations.md, and the next `yoyo reconcile` that finds the branches converged lifts it; nothing needs releasing
+  the target branch main will not catch up to the remote's, so the harness chooses no work for it: main on origin is at 9f1c2ab, which does not contain the local main at 4d7e805; only a person can say which history is right; 1 promotion refused since 2026-09-21T08:00:00Z — the operator's — follow "Unwedging a target branch that diverged from the forge" in docs/operations.md, and the next `yoyo reconcile` that finds the branches converged lifts it; nothing needs releasing (the operator's because it is saying which history is right on a target branch that diverged from the forge, which needs rights on the protected branch no role holds)
 ```
 
 Every ready item on the "Not startable" line is refused for it in the same words,
@@ -4646,13 +4660,14 @@ Not startable (4 of 7 admitted items; 1 awaits the development manager's decisio
   - 1 waits on the harness carrying out a decision already recorded — next: the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull; whose: the harness's
   - 1 waits on other items — next: the harness pulls each once the work it waits on lands; whose: the harness's
   - 1 is parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's
-  - nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one
+  - nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one
   yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
   yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has
   yoyodyne-ifd.150 (The release gate commits the tracker's derived exports instead of refusing on them) — held since 2026-09-15 07:05 PDT, 5 hours ago; run run-a17c9b40 stopped on it and its change is preserved (branch checked and there), so a fresh run would start over on top of work that is still there; the development manager has already decided what happens to it, so what is outstanding is the harness carrying that decision out rather than a decision
-Needs a human (1):
-  directive directive-4f2c… is unresolved: which branch does this land on? — the operator's — the work it affects waits until `yoyo directive resolve` settles it
+Needs a human: nothing
+Waiting on the Lead Product Manager (1):
+  directive directive-4f2c… is unresolved: which branch does this land on? — the Lead Product Manager's — she ends it, or carries it into a document or a work item, and the work it affects waits until `yoyo directive resolve` settles it; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals
 Waiting on the development manager (1):
   1 admitted item awaits the development manager's decision — the development manager's — nothing pulls a stopped item until she decides what happens to it
 Waiting on the harness (1):
@@ -4777,29 +4792,33 @@ has the rule.
   and that item is unfinished (the harness's, which puts each stoppage back on
   her docket once the work is closed) — counted in the heading as well, apart
   from the stoppages awaiting her decision; an
-  unresolved directive (the operator's, by `yoyo directive resolve` — or the
-  Lead Product Manager's, where she has carried it into a document or an item
-  and [resolves it into that](conversation.md#directives-and-the-work-they-pause)
-  from her conversation, which ends it and lifts the pause); a step
+  unresolved directive (the Lead Product Manager's: she ends it, or carries it
+  into a document or an item and
+  [resolves it into that](conversation.md#directives-and-the-work-they-pause)
+  from her conversation, which ends it and lifts the pause, and `yoyo directive
+  resolve` settles it too); a step
   only a person can take (the operator's, by `yoyo gate record`); ready work
-  a switch or a missing session stops (whoever the reason names — the operator
-  for their hold or a session that is not running, the development manager or the
-  harness for a hold the brake placed, nobody for a usage window); other items
+  a switch or a missing session stops (whoever the ownership registry names for
+  the reason — the operator for his own hold or a target branch that diverged,
+  the harness for a session that is not running, the development manager or the
+  harness for a hold the brake placed and the Lead Product Manager once it is
+  escalated, nobody for a usage window); other items
   (the harness's, as they land); an item above them in the tracker's tree that
   waits on other work, one group per waiting item, naming it and what it waits
   on (the harness's, as that work lands); a role's conversation, one group per
   role (that role's); parked by the Lead Product Manager (hers); covered by
   other work, its own unfinished children (the harness's); and not offered by
   the tracker for a reason nothing here can read. **The last `-` line says in one sentence whether
-  anything on the line is the operator's** — under their rule of 2026-09-26 only a
-  change to the fundamental goals is — naming what is where something is, and
+  anything on the line is the operator's** — only a change to the fundamental
+  goals or an act only a person can perform is, each a reason on his closed list
+  — naming what is where something is, and
   saying `nothing here is the operator's` where nothing is. The items themselves
   follow, as before. The brief rendering the channel's hourly message carries
   keeps every `-` line with the heading, because who moves the work is what an
   unasked-for message has to say. `--json` carries the groups under
   `standing.not_startable_groups` — each with its `kind` (the queue's pile),
-  `awaiting` for the two held waits, `count`, `waits_on`, `next`, `mover`, and
-  its `items` — the sentence as `standing.not_startable_for_operator`, and the
+  `awaiting` for the two held waits, `count`, `waits_on`, `next`, `mover`, the
+  ownership registry's whole answer as `ownership`, and its `items` — the sentence as `standing.not_startable_for_operator`, and the
   slot wait as `standing.waiting_for_slot`, with `ready`, `slots`, `in_flight`,
   its `items`, and the line it `says`.
 
@@ -5032,8 +5051,9 @@ holding every role at once**.
 Every role is paused on the provider's usage limit until 2026-09-13T03:00:00Z: all 5 agents run on opus and none names an alternate, so nothing fails over; 134 turns refused since 2026-09-08T07:38:40Z
 Running: nothing
 ...
-Needs a human (1):
-  every role is held by the provider's usage limit, since 2026-09-08T07:38:40Z, until 2026-09-13T03:00:00Z — the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does
+Needs a human: nothing
+Waiting on the harness (1):
+  every role is held by the provider's usage limit, since 2026-09-08T07:38:40Z, until 2026-09-13T03:00:00Z — the harness's — the window lifts on the provider's clock and the roles resume when it does; enabling failover on the agents is what would move the work onto another model before it does
 ```
 
 It is read from the [refusals the harness records outside a run](#a-provider-refusal-outside-a-run)
@@ -5300,10 +5320,18 @@ record the entry cites where it names none), the
 `mover` whose move it is, in the same closed vocabulary the
 page counts by (`operator`, a role such as `architect`,
 `development-manager`, or `program-manager`, `harness`, `forge`, `provider`, `nobody`, or
-`unnamed-role`), and
-the record itself, whole, under a field named for the kind — `amendment`,
+`unnamed-role`) — the owner the ownership registry (`internal/ownership`)
+resolved for the record, never decided by the surface printing it — and
+`ownership`, the registry's whole answer: the `owner`, the `reason` from the
+operator's closed list where the owner is the operator and absent otherwise,
+the `remedy` that ends the entry, and the `capability` that remedy needs, with
+`owner_reason` beside it saying that reason in words. An entry the registry
+cannot classify is the Lead Product Manager's with the remedy `classify this
+entry`, never the operator's. Then comes the record itself, whole, under a
+field named for the kind — `amendment`,
 `directive`, `outage`, `stall`, `reports`, `service`, `failing_task`, `config_mismatch`, `service_copies`,
-`owed_step`, `publication`, `held_work`, `amendment_queue`, `operator_action`,
+`owed_step`, `publication`, `held_work`, `amendment_queue` (with
+`oldest_proposal`, whose decider is whose move the queue is), `operator_action`,
 `product_decision`, `human_gate`, `untraced_pass`, `factory_stall`,
 `tracker_listings`, `unrun_check`, `kept_heavy_check`, `blocked_on_a_human`
 (the program manager's entry and the instance that wrote it), and for a hold `operator_hold`, `intake_hold`, or
@@ -5321,8 +5349,9 @@ the pile, and `held-work` is how many items are in one of the two waits. The
 `label` and the `what` and `whose` sentences are there beside them, derived
 from those fields at the moment the answer is written rather than
 stored, so a record and the line about it cannot disagree; a document whose
-`what` says something its fields do not, or whose `kind` or `mover` is outside
-its vocabulary, is refused when the model reads it back. `said_what` and
+`what` says something its fields do not, whose `kind` or `mover` is outside
+its vocabulary, or whose `mover` or `ownership` is not the registry's answer for
+its record, is refused when the model reads it back. `said_what` and
 `said_whose` are the same two sentences as the terminal prints them, with
 [every work item beside its title](reporting.md#every-work-item-beside-its-title),
 and are present only where that changes something; the dashboard shows those.
@@ -6531,8 +6560,11 @@ readable in full — **loading** while the standing has not arrived, and
 change proposed to a document*, *A run that still owes a step*, *A work item
 carried by a conversation* — with the entry's key and when the standing was
 read under the heading. Every card opens with the terminal's two sentences,
-**What** and **Waiting on**, then the entry's **Kind** and **Mover**, and
-then the record the kind names, whole, under plain labels:
+**What** and **Waiting on**, then the entry's **Kind** and **Mover**, then
+the ownership registry's answer the read model carries — **Why the operator's**,
+the reason from his closed list, on an entry that is his and on no other;
+**What ends it**; and **What that needs** — and then the record the kind names,
+whole, under plain labels:
 
 - an amendment's card shows the **Document**, its **Document kind** and
   **Owner**, who it was **Proposed by** (the role, and the agent), **In run**

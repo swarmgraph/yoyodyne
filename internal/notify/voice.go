@@ -204,7 +204,7 @@ var harnessVoice = voice{
 		KindQuestionHeard:            "Heard as a question rather than an instruction, so nothing was recorded against this item; the Lead Product Manager's answer follows here.",
 		KindIntakeHeld:               "Intake is held for this product: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released for this product, {released}.",
-		KindIntakeEscalated:          "The brake's hold on intake is escalated to the operator by the harness: {why}",
+		KindIntakeEscalated:          "The brake's hold on intake is escalated to the Lead Product Manager by the harness, and you are told: {why}",
 		KindOperatorAction:           "This needs your hand: {needs} Found by {foundby}; recorded in {recordedin}. Nothing here changes it, and this is not said again — `yoyo status` names it until it is done, and {ends}.",
 		KindHoldPlaced:               "All harness activity is held.",
 		KindHoldLifted:               "The hold on harness activity is lifted.",
@@ -887,7 +887,7 @@ var nextMoves = map[Kind]string{
 	KindIntakeReleased: "the harness's — the backlog is being pulled from again.",
 	// The harness's own escalation: the account above it already says why in the
 	// hold's own words, so this says only what follows.
-	KindIntakeEscalated: "the operator's — the harness has stopped probing, and nothing new is chosen until `yoyo release` lifts it.",
+	KindIntakeEscalated: "the Lead Product Manager's — the harness has stopped probing, and she decides whether intake reopens; you may release it, and nothing new is chosen until `yoyo release` lifts it.",
 	// A finding only the operator can act on. The message carries the read
 	// model's own wording of whose move it is and what ends it in Mover, so the
 	// terminal's attention line and this clause are one wording; this is what a

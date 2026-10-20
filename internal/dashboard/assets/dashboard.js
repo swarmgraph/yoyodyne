@@ -1857,6 +1857,15 @@ var standingWarningAgeSeconds = 5 * 60;
     add("Waiting on", saidWhose(entry), "card-field-prose");
     add("Kind", entry.label);
     add("Mover", moverLabel(entry.mover));
+    // The ownership registry's answer, as the read model carries it: why the
+    // entry is the operator's where it is, the act that ends it, and what that
+    // act needs. Nothing here decides any of it.
+    var answer = entry.ownership || {};
+    if (entry.owner_reason) {
+      add("Why the operator's", entry.owner_reason, "card-field-prose");
+    }
+    add("What ends it", answer.remedy || "", "card-field-prose");
+    add("What that needs", answer.capability || "");
     switch (entry.kind) {
       case "amendment":
         var proposal = entry.amendment;

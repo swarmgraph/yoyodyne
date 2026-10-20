@@ -79,11 +79,10 @@ func ReadKeptHeavyChecks(sources Sources) ([]KeptHeavyCheck, string) {
 // Nothing about it is on the closed list of what only a person can do. The
 // permit is the ID.
 func keptHeavyCheckAttention(kept KeptHeavyCheck) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:           AttentionKeptHeavyCheck,
 		ID:             kept.Permit.ID,
-		Mover:          MoverDevelopmentManager,
 		WorkItemID:     kept.Permit.WorkItemID,
 		KeptHeavyCheck: &kept,
-	}
+	})
 }

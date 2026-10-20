@@ -321,13 +321,14 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 	if schedule.BrakeEscalated == nil || schedule.BrakeEscalated.Cycles != 2 {
 		t.Fatalf("schedule.BrakeEscalated = %#v, want the escalation on the session's own account", schedule.BrakeEscalated)
 	}
-	if rendered := schedule.Render(); !strings.Contains(rendered, "escalated to the operator") || !strings.Contains(rendered, "2 summons-and-probe cycle(s)") {
+	if rendered := schedule.Render(); !strings.Contains(rendered, "escalated to the Lead Product Manager, with the operator told") || !strings.Contains(rendered, "2 summons-and-probe cycle(s)") {
 		t.Fatalf("schedule = %s, want the escalation rendered with the cycles spent", rendered)
 	}
-	// Every surface reads the hold's own words: the operator's move, by the
-	// harness's escalation, with the cycles and the last probe's stoppage.
+	// Every surface reads the hold's own words: the Lead Product Manager's move,
+	// with the operator told, by the harness's escalation, with the cycles and
+	// the last probe's stoppage.
 	mover := sessions.lastMover(runstate.WatchBraked)
-	for _, want := range []string{"the operator's", "the harness escalated it after 2 summons-and-probe cycles", "yoyodyne-five", "independent review still required repair", "yoyo release"} {
+	for _, want := range []string{"the Lead Product Manager's", "the operator is told", "the harness escalated it after 2 summons-and-probe cycles", "yoyodyne-five", "independent review still required repair", "yoyo release"} {
 		if !strings.Contains(mover, want) {
 			t.Fatalf("braked mover = %q, want it to carry %q", mover, want)
 		}
@@ -417,8 +418,9 @@ func TestHerReleaseStillLiftsAHoldTheHarnessEscalated(t *testing.T) {
 	}
 }
 
-// The one brake hold that waits on a person: she escalated it. No probe starts
-// however long the cooldown has run out, and every surface names the operator.
+// A brake hold she escalated: no probe starts however long the cooldown has run
+// out, and every surface names the Lead Product Manager as its owner, with the
+// operator told.
 func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
 	t.Parallel()
 
@@ -444,8 +446,8 @@ func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
 	if len(harness.releases) != 0 {
 		t.Fatalf("released %d time(s), want an escalated hold left for the operator", len(harness.releases))
 	}
-	if mover := sessions.lastMover(runstate.WatchBraked); !strings.Contains(mover, "the operator's") || !strings.Contains(mover, "escalated") {
-		t.Fatalf("braked mover = %q, want the operator named because she escalated it", mover)
+	if mover := sessions.lastMover(runstate.WatchBraked); !strings.Contains(mover, "the Lead Product Manager's") || !strings.Contains(mover, "the operator is told") || !strings.Contains(mover, "escalated") {
+		t.Fatalf("braked mover = %q, want the Lead Product Manager named, the operator told, because she escalated it", mover)
 	}
 	if reason := sessions.said(runstate.WatchBraked); !strings.Contains(reason, "the harness's own brake placed it") {
 		t.Fatalf("braked reason = %q, want the brake still named as what placed the hold", reason)

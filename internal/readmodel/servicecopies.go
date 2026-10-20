@@ -161,5 +161,5 @@ func readServiceCopies(record runstate.Supervision, readers []runstate.ConfigRea
 // what started it and having that fixed, which is the reliability work she
 // resolves.
 func serviceCopiesAttention(copies ServiceCopies) Attention {
-	return Attention{Kind: AttentionServiceCopies, ID: copies.Service, Mover: MoverDevelopmentManager, ServiceCopies: &copies}
+	return resolved(Attention{Kind: AttentionServiceCopies, ID: copies.Service, ServiceCopies: &copies})
 }

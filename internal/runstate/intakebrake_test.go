@@ -84,13 +84,14 @@ func TestTheBrakesRecordRidesItsOwnHoldAndNoOther(t *testing.T) {
 		t.Fatalf("Standing() = %q, want the probe named", standing)
 	}
 
-	// An escalation is the one decision that makes the hold a person's.
+	// An escalation hands the hold up to the Lead Product Manager, and the
+	// operator is told and may release it.
 	escalated, err := store.DecideBrake(BrakeDecisionEscalate, "the same check fails everywhere; the machine needs looking at", "development-manager conversation chat-1, turn 6", summonedAt.Add(3*time.Minute))
 	if err != nil {
 		t.Fatalf("DecideBrake(escalate) error = %v", err)
 	}
-	if !escalated.WaitsOnAPerson() || !strings.HasPrefix(escalated.Whose(), "the operator's") {
-		t.Fatalf("escalated hold = %q, waits on a person = %t; want the operator named", escalated.Whose(), escalated.WaitsOnAPerson())
+	if !escalated.WaitsOnAPerson() || !strings.HasPrefix(escalated.Whose(), "the Lead Product Manager's") || !strings.Contains(escalated.Whose(), "the operator is told") {
+		t.Fatalf("escalated hold = %q, waits on a person = %t; want the Lead Product Manager named and the operator told", escalated.Whose(), escalated.WaitsOnAPerson())
 	}
 	if escalated.Brake.ProbeDue(summonedAt.Add(time.Hour)) {
 		t.Fatal("ProbeDue() = true on an escalated hold, want no probe however long the cooldown has run out")
@@ -219,7 +220,7 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 		t.Fatal("a probe is due under a hold the harness escalated, want none however long the cooldown has run out")
 	}
 	whose := escalated.Whose()
-	for _, want := range []string{"the operator's", "the harness escalated it after 4 summons-and-probe cycles", "yoyodyne-5", "the checks failed on main", "yoyo release"} {
+	for _, want := range []string{"the Lead Product Manager's", "the operator is told", "the harness escalated it after 4 summons-and-probe cycles", "yoyodyne-5", "the checks failed on main", "yoyo release"} {
 		if !strings.Contains(whose, want) {
 			t.Fatalf("Whose() = %q, want it to carry %q", whose, want)
 		}
@@ -227,7 +228,7 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 	if strings.Contains(whose, "the development manager escalated it") {
 		t.Fatalf("Whose() = %q, want the escalation attributed to the harness rather than to her", whose)
 	}
-	if standing := escalated.Standing(); !strings.Contains(standing, "the harness escalated it to the operator") || !strings.Contains(standing, "until somebody releases it") {
+	if standing := escalated.Standing(); !strings.Contains(standing, "the harness escalated it to the Lead Product Manager") || !strings.Contains(standing, "the operator is told") || !strings.Contains(standing, "until somebody releases it") {
 		t.Fatalf("Standing() = %q, want the harness's escalation and that a person ends it", standing)
 	}
 

@@ -29,6 +29,7 @@
       "kind": "owed-step",
       "id": "run-queued",
       "mover": "harness",
+      "ownership": {"owner": "harness", "remedy": "settle the run", "capability": "yoyo reconcile"},
       "work_item_id": "yoyodyne-ifd.363",
       "label": "merge stuck",
       "owed_step": {
@@ -61,6 +62,7 @@
       "kind": "owed-step",
       "id": "run-cleanup",
       "mover": "harness",
+      "ownership": {"owner": "harness", "remedy": "settle the run", "capability": "yoyo reconcile"},
       "work_item_id": "yoyodyne-ifd.222",
       "label": "run not finished",
       "owed_step": {
@@ -75,6 +77,7 @@
       "kind": "owed-step",
       "id": "run-dropped",
       "mover": "harness",
+      "ownership": {"owner": "harness", "remedy": "settle the run", "capability": "yoyo reconcile"},
       "work_item_id": "yoyodyne-ifd.435.1",
       "label": "run not finished",
       "owed_step": {
@@ -111,6 +114,7 @@
       "kind": "publication",
       "id": "run-dropped",
       "mover": "development-manager",
+      "ownership": {"owner": "development-manager", "remedy": "decide a repair, re-run, or re-arm", "capability": "triage decision"},
       "work_item_id": "yoyodyne-ifd.435.1",
       "label": "merge stuck",
       "publication": {

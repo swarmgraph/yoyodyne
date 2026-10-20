@@ -63,22 +63,6 @@ type FailingTask struct {
 	LatestAt time.Time `json:"latest_at"`
 }
 
-// Mover is whose move the failure is, read off its cause. A conversation that
-// will not open is the operator's: what stops it opening is a role no agent
-// fills, a record that will not load, or a session somebody else is holding,
-// and a person resolves each. A message the harness refused, or a turn it
-// could not assemble, is the harness's: it composed what it then refused,
-// which is a defect in the harness rather than anything a person configured.
-func (f FailingTask) Mover() Mover {
-	if f.Ownership != nil {
-		return f.Ownership.Mover
-	}
-	if f.Cause == runstate.PreTurnConversationUnopened {
-		return MoverOperator
-	}
-	return MoverHarness
-}
-
 // Says is the failure as a sentence: the task, what failed, and how many
 // times.
 func (f FailingTask) Says() string {
@@ -158,8 +142,11 @@ func ReadFailingTasks(sources Sources) ([]FailingTask, string) {
 	return FailingTasksOf(passes), problem
 }
 
-// failingTaskAttention is a task failing before its first turn, as the
-// attention line carries it.
-func failingTaskAttention(failing FailingTask) Attention {
-	return Attention{Kind: AttentionFailingTask, ID: failing.Task, Mover: failing.Mover(), FailingTask: &failing}
+// FailingTaskAttention is a task failing before its first turn, as the
+// attention line carries it, with its owner the ownership registry's: the
+// factory's recorded ownership of a product pass where there is one, and the
+// harness's otherwise, whether it refused what it composed for the pass or the
+// conversation would not open.
+func FailingTaskAttention(failing FailingTask) Attention {
+	return resolved(Attention{Kind: AttentionFailingTask, ID: failing.Task, FailingTask: &failing})
 }

@@ -66,6 +66,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
@@ -747,26 +748,18 @@ func UnlandedAccount(run runstate.State) string {
 // found is what the repository held of the run's change, and nil where nothing
 // looked, which answers from the run's own removal flag.
 func StoppageMover(run runstate.State, found *triage.Found, awaitingCarryOut bool) Mover {
+	record := ownership.Record{
+		IntegrationResumable: run.IntegrationStop != nil && triage.IntegrationResumable(found, run.BranchRemoved),
+		AwaitingCarryOut:     awaitingCarryOut,
+		// A check stage its bound stopped is continued by the harness at its
+		// checks until its continuations are spent, and a first silent-stream
+		// stall once, with nobody deciding anything; a second is hers.
+		HarnessContinues: run.HarnessContinuesCheckStage() || run.HarnessContinuesStall(),
+	}
 	if run.Document != nil {
-		return MoverOf(run.Document.Owner)
+		record.DocumentRun, record.Role = true, run.Document.Owner
 	}
-	if run.IntegrationStop != nil && triage.IntegrationResumable(found, run.BranchRemoved) {
-		return MoverHarness
-	}
-	if awaitingCarryOut {
-		return MoverHarness
-	}
-	// A check stage its bound stopped is continued by the harness at its checks
-	// until its continuations are spent, with nobody deciding anything.
-	if run.HarnessContinuesCheckStage() {
-		return MoverHarness
-	}
-	// A first silent-stream stall is continued by the harness itself, once, with
-	// nobody deciding anything; a second is hers.
-	if run.HarnessContinuesStall() {
-		return MoverHarness
-	}
-	return MoverDevelopmentManager
+	return ownership.Resolve(ownership.KindStoppage, record).Owner
 }
 
 // latestPerItem is the runs a rule matches, one per work item. One item can have

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 )
 
@@ -61,13 +62,12 @@ func ReportsAddressedTo(role Mover, reports []report.Report, handlings []report.
 // addressedReportAttention is one report waiting on a role, as the attention
 // line carries it.
 func addressedReportAttention(reported report.Report) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:       AttentionAddressedReport,
 		ID:         reported.ID,
-		Mover:      MoverOf(reported.Addressee()),
 		WorkItemID: reported.WorkItemID,
 		Report:     &reported,
-	}
+	})
 }
 
 // readAddressedReports is the entries for the pile as one reading has it. A
@@ -103,7 +103,7 @@ func addressedReportSays(reported report.Report) string {
 // the message that says the report in the channel both close on it, so the two
 // name the same role.
 func AddressedReportWhose(reported report.Report) string {
-	mover := MoverOf(reported.Addressee())
+	mover := ownership.Resolve(ownership.KindAddressedReport, ownership.Record{Role: reported.Addressee()}).Owner
 	if reported.For != "" {
 		return fmt.Sprintf("%s — the report is addressed to the %s and is with that role, not the operator; %s",
 			mover.Possessive(), reported.Addressee().Title(), addressedReportEnds)

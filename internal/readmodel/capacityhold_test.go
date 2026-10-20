@@ -473,12 +473,12 @@ func TestAHoldIsTheBannerAndAnAttentionEntry(t *testing.T) {
 	found := false
 	for _, attention := range standing.NeedsHuman {
 		if strings.Contains(attention.What(), "every role is held by the provider's usage limit") &&
-			strings.Contains(attention.Whose(), "the operator's") {
+			strings.HasPrefix(attention.Whose(), "the harness's") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("needs a human = %+v, want the hold as something waiting on the operator", standing.NeedsHuman)
+		t.Fatalf("needs a human = %+v, want the hold as the harness's, which resumes the roles when the window lifts", standing.NeedsHuman)
 	}
 }
 
