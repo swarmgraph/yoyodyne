@@ -2085,8 +2085,9 @@ what you do about them:
 
 - **Not authenticated** — the provider will not accept the account the harness
   asks under. `claude auth status` says so before a dispatch; inside a run the
-  terminal says `Not logged in`, `Login expired`, `OAuth token revoked`, or
-  `Please run /login`, or quotes a 401. The remedy is you logging in.
+  terminal says `Not logged in`, `Login expired`, `OAuth token revoked`,
+  `Failed to authenticate`, `OAuth session expired`, or `Please run /login`, or
+  quotes a 401. The remedy is you logging in.
 - **Unreachable** — nothing answers at the provider's API: the machine is
   offline or asleep, or a name does not resolve. The terminal says `Can't reach
   the API server` or carries the transport's own error. The remedy is the
@@ -2170,24 +2171,27 @@ written by whatever meets the provider refusing everybody — a dispatch, a run,
 a conversation turn — and cleared by the first thing the provider serves again:
 a developer attempt, a review, a conversation turn, or the watch's own login
 check finding the machine signed in.
-It is what `yoyo status` names the wait from: the banner above the four lines,
-and an entry on the attention line that says who it is waiting on.
+It is what `yoyo status` and the dashboard name the wait from: the banner above
+the four lines, and the first entry on the attention line, which says who it is
+waiting on and, for a lapsed login, the exact command that logs the refused
+account in again — the one `yoyo doctor` prints for that account.
 
 ```text
 The provider is not authenticated; the operator must log in: every role is waiting on it, and the harness asks again on its own until it answers; 3 turns refused since 2026-09-17T15:17:00Z (claude-code, account default)
 Running: nothing
 ...
 Needs a human (1):
-  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider, or wait for the network; the harness resumes on its own once it answers, and nothing is released or restarted
+  The provider is not authenticated; the operator must log in: … — the operator's — log in to the provider by running `claude auth login` on the machine the harness runs on; the harness resumes on its own once it answers, and nothing is released or restarted
 ```
 
-The channel says it once the moment it is seen, tagged to the operators by
-member id, and once more when the provider answers again: see
+Slack says it on its first pass after the record is written — it reads the records every fifteen seconds by default —
+in the channel, tagged to the operators by member id, and to each operator as a
+direct message, naming the provider, the account, and the same command. While
+it stands it is sent to them directly again at most once an hour, and when the
+provider answers again a short message says so, directly as well: see
 [reporting](reporting.md#a-provider-nobody-can-reach). The stall alarm does not
 fire over it — a line of runs each waiting on the same login is not a machine
-that died — and it does not repeat while it stands, because the banner carries
-it and a message repeated about a wait you have been told about is the nagging
-that gets a channel muted.
+that died.
 
 ## Waiting out a network that dropped
 

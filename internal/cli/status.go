@@ -675,6 +675,9 @@ func standingSources(configPath string) readmodel.Sources {
 	if store, err := runstate.NewProviderOutageStore(stateRoot, cfg.Product.ID); err == nil {
 		sources.ProviderOutages = store
 	}
+	// And the command that logs a refused account in again, so a lapsed login
+	// is said with what ends it.
+	sources.LoginCommand = outageLoginCommand(cfg, stateRoot)
 	// The provider's latest reading of each account's usage windows, said for
 	// every account a provider that reports them can run under.
 	if store, err := runstate.NewUsageWindowStore(stateRoot, cfg.Product.ID); err == nil {

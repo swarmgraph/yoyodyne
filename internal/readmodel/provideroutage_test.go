@@ -2,6 +2,7 @@ package readmodel
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -68,6 +69,62 @@ func TestAnExpiredLoginIsTheBannerAndAnAttentionEntry(t *testing.T) {
 	}
 	if found != 1 {
 		t.Fatalf("needs a human = %+v, want the login exactly once as something waiting on the operator", standing.NeedsHuman)
+	}
+}
+
+// A lapsed login is the first thing on the line that needs a person, on the
+// terminal and in the JSON the dashboard reads, and it names the command that
+// logs the refused account in again — the same command the channel is given,
+// because both read it from this entry.
+func TestALapsedLoginIsFirstAmongWhatNeedsAPersonWithTheCommandToRun(t *testing.T) {
+	t.Parallel()
+
+	sources := quietSources()
+	sources.ProviderOutages = fakeOutages{outage: expiredLogin(), away: true}
+	var asked []string
+	sources.LoginCommand = func(provider domain.Backend, account string) string {
+		asked = append(asked, string(provider)+"/"+account)
+		return "claude auth login"
+	}
+
+	standing := ReadStanding(context.Background(), sources)
+	if len(standing.NeedsHuman) == 0 || standing.NeedsHuman[0].Kind != AttentionOutage {
+		t.Fatalf("needs a human = %+v, want the lapsed login first", standing.NeedsHuman)
+	}
+	first := standing.NeedsHuman[0]
+	if first.LoginCommand != "claude auth login" || !strings.Contains(first.Whose(), "by running `claude auth login`") {
+		t.Fatalf("first entry = %+v (whose %q), want the command to run", first, first.Whose())
+	}
+	if len(asked) == 0 || asked[0] != "claude-code/default" {
+		t.Fatalf("command asked for %v, want the provider and account the outage names", asked)
+	}
+	if !first.Named() {
+		t.Fatal("the lapsed login can be counted into the remainder, and it must always be named")
+	}
+	for _, entry := range standing.NeedsHuman[1:] {
+		if entry.Kind == AttentionOutage || (entry.Stall != nil && entry.Stall.Reason == ReasonProviderAway) {
+			t.Fatalf("needs a human = %+v, want the lapsed login said once", standing.NeedsHuman)
+		}
+	}
+	rendered := standing.Render()
+	line := rendered[strings.Index(rendered, "Needs a human"):]
+	if entries := strings.SplitN(line, "\n", 3); len(entries) < 2 || !strings.Contains(entries[1], "`claude auth login`") {
+		t.Fatalf("render = %q, want the command on the first entry under Needs a human", rendered)
+	}
+	encoded, err := json.Marshal(first)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(encoded), `"login_command":"claude auth login"`) || !strings.Contains(string(encoded), "by running `claude auth login`") {
+		t.Fatalf("JSON = %s, want the command carried for the dashboard", encoded)
+	}
+
+	// A provider nobody can reach has no login to name, and is nobody's move:
+	// the network coming back ends it.
+	unreachable := expiredLogin()
+	unreachable.Cause = domain.ProviderUnreachable
+	if entry := sources.OutageAttention(unreachable); entry.LoginCommand != "" || entry.Mover.IsOperator() || !strings.Contains(entry.Whose(), "the network coming back ends it") {
+		t.Fatalf("unreachable entry = %+v, want no login command", entry)
 	}
 }
 

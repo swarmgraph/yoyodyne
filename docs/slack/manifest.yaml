@@ -37,7 +37,10 @@
 #                          all while work was ready, the provider holding every
 #                          role, a brake hold handed to a person, a recurring task
 #                          failing before its first turn for two hours, an item
-#                          that sat claimed with nothing working on it, and a line
+#                          that sat claimed with nothing working on it, a
+#                          provider nobody is logged into or nobody can reach
+#                          (with the command that logs it in, repeated at most
+#                          hourly, and a note when it answers again), and a line
 #                          that has stopped over ready work — the one of them put
 #                          to each operator personally with the answers numbered,
 #                          because that state costs an hour of the machine doing

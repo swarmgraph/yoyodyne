@@ -199,6 +199,20 @@ func TestTheClaudeDialectAnswersInTheContractsTerms(t *testing.T) {
 			},
 		},
 		{
+			// The words a reviewer's session ended on when its login lapsed
+			// mid-session: no status, no remedy, and the same wait.
+			name: "an OAuth session that could not be refreshed is a wait for the operator",
+			event: backend.ProviderEvent{
+				Type: "result", Subtype: terminalAPIError, Terminal: true, Failed: true,
+				Text: "Failed to authenticate: OAuth session expired and could not be refreshed",
+			},
+			said: true,
+			want: backend.Observation{
+				Answer: backend.AnswerUnauthenticated,
+				Detail: "api_error: Failed to authenticate: OAuth session expired and could not be refreshed",
+			},
+		},
+		{
 			// A CLI that refuses the login before it writes any envelope says so
 			// on stderr, which is handed over as the one event on that channel.
 			// It is the same wait the terminal form earns: relaunching a process

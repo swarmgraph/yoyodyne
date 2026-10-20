@@ -1563,11 +1563,16 @@ prescribed `yoyo release`, which lifts nothing here. The operator learned what
 had happened by asking, three days later.
 
 So the sink reads the product's own record of the provider answering nobody —
-written by whatever met it refusing, a dispatch, a run, or a conversation turn,
-and cleared by the first thing it serves again — and says it **once, the moment
-it is seen, tagged to the operators by member id**. It is both important and
-theirs to act on, which is the communication rule's own test for a tag: a login
-is nobody else's to renew.
+written by whatever met it refusing, a dispatch, a run, a review, or a
+conversation turn, and cleared by the first thing it serves again — and says it
+**the moment it is seen, in the channel tagged to the operators by member id,
+and to each operator as a direct message**. A login is nobody else's to renew,
+and it stops every role, so a channel somebody chooses to look at is not
+enough: the direct message is what reaches them within minutes rather than
+after the stall alarm's hours. The message names the provider, the account,
+and, for a lapsed login, the exact command that logs that account in again —
+the command `yoyo doctor` prints for it, read from the same attention entry
+`yoyo status` and the dashboard show first.
 
 > @operator The provider is not authenticated; the operator must log in: every
 > role is waiting on it, and the harness asks again on its own until it
@@ -1577,19 +1582,20 @@ is nobody else's to renew.
 > intake brake is not tripping on it. The harness asks again on its own;
 > nothing to release, nothing to restart.
 >
-> Next: the operator's — log in to the provider, or wait for the network; the
-> harness resumes on its own once it answers, and nothing is released or
-> restarted.
+> Next: the operator's — log in to the provider by running `claude auth login`
+> on the machine the harness runs on; the harness resumes on its own once it
+> answers, and nothing is released or restarted.
 
 The other cause reads *The provider cannot be reached*, and the move is the
-network's. It is shaped the opposite way from the hold above on purpose: the
-hold is repeated every heartbeat because a person ends it early only by
-changing the configuration and needs reminding, and this is **not said again
-while it stands** — the four lines carry it as their banner, the stall alarm
-does not fire over it, and what a repeated message would buy is a reason to
-mute the channel. When the provider answers again the operators are told **once
-more, as a note**, because they were told the line had stopped and are owed
-being told it carried on by itself:
+network's; its message names no command. While either stands it is **sent to
+the operators directly again at most once an hour**, without tagging the
+channel a second time: often enough that an operator who missed the first is
+reached before morning, and no more often, because a message repeated every
+pass is a reason to mute the app. The four lines carry it as their banner in
+between, and the stall alarm does not fire over it. When the provider answers
+again the operators are told **once more, directly, in a short note**, because
+they were told the line had stopped and are owed being told it carried on by
+itself:
 
 > The provider is answering again after 3 days: a provider that is not
 > authenticated; the operator must log in. Every run that was waiting has
@@ -1831,8 +1837,9 @@ not four times a minute.
 All of them need the `im:write` scope the checked-in manifest asks for, and the
 ask needs `im:history` and the `message.im` event beside it to read the reply.
 A workspace that refuses them costs the direct messages and nothing else: the
-stale build, the provider's hold, the improvement, the released claim, each
-finding, and the stopped line are in the channel either way, and the stall is in the durable
+stale build, the provider's hold, the provider nobody is logged into or nobody
+can reach, the improvement, the released claim, each finding, and the stopped
+line are in the channel either way, and the stall is in the durable
 record `yoyo status` reads back.
 
 Every message ends by saying who it waits on next. A thread is a narrative and a

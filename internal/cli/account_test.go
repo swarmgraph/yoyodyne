@@ -182,6 +182,23 @@ func TestTheLoginRemedyIsTheOneTheDiagnosisPrints(t *testing.T) {
 	}
 }
 
+// A lapsed login is said on every surface with the same command the diagnosis
+// prints for the account the refusal named: the pooled account's own home where
+// it named one, and the machine's own login for a project with one account
+// whose refusal was met before any account was chosen.
+func TestALapsedLoginIsSaidWithTheDiagnosisCommandForItsAccount(t *testing.T) {
+	t.Parallel()
+
+	pooled := outageLoginCommand(twoAccounts(config.Account{}, config.Account{}), "/state")
+	if got, want := pooled(domain.BackendClaudeCode, "two"), doctor.AccountLoginCommand(domain.BackendClaudeCode, "/state/accounts/two"); got != want {
+		t.Fatalf("pooled account command = %q, want the diagnosis's %q", got, want)
+	}
+	lone := outageLoginCommand(config.Config{Agents: map[string]config.AgentConfig{"developers": pooledDeveloper()}}, "/state")
+	if got := lone("", ""); got != "claude auth login" {
+		t.Fatalf("command for a refusal naming no account = %q, want the developer's provider's own login", got)
+	}
+}
+
 // The account a run is served by is chosen before the work item is claimed, so
 // an account that could not sign the developer's provider in is refused there —
 // where it costs nothing — rather than met as an invocation pointed at another

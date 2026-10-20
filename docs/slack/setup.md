@@ -117,13 +117,17 @@ well past, the harness having started nothing at all while work was ready,
 [the provider holding every role](../reporting.md#the-provider-holding-every-role)
 with nothing configured to fail over to,
 [an item that sat claimed with nothing working on it](../reporting.md#an-item-claimed-with-nothing-working-on-it)
-until the harness gave it back, and a line that has stopped over ready work —
+until the harness gave it back,
+[a provider nobody is logged into or nobody can reach](../reporting.md#a-provider-nobody-can-reach),
+and a line that has stopped over ready work —
 which is the one of them that is *asked* rather than reported, with the answers
 numbered and your reply in the thread as the decision; see *Deciding a stopped
-line from a direct message* below. Beside them, and needing no `im:write`
-at all, [a provider nobody is logged into or nobody can reach](../reporting.md#a-provider-nobody-can-reach)
-is said once in the channel tagged to those same members by id, and once more
-when it answers again. The second is **advisory-once** — a
+line from a direct message* below. The provider nobody is logged into or nobody
+can reach is sent directly the moment it is seen — naming the provider, the
+account, and, for a lapsed login, the exact command that logs it in again — and
+tagged to those same members by id in the channel the first time; it is sent
+directly again at most once an hour while it stands, and a short direct note
+says when the provider answers again. The second is **advisory-once** — a
 fact said exactly once and never repeated: a value the project's template has
 improved that this project never edited, and
 [a finding that needs your hand](../reporting.md#a-finding-that-needs-your-hand)
@@ -148,8 +152,8 @@ the brake's trip is sent directly the once, the moment it is recorded, naming
 the runs it counted and `yoyo release`; and either escalation — hers or the
 harness's — is also sent directly the once, the moment it is recorded. Removing the scope costs those direct
 messages and nothing else: the stale-build message, the hold, the released
-claim, the stopped line, the improvement, and each finding are in the channel
-either way, the
+claim, the stopped line, the provider nobody is logged into or nobody can reach,
+the improvement, and each finding are in the channel either way, the
 stall and the brake hold are still tagged there, and the stall is in the durable
 record `yoyo status` reads back.
 
@@ -1521,7 +1525,7 @@ read the full record from the command line whenever the digest is not enough.
 | `slack refused chat.postMessage: missing_scope` | The app was installed before the manifest's scopes were complete. Reinstall it from *OAuth & Permissions*. |
 | `a reply could not be marked as <mark>` | The same missing scope, on a reply rather than on a thread's opener: the answer in the thread said what happened and the reaction saying where the directive stands could not go on. Reinstall from *OAuth & Permissions*. A mark that is missed is not set later — what carries the account is the thread. |
 | `the reply that asked for this could not be marked as settled` | The outcome was said in the thread and tagged to whoever asked; only the mark on their own message could not be moved. Same remedy, same reason it costs nothing else. |
-| `a direct conversation with <member> could not be opened` | Usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`, or a member id that is not in this workspace. The messages this affects are the ones that report the harness itself degraded — a stale session build, the harness having started nothing at all, the provider holding every role, the brake having held intake, a brake hold escalated to you by the development manager or by the harness at the bound on its summons-and-probe loop, a brake hold that has waited on you for two hours, and a claim the harness gave back — and the findings that need the operator's hand; all of them are recorded either way; reinstall from *OAuth & Permissions* and the next one reaches them. |
+| `a direct conversation with <member> could not be opened` | Usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`, or a member id that is not in this workspace. The messages this affects are the ones that report the harness itself degraded — a stale session build, the harness having started nothing at all, the provider holding every role, the brake having held intake, a brake hold escalated to you by the development manager or by the harness at the bound on its summons-and-probe loop, a brake hold that has waited on you for two hours, a claim the harness gave back, and a provider nobody is logged into or nobody can reach, with its hourly repeats and its note that the provider answers again — and the findings that need the operator's hand; all of them are recorded either way; reinstall from *OAuth & Permissions* and the next one reaches them. |
 | `the stopped line could not be put to <member>` | The same refusal on the ask: usually `conversations.open: missing_scope` on an app installed before the manifest asked for `im:write`. Reinstall from *OAuth & Permissions* and the next heartbeat asks. Reporting into the channel is unaffected, and until it is fixed the stopped line is said there and nobody is asked. |
 | A decision reply that is never answered | The app can open the direct message but cannot read the reply: `im:history` and the `message.im` event are what carry it back. Reinstall from the current manifest. Nothing was recorded, so answer again once it is. |
 | `the watch session's build <sha> is not a revision this product's repository holds` | Said once per build, and not a fault. How old a `yoyo work --watch` session is is measured by counting what has landed in the repository since its binary was built, and that only means anything where the product this sink reports on is Yoyodyne's own source. For any other product the comparison is not this sink's to make, so it says so once and stays quiet. |
