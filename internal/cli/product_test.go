@@ -33,6 +33,21 @@ import (
 // stopping it again.
 const productHelperVariable = "YOYODYNE_PRODUCT_TEST_COMMAND"
 
+// supervisorRecordBound is how long the start test lets the detached
+// supervisor take to record the parts. The verb waits for that record itself,
+// looking every tenth of a second and reporting as soon as it is there, so on
+// an idle machine this costs nothing; the bound is only the ceiling, and it is
+// generous because a supervisor started under the race detector on a busy
+// machine has taken more than the operator's fifteen seconds.
+const supervisorRecordBound = 3 * time.Minute
+
+// helperBound is how long a process started from this binary as the harness
+// lives if nothing stops it. It outlasts every wait a test puts on one — the
+// supervisor's record, and a stop's grace after it — so a helper the machine is
+// slow to start is never one that has ended itself while a test still expects
+// it to be running.
+const helperBound = supervisorRecordBound + supervise.StopGrace + time.Minute
+
 func TestMain(m *testing.M) {
 	if os.Getenv(productHelperVariable) == "" {
 		// No test here leaves a record in the machine's live home, whatever
@@ -43,7 +58,7 @@ func TestMain(m *testing.M) {
 	// carries a bound of its own: a helper the test failed to stop ends itself
 	// rather than running on the machine after the test is over.
 	ctx, stop := shutdown.Answering(context.Background(), os.Stderr)
-	ctx, cancel := context.WithTimeout(ctx, time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, helperBound)
 	code := RunContext(ctx, os.Args[1:], os.Stdout, os.Stderr, "test")
 	cancel()
 	stop()
@@ -116,12 +131,12 @@ func TestTheProductStartsOnceStopsOnceAndASecondStartDoesNothing(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	configPath := writeConfig(t, quietProductConfig)
 	// The report is checked for every part, which the verb gives only once the
-	// supervisor has recorded them. A supervisor started under the race
-	// detector on a busy machine can take longer than the operator is kept
-	// waiting, so this test waits as long as a slow machine needs; the test
-	// cannot run in parallel, so nothing else reads the wait meanwhile.
+	// supervisor has recorded them: it waits for the record naming the process
+	// it started, and this test raises that wait's ceiling to one a slow machine
+	// fits under (supervisorRecordBound). The test cannot run in parallel, so
+	// nothing else reads the wait meanwhile.
 	defaultWait := startWait
-	startWait = 3 * time.Minute
+	startWait = supervisorRecordBound
 	t.Cleanup(func() { startWait = defaultWait })
 	store, err := runstate.NewSupervisionStore(stateRoot, "yoyodyne")
 	if err != nil {
@@ -139,6 +154,13 @@ func TestTheProductStartsOnceStopsOnceAndASecondStartDoesNothing(t *testing.T) {
 	stdout, stderr, code := runCLI(t, "start", "--config", configPath)
 	if code != 0 {
 		t.Fatalf("start code = %d, stderr %q", code, stderr)
+	}
+	if strings.Contains(stdout, "still bringing the parts up") {
+		// The supervisor's own log says where it was when the ceiling passed,
+		// which is what the next person to see this needs.
+		logRoot, logPath := store.SupervisorLog()
+		said, _ := os.ReadFile(filepath.Join(logRoot, filepath.FromSlash(logPath)))
+		t.Fatalf("the supervisor recorded nothing within %s; start said %q, and the supervisor's log says %q", supervisorRecordBound, stdout, said)
 	}
 	for _, want := range []string{"started the supervisor for yoyodyne as pid", "slack: off", "dashboard: off", "scheduler: off", "maintenance: off", "yoyo stop"} {
 		if !strings.Contains(stdout, want) {
