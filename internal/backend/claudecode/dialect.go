@@ -108,7 +108,12 @@ var modelNotFound = regexp.MustCompile(`(?i)not_found_error|\bmodel:`)
 // and the result text "Not logged in · Please run /login", is_error true,
 // subtype "success", and nothing on stderr. The remedy is the same whichever
 // title it arrives under, which is why one answer covers them all.
-var notAuthenticated = regexp.MustCompile(`(?i)not logged in|login expired|oauth token (?:expired|revoked)|please run /login|invalid api key|invalid auth token|authentication_error|\bunauthorized\b`)
+//
+// A session whose login lapses partway through ends on a different title:
+// "Failed to authenticate: OAuth session expired and could not be refreshed",
+// with no remedy beside it. It is the same condition with the same remedy, and
+// read as a death it spends a run's relaunches on a login nobody renewed.
+var notAuthenticated = regexp.MustCompile(`(?i)not logged in|login expired|oauth (?:token|session) (?:expired|revoked)|failed to authenticate|please run /login|invalid api key|invalid auth token|authentication_error|\bunauthorized\b`)
 
 // unauthenticatedStatus is the HTTP status the provider's API answers with when
 // it will not accept the credentials the request carried.

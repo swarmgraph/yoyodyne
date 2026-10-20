@@ -119,7 +119,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 				"; tripped by a run of yoyodyne-ifd.300: checks failed"},
 		AttentionDirective: {directiveAttention(paused),
 			"directive directive-4f2c is unresolved: which branch does this land on?"},
-		AttentionOutage: {outageAttention(outage), outage.Says()},
+		AttentionOutage: {Sources{}.OutageAttention(outage), outage.Says()},
 		AttentionStall: {stallEntry,
 			"a watch session is alive and has found nothing it can start, since 2026-08-30T11:00:00Z"},
 		AttentionHeldWork: {heldWorkAttention(HeldAwaitingCarryOut, 2),

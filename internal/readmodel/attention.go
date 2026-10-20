@@ -345,6 +345,10 @@ type Attention struct {
 	CapacityHold *CapacityHold          `json:"capacity_hold,omitempty"`
 	// Outage is the provider's outage record, on an AttentionOutage entry.
 	Outage *runstate.ProviderOutage `json:"outage,omitempty"`
+	// LoginCommand is the command that logs the refused account in again, on
+	// an AttentionOutage entry about a lapsed login, where the reading could
+	// name one.
+	LoginCommand string `json:"login_command,omitempty"`
 	// Stall is the stall as the not-startable line derived it, on an
 	// AttentionStall entry.
 	Stall *Stall `json:"stall,omitempty"`
@@ -437,12 +441,13 @@ func (a Attention) CitedWhose() string {
 // Named reports an entry the attention line prints by name wherever it falls
 // and never counts into "and N things not named here": a finding only the
 // operator can act on, a critical report waiting on a role, a repeatedly
-// failing product pass, and a hold the brake placed. A line that folds those into a remainder has told him nothing, and
+// failing product pass, a hold the brake placed, and the provider answering
+// nobody. A line that folds those into a remainder has told him nothing, and
 // nothing telling him is the month
 // one class of finding once waited and the two hours the brake once stood.
 func (a Attention) Named() bool {
 	switch a.Kind {
-	case AttentionOperatorAction, AttentionLaneHumanBlock:
+	case AttentionOperatorAction, AttentionLaneHumanBlock, AttentionOutage:
 		return true
 	case AttentionAddressedReport:
 		return a.Report != nil && a.Report.Severity == report.SeverityCritical
@@ -847,6 +852,9 @@ func (a Attention) Whose() string {
 			}
 		}
 	case AttentionOutage:
+		if command := strings.TrimSpace(a.LoginCommand); command != "" {
+			return a.Mover.Possessive() + " — log in to the provider by running `" + command + "` on the machine the harness runs on; the harness resumes on its own once it answers, and nothing is released or restarted"
+		}
 		return ReasonProviderAway.Whose()
 	case AttentionReports:
 		return a.Mover.Possessive() + " — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up"
@@ -1075,10 +1083,17 @@ func runEnded(state runstate.State) time.Time {
 	return *state.CompletedAt
 }
 
-// outageAttention is the provider answering nobody, as the attention line
-// carries it.
-func outageAttention(outage runstate.ProviderOutage) Attention {
-	return Attention{Kind: AttentionOutage, ID: string(outage.Cause), Mover: MoverOperator, Outage: &outage}
+// OutageAttention is the provider answering nobody, as the attention line
+// carries it, with the command that logs the account in again where the
+// refusal was a lapsed login and the reading can name one. It is exported
+// because the channel and the operators' direct messages say the outage from
+// this entry too, so the command is the same wherever it is read.
+func (s Sources) OutageAttention(outage runstate.ProviderOutage) Attention {
+	attention := Attention{Kind: AttentionOutage, ID: string(outage.Cause), Mover: MoverOperator, Outage: &outage}
+	if outage.Cause == domain.ProviderUnauthenticated && s.LoginCommand != nil {
+		attention.LoginCommand = strings.TrimSpace(s.LoginCommand(outage.Provider, outage.AccountAlias))
+	}
+	return attention
 }
 
 // reportsAttention is a pile whose oldest undecided report has waited too

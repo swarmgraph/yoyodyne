@@ -59,8 +59,8 @@ const (
 	capacityStream  = "capacity"
 	claimStream     = "claims"
 	directiveStream = "directives"
-	// providerStream is the provider answering nobody, said once when it is seen
-	// and once when it answers again. It is a stream of its own for the reason
+	// providerStream is the provider answering nobody, said when it is seen,
+	// at most hourly while it stands, and once when it answers again. It is a stream of its own for the reason
 	// the capacity stream is: a state said on a record rather than a crossing of
 	// one, and true at a time every other record is silent.
 	providerStream = "provider"

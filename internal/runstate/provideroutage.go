@@ -19,9 +19,9 @@ package runstate
 // restarted the watch 158 times. Nothing told him, and the one thing that did
 // happen — the brake — prescribed the wrong remedy. The record here is what
 // `yoyo status` names the wait from, what the sweep records instead of a turn
-// count, what the channel says once when it begins and once when it ends, and
-// what the scheduler reads so that the brake never counts a run the provider
-// refused.
+// count, what Slack tells the operators when it begins, hourly while it stands,
+// and once when it ends, and what the scheduler reads so that the brake never
+// counts a run the provider refused.
 
 import (
 	"encoding/json"

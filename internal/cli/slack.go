@@ -476,9 +476,12 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		// the terminal and the dashboard read.
 		CapacityServed: capacityServed,
 		// And whether the provider is answering anybody at all, which the lines
-		// carry as their banner and the feed says once when it begins and once
-		// when it ends.
+		// carry as their banner and the feed tells the operators when it begins,
+		// hourly while it stands, and once when it ends.
 		ProviderOutages: outages,
+		// And the command that logs a refused account in again, which the
+		// messages about a lapsed login name exactly as the terminal does.
+		LoginCommand:    outageLoginCommand(resolved.Config, stateRoot),
 		DivergedTargets: divergences,
 		// And the provider's latest reading of each account's usage windows, so
 		// a window past the threshold is the same factory problem here as on the

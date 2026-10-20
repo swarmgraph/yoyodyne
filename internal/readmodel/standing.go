@@ -300,6 +300,12 @@ type Sources struct {
 	// rather than reporting none — three days of a login nobody was told had
 	// expired is the reason this is here.
 	ProviderOutages ProviderOutages
+	// LoginCommand is what the operator runs to log one provider account in
+	// again, as `yoyo doctor` names it, so a lapsed login is said with the
+	// command that ends it. The account is empty where the refusal was met
+	// before any account was chosen. It is optional, and a reading without one
+	// tells the operator to log in without naming the command.
+	LoginCommand func(provider domain.Backend, account string) string
 	// DivergedTargets is the product's record of the target branches the harness
 	// will not catch up to the remote's. It is optional, and a reading without
 	// one says nothing about a divergence rather than reporting none.
@@ -1008,10 +1014,12 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	needs, needsProblem := readNeedsHuman(sources, switches, actions, amendments)
 	needsProblem = joinProblems(needsProblem, actionsProblem)
 	// The provider answering nobody is on the attention line whatever the queue
-	// holds, because what ends it is a person: it is added here where the stall
-	// did not already carry it, which is a stall over an empty queue.
-	if switches.providerAway && stall.Reason != ReasonProviderAway {
-		needs = append(needs, outageAttention(switches.providerOutage))
+	// holds, because what ends it is a person, and it is the first thing on it:
+	// every role waits on it, so nothing else on the line can move until it
+	// ends. It is carried by its own entry, with the command that ends a lapsed
+	// login, rather than by the stall it causes, which is left off the line below.
+	if switches.providerAway {
+		needs = append([]Attention{sources.OutageAttention(switches.providerOutage)}, needs...)
 	}
 	// A target branch the harness will not catch up to the remote's is on the
 	// attention line whatever else is stopping the choosing, for the reason the
@@ -1049,8 +1057,9 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// A stall that is holding admitted work back and is nobody else's line to
 	// carry is attention in its own right. Nothing else reports it: a live session
 	// choosing nothing over a ready queue is a state no record announces, and the
-	// only thing that ever said it was the silence afterwards.
-	if waiting, attention := stall.Waiting(); attention {
+	// only thing that ever said it was the silence afterwards. The provider
+	// answering nobody is the exception, already carried first by its own entry.
+	if waiting, attention := stall.Waiting(); attention && !(stall.Reason == ReasonProviderAway && switches.providerAway) {
 		// A divergence's stall names its reason, which is every divergence's, so
 		// its entry is keyed to the branch it is about like the ones above.
 		if stall.Reason == ReasonDivergedTarget && len(switches.diverged) > 0 {
