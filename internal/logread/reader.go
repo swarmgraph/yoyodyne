@@ -203,42 +203,116 @@ func (r Reader) read(root *os.Root, request Request, redactor execution.Redactor
 		entries = bytes.SplitAfter(data, []byte{'\n'})
 	}
 	limit := min(request.MaxBytes, remaining)
+	windowed := !request.Since.IsZero()
 	offset := start
+	// stopped is set when the read ends before the end of what it scanned, and
+	// nextOffset is where in the record at the next cursor the next read starts.
+	stopped := false
+	nextOffset := int64(0)
 	for _, entry := range entries {
 		if len(entry) == 0 {
 			continue
 		}
-		if request.Cursor == nil {
+		atCursor := offset == start
+		skip := false
+		if windowed {
 			at, err := recordTime(entry)
 			if err != nil {
-				result.Content = ""
-				result.Bytes = 0
-				result.Problem = "record has no readable timestamp; use a cursor"
-				return result
+				return refuse(result, "record has no readable timestamp; use a cursor")
 			}
-			if at.Before(request.Since) || !at.Before(request.Until) {
-				offset += int64(len(entry))
-				result.NextCursor = offset
-				continue
-			}
+			skip = at.Before(request.Since) || !at.Before(request.Until)
 		}
+		if !skip && request.Task != "" {
+			skip = recordTask(entry) != request.Task
+		}
+		if skip {
+			if atCursor && request.Offset > 0 {
+				return refuse(result, "the record at the cursor is outside this read, so an offset into it names nothing")
+			}
+			offset += int64(len(entry))
+			result.NextCursor = offset
+			continue
+		}
+		// Redact the complete entry before cutting it, so no part can expose a
+		// prefix of a secret, and so every part is cut from the same text.
 		content := redactor.Redact(redactFields(entry, redactor))
+		partStart := int64(0)
+		if atCursor && request.Offset > 0 {
+			if request.Offset >= int64(len(content)) {
+				return refuse(result, "offset is beyond the end of the record at the cursor")
+			}
+			partStart = int64(characterStart(content, int(request.Offset)))
+		}
+		piece := content[partStart:]
 		room := limit - len(result.Content)
-		if len(content) > room {
-			result.Truncated = true
-			// Redact the complete entry before cutting it so a cut cannot expose a
-			// prefix of a secret. A partial entry is repeated on the next request.
-			content = cut(content, room)
-			result.Content += content
+		if len(piece) <= room {
+			result.Content += piece
+			offset += int64(len(entry))
+			result.NextCursor = offset
+			if partStart > 0 {
+				// The last part of a record read in parts is returned alone.
+				result.Part = &Part{Start: partStart}
+				stopped = true
+				break
+			}
+			continue
+		}
+		stopped = true
+		result.Truncated = true
+		if result.Content != "" {
+			// Whole records only after the first; this one starts the next read.
 			break
 		}
-		result.Content += content
-		offset += int64(len(entry))
-		result.NextCursor = offset
+		// One record longer than this read returns comes back in parts. Each
+		// part ends at the start of a character, which is where the next begins.
+		piece = piece[:characterStart(piece, room)]
+		result.Content = piece
+		nextOffset = partStart + int64(len(piece))
+		result.Part = &Part{Start: partStart, Remaining: int64(len(content)) - nextOffset}
+		break
 	}
 	result.Truncated = result.Truncated || scanCut
 	result.Bytes = len(result.Content)
+	if (stopped && result.NextCursor < result.Size) || scanCut || nextOffset > 0 {
+		next := request
+		cursor := result.NextCursor
+		next.Cursor = &cursor
+		next.Offset = nextOffset
+		result.Next = &next
+	}
 	return result
+}
+
+func refuse(result Result, problem string) Result {
+	result.Content = ""
+	result.Bytes = 0
+	result.Part = nil
+	result.Problem = problem
+	return result
+}
+
+// characterStart moves an index into value back to the start of the character
+// it falls inside, so a part neither ends nor begins halfway through one.
+func characterStart(value string, index int) int {
+	if index >= len(value) {
+		return len(value)
+	}
+	for index > 0 && !utf8.RuneStart(value[index]) {
+		index--
+	}
+	return index
+}
+
+// recordTask is the recurring task a pass record names, or empty where it
+// names none.
+func recordTask(data []byte) string {
+	var record struct {
+		Task string `json:"task"`
+	}
+	if json.Unmarshal(data, &record) != nil {
+		return ""
+	}
+	return record.Task
 }
 
 func recordTime(data []byte) (time.Time, error) {
@@ -255,20 +329,6 @@ func recordTime(data []byte) (time.Time, error) {
 		}
 	}
 	return time.Time{}, fmt.Errorf("record has no timestamp")
-}
-
-func cut(value string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	if len(value) <= limit {
-		return value
-	}
-	value = value[:limit]
-	for !utf8.ValidString(value) {
-		value = value[:len(value)-1]
-	}
-	return value
 }
 
 // redactFields removes conventionally sensitive values from structured records,

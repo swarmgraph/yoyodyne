@@ -12,6 +12,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/action"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 )
@@ -26,12 +27,19 @@ const MaxScanBytes = 8 << 20
 const MaxWindow = 24 * time.Hour
 
 // Request chooses one closed record class. Name is a run id for run, and must
-// be empty for the product's other records. Cursor is a raw byte offset at a
-// record boundary; time windows are inclusive at since and exclusive at until.
+// be empty for the product's other records. Task narrows a pass read to one
+// recurring task's passes. Cursor is a raw byte offset at a record boundary;
+// time windows are inclusive at since and exclusive at until, and a cursor
+// given with a window carries a window read on from where the last one stopped.
+// Offset reads the record at the cursor from that many bytes in, counted after
+// secrets are removed, so a record longer than one read returns comes back in
+// parts.
 type Request struct {
 	Record   string    `json:"record"`
 	Name     string    `json:"name,omitempty"`
+	Task     string    `json:"task,omitempty"`
 	Cursor   *int64    `json:"cursor,omitempty"`
+	Offset   int64     `json:"offset,omitempty"`
 	Since    time.Time `json:"since,omitempty"`
 	Until    time.Time `json:"until,omitempty"`
 	MaxBytes int       `json:"max_bytes"`
@@ -48,28 +56,41 @@ func (r Request) Validate() error {
 			return errors.New("only a run record accepts a name")
 		}
 	case "run":
-		if r.Name == "" || len(r.Name) > 128 || strings.ContainsAny(r.Name, "/\\. \t\r\n") {
+		if !plainIdentifier(r.Name) {
 			return errors.New("run name must be a plain run identifier")
 		}
 	default:
 		return errors.New("record must be pass, watch, docket, run, usage-limit, or provider-outage")
 	}
+	if r.Task != "" && (r.Record != "pass" || domain.ValidateIdentifier("task", r.Task) != nil) {
+		return errors.New("only a pass read accepts a task, and it must be a recurring task's name")
+	}
 	if r.MaxBytes < 1 || r.MaxBytes > MaxContentBytes {
 		return fmt.Errorf("max_bytes must be between 1 and %d", MaxContentBytes)
 	}
-	if r.Cursor != nil {
-		if *r.Cursor < 0 || !r.Since.IsZero() || !r.Until.IsZero() {
-			return errors.New("cursor must be nonnegative and cannot be combined with a time window")
-		}
-	} else if r.Since.IsZero() || r.Until.IsZero() || !r.Until.After(r.Since) || r.Until.Sub(r.Since) > MaxWindow {
+	if r.Cursor != nil && *r.Cursor < 0 {
+		return errors.New("cursor must be nonnegative")
+	}
+	if r.Offset < 0 || (r.Offset > 0 && r.Cursor == nil) {
+		return errors.New("offset must be nonnegative and needs the cursor of the record it reads into")
+	}
+	windowed := !r.Since.IsZero() || !r.Until.IsZero()
+	if windowed && (r.Since.IsZero() || r.Until.IsZero() || !r.Until.After(r.Since) || r.Until.Sub(r.Since) > MaxWindow) {
+		return errors.New("a time window needs since and until spanning at most 24 hours")
+	}
+	if r.Cursor == nil && !windowed {
 		return errors.New("supply cursor or a since/until time window of at most 24 hours")
 	}
 	return nil
 }
 
+func plainIdentifier(value string) bool {
+	return value != "" && len(value) <= 128 && !strings.ContainsAny(value, "/\\. \t\r\n")
+}
+
 func Descriptor() action.Tool {
 	return action.Tool{ID: capability.LogRead, Block: "yoyodyne-log", Class: action.ToolRead,
-		Parameters: `JSON such as {"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}. Records: pass, watch (name output reads scheduler output), docket, run (requires name), usage-limit, provider-outage. Supply a nonnegative byte cursor at a record boundary, or since and until as RFC3339 times spanning at most 24 hours; never both. Unknown fields and invalid requests refuse the whole block. Results name the next cursor, bytes returned, the record's whole size, and any truncation. A cut inside a record repeats that record on the next read; widen max_bytes within the ceiling to read it whole.`,
+		Parameters: `JSON such as {"requests":[{"record":"watch","cursor":0,"max_bytes":4096}]}. Records: pass (task narrows it to one recurring task's passes), watch (name output reads scheduler output), docket, run (requires name), usage-limit, provider-outage. Supply a nonnegative byte cursor at a record boundary, or since and until as RFC3339 times spanning at most 24 hours, or both to carry a window read on from a cursor. Unknown fields and invalid requests refuse the whole block. Results name the next cursor, bytes returned, the record's whole size, any truncation, and the next read to ask for. A record longer than one read returns comes back in parts: each part names where it starts and how many bytes of the record remain, and its next read carries on with an offset into the record at the cursor.`,
 		Bounds:     action.ToolBounds{RequestsPerReply: MaxRequestsPerReply, RoundsPerMessage: MaxRoundsPerMessage, BytesPerRequest: MaxContentBytes, BytesPerReply: MaxBytesPerReply},
 		Scope:      "one named record the product keeps of its own running, under its state directory; never a path, a credential, a memory, a conversation, or the repository's files",
 		Gates:      "that your role is allowed to use it, and that spending is not paused. One request reads through at most 8 MiB of a record.",
@@ -119,9 +140,22 @@ type Result struct {
 	Bytes      int    `json:"bytes"`
 	// Size is the whole record's size when it was read, so a cut says how much
 	// of the record the bounds left unread.
-	Size      int64  `json:"size"`
-	Truncated bool   `json:"truncated"`
-	Problem   string `json:"problem,omitempty"`
+	Size      int64 `json:"size"`
+	Truncated bool  `json:"truncated"`
+	// Part is set when the result is one part of a single record longer than
+	// one read returns; that record starts at NextCursor until its last part.
+	Part *Part `json:"part,omitempty"`
+	// Next is the read that carries on from where this one stopped, set
+	// whenever it stopped before the end of what it could reach.
+	Next    *Request `json:"next,omitempty"`
+	Problem string   `json:"problem,omitempty"`
+}
+
+// Part places one part within its record. Both are counted in bytes of the
+// record as returned, after secrets are removed, which is what offsets count.
+type Part struct {
+	Start     int64 `json:"start"`
+	Remaining int64 `json:"remaining"`
 }
 
 func Render(results []Result) string {
