@@ -2430,8 +2430,9 @@ leaves the previous snapshot intact and is reported by the reader.
 `yoyo reconcile`, including the supervisor's maintenance pass, removes bd export
 temporaries named `.beads/.~issues.jsonl.<digits>` or
 `.beads/.~interactions.jsonl.<digits>` only after their modification time is more
-than 24 hours old. The confined snapshot writer's `.beads/.yoyo-write-*.tmp`
-temporaries are cleaned by the same rules. It checks open files with `lsof`,
+than 24 hours old. The confined snapshot writer's `.beads/.yoyodyne-tmp-*.tmp`
+temporaries, and the `.beads/.yoyo-write-*.tmp` ones earlier builds wrote, are
+cleaned by the same rules. It checks open files with `lsof`,
 matching device and inode
 so a holder using another path or a hard link is still recognized. Open files,
 symlinks, unrelated names, and files changed during inspection are kept. If
