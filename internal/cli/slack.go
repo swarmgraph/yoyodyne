@@ -497,6 +497,11 @@ func buildSlackSink(configPath string, poll, heartbeat time.Duration, version st
 		SchedulingWaitProblemAfter: resolved.Config.Execution.SchedulingWaitProblemAfter.Duration(),
 		TrackerTimeout:             chatTrackerTimeout,
 	}
+	// The tracker reading every status reading on the machine shares, as
+	// `yoyo status` reads it (standingSources).
+	if readings, err := runstate.NewTrackerReadingStore(stateRoot, productID); err == nil {
+		standing.TrackerReadings = readings
+	}
 	// The program manager instances, so the hourly line counts the stale ones
 	// from the derivation `yoyo status` prints them from.
 	programManagerSources(standing, resolved.Config, stateRoot)

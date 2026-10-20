@@ -712,6 +712,12 @@ func standingSources(configPath string) readmodel.Sources {
 	if err == nil {
 		sources.TrackerListings = listings
 	}
+	// The one reading of the tracker every status reading on the machine shares,
+	// so this one, the dashboard's, Slack's, and the passes' do not each hold the
+	// tracker's store for the same two listings (runstate, trackerreading.go).
+	if store, err := runstate.NewTrackerReadingStore(stateRoot, cfg.Product.ID); err == nil {
+		sources.TrackerReadings = store
+	}
 	// The record of places for the machine's heavy checks, so a place kept for
 	// a check's leftover processes is said with the check and run holding it.
 	if store, err := runstate.NewHeavyCheckStore(stateRoot); err == nil {

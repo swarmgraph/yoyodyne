@@ -12,13 +12,41 @@ package readmodel
 // one wide one, and the wide one and the readiness query — the only two
 // commands left — are started together, at the top of the reading, so they run
 // beside every record it reads from disk.
+//
+// Where the sources carry the product's shared reading (TrackerReadings), the
+// two commands are not this reading's own: every status reading on the machine
+// shares one made within sharedReadingFresh, and the callers that arrive while
+// one is being made wait for it (internal/runstate, trackerreading.go). That is
+// what keeps `yoyo status`, the dashboard, Slack, and the passes from each
+// holding the tracker's store for the same two listings.
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
+
+// sharedReadingFresh is how old a shared reading may be and still be handed to
+// a status reading. It is the dashboard's own interval between standings, so a
+// reading shared at it is never staler than the page that shows it already is.
+const sharedReadingFresh = 10 * time.Second
+
+// sharedReadingWait bounds a wait for the shared reading where the sources set
+// no bound of their own: the reading being waited for is bounded by its
+// tracker client's own limits, and this only keeps a caller from waiting
+// forever on a holder that never lets go.
+const sharedReadingWait = 3 * time.Minute
+
+// TrackerReadings is the product's one shared reading of the tracker. It is
+// satisfied by *runstate.TrackerReadingStore.
+type TrackerReadings interface {
+	Share(ctx context.Context, fresh time.Duration, read func() (runstate.TrackerReading, bool)) (runstate.TrackerReading, error)
+}
 
 // sharedTracker answers every listing of one reading from a single listing of
 // every item, and asks the tracker what is ready once. Both are started the
@@ -26,8 +54,10 @@ import (
 // the same answer; a caller whose own context ends first stops waiting without
 // stopping the read.
 type sharedTracker struct {
-	tracker Tracker
-	bound   func(context.Context) (context.Context, context.CancelFunc)
+	tracker  Tracker
+	bound    func(context.Context) (context.Context, context.CancelFunc)
+	readings TrackerReadings
+	wait     time.Duration
 
 	once  sync.Once
 	every sharedRead
@@ -51,7 +81,12 @@ func (s Sources) sharing() (Sources, *sharedTracker) {
 	if shared, ok := s.Tracker.(*sharedTracker); ok {
 		return s, shared
 	}
-	shared := &sharedTracker{tracker: s.Tracker, bound: s.bounded}
+	shared := &sharedTracker{tracker: s.Tracker, bound: s.bounded, readings: s.TrackerReadings, wait: sharedReadingWait}
+	// A caller waiting for the shared reading waits out the one being made,
+	// which its own bound ends, and then may have to make its own.
+	if s.TrackerTimeout > 0 {
+		shared.wait = 2 * s.TrackerTimeout
+	}
 	s.Tracker = shared
 	return s, shared
 }
@@ -66,6 +101,10 @@ func (t *sharedTracker) start(ctx context.Context) {
 	t.once.Do(func() {
 		t.every.done = make(chan struct{})
 		t.ready.done = make(chan struct{})
+		if t.readings != nil {
+			go t.share(ctx)
+			return
+		}
 		go t.every.read(ctx, t.bound, func(ctx context.Context) ([]beads.WorkItem, error) { return t.tracker.List(ctx, "") })
 		go t.ready.read(ctx, t.bound, t.tracker.Ready)
 	})
@@ -81,6 +120,47 @@ func (t *sharedTracker) finish() {
 	}
 	<-t.every.done
 	<-t.ready.done
+}
+
+// share answers both commands from the product's shared reading, making it
+// with both commands under way together where no reading fresh enough is kept.
+// A reading that could not be had at all costs both commands, each saying why;
+// one the tracker did not answer is said as the tracker said it.
+func (t *sharedTracker) share(ctx context.Context) {
+	defer close(t.every.done)
+	defer close(t.ready.done)
+	waiting, cancel := context.WithTimeout(ctx, t.wait)
+	defer cancel()
+	reading, err := t.readings.Share(waiting, sharedReadingFresh, func() (runstate.TrackerReading, bool) {
+		var every, ready sharedRead
+		every.done, ready.done = make(chan struct{}), make(chan struct{})
+		go every.read(ctx, t.bound, func(ctx context.Context) ([]beads.WorkItem, error) { return t.tracker.List(ctx, "") })
+		go ready.read(ctx, t.bound, t.tracker.Ready)
+		<-every.done
+		<-ready.done
+		reading := runstate.TrackerReading{Every: every.items, Ready: ready.items}
+		if every.err != nil {
+			reading.Every, reading.EveryFailure = nil, every.err.Error()
+		}
+		if ready.err != nil {
+			reading.Ready, reading.ReadyFailure = nil, ready.err.Error()
+		}
+		// A reading whose own caller gave up says nothing about the tracker, so
+		// it is not handed to anybody else.
+		return reading, ctx.Err() == nil
+	})
+	if err != nil {
+		err = fmt.Errorf("the tracker reading every status reading shares could not be had: %w", err)
+		t.every.err, t.ready.err = err, err
+		return
+	}
+	t.every.items, t.ready.items = reading.Every, reading.Ready
+	if reading.EveryFailure != "" {
+		t.every.items, t.every.err = nil, errors.New(reading.EveryFailure)
+	}
+	if reading.ReadyFailure != "" {
+		t.ready.items, t.ready.err = nil, errors.New(reading.ReadyFailure)
+	}
 }
 
 func (r *sharedRead) read(ctx context.Context, bound func(context.Context) (context.Context, context.CancelFunc), command func(context.Context) ([]beads.WorkItem, error)) {
