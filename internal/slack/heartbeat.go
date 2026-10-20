@@ -196,22 +196,23 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 		// would be the harness inventing a question.
 		return []Delivery{{Stream: heartbeatStream, Cursor: armed}}, nil, nil
 	}
-	// A line stopped by a hold the brake placed and then handed to a person is
-	// the one state the heartbeat says louder as it stands rather than at the
-	// same pitch. A hold the operator placed is a state they may have to sit
-	// with, and an hourly note is right for it; a hold the harness is working
-	// itself is the development manager's, and she is summoned about it — and
-	// the line names where that summons-and-probe loop stands, in the hold's
-	// own words, so an hourly note about a loop that is going round says which
-	// cycle it is on and when the harness stops asking. A brake hold that waits
-	// on the operator — escalated by her, escalated by the harness at that
-	// loop's bound, or written before the brake summoned anybody — is a stopped
-	// line nobody has told him about except by a message that is getting older,
-	// which on 2026-09-19 stood for two hours with a free slot idle. So it is
-	// tagged to the operators by member id every time it is said, a warning
-	// while it is young, and critical and taken to them directly once it has
-	// stood past the bar the stall alarm uses, for the reason the alarm uses it:
-	// it is a person's now, and nothing else ends it.
+	// A line stopped by a brake hold that has left the harness's loop — escalated
+	// by the development manager, escalated by the harness at its loop's bound,
+	// or written before the brake summoned anybody — is the one state the
+	// heartbeat says louder as it stands rather than at the same pitch: a warning
+	// while it is young, and critical once it has stood past the bar the stall
+	// alarm uses. On 2026-09-19 such a hold stood for two hours with a free slot
+	// idle. A hold the operator placed is a state he may have to sit with, and an
+	// hourly note is right for it; a hold the harness is working itself is the
+	// development manager's, and she is summoned about it — and the line names
+	// where that summons-and-probe loop stands, in the hold's own words.
+	//
+	// Who it is tagged to is the read model's answer, not this sink's: the
+	// operators are tagged, and taken it directly once it is critical, only where
+	// the ownership registry names the operator as the hold's owner. An escalated
+	// brake hold is the Lead Product Manager's, and the operating rule is that the
+	// brake never summons the operator; he is told once, by the escalation's own
+	// message, and the hourly line stays in the channel.
 	severity := report.SeverityNote
 	tag, direct := false, false
 	// A target branch the harness will not catch up to the remote's is the
@@ -225,11 +226,12 @@ func (f *HarnessFeed) heartbeatDeliveries(ctx context.Context, cursor Cursor, he
 		tag = true
 	}
 	if state.Reason == readmodel.ReasonIntakeHold && held.intake.HeldBy == runstate.IntakeHolderBrake && held.intake.WaitsOnAPerson() {
+		his := readmodel.IntakeHoldOwner(held.intake).Owner.IsOperator()
 		severity = report.SeverityWarning
-		tag = true
+		tag = his
 		if now.Sub(state.Since) >= f.stallEscalation() {
 			severity = report.SeverityCritical
-			direct = true
+			direct = his
 		}
 	}
 	// The four lines are read here rather than assembled from what this pass
@@ -344,12 +346,12 @@ func options(reason readmodel.Reason) []string {
 
 // lineMover is whose move follows what stopped the line, in the read model's
 // words. The intake hold is the one reason whose vocabulary cannot see who holds
-// it — the operator's own hold is theirs, and the brake's is whoever its record
-// says — so that one is read from the hold itself, which is the same record the
-// attention line of `yoyo status` words it from.
+// it — the operator's own hold is his, and the brake's is whoever its record
+// says — so that one is the read model's answer for the hold itself, the same
+// entry the attention line of `yoyo status` prints.
 func lineMover(state readmodel.Stall, held switches) string {
 	if state.Reason == readmodel.ReasonIntakeHold && held.intakeHeld {
-		return held.intake.Whose()
+		return readmodel.IntakeHoldWhose(held.intake)
 	}
 	return state.Whose()
 }

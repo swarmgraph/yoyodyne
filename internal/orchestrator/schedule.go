@@ -730,7 +730,8 @@ type Pull struct {
 	BrakeCooldown time.Duration
 	// BrakeEscalationCycles is execution.brake_escalation_cycles as this pull
 	// read it: how many summons-and-probe cycles the brake goes round before it
-	// escalates the hold to the operator itself. Zero never escalates on its own.
+	// escalates the hold to the Lead Product Manager itself, with the operator
+	// told. Zero never escalates on its own.
 	BrakeEscalationCycles int
 	// Brake places that hold and works it. It is optional, and a session wired
 	// without one counts the storm and reports it without stopping the line,
@@ -1311,8 +1312,8 @@ type Schedule struct {
 	// started it again did both, and a reader must not have to infer the second
 	// from the runs that followed.
 	Released []BrakeRelease `json:"released,omitempty"`
-	// BrakeEscalated is the brake's hold this session handed to the operator
-	// itself, at the cycle bound, with the cycles it spent and what stopped the
+	// BrakeEscalated is the brake's hold this session escalated to the Lead
+	// Product Manager itself, with the operator told, at the cycle bound, with the cycles it spent and what stopped the
 	// last probe. It is on the schedule for the reason a release is: a session
 	// that stopped summoning anybody over a hold did something, and a reader must
 	// not have to infer it from the summonses that stopped.
@@ -4011,7 +4012,7 @@ type brakeAction int
 
 const (
 	// brakeWaiting is the hold standing: the development manager deciding, a
-	// probe in flight, or the hold escalated to the operator. The session waits
+	// probe in flight, or the hold escalated to the Lead Product Manager. The session waits
 	// as it always did under a held intake.
 	brakeWaiting brakeAction = iota
 	// brakeReleased is the hold lifted by this poll, on her decision to release
@@ -4166,8 +4167,8 @@ func (s Scheduler) recordNoProbe(schedule *Schedule, pull Pull, found string) {
 // The blocking is also the one place the loop is counted, because a blocked
 // probe is what makes a cycle: it is what summons her again and starts another
 // cooldown. The cycle that reaches the bound is not summoned over. The harness
-// escalates the hold to the operator instead, on its own record, and the sink
-// says so once to them directly — a loop that costs one of her turns and one
+// escalates the hold to the Lead Product Manager instead, on its own record,
+// and the sink tells the operator so once, directly — a loop that costs one of her turns and one
 // run per cooldown must not go round all night on a machine that stays broken,
 // with nothing getting louder because the one role who could escalate it has
 // not.
@@ -7209,7 +7210,7 @@ func (s Schedule) Render() string {
 		fmt.Fprintf(&rendered, "the brake's hold was released at %s: %s\n", released.At.UTC().Format(time.RFC3339), released.Reason)
 	}
 	if escalated := s.BrakeEscalated; escalated != nil {
-		fmt.Fprintf(&rendered, "the brake's hold was escalated to the operator at %s, after %d summons-and-probe cycle(s) with the development manager not escalating it; the last probe run, of %s, blocked: %s\n",
+		fmt.Fprintf(&rendered, "the brake's hold was escalated to the Lead Product Manager, with the operator told, at %s, after %d summons-and-probe cycle(s) with the development manager not escalating it; the last probe run, of %s, blocked: %s\n",
 			escalated.At.UTC().Format(time.RFC3339), escalated.Cycles, escalated.Probe, singleLine(escalated.Reason, maxScheduleReasonBytes))
 	}
 	if s.BrakeProblem != "" {

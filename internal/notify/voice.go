@@ -204,7 +204,7 @@ var harnessVoice = voice{
 		KindQuestionHeard:            "Heard as a question rather than an instruction, so nothing was recorded against this item; the Lead Product Manager's answer follows here.",
 		KindIntakeHeld:               "Intake is held for this product: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released for this product, {released}.",
-		KindIntakeEscalated:          "The brake's hold on intake is escalated to the operator by the harness: {why}",
+		KindIntakeEscalated:          "The brake's hold on intake is escalated to the Lead Product Manager by the harness, and you are told: {why}",
 		KindOperatorAction:           "This needs your hand: {needs} Found by {foundby}; recorded in {recordedin}. Nothing here changes it, and this is not said again — `yoyo status` names it until it is done, and {ends}.",
 		KindHoldPlaced:               "All harness activity is held.",
 		KindHoldLifted:               "The hold on harness activity is lifted.",
@@ -285,7 +285,7 @@ var developerVoice = voice{
 		KindQuestionHeard:            "That was a question rather than direction, so nothing about what I'm building changed by it; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held, so nothing new reaches me: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is open again, {released}; I'll take what I'm given.",
-		KindIntakeEscalated:          "The harness has stopped probing the line with runs like mine and handed the hold to the operator: {why}",
+		KindIntakeEscalated:          "The harness has stopped probing the line with runs like mine and handed the hold to the Lead Product Manager, and the operator is told: {why}",
 		KindOperatorAction:           "Something only you can change is recorded against my work: {needs} Found by {foundby}; recorded in {recordedin}. I can't make that change from a run, nothing here asks you twice, and {ends}.",
 		KindHoldPlaced:               "Held before my next provider call. Nothing of the change is lost.",
 		KindHoldLifted:               "The hold is lifted; I'm carrying on.",
@@ -366,7 +366,7 @@ var reviewerVoice = voice{
 		KindQuestionHeard:            "That was a question rather than something I judge the change against, so nothing was recorded; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held, so nothing new will arrive for review: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is open, {released}; work will reach me again.",
-		KindIntakeEscalated:          "The harness has handed the brake's hold to the operator rather than probe the line again; nothing new reaches me until it is released: {why}",
+		KindIntakeEscalated:          "The harness has handed the brake's hold to the Lead Product Manager rather than probe the line again, and the operator is told; nothing new reaches me until it is released: {why}",
 		KindOperatorAction:           "A finding here is yours rather than a verdict's: {needs} Found by {foundby}; recorded in {recordedin}. No review changes it, it is said to you once, and {ends}.",
 		KindHoldPlaced:               "Held before my next review. Nothing already judged changes.",
 		KindHoldLifted:               "The hold is lifted; reviews resume.",
@@ -446,7 +446,7 @@ var developmentManagerVoice = voice{
 		KindQuestionHeard:            "That was a question rather than direction, so nothing about this item moved; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held, so I pull nothing new until it lifts: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; I'm pulling from the top of the backlog again.",
-		KindIntakeEscalated:          "The harness escalated the brake's hold to the operator over my head — I was asked every cycle and did not — so no further probe starts and the queue waits on a person: {why}",
+		KindIntakeEscalated:          "The harness escalated the brake's hold to the Lead Product Manager over my head — I was asked every cycle and did not — so no further probe starts and the queue waits on her decision, with the operator told: {why}",
 		KindOperatorAction:           "This is on you rather than on my docket: {needs} Found by {foundby}; recorded in {recordedin}. I won't raise it again, and {ends}.",
 		KindHoldPlaced:               "Everything is held. Nothing new starts, and nothing in flight is lost.",
 		KindHoldLifted:               "The hold is lifted; the work in flight carries on.",
@@ -527,7 +527,7 @@ var productManagerVoice = voice{
 		KindQuestionHeard:            "I read that as a question rather than an instruction, so nothing was recorded against this item; my answer follows here.",
 		KindIntakeHeld:               "Intake is held, so nothing new is chosen until somebody lifts it: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; the backlog is being pulled from again.",
-		KindIntakeEscalated:          "The brake's hold on intake is now the operator's: the harness stopped asking the development manager and escalated it itself, so nothing I admit is chosen until somebody releases it: {why}",
+		KindIntakeEscalated:          "The brake's hold on intake is now mine to decide, and the operator is told: the harness stopped asking the development manager and escalated it itself, so nothing I admit is chosen until somebody releases it: {why}",
 		KindOperatorAction:           "This one needs your hand rather than a decision of mine: {needs} Found by {foundby}; recorded in {recordedin}. It stays named on `yoyo status` until it is done — {ends} — and I won't say it again.",
 		KindHoldPlaced:               "The operator paused all harness activity.",
 		KindHoldLifted:               "The operator lifted the hold.",
@@ -608,7 +608,7 @@ var architectVoice = voice{
 		KindQuestionHeard:            "That was a question rather than a directive, so the record holds nothing from it; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held, which stops selection and nothing already running: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}; selection resumes.",
-		KindIntakeEscalated:          "The brake's summons-and-probe loop reached its bound and the harness escalated the hold to the operator, which is the loop working as designed rather than standing silent: {why}",
+		KindIntakeEscalated:          "The brake's summons-and-probe loop reached its bound and the harness escalated the hold to the Lead Product Manager, with the operator told, which is the loop working as designed rather than standing silent: {why}",
 		KindOperatorAction:           "A change only the operator can make is recorded: {needs} Found by {foundby}; recorded in {recordedin}. No design decides it, it is said once, and {ends}.",
 		KindHoldPlaced:               "All harness activity is held, at the provider-call boundary rather than mid-generation.",
 		KindHoldLifted:               "The hold is lifted, and every run that stopped for it carries on from its own record.",
@@ -690,7 +690,7 @@ var programManagerVoice = voice{
 		KindQuestionHeard:            "That was a question, not a directive, so nothing is recorded from it; the Lead Product Manager answers it here.",
 		KindIntakeHeld:               "Intake is held: nothing new is chosen, and what is running carries on. How long the line stays held is part of what I watch: {why}{stops}{lifts}",
 		KindIntakeReleased:           "Intake is released, {released}, and the line can choose work again.",
-		KindIntakeEscalated:          "The brake went round its summons-and-probe loop to the bound, and the harness put the hold in front of the operator, as it is built to: {why}",
+		KindIntakeEscalated:          "The brake went round its summons-and-probe loop to the bound, and the harness put the hold in front of the Lead Product Manager, with the operator told, as it is built to: {why}",
 		KindOperatorAction:           "Something in my lane waits on the operator's own hand rather than on any role: {needs} Found by {foundby}; recorded in {recordedin}. It is said to you once, and {ends}.",
 		KindHoldPlaced:               "Everything is held at the next provider call; nothing in flight is thrown away.",
 		KindHoldLifted:               "The hold is off, and each held run continues from its own record.",
@@ -887,7 +887,7 @@ var nextMoves = map[Kind]string{
 	KindIntakeReleased: "the harness's — the backlog is being pulled from again.",
 	// The harness's own escalation: the account above it already says why in the
 	// hold's own words, so this says only what follows.
-	KindIntakeEscalated: "the operator's — the harness has stopped probing, and nothing new is chosen until `yoyo release` lifts it.",
+	KindIntakeEscalated: "the Lead Product Manager's — the harness has stopped probing, and she decides whether intake reopens; you may release it, and nothing new is chosen until `yoyo release` lifts it.",
 	// A finding only the operator can act on. The message carries the read
 	// model's own wording of whose move it is and what ends it in Mover, so the
 	// terminal's attention line and this clause are one wording; this is what a
@@ -1035,8 +1035,8 @@ func nextMove(event Event) (string, bool) {
 	// clause is the read model's — derived beside the fact the message states, so
 	// the two cannot disagree. The waiting line is the same shape over the
 	// intake hold: the brake's is the development manager's while she decides
-	// and the operator's once she has escalated it, and the line is repeated to
-	// the operator exactly when it is his. A report waiting on a role names that
+	// and the Lead Product Manager's once it is escalated, and the line is
+	// tagged to the operator exactly when the read model names him. A report waiting on a role names that
 	// role, where the table's clause says the work carried on.
 	if strings.TrimSpace(event.Detail.Mover) != "" {
 		switch event.Kind {

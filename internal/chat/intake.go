@@ -172,7 +172,7 @@ func (s *Session) decideBrake(outcome *TrackerOutcome) {
 		outcome.applied("recorded the decision to probe the line under the brake's hold, held since %s; the watching session starts one probe run at its next poll, and intake reopens if it lands",
 			held.HeldAt.UTC().Format(time.RFC3339))
 	case runstate.BrakeDecisionEscalate:
-		outcome.applied("recorded the escalation of the brake's hold on intake, held since %s, to the operator; it stays held until `yoyo release` or /release lifts it",
+		outcome.applied("recorded the escalation of the brake's hold on intake, held since %s, to the Lead Product Manager, and the operator is told; it stays held until `yoyo release` or /release lifts it",
 			held.HeldAt.UTC().Format(time.RFC3339))
 	default:
 		outcome.applied("recorded the brake decision %q on the hold held since %s", decision, held.HeldAt.UTC().Format(time.RFC3339))

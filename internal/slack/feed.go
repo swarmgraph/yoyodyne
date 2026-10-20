@@ -1363,7 +1363,7 @@ func (f *HarnessFeed) holdDeliveries(cursor Cursor, read switches) []Delivery {
 // saidEscalated reports a cursor written before the two escalations were one
 // message having already said this hold's escalation: the harness's under the
 // moment it escalated, or the development manager's under the moment she
-// decided. Either is this hold said escalated to the operator, so neither is
+// decided. Either is this hold's escalation said to the operator, so neither is
 // said again.
 func saidEscalated(cursor Cursor, intake runstate.IntakeHold) bool {
 	if escalation := intake.Brake.Escalation; escalation != nil && cursor.Has(brakeEscalationMark+stamp(escalation.At)) {

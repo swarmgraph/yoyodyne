@@ -608,7 +608,7 @@ func (s Scheduler) collectFirings(schedule *Schedule, firings *recurringFirings,
 // summonWaiting makes the brake's summons that waited on the development
 // manager's conversation, once the turn holding it has ended, and only while the brake's hold
 // it was for still stands and is still the harness's to work. A hold she or the
-// operator lifted in the meantime, or one escalated to the operator, has
+// operator lifted in the meantime, or one escalated past her, has
 // nothing left to summon her over, so the waiting summons is dropped. A hold
 // that cannot be read is left for the next pull.
 func (s Scheduler) summonWaiting(ctx context.Context, schedule *Schedule, firings *recurringFirings, pull Pull) {

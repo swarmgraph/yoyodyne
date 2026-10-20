@@ -1416,40 +1416,50 @@ person for nothing while the development manager is deciding about it or a
 probe is running under it, and the hourly line says so at note severity, naming
 her move and where the summons-and-probe loop stands — which cycle it is, and
 at what cycle the harness stops asking — so a note repeated through a night
-says how much longer the loop goes on. Once it waits on the operator — she
+says how much longer the loop goes on. Once it has left that loop — she
 escalated it, the harness escalated it at that bound, or it was written before
 the brake summoned anybody, which is the hold that stood for two hours on
-2026-09-19 with a free slot idle — the hourly line is **tagged to the
-operators every time it is said, a `warning` while it is young, and `critical`
-and sent to them directly once it has stood two hours**, until intake is
-released. The operator's own intake hold is a state they chose to sit with and
-stays the hourly note it was.
+2026-09-19 with a free slot idle — the hourly line gets louder as it stands: **a
+`warning` while it is young, and `critical` once it has stood two hours**,
+until intake is released. It names the owner the ownership registry gives the
+hold — the Lead Product Manager for an escalated hold, the development manager
+for one written before the brake kept a record of its own — and it is tagged to
+the operators only where the registry names him, which for a brake hold it never
+does: the brake summons the development manager to decide, never the operator,
+and the operator is told of an escalation once, by the message below. The
+operator's own intake hold is a state they chose to sit with and stays the
+hourly note it was.
 
 ### A brake hold the harness escalates
 
-The one message about a brake hold that asks a person for something. On a
+The one message about a brake hold the operators are told of directly. On a
 machine that stays broken the brake's loop goes round — each blocked probe
 summons her again and restarts the cooldown — and nothing about it got louder
 unless she escalated it. After
 [`execution.brake_escalation_cycles`](configuration.md#watching-instead-of-draining)
-of those cycles with no escalation of hers, the harness escalates the hold to
-the operators itself and says so **once, the moment the record shows it, sent
-to them directly and tagged to them by member id**, at `warning` severity:
+of those cycles with no escalation of hers, the harness escalates the hold
+itself. An escalated hold is the Lead Product Manager's to decide, never the
+operator's — the ownership registry's rule for the hold, under the operating
+rule that the brake never summons him — and the operators are told and may
+release it. The harness says so **once, the moment the record shows it, sent to
+them directly and tagged to them by member id**, at `warning` severity:
 
-> :warning: Warning — The brake's hold on intake is escalated to the operator
-> by the harness: the harness's own brake placed it after 3 run(s) blocked in a
-> row with nothing landing between them, which is the configured brake at 3,
-> and the harness escalated it to the operator after 4 summons-and-probe cycles
-> with the development manager not escalating it (the last probe run, of
-> yoyodyne-ifd.405 (Every yoyo verb runs from inside a harness-managed
-> worktree), blocked: the checks failed on main), so it stays held until
-> somebody releases it. Next: the operator's — the harness has stopped probing,
-> and nothing new is chosen until `yoyo release` lifts it.
+> :warning: Warning — The brake's hold on intake is escalated to the Lead
+> Product Manager by the harness, and you are told: the harness's own brake
+> placed it after 3 run(s) blocked in a row with nothing landing between them,
+> which is the configured brake at 3, and the harness escalated it to the Lead
+> Product Manager after 4 summons-and-probe cycles with the development manager
+> not escalating it (the last probe run, of yoyodyne-ifd.405 (Every yoyo verb
+> runs from inside a harness-managed worktree), blocked: the checks failed on
+> main), and the operator is told, so it stays held until somebody releases it.
+> Next: the Lead Product Manager's — the harness has stopped probing, and she
+> decides whether intake reopens; you may release it, and nothing new is chosen
+> until `yoyo release` lifts it.
 
 It is never said again on a later pass: the hourly line above carries the hold
-from there, tagged as any hold that waits on a person is, and the release says
-the hold lifted. `yoyo status` reads the same record and names the hold once on
-its "Needs a human" line as the operator's by the harness's escalation.
+from there, in the channel, and the release says the hold lifted. `yoyo status`
+reads the same record and names the hold once, under "Waiting on the Lead
+Product Manager", by the harness's escalation.
 
 This and the development manager's escalation are one message, not two. A
 brake hold is said to the operators as escalated once, whichever of the two
@@ -1460,7 +1470,7 @@ hold's own account of who decided it rather than in the words above, and where
 both stand, `yoyo status` names her escalation. A hold the channel first sees
 already escalated is said once, by
 [the trip's own message](#a-finding-that-needs-your-hand), which already names
-the operator as the one to move.
+the Lead Product Manager as the one to move.
 
 ### The provider holding every role
 
@@ -1494,7 +1504,7 @@ said as a state:
 > being served either. The window lifts on the provider's clock; failover on
 > the agents is what would move the work before it does.
 >
-> Next: the operator's — the window lifts on the provider's clock, and enabling
+> Next: the harness's — the window lifts on the provider's clock, and enabling
 > failover on the agents is what would move the work onto another model before
 > it does.
 
@@ -1577,9 +1587,8 @@ is nobody else's to renew.
 > intake brake is not tripping on it. The harness asks again on its own;
 > nothing to release, nothing to restart.
 >
-> Next: the operator's — log in to the provider, or wait for the network; the
-> harness resumes on its own once it answers, and nothing is released or
-> restarted.
+> Next: the operator's — log in to the provider again; the harness resumes on
+> its own once it answers, and nothing is released or restarted.
 
 The other cause reads *The provider cannot be reached*, and the move is the
 network's. It is shaped the opposite way from the hold above on purpose: the
@@ -1667,7 +1676,8 @@ once, directly, tagged by member id** — the communication rule's own test for 
 tag, since it is both important and yours — the pass after it is recorded.
 [Operations](operations.md#where-a-finding-that-needs-your-hand-goes) says what
 makes one: the Lead Product Manager handling a report with `"needs":
-"operator"`, a stopped run the development manager escalated to you, and the
+"operator"` and a reason from the operator's closed list, a stopped run the
+development manager escalated to you with such a reason, and the
 batch of recommendations an owning role argued on a recurring pass over the
 changes to its documents that you decide — changes to the brief or the goals
 that do not say they are consistent with their intent — one message per pass,
@@ -1683,8 +1693,9 @@ read the whole of it:
 > report-9f2c… recorded in chat-91253e0e…, over the developer's report from
 > run-4f2a…. Nothing here changes it, and this is not said again —
 > `yoyo status` names it until it is done, and a later handling of the report
-> records it done. Next: the operator's — only a person can act on this; a later
-> handling of the report records it done.
+> records it done. Next: the operator's — only a person can act on this, for a
+> file beyond every grant, which only a person may edit; a later handling of the
+> report records it done.
 
 It is said once and never again while it stands. The sink marks each finding by
 name in its own durable cursors, so a second pass, a restarted sink, and every
@@ -1725,12 +1736,13 @@ are told it happened:
 > `yoyo release`, or `/release` in the conversation,
 > lifts it sooner. Next: the development manager's — …
 
-When the hold is escalated to you — by her, in its own account of who decided
-it, or by the harness at the bound on its loop — it is said to you once more,
-directly and tagged, and only once for that hold whichever of the two
+When the hold is escalated — by her, in its own account of who decided it, or
+by the harness at the bound on its loop — it becomes the Lead Product Manager's
+to decide, and it is said to you once more, directly and tagged, so you are
+told and may release it, and only once for that hold whichever of the two
 escalated it and however many times
 ([one message, not two](#a-brake-hold-the-harness-escalates)); `yoyo status`
-names it once under `Needs a human`. While a hold stands the [heartbeat](#reporting-into-slack) says intake is held
+names it once, under `Waiting on the Lead Product Manager`. While a hold stands the [heartbeat](#reporting-into-slack) says intake is held
 every hour, runs in flight or not: a held intake is the one state said over a
 run, because the runs are the ones that were already going when the line
 stopped, and a free slot idle beside one is exactly the shape the 2026-09-19
@@ -1758,8 +1770,9 @@ state fitting neither class does not get one:
   an item that
   sat claimed with nothing working on it until the harness gave it back, the
   brake having held intake (its trip, once), the brake's hold escalated to
-  you — by the development manager, or by the harness at the bound on its
-  summons-and-probe loop, said once for the hold whichever it was — and
+  the Lead Product Manager — by the development manager, or by the harness at
+  the bound on its summons-and-probe loop, said to you once for the hold
+  whichever it was — and
   **the line choosing
   nothing over ready work**, which is the one state that is
   asked rather than reported and is below. The released claim is a fix rather

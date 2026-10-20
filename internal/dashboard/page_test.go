@@ -745,7 +745,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"admitted items not startable now",
 			"of 9 admitted items; awaiting a decision: 1, awaiting carry-out: 1; and 3 ready, waiting for a developer slot; 3 slots, all taken",
 			`<span class="stage-unit">3 ready, waiting for a developer slot; 3 slots, all taken</span>`,
-			"1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move. Needs a human:",
+			"Nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one. Needs a human:",
 			// What waits on a person, counted per mover in the model's order: the
 			// operator's is the figure, and each role's and the harness's are
 			// beside it, out of the whole the terminal prints. The label opens
@@ -753,8 +753,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>`,
 			`<span class="figure">1</span>`,
 			`<span class="unit">thing waiting on the operator</span>`,
-			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
-			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2.",
+			`<span class="detail">of 9 things waiting in all; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
+			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
 			"22 runs reached the target branch",
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
@@ -780,10 +780,11 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"Needs a human: nothing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 1.",
 		},
 		"held": {
-			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
-			// One thing waiting, and it is the operator's: the figure says so and
-			// there is no breakdown to give.
-			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",
+			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
+			// One thing waiting, the provider holding every role, and it is the
+			// harness's rather than the operator's: the registry gives it to the
+			// harness, which resumes the roles when the limit resets.
+			`<span class="figure">0</span>`, `<span class="unit">things waiting on the operator</span>`, "Needs a human: nothing waiting on the operator; waiting on others: the harness's: 1.",
 		},
 		// A failed poll backs the page off: it says when it asks again, later
 		// than its ordinary clock.
@@ -870,7 +871,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// words, with its kind and who it is waiting on, the operator's first, and
 		// each a button that opens its card.
 		"attention": {
-			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (8 things)</h2>`,
+			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (9 things)</h2>`,
+			`data-entry="human-gate:signing-key"`,
 			`<button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>`,
 			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>`,
 			`data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c"`, `data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"`,
@@ -892,6 +894,19 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			"<dt>Proposed change</dt>", "<dd>The design should say that configuration selects sequence and never grants authority.</dd>",
 			"<dt>Why</dt>", "<dd>The invariant exists and the design does not cite it.</dd>",
 			"<dt>Raised</dt>", "<dd>2026-09-19 11:20:00</dd>", "<dd>amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c</dd>",
+			// The ownership registry's answer, from the read model: what ends the
+			// entry and what that needs, and no operator's reason on an entry that
+			// is not his.
+			"<dt>What ends it</dt>", "<dd>decide the proposed change from its conversation</dd>", "<dt>What that needs</dt>", "<dd>amendment action</dd>",
+		},
+		// A step only a person can take is the operator's, and its card says
+		// which reason on his closed list makes it his, what ends it, and what
+		// that needs, all from the read model's answer.
+		"attention-human-gate": {
+			`<h2 id="card-heading" class="popup-title">person's step waiting</h2>`,
+			"<dt>Why the operator's</dt>", "<dd>a step the work item reserves for a person</dd>",
+			"<dt>What ends it</dt>", "<dd>take the step and record it</dd>",
+			"<dt>What that needs</dt>", "<dd>yoyo gate record</dd>",
 		},
 		// An owed step's card: the run, the item, where it stopped, and the
 		// command that settles it, in the terminal's sentence.
@@ -971,8 +986,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	// one the list carries: the attention render names each key once as an
 	// opener, and the amendment card names the item its proposer was working
 	// on as an opener of its own.
-	if strings.Count(page("attention"), `data-entry="`) != 8 {
-		t.Errorf("the attention render does not open a card on each of the 8 entries")
+	if strings.Count(page("attention"), `data-entry="`) != 9 {
+		t.Errorf("the attention render does not open a card on each of the 9 entries")
 	}
 	if !strings.Contains(page("attention-amendment"), `data-item="yoyodyne-ifd.210"`) {
 		t.Errorf("the amendment card does not open the item its proposer was working on")
@@ -1095,8 +1110,12 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			t.Errorf("%s: card must show the label", entry.ID)
 		}
 	}
+	// Only an entry the registry gives the operator says why it is his.
+	if strings.Contains(page("attention-amendment"), "Why the operator's") {
+		t.Error("the amendment card says why it is the operator's, and the registry gives it to the architect")
+	}
 	// The card acts on nothing: every button on it opens or closes a pop-up.
-	for _, scenario := range []string{"attention-amendment", "attention-owed-step", "attention-carried-item", "report", "report-blocked"} {
+	for _, scenario := range []string{"attention-amendment", "attention-owed-step", "attention-carried-item", "attention-human-gate", "report", "report-blocked"} {
 		for _, button := range strings.Split(page(scenario), "<button")[1:] {
 			if !strings.Contains(button, `data-item="`) && !strings.Contains(button, `data-entry="`) && !strings.Contains(button, `data-grouping="`) && !strings.Contains(button, `-close"`) {
 				t.Errorf("the %s render carries a button that neither opens nor closes a pop-up: %.120s", scenario, button)
