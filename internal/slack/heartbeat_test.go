@@ -200,7 +200,7 @@ func TestTheHarnessEscalatingABrakeHoldIsSaidOnceDirectlyToTheOperator(t *testin
 	if err != nil {
 		t.Fatalf("the escalation could not be said: %v", err)
 	}
-	for _, fact := range []string{"escalated to the operator by the harness", "2 summons-and-probe cycles", "yoyodyne-ifd.405", "the checks failed on main", "Next: the operator's — the harness has stopped probing", "yoyo release"} {
+	for _, fact := range []string{"escalated to the Lead Product Manager by the harness, and you are told", "2 summons-and-probe cycles", "yoyodyne-ifd.405", "the checks failed on main", "Next: the Lead Product Manager's — the harness has stopped probing", "yoyo release"} {
 		if !strings.Contains(rendered.Body, fact) {
 			t.Fatalf("body %q does not carry %q", rendered.Body, fact)
 		}

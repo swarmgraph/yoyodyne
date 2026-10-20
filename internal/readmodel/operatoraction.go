@@ -26,9 +26,9 @@ package readmodel
 // decision is the one typed record that says a stopped run needs a person
 // rather than a repair, a re-run, or a wait, and it stands while it is the
 // decision on the item's latest stopped run. The brake's hold is not one of
-// them while the harness is working it; once it is escalated to the operator it
-// is his, and it is read from the intake hold beside the switches and named on
-// the attention line there, as the held intake it is.
+// them at all: once it is escalated it is the Lead Product Manager's, with the
+// operator told, and it is read from the intake hold beside the switches and
+// named on the attention line there, as the held intake it is.
 //
 // The third is read from the amendment log and the recurring passes: an owning
 // role's batch of recommendations on the changes proposed to its documents, one

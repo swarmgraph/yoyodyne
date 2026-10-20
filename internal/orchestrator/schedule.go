@@ -7244,7 +7244,7 @@ func (s Schedule) Render() string {
 		fmt.Fprintf(&rendered, "the brake's hold was released at %s: %s\n", released.At.UTC().Format(time.RFC3339), released.Reason)
 	}
 	if escalated := s.BrakeEscalated; escalated != nil {
-		fmt.Fprintf(&rendered, "the brake's hold was escalated to the operator at %s, after %d summons-and-probe cycle(s) with the development manager not escalating it; the last probe run, of %s, blocked: %s\n",
+		fmt.Fprintf(&rendered, "the brake's hold was escalated to the Lead Product Manager, with the operator told, at %s, after %d summons-and-probe cycle(s) with the development manager not escalating it; the last probe run, of %s, blocked: %s\n",
 			escalated.At.UTC().Format(time.RFC3339), escalated.Cycles, escalated.Probe, singleLine(escalated.Reason, maxScheduleReasonBytes))
 	}
 	if s.BrakeProblem != "" {

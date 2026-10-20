@@ -753,8 +753,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 			`<button class="grouping-open tile-label" type="button" data-grouping="attention">Needs a human</button>`,
 			`<span class="figure">1</span>`,
 			`<span class="unit">thing waiting on the operator</span>`,
-			`<span class="detail">of 8 things waiting in all; the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
-			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 2, the architect's: 2, the development manager's: 1, the harness's: 2.",
+			`<span class="detail">of 9 things waiting in all; the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2</span>`,
+			"Needs a human: 1 thing waiting on the operator; waiting on others: the Lead Product Manager's: 3, the architect's: 2, the development manager's: 1, the harness's: 2.",
 			"22 runs reached the target branch",
 			// A stopped run is said as what it ended as, never as a wait it is
 			// still in.
@@ -781,9 +781,10 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		},
 		"held": {
 			`<p id="banner" class="banner" role="status">Every role is paused`, "Every role is held: 5 agents on opus, and none names an alternate", "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z (most)", "next: the harness asks again when the provider's usage limit resets; whose: nobody's", "Nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is", "the harness is choosing nothing: Paused on the provider's usage limit until 18:50Z",
-			// One thing waiting, and it is the operator's: the figure says so and
-			// there is no breakdown to give.
-			`<span class="figure">1</span>`, `<span class="unit">thing waiting on the operator</span>`, "Needs a human: 1 thing waiting on the operator.",
+			// One thing waiting, a watch session that stopped, and it is the
+			// harness's rather than the operator's: the product restarts its own
+			// parts, so the operator's figure is zero.
+			`<span class="figure">0</span>`, `<span class="unit">things waiting on the operator</span>`, "Needs a human: nothing waiting on the operator; waiting on others: the harness's: 1.",
 		},
 		// A failed poll backs the page off: it says when it asks again, later
 		// than its ordinary clock.
@@ -870,7 +871,7 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 		// words, with its kind and who it is waiting on, the operator's first, and
 		// each a button that opens its card.
 		"attention": {
-			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (8 things)</h2>`,
+			`<h2 id="grouping-heading" class="popup-title">What is waiting, and on whom (9 things)</h2>`,
 			`<button class="item-open grouping-title" type="button" data-entry="directive:directive-4f2c">directive directive-4f2c is unresolved: which branch does this land on?</button>`,
 			`<button class="item-open grouping-title" type="button" data-entry="owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70">cleanup of the branch and worktree for yoyodyne-ifd.222 is not finished</button>`,
 			`data-entry="amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c"`, `data-entry="amendment:amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d"`,
@@ -971,8 +972,8 @@ func TestThePageRendersEverySectionInEveryState(t *testing.T) {
 	// one the list carries: the attention render names each key once as an
 	// opener, and the amendment card names the item its proposer was working
 	// on as an opener of its own.
-	if strings.Count(page("attention"), `data-entry="`) != 8 {
-		t.Errorf("the attention render does not open a card on each of the 8 entries")
+	if strings.Count(page("attention"), `data-entry="`) != 9 {
+		t.Errorf("the attention render does not open a card on each of the 9 entries")
 	}
 	if !strings.Contains(page("attention-amendment"), `data-item="yoyodyne-ifd.210"`) {
 		t.Errorf("the amendment card does not open the item its proposer was working on")

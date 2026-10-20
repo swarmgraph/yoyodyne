@@ -160,10 +160,10 @@ type IntakeBrake struct {
 	// A probe that landed ends the hold, and one that ended neither way decided
 	// nothing, so neither is a cycle. CycleBound is execution.brake_escalation_cycles
 	// as the harness last read it — the number of cycles after which the hold
-	// escalates to the operator by itself — and zero is no bound at all.
+	// escalates to the Lead Product Manager by itself — and zero is no bound at all.
 	Cycles     int `json:"cycles,omitempty"`
 	CycleBound int `json:"cycle_bound,omitempty"`
-	// Escalation is the harness having escalated the hold to the operator at
+	// Escalation is the harness having escalated the hold to the Lead Product Manager at
 	// that bound. It is the second way a brake hold comes to wait on a person,
 	// and it is recorded apart from her decision because every surface that
 	// says whose move the hold is has to say which of the two it was.
@@ -334,7 +334,7 @@ func (b IntakeBrake) Standing() string {
 
 // Loop names where the summons-and-probe loop stands, for every surface that
 // says the harness is still working the hold: which cycle this is, and at what
-// cycle the harness escalates to the operator itself. Nothing is named for a
+// cycle the harness escalates it to the Lead Product Manager itself. Nothing is named for a
 // trip with no bound and no cycle spent, which is the first cooldown of a hold
 // configured never to escalate on its own — the one case with no loop to speak
 // of yet.
@@ -525,10 +525,10 @@ func (s *IntakeHoldStore) ReleaseBrake(by string, at time.Time) (IntakeHold, boo
 }
 
 // ErrBrakeEscalatedByHarness refuses a probe decision on a hold the harness has
-// already escalated to the operator: the bound ended the loop, and a probe
+// already escalated to the Lead Product Manager: the bound ended the loop, and a probe
 // would start it again with nothing to stop it the second time. A release is
 // still hers to record — the line being fine is news whoever finds it out.
-var ErrBrakeEscalatedByHarness = errors.New("the harness escalated this hold to the operator at the cycle bound, so no further probe is started under it; release it if the line is fine, or leave it to the operator")
+var ErrBrakeEscalatedByHarness = errors.New("the harness escalated this hold to the Lead Product Manager at the cycle bound, so no further probe is started under it; release it if the line is fine, or leave it to her")
 
 // DecideBrake records the development manager's decision about the brake's
 // hold. A decision already recorded is replaced: she may change her mind, and

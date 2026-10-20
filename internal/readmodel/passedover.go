@@ -35,6 +35,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -432,14 +433,31 @@ func (c Cause) Whose() string {
 	case c.Class == runstate.PassedOverCarriedInConversation && c.Role != "":
 		return "the " + c.Role.Title() + "'s, in conversation — the work this poll passed over is carried there, and no run will ever start it"
 	}
+	if owned, ok := passedOverOwned[c.Class]; ok {
+		return ownership.Resolve(owned.kind, owned.record).Owner.Possessive() + " — " + owned.settles
+	}
 	return passedOverMoves[c.Class]
 }
 
-// passedOverMoves is whose move follows each class. The ones that name a role
-// are the ones that never clear on their own: a parking, a stoppage nobody has
-// decided about, and an item asking the tree for something nobody has put there.
-// Only the one that names the operator needs a human, so no sentence here says
-// "a person" of a role's move: on 2026-09-27 the dashboard said "held for a
+// passedOverOwned is the classes whose move is somebody's in particular, each
+// with the waiting entry the ownership registry decides it as and what settles
+// it; the owner is the registry's answer, never worded here.
+var passedOverOwned = map[runstate.PassedOverClass]struct {
+	kind    ownership.Kind
+	record  ownership.Record
+	settles string
+}{
+	runstate.PassedOverParked:            {ownership.KindHeldWork, ownership.Record{Parked: true}, "a parked item is passed over at every pull until it is released"},
+	runstate.PassedOverAwaitingDecision:  {ownership.KindHeldWork, ownership.Record{}, "nothing pulls a stopped item until she decides what happens to it"},
+	runstate.PassedOverAwaitingCarryOut:  {ownership.KindHeldWork, ownership.Record{AwaitingCarryOut: true}, "the decisions are recorded, and what is outstanding is the harness acting on them"},
+	runstate.PassedOverWaitingOnAPerson:  {ownership.KindHumanGate, ownership.Record{}, "the item declares a human gate, and `yoyo gate record` is the only thing that passes it"},
+	runstate.PassedOverPausedByDirective: {ownership.KindDirective, ownership.Record{}, "the work stays paused until the directive is resolved; she ends it, or carries it into a document or a work item"},
+}
+
+// passedOverMoves is whose move follows each class passedOverOwned does not
+// name. The ones that name a role are the ones that never clear on their own: a
+// stoppage nobody has decided about, and an item asking the tree for something
+// nobody has put there. No sentence here says "a person" of a role's move: on 2026-09-27 the dashboard said "held for a
 // person" over thirty-four items the development manager was moving.
 // Everything else clears as work lands, which is a wait rather than a move, and
 // saying otherwise would send somebody to release a queue that is releasing
@@ -452,16 +470,11 @@ func (c Cause) Whose() string {
 // 2026-09-07 she had made every one of them.
 var passedOverMoves = map[runstate.PassedOverClass]string{
 	runstate.PassedOverCarriedInConversation: "the role that carries them, in conversation — no run will ever start them",
-	runstate.PassedOverParked:                "the Lead Product Manager's — a parked item is passed over at every pull until it is released",
 	runstate.PassedOverHeldForAPerson:        "the development manager's, or the harness's where she has decided — nothing pulls a stopped item until her decision about it is made and carried out",
-	runstate.PassedOverAwaitingDecision:      "the development manager's — nothing pulls a stopped item until she decides what happens to it",
-	runstate.PassedOverAwaitingCarryOut:      "the harness's — the decisions are recorded, and what is outstanding is the harness acting on them",
-	runstate.PassedOverWaitingOnAPerson:      "a person's — the item declares a human gate, and `yoyo gate record` is the only thing that passes it",
 	runstate.PassedOverWaitingOnOtherWork:    "nobody's — the work they wait on lands or does not, and the queue is read again either way",
 	runstate.PassedOverAlreadyTried:          "nobody's — the session tries them again once they have cooled",
 	runstate.PassedOverAlreadyInFlight:       "nobody's — the runs carrying them finish, and the queue is read again as each of them does",
 	runstate.PassedOverCoveredByChildren:     "nobody's — the children are the work, and what covers them closes as they land",
-	runstate.PassedOverPausedByDirective:     "the operator's — the work stays paused until the directive is resolved",
 	runstate.PassedOverSequencedBehindWork:   "nobody's — each is pulled at the first pull where the run it would have raced has ended",
 	runstate.PassedOverPrerequisiteUnmet:     "the development manager's — the item asks for something the tree does not have, and it is docketed rather than dispatched",
 	runstate.PassedOverLeftForAnotherSlot:    "nobody's — a developer slot with no preference takes them in the Lead Product Manager's order, and a preferring slot falls back to them once its label's work is exhausted",

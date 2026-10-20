@@ -228,7 +228,7 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 	if strings.Contains(whose, "the development manager escalated it") {
 		t.Fatalf("Whose() = %q, want the escalation attributed to the harness rather than to her", whose)
 	}
-	if standing := escalated.Standing(); !strings.Contains(standing, "the harness escalated it to the operator") || !strings.Contains(standing, "until somebody releases it") {
+	if standing := escalated.Standing(); !strings.Contains(standing, "the harness escalated it to the Lead Product Manager") || !strings.Contains(standing, "the operator is told") || !strings.Contains(standing, "until somebody releases it") {
 		t.Fatalf("Standing() = %q, want the harness's escalation and that a person ends it", standing)
 	}
 
