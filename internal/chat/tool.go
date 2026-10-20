@@ -200,11 +200,21 @@ func (r LogRound) Render() string {
 		if request.Name != "" {
 			name += "/" + request.Name
 		}
+		if request.Task != "" {
+			name += " of task " + request.Task
+		}
 		fmt.Fprintf(&out, "log.read %s with ", name)
+		if !request.Since.IsZero() {
+			fmt.Fprintf(&out, "window %s to %s", request.Since.Format(time.RFC3339), request.Until.Format(time.RFC3339))
+			if request.Cursor != nil {
+				out.WriteString(", ")
+			}
+		}
 		if request.Cursor != nil {
 			fmt.Fprintf(&out, "cursor %d", *request.Cursor)
-		} else {
-			fmt.Fprintf(&out, "window %s to %s", request.Since.Format(time.RFC3339), request.Until.Format(time.RFC3339))
+			if request.Offset > 0 {
+				fmt.Fprintf(&out, " offset %d", request.Offset)
+			}
 		}
 		fmt.Fprintf(&out, ", byte cap %d (scan cap %d): ", request.MaxBytes, logread.MaxScanBytes)
 		switch {
@@ -217,6 +227,9 @@ func (r LogRound) Render() string {
 				continue
 			}
 			fmt.Fprintf(&out, "%d byte(s), next cursor %d", result.Bytes, result.NextCursor)
+			if result.Part != nil {
+				fmt.Fprintf(&out, "; a part of one record from byte %d, %d byte(s) of it left", result.Part.Start, result.Part.Remaining)
+			}
 			if result.Truncated {
 				fmt.Fprintf(&out, "; truncated, the record is %d byte(s) whole", result.Size)
 			}
@@ -238,7 +251,7 @@ func (s *Session) performLogReads(ctx context.Context, requests []logread.Reques
 		bounded.MaxBytes = min(request.MaxBytes, remaining)
 		round.Requests = append(round.Requests, bounded)
 		// Only closed identifiers and numeric/time bounds are audit parameters.
-		parameters := map[string]any{"record": request.Record, "name": request.Name, "max_bytes": bounded.MaxBytes, "scan_bytes": logread.MaxScanBytes, "since": request.Since, "until": request.Until, "cursor": request.Cursor}
+		parameters := map[string]any{"record": request.Record, "name": request.Name, "max_bytes": bounded.MaxBytes, "scan_bytes": logread.MaxScanBytes, "since": request.Since, "until": request.Until, "cursor": request.Cursor, "task": request.Task, "offset": request.Offset}
 		result, err := auditTool(ctx, s, capability.LogRead, parameters, 1, func() ([]logread.Result, error) {
 			if spent {
 				return nil, errors.New("log.read has spent its rounds for this message")

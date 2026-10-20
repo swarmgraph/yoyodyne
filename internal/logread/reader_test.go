@@ -3,13 +3,16 @@ package logread
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/home"
 )
 
@@ -208,12 +211,19 @@ func TestBlockRejectsUnknownFieldsAndMixedBounds(t *testing.T) {
 	t.Parallel()
 	for _, payload := range []string{
 		`{"requests":[{"record":"watch","cursor":0,"max_bytes":100,"path":"secret"}]}`,
-		`{"requests":[{"record":"watch","cursor":0,"max_bytes":100,"since":"2026-10-04T08:00:00Z","until":"2026-10-04T09:00:00Z"}]}`,
+		`{"requests":[{"record":"watch","since":"2026-10-04T08:00:00Z","max_bytes":100}]}`,
+		`{"requests":[{"record":"watch","cursor":0,"task":"health","max_bytes":100}]}`,
+		`{"requests":[{"record":"pass","cursor":0,"task":"../health","max_bytes":100}]}`,
+		`{"requests":[{"record":"pass","since":"2026-10-04T08:00:00Z","until":"2026-10-04T09:00:00Z","offset":10,"max_bytes":100}]}`,
+		`{"requests":[{"record":"pass","cursor":0,"offset":-1,"max_bytes":100}]}`,
 		`{"requests":[]} trailing`,
 	} {
 		if _, err := Decode(payload); err == nil {
 			t.Errorf("accepted %s", payload)
 		}
+	}
+	if _, err := Decode(`{"requests":[{"record":"pass","task":"health","cursor":40,"offset":10,"since":"2026-10-04T08:00:00Z","until":"2026-10-04T09:00:00Z","max_bytes":100}]}`); err != nil {
+		t.Errorf("refused a window read carried on from a cursor and offset: %v", err)
 	}
 	body := `{"requests":[{"record":"watch","cursor":0,"max_bytes":100}]}`
 	prose, requests, err := Extract("read it\n" + Fence + "\n" + body + "\n```")
@@ -226,5 +236,151 @@ func TestBlockRejectsUnknownFieldsAndMixedBounds(t *testing.T) {
 	encoded, _ := json.Marshal(requests)
 	if strings.Contains(string(encoded), "path") {
 		t.Fatal("protocol accepts paths")
+	}
+}
+
+// writePasses writes the pass record under the product's current layout and
+// returns each line as written, newline included.
+func writePasses(t *testing.T, root string, passes ...map[string]any) []string {
+	t.Helper()
+	path := filepath.Join(home.ProductDirectory(root, "sample"), "sweeps", "sweeps.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	var lines []string
+	for _, pass := range passes {
+		data, err := json.Marshal(pass)
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines = append(lines, string(data)+"\n")
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "")), 0600); err != nil {
+		t.Fatal(err)
+	}
+	return lines
+}
+
+func TestAPassLongerThanOneReadIsReadInPartsToItsEnd(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	// The failure output is three reads long, written in two-byte characters so
+	// a byte cap falls inside one, with the secret repeated across every part.
+	var output strings.Builder
+	for output.Len() < 3*MaxContentBytes {
+		output.WriteString("provider said known-secret é ")
+	}
+	since := time.Date(2026, 10, 19, 10, 10, 0, 0, time.UTC)
+	lines := writePasses(t, root,
+		map[string]any{"task": "technical-health-pm", "started_at": since.Add(time.Minute), "problem": "the pass failed", "failure_output": output.String(), "api_token": "unknown-secret"},
+		map[string]any{"task": "technical-health-pm", "started_at": since.Add(2 * time.Minute), "problem": "the next pass"},
+	)
+	redactor := execution.NewRedactor("known-secret")
+	whole := redactor.Redact(redactFields([]byte(lines[0]), redactor))
+	reader := Reader{StateRoot: root, ProductID: "sample", RedactValues: []string{"known-secret"}}
+	request := Request{Record: "pass", Since: since, Until: since.Add(40 * time.Minute), MaxBytes: MaxContentBytes}
+	var assembled strings.Builder
+	parts := 0
+	for {
+		results, err := reader.Read(context.Background(), []Request{request})
+		if err != nil || len(results) != 1 || results[0].Problem != "" {
+			t.Fatalf("part %d: %#v %v", parts, results, err)
+		}
+		result := results[0]
+		if result.Part == nil {
+			t.Fatalf("part %d of a record longer than one read came back without saying it is a part: %#v", parts, result)
+		}
+		if result.Part.Start != int64(assembled.Len()) || result.Bytes != len(result.Content) || result.Bytes > MaxContentBytes {
+			t.Fatalf("part %d starts at %d with %d bytes, after %d bytes read", parts, result.Part.Start, result.Bytes, assembled.Len())
+		}
+		if strings.Contains(result.Content, "known-secret") || strings.Contains(result.Content, "unknown-secret") || !utf8.ValidString(result.Content) {
+			t.Fatalf("part %d leaked a secret or split a character", parts)
+		}
+		assembled.WriteString(result.Content)
+		parts++
+		if result.Part.Remaining != int64(len(whole)-assembled.Len()) {
+			t.Fatalf("part %d says %d bytes remain, want %d", parts, result.Part.Remaining, len(whole)-assembled.Len())
+		}
+		if result.Next == nil {
+			t.Fatalf("part %d gives no next read", parts)
+		}
+		request = *result.Next
+		if result.Part.Remaining == 0 {
+			if result.NextCursor != int64(len(lines[0])) {
+				t.Fatalf("the last part leaves the cursor at %d, want %d", result.NextCursor, len(lines[0]))
+			}
+			break
+		}
+		if result.NextCursor != 0 || request.Offset != result.Part.Start+int64(result.Bytes) {
+			t.Fatalf("part %d's next read is %#v", parts, request)
+		}
+		if parts > 10 {
+			t.Fatal("the record was never read to its end")
+		}
+	}
+	if len(whole) <= 2*MaxContentBytes || parts < (len(whole)+MaxContentBytes-1)/MaxContentBytes || assembled.String() != whole {
+		t.Fatalf("read %d parts; assembled the record as returned whole: %v", parts, assembled.String() == whole)
+	}
+	if request.Since != since || request.Offset != 0 {
+		t.Fatalf("the read after the last part dropped its window or kept an offset: %#v", request)
+	}
+	results, err := reader.Read(context.Background(), []Request{request})
+	if err != nil || results[0].Problem != "" || results[0].Part != nil || !strings.Contains(results[0].Content, "the next pass") || results[0].Next != nil {
+		t.Fatalf("the record after the long one: %#v %v", results, err)
+	}
+
+	beyond := int64(0)
+	results, err = reader.Read(context.Background(), []Request{{Record: "pass", Cursor: &beyond, Offset: int64(len(whole)), MaxBytes: 100}})
+	if err != nil || !strings.Contains(results[0].Problem, "offset") || results[0].Content != "" {
+		t.Fatalf("an offset past the record: %#v %v", results, err)
+	}
+}
+
+func TestAPassReadNarrowsToOneTask(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	since := time.Date(2026, 10, 19, 10, 10, 0, 0, time.UTC)
+	var passes []map[string]any
+	for i := range 9 {
+		task := []string{"technical-health-pm", "factory-flow-pm", "dm-sweep"}[i%3]
+		passes = append(passes, map[string]any{"task": task, "started_at": since.Add(time.Duration(i) * time.Minute), "problem": fmt.Sprintf("pass %d of %s", i, task)})
+	}
+	writePasses(t, root, passes...)
+	reader := Reader{StateRoot: root, ProductID: "sample"}
+	request := Request{Record: "pass", Task: "technical-health-pm", Since: since, Until: since.Add(time.Hour), MaxBytes: MaxContentBytes}
+	results, err := reader.Read(context.Background(), []Request{request})
+	if err != nil || results[0].Problem != "" || results[0].Next != nil {
+		t.Fatalf("task read=%#v %v", results, err)
+	}
+	for _, want := range []string{"pass 0 of", "pass 3 of", "pass 6 of"} {
+		if !strings.Contains(results[0].Content, want) {
+			t.Fatalf("task read lacks %q: %s", want, results[0].Content)
+		}
+	}
+	if strings.Contains(results[0].Content, "factory-flow-pm") || strings.Contains(results[0].Content, "dm-sweep") {
+		t.Fatalf("task read returned another task's passes: %s", results[0].Content)
+	}
+
+	// A cap that holds one pass stops before the next of the same task, and
+	// the next read it gives carries the task and the window on.
+	request.MaxBytes = len(results[0].Content)/3 + 10
+	var read []string
+	for range 5 {
+		results, err = reader.Read(context.Background(), []Request{request})
+		if err != nil || results[0].Problem != "" || results[0].Part != nil {
+			t.Fatalf("narrow read=%#v %v", results, err)
+		}
+		read = append(read, results[0].Content)
+		if results[0].Next == nil {
+			break
+		}
+		request = *results[0].Next
+		if request.Task != "technical-health-pm" || request.Since != since {
+			t.Fatalf("next read dropped the task or window: %#v", request)
+		}
+	}
+	joined := strings.Join(read, "")
+	if strings.Count(joined, `"task":"technical-health-pm"`) != 3 || len(read) != 3 || strings.Contains(joined, "dm-sweep") {
+		t.Fatalf("one pass at a time read %q", read)
 	}
 }

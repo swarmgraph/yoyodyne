@@ -1784,17 +1784,33 @@ returns its recorded transitions in `watch.jsonl`. Pass reads return
 earlier way is read under `products/<product id>/` instead. None of these paths
 is something a request can name: the kind chooses the file.
 
-Every request supplies `max_bytes` from 1 to 49152 and either a nonnegative byte
-`cursor` at a record boundary or RFC3339 `since` and `until` values spanning at
-most 24 hours. The time window includes `since` and excludes `until`; records
-without a readable timestamp require a cursor. A reply may name six records,
-return at most 96 KiB in total, and retrieve logs in at most two rounds of one
-message. Each request scans at most 8 MiB. Results include `next_cursor`, bytes
-returned, the record's whole `size` when it was read, and any truncation, so a
-cut says how much of the record was left unread. If a byte cap cuts inside a record, the cursor
-repeats that record; request a larger cap within the limit to read it whole.
-Single JSON records accept cursor zero or their end, rather than an offset
-inside the JSON. Missing records, forbidden names and symlinks are refused.
+Every request supplies `max_bytes` from 1 to 49152 and a nonnegative byte
+`cursor` at a record boundary, RFC3339 `since` and `until` values spanning at
+most 24 hours, or both, which carries a window read on from the cursor. The
+time window includes `since` and excludes `until`; records without a readable
+timestamp require a cursor alone. A pass read may name a recurring task in
+`task`, and then returns only that task's passes:
+
+````text
+```yoyodyne-log
+{"requests":[{"record":"pass","task":"technical-health-pm","since":"2026-10-19T03:10:00-07:00","until":"2026-10-19T03:50:00-07:00","max_bytes":49152}]}
+```
+````
+
+A reply may name six records, return at most 96 KiB in total, and retrieve logs
+in at most two rounds of one message. Each request scans at most 8 MiB. Results
+include `next_cursor`, bytes returned, the record's whole `size` when it was
+read, any truncation, and, wherever the read stopped before the end, `next`:
+the request to send for what follows, window and task included. A read returns
+whole entries; one that reaches an entry that will not fit stops before it, and
+the next read starts there. An entry longer than one read returns comes back in
+parts. Each part's `part` says where in the entry it `start`s and how many bytes
+of it are `remaining`, and its `next` carries on from the same cursor with an
+`offset` into the entry. Offsets count bytes of the entry as returned, with
+secrets already removed from the whole entry before it is cut, so no part
+carries a secret or a piece of one. Single JSON records accept cursor zero or
+their end, and are read in parts the same way. Missing records, forbidden names
+and symlinks are refused.
 
 The harness redacts the returned records before handing them back as untrusted
 evidence in the same message. Each invocation records `tool.requested` followed
