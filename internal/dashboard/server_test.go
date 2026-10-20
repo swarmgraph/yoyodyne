@@ -45,6 +45,7 @@ type stubReader struct {
 	// reports is what ProgramManagerReport answers by name; a name not in it is
 	// one the read model knows no instance under.
 	reports map[string]readmodel.ProgramManagerReport
+	backlog readmodel.Backlog
 	failure error
 }
 
@@ -80,6 +81,10 @@ func (r stubReader) ProgramManagerReport(_ context.Context, agent string) (readm
 		return readmodel.ProgramManagerReport{}, readmodel.ErrNoSuchProgramManager
 	}
 	return answer, nil
+}
+
+func (r stubReader) Backlog(context.Context) (readmodel.Backlog, error) {
+	return r.backlog, r.failure
 }
 
 // world is one server, bound in name only, and the handler that answers for it.
@@ -596,6 +601,48 @@ func TestServesOneWorkItemToTheTokenAlone(t *testing.T) {
 	response, body = broken.get("/api/items/yoyodyne-ifd.1", bearer(broken.server.Token()))
 	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the work item could not be read`) || strings.Contains(body, "<script>") {
 		t.Fatalf("an unreadable item: %d %s", response.StatusCode, body)
+	}
+}
+
+// Every work item is served as JSON at /api/backlog to the token and to nobody
+// else, refused whole when the state cannot be read, with tracker text escaped
+// and an unrecorded origin said as not recorded.
+func TestServesTheBacklogToTheTokenAlone(t *testing.T) {
+	t.Parallel()
+	filed := time.Date(2026, 10, 5, 19, 51, 1, 0, time.UTC)
+	w := serve(t, stubReader{standing: standingWith("title"), backlog: readmodel.Backlog{Items: []readmodel.BacklogItem{
+		{ID: "yoyodyne-ifd.1", Title: "a " + injected, FiledAt: &filed, Labels: []string{}, DoneBy: readmodel.DoneByDeveloperRun,
+			State: readmodel.BacklogReady, Origin: readmodel.BacklogOrigin{FiledBy: readmodel.OriginNotRecorded}},
+	}}})
+
+	response, body := w.get("/api/backlog", bearer(w.server.Token()))
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("backlog with the token: %d %s", response.StatusCode, body)
+	}
+	for _, expected := range []string{`"id":"yoyodyne-ifd.1"`, `"filed_at":"2026-10-05T19:51:01Z"`, `"closed_at":null`,
+		`"done_by":"developer run"`, `"state":"ready"`, `"filed_by":"not recorded"`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("the backlog lacks %s: %s", expected, body)
+		}
+	}
+	if strings.Contains(body, "<script>") || !strings.Contains(body, "u003cscript") {
+		t.Fatalf("the backlog carries a raw tag: %s", body)
+	}
+
+	if response, body := w.get("/api/backlog", nil); response.StatusCode != http.StatusUnauthorized || strings.Contains(body, "yoyodyne-ifd.1") {
+		t.Fatalf("backlog without the token: %d %s", response.StatusCode, body)
+	}
+	if response, _ := w.get("/api/backlog", all(bearer(w.server.Token()), withHost("evil.test"))); response.StatusCode != http.StatusForbidden {
+		t.Fatalf("backlog to a foreign host: %d", response.StatusCode)
+	}
+	if response, _ := w.request(http.MethodPost, "/api/backlog", bearer(w.server.Token())); response.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("backlog POST: %d", response.StatusCode)
+	}
+
+	broken := serve(t, stubReader{failure: errors.New("the state root could not be resolved")})
+	response, body = broken.get("/api/backlog", bearer(broken.server.Token()))
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the state root could not be resolved"`) || strings.Contains(body, "items") {
+		t.Fatalf("backlog over unreadable state: %d %s", response.StatusCode, body)
 	}
 }
 

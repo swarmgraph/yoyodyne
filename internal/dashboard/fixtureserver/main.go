@@ -132,6 +132,26 @@ func (r fixtureReader) Spend(ctx context.Context) (readmodel.Spend, error) {
 	return r.spend, r.refused
 }
 
+// Backlog answers from `backlog.json` where the fixtures hold one, and with an
+// empty backlog where they do not, so every scenario serves the route.
+func (r fixtureReader) Backlog(ctx context.Context) (readmodel.Backlog, error) {
+	if r.pending {
+		<-ctx.Done()
+		return readmodel.Backlog{}, ctx.Err()
+	}
+	if r.refused != nil {
+		return readmodel.Backlog{}, r.refused
+	}
+	var answer readmodel.Backlog
+	if err := load(r.dir, "backlog", &answer); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return readmodel.Backlog{Items: []readmodel.BacklogItem{}}, nil
+		}
+		return readmodel.Backlog{}, err
+	}
+	return answer, nil
+}
+
 func load(dir, name string, into any) error {
 	body, err := os.ReadFile(filepath.Join(dir, name+".json"))
 	if err != nil {

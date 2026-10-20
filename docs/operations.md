@@ -6040,7 +6040,7 @@ prints the token to your terminal when it starts:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/items/<work-item-id>, and /api/program-managers/<agent>
 a restarted dashboard prints a new one; stop with ctrl-c
 it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 ```
@@ -6060,7 +6060,7 @@ the value:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:8765/
 the token was read from the keychain item yoyo-dashboard.yoyodyne under the account yoyo, as services.dashboard.token names, and is not printed
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/items/<work-item-id>, and /api/program-managers/<agent>
 it outlives a restart: a restarted dashboard reads the same one; stop with ctrl-c
 ```
 
@@ -6131,6 +6131,22 @@ which is what the page's [card on a report](#opening-a-program-managers-report)
 reads. A name the read model knows no instance under is refused as not found,
 in fixed words that do not name it back, and a name that is not an agent's
 shape is refused before anything is read.
+
+A sixth is served when it is asked for, at `/api/backlog`: every work item
+the tracker holds, open and closed, oldest filed first, which is what the
+backlog page charts. Each item carries `filed_at` and `closed_at` from its own
+record (`null` where the tracker gave none, and on work that is not closed),
+`priority`, `labels`, `kind`, `parent` where it was split from another item,
+`done_by` — `developer run`, the role whose conversation carries it, or
+`conversation, role not named` — and `state`: `ready`, `waiting`,
+`in progress`, `closed`, or `not read`. A waiting item says what holds it in
+`waiting_kind` and `waiting_on`, in the words `yoyo status` uses for the same
+item, because both come from the one queue reading. `origin.filed_by` is who
+asked for the item as its admission recorded it, and `not recorded` for an item
+admitted before origins were recorded; it is never guessed. A tracker that
+could not be listed is said under `tracker_problem` with no items, never as an
+empty backlog, and readiness that could not be read is said under
+`readiness_problem`, with each admitted item's state `not read`.
 
 ### The dashboard under the product
 
