@@ -1126,6 +1126,17 @@ forty-one items sat at `blocked` with every dependency they had already closed â
 two-thirds of the backlog, two p0 items among it â€” and the line was idle for a
 morning with nothing saying why.
 
+One open item is pulled although the tracker's ready list leaves it out: a child
+that every waiting parent above it waits on itself. That is the rebuild the
+development manager files under a stopped item and then has the item wait on.
+The tracker holds every item under a waiting parent back with it, so it would
+hold the rebuild until the parent stopped waiting, and the parent waits until the
+rebuild closes. The queue offers such a child where it records no blocking link
+of its own that is not plainly closed, and where every parent above it, up to the
+top, is still in the backlog. A child whose parent waits on anything else, or
+whose chain of parents passes through one the backlog does not hold, is left as
+the tracker holds it.
+
 **The claim makes the same reading.** The tracker's own claim refuses a `blocked`
 item on the status field alone, so releasing those items made every one of them
 selectable and unclaimable at once: one of them was dispatched twenty-nine times

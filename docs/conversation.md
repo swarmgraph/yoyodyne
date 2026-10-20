@@ -1058,9 +1058,11 @@ alone where the tracker gave no title. A wait further up names every link —
 which waits on …` — and an item no parent of which waits says nothing. A parent the tracker would not describe is said as unread rather
 than read as holding nothing. Where the parent that waits is waiting on the
 item itself, the line ends instead by saying that the tracker holds it back with
-that parent, but the parent is waiting on this item itself, so the scheduler
-offers it all the same and nothing holds it, which is what the queue does with
-such a child. This reports what the tracker already holds; it changes nothing
+that parent, but the parent is waiting on this item itself, so that wait does
+not keep it from the scheduler, which is what the queue does with such a child.
+It says so only where every parent above the item, up to the top, is open or
+blocked, as the queue requires; anything else holding the item, such as a
+parking or a stopped run of its own, is said elsewhere in the read. This reports what the tracker already holds; it changes nothing
 about what blocks an item or what is ready. On 2026-10-05 a
 slice of automatic document publication (`yoyodyne-ifd.433.21.1`) went about
 nineteen hours without a run this way, read as ready by three roles while its

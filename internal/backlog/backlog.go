@@ -473,12 +473,12 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 	}
 	// An ancestor is read from this backlog alone: one that has left it is not
 	// what anybody is waiting for, by the same rule waitingOn applies.
+	inBacklog := func(id string) (beads.WorkItem, bool, error) {
+		ancestor, found := byID[id]
+		return ancestor, found, nil
+	}
 	inherited := func(item beads.WorkItem) []beads.InheritedBlock {
-		blocks, _ := beads.InheritedBlocks(item,
-			func(id string) (beads.WorkItem, bool, error) {
-				ancestor, found := byID[id]
-				return ancestor, found, nil
-			},
+		blocks, _ := beads.InheritedBlocks(item, inBacklog,
 			func(w beads.WorkItem) []string { return waitingOn(w, unfinished) })
 		return blocks
 	}
@@ -488,7 +488,7 @@ func Order(items []beads.WorkItem, ready []string, held Holds, discharged map[st
 		_, reportedReady := pullable[item.ID]
 		// The one tracker answer not taken; see the comment above Order.
 		if !reportedReady && item.Status == statusOpen {
-			reportedReady = beads.AwaitedByWhatHoldsIt(item, inherited(item))
+			reportedReady = beads.AwaitedByWhatHoldsIt(item, inherited(item), inBacklog)
 		}
 		holding := held.hold(item)
 		awaiting := holding.Reason

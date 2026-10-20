@@ -81,6 +81,16 @@ func TestAChildHeldForAnythingElseStaysHeld(t *testing.T) {
 			},
 		},
 		{
+			// The grandparent is being worked, so it has left the backlog, and it may be
+			// held by a parent of its own that the backlog cannot see.
+			name:  "its parent waits on it, and a grandparent outside the backlog may hold it",
+			child: "g.1.1",
+			items: []beads.WorkItem{
+				{ID: "g.1", Status: statusBlocked, Parent: "g", Dependencies: []beads.Dependency{{ID: "g.1.1", Type: beads.BlocksDependency}}},
+				{ID: "g.1.1", Status: statusOpen, Parent: "g.1"},
+			},
+		},
+		{
 			name:  "no ancestor in the backlog says why the tracker holds it",
 			child: "p.1",
 			items: []beads.WorkItem{

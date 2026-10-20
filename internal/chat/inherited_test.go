@@ -130,9 +130,29 @@ func TestAnItemReadSaysTheSchedulerOffersAChildItsParentWaitsOn(t *testing.T) {
 	}
 	detail := readItemAsRole(t, items, "yoyodyne-etw.1")
 	want := "inherited block: blocked through its parent 'Long paste' (yoyodyne-etw), which waits on 'Rebuild from current main' (yoyodyne-etw.1, open). " +
-		"The tracker holds it back with that parent, but the parent is waiting on this item itself, so the scheduler offers it all the same and nothing holds it."
+		"The tracker holds it back with that parent, but the parent is waiting on this item itself, so that wait does not keep it from the scheduler."
 	if !strings.Contains(detail, want) {
 		t.Fatalf("the read does not say the scheduler offers it:\n%s", detail)
+	}
+}
+
+// A grandparent somebody is working is outside the queue, which then holds the
+// child as the tracker does, so the read does not say the scheduler offers it.
+func TestAnItemReadDoesNotSayTheSchedulerOffersAChildUnderAParentOutsideTheQueue(t *testing.T) {
+	t.Parallel()
+
+	items := map[string]beads.WorkItem{
+		"yoyodyne-etw.1.1": {ID: "yoyodyne-etw.1.1", Title: "Rebuild", Status: "open", IssueType: "task", Parent: "yoyodyne-etw.1"},
+		"yoyodyne-etw.1": {ID: "yoyodyne-etw.1", Title: "Long paste", Status: "blocked", IssueType: "feature", Parent: "yoyodyne-etw",
+			Dependencies: []beads.Dependency{{ID: "yoyodyne-etw.1.1", Type: beads.BlocksDependency, Status: "open"}}},
+		"yoyodyne-etw": {ID: "yoyodyne-etw", Title: "Console", Status: "in_progress", IssueType: "epic"},
+	}
+	detail := readItemAsRole(t, items, "yoyodyne-etw.1.1")
+	if !strings.Contains(detail, "inherited block: blocked through its parent 'Long paste'") {
+		t.Fatalf("the read does not say the inherited block:\n%s", detail)
+	}
+	if strings.Contains(detail, "does not keep it from the scheduler") {
+		t.Fatalf("the read says the scheduler offers a child the queue holds:\n%s", detail)
 	}
 }
 
