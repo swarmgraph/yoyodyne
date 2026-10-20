@@ -14,12 +14,21 @@ revisions:
       by: architect
       at: 2026-10-14T14:13:52.801041Z
       reason: Rewritten whole for containment against directory moves and late hard links, because the earlier copy kept by the harness could not be sent again from this conversation. Adds the checks of the held directory on both sides of every change, publishing new files rather than writing existing ones in place, the supported platforms with a fixed list of refusal reasons, the state directory as a root, and table rows for moved directories and added links across every writer. The invariant's matching additions wait until invariants can be sent from a conversation (yoyodyne-0bj).
+    - action: amended
+      by: architect
+      at: 2026-10-20T13:01:21.273322Z
+      reason: 'Makes two changes the developer on the confined writers rebuild (yoyodyne-xdj) proposed and the architect approved on 20 October: a child process''s log is fed through a pipe the harness appends from with the batch checks, never through a descriptor handed to the child (amendment-cd567551); test hooks are compiled into the package but refuse to be set outside a test binary (amendment-7a92c2cf). The rest of the text is unchanged.'
 approvals:
     - policy: approvals.designs
       revision: 1
       by: harness
       at: 2026-10-14T14:13:52.801041Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 938, for document-938.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-20T13:01:21.273322Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1344, for document-1344.1 under the automatic approval policy
 ---
 # Repository-confined writes: physical containment for every owned writer
 
@@ -53,6 +62,7 @@ The root is opened once and held by an open descriptor for the whole operation. 
 - **A missing descendant is accepted only under a contained ancestor.** Creation proceeds from the nearest existing ancestor that is physically inside the root, relative to its open descriptor, so the chain being created cannot be redirected while it is created.
 - **A symbolic link is never written through.** A symbolic link as the last part of a write's target is refused, whether or not what it points at exists.
 - **No caller can opt out.** The package offers no unconfined write. A writer whose real target is another root declares that root. No flag, parameter, or fallback waives containment.
+- **No descriptor the primitive opened is handed to another process.** Every write to a file the primitive opened is made by the primitive, so every check below runs for it.
 - **A refusal says what was refused and why, and leaves nothing behind.** It names the operation, the root, the path relative to the root, and one reason from the fixed list below. Neither the root nor anything outside it is left changed: a change the after check rejects is undone.
 
 ## Looking a path up
@@ -119,6 +129,17 @@ The harness cannot stop another program running as the same user from linking a 
 
 The batch already written when a link appeared is not undone, because undoing it would be another write through the same link.
 
+### Output of a child process
+
+A child process the harness starts, such as a long-running sink, may have its output kept in a log. The child is never given a descriptor for that log, because a child writing to it directly would skip the checks above. Instead:
+
+1. The child's output goes to a pipe. The child holds the pipe's writing end and nothing that names the log file.
+2. The harness process that started the child reads the pipe and appends what it reads to the log through the primitive, in batches of at most 64 KiB, with the checks before and after each batch.
+3. If the checks stop the appends, the harness keeps reading the pipe and discards what it reads, so the child never blocks on a full pipe. It reports the stop once, naming the log and the reason.
+4. If the harness process copying the pipe ends, the child's further output is lost rather than written unchecked.
+
+Output that a service manager such as launchd writes for a service it runs is the service manager's write, not the harness's, and this design does not cover it; see the deferred list.
+
 Removing a file:
 
 1. Rename the checked name, without replacing anything, into the primitive's own holding directory, `.yoyodyne-removing` at the root.
@@ -179,12 +200,17 @@ One shared table of filesystem shapes, run against each writer rather than once 
 - an ancestor of the held directory moved outside the root;
 - a second link from outside added to a new file before it is published;
 - a second link from outside added to a file between two append batches;
+- a second link from outside added to a child process's log between two batches copied from its pipe;
 - a second link from outside added to a file being replaced or shortened;
 - the file at a removal target swapped for another between the check and the removal;
 - a lock file with a second link;
 - an unsupported filesystem.
 
-The moves and links happen at exact points through test hooks compiled only into tests, so each row runs the same way every time.
+The moves and links happen at exact points through test hooks, so each row runs the same way every time. The hooks are compiled into the primitive's package rather than only into its tests, because the tests of other writers, such as the conversation store's, drive the same hooks and Go cannot reach a hook in another package unless a production file exports it. Three things keep that safe:
+
+- The function that sets a hook calls `testing.Testing()` and panics when it reports that the program is not a test binary, so no production code path can install a hook.
+- With no hook set, each hook point is one check that the hook is unset, and changes nothing.
+- A test builds and runs a small program that is not a test binary, tries to set a hook, and confirms the panic.
 
 The writers each row runs against are:
 
@@ -193,6 +219,7 @@ The writers each row runs against are:
 - the stores in `internal/runstate` and the memory store;
 - conversation records;
 - lock files;
+- logs of child processes the harness starts;
 - cleanup.
 
 Each writer produces the same safe result, or the same kind of error, for each row. The minimal reproductions of the confirmed escapes are kept as regression tests, separate from the table, so the specific defects that forced this design cannot silently return.
@@ -204,8 +231,10 @@ Each writer produces the same safe result, or the same kind of error, for each r
 - No existing file is written in place except a lock file.
 - New files are created with one link on the root's device and published by a rename. Replacements are published by a swap that can be reversed.
 - Appends check the link count and the held directory before and after each batch, and stop on failure.
+- No descriptor the primitive opened is handed to another process; a child's log is written by the harness from a pipe.
 - A removal removes only the checked file.
 - The state directory is a root like the others, and its stores write through the primitive.
+- A test hook cannot be set outside a test binary.
 
 Nothing here is left to a writer's own care or to configuration.
 
@@ -216,6 +245,8 @@ Nothing here is left to a writer's own care or to configuration.
 - **Writing every file in place after checking its link count.** A link added between the check and the write carries the write outside. Publishing a new file is the only way a later link cannot change what was outside.
 - **Refusing every symbolic link.** That would break contained paths that repositories legitimately use. Following only relative links that stay inside keeps them working.
 - **A fallback to ordinary writes on other filesystems.** It would silently give up the guarantee wherever the swap is missing. Refusing with the filesystem named is honest, and the supported list can grow by revising this design.
+- **Handing a child its log's descriptor, checked only when opened.** A link added after the opening would carry every later write by the child outside the root, which is exactly the case the append checks exist for.
+- **Test hooks compiled only into tests by a build tag.** A test run without the tag would skip the rows for moved directories and added links without saying so, and a skipped row reads as a pass.
 
 ## The gate
 
@@ -231,6 +262,7 @@ The gate is deliberately narrow. It restores delivery while closing the confirme
 ## Deferred, deliberately
 
 - Inventory and migration to the primitive of every remaining writer the harness owns, beyond the state stores named above.
+- Output a service manager such as launchd writes for a service the harness defines: that is the service manager's write, and checking the path the harness gives it belongs with the inventory above.
 - A structural check that refuses new direct writes outside the approved package, so the boundary is enforced against future code rather than against the writers someone remembered.
 - Git worktree, ref, branch publication, and remote boundary behavior, covered directly: changes to a remote are not assumed safe because ordinary file writers migrated.
 - A security review stage after v1, triggered by risk and connected to management readiness rather than to a new security coordinator role.
