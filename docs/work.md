@@ -1792,27 +1792,17 @@ to her once, as the one entry her docket folds the two into.
 recorded is fired by the pass itself, oldest decision first, as many per pull as
 there are developer slots free for them — and as a session's `--limit` leaves,
 since each is a run started — against a developer slot exactly as a pulled item
-is. **A decision about a stopped run whose branch or worktree is still there
-takes the first free developer slot ahead of fresh pulls**,
-because finishing reviewed, preserved work is cheaper than starting new work, the
-decision to continue it is already made, and a preserved worktree left waiting
-behind the order ages into conflicts. Ready priority-0 work is the one
-exception, as it is for a slot's label preference: where its item is below
-priority 0, the decision waits while a priority-0 item stands ready, takes the
-first slot the walk of the order has left once it is past priority 0, ahead of
-every other fresh pull, and the pull that gave it none writes onto the item
-which priority-0 items went first. Whether the change is still there is the
-same look in the repository the hold and the docket take; a look that fails
-proves nothing and leaves the decision where the order puts it. The run's
-reason, on the run and on the item, names the ready work of higher priority it
-went ahead of, and where every slot is taken the refusal on the item and her
-docket says it is next. Every other decision goes ahead of the queue's own work
-at its item's priority and below, and behind ready work of a higher priority: a
-decision about a priority-3 item waits while a priority-0 item stands ready,
-takes the slot the walk of the order reaches its priority with, or takes a slot
-the queue left empty, and a pull that gave it none writes onto the item which
-ready items outranked it. Neither changes what a decision costs or which gate
-refuses it. A document a role wrote and the harness confirmed is outside both:
+is. **Priority decides between items, and a decision wins only a tie.** A
+decision goes ahead of the queue's own work at its item's priority and below,
+because a stoppage she has already judged is work chosen once, and behind ready
+work of a higher priority: a decision about a priority-3 item waits while a
+priority-0 item stands ready, takes the slot the walk of the order reaches its
+priority with, or takes a slot the queue left empty. That holds whether or not
+the stopped run's branch or worktree is still there. A pull that gave a decision
+no slot writes onto the item, where her docket shows it, and onto its own
+account of the pass, which ready items of higher priority went first. No fresh
+run is started on an item a decision is about, whichever goes first. None of
+this changes what a decision costs or which gate refuses it. A document a role wrote and the harness confirmed is outside both:
 its landing run takes no developer slot. It is counted against
 `execution.document_landings` instead, and one that found every document
 landing taken waits in the run store and starts as soon as a landing frees,
