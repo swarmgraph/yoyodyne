@@ -358,3 +358,66 @@ func TestMemoryTornEndIsCutWithoutChangingAnOutsideLink(t *testing.T) {
 		t.Fatalf("the torn end was not cut from the log: %q, %v", current, err)
 	}
 }
+
+// mergeQueueStreamFixture is a merge queue store whose event stream for one
+// generation already holds one event.
+func mergeQueueStreamFixture(t *testing.T) (store *MergeQueueStore, stream, events, outside string) {
+	t.Helper()
+	root, outside := stateBase(t)
+	store, err := NewMergeQueueStore(root, "yoyodyne")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stream = "mqe-0123456789abcdef0123456789abcdef-generation-1"
+	if err := store.AppendEvent(conversationEvent(t, Conversation{ConversationID: stream}, 1, "")); err != nil {
+		t.Fatalf("AppendEvent() error = %v", err)
+	}
+	return store, stream, filepath.Join(store.Root(), "events"), outside
+}
+
+// The merge queue's event stream is appended to through the checked writer: its
+// directory moved out of the state root on either side of an append refuses it
+// and leaves the directory as it was.
+func TestMergeQueueEventStreamRefusesAndUndoesWhenItsDirectoryLeavesTheStateRoot(t *testing.T) {
+	for _, point := range []repowrite.Point{repowrite.PointBeforeChange, repowrite.PointAfterChange} {
+		t.Run(string(point), func(t *testing.T) {
+			store, stream, events, outside := mergeQueueStreamFixture(t)
+			moved := filepath.Join(outside, "events")
+			ran, before := moveOutAt(t, point, events, "", moved)
+			err := store.AppendEvent(conversationEvent(t, Conversation{ConversationID: stream}, 2, ""))
+			if !*ran {
+				t.Fatalf("the append never reached %s (error %v)", point, err)
+			}
+			wantConversationRefusal(t, err, repowrite.ReasonMoved)
+			if after := listingWithoutTemporaries(t, moved); after != *before {
+				t.Fatalf("the event directory outside the state root changed:\n before: %s\n after:  %s", *before, after)
+			}
+		})
+	}
+}
+
+// A link to the merge queue's event stream added from outside between two
+// batches of a large event stops the append after the batch written before
+// the link appeared.
+func TestMergeQueueEventStreamStopsAtALinkAddedBetweenBatches(t *testing.T) {
+	store, stream, events, outside := mergeQueueStreamFixture(t)
+	log := filepath.Join(events, stream+".jsonl")
+	stolen := filepath.Join(outside, "stolen.jsonl")
+	ran := hookConversationOnce(t, repowrite.PointBetweenBatches, events, func() {
+		if err := os.Link(log, stolen); err != nil {
+			t.Errorf("link the event stream from outside: %v", err)
+		}
+	})
+	before, err := os.ReadFile(log)
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = store.AppendEvent(conversationEvent(t, Conversation{ConversationID: stream}, 2, strings.Repeat("x", 200<<10)))
+	if !*ran {
+		t.Fatal("a large event was appended in one batch")
+	}
+	wantConversationRefusal(t, err, repowrite.ReasonLinked)
+	if seen, err := os.ReadFile(stolen); err != nil || len(seen) != len(before)+64<<10 {
+		t.Fatalf("the outside link sees %d bytes, want the stream before and one batch (%d): %v", len(seen), len(before)+64<<10, err)
+	}
+}

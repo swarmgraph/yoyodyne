@@ -37,17 +37,10 @@ func (s *MergeQueueStore) AppendEvent(event execution.Event) error {
 	if err != nil {
 		return fmt.Errorf("resolve the merge queue state root: %w", err)
 	}
-	file, err := root.OpenAppend(path.Join(filepath.ToSlash(s.directory()), "events", event.RunID+".jsonl"), 0o600, 0o700)
-	if err != nil {
-		return fmt.Errorf("open the event stream %s: %w", event.RunID, err)
-	}
-	if _, err := file.Write(encoded); err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which syncs the
+	// stream and stops at a moved directory or a link from outside.
+	if err := root.Append(path.Join(filepath.ToSlash(s.directory()), "events", event.RunID+".jsonl"), encoded, 0o600, 0o700); err != nil {
 		return fmt.Errorf("append to the event stream %s: %w", event.RunID, err)
 	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync the event stream %s: %w", event.RunID, err)
-	}
-	return file.Close()
+	return nil
 }

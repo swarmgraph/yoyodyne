@@ -50,10 +50,10 @@ func confinedWriters() []confinedWriter {
 		{"append", func(t *testing.T, root Root) error {
 			return root.Append("a/docs/target", []byte("new\n"), 0o600, 0o700)
 		}},
-		{"open for a child's output", func(t *testing.T, root Root) error {
-			file, err := root.OpenAppend("a/docs/target", 0o600, 0o700)
+		{"open an appender", func(t *testing.T, root Root) error {
+			appender, err := root.OpenAppender("a/docs/target", 0o600, 0o700)
 			if err == nil {
-				file.Close()
+				appender.Close()
 			}
 			return err
 		}},
@@ -321,7 +321,7 @@ func TestAFileLinkedFromOutsideIsReplacedWithoutChangingTheOutsideLink(t *testin
 // Appending and locking never touch a file that already has a second link.
 func TestAppendingOrLockingAFileWithASecondLinkIsRefused(t *testing.T) {
 	for _, writer := range confinedWriters() {
-		if writer.name != "append" && writer.name != "open for a child's output" && writer.name != "lock" && writer.name != "pinned lock" {
+		if writer.name != "append" && writer.name != "open an appender" && writer.name != "lock" && writer.name != "pinned lock" {
 			continue
 		}
 		t.Run(writer.name, func(t *testing.T) {

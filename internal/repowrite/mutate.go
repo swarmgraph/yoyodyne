@@ -56,44 +56,6 @@ func (r Root) landed(clean string) string {
 	return filepath.Join(r.path, filepath.FromSlash(clean))
 }
 
-// OpenAppend opens the file a root-relative path names for appending, creating
-// it and any missing directories above it, and hands back the open descriptor.
-//
-// It is here for the output nobody can hold in a byte slice: a long-lived child
-// process writes its standard output and standard error into a descriptor for
-// as long as it runs, so a write made in batches cannot express it, and a
-// writer that reached for `os.OpenFile` itself would be a write outside this
-// package deciding its own containment. The file is opened through the
-// primitive, refusing a link at its name, and must be a regular file with one
-// link; the directory is checked before and after the open.
-//
-// What the descriptor's holder writes afterwards is not checked batch by
-// batch, because this package is not the one writing it. A writer in this
-// process uses Append or OpenAppender, which are.
-//
-// The modes are the caller's, unlike the fixed ones a repository document is
-// written with, because what this opens is not a repository document: a file
-// holding what the harness is doing, under a state directory, wants the
-// permissions its own root does rather than a checkout's.
-func (r Root) OpenAppend(relative string, file, directory fs.FileMode) (*os.File, error) {
-	a, clean, err := r.begin("append to", relative)
-	if err != nil {
-		return nil, err
-	}
-	defer a.close()
-	dir, name := splitTarget(clean)
-	held, err := a.makeDirectories(dir, directory)
-	if err != nil {
-		return nil, describe(err, "append to", r.path, clean)
-	}
-	defer held.close()
-	opened, err := held.openExisting(name, os.O_WRONLY|os.O_APPEND, file, true)
-	if err != nil {
-		return nil, describe(err, "append to", r.path, clean)
-	}
-	return opened, nil
-}
-
 // Appender appends to one file in batches of at most 64 KiB. Before and after
 // each batch it checks that the directory is still beneath the root and that
 // the file still has one link, and it stops at the first failure: a link that
@@ -116,8 +78,21 @@ func (a *Appender) Sync() error { return a.writer.Sync() }
 // Close releases the file and its directory.
 func (a *Appender) Close() error { return a.writer.Close() }
 
-// OpenAppender opens the file a root-relative path names for appending by this
-// process, creating it and any missing directories above it.
+// OpenAppender opens the file a root-relative path names for appending,
+// creating it and any missing directories above it. The file is opened refusing
+// a link at its name, and must be a regular file with one link; the directory
+// is checked before and after the open.
+//
+// There is no way to open a file for appending and hand the descriptor on. The
+// checks before and after each batch run only on writes this package makes, so
+// a descriptor given to another process would carry its writes out unchecked;
+// a child's output reaches its log through a pipe its launcher reads and
+// appends from instead (internal/slack/logrelay.go).
+//
+// The modes are the caller's, unlike the fixed ones a repository document is
+// written with, because what this opens is not a repository document: a file
+// holding what the harness is doing, under a state directory, wants the
+// permissions its own root does rather than a checkout's.
 func (r Root) OpenAppender(relative string, file, directory fs.FileMode) (*Appender, error) {
 	a, clean, err := r.begin("append to", relative)
 	if err != nil {

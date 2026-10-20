@@ -221,15 +221,10 @@ func recordProjectAct(root, productID string, act projectAct) error {
 		return fmt.Errorf("record the %s of %s: %w", act.Act, productID, err)
 	}
 	relative := path.Join(home.ProductDirectoryWithin(root, productID), projectActsFileName)
-	file, err := writer.OpenAppend(relative, 0o600, 0o700)
-	if err != nil {
+	if err := writer.Append(relative, append(line, '\n'), 0o600, 0o700); err != nil {
 		return fmt.Errorf("record the %s of %s: %w", act.Act, productID, err)
 	}
-	defer file.Close()
-	if _, err := file.Write(append(line, '\n')); err != nil {
-		return fmt.Errorf("record the %s of %s: %w", act.Act, productID, err)
-	}
-	return file.Close()
+	return nil
 }
 
 // renameProject moves a project directory, and everything under it, to a new

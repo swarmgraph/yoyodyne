@@ -200,21 +200,20 @@ func TestAWriteLeavesNoTemporaryFileBehind(t *testing.T) {
 	}
 }
 
-// What OpenAppend is for is output that keeps arriving: a descriptor a process
-// writes to for as long as it runs. So it adds to what is there rather than
-// replacing it, and it makes the directories it needs, the same way a document
-// written into a directory nobody created yet does.
+// What an appender is for is output that keeps arriving. So it adds to what is
+// there rather than replacing it, and it makes the directories it needs, the
+// same way a document written into a directory nobody created yet does.
 func TestAppendingAddsToWhatIsAlreadyThere(t *testing.T) {
 	t.Parallel()
 
 	root, _ := repository(t)
 	for _, line := range []string{"first\n", "second\n"} {
-		opened, err := root.OpenAppend("state/sink.log", 0o600, 0o700)
+		opened, err := root.OpenAppender("state/sink.log", 0o600, 0o700)
 		if err != nil {
-			t.Fatalf("OpenAppend() error = %v", err)
+			t.Fatalf("OpenAppender() error = %v", err)
 		}
-		if _, err := opened.WriteString(line); err != nil {
-			t.Fatalf("WriteString() error = %v", err)
+		if _, err := opened.Write([]byte(line)); err != nil {
+			t.Fatalf("Write() error = %v", err)
 		}
 		if err := opened.Close(); err != nil {
 			t.Fatalf("Close() error = %v", err)
@@ -230,9 +229,8 @@ func TestAppendingAddsToWhatIsAlreadyThere(t *testing.T) {
 	}
 }
 
-// The reason this is in this package at all: a descriptor handed to a
-// long-lived process is a write nobody watches afterwards, so where it points
-// is decided here and refused here.
+// Where an append lands is decided here and refused here, for a log that keeps
+// growing for as long as the process feeding it runs.
 func TestAppendingThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 	t.Parallel()
 
@@ -240,13 +238,13 @@ func TestAppendingThroughASymlinkOutOfTheRepositoryIsRefused(t *testing.T) {
 	writeFile(t, filepath.Join(outside, "sink.log"), "somebody else's log")
 	link(t, filepath.Join(outside, "sink.log"), filepath.Join(root.Path(), "sink.log"))
 
-	opened, err := root.OpenAppend("sink.log", 0o600, 0o700)
+	opened, err := root.OpenAppender("sink.log", 0o600, 0o700)
 	if opened != nil {
 		opened.Close()
 	}
 	var refused *RefusalError
 	if !errors.As(err, &refused) {
-		t.Fatalf("OpenAppend() error = %v, want a refusal", err)
+		t.Fatalf("OpenAppender() error = %v, want a refusal", err)
 	}
 	if content := readFile(t, filepath.Join(outside, "sink.log")); content != "somebody else's log" {
 		t.Fatalf("the file outside the repository reads %q, and a refused append changed it", content)
@@ -264,12 +262,12 @@ func TestAppendingThroughASymlinkThatStaysInsideTheRepositoryLandsOnItsTarget(t 
 	writeFile(t, filepath.Join(elsewhere, "real.log"), "before\n")
 	link(t, "elsewhere", filepath.Join(root.Path(), "logs"))
 
-	opened, err := root.OpenAppend("logs/real.log", 0o600, 0o700)
+	opened, err := root.OpenAppender("logs/real.log", 0o600, 0o700)
 	if err != nil {
-		t.Fatalf("OpenAppend() error = %v", err)
+		t.Fatalf("OpenAppender() error = %v", err)
 	}
-	if _, err := opened.WriteString("after\n"); err != nil {
-		t.Fatalf("WriteString() error = %v", err)
+	if _, err := opened.Write([]byte("after\n")); err != nil {
+		t.Fatalf("Write() error = %v", err)
 	}
 	if err := opened.Close(); err != nil {
 		t.Fatalf("Close() error = %v", err)
@@ -280,9 +278,8 @@ func TestAppendingThroughASymlinkThatStaysInsideTheRepositoryLandsOnItsTarget(t 
 }
 
 // A link standing at the target itself is never written through, even one that
-// stays inside the repository: a descriptor handed to a process that runs for
-// hours is not one write anybody will look at again, and a link is a name
-// whose meaning can change after it was checked.
+// stays inside the repository: a link is a name whose meaning can change after
+// it was checked.
 func TestAppendingRefusesALinkStandingAtTheTargetItself(t *testing.T) {
 	t.Parallel()
 
@@ -290,13 +287,13 @@ func TestAppendingRefusesALinkStandingAtTheTargetItself(t *testing.T) {
 	writeFile(t, filepath.Join(root.Path(), "real.log"), "the real log")
 	link(t, "real.log", filepath.Join(root.Path(), "sink.log"))
 
-	opened, err := root.OpenAppend("sink.log", 0o600, 0o700)
+	opened, err := root.OpenAppender("sink.log", 0o600, 0o700)
 	if opened != nil {
 		opened.Close()
 	}
 	var refused *RefusalError
 	if !errors.As(err, &refused) || refused.Reason != ReasonFinalLink {
-		t.Fatalf("OpenAppend() error = %v, want a refusal for the link at the target", err)
+		t.Fatalf("OpenAppender() error = %v, want a refusal for the link at the target", err)
 	}
 	if content := readFile(t, filepath.Join(root.Path(), "real.log")); content != "the real log" {
 		t.Fatalf("the linked file reads %q, and a refused open changed it", content)

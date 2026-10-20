@@ -333,8 +333,13 @@ same reason. Run it in each product; the products do not see each other.
 
 The sink it starts is in a session of its own, so it stays up when the pass, the
 terminal, or the job that started it goes away, and it says what it is doing in
-`sink.log` beside that product's own sink state. `--json` is the same account
-for something that reads it rather than somebody.
+`sink.log` beside that product's own sink state. The sink does not hold the log
+itself: a small process started with it reads what the sink says and appends it
+to `sink.log`, stopping if the log's directory leaves the state directory or the
+log gains a link from outside it. If that happens it goes on reading so the sink
+keeps running, discards what it reads, and writes why into `sink.log.stopped`
+beside the log. `--json` is the same account for something that reads it rather
+than somebody.
 
 Underneath, that is exactly the launcher below, which is what to write where
 there is no keychain to read — or where you want the sink in front of you rather
