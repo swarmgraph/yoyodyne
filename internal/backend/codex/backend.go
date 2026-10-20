@@ -107,11 +107,17 @@ func profileForPosture(posture backend.Posture) string {
 // than defaulted, because the only default available would be the developer's
 // and silently widening a role meant to have none is the failure this guard
 // exists to prevent.
-func profileFor(role domain.AgentRole) (string, error) {
-	posture := backend.PostureFor(role)
+//
+// The request may name a narrower posture than its role's — an agent filling a
+// role definition that removed the worktree write — and never a wider one.
+func profileFor(request backend.RunRequest) (string, error) {
+	posture, err := backend.RequestPosture(request)
+	if err != nil {
+		return "", err
+	}
 	profile := profileForPosture(posture)
 	if profile == "" {
-		return "", fmt.Errorf("Codex backend does not support role %q", role)
+		return "", fmt.Errorf("Codex backend does not support role %q", request.Role)
 	}
 	return profile, nil
 }
@@ -529,7 +535,7 @@ func (b Backend) Run(ctx context.Context, request backend.RunRequest) (returned 
 	if err := backend.CheckRequestSize(b, request); err != nil {
 		return backend.RunResult{}, err
 	}
-	profile, err := profileFor(request.Role)
+	profile, err := profileFor(request)
 	if err != nil {
 		return backend.RunResult{}, err
 	}
@@ -829,7 +835,7 @@ func composePrompt(request backend.RunRequest, named string) string {
 	if strings.TrimSpace(request.SystemPrompt) != "" {
 		prompt = request.SystemPrompt + "\n\n" + prompt
 	}
-	if backend.PostureFor(request.Role) == backend.PostureReadOnly {
+	if posture, _ := backend.RequestPosture(request); posture == backend.PostureReadOnly {
 		directory, _ := json.Marshal(request.WorkingDirectory)
 		prompt = "Repository available for read-only inspection: " + string(directory) + ".\nThe current directory is an empty launch directory, not the repository. Inspect and plan only; do not implement changes or request escalation.\n\n" + prompt
 	}

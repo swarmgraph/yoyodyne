@@ -218,9 +218,15 @@ type Options struct {
 	// it decides three things that must not be able to disagree: the contract
 	// sent to the provider, what the role may ask the harness for, and which
 	// durable record the conversation resumes from.
-	Role    domain.AgentRole
-	Backend Backend
-	Store   Store
+	Role domain.AgentRole
+	// Capabilities is what the harness holds for this conversation's agent when
+	// it fills a role definition rather than its shipped role, and nil for every
+	// other agent, whose authority is its role's row of the table. Where it is
+	// set, what a turn may ask for is read off this set (AuthorityHeld) while the
+	// contract and the record stay the shipped role's.
+	Capabilities []capability.Capability
+	Backend      Backend
+	Store        Store
 	// Hold is this process's claim on the conversation, already taken by the
 	// caller. An interactive conversation puts it down while the operator is
 	// typing, and any turn waiting for a provider puts it down for that wait.
@@ -2057,7 +2063,7 @@ func (s *Session) takeTurn(ctx context.Context, prompt, operatorMessage string, 
 		}
 		return "", &OperatorHoldError{Hold: hold}
 	}
-	systemPrompt := WithRemit(SystemPrompt(s.state.Role, s.options.Admission, s.artifactFiling(), s.options.Persona), s.state.Role, s.options.Remit)
+	systemPrompt := WithRemit(s.systemPrompt(), s.state.Role, s.options.Remit)
 	turnPrompt := prompt
 	lead := s.renderMemories()
 	if !savingMemory {

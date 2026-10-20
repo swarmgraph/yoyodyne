@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/mason-bryant/yoyodyne/internal/action"
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
+	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/report"
@@ -34,7 +36,7 @@ func (a *activeRun) runTool(role domain.AgentRole, id capability.Capability, cou
 		return fmt.Errorf("tool request audit failed; nothing was recorded: %w", err)
 	}
 	allowed := false
-	for _, held := range toolcatalog.Granted(role) {
+	for _, held := range agentTools(role, a.pipeline.agentForRole(role)) {
 		allowed = allowed || held.Name == registered.Name
 	}
 	var refused error
@@ -83,4 +85,13 @@ func (a *activeRun) collectAmendments(role domain.AgentRole, entries []amendment
 	if err := a.runTool(role, capability.AmendmentPropose, len(entries), func() { a.collectAmendmentsWithoutToolAudit(role, entries) }, func() bool { return a.outcome.AmendmentProblem != before }); err != nil {
 		a.noteAmendmentProblem(role, err)
 	}
+}
+
+// agentTools is the tools the configured agent filling a role holds: its role
+// definition's set where it fills one, and the role's shipped grant otherwise.
+func agentTools(role domain.AgentRole, agent config.AgentConfig) []action.Action[toolcatalog.Call] {
+	if agent.Definition != nil {
+		return toolcatalog.GrantedHeld(agent.Capabilities)
+	}
+	return toolcatalog.Granted(role)
 }

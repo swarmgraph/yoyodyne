@@ -410,13 +410,26 @@ func TestTheProfileIsWhatTheRolesPostureRequires(t *testing.T) {
 		if role == domain.RoleDeveloper {
 			want = profileDeveloper
 		}
-		got, err := profileFor(role)
+		got, err := profileFor(backendapi.RunRequest{Role: role})
 		if err != nil || got != want {
 			t.Errorf("profileFor(%q) = (%q, %v), want %q", role, got, err, want)
 		}
 	}
-	if got, err := profileFor("unknown"); err == nil || got != "" {
+	if got, err := profileFor(backendapi.RunRequest{Role: "unknown"}); err == nil || got != "" {
 		t.Fatalf("unknown role = (%q, %v), want refusal", got, err)
+	}
+}
+
+// A developer agent whose role definition removed the worktree write runs in the
+// read-only sandbox, and no request can ask for more than its role has.
+func TestARequestedPostureNarrowsTheSandboxAndNeverWidensIt(t *testing.T) {
+	t.Parallel()
+	got, err := profileFor(backendapi.RunRequest{Role: domain.RoleDeveloper, Posture: backendapi.PostureReadOnly})
+	if err != nil || got != profileReadOnly {
+		t.Fatalf("narrowed developer = (%q, %v), want the read-only profile", got, err)
+	}
+	if got, err := profileFor(backendapi.RunRequest{Role: domain.RoleReviewer, Posture: backendapi.PostureWorktreeWrite}); err == nil || got != "" {
+		t.Fatalf("widened reviewer = (%q, %v), want refusal", got, err)
 	}
 }
 

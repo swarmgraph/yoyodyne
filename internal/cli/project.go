@@ -335,13 +335,15 @@ func renameProjectDirectory(root, oldID, newID string) (renamedProject, error) {
 		if err != nil {
 			return renamedProject{}, fmt.Errorf("the configuration of %s could not be found to check its product.id: %w", binding.Repository, err)
 		}
-		loaded, err := config.Load(committed)
+		// Only the product's id is asked of the committed file, so it is read
+		// as the product alone, whatever its agents fill.
+		product, err := config.RoleHistoryProduct(committed)
 		if err != nil {
 			return renamedProject{}, err
 		}
-		if string(loaded.Product.ID) != newID {
+		if string(product.ID) != newID {
 			return renamedProject{}, fmt.Errorf("the configuration committed at %s says product.id is %s; set it to %s and commit it first, "+
-				"so the id in the repository and the project directory never disagree", committed, loaded.Product.ID, newID)
+				"so the id in the repository and the project directory never disagree", committed, product.ID, newID)
 		}
 		result.configuration = committed
 	}

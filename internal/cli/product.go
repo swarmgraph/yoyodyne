@@ -929,8 +929,7 @@ func (p *product) realChildren() ([]supervise.Child, []supervise.NotYet, []confi
 				port:     services.Dashboard.Port,
 				source:   services.Dashboard.Token,
 				configured: func() (config.Services, error) {
-					resolved, err := config.LoadResolved(configPath)
-					return resolved.Config.Services, err
+					return config.LoadServices(configPath)
 				},
 				tokens: dashboardTokenStores(p.stateRoot),
 				build: func() string {

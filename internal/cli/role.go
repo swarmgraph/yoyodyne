@@ -122,10 +122,13 @@ func runRole(args []string, stdout, stderr io.Writer) int {
 	}
 	for _, role := range roles {
 		status := "not activated"
-		if role.Activated {
+		switch {
+		case role.Activated:
 			status = "activated"
-		} else if role.AmendedSince {
+		case role.AmendedSince:
 			status = "amended since activation; the current file is not activated"
+		case role.MovedSince:
+			status = "moved since activation; the file where it now stands is not activated"
 		}
 		fmt.Fprintf(stdout, "%s (extends %s): %s\n  definition: %s\n  current digest: %s\n", role.Definition.Name, role.Definition.Extends, status, role.Definition.Source, role.Definition.Digest)
 		if role.Activation != nil {
@@ -138,12 +141,14 @@ func runRole(args []string, stdout, stderr io.Writer) int {
 func roleActivationTime(at time.Time) string { return at.Local().Format("2006-01-02 15:04:05 MST") }
 
 func roleConfiguration(explicitPath string, history bool) (config.Resolved, error) {
-	if !history {
-		return loadConfiguration(explicitPath)
-	}
 	path, err := configurationPath(explicitPath)
 	if err != nil {
 		return config.Resolved{}, err
+	}
+	if !history {
+		// The definitions and the product, and no agent: activating a definition
+		// an agent already names has to work before anything binds to it.
+		return config.LoadRoleDefinitionsBeside(path)
 	}
 	product, err := config.RoleHistoryProduct(path)
 	if err != nil {
@@ -174,10 +179,11 @@ Activation records a person's decision about a validated definition's exact
 content digest. A process the harness launched for a role, marked by
 YOYODYNE_AGENT_ROLE, is refused activation. --by defaults to USER.
 
-List compares each definition with its latest activation. An amended file
-requires a new activation. History shows every activation, newest first,
+List compares each definition with its latest activation. An amended or moved
+file requires a new activation. History shows every activation, newest first,
 including definitions whose files have been removed.
 
-Activation does not bind an agent to a definition; agents still use shipped
-roles until binding is implemented.`)
+An agent fills a definition by naming it as its role:. Every other command
+refuses a configuration whose agents fill a definition that is not activated as
+it stands; these three do not, so a person can always activate one.`)
 }

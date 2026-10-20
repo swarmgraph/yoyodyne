@@ -15,6 +15,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
+	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/chat"
 	"github.com/mason-bryant/yoyodyne/internal/config"
 	"github.com/mason-bryant/yoyodyne/internal/console"
@@ -293,6 +294,7 @@ func converseWith(ctx context.Context, prepared preparedChat, request conversati
 	screen := console.Open(console.Options{In: stdin, Out: stdout})
 	defer screen.Close()
 	printChatHeader(screen, role, session.Evidence(), session.Freshness(ctx))
+	printDefinitionHeader(screen, prepared.agent)
 	converseErr := session.Converse(ctx, screen)
 	// What was decided about is the console's to dress, and it is asked before
 	// the console is closed: restoring the terminal changes how it reads input,
@@ -658,6 +660,29 @@ type preparedChat struct {
 	model string
 }
 
+// definitionCapabilities is the capability set a conversation is held to where
+// the agent fills a role definition, and nil where the agent is on a shipped
+// role and its role's row of the authority table is the answer.
+func definitionCapabilities(agent config.AgentConfig) []capability.Capability {
+	if agent.Definition == nil {
+		return nil
+	}
+	return append([]capability.Capability{}, agent.Capabilities...)
+}
+
+// conversationAuthority is what one configured agent may ask for in a
+// conversation: its role's row, or the row its role definition's tool set
+// derives. A role the table has no row for answers with an empty row, which
+// may ask for nothing.
+func conversationAuthority(role domain.AgentRole, agent config.AgentConfig) chat.Authority {
+	if held := definitionCapabilities(agent); held != nil {
+		authority, _ := chat.AuthorityHeld(role, held)
+		return authority
+	}
+	authority, _ := chat.AuthorityFor(role)
+	return authority
+}
+
 // onModel has this session's turns ask for model rather than the agent's own. An
 // empty model leaves the agent's, which is every conversation but a recurring
 // task's that names one. The selector is held to the rule the agent's own is,
@@ -910,9 +935,13 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 	// conversation on a backend nothing can run is refused before the provider is
 	// invoked rather than on its first turn.
 	session, err := chat.Open(chat.Options{
-		Role:    role,
-		Backend: provider,
-		Store:   store,
+		Role: role,
+		// An agent filling a role definition asks for what the definition holds
+		// rather than for its shipped role's row; every other agent passes
+		// nothing and is read off the table.
+		Capabilities: definitionCapabilities(p.agent),
+		Backend:      provider,
+		Store:        store,
 		// This process's claim on the conversation, handed over so an interactive
 		// one can put it down while the operator is at the prompt. What has to be
 		// exclusive is a turn: an idle console that never let go was the reason
@@ -964,7 +993,7 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// The inter-role ask channel, wired for the roles that are on it. A
 		// question one role cannot answer itself reaches the role that can through
 		// here, rather than through the operator or through a work item.
-		Exchanges:           conversationExchanges(parts, role, provider, p.runner),
+		Exchanges:           conversationExchanges(parts, conversationAuthority(role, p.agent), provider, p.runner),
 		AskRoundsPerMessage: cfg.Exchange.MaxRounds,
 		// The durable budget the development manager's triage decisions spend.
 		// It is wired for that role alone, like the docket those decisions are
@@ -1483,6 +1512,17 @@ func printChatHeader(writer io.Writer, role domain.AgentRole, evidence chat.Evid
 	fmt.Fprintln(writer, "this conversation. /help lists them.")
 	fmt.Fprintln(writer, "End with /exit.")
 	fmt.Fprintln(writer)
+}
+
+// printDefinitionHeader says, under the role's own header, that this agent
+// fills a role definition and so may ask for less than the description above:
+// the tools and actions it holds are the definition's, which `yoyo config show`
+// lists. An agent on a shipped role prints nothing here.
+func printDefinitionHeader(writer io.Writer, agent config.AgentConfig) {
+	if agent.Definition == nil {
+		return
+	}
+	fmt.Fprintf(writer, "This agent fills the role definition %q, so the tools and actions it holds are that definition's rather than the role's as described above; `yoyo config show` lists them.\n", agent.Definition.Name)
 }
 
 // printOtherRoleHeader opens a conversation with a role that is not the product

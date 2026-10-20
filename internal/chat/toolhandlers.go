@@ -15,7 +15,6 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/repositoryread"
 	"github.com/mason-bryant/yoyodyne/internal/research"
-	"github.com/mason-bryant/yoyodyne/internal/rolecapability"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -256,11 +255,13 @@ func (s *Session) recordEvaluation(entry evaluation.Entry) (*evaluation.Evaluati
 	return auditTool(context.Background(), s, capability.EvaluationRecord, nil, 1, func() (*evaluation.Evaluation, error) { return s.recordEvaluationWithoutToolAudit(entry) }, nil)
 }
 
-// writeTool is the document tool this role's bundle grants: the architect's
-// design write where it holds one, and otherwise the product write.
+// writeTool is the document tool this agent holds: the architect's design
+// write where it holds one, and otherwise the product write.
 func (s *Session) writeTool() capability.Capability {
-	if rolecapability.MustDefault().Holds(s.state.Role, capability.ArtifactDesignMutate) {
-		return capability.ArtifactDesignMutate
+	for _, held := range s.grantedTools() {
+		if held.Tool.ID == capability.ArtifactDesignMutate {
+			return capability.ArtifactDesignMutate
+		}
 	}
 	return capability.ArtifactProductMutate
 }

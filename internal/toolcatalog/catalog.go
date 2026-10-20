@@ -118,12 +118,20 @@ var Excluded = map[capability.Capability]string{
 }
 
 func Granted(role domain.AgentRole) []action.Action[Call] {
-	grants := rolecapability.MustDefault()
+	bundle, _ := rolecapability.MustDefault().Bundle(role)
+	return GrantedHeld(bundle.Holds)
+}
+
+// GrantedHeld is Granted for a capability set other than a shipped role's
+// bundle: an agent filling a role definition, whose set is its shipped role's
+// with the definition's removals taken out. A tool is granted only where every
+// capability it requires is in the set.
+func GrantedHeld(holds []capability.Capability) []action.Action[Call] {
 	var tools []action.Action[Call]
 	for _, registered := range Registry().Actions() {
 		held := true
 		for _, required := range registered.Capabilities {
-			held = held && grants.Holds(role, required)
+			held = held && slices.Contains(holds, required)
 		}
 		if held {
 			tools = append(tools, registered)
@@ -152,6 +160,9 @@ func RunGranted(role domain.AgentRole) []action.Action[Call] {
 // Contract is the generated tools section of a role's conversation contract.
 func Contract(role domain.AgentRole) string { return contract(Granted(role)) }
 
+// ContractHeld is Contract for the capability set GrantedHeld reads.
+func ContractHeld(holds []capability.Capability) string { return contract(GrantedHeld(holds)) }
+
 // RunContract is the generated tools section of a run's instructions: the
 // role's granted tools the run carries out.
 func RunContract(role domain.AgentRole) string { return contract(RunGranted(role)) }
@@ -166,9 +177,14 @@ func contract(granted []action.Action[Call]) string {
 	return out.String()
 }
 
-func Names(role domain.AgentRole) []string {
+func Names(role domain.AgentRole) []string { return names(Granted(role)) }
+
+// NamesHeld is Names for the capability set GrantedHeld reads.
+func NamesHeld(holds []capability.Capability) []string { return names(GrantedHeld(holds)) }
+
+func names(granted []action.Action[Call]) []string {
 	var names []string
-	for _, registered := range Granted(role) {
+	for _, registered := range granted {
 		names = append(names, fmt.Sprint(registered.Tool.ID))
 	}
 	return names

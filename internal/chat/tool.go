@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/action"
 	"github.com/mason-bryant/yoyodyne/internal/capability"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/logread"
@@ -44,7 +45,7 @@ func auditTool[T any](ctx context.Context, s *Session, id capability.Capability,
 		audit.Bounds.RoundsPerMessage = s.options.askRounds()
 	}
 	allowed := false
-	for _, held := range toolcatalog.Granted(s.state.Role) {
+	for _, held := range s.grantedTools() {
 		if held.Name == registered.Name {
 			allowed = true
 		}
@@ -146,13 +147,7 @@ func (s *Session) refuseToolBlocks(answer string, parsed parsedReply, alreadyPer
 	if parsed.StopCauses != nil {
 		add(capability.StopCauseRecord, 1)
 	}
-	writeTool := capability.ArtifactProductMutate
-	for _, registered := range toolcatalog.Granted(s.state.Role) {
-		if registered.Tool.ID == capability.ArtifactDesignMutate {
-			writeTool = capability.ArtifactDesignMutate
-		}
-	}
-	add(writeTool, len(parsed.Writes))
+	add(s.writeTool(), len(parsed.Writes))
 	for _, id := range alreadyPerformed {
 		delete(counts, id)
 		if registered, found := toolcatalog.Registry().Lookup(string(id)); found {
@@ -286,4 +281,14 @@ func (s *Session) performLogReads(ctx context.Context, requests []logread.Reques
 		round.Problem = "log.read has spent its rounds for this message"
 	}
 	return round
+}
+
+// grantedTools is the tools this conversation's agent holds: its role
+// definition's set where it fills one, and its shipped role's otherwise, read
+// off the same capabilities as its authority (see (*Session).authority).
+func (s *Session) grantedTools() []action.Action[toolcatalog.Call] {
+	if s.options.Capabilities != nil {
+		return toolcatalog.GrantedHeld(s.options.Capabilities)
+	}
+	return toolcatalog.Granted(s.state.Role)
 }

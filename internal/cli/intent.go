@@ -187,7 +187,7 @@ func chooseIntentRepository(path string) error {
 	if _, err := root.WriteFile(filepath.Base(path), []byte(edited)); err != nil {
 		return err
 	}
-	if _, err := config.LoadResolved(path); err != nil {
+	if _, err := loadActivatedConfiguration(path); err != nil {
 		if _, restore := root.WriteFile(filepath.Base(path), original); restore != nil {
 			return fmt.Errorf("the configuration this wrote does not load (%v), and putting it back failed too: %w", err, restore)
 		}

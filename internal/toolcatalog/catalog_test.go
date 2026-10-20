@@ -98,3 +98,28 @@ func TestTheToolsSectionUsesOrdinaryWords(t *testing.T) {
 		}
 	}
 }
+
+// A capability set narrower than a role's bundle is granted exactly the tools
+// whose every required capability it holds, and its whole bundle is granted
+// exactly the role's tools.
+func TestHeldToolsAreTheToolsTheSetHolds(t *testing.T) {
+	t.Parallel()
+	bundle, _ := rolecapability.MustDefault().Bundle(domain.RoleArchitect)
+	if strings.Join(NamesHeld(bundle.Holds), ",") != strings.Join(Names(domain.RoleArchitect), ",") ||
+		ContractHeld(bundle.Holds) != Contract(domain.RoleArchitect) {
+		t.Fatal("the architect's whole bundle is not granted exactly the architect's tools")
+	}
+	var narrowed []capability.Capability
+	for _, held := range bundle.Holds {
+		if held != capability.ExchangeAsk {
+			narrowed = append(narrowed, held)
+		}
+	}
+	names := NamesHeld(narrowed)
+	if len(names) != len(Names(domain.RoleArchitect))-1 || strings.Contains(strings.Join(names, ","), string(capability.ExchangeAsk)) {
+		t.Fatalf("NamesHeld(without the ask) = %v", names)
+	}
+	if strings.Contains(ContractHeld(narrowed), "## "+string(capability.ExchangeAsk)+" ") {
+		t.Fatal("the narrowed contract still describes the ask")
+	}
+}

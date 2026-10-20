@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
-	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
 	"github.com/mason-bryant/yoyodyne/internal/oneline"
 )
@@ -139,7 +138,7 @@ func (b Backend) CheckLaunchSettings(ctx context.Context, directory string) (bac
 		}
 	}
 
-	settings, err := settingsFor(developerSettings, domain.RoleDeveloper, directory)
+	settings, err := settingsFor(developerSettings, true, directory)
 	if err != nil {
 		return backend.LaunchSettingsCheck{}, err
 	}
@@ -190,7 +189,7 @@ func settingsCheckArgs(settings string) []string {
 		"--no-session-persistence",
 		"--settings", settings,
 	}
-	args = append(args, contextArgs(domain.RoleDeveloper)...)
+	args = append(args, contextArgs(true)...)
 	args = append(args, "--allowedTools")
 	return append(args, developerTools...)
 }
