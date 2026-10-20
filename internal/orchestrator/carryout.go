@@ -438,7 +438,7 @@ func (c CarryOut) read() (carryOutReading, error) {
 			}
 		}
 		if !outstanding {
-			task, outstanding, err = c.checkStageTask(entry, item)
+			task, outstanding, err = c.checkStageTask(entry, item, history)
 			if err != nil {
 				problems = append(problems, err)
 				return
@@ -855,7 +855,16 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 			return CarryOutTask{}, false, nil, err
 		}
 		for _, state := range recorded {
-			if state.RunID != entry.RunID || state.WorkItemID != entry.WorkItemID || !state.RepairDispatchPending() {
+			if state.RunID != entry.RunID || state.WorkItemID != entry.WorkItemID {
+				continue
+			}
+			// Carried out on this run already: a round given back since leaves the
+			// grant reading unspent, but the stop after it is a stoppage of its own,
+			// and the decision is not carried out a second time on it.
+			if !state.RepairDispatchPending() {
+				if state.RepairContinuedSince(decision.DecidedAt) {
+					return CarryOutTask{}, false, nil, nil
+				}
 				continue
 			}
 			continuation := state.RepairContinuations[len(state.RepairContinuations)-1]
@@ -885,14 +894,23 @@ func (i outstandingItem) taskFor(entry triage.Entry, now time.Time, history func
 // manager recorded about the stoppage is hers to have carried out instead, so
 // only an entry nobody decided anything about is taken. Machine load does not
 // withhold it, just as it does not withhold fresh work.
-func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (CarryOutTask, bool, error) {
+func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem, history func() ([]runstate.State, error)) (CarryOutTask, bool, error) {
 	if c.CheckStages == nil || (!entry.HarnessContinuesChecks && strings.TrimSpace(entry.CheckStageStop) == "") {
 		return CarryOutTask{}, false, nil
 	}
 	// A stop or a decision to let the run finish was made about the run in
-	// flight, and decides nothing about the stoppage the bound later made.
+	// flight, and decides nothing about the stoppage the bound later made; nor
+	// does a repair already carried out on the run, whose continuation is what
+	// the bound stopped. The run's record answers the second (StandingOf), and
+	// where it cannot be read any decision holds the continuation back.
 	if decision, decided := item.counters.DecisionOf(entry.RunID); decided && !decision.InFlight() {
-		return CarryOutTask{}, false, nil
+		run, found, err := entryRun(entry, history)
+		if err != nil {
+			return CarryOutTask{}, false, err
+		}
+		if !found || item.counters.StandingOf(run).Decided {
+			return CarryOutTask{}, false, nil
+		}
 	}
 	// The run's current obligation is authoritative. An old docket entry may
 	// have recorded removal flags before checkout restoration was supported.
@@ -907,6 +925,21 @@ func (c CarryOut) checkStageTask(entry triage.Entry, item outstandingItem) (Carr
 		Decision:   DecisionContinueChecks,
 		Reason:     "the check stage bound stopped this run under load, and the harness continues it at its checks",
 	}, true, nil
+}
+
+// entryRun is the run an entry is about, as its own record stands, and
+// whether the record holds it under the entry's item.
+func entryRun(entry triage.Entry, history func() ([]runstate.State, error)) (runstate.State, bool, error) {
+	recorded, err := history()
+	if err != nil {
+		return runstate.State{}, false, err
+	}
+	for _, state := range recorded {
+		if state.RunID == entry.RunID && state.WorkItemID == entry.WorkItemID {
+			return state, true, nil
+		}
+	}
+	return runstate.State{}, false, nil
 }
 
 // stallTask reports a first stall — a silent stream or a spent session budget —

@@ -5805,6 +5805,36 @@ to carry all six. This used to be one word — `failed` — for all of them and 
 the two below it, which is how three preserved runs came to read as three
 discarded ones.
 
+**A run that stops again after a repair has a new stop, decided afresh.** Once
+the harness has carried out a repair the development manager decided, that
+decision is done: the run's `repair_continuations` show it was carried out, and
+it stays carried out even where the later stop was caused by something outside
+the work and the round was given back to the item's budget. The later stop is
+judged by the same rules as a first stop, and it looks like one of two things:
+
+- **The harness continues it itself** where the rules say so — a check stage
+  stopped at its bound or a check stopped at its own limit, with reruns left
+  on this candidate, or a first silent provider session. The development
+  manager's list shows the stop with its own cause, says the earlier repair was
+  carried out, and names the harness as the next mover. The item's hold says the
+  harness continues it, and nobody is asked to decide anything.
+- **The development manager decides it** everywhere else — the reviewer still
+  asking for repair, a failing check, or the check reruns on this candidate
+  already spent. Her list shows it as undecided, with its own cause, and says the
+  earlier repair was carried out and decides nothing about this stop. The item's
+  hold names her as the one to move it.
+
+In neither case is the earlier repair shown as still waiting for the harness to
+carry it out, and it is never carried out a second time: `yoyo triage repair`
+refuses to repeat it, and another repair is a new decision that spends a further
+grant. A decision she records about the later stop itself still comes first,
+ahead of the harness's own continuation. No counter or budget is reset by any of
+this — the run's repair attempts and check reruns, the item's review rounds and
+grants, and the harness's own continuation allowances all stand as they were.
+Until yoyodyne-ifd.428.74, a round given back made the earlier repair read as
+never carried out, so the harness carried the same decision out again each time
+the checks timed out, and every surface showed it as owed.
+
 A blocker outranks the run's own status, `succeeded` included. The last of those
 endings is the one where that shows: a run promotes its work, records it, and
 `yoyo reconcile` then finds the target does not carry the promotion, so the item

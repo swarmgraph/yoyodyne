@@ -313,7 +313,6 @@ func TestARepairContinuedSinceItsDecisionIsCarriedOut(t *testing.T) {
 	}
 	for name, continuation := range map[string]RepairContinuation{
 		"before the decision":     {GrantedAttempts: 2, ContinuedAt: decided.Add(-time.Hour)},
-		"returned":                {GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Returned: true},
 		"awaiting dispatch":       {GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), DispatchPending: true},
 		"the harness's own stall": {ContinuedAt: decided.Add(2 * time.Minute), Stall: true, ByHarness: true},
 	} {
@@ -322,9 +321,14 @@ func TestARepairContinuedSinceItsDecisionIsCarriedOut(t *testing.T) {
 			t.Fatalf("a continuation %s carried the repair out", name)
 		}
 	}
-	run.RepairContinuations = []RepairContinuation{{GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute)}}
-	if counters.AwaitingCarryOutOf(run) {
-		t.Fatal("a repair handed back to its run still reads as the harness's to carry out")
+	// A round given back after the run stopped again leaves the grant unspent,
+	// and the decision carried out all the same: the later stop is undecided.
+	for _, returned := range []bool{false, true} {
+		run.RepairContinuations = []RepairContinuation{{GrantedAttempts: 2, ContinuedAt: decided.Add(2 * time.Minute), Returned: returned}}
+		standing := counters.StandingOf(run)
+		if counters.AwaitingCarryOutOf(run) || !standing.CarriedOut || standing.Decided || standing.GrantOutstanding {
+			t.Fatalf("a repair handed back to its run (round returned %t) still decides its later stop: %#v", returned, standing)
+		}
 	}
 }
 
