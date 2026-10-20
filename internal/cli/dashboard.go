@@ -323,7 +323,7 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 
 // dashboardHeaderLine is said whichever way the token came, because it is
 // about how the token is presented rather than where it came from.
-const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/items/<work-item-id>, and /api/program-managers/<agent>"
+const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/items/<work-item-id>, and /api/program-managers/<agent>"
 
 // dashboardServer makes the server under the token the entry names, and says
 // what the command prints about it. Under `generated` the server makes its own
@@ -440,6 +440,17 @@ func (r dashboardReader) ProgramManagerReport(ctx context.Context, agent string)
 		return readmodel.ProgramManagerReport{}, err
 	}
 	return readmodel.ReadProgramManagerReport(standingSources(r.configPath), agent)
+}
+
+// Backlog is every work item the tracker holds, open and closed, for the
+// backlog page. It is read from the same sources the standing is, through the
+// queue derivation the standing's not-startable line is worded from, so the page
+// and `yoyo status` cannot disagree about whether an item is ready.
+func (r dashboardReader) Backlog(ctx context.Context) (readmodel.Backlog, error) {
+	if err := r.ready(); err != nil {
+		return readmodel.Backlog{}, err
+	}
+	return readmodel.ReadBacklog(ctx, standingSources(r.configPath)), nil
 }
 
 // workItemSources opens the tracker and the run store one work item is read
@@ -583,7 +594,10 @@ days with a line for each of the last thirty at /api/spend, and one work item
 whole -- its tracker fields and the run last made for it -- at
 /api/items/<work-item-id>, which is what the page's card on an item reads,
 and one program manager instance with its current lane report at
-/api/program-managers/<agent>, which is what the page's report card reads; the page shell at / and its own script and style are
+/api/program-managers/<agent>, which is what the page's report card reads,
+and every work item the tracker holds, open and closed, with when it was filed
+and closed, its priority, labels, who does it, whether it is ready or waiting,
+and who filed it, at /api/backlog; the page shell at / and its own script and style are
 static text with nothing of the read model in them, served to the browser before
 it has a token. Everything else is refused: a request for the read model with no
 token or the wrong one, a Host or Origin that is not the address it bound, and

@@ -39,8 +39,10 @@
 // Everything that reads state is behind the token: the standing, the
 // throughput, the spend, one work item at a time at /api/items/<id>, which is
 // what the page opens a card from, and one program manager instance's lane
-// report at a time at /api/program-managers/<agent>. The page never reads the tracker; the
-// card is the read model's projection of the item, served here like the rest.
+// report at a time at /api/program-managers/<agent>, and every work item the
+// tracker holds, open and closed, at /api/backlog, which is what the backlog
+// page charts. The page never reads the tracker; the card and the backlog are
+// the read model's projections of it, served here like the rest.
 //
 // It is a projection, never an engine: it owns no workflow, conversation,
 // provider, or configuration state, and offers no write of any kind. What it
@@ -129,6 +131,11 @@ type Reader interface {
 	// readmodel.ErrNoSuchProgramManager is the read model knowing no instance by
 	// the name, and any other is the state not being readable.
 	ProgramManagerReport(ctx context.Context, agent string) (readmodel.ProgramManagerReport, error)
+	// Backlog reads every work item the tracker holds, open and closed, for the
+	// backlog page's chart. It is asked for when that page asks, rather than
+	// polled, because it lists the whole tracker. An error refuses the whole
+	// answer; a tracker that could not be listed is said inside it.
+	Backlog(ctx context.Context) (readmodel.Backlog, error)
 }
 
 // Server is one dashboard process: the token it generated or was handed, the
@@ -402,7 +409,7 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		s.servePage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
-	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
+	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
 		// The routes that read state, and so the ones the token guards.
 		if !s.presented(request) {
 			refuse(writer, request, http.StatusUnauthorized, "this dashboard requires the token it printed when it started, as a bearer token")
@@ -415,6 +422,8 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 			s.serveSnapshot(writer, request, s.spend)
 		case request.URL.Path == "/api/standing":
 			s.serveSnapshot(writer, request, s.standing)
+		case request.URL.Path == "/api/backlog":
+			s.serveReading(writer, request, func(ctx context.Context) (any, error) { return s.reader.Backlog(ctx) })
 		case strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
 			s.serveProgramManager(writer, request)
 		default:
