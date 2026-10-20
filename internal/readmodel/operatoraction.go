@@ -73,6 +73,12 @@ type OperatorAction struct {
 	// handling's reason, the critical report's own message, or the development
 	// manager's reason for escalating.
 	Needs string `json:"needs"`
+	// Reason is the reason from the operator's closed list the finding was
+	// raised for: the handling's, the escalation's, or the one its shape
+	// stands for. A finding recorded with none, as every one recorded before
+	// the list was required is, is not his; the ownership registry gives it back
+	// to the role that raised it.
+	Reason ownership.OperatorReason `json:"reason,omitempty"`
 	// RecordedIn says where the finding is recorded, so the operator can go and
 	// read the whole of it.
 	RecordedIn string `json:"recorded_in"`
@@ -121,6 +127,7 @@ func OperatorActions(reports []report.Report, handlings []report.Handling) []Ope
 				ReportID:   reported.ID,
 				WorkItemID: reported.WorkItemID,
 				Needs:      strings.Join(strings.Fields(handling.Reason), " "),
+				Reason:     handling.OperatorReason,
 				RecordedIn: fmt.Sprintf("the handling of %s recorded in %s, over the %s's report from %s",
 					reported.ID, handling.RunID, reported.Role.Title(), reported.RunID),
 				FoundBy: fmt.Sprintf("the %s, handling the report", handling.Role.Title()),
@@ -241,6 +248,7 @@ func Escalations(runs []runstate.State, decisions Decisions, items EscalatedItem
 			RunID:      run.RunID,
 			WorkItemID: workItemID,
 			Needs:      strings.Join(strings.Fields(decision.Reason), " "),
+			Reason:     decision.OperatorReason,
 			RecordedIn: fmt.Sprintf("the development manager's escalation of run %s, recorded in %s at turn %d, and the blocker on %s",
 				run.RunID, decision.Conversation, decision.Turn, workItemID),
 			FoundBy: "the development manager, escalating the stopped run to the operator",

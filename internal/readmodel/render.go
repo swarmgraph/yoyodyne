@@ -405,7 +405,12 @@ func (s Standing) renderNeedsHuman() string {
 		byMover[waiting.Mover] = append(byMover[waiting.Mover], waiting)
 	}
 	var rendered strings.Builder
-	operator := byMover[MoverOperator]
+	var operator []Attention
+	for mover, entries := range byMover {
+		if mover.IsOperator() {
+			operator = entries
+		}
+	}
 	if len(operator) == 0 {
 		rendered.WriteString("Needs a human: nothing\n")
 	} else {
@@ -419,13 +424,23 @@ func (s Standing) renderNeedsHuman() string {
 	}
 	for _, mover := range order {
 		entries := byMover[mover]
-		if mover == MoverOperator || len(entries) == 0 {
+		if mover.IsOperator() || len(entries) == 0 {
 			continue
 		}
 		fmt.Fprintf(&rendered, "%s (%d):\n", mover.WaitingOn(), len(entries))
 		rendered.WriteString(renderWaiting(entries))
 	}
 	return rendered.String()
+}
+
+// operatorsBecause is the clause that says why an entry is the operator's: the
+// reason from his closed list the ownership registry gave it. It is empty on
+// every entry that is not his.
+func operatorsBecause(waiting Attention) string {
+	if says := waiting.Ownership.ReasonSays(); says != "" {
+		return " (the operator's because it is " + says + ")"
+	}
+	return ""
 }
 
 // renderWaiting is the entries under one mover's head. A named entry is
@@ -443,7 +458,7 @@ func renderWaiting(entries []Attention) string {
 			}
 			listed++
 		}
-		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedWhose())
+		fmt.Fprintf(&rendered, "  %s — %s%s\n", waiting.CitedWhat(), waiting.CitedWhose(), operatorsBecause(waiting))
 	}
 	rendered.WriteString(remainder(further, "thing waiting on somebody"))
 	return rendered.String()

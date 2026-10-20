@@ -152,21 +152,30 @@ func (h IntakeHold) Probing(workItemID string) bool {
 
 // WaitsOnAPerson reports a hold nothing but a person lifts: the operator's own,
 // a brake hold from before the brake worked its own holds, and a brake hold
-// escalated to the operator — by the development manager, or by the harness
-// once its summons-and-probe loop has gone round the configured number of
-// times. Every other brake hold is the harness's to lift.
+// escalated — by the development manager, or by the harness once its
+// summons-and-probe loop has gone round the configured number of times — to
+// the Lead Product Manager, which the operator is told of and may release.
+// Every other brake hold is the harness's to lift.
 func (h IntakeHold) WaitsOnAPerson() bool {
 	return !h.Braked() || h.Brake.Escalated()
 }
 
 // Whose is whose move the hold is, worded once here for every surface that
-// puts a held intake on an attention line. The operator's hold is theirs, and a
-// brake hold is whoever its own record says.
+// puts a held intake on an attention line, in the ownership registry's answer
+// for it (ownership.holdRule), which a read model test holds this to: the
+// operator's hold is his, a brake hold is whoever its own record says, a brake
+// hold from before the brake kept a record is the development manager's, and
+// a hold whose record names nobody is the Lead Product Manager's to classify.
 func (h IntakeHold) Whose() string {
-	if h.Braked() {
+	switch {
+	case h.Braked():
 		return h.Brake.Whose()
+	case h.HeldBy == IntakeHolderOperator:
+		return "the operator's — nothing new is chosen until `yoyo release` lifts it"
+	case h.HeldBy == IntakeHolderBrake:
+		return "the development manager's — the brake placed it before it kept a record of its own, so she decides whether intake reopens, and nothing new is chosen until `yoyo release` lifts it"
 	}
-	return "the operator's — nothing new is chosen until `yoyo release` lifts it"
+	return "the Lead Product Manager's — the record does not say who placed it, so she classifies it, and nothing new is chosen until `yoyo release` lifts it"
 }
 
 // Standing is what happens to the hold next, as the clause that follows Says in

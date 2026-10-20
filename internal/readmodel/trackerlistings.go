@@ -45,10 +45,9 @@ func ReadTrackerUnanswered(sources Sources) (*runstate.TrackerListings, string) 
 // carries it. The moment they began failing is the ID, since a later outage
 // after an answer is a different one.
 func trackerUnansweredAttention(record runstate.TrackerListings) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:            AttentionTrackerUnanswered,
 		ID:              record.FailingSince.UTC().Format(time.RFC3339),
-		Mover:           MoverHarness,
 		TrackerListings: &record,
-	}
+	})
 }

@@ -68,6 +68,12 @@ func Movers() []Mover {
 	}
 }
 
+// IsOperator reports whether the mover is the operator. A surface asks this of
+// the answer an entry carries rather than comparing with the operator's value,
+// which only this package names: it may ask whether an answer names him, and
+// never decide that one does.
+func (m Mover) IsOperator() bool { return m == MoverOperator }
+
 // Valid reports whether a token is one of the movers.
 func (m Mover) Valid() bool {
 	for _, known := range Movers() {

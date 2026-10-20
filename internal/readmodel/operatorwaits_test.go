@@ -5,12 +5,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
 // Finished-run entries are dated from the run's ending. The operator's section
-// carries only his entries, never the cleanup the harness still has to finish.
-func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T) {
+// carries only his entries: never the cleanup the harness still has to finish,
+// and never a publication, which the ownership registry gives to the harness,
+// the forge, or the development manager.
+func TestOwedStepsAndPublicationsAreDatedFromTheRunsEndingAndNeitherIsTheOperators(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
@@ -28,26 +31,20 @@ func TestOwedStepsAndOperatorPublicationsAreDatedFromTheRunsEnding(t *testing.T)
 		PullRequest:    &runstate.PullRequest{Number: 42, URL: "https://example.test/pull/42"},
 		PublishFailure: "the forge refused the merge request",
 	})
-	if publication.Mover != MoverOperator {
-		t.Fatalf("publication mover = %s, want the operator's for this test to cover the case", publication.Mover)
+	if publication.Mover != ownership.MoverDevelopmentManager {
+		t.Fatalf("publication mover = %s, want the development manager's", publication.Mover)
 	}
 	if !publication.Since().Equal(promotedEnded) {
 		t.Errorf("publication since = %s, want the run's ending %s", publication.Since(), promotedEnded)
 	}
 
 	rendered := Standing{NeedsHuman: []Attention{owed, publication}}.RenderOperatorWaits(now)
-	for _, want := range []string{
-		"[publication run-published, item yoyodyne-ifd.2]",
-		"since " + localMoment(promotedEnded) + ", 26 hours ago",
-	} {
-		if !strings.Contains(rendered, want) {
-			t.Errorf("the section does not carry %q:\n%s", want, rendered)
+	if !strings.Contains(rendered, "Nothing on the needs-a-human line is the operator's.") {
+		t.Errorf("the section carries entries that are not the operator's:\n%s", rendered)
+	}
+	for _, entry := range []string{"run-owed", "run-published"} {
+		if strings.Contains(rendered, entry) {
+			t.Errorf("%s reached the operator's section: %s", entry, rendered)
 		}
-	}
-	if strings.Contains(rendered, "run-owed") {
-		t.Errorf("the harness's cleanup reached the operator: %s", rendered)
-	}
-	if strings.Contains(rendered, "not recorded on it") {
-		t.Errorf("an entry was rendered with no moment:\n%s", rendered)
 	}
 }

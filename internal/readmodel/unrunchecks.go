@@ -128,5 +128,5 @@ func ReadUnrunChecks(sources Sources) ([]UnrunCheck, string) {
 // reliability she already decides about. It is not the operator's, because
 // nothing about it is on the closed list of what only a person can do.
 func unrunCheckAttention(unrun UnrunCheck) Attention {
-	return Attention{Kind: AttentionUnrunCheck, ID: unrun.Command, Mover: MoverDevelopmentManager, UnrunCheck: &unrun}
+	return resolved(Attention{Kind: AttentionUnrunCheck, ID: unrun.Command, UnrunCheck: &unrun})
 }

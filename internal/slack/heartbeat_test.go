@@ -78,8 +78,8 @@ func TestABrakeHoldWaitingOnAPersonGetsLouderAndTagsTheOperator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "Next: the operator's") || !strings.Contains(said.Body, "yoyo release") {
-		t.Fatalf("body %q does not name the operator's move and what lifts it", said.Body)
+	if !strings.Contains(said.Body, "Next: the development manager's") || !strings.Contains(said.Body, "yoyo release") {
+		t.Fatalf("body %q does not name the development manager's move and what lifts it", said.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindLineWaiting)
 
@@ -136,8 +136,8 @@ func TestAnEscalatedBrakeHoldIsTaggedToTheOperator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "Next: the operator's — the development manager escalated it") {
-		t.Fatalf("body %q does not say the hold is the operator's by her escalation", said.Body)
+	if !strings.Contains(said.Body, "Next: the Lead Product Manager's — the development manager escalated it") {
+		t.Fatalf("body %q does not say the hold is the Lead Product Manager's by her escalation", said.Body)
 	}
 }
 
@@ -217,8 +217,8 @@ func TestTheHarnessEscalatingABrakeHoldIsSaidOnceDirectlyToTheOperator(t *testin
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(body.Body, "Next: the operator's — the harness escalated it after 2 summons-and-probe cycles") {
-		t.Fatalf("body %q does not say the hold is the operator's by the harness's escalation", body.Body)
+	if !strings.Contains(body.Body, "Next: the Lead Product Manager's — the harness escalated it after 2 summons-and-probe cycles") {
+		t.Fatalf("body %q does not say the hold is the Lead Product Manager's by the harness's escalation", body.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindLineWaiting)
 	harness.now = harness.now.Add(time.Hour)
@@ -263,7 +263,7 @@ func TestTheHourlyLineNamesTheLoopWhileTheHarnessWorksTheHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "summons-and-probe cycle 2 of at most 4") || !strings.Contains(said.Body, "escalates it to the operator itself after 4 probes blocked") {
+	if !strings.Contains(said.Body, "summons-and-probe cycle 2 of at most 4") || !strings.Contains(said.Body, "escalates it to the Lead Product Manager itself after 4 probes blocked") {
 		t.Fatalf("body %q does not name the loop and its bound", said.Body)
 	}
 }
@@ -1362,8 +1362,8 @@ func TestTheWaitingLineSaysAFailedReadIsBeingRetriedInTheHarnesssVoice(t *testin
 	if strings.Contains(said.Body, "the operator's") {
 		t.Fatalf("body %q hands the operator a move over a read the harness is retrying", said.Body)
 	}
-	if !strings.Contains(said.Body, readmodel.ReasonStoreUnreadable.Whose()) {
-		t.Fatalf("body %q does not close on the harness's move, %q", said.Body, readmodel.ReasonStoreUnreadable.Whose())
+	if !strings.Contains(said.Body, readmodel.Stall{Reason: readmodel.ReasonStoreUnreadable}.Whose()) {
+		t.Fatalf("body %q does not close on the harness's move, %q", said.Body, readmodel.Stall{Reason: readmodel.ReasonStoreUnreadable}.Whose())
 	}
 }
 

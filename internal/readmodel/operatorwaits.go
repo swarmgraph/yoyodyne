@@ -140,7 +140,7 @@ const maxOperatorWaitBytes = 600
 func (s Standing) RenderOperatorWaits(now time.Time) string {
 	var operator []Attention
 	for _, waiting := range s.NeedsHuman {
-		if waiting.Mover == MoverOperator {
+		if waiting.Mover.IsOperator() {
 			operator = append(operator, waiting)
 		}
 	}

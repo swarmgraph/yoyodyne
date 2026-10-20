@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
@@ -75,7 +76,7 @@ func TestAnUntracedPassReachesTheDashboardWithItsRoleAsMover(t *testing.T) {
 					t.Fatalf("untraced entries = %+v, want one", entries)
 				}
 				entry := entries[0]
-				if entry.ID != pass.Task || entry.Mover != readmodel.MoverOf(role) || entry.Mover == readmodel.MoverOperator {
+				if entry.ID != pass.Task || entry.Mover != readmodel.MoverOf(role) || entry.Mover == ownership.MoverOperator {
 					t.Fatalf("entry = %+v, want the task with its role as mover", entry)
 				}
 				finding := entry.UntracedPass

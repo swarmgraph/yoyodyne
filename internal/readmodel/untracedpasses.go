@@ -34,11 +34,6 @@ type UntracedPass struct {
 	First    string `json:"first,omitempty"`
 }
 
-// Mover is the role whose pass it was.
-func (u UntracedPass) Mover() Mover {
-	return MoverOf(u.Role)
-}
-
 // Says is the entry as a sentence.
 func (u UntracedPass) Says() string {
 	what := fmt.Sprintf("the pass of %s at %s reported %d finding(s) and left no trace of them: no memory written, no lane report changed, no report filed, no work admitted",
@@ -103,5 +98,5 @@ func ReadUntracedPasses(sources Sources) ([]UntracedPass, string) {
 
 // untracedPassAttention is an untraced pass as the attention line carries it.
 func untracedPassAttention(untraced UntracedPass) Attention {
-	return Attention{Kind: AttentionUntracedPass, ID: untraced.Task, Mover: untraced.Mover(), UntracedPass: &untraced}
+	return resolved(Attention{Kind: AttentionUntracedPass, ID: untraced.Task, UntracedPass: &untraced})
 }

@@ -38,154 +38,44 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/triage"
 )
 
-// AttentionKind is what sort of record one attention entry is about. The set
-// is closed, for the reason the stall's reasons are: a kind nobody named is a
-// kind no surface can show or act on, and the entry an operator most needs is
-// exactly the one nobody thought to give a name.
-type AttentionKind string
+// AttentionKind is what sort of record one attention entry is about. The
+// vocabulary is the ownership registry's (ownership.Kind), because the
+// registry's table is kept by it and a kind with no rule there is a test
+// failure; it is aliased here so the read model's entries name it as before.
+type AttentionKind = ownership.Kind
 
 const (
-	// AttentionAmendment is a change proposed to a document its proposer does
-	// not own, which nobody has decided.
-	AttentionAmendment AttentionKind = "amendment"
-	// AttentionCarriedItem is an admitted work item marked for a conversation
-	// rather than a developer run.
-	AttentionCarriedItem AttentionKind = "conversation-carried-item"
-	// AttentionReports is the collected report pile, once its oldest undecided
-	// report has waited longer than any working cadence would leave it.
-	AttentionReports AttentionKind = "report"
-	// AttentionAmendmentQueue is the queue of proposed changes, once its oldest
-	// undecided proposal has waited longer than any working cadence would leave
-	// it: the report pile's sibling.
-	AttentionAmendmentQueue AttentionKind = "amendment-queue"
-	// AttentionOwedStep is a run that ended still owing a step.
-	AttentionOwedStep AttentionKind = "owed-step"
-	// AttentionPublication is a promotion the forge has not published.
-	AttentionPublication AttentionKind = "publication"
-	// AttentionDegradedService is a part of the product its supervisor has
-	// stopped restarting.
-	AttentionDegradedService AttentionKind = "degraded-service"
-	// AttentionFailingTask is a product pass whose executions keep failing, or
-	// the earlier signal from a recurring task repeatedly refused before a turn.
-	AttentionFailingTask AttentionKind = "failing-task"
-	// AttentionConfigMismatch is a running part of the product whose build
-	// cannot read keys the configuration it reads now carries, so every read
-	// it makes of the file fails. The part is the ID.
-	AttentionConfigMismatch AttentionKind = "config-mismatch"
-	// AttentionServiceCopies is more than one copy of a part the supervisor
-	// hosts running at once. The part is the ID.
-	AttentionServiceCopies AttentionKind = "service-copies"
-	// AttentionHold is one of the switches over what the harness does: the
-	// operator's hold over everything, the intake hold over what it chooses for
-	// itself, and the provider holding every role at once. The entry's ID says
-	// which of the three.
-	AttentionHold AttentionKind = "hold"
-	// AttentionDirective is a directive that pauses work and nobody has
-	// resolved.
-	AttentionDirective AttentionKind = "directive"
-	// AttentionOutage is the provider answering nobody.
-	AttentionOutage AttentionKind = "outage"
-	// AttentionStall is a queue nothing is pulling from while admitted work
-	// waits behind that: a session sitting idle over it, or no session at all.
-	AttentionStall AttentionKind = "stall"
-	// AttentionHeldWork is the admitted work somebody has to release, counted
-	// by whose move it is rather than named item by item.
-	AttentionHeldWork AttentionKind = "held-work"
-	// AttentionOperatorAction is a finding only the operator can act on: a
-	// report handled as needing his hand, or a stopped run the development
-	// manager escalated to him. It is always named and never counted into the
-	// remainder; see Named.
-	AttentionOperatorAction AttentionKind = "operator-action"
-	// AttentionAddressedReport is one report nobody has handled that waits on a
-	// role: one addressed to a role, whatever its severity, or a critical one
-	// addressed to none, which is the Lead Product Manager's. The report's
-	// identifier is the ID and the role it waits on the mover, never the
-	// operator; see addressedreports.go.
-	AttentionAddressedReport AttentionKind = "addressed-report"
-	// AttentionProductDecision is the Lead Product Manager's decision that an
-	// item whose run is in flight is superseded, narrowed, or to be retired,
-	// which the development manager has not yet answered by stopping the run or
-	// letting it finish.
-	AttentionProductDecision AttentionKind = "product-decision"
-	// AttentionHumanGate is an admitted work item declaring a step only a
-	// person can take, which nobody has recorded taking — or a declaration of
-	// one that nothing could read. The item is the WorkItemID and the gate's
-	// name is the ID.
-	AttentionHumanGate AttentionKind = "human-gate"
-	// AttentionUntracedPass is a role's last pass that reported findings and
-	// left no trace of them outside its account. The task is the ID, and the
-	// role is the mover.
-	AttentionUntracedPass AttentionKind = "untraced-pass"
-	// AttentionFactoryStall is the factory having pulled no work and completed
-	// no recurring pass for longer than its configured limit. The moment it last
-	// did either is the ID.
-	AttentionFactoryStall AttentionKind = "factory-stall"
-	// AttentionTrackerUnanswered is the tracker failing listings after their
-	// retries, since the moment the first of them failed. That moment is the ID.
-	AttentionTrackerUnanswered AttentionKind = "tracker-unanswered"
-	// AttentionUnrunCheck is a configured check that said it could not run on
-	// several changes in a row. The check's command is the ID.
-	AttentionUnrunCheck AttentionKind = "check-could-not-run"
-	// AttentionCapacityDegraded is one of an account's usage windows past the
-	// configured share used, as the provider last reported it. The account and
-	// window are the ID, and the wait is nobody's: the window lifts on the
-	// provider's clock.
-	AttentionCapacityDegraded AttentionKind = "capacity-degraded"
-	// AttentionKeptHeavyCheck is a heavy check's place among the machine's kept
-	// for processes nobody can confirm have gone, which every other run's check
-	// of the same name waits behind. The permit is the ID and its run's item is
-	// the WorkItemID.
-	AttentionKeptHeavyCheck AttentionKind = "heavy-check-kept"
-	// AttentionLaneHumanBlock is one entry a program manager's lane report lists
-	// under Blocked on a human, once per item however many passes or instances
-	// name it. The item is the WorkItemID and the ID, or the record it cites
-	// where it names none; the ownership registry names the mover from the
-	// entry's reason.
-	AttentionLaneHumanBlock AttentionKind = "blocked-on-a-human"
+	AttentionAmendment         = ownership.KindAmendment
+	AttentionCarriedItem       = ownership.KindCarriedItem
+	AttentionReports           = ownership.KindReports
+	AttentionAmendmentQueue    = ownership.KindAmendmentQueue
+	AttentionOwedStep          = ownership.KindOwedStep
+	AttentionPublication       = ownership.KindPublication
+	AttentionDegradedService   = ownership.KindDegradedService
+	AttentionFailingTask       = ownership.KindFailingTask
+	AttentionConfigMismatch    = ownership.KindConfigMismatch
+	AttentionServiceCopies     = ownership.KindServiceCopies
+	AttentionHold              = ownership.KindHold
+	AttentionDirective         = ownership.KindDirective
+	AttentionOutage            = ownership.KindOutage
+	AttentionStall             = ownership.KindStall
+	AttentionHeldWork          = ownership.KindHeldWork
+	AttentionOperatorAction    = ownership.KindOperatorAction
+	AttentionAddressedReport   = ownership.KindAddressedReport
+	AttentionProductDecision   = ownership.KindProductDecision
+	AttentionHumanGate         = ownership.KindHumanGate
+	AttentionUntracedPass      = ownership.KindUntracedPass
+	AttentionFactoryStall      = ownership.KindFactoryStall
+	AttentionTrackerUnanswered = ownership.KindTrackerUnanswered
+	AttentionUnrunCheck        = ownership.KindUnrunCheck
+	AttentionCapacityDegraded  = ownership.KindCapacityDegraded
+	AttentionKeptHeavyCheck    = ownership.KindKeptHeavyCheck
+	AttentionLaneHumanBlock    = ownership.KindLaneHumanBlock
 )
 
 // AttentionKinds is the whole vocabulary, so a test that has to cover every
 // kind reads it from here rather than repeating the list.
-func AttentionKinds() []AttentionKind {
-	return []AttentionKind{
-		AttentionAmendment,
-		AttentionCarriedItem,
-		AttentionReports,
-		AttentionAmendmentQueue,
-		AttentionOwedStep,
-		AttentionPublication,
-		AttentionDegradedService,
-		AttentionFailingTask,
-		AttentionConfigMismatch,
-		AttentionServiceCopies,
-		AttentionHold,
-		AttentionDirective,
-		AttentionOutage,
-		AttentionStall,
-		AttentionHeldWork,
-		AttentionOperatorAction,
-		AttentionAddressedReport,
-		AttentionProductDecision,
-		AttentionHumanGate,
-		AttentionUntracedPass,
-		AttentionFactoryStall,
-		AttentionTrackerUnanswered,
-		AttentionUnrunCheck,
-		AttentionCapacityDegraded,
-		AttentionKeptHeavyCheck,
-		AttentionLaneHumanBlock,
-	}
-}
-
-// Valid reports whether a token is one of the kinds.
-func (k AttentionKind) Valid() bool {
-	for _, known := range AttentionKinds() {
-		if k == known {
-			return true
-		}
-	}
-	return false
-}
+func AttentionKinds() []AttentionKind { return ownership.AttentionKinds() }
 
 // Label is the plain wording every surface uses for an attention entry.
 // The machine-facing kind stays unchanged.
@@ -252,7 +142,6 @@ const (
 type Mover = ownership.Mover
 
 const (
-	MoverOperator           = ownership.MoverOperator
 	MoverHarness            = ownership.MoverHarness
 	MoverForge              = ownership.MoverForge
 	MoverProvider           = ownership.MoverProvider
@@ -305,7 +194,11 @@ func CheckLaneReportMover(token string) error {
 }
 
 // Attention is one thing waiting on somebody: what kind of thing, which one,
-// whose move it is, and the record itself where there is one. The move is half
+// whose move it is, and the record itself where there is one. Whose move it is
+// is never set by the code that builds an entry: every constructor passes the
+// entry through resolved, which asks the ownership registry once and carries
+// its whole answer, so the line, the dashboard, and the channel print one
+// owner. The move is half
 // the fact — a thread that says something is waiting without saying who on is
 // the silence this whole surface exists to end — and the record is the other
 // half a surface needs to show the thing or act on it.
@@ -324,8 +217,14 @@ type Attention struct {
 	// outage's cause, which is what identifies each of those — save a diverged
 	// target's stall, keyed to its branch as `diverged-target:<branch>`, since
 	// two branches can be diverged at once.
-	ID    string `json:"id,omitempty"`
-	Mover Mover  `json:"mover"`
+	ID string `json:"id,omitempty"`
+	// Mover is the owner the ownership registry resolved, kept as its own field
+	// because it is what every surface counts the line by.
+	Mover Mover `json:"mover"`
+	// Ownership is the registry's whole answer: the owner, the closed-list
+	// reason where the owner is the operator, the act that ends the entry, and
+	// what that act needs.
+	Ownership ownership.Answer `json:"ownership"`
 	// WorkItemID is the admitted work item the entry is about, where it is
 	// about one: the carried item itself, the item a run was carrying, the
 	// item an amendment's proposer was working on.
@@ -351,8 +250,10 @@ type Attention struct {
 	// Reports is how the pile stands, on an AttentionReports entry.
 	Reports *report.Pile `json:"reports,omitempty"`
 	// AmendmentQueue is how the queue of proposed changes stands, on an
-	// AttentionAmendmentQueue entry.
-	AmendmentQueue *amendment.Queue `json:"amendment_queue,omitempty"`
+	// AttentionAmendmentQueue entry, and OldestProposal the undecided proposal
+	// that has waited longest, whose decider is whose move the queue is.
+	AmendmentQueue *amendment.Queue    `json:"amendment_queue,omitempty"`
+	OldestProposal *amendment.Proposal `json:"oldest_proposal,omitempty"`
 	// Service is the supervisor's record of the part it left down, on an
 	// AttentionDegradedService entry.
 	Service *runstate.SupervisedChild `json:"service,omitempty"`
@@ -765,7 +666,7 @@ func (a Attention) Whose() string {
 	case AttentionHold:
 		switch {
 		case a.OperatorHold != nil:
-			return ReasonOperatorHold.Whose()
+			return Stall{Reason: ReasonOperatorHold}.Whose()
 		case a.IntakeHold != nil:
 			// The hold's own record words it, because the same switch is placed
 			// by the operator and by the brake, and only the record says which.
@@ -774,9 +675,9 @@ func (a Attention) Whose() string {
 			return a.CapacityHold.Whose()
 		}
 	case AttentionDirective:
-		return a.Mover.Possessive() + " — the work it affects waits until `yoyo directive resolve` settles it"
+		return a.Mover.Possessive() + " — she ends it, or carries it into a document or a work item, and the work it affects waits until `yoyo directive resolve` settles it; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals"
 	case AttentionAmendment:
-		if a.Mover == MoverOperator {
+		if a.Mover.IsOperator() {
 			return a.Mover.Possessive() + " — a change of fundamental intent; `yoyo amendment approve|decline` decides it, and nothing reaches the document until he does"
 		}
 		return a.Mover.Possessive() + " — decided from its conversation with the amendment action, and the operator is told afterwards; nothing reaches the document until it is decided"
@@ -843,24 +744,26 @@ func (a Attention) Whose() string {
 			case a.Publication.Unarmed:
 				return a.Mover.Possessive() + " — nothing ever asked the forge to merge the request, and it is on her docket: a re-arm has the harness arm it under the same landing checks the run's merge makes, a re-run hands the change back for a fresh run, and `yoyo reconcile` settles it once the forge records the merge"
 			default:
-				return a.Mover.Possessive() + " — the request is on the forge unmerged; merge it, or leave it, and `yoyo reconcile` settles it once the forge records the merge"
+				return a.Mover.Possessive() + " — the request is on the forge unmerged and nothing is merging it: she decides a re-arm or a re-run, which the harness carries out, and `yoyo reconcile` settles it once the forge records the merge"
 			}
 		}
 	case AttentionOutage:
-		return ReasonProviderAway.Whose()
+		if a.Outage != nil {
+			return Stall{Reason: ReasonProviderAway, Cause: a.Outage.Cause}.Whose()
+		}
 	case AttentionReports:
 		return a.Mover.Possessive() + " — reports are decided in conversation, and a pile this old says the schedule that works it is not keeping up"
 	case AttentionAmendmentQueue:
-		if a.Mover == MoverOperator {
+		if a.Mover.IsOperator() {
 			return a.Mover.Possessive() + " — the oldest is a change of fundamental intent, decided with `yoyo amendment`; a queue this old says it has waited on him longer than any regular pass would leave it"
 		}
 		return a.Mover.Possessive() + " — the owning role decides proposals from its conversation, and a queue this old says the recurring pass that puts them to it is not keeping up, or none is enabled"
 	case AttentionStall:
 		if a.Stall != nil {
-			return a.Stall.Reason.Whose()
+			return a.Stall.Whose()
 		}
 	case AttentionDegradedService:
-		return a.Mover.Possessive() + " — the supervisor has stopped restarting it; fix the cause, then `yoyo stop` and `yoyo start` bring it back, or start the part by hand and the supervisor takes it back"
+		return a.Mover.Possessive() + " — the supervisor has stopped restarting it; once the cause is fixed, `yoyo stop` and `yoyo start` bring it back, or the part started by hand is taken back by the supervisor"
 	case AttentionConfigMismatch:
 		if a.ConfigMismatch != nil {
 			return a.Mover.Possessive() + " — " + runstate.ConfigMismatchRemedy(a.ConfigMismatch.Service) + "; the entry clears once the part runs a build that reads every key"
@@ -871,8 +774,8 @@ func (a Attention) Whose() string {
 		if a.FailingTask != nil && a.FailingTask.Ownership != nil {
 			return a.Mover.Possessive() + " — " + runstate.PassFailureOwnersSays(*a.FailingTask.Ownership) + "; the affected pass succeeding clears this finding"
 		}
-		if a.Mover == MoverOperator {
-			return a.Mover.Possessive() + " — nothing is asked of the role until its conversation opens; fix what stops it opening, and the first firing that takes a turn clears this"
+		if a.FailingTask != nil && a.FailingTask.Cause == runstate.PreTurnConversationUnopened {
+			return a.Mover.Possessive() + " — nothing is asked of the role until its conversation opens; what stops it opening is a role no agent fills, a record that will not load, or a session somebody else holds, and the first firing that takes a turn clears this"
 		}
 		return a.Mover.Possessive() + " — the harness refuses what it composed for the pass, which is a defect in the harness rather than anything waiting it out will end; every firing meets the same refusal until the harness is fixed, and the first firing that takes a turn clears this"
 	case AttentionHeldWork:
@@ -884,7 +787,10 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — in conversation; no run will ever be started for it"
 	case AttentionOperatorAction:
 		if a.OperatorAction != nil {
-			return a.Mover.Possessive() + " — only a person can act on this; " + a.OperatorAction.Ends
+			if !a.Mover.IsOperator() {
+				return a.Mover.Possessive() + " — the finding names the operator for no reason on his closed list, so it is not his: " + a.Ownership.Remedy + "; " + a.OperatorAction.Ends
+			}
+			return a.Mover.Possessive() + " — only a person can act on this, for " + a.Ownership.ReasonSays() + "; " + a.OperatorAction.Ends
 		}
 	case AttentionAddressedReport:
 		if a.Report != nil {
@@ -893,7 +799,7 @@ func (a Attention) Whose() string {
 	case AttentionHumanGate:
 		if a.HumanGate != nil {
 			if a.HumanGate.Unreadable != "" {
-				return a.Mover.Possessive() + " — no act records this one; the item's author has to correct the declaration on it before anything pulls it"
+				return a.Mover.Possessive() + " — no act records this one; the item's author has to correct the declaration on it before anything pulls it, and she sees that it is"
 			}
 			return fmt.Sprintf("%s — nothing machinery does passes it, closing an item included; `yoyo gate record %s --for %s` is the act",
 				a.Mover.Possessive(), a.HumanGate.Gate, a.WorkItemID)
@@ -912,7 +818,7 @@ func (a Attention) Whose() string {
 		return a.Mover.Possessive() + " — the place is given back by itself once the last of those processes goes; if it is a hang, `yoyo heavy-checks release " + a.ID + " --by <name> --reason <why>` gives it back now and records who and why"
 	case AttentionLaneHumanBlock:
 		if a.LaneHumanBlock != nil {
-			if a.Mover != MoverOperator {
+			if !a.Mover.IsOperator() {
 				return a.Mover.Possessive() + " — the entry names the operator for a reason that is not on the closed list, so it is a defect in the program manager's report rather than something waiting on him; the program manager's next report corrects it"
 			}
 			return a.Mover.Possessive() + " — only a person can act on this; it stays on the program manager's report, pass after pass, until the act that clears it is recorded on " + a.LaneHumanBlock.Entry.Cites
@@ -940,6 +846,9 @@ type attentionWire struct {
 	// a document read back is still held to its fields.
 	SaidWhat  string `json:"said_what,omitempty"`
 	SaidWhose string `json:"said_whose,omitempty"`
+	// OwnerReason is the closed-list reason the entry is the operator's, in
+	// words, and absent where it is not his.
+	OwnerReason string `json:"owner_reason,omitempty"`
 }
 
 // MarshalJSON writes the fields and, beside them, the two sentences derived
@@ -948,7 +857,7 @@ type attentionWire struct {
 // disagrees with the other, because the sentences are never taken from
 // anywhere but the fields.
 func (a Attention) MarshalJSON() ([]byte, error) {
-	wire := attentionWire{attentionFields: attentionFields(a), Label: a.Label(), What: a.What(), Whose: a.Whose()}
+	wire := attentionWire{attentionFields: attentionFields(a), Label: a.Label(), What: a.What(), Whose: a.Whose(), OwnerReason: a.Ownership.ReasonSays()}
 	if said := a.CitedWhat(); said != wire.What {
 		wire.SaidWhat = said
 	}
@@ -987,6 +896,17 @@ func (a *Attention) UnmarshalJSON(data []byte) error {
 	if !decoded.Mover.Valid() {
 		return fmt.Errorf("attention entry %s %s: its mover %q is not one of %v", decoded.Kind, decoded.ID, decoded.Mover, Movers())
 	}
+	// The owner is the ownership registry's answer for the record, never the
+	// document's: an entry whose mover or answer says otherwise is refused, as
+	// a sentence that disagrees with its record is.
+	carried := decoded.Ownership
+	decoded = resolved(decoded)
+	if wire.Mover != decoded.Mover {
+		return fmt.Errorf("attention entry %s %s: its mover %q disagrees with the ownership registry, which says %q", decoded.Kind, decoded.ID, wire.Mover, decoded.Mover)
+	}
+	if carried != (ownership.Answer{}) && carried != decoded.Ownership {
+		return fmt.Errorf("attention entry %s %s: its ownership %+v disagrees with the ownership registry, which says %+v", decoded.Kind, decoded.ID, carried, decoded.Ownership)
+	}
 	if strings.TrimSpace(wire.What) != "" && wire.What != decoded.What() {
 		return fmt.Errorf("attention entry %s %s: its what %q disagrees with its record, which says %q", decoded.Kind, decoded.ID, wire.What, decoded.What())
 	}
@@ -999,40 +919,24 @@ func (a *Attention) UnmarshalJSON(data []byte) error {
 
 // operatorHoldAttention is the operator's hold as the attention line carries it.
 func operatorHoldAttention(hold runstate.OperatorHold) Attention {
-	return Attention{Kind: AttentionHold, ID: HoldOperator, Mover: MoverOperator, OperatorHold: &hold}
+	return resolved(Attention{Kind: AttentionHold, ID: HoldOperator, OperatorHold: &hold})
 }
 
-// intakeHoldAttention is the intake hold as the attention line carries it,
-// with whose move it is read off the hold's own record: the operator's for a
-// hold they placed, and for one the brake placed the development manager's
-// while she decides, the harness's while a probe runs or a decision waits to
-// be carried out, and the operator's only once it is escalated — by her, or by
-// the harness at the bound on its summons-and-probe loop. The record's own
-// Whose words the same cases in the same order, and a test holds the two
-// together: her release is read ahead of an escalation, because the two can
-// stand together on a hold the harness escalated and her release is what the
-// session acts on.
+// intakeHoldAttention is the intake hold as the attention line carries it.
+// Whose move it is is the registry's, read off the hold's own record: the
+// operator's for a hold he placed, and for one the brake placed the development
+// manager's while she decides, the harness's while a probe runs or a decision
+// waits to be carried out, and the Lead Product Manager's once it is escalated,
+// with the operator told. The record's own Whose words the same cases in the
+// same order, and a test holds the two together.
 func intakeHoldAttention(hold runstate.IntakeHold) Attention {
-	mover := MoverOperator
-	if hold.Braked() {
-		switch {
-		case hold.Brake.Decision == runstate.BrakeDecisionRelease:
-			mover = MoverHarness
-		case hold.Brake.Escalated():
-			mover = MoverOperator
-		case hold.Brake.Decision == runstate.BrakeDecisionProbe, hold.Brake.Probing():
-			mover = MoverHarness
-		default:
-			mover = MoverDevelopmentManager
-		}
-	}
-	return Attention{Kind: AttentionHold, ID: HoldIntake, Mover: mover, IntakeHold: &hold}
+	return resolved(Attention{Kind: AttentionHold, ID: HoldIntake, IntakeHold: &hold})
 }
 
 // directiveAttention is an unresolved directive as the attention line carries
 // it.
 func directiveAttention(paused directive.Directive) Attention {
-	return Attention{Kind: AttentionDirective, ID: paused.ID, Mover: MoverOperator, Directive: &paused}
+	return resolved(Attention{Kind: AttentionDirective, ID: paused.ID, Directive: &paused})
 }
 
 // amendmentAttention is an undecided proposal as the attention line carries
@@ -1041,13 +945,12 @@ func directiveAttention(paused directive.Directive) Attention {
 // proposal is carried whole so a surface can show what was proposed and why,
 // and act on it by id.
 func amendmentAttention(proposal amendment.Proposal) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:       AttentionAmendment,
 		ID:         proposal.ID,
-		Mover:      ownership.ResolveAmendment(proposal.Owner, proposal.ReservedForOperator()),
 		WorkItemID: proposal.WorkItemID,
 		Amendment:  &proposal,
-	}
+	})
 }
 
 // owedStepAttention is a run that ended still owing a step, as the attention
@@ -1057,13 +960,12 @@ func owedStepAttention(state runstate.State) Attention {
 	if state.Integration != nil {
 		step.TargetBranch = state.Integration.TargetBranch
 	}
-	return Attention{
+	return resolved(Attention{
 		Kind:       AttentionOwedStep,
 		ID:         state.RunID,
-		Mover:      reconcileFindingMover(state.ReconcileFindings),
 		WorkItemID: state.WorkItemID,
 		OwedStep:   step,
-	}
+	})
 }
 
 // runEnded is when a finished run ended, and zero on a record that names no
@@ -1078,13 +980,13 @@ func runEnded(state runstate.State) time.Time {
 // outageAttention is the provider answering nobody, as the attention line
 // carries it.
 func outageAttention(outage runstate.ProviderOutage) Attention {
-	return Attention{Kind: AttentionOutage, ID: string(outage.Cause), Mover: MoverOperator, Outage: &outage}
+	return resolved(Attention{Kind: AttentionOutage, ID: string(outage.Cause), Outage: &outage})
 }
 
 // reportsAttention is a pile whose oldest undecided report has waited too
 // long, as the attention line carries it.
 func reportsAttention(pile report.Pile) Attention {
-	return Attention{Kind: AttentionReports, Mover: MoverProductManager, Reports: &pile}
+	return resolved(Attention{Kind: AttentionReports, Reports: &pile})
 }
 
 // amendmentQueueAttention is a queue of proposed changes whose oldest
@@ -1093,17 +995,17 @@ func reportsAttention(pile report.Pile) Attention {
 // from its conversation, or the operator where that one is a change of
 // fundamental intent.
 func amendmentQueueAttention(queue amendment.Queue, oldest amendment.Proposal) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:           AttentionAmendmentQueue,
-		Mover:          ownership.ResolveAmendment(oldest.Owner, oldest.ReservedForOperator()),
 		AmendmentQueue: &queue,
-	}
+		OldestProposal: &oldest,
+	})
 }
 
 // degradedServiceAttention is a part the supervisor has left down, as the
 // attention line carries it.
 func degradedServiceAttention(child runstate.SupervisedChild) Attention {
-	return Attention{Kind: AttentionDegradedService, ID: string(child.Service), Mover: MoverOperator, Service: &child}
+	return resolved(Attention{Kind: AttentionDegradedService, ID: string(child.Service), Service: &child})
 }
 
 // configMismatchAttention is a running part whose build cannot read the
@@ -1114,56 +1016,51 @@ func degradedServiceAttention(child runstate.SupervisedChild) Attention {
 // onto a build that reads the file, the restart included where nothing does
 // it yet.
 func configMismatchAttention(mismatch runstate.ConfigMismatch) Attention {
-	return Attention{Kind: AttentionConfigMismatch, ID: mismatch.InstanceID(), Mover: MoverHarness, ConfigMismatch: &mismatch}
+	return resolved(Attention{Kind: AttentionConfigMismatch, ID: mismatch.InstanceID(), ConfigMismatch: &mismatch})
 }
 
 // heldWorkAttention is one of the two waits held work is in, with how many
 // items are in it: the development manager's where a decision is owed, and the
 // harness's where one is recorded and not yet carried out.
 func heldWorkAttention(awaiting HeldWait, items int) Attention {
-	mover := MoverDevelopmentManager
-	if awaiting == HeldAwaitingCarryOut {
-		mover = MoverHarness
-	}
-	return Attention{Kind: AttentionHeldWork, Mover: mover, HeldWork: &HeldWork{Awaiting: awaiting, Count: items}}
+	return resolved(Attention{Kind: AttentionHeldWork, HeldWork: &HeldWork{Awaiting: awaiting, Count: items}})
 }
 
 // productDecisionAttention is a product decision about a run in flight nobody
 // has answered, as the attention line carries it.
 func productDecisionAttention(entry triage.Entry) Attention {
 	decided := *entry.ProductDecision
-	return Attention{
+	return resolved(Attention{
 		Kind:            AttentionProductDecision,
 		ID:              entry.RunID,
-		Mover:           MoverDevelopmentManager,
 		WorkItemID:      entry.WorkItemID,
 		ProductDecision: &decided,
-	}
+	})
 }
 
 // carriedItemAttention is an admitted item marked for a conversation, as the
 // attention line carries it: whose move it is is the role the marker names,
 // and the unnamed mover where it names none the harness recognizes.
 func carriedItemAttention(workItemID string, executor domain.WorkItemExecutor) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:       AttentionCarriedItem,
 		ID:         workItemID,
-		Mover:      MoverOf(executor.Role()),
 		WorkItemID: workItemID,
 		Executor:   executor,
-	}
+	})
 }
 
-// operatorActionAttention is a finding only the operator can act on, as the
-// attention line carries it.
+// operatorActionAttention is a finding raised as the operator's, as the
+// attention line carries it. It is his only where the finding carries a reason
+// from his closed list; the registry gives one that does not back to the role
+// that raised it.
 func operatorActionAttention(action OperatorAction) Attention {
-	return Attention{
+	return resolved(Attention{
 		Kind:           AttentionOperatorAction,
 		ID:             action.Key,
-		Mover:          MoverOperator,
 		WorkItemID:     action.WorkItemID,
 		OperatorAction: &action,
-	}
+	})
 }
 
 // maxBrakeEntriesBytes bounds the runs a brake's hold names on the attention
@@ -1216,14 +1113,117 @@ func reconcileFindingWhose(mover Mover, findings []runstate.ReconcileFinding) st
 	return mover.Possessive() + " — " + remedy
 }
 
-func reconcileFindingMover(findings []runstate.ReconcileFinding) Mover {
-	for _, finding := range findings {
-		if !finding.Resolved && strings.Contains(finding.Problem, "closed but has no later confirmed merged publication") {
-			return MoverDevelopmentManager
+// resolved is the entry with the ownership registry's answer on it: the one
+// place an entry's owner is set. Every constructor returns through it.
+func resolved(a Attention) Attention {
+	a.Ownership = ownership.Resolve(a.Kind, a.ownershipRecord())
+	a.Mover = a.Ownership.Owner
+	return a
+}
+
+// ownershipRecord is what the registry's rule for the entry's kind reads of
+// its record: facts, never an owner. A kind whose record is missing reads as
+// an empty record, which the rule classifies or gives back as unclassified.
+func (a Attention) ownershipRecord() ownership.Record {
+	var record ownership.Record
+	switch a.Kind {
+	case AttentionAmendment:
+		if a.Amendment != nil {
+			record.Role, record.FundamentalIntent = a.Amendment.Owner, a.Amendment.ReservedForOperator()
 		}
-		if !finding.Resolved && strings.Contains(finding.Problem, "delete the merged remote branch") && strings.Contains(finding.Problem, "want the published commit") {
-			return MoverDevelopmentManager
+	case AttentionAmendmentQueue:
+		if a.OldestProposal != nil {
+			record.Role, record.FundamentalIntent = a.OldestProposal.Owner, a.OldestProposal.ReservedForOperator()
+		}
+	case AttentionCarriedItem:
+		record.Role = a.Executor.Role()
+	case AttentionAddressedReport:
+		if a.Report != nil {
+			record.Role = a.Report.Addressee()
+		}
+	case AttentionUntracedPass:
+		if a.UntracedPass != nil {
+			record.Role = a.UntracedPass.Role
+		}
+	case AttentionOwedStep:
+		if a.OwedStep != nil {
+			record.UnresolvedFindings = unresolvedFindings(a.OwedStep.ReconcileFindings)
+		}
+	case AttentionPublication:
+		if p := a.Publication; p != nil {
+			record.UnresolvedFindings = unresolvedFindings(p.ReconcileFindings)
+			record.MergeDropped, record.Unarmed = p.MergeDrop != nil, p.Unarmed
+			if pr := p.PullRequest; pr != nil {
+				record.PullRequest, record.MergeQueued = true, pr.MergeQueued
+				record.ChecksUnread = pr.Checks != nil && pr.Checks.ReadError != ""
+				record.ChecksRed = pr.Checks != nil && pr.Checks.Red()
+				record.WaitingOnRedTarget = pr.TargetRed != nil && !pr.Merged && pr.HandedBack == nil
+			}
+		}
+	case AttentionFailingTask:
+		if a.FailingTask != nil {
+			record.PassFailure = a.FailingTask.Ownership
+			record.ConversationUnopened = a.FailingTask.Cause == runstate.PreTurnConversationUnopened
+		}
+	case AttentionHold:
+		switch {
+		case a.OperatorHold != nil:
+			record.Hold = ownership.OperatorHold
+		case a.CapacityHold != nil:
+			record.Hold = ownership.CapacityHold
+		case a.IntakeHold != nil:
+			record = intakeHoldRecord(*a.IntakeHold)
+		}
+	case AttentionOutage:
+		if a.Outage != nil {
+			record.OutageCause = a.Outage.Cause
+		}
+	case AttentionStall:
+		if a.Stall != nil {
+			record = a.Stall.ownershipRecord()
+		}
+	case AttentionHeldWork:
+		if a.HeldWork != nil {
+			record.AwaitingCarryOut = a.HeldWork.Awaiting == HeldAwaitingCarryOut
+			record.AwaitingWork = a.HeldWork.Awaiting == HeldAwaitingWork
+		}
+	case AttentionOperatorAction:
+		if action := a.OperatorAction; action != nil {
+			record.Reason = action.Reason
+			record.FromReport, record.FromEscalation = action.ReportID != "", action.RunID != ""
+		}
+	case AttentionHumanGate:
+		if a.HumanGate != nil {
+			record.GateUnreadable = a.HumanGate.Unreadable != ""
+		}
+	case AttentionLaneHumanBlock:
+		if a.LaneHumanBlock != nil {
+			record.Reason = a.LaneHumanBlock.Entry.Reason
 		}
 	}
-	return MoverHarness
+	return record
+}
+
+// intakeHoldRecord is what the registry's hold rule reads of the intake hold.
+func intakeHoldRecord(hold runstate.IntakeHold) ownership.Record {
+	record := ownership.Record{Hold: ownership.IntakeHold, HeldByOperator: hold.HeldBy == runstate.IntakeHolderOperator, HeldByBrake: hold.HeldBy == runstate.IntakeHolderBrake}
+	if hold.Braked() {
+		brake := hold.Brake
+		record.Braked = true
+		record.BrakeReleased = brake.Decision == runstate.BrakeDecisionRelease
+		record.BrakeEscalated = brake.Escalated()
+		record.BrakeProbing = brake.Decision == runstate.BrakeDecisionProbe || brake.Probing()
+	}
+	return record
+}
+
+// unresolvedFindings is what reconcile could not settle, in its own words.
+func unresolvedFindings(findings []runstate.ReconcileFinding) []string {
+	var problems []string
+	for _, finding := range findings {
+		if !finding.Resolved {
+			problems = append(problems, finding.Problem)
+		}
+	}
+	return problems
 }

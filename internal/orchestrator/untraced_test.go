@@ -48,7 +48,7 @@ func TestAPassThatFoundSomethingAndLeftNoTraceIsFlagged(t *testing.T) {
 	if len(untraced) != 1 || untraced[0].Task != "a-sweep" || untraced[0].Findings != 2 {
 		t.Fatalf("untraced = %+v, want the task's pass with its two findings", untraced)
 	}
-	if mover := untraced[0].Mover(); mover != readmodel.MoverDevelopmentManager {
+	if mover := readmodel.MoverOf(untraced[0].Role); mover != readmodel.MoverDevelopmentManager {
 		t.Errorf("mover = %q, want the role whose pass it was", mover)
 	}
 

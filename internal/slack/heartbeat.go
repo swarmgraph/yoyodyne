@@ -351,7 +351,7 @@ func lineMover(state readmodel.Stall, held switches) string {
 	if state.Reason == readmodel.ReasonIntakeHold && held.intakeHeld {
 		return held.intake.Whose()
 	}
-	return state.Reason.Whose()
+	return state.Whose()
 }
 
 // standing is where the harness stands, in the four lines, or nothing at all

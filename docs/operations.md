@@ -4636,7 +4636,7 @@ Not startable (4 of 7 admitted items; 1 awaits the development manager's decisio
   - 1 waits on the harness carrying out a decision already recorded — next: the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull; whose: the harness's
   - 1 waits on other items — next: the harness pulls each once the work it waits on lands; whose: the harness's
   - 1 is parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's
-  - nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one
+  - nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one
   yoyodyne-ifd.200 (The status probe observes leases without acquiring them) — waiting on yoyodyne-ifd.199 (Harness-invoked sessions carry no plan-mode workflow: session mode is set per role)
   yoyodyne-ifd.212 (The architect rules whether bin/yoyo-status is bound by the one-read-model invariant) — parked, so no pull selects it however far the queue drains: the design is being reworked
   yoyodyne-ifd.153 (Interactive sessions get the notes-writer guard: the uncovered loss population) — held since 2026-09-12 09:40 PDT, 3 days ago; run run-5035c832 stopped on it and its change is preserved (branch and worktree checked and there), so a fresh run would start over on top of work that is still there; the development manager decides what happens to it, and nothing pulls it until she has

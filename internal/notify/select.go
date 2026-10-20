@@ -421,7 +421,7 @@ func stoppageCause(state runstate.State) (runstate.EnvironmentalCause, bool) {
 // the development manager's to make.
 func stoppageSeverity(state runstate.State, mover readmodel.Mover) report.Severity {
 	cause, environmental := stoppageCause(state)
-	if mover == readmodel.MoverOperator || (environmental && cause.NeedsAPerson()) {
+	if mover.IsOperator() || (environmental && cause.NeedsAPerson()) {
 		return report.SeverityCritical
 	}
 	if environmental || state.LostItsRace() {

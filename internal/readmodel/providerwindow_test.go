@@ -39,8 +39,8 @@ func TestASessionWaitingOnTheProviderIsReadAsWaitingRatherThanIdle(t *testing.T)
 	}
 	// Nobody has to do anything about it, which is the difference between this and
 	// every other reason a queue is not being pulled from.
-	if !strings.HasPrefix(stall.Reason.Whose(), "nobody's") {
-		t.Fatalf("whose = %q, want nobody's move", stall.Reason.Whose())
+	if !strings.HasPrefix(stall.Whose(), "nobody's") {
+		t.Fatalf("whose = %q, want nobody's move", stall.Whose())
 	}
 	if waiting, attention := stall.Waiting(); attention {
 		t.Fatalf("Waiting() = %+v, want a window nobody is waited on for kept off the attention line", waiting)
