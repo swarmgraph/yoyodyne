@@ -3608,12 +3608,10 @@ on every pass and bury the deferrals worth reading. A pass that stopped before
 reading the queue at all — held intake, or every slot already taken — says
 nothing about the backlog rather than reporting zeroes it never looked up.
 
-A decided repair or re-run is fired by the same pass, oldest decision first, and
-one about a stopped run whose branch or worktree is still there takes the first
-free developer slot ahead of fresh pulls, naming in its reason the ready work it
-went ahead of, unless ready priority-0 work outranks its item, which goes first.
-Every other decision waits behind ready work of
-a higher priority than its item. A confirmed document waiting to land takes no
+A decided repair or re-run is fired by the same pass, oldest decision first,
+ahead of ready work at its item's priority or below and behind ready work of a
+higher priority, whether or not the stopped run's branch or worktree is still
+there: priority decides between items, and a decision wins only a tie. A confirmed document waiting to land takes no
 developer slot at all: it is counted against `execution.document_landings`
 rather than `max_concurrent_developers`, and starts as soon as a document
 landing frees, whatever the developer slots hold; nothing already running is

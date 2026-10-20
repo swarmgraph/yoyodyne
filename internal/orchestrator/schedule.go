@@ -2770,35 +2770,21 @@ pulling:
 		// slot to give, and an outranked decision attempted then took it ahead of
 		// the work that outranks it.
 		//
-		// A decision about a stopped run whose change is still there — its branch or
-		// its worktree found standing, by the same look the hold and the docket take —
-		// is outranked by nothing below the top priority (yoyodyne-ifd.428.81).
-		// Finishing reviewed, preserved work is cheaper than starting new work, the
-		// decision to continue it is already made, and a preserved worktree waiting
-		// behind the order ages into conflicts: on 2026-10-05 three such decisions
-		// on priority 1 and 2 items waited behind sixty-odd ready items, one for
-		// thirty-six hours. So it takes the first free slot ahead of fresh pulls,
-		// oldest decision first, under every gate it asked before; the queue is
-		// still read for it, so the run's reason can name the ready work it went
-		// ahead of.
-		//
-		// Ready priority-0 work still outranks it, as it outranks a slot's label
-		// preference (outranksPreference): the Lead Product Manager's order puts
-		// at priority 0 the work that holds everything else up, and preserved work
-		// at a lower priority that went ahead of it held a slot for a day while
-		// seven priority-0 fixes waited (yoyodyne-ifd.428.95). Held back that way,
-		// it is fired by the walk below the moment the order reaches its own
-		// priority, so it still goes ahead of every fresh pull there.
+		// That holds whatever the stopped run left behind. A decision about a run
+		// whose branch or worktree is still there was once outranked only by
+		// priority-0 work, and four re-runs at priorities 1 to 3 were reported as
+		// standing in front of a ready priority-0 fix; the Lead Product Manager owns
+		// the order and ruled that priority decides between items and a decision
+		// wins only a tie (yoyodyne-ifd.428.107). Preserved work still goes ahead
+		// of every fresh pull at its own priority, which is where a tie puts it.
 		var early *pulled
 		earlyAsked := false
-		preserved := preservedWork(ctx, pull, s.now)
 		outranked := func(task CarryOutTask) (outrankedCarryOut, bool) {
 			if task.Decision == DecisionContinueStall {
 				return outrankedCarryOut{}, false
 			}
-			kept := preserved(task)
 			if held || paused {
-				return outrankedCarryOut{task: task, preserved: kept}, false
+				return outrankedCarryOut{task: task}, false
 			}
 			if !earlyAsked {
 				earlyAsked = true
@@ -2807,14 +2793,9 @@ pulling:
 				}
 			}
 			if early == nil {
-				return outrankedCarryOut{task: task, preserved: kept}, false
+				return outrankedCarryOut{task: task}, false
 			}
-			ranked, outranks := outranking(task, *early, occupied)
-			ranked.preserved = kept
-			if kept {
-				return ranked, len(ranked.top) > 0
-			}
-			return ranked, outranks
+			return outranking(task, *early, occupied)
 		}
 		var tasks []CarryOutTask
 		var passedCarryOuts map[string]string
@@ -3201,29 +3182,20 @@ pulling:
 		}
 		// firePending gives the slot being filled to the decision held back for
 		// outranked work, where the walk has reached work its item's priority
-		// matches or beats (for preserved work, any work below priority 0:
-		// firesAt) — or, with any, reached the end of the queue with the
+		// matches or beats — or, with any, reached the end of the queue with the
 		// slot still empty. The highest-priority decision goes first, and the
 		// docket's order between two at one priority.
 		firePending := func(priority int, any bool) (string, bool) {
 			chosen := -1
 			for index, pending := range pendingCarryOuts {
-				if (any || pending.firesAt() <= priority) && (chosen < 0 || pending.priority < pendingCarryOuts[chosen].priority) {
+				if (any || pending.priority <= priority) && (chosen < 0 || pending.priority < pendingCarryOuts[chosen].priority) {
 					chosen = index
 				}
 			}
 			if chosen < 0 {
 				return "", false
 			}
-			held := pendingCarryOuts[chosen]
-			task := held.task
-			// Preserved work fired once the walk is past priority 0 still goes
-			// ahead of the ready work between there and its own priority, and its
-			// reason names that work as a decision fired before the walk does.
-			if held.preserved {
-				task.Preserved = true
-				task.AheadOf = held.namedBelowTop
-			}
+			task := pendingCarryOuts[chosen].task
 			pendingCarryOuts = append(pendingCarryOuts[:chosen:chosen], pendingCarryOuts[chosen+1:]...)
 			fireCarryOut(task)
 			flight.take(read.items[task.WorkItemID], "")
@@ -4974,9 +4946,7 @@ func (s Scheduler) corrected(schedule *Schedule, sweep CorrectionSweep, err erro
 // outranks is not fired here at all, and not passed over either: it is returned
 // as pending, for the walk of the queue to fire at the point in the order its
 // item's priority puts it. outranked says which decisions those are; nil says
-// none are, which is every decision before yoyodyne-ifd.428.58. A decision about
-// a stopped run whose change is still there is never one of them: it is fired
-// here, marked Preserved, with the ready work it went ahead of in AheadOf.
+// none are, which is every decision before yoyodyne-ifd.428.58.
 func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[string]runstate.State, mine map[string]int, waitingOn map[string]string, closed closedGates, free, remaining int, outranked func(CarryOutTask) (outrankedCarryOut, bool)) ([]CarryOutTask, map[string]string, []outrankedCarryOut) {
 	if pull.CarryOut == nil {
 		return nil, nil, nil
@@ -5053,10 +5023,6 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 				pending = append(pending, held)
 				continue
 			}
-			if held.preserved {
-				task.Preserved = true
-				task.AheadOf = held.named
-			}
 		}
 		chosen = append(chosen, task)
 		if !reusesSlot {
@@ -5122,51 +5088,6 @@ type outrankedCarryOut struct {
 	// named is the same ready work by what it is, each title with its
 	// identifier after it, for the sentences a person reads on the item.
 	named []string
-	// top is the ready work in ahead at priority 0, which is the only work that
-	// holds back a decision about preserved work.
-	top []string
-	// namedTop is top by what it is, as named is ahead.
-	namedTop []string
-	// namedBelowTop is named without the priority-0 work: what a held-back
-	// decision about preserved work goes ahead of when the walk of the order,
-	// past priority 0, fires it.
-	namedBelowTop []string
-	// preserved says the stopped run's change is still there, so the decision is
-	// held back by nothing in the order below priority 0, and ahead is the work
-	// it goes ahead of.
-	preserved bool
-}
-
-// preservedWork answers whether a decision is about a stopped run whose branch
-// or worktree is still there, asked of the repository through the same look the
-// hold and the docket take. The runs are read once, and only where a decision
-// asks. A pull wired with no record of its stopped runs, a run it cannot find,
-// and a look that failed all answer no, which leaves the decision where the
-// order puts it — the ordering it had before, rather than a slot taken ahead of
-// the queue on a preservation nobody established.
-func preservedWork(ctx context.Context, pull Pull, now func() time.Time) func(CarryOutTask) bool {
-	var runs map[string]runstate.State
-	read := false
-	return func(task CarryOutTask) bool {
-		if pull.Stoppages == nil {
-			return false
-		}
-		if !read {
-			read = true
-			if recorded, err := pull.Stoppages.Recorded(); err == nil {
-				runs = make(map[string]runstate.State, len(recorded))
-				for _, run := range recorded {
-					runs[run.RunID] = run
-				}
-			}
-		}
-		run, known := runs[task.RunID]
-		if !known {
-			return false
-		}
-		found := readmodel.Looking(ctx, pull.Remains, now)(run)
-		return !found.Unknown && (found.BranchThere || found.WorktreeThere)
-	}
 }
 
 // outranking is whether ready work in the order outranks the item a decision is
@@ -5196,12 +5117,6 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 			named = fmt.Sprintf("%s (%s)", title, entry.ID)
 		}
 		held.named = append(held.named, named)
-		if entry.Priority == 0 {
-			held.top = append(held.top, entry.ID)
-			held.namedTop = append(held.namedTop, named)
-		} else {
-			held.namedBelowTop = append(held.namedBelowTop, named)
-		}
 	}
 	return held, len(held.ahead) > 0
 }
@@ -5209,22 +5124,8 @@ func outranking(task CarryOutTask, read pulled, occupied map[string]runstate.Sta
 // reason is what the item's record says of a decision the walk never reached a
 // slot for: the ready work that outranked it, and what fires it.
 func (o outrankedCarryOut) reason() string {
-	if o.preserved {
-		return fmt.Sprintf("its item is at priority %d and %s at priority 0 in the Lead Product Manager's order stood ready (%s), so a free developer slot goes to that work first; the stopped run's change is still there, so this decision goes ahead of every other fresh pull, and takes the first slot left once the walk of the order is past priority 0",
-			o.priority, plural(len(o.namedTop), "item", "items"), listedNames(o.namedTop))
-	}
-	return fmt.Sprintf("its item is at priority %d and %s of higher priority in the Lead Product Manager's order stood ready (%s), so a free developer slot goes to that work first; a decision goes ahead of the queue only where nothing ready outranks its item, and this one takes the first slot left once the walk of the order reaches priority %d",
+	return fmt.Sprintf("its item is at priority %d and %s of higher priority in the Lead Product Manager's order stood ready (%s), so a free developer slot goes to that work first; priority decides between items and a decision goes first only over work at its own priority or lower, so this one takes the first slot left once the walk of the order reaches priority %d",
 		o.priority, plural(len(o.named), "item", "items"), listedNames(o.named), o.priority)
-}
-
-// firesAt is the priority the walk of the order has to reach before a held-back
-// decision takes a slot: its item's own, or, for preserved work, the first
-// priority below the top, since only priority-0 work holds it back.
-func (o outrankedCarryOut) firesAt() int {
-	if o.preserved && o.priority > 1 {
-		return 1
-	}
-	return o.priority
 }
 
 // listedNames lists work items, each already named by its title with its
@@ -5378,12 +5279,8 @@ func carryingOutReason(task CarryOutTask) string {
 	if task.Decision == DecisionFinishMerge {
 		return fmt.Sprintf("the development manager asked through run.recover for the integration of run %s's approved change to be finished, and the harness is finishing it", task.RunID)
 	}
-	reason := fmt.Sprintf("the development manager recorded a %q about the stoppage of run %s and the harness is carrying it out",
+	return fmt.Sprintf("the development manager recorded a %q about the stoppage of run %s and the harness is carrying it out",
 		task.Decision, task.RunID)
-	if ahead := aheadOfQueue(task); ahead != "" {
-		reason += ". " + ahead
-	}
-	return reason
 }
 
 // settleCarryOut takes one fired decision into the schedule and reports whether
