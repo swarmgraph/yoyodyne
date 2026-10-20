@@ -832,8 +832,8 @@ type Line struct {
 	// beside the state itself rather than here, so the clause this message ends
 	// on and the attention line `yoyo status` prints name one move. A line
 	// stopped by the brake's hold is the development manager's or the harness's
-	// while the brake works it and the operator's once she has escalated it, and
-	// one fixed clause could not be right about both.
+	// while the brake works it and the Lead Product Manager's once it is
+	// escalated, and one fixed clause could not be right about both.
 	Mover string
 	// Standing is where the harness stands, in the four lines the read model
 	// renders. It is said with the line because the two answer one question at

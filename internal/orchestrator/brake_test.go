@@ -7,8 +7,9 @@ package orchestrator
 // with a free developer slot idle because a person had to notice. What the
 // operator asked for was the development manager invoked at once and nothing
 // waiting, and each test below is one of the ways the hold now ends without a
-// person: her decision, or a probe run that lands. The one that does wait on a
-// person is the one she escalated, and that is tested too.
+// person: her decision, or a probe run that lands. The one that leaves the
+// harness's loop is the one escalated — by her or by the harness at its bound —
+// to the Lead Product Manager, with the operator told, and that is tested too.
 
 import (
 	"context"
@@ -294,7 +295,8 @@ func TestASummonsAndProbeLoopEscalatesToTheLeadProductManagerAtTheBound(t *testi
 		t.Fatalf("%d probe(s) in thirty polls under a bound of two cycles, want two and then none: %s", probes, schedule.Render())
 	}
 	// Two summonses: the trip and the first blocked probe. The cycle that
-	// reached the bound was not put to her again — it was put to the operator.
+	// reached the bound was not put to her again — it went to the Lead Product
+	// Manager, with the operator told.
 	if len(harness.summonses) != 2 {
 		t.Fatalf("summoned %d time(s), want the trip and the first blocked probe and nothing after the bound", len(harness.summonses))
 	}
@@ -317,7 +319,7 @@ func TestASummonsAndProbeLoopEscalatesToTheLeadProductManagerAtTheBound(t *testi
 		t.Fatalf("escalation = %#v, want two cycles, the fifth item as the last probe, and its stop reason", escalation)
 	}
 	if !hold.WaitsOnAPerson() {
-		t.Fatal("the escalated hold does not wait on a person, want it the operator's")
+		t.Fatal("the escalated hold is still in the harness's loop, want it escalated to the Lead Product Manager")
 	}
 	if schedule.BrakeEscalated == nil || schedule.BrakeEscalated.Cycles != 2 {
 		t.Fatalf("schedule.BrakeEscalated = %#v, want the escalation on the session's own account", schedule.BrakeEscalated)
@@ -430,7 +432,7 @@ func TestAnEscalatedBrakeHoldWaitsOnTheLeadProductManager(t *testing.T) {
 	harness.cooldown = 2 * time.Minute
 	harness.run = blockedStorm
 	harness.summon = func(h *scheduleHarness, _ BrakeSummons, _ int) (Fired, error) {
-		h.decideBrake(runstate.BrakeDecisionEscalate, "the reviewer's findings dispute the design; the operator has to rule")
+		h.decideBrake(runstate.BrakeDecisionEscalate, "the reviewer's findings dispute the design; the Lead Product Manager has to rule")
 		return Fired{Task: "development-manager-sweep", Turns: 1, Summoned: "the intake brake"}, nil
 	}
 	sessions := &recordedSessions{}

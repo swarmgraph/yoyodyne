@@ -900,8 +900,8 @@ type Detail struct {
 	// the read model beside the hold itself, so the sentence a terminal prints on
 	// its attention line and the clause this message ends on are one wording.
 	// KindLineWaiting reads it the same way, for the intake hold above all: the
-	// brake's hold is the development manager's while she decides and the
-	// operator's once she has escalated it, and the hold's own record words which.
+	// brake's hold is the development manager's while she decides and the Lead
+	// Product Manager's once it is escalated, and the read model words which.
 	Cause string `json:"cause,omitempty"`
 	Mover string `json:"mover,omitempty"`
 	// Waiting is what a provider's refusal stopped, read by

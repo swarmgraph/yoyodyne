@@ -355,9 +355,9 @@ type HarnessFeed struct {
 	// hold is said as critical and taken to the operators with every repetition
 	// rather than the first. Zero takes DefaultCapacityEscalation.
 	CapacityEscalation time.Duration
-	// StallEscalation is how long a line may stand stopped on a person — a stall
-	// the record holds, or a brake hold that waits on the operator — before it
-	// is said as critical rather than as a warning. Zero takes
+	// StallEscalation is how long a line may stand stopped — a stall the record
+	// holds, or a brake hold out of the harness's own loop — before it is said
+	// as critical rather than as a warning. Zero takes
 	// DefaultStallEscalation.
 	StallEscalation time.Duration
 	// FailingTaskEscalation is how long a recurring task may stand failing

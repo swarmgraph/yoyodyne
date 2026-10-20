@@ -71,7 +71,7 @@ import (
 // capacity hold has a timer that ends it and a person only ends it early; a
 // stall has no timer at all — nothing the record holds accounts for it, so
 // nothing but a person ends it — and a brake hold the development manager has
-// escalated is a hold she has already decided is a person's. A stopped line
+// escalated is one she has already decided another probe will not settle. A stopped line
 // that has stood through two intervals with nobody acting on the warning is past
 // being one.
 const DefaultStallEscalation = 2 * time.Hour

@@ -214,7 +214,7 @@ func TestTheHarnessEscalatingAtTheBoundIsRecordedApartFromHerDecision(t *testing
 		t.Fatalf("ReviseBrake() error = %v", err)
 	}
 	if !escalated.Brake.Escalated() || !escalated.Brake.EscalatedByHarness() || !escalated.WaitsOnAPerson() {
-		t.Fatalf("escalated = %#v, want a hold that waits on a person by the harness's escalation", escalated.Brake)
+		t.Fatalf("escalated = %#v, want a hold out of the harness's loop by the harness's escalation", escalated.Brake)
 	}
 	if escalated.Brake.ProbeDue(escalatedAt.Add(24 * time.Hour)) {
 		t.Fatal("a probe is due under a hold the harness escalated, want none however long the cooldown has run out")

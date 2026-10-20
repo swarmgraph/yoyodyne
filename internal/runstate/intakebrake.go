@@ -165,7 +165,7 @@ type IntakeBrake struct {
 	Cycles     int `json:"cycles,omitempty"`
 	CycleBound int `json:"cycle_bound,omitempty"`
 	// Escalation is the harness having escalated the hold to the Lead Product Manager at
-	// that bound. It is the second way a brake hold comes to wait on a person,
+	// that bound. It is the second way a brake hold leaves the harness's loop,
 	// and it is recorded apart from her decision because every surface that
 	// says whose move the hold is has to say which of the two it was.
 	Escalation *BrakeEscalation `json:"escalation,omitempty"`

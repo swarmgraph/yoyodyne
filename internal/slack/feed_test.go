@@ -1372,7 +1372,8 @@ func newTestHarness(t *testing.T, since time.Time) *testHarness {
 	return harness
 }
 
-// A brake hold escalated to the operator is said to him directly once, whoever
+// A brake hold escalated to the Lead Product Manager is said to the operator
+// directly once, so he is told, whoever
 // escalated it and however many times the record is escalated again: the
 // harness at its bound and then the development manager on top of it, her and
 // then the harness, her deciding it twice, a hold first read already

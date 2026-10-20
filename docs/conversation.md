@@ -3107,14 +3107,15 @@ stops were verdicts on three changes rather than on the machine, and the
 watching session lifts the hold at its next poll; `probe`, to keep the hold and
 have the session start one probe run now, which reopens intake if it lands and
 keeps it held — and summons her again, with the probe's own stoppage — if it
-blocks; or `escalate`, to keep the hold for you, which is the only decision of hers
-under which a brake hold waits on a person, and which she makes with a report
-at `warning` severity so it reaches you. The other way it comes to wait on you
-is the harness's: the summons names which cycle of the loop it is and at what
-cycle the harness stops asking, and at `execution.brake_escalation_cycles`
-blocked probes with no escalation of hers the harness escalates the hold
-itself, after which a `probe` decision is refused and a `release` still lifts
-it. The decision lands on the hold's own
+blocks; or `escalate`, to keep the hold and hand it to the Lead Product
+Manager, who decides whether intake reopens, which she makes with a report at
+`warning` severity so it reaches her. You are told and may release it, and it
+never waits on you: the brake summons the development manager, never you. The
+other way it is escalated is the harness's: the summons names which cycle of
+the loop it is and at what cycle the harness stops asking, and at
+`execution.brake_escalation_cycles` blocked probes with no escalation of hers
+the harness escalates the hold to the Lead Product Manager itself, after which
+a `probe` decision is refused and a `release` still lifts it. The decision lands on the hold's own
 record, naming her conversation and turn, and it lifts and starts nothing from
 the conversation: the watching session reads it at its next poll and acts. A
 `brake` decision aimed at a hold you placed is refused, because that switch is
