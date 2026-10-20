@@ -3,6 +3,7 @@ package runstate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/repowrite"
 	"github.com/mason-bryant/yoyodyne/internal/repowrite/writertest"
 )
 
@@ -166,7 +168,7 @@ func TestConversationWaitRefusesAReplacedWriteDirectory(t *testing.T) {
 	}
 }
 
-func TestConversationWaitCleanupUsesTheSamePinnedDirectory(t *testing.T) {
+func TestConversationWaitCleanupNeverReachesAReplacementDirectory(t *testing.T) {
 	for _, parent := range []bool{false, true} {
 		for _, replacement := range []string{"symlink", "directory"} {
 			t.Run(fmt.Sprintf("parent=%t/%s", parent, replacement), func(t *testing.T) {
@@ -204,17 +206,23 @@ func TestConversationWaitCleanupUsesTheSamePinnedDirectory(t *testing.T) {
 				if err := os.WriteFile(sentinel, []byte("keep this\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
-				if err := clear(); err != nil {
-					t.Fatal(err)
+				// The pinned directory is no longer at the path beneath the state
+				// root it was pinned by, so the cleanup is refused rather than made
+				// in the replacement or wherever the original went: the wait stays
+				// in the directory nothing reads any more, and nothing else moves.
+				err = clear()
+				var refused *repowrite.RefusalError
+				if !errors.As(err, &refused) || refused.Reason != repowrite.ReasonMoved {
+					t.Fatalf("cleanup after the directory was replaced = %v, want a refusal because it moved", err)
 				}
 				if content, err := os.ReadFile(sentinel); err != nil || string(content) != "keep this\n" {
 					t.Fatalf("cleanup changed a replacement directory: %q, %v", content, err)
 				}
-				if _, err := os.Stat(filepath.Join(held, name)); !os.IsNotExist(err) {
-					t.Fatalf("wait remains in its original directory: %v", err)
+				if _, err := os.Stat(filepath.Join(held, name)); err != nil {
+					t.Fatalf("a refused cleanup removed the wait from its original directory: %v", err)
 				}
-				if err := clear(); err != nil {
-					t.Fatalf("repeated cleanup = %v", err)
+				if repeated := clear(); repeated == nil || repeated.Error() != err.Error() {
+					t.Fatalf("repeated cleanup = %v, want the same refusal", repeated)
 				}
 			})
 		}

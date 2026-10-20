@@ -113,6 +113,9 @@ type Lease struct {
 	// one. It is empty on the rest: a lease nobody has to watch from outside
 	// carries nothing to keep in step with the lock.
 	holder string
+	// clearHolder removes the stamp, on a lease whose stamp is removed through
+	// the confined writer rather than by its path.
+	clearHolder func() error
 	// scope names the one thing of its kind this lease owns, on the leases a
 	// write is asked to present: a merge queue's worker lease names its queue,
 	// so a worker for one queue cannot write another's generations.
@@ -153,7 +156,13 @@ func (l *Lease) Release() error {
 	var cleared error
 	if l.holder != "" {
 		releaseWorker(l.holder)
-		if err := os.Remove(l.holder); err != nil && !errors.Is(err, os.ErrNotExist) {
+		var err error
+		if l.clearHolder != nil {
+			err = l.clearHolder()
+		} else {
+			err = os.Remove(l.holder)
+		}
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			cleared = fmt.Errorf("clear the %s holder: %w", l.label, err)
 		}
 		l.holder = ""

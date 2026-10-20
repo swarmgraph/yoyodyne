@@ -532,8 +532,13 @@ func (p MemoryProblem) String() string {
 // store an agent writes to and the store it is briefed from are found without
 // searching.
 type MemoryStore struct {
-	root      string
-	productID domain.ProductID
+	root string
+	// stateRoot is the state root as it was given, which root lies beneath, and
+	// confined and anchor are it resolved and the nearest ancestor of it that
+	// existed: every write is confined to the state root, created beneath that
+	// ancestor when it is not there yet.
+	stateRoot, confined, anchor string
+	productID                   domain.ProductID
 	// redactor is applied to everything an agent authored before it reaches the
 	// disk. It is a field of the store rather than an argument to the write so
 	// that there is no path onto the disk that skips it.
@@ -560,8 +565,15 @@ func NewMemoryStore(root string, productID domain.ProductID, redactValues ...str
 	if err := domain.ValidateIdentifier("product id", string(productID)); err != nil {
 		return nil, err
 	}
+	confined, anchor, err := confinedStateRoot(root)
+	if err != nil {
+		return nil, fmt.Errorf("resolve the memory state root: %w", err)
+	}
 	return &MemoryStore{
 		root:      filepath.Join(home.ProductDirectory(root, string(productID)), "memory"),
+		stateRoot: filepath.Clean(root),
+		confined:  confined,
+		anchor:    anchor,
 		productID: productID,
 		redactor:  execution.NewRedactor(redactValues...),
 		rollAt:    MaxMemoryLogBytes,
@@ -951,14 +963,14 @@ func (s *MemoryStore) recordTip(agent, path string, tip *memoryTip, last []byte)
 	if err != nil {
 		return err
 	}
-	confined, err := repowrite.NewRoot(s.root)
+	writer, relative, err := s.writer(tipPath)
 	if err != nil {
-		return fmt.Errorf("resolve the memory directory: %w", err)
+		return err
 	}
 	// Replaced whole rather than appended to, so a reader finds the tip before
 	// this write or the one after it and never half of one; and a tip lost to a
 	// crash is only a tip the next write rebuilds.
-	if _, err := confined.WriteFile(filepath.Base(tipPath), append(encoded, '\n')); err != nil {
+	if _, err := writer.WriteFile(relative, append(encoded, '\n')); err != nil {
 		return fmt.Errorf("record the %s memory tip: %w", agent, err)
 	}
 	return nil
@@ -1104,11 +1116,18 @@ func (s *MemoryStore) rollIfFull(agent, path string, tip *memoryTip, incoming in
 	if err != nil {
 		return err
 	}
-	if err := os.Rename(path, archive); err != nil {
-		return fmt.Errorf("roll the %s memory log aside: %w", agent, err)
-	}
-	if err := syncDirectory(s.root); err != nil {
+	writer, from, err := s.writer(path)
+	if err != nil {
 		return err
+	}
+	_, to, err := s.writer(archive)
+	if err != nil {
+		return err
+	}
+	// A move that refuses to replace, synced, through the confined writer: the
+	// log is set aside whole and never over an archive already there.
+	if _, err := repowrite.Move(writer, from, writer, to, 0o700); err != nil {
+		return fmt.Errorf("roll the %s memory log aside: %w", agent, err)
 	}
 	for _, line := range seed {
 		if err := s.append(path, line); err != nil {
@@ -1390,44 +1409,31 @@ func encodeMemoryRevision(revision MemoryRevision) ([]byte, error) {
 }
 
 func (s *MemoryStore) append(path string, encoded []byte) error {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return fmt.Errorf("create the memory directory: %w", err)
-	}
-	confined, err := repowrite.NewRoot(s.root)
+	writer, relative, err := s.writer(path)
 	if err != nil {
-		return fmt.Errorf("resolve the memory directory: %w", err)
+		return err
 	}
-	_, statErr := os.Lstat(path)
-	created := errors.Is(statErr, os.ErrNotExist)
-	if statErr != nil && !created {
-		return fmt.Errorf("inspect the memory log: %w", statErr)
-	}
-	// Opened through the confined primitive, so a log replaced by a link out of
-	// the memory directory is refused rather than appended through.
-	file, err := confined.OpenAppend(filepath.Base(path), 0o600, 0o700)
-	if err != nil {
-		return fmt.Errorf("open the memory log: %w", err)
-	}
-	written, err := file.Write(encoded)
-	if err != nil {
-		file.Close()
+	// Appended in checked batches through the confined writer, which refuses a
+	// log that is a link or has a second link, and syncs the directory when it
+	// creates the file.
+	if err := writer.Append(relative, encoded, 0o600, 0o700); err != nil {
 		return fmt.Errorf("append the memory revision: %w", err)
 	}
-	if written != len(encoded) {
-		file.Close()
-		return fmt.Errorf("append the memory revision: %w", io.ErrShortWrite)
-	}
-	if err := file.Sync(); err != nil {
-		file.Close()
-		return fmt.Errorf("sync the memory log: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close the memory log: %w", err)
-	}
-	if created {
-		return syncDirectory(s.root)
-	}
 	return nil
+}
+
+// writer is the state root as the root a memory write is confined to, and
+// path as a path relative to it.
+func (s *MemoryStore) writer(path string) (repowrite.Root, string, error) {
+	root, err := stateWriter(s.confined, s.anchor)
+	if err != nil {
+		return repowrite.Root{}, "", fmt.Errorf("open the memory state root: %w", err)
+	}
+	relative, err := filepath.Rel(s.stateRoot, path)
+	if err != nil {
+		return repowrite.Root{}, "", err
+	}
+	return root, filepath.ToSlash(relative), nil
 }
 
 // mendTail leaves the live log ending in a newline, so the line about to be
@@ -1490,11 +1496,11 @@ func (s *MemoryStore) mendTail(agent, path string) error {
 	if err := s.append(aside, tail); err != nil {
 		return fmt.Errorf("set the torn end of the %s memory log aside: %w", agent, err)
 	}
-	confined, err := repowrite.NewRoot(s.root)
+	writer, relative, err := s.writer(path)
 	if err != nil {
-		return fmt.Errorf("resolve the memory directory: %w", err)
+		return err
 	}
-	if _, err := confined.Truncate(filepath.Base(path), int64(cut)); err != nil {
+	if _, err := writer.Truncate(relative, int64(cut)); err != nil {
 		return fmt.Errorf("cut the torn end from the %s memory log: %w", agent, err)
 	}
 	return nil
@@ -1509,14 +1515,15 @@ func (s *MemoryStore) mendTail(agent, path string) error {
 // once are two files, and a lock they shared would serialize writes that never
 // meet.
 func (s *MemoryStore) lockAgent(ctx context.Context, agent string) (func(), error) {
-	if err := os.MkdirAll(s.root, 0o700); err != nil {
-		return nil, fmt.Errorf("create the memory directory: %w", err)
-	}
 	path, err := s.lockPath(agent)
 	if err != nil {
 		return nil, err
 	}
-	file, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
+	writer, relative, err := s.writer(path)
+	if err != nil {
+		return nil, err
+	}
+	file, err := writer.OpenLock(relative, 0o600, 0o700)
 	if err != nil {
 		return nil, fmt.Errorf("open the %s memory lock: %w", agent, err)
 	}

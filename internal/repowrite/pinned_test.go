@@ -62,14 +62,14 @@ func TestPinnedLockRefusesALinkAndStaysConfinedWhenItsDirectoryMoves(t *testing.
 	if err := os.Link(target, filepath.Join(path, "hard-linked.lock")); err != nil {
 		t.Fatal(err)
 	}
-	hardLinked, err := root.OpenLock("hard-linked.lock", 0o600)
-	if err != nil {
-		t.Fatal(err)
+	// A lock is identified by its file, and one with a second link is a lock
+	// somebody outside the root shares, so it is refused rather than opened.
+	if hardLinked, err := root.OpenLock("hard-linked.lock", 0o600); err == nil {
+		hardLinked.Close()
+		t.Fatal("a lock with a second link outside the root was opened")
+	} else if refused := (*RefusalError)(nil); !errors.As(err, &refused) || refused.Reason != ReasonLinked {
+		t.Fatalf("OpenLock() of a hard-linked lock error = %v, want a refusal for its second link", err)
 	}
-	if _, err := hardLinked.Write([]byte("changed")); err == nil {
-		t.Fatal("a lock descriptor allowed a write to an existing inode")
-	}
-	hardLinked.Close()
 	if err := os.Rename(path, path+"-held"); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestPinnedReplacementPreservesTheOriginalAfterAWriteFailure(t *testing.T) {
 	}
 	t.Cleanup(func() { writer.Close() })
 	// Simulate a file that cannot accept the stream, before it is published.
-	if err := writer.(*pinnedReplacementWriter).file.Close(); err != nil {
+	if err := writer.(*publishingWriter).temporary.file.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := writer.Write([]byte("replacement\n")); !errors.Is(err, os.ErrClosed) {
@@ -268,14 +268,22 @@ func TestPinnedReplacementStaysConfinedAfterItsParentIsReplaced(t *testing.T) {
 	if _, err := writer.Write([]byte("replacement\n")); err != nil {
 		t.Fatal(err)
 	}
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
+	// The directory the writer holds is no longer at the path beneath the root
+	// it was opened by, so publishing into it is refused rather than made
+	// wherever it went, and the new file is taken back out.
+	err = writer.Close()
+	var refused *RefusalError
+	if !errors.As(err, &refused) || refused.Reason != ReasonMoved {
+		t.Fatalf("Close() after the parent moved = %v, want a refusal because it moved", err)
 	}
 	if content, err := os.ReadFile(filepath.Join(outside, "target")); err != nil || string(content) != "keep this\n" {
 		t.Fatalf("outside target = %q, %v", content, err)
 	}
-	if content, err := os.ReadFile(filepath.Join(path, "moved/target")); err != nil || string(content) != "replacement\n" {
-		t.Fatalf("pinned replacement = %q, %v", content, err)
+	if content, err := os.ReadFile(filepath.Join(path, "moved/target")); err != nil || string(content) != "original\n" {
+		t.Fatalf("moved original = %q, %v", content, err)
+	}
+	if entries, err := os.ReadDir(filepath.Join(path, "moved")); err != nil || len(entries) != 1 {
+		t.Fatalf("files left in the moved directory = %v, %v", entries, err)
 	}
 }
 

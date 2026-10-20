@@ -64,3 +64,23 @@ func pinStateRoot(stateRoot, anchor string) (*repowrite.PinnedRoot, error) {
 	}
 	return root, nil
 }
+
+// stateWriter is the state root declared as the root a store's writes are
+// confined to. A state root that is not there yet is created first, beneath
+// the existing ancestor it was resolved from, through the same primitive.
+func stateWriter(stateRoot, anchor string) (repowrite.Root, error) {
+	if _, err := os.Lstat(stateRoot); errors.Is(err, os.ErrNotExist) {
+		base, err := repowrite.NewRoot(anchor)
+		if err != nil {
+			return repowrite.Root{}, err
+		}
+		relative, err := filepath.Rel(anchor, stateRoot)
+		if err != nil {
+			return repowrite.Root{}, err
+		}
+		if _, err := base.MakeDirectory(filepath.ToSlash(relative), 0o700); err != nil {
+			return repowrite.Root{}, err
+		}
+	}
+	return repowrite.NewRoot(stateRoot)
+}
