@@ -87,7 +87,7 @@ func (c Client) lockItem(ctx context.Context, id string) (func(), error) {
 		_ = file.Close()
 		if errors.Is(err, context.DeadlineExceeded) && ctx.Err() == nil {
 			held := c.whoHeld("the write lock for "+id, filepath.Join(store, writeLockDirectory, id+".lock"))
-			return nil, fmt.Errorf("another write to %s held it for longer than %s, so this one was not made (%s): %w", id, c.timeout(), held, err)
+			return nil, busyWrite{fmt.Errorf("another write to %s held it for longer than %s, so this one was not made (%s): %w", id, c.timeout(), held, err)}
 		}
 		return nil, fmt.Errorf("lock writes to %s: %w", id, err)
 	}

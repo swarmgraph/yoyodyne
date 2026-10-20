@@ -64,7 +64,8 @@ package orchestrator
 // the operator's pause, the intake hold, a full harness — is not paced, because
 // nothing is behind it to starve and pacing it would leave a decision uncarried
 // for a quarter of an hour after the switch was already open, which is the
-// latency this exists to remove.
+// latency this exists to remove. A tracker too slow to answer is of that kind
+// too, and is a wait rather than a refusal (trackerWasSlow).
 
 import (
 	"context"
@@ -1121,6 +1122,9 @@ func (c CarryOut) rerun(ctx context.Context, task CarryOutTask, carried CarriedO
 			carried.Cause = carryOutCause(runErr)
 			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
 		}
+		if trackerWasSlow(runErr) {
+			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, true, trackerSlowRefusal(runErr), trackerSlowClears), Outcome{}, nil
+		}
 		gate, clears := carryOutGate(runErr)
 		carried.Cause = carryOutCause(runErr)
 		carried.ReleasedHold = carried.Cause != "" && result.Preserved.Disposition == runstate.PreservedGone
@@ -1157,6 +1161,9 @@ func (c CarryOut) repair(ctx context.Context, task CarryOutTask, carried Carried
 		if refusal, clears, undocketed := c.undocketed(task, runErr); undocketed {
 			carried.Cause = carryOutCause(runErr)
 			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, false, refusal, clears), Outcome{}, nil
+		}
+		if trackerWasSlow(runErr) {
+			return c.stopped(ctx, task, carried, runstate.TriageGateHarness, true, trackerSlowRefusal(runErr), trackerSlowClears), Outcome{}, nil
 		}
 		gate, clears := carryOutGate(runErr)
 		carried.Cause = carryOutCause(runErr)
@@ -1351,6 +1358,31 @@ func carryOutGate(err error) (gate, clears string) {
 	default:
 		return runstate.TriageGateHarness, "what the refusal itself names"
 	}
+}
+
+// trackerWasSlow reports an attempt stopped only because the tracker did not
+// answer in time: a read or write killed at its bound on every attempt, or a
+// wait on a busy store run out. That is the store being busy, not an answer
+// about the decision, so the attempt is recorded as waiting rather than refused.
+// A waiting record is not paced (runstate's Cooling) and leaves the decision
+// the harness's to carry out rather than the development manager's to decide
+// again, so the next pass simply tries it again. A slow tracker is slow for
+// every decision at once, which is why leaving it unpaced starves nothing.
+//
+// A refusal the action has classed as permanent stays one whatever else its
+// error carries.
+func trackerWasSlow(err error) bool {
+	return carryOutCause(err) == "" && beads.Unanswered(err)
+}
+
+// trackerSlowClears is what clears a carry-out waiting on a slow tracker.
+const trackerSlowClears = "the tracker answering in time, which needs nobody: each later pass tries the same decision again until it is carried out"
+
+// trackerSlowRefusal says in plain words why the attempt is waiting, and then
+// what the tracker call said, cut short so the record stays within its bound.
+func trackerSlowRefusal(err error) string {
+	return "the tracker was too slow to answer while the harness was carrying this out, so nothing was started and the decision still stands; the harness will try it again at a later pass. What the tracker call said: " +
+		boundedFailureDetail(err.Error())
 }
 
 // refusalText is what a gate said, in words a record can carry. A refusal that
