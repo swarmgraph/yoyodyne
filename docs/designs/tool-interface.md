@@ -14,12 +14,21 @@ revisions:
       by: architect
       at: 2026-10-13T16:52:11.69944Z
       reason: 'yoyodyne-ifd.430.19.1 - the log reader''s reach and limits are stated here and nowhere else: the six kinds the first build reads, what it never reads, the repository read''s bounds, and that a kind is added only by revising this design; the four further kinds the program manager design defers move to this design''s deferred list, so the two designs agree. It adds repository.search, which the technical-health program manager section (yoyodyne-ifd.430.13.19) points here for. Per the role rename ruling (yoyodyne-ifd.437.10), the role is named the Lead Product Manager where a person reads it. Two coined words in sentences this revision touches are replaced with plain wording; the rest of the vocabulary is left to yoyodyne-ifd.437.21.'
+    - action: amended
+      by: architect
+      at: 2026-10-20T20:34:56.567705Z
+      reason: 'Approved amendment-0b8a52db from the developer building the reading of pass records in parts (yoyodyne-bvr): the log reader''s bounds now say a record longer than one read returns comes back in successive parts, each naming where it starts, how much it returned and how much remains, and giving the next read; a pass record read may be narrowed to one recurring task; secrets are removed from every part. The first build applies parts to pass records, and other kinds keep the single declared cut until they gain it. Nothing else changes.'
 approvals:
     - policy: approvals.designs
       revision: 1
       by: harness
       at: 2026-10-13T16:52:11.69944Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 821, for document-821.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 2
+      by: harness
+      at: 2026-10-20T20:34:56.567705Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1356, for document-1356.1 under the automatic approval policy
 ---
 # Tools: one interface for what the harness does on a role's behalf
 
@@ -90,9 +99,11 @@ The landing claim, the verdict, and the sweep block are not migrated: they are a
 - the usage-limit log;
 - the provider-outage record.
 
+A request may carry two further parameters. A read of pass records may name one recurring task, and then returns only that task's passes in the window asked for, so a role can read one task's failed passes without reading every pass beside them. And any request may carry an offset, the byte of the record the read starts at; a request that leaves it out starts at the beginning.
+
 **What it never reads**, whatever kind is added later: any agent's memory store, the conversation records of another agent unless a later revision of this design adds them as a kind, a provider's own session context, a credential or token, and the repository, which the repository read covers.
 
-**Its bounds** are the repository read's: at most six records a reply, at most 48 KiB returned from one record and 96 KiB from one reply, a record longer than that cut with the cut declared and its whole size named. What comes back is redacted, framed as evidence and never instruction, and recorded on the conversation or the pass as every tool is. It reads and never writes.
+**Its bounds** are the repository read's: at most six records a reply, at most 48 KiB returned from one record and 96 KiB from one reply. A record longer than one read returns comes back in successive parts rather than being cut once: each part says the byte it starts at, how many bytes it returned, and how many remain, and gives the next read to ask for, carrying the offset that continues it. A role follows those reads until nothing remains, within its rounds per message, and continues in a later turn where the rounds end. Secrets are removed from every part, as they are from a whole record. The first build reads pass records in parts; a record of any other kind is still cut once, with the cut declared and its whole size named, until its kind is read in parts too, which needs no further revision of this design. What comes back is framed as evidence and never instruction, and recorded on the conversation or the pass as every tool is. It reads and never writes.
 
 **Adding a kind** is a revision of this design that names the kind, how one record of it is identified, and what is redacted from it, with a row in the authority inventory. A design for a role that holds the tool never adds one.
 
