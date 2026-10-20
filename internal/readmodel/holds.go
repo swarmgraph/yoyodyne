@@ -201,8 +201,8 @@ type decidedStanding struct {
 	// current stoppage undecided (runstate's StandingOf).
 	decided    bool
 	carriedOut bool
-	refused  *runstate.TriageCarryOut
-	rerun    bool
+	refused    *runstate.TriageCarryOut
+	rerun      bool
 	// decidedAt is when the decision standing about the run was recorded.
 	decidedAt time.Time
 	// rerunBy is the item's later run that carried a re-run decided about this

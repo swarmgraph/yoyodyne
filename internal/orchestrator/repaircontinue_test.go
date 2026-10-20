@@ -960,8 +960,8 @@ func TestASecondRepairOfOneItemIsRefusedOnceTheGrantIsCarriedOut(t *testing.T) {
 	harness.save(t, second)
 
 	_, err := harness.continuer().Continue(context.Background(), continueRequest())
-	if err == nil || !strings.Contains(err.Error(), "the harness has carried out 2") {
-		t.Fatalf("second Continue() error = %v, want a refusal naming the grant already carried out", err)
+	if err == nil || !strings.Contains(err.Error(), "was already carried out, and the run has stopped again since") {
+		t.Fatalf("second Continue() error = %v, want a refusal naming the repair already carried out", err)
 	}
 	if len(harness.started) != 1 {
 		t.Fatalf("started = %#v, want exactly one continuation for one grant", harness.started)
