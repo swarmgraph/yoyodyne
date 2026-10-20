@@ -352,8 +352,8 @@ type HarnessFeed struct {
 	// DefaultStaleBuildThreshold.
 	StaleBuildThreshold int
 	// CapacityEscalation is how long the provider may hold every role before the
-	// hold is said as critical and taken to the operators with every repetition
-	// rather than the first. Zero takes DefaultCapacityEscalation.
+	// hold is said as critical rather than as a warning. Zero takes
+	// DefaultCapacityEscalation.
 	CapacityEscalation time.Duration
 	// StallEscalation is how long a line may stand stopped — a stall the record
 	// holds, or a brake hold out of the harness's own loop — before it is said

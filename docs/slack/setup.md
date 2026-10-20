@@ -135,8 +135,10 @@ tagged to you by member id as well, since it is yours to act on. The stale build
 released claim, the improvement, and each finding are sent once rather than
 repeated, and at
 most one improvement message goes per reading however many the reading found;
-the hold is sent when it is first seen and again with each heartbeat once it has
-stood past six hours, because it is the one state a person ends early; the
+the provider holding every role is sent when it is first seen, so you are told,
+and its repetitions stay in the channel — critical once it has stood past six
+hours — because the ownership registry gives it to the harness rather than to
+you; the
 stall is sent again with every heartbeat it stands, tagged to those members by
 id in the channel as well, because a line that has stopped for reasons nobody
 can name is the one state that gets louder rather than quieter; and the stopped

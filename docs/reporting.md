@@ -1510,16 +1510,17 @@ said as a state:
 
 It is shaped the opposite way from the window on purpose. The window is the
 provider's ordinary behaviour, said once as a note and to nobody's phone. This
-is the harness stopped by something a person can change, so it **reaches the
-operators directly the first time it is seen** — the first pass after the
-window closes, minutes rather than days — and is **said again in the channel
-every heartbeat it stands**, at warning severity while it is young. Once it has
-stood for six hours — the longest a run itself will wait out a limit, which is
-where `execution.usage_limit_max_pause` ships and for the same reason: a
-capacity problem that has outlasted every timer needs a person — it is said as
-**critical and taken to the operators again with every repetition**. A hold
-nothing but a person ends early is the one state where getting quieter as it
-stands is the wrong shape. The stall alarm above escalates the same way on a
+is every role stopped at once, so it **reaches the operators directly the first
+time it is seen** — the first pass after the window closes, minutes rather than
+days — so they are told, and may turn failover on, and is **said again in the
+channel every heartbeat it stands**, at warning severity while it is young.
+Once it has stood for six hours — the longest a run itself will wait out a
+limit, which is where `execution.usage_limit_max_pause` ships — it is said as
+**critical**, because a hold that has outlasted every timer is one getting
+quieter as it stands would hide. The repetitions stay in the channel: the
+ownership registry gives this hold to the harness, which resumes the roles when
+the limit resets, so the sink takes a repetition to the operators directly only
+where the registry names the operator as its owner, and today it never does. The stall alarm above escalates the same way on a
 shorter bar; this is the capacity half, and a line stopped on a known reset is
 a different message from a line stopped for reasons nobody can name.
 
