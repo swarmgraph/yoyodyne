@@ -29,7 +29,7 @@ func (f fakeSupervision) Load() (runstate.Supervision, bool, error) {
 // A part the supervisor has left down is down and not coming back on its own,
 // so it is on the attention line with the supervisor's own reason, and the
 // record is carried whole beside the lines for the surfaces that read it.
-func TestADegradedServiceWaitsOnTheOperatorWithTheSupervisorsReason(t *testing.T) {
+func TestADegradedServiceWaitsOnTheHarnessWithTheSupervisorsReason(t *testing.T) {
 	t.Parallel()
 
 	sources := quietSources()
@@ -51,11 +51,11 @@ func TestADegradedServiceWaitsOnTheOperatorWithTheSupervisorsReason(t *testing.T
 	if len(standing.NeedsHuman) != 1 {
 		t.Fatalf("NeedsHuman = %+v, want the one degraded child", standing.NeedsHuman)
 	}
-	if got := standing.NeedsHuman[0]; !strings.Contains(got.What(), "scheduler service is degraded") || !strings.Contains(got.What(), "died 6 times") || !strings.HasPrefix(got.Whose(), "the operator's") {
+	if got := standing.NeedsHuman[0]; !strings.Contains(got.What(), "scheduler service is degraded") || !strings.Contains(got.What(), "died 6 times") || !strings.HasPrefix(got.Whose(), "the harness's") {
 		t.Errorf("attention = %+v, want the child, the reason, and whose move it is", got)
 	}
 	rendered := standing.Render()
-	if !strings.Contains(rendered, "Needs a human (1):\n  the scheduler service is degraded: died 6 times") {
+	if !strings.Contains(rendered, "Waiting on the harness (1):\n  the scheduler service is degraded: died 6 times") {
 		t.Errorf("rendered:\n%s\nwant the degraded child on the attention line", rendered)
 	}
 }

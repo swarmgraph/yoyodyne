@@ -35,6 +35,7 @@ import (
 
 	"github.com/mason-bryant/yoyodyne/internal/amendment"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
@@ -304,7 +305,10 @@ func AmendmentBatchActions(recommended []RecommendedAmendment) []OperatorAction 
 				batch.task, batch.at.UTC().Format(time.RFC3339), batch.task),
 			FoundBy: fmt.Sprintf("the %s, arguing the undecided changes proposed to its documents on a recurring pass", owner),
 			Ends:    amendmentBatchEnds,
-			Since:   batch.at,
+			// Only proposals reserved for the operator reach a batch
+			// (OperatorsRecommendations): changes of fundamental intent.
+			Reason: ownership.OperatorFundamentalIntent,
+			Since:  batch.at,
 		})
 	}
 	sortOperatorActions(actions)

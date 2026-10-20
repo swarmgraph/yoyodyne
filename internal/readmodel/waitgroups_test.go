@@ -8,6 +8,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/backlog"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/humangate"
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 )
 
 // The not-startable line counts its work by what it waits on, names the next
@@ -58,7 +59,7 @@ func TestTheNotStartableLineCountsItsWorkByWhatItWaitsOn(t *testing.T) {
 		"  - 1 is done in the architect's conversation, not by a run — next: the role does the work in its conversation, and the harness closes each item when the role's revision lands; whose: the architect's\n",
 		"  - 2 are parked by the Lead Product Manager — next: she releases each once what it was parked for is settled; whose: the Lead Product Manager's\n",
 		"  - 1 is covered by other work: their own unfinished children — next: the harness runs the children; nothing pulls the covering item itself; whose: the harness's\n",
-		"  - nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one\n",
+		"  - nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one\n",
 	}
 	at := -1
 	for _, line := range want {
@@ -140,41 +141,36 @@ func TestTheNotStartableLineCountsItsWorkByWhatItWaitsOn(t *testing.T) {
 // how many rather than that nothing is.
 func TestTheNotStartableLineSaysWhatIsTheOperators(t *testing.T) {
 	t.Parallel()
-	groups := newWaitGroups(Stall{Reason: ReasonNoWatchSession, Says: "no watch session is running, so nothing pulls the queue", Clears: "`yoyo work --watch` starts one"}, switches{})
+	groups := newWaitGroups(Stall{Reason: ReasonDivergedTarget, Says: "the target branch main has diverged from the forge's", Clears: "settle the branches"}, switches{})
 	groups.add(backlog.Entry{ID: "item-a"}, backlog.HeldByStall)
-	groups.add(backlog.Entry{ID: "item-b"}, backlog.HeldByDirective)
+	groups.add(backlog.Entry{ID: "item-b", HumanGates: humangate.Read(humangate.DeclareMarker + " soak-reviewed — the operator has judged the parity soak")}, backlog.HeldForAGate)
+	groups.add(backlog.Entry{ID: "item-c"}, backlog.HeldByDirective)
 	listed := groups.list()
 	said := ForOperator(listed)
 	if !strings.HasPrefix(said, "2 items here are the operator's — ") ||
-		!strings.Contains(said, "1 waits on an unresolved directive") ||
-		!strings.Contains(said, "no watch session is running") {
+		!strings.Contains(said, "1 waits on a step only a person can take") ||
+		!strings.Contains(said, "has diverged from the forge's") ||
+		strings.Contains(said, "directive") {
 		t.Fatalf("for the operator = %q", said)
 	}
-	if listed[1].Next != "`yoyo work --watch` starts one" || listed[1].Mover != MoverOperator {
-		t.Fatalf("stalled group = %+v, want the command that clears it and the operator named", listed[1])
+	stalled := listed[len(listed)-1]
+	if stalled.Kind != backlog.HeldByStall || stalled.Next != "settle the branches" || stalled.Mover != ownership.MoverOperator || stalled.Ownership.Reason != ownership.OperatorDivergedHistory {
+		t.Fatalf("stalled group = %+v, want the command that clears it and the operator named for the diverged history", stalled)
 	}
 }
 
-// Whose move a stall is agrees with what the stall reason itself says: a
-// reason that says it is nobody's is not the operator's here, and one that says
-// it is the operator's is.
+// Whose move a stall is agrees with what the stall reason itself says: both
+// are the ownership registry's answer for the same record.
 func TestAStalledGroupsMoverAgreesWithItsReason(t *testing.T) {
 	t.Parallel()
 	for _, reason := range Reasons() {
-		if reason == ReasonIntakeHold || reason == ReasonStoreUnreadable {
+		if reason == ReasonIntakeHold {
 			continue
 		}
-		mover := stallMover(Stall{Reason: reason}, switches{})
-		whose := reason.Whose()
-		switch {
-		case strings.HasPrefix(whose, "nobody's"):
-			if mover != MoverNobody {
-				t.Errorf("%s says %q, and its group names %s", reason, whose, mover)
-			}
-		case strings.HasPrefix(whose, "the operator's"):
-			if mover != MoverOperator {
-				t.Errorf("%s says %q, and its group names %s", reason, whose, mover)
-			}
+		stall := Stall{Reason: reason}
+		mover := ownedGroup(WaitGroup{}, ownership.KindStall, stallRecord(stall, switches{})).Mover
+		if whose := stall.Whose(); !strings.HasPrefix(whose, mover.Possessive()+" — ") {
+			t.Errorf("%s says %q, and its group names %s", reason, whose, mover)
 		}
 	}
 }
@@ -193,7 +189,7 @@ func TestAGatedItemIsTheOperatorsOwnGroup(t *testing.T) {
 	groups.add(backlog.Entry{ID: "item-waiting", WaitingOn: []string{"item-other"}}, backlog.HeldWaitingOn)
 	groups.add(gated, gated.HoldKind())
 	listed := groups.list()
-	if len(listed) != 2 || listed[0].Kind != backlog.HeldForAGate || listed[0].Mover != MoverOperator {
+	if len(listed) != 2 || listed[0].Kind != backlog.HeldForAGate || listed[0].Mover != ownership.MoverOperator {
 		t.Fatalf("groups = %+v, want the gated group first and the operator's", listed)
 	}
 	if !strings.Contains(listed[0].Says(), "yoyo gate record") {

@@ -9,8 +9,5 @@ import "github.com/mason-bryant/yoyodyne/internal/domain"
 // does not say whether it does — which the caller reports from the proposal's
 // record (amendment.Proposal.ReservedForOperator), never from prose.
 func ResolveAmendment(owner domain.AgentRole, fundamentalIntent bool) Mover {
-	if fundamentalIntent {
-		return MoverOperator
-	}
-	return MoverOf(owner)
+	return Resolve(KindAmendment, Record{Role: owner, FundamentalIntent: fundamentalIntent}).Owner
 }

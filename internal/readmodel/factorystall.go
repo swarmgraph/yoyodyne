@@ -233,5 +233,5 @@ func ReadFactoryStall(sources Sources) (*FactoryStall, string) {
 // the critical report filed when it began is what puts it in front of the
 // operator and the Lead Product Manager.
 func factoryStallAttention(stall FactoryStall) Attention {
-	return Attention{Kind: AttentionFactoryStall, ID: stall.Since.UTC().Format(time.RFC3339), Mover: MoverHarness, FactoryStall: &stall}
+	return resolved(Attention{Kind: AttentionFactoryStall, ID: stall.Since.UTC().Format(time.RFC3339), FactoryStall: &stall})
 }

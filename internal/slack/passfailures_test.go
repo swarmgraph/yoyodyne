@@ -94,7 +94,7 @@ func TestAPassFailurePersonOnlyStepIsSaidOnceUntilThePassSucceeds(t *testing.T) 
 				}
 			}
 			standing := readmodel.ReadStanding(ctx, sources)
-			if len(standing.FactoryProblems) != 1 || standing.FactoryProblems[0].Mover != readmodel.MoverOperator {
+			if len(standing.FactoryProblems) != 1 || standing.FactoryProblems[0].Mover != ownership.MoverOperator {
 				t.Fatalf("factory problems = %+v, want the same person's finding", standing.FactoryProblems)
 			}
 			count := 0

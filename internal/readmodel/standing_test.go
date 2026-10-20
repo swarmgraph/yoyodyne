@@ -466,7 +466,7 @@ func TestAFindingThatNeedsTheOperatorIsNamedAheadOfTheProposals(t *testing.T) {
 			filedReport("report-00000000000000000000000000000003", report.SeverityCritical, moment.Add(-time.Hour)),
 		},
 		handlings: []report.Handling{
-			{ReportID: "report-00000000000000000000000000000002", Role: domain.RoleProductManager, RunID: "chat-1", Reason: "the operator has to add the hook to .claude/settings.json by hand", RecordedAt: moment.Add(-90 * time.Minute), NeedsOperator: true},
+			{ReportID: "report-00000000000000000000000000000002", Role: domain.RoleProductManager, RunID: "chat-1", Reason: "the operator has to add the hook to .claude/settings.json by hand", RecordedAt: moment.Add(-90 * time.Minute), NeedsOperator: true, OperatorReason: ownership.OperatorProtectedFile},
 			// The third report was handled, so it is no longer a finding.
 			{ReportID: "report-00000000000000000000000000000003", Role: domain.RoleProductManager, RunID: "chat-1", Reason: "admitted as yoyodyne-ifd.400", RecordedAt: moment.Add(-30 * time.Minute)},
 		},
@@ -559,7 +559,7 @@ func TestACriticalReportAddressedToARoleIsThatRolesAndNotTheOperators(t *testing
 
 	byID := map[string]Attention{}
 	for _, waiting := range standing.NeedsHuman {
-		if waiting.Mover == MoverOperator {
+		if waiting.Mover == ownership.MoverOperator {
 			t.Fatalf("NeedsHuman puts %q to the operator: %q", waiting.What(), waiting.Whose())
 		}
 		if waiting.Kind == AttentionAddressedReport {
@@ -1245,7 +1245,7 @@ func TestReadyWorkBehindAFullMachineIsCountedApartFromNotStartable(t *testing.T)
 	for _, want := range []string{
 		"Not startable: nothing, of 1 admitted item\n",
 		"  - 1 ready, waiting for a developer slot; 1 slot, taken — not counted as not startable",
-		"  - nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one\n",
+		"  - nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one\n",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Fatalf("rendered lacks %q:\n%s", want, rendered)
@@ -1385,8 +1385,9 @@ func TestADirectivePauseIsTheItemsOwnRefusal(t *testing.T) {
 	if !strings.Contains(standing.NotStartable[0].Reason, "paused for unresolved directive dir-1") || standing.NotStartable[0].Kind != backlog.HeldByDirective {
 		t.Fatalf("refusal = %+v", standing.NotStartable[0])
 	}
-	// The same directive is a thing waiting on a person, with whose move it is.
-	if len(standing.NeedsHuman) != 1 || !strings.Contains(standing.NeedsHuman[0].Whose(), "the operator's") {
+	// The same directive is a thing waiting on somebody, with whose move it is:
+	// the Lead Product Manager's, who ends it or carries it on.
+	if len(standing.NeedsHuman) != 1 || !strings.HasPrefix(standing.NeedsHuman[0].Whose(), "the Lead Product Manager's") {
 		t.Fatalf("needs a human = %+v", standing.NeedsHuman)
 	}
 }
@@ -1501,7 +1502,7 @@ func TestTheAttentionLineExcludesLiveRunsAndNamesTheStepAndMover(t *testing.T) {
 	droppedKinds := map[AttentionKind]int{}
 	for _, entry := range standing.NeedsHuman {
 		seen[entry.ID]++
-		if entry.Mover == MoverOperator {
+		if entry.Mover == ownership.MoverOperator {
 			t.Fatalf("harness work reached the operator: %+v", entry)
 		}
 		switch entry.ID {
@@ -1642,7 +1643,7 @@ func TestAPromotionAwaitingTheForgeNeedsAHuman(t *testing.T) {
 	}{
 		{"run-dropped", "the development manager's", "merge of pull request 401"},
 		{"run-queued", "the forge's", "pull request #"},
-		{"run-unasked", "the operator's", "pull request #"},
+		{"run-unasked", "the development manager's", "pull request #"},
 		{"run-unrecorded", "the harness's", "holds no pull request for branch yoyodyne/item/unrecorded"},
 	} {
 		found := false
@@ -1975,7 +1976,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				trip.Decision, trip.DecidedAt, trip.DecisionReason = runstate.BrakeDecisionEscalate, &decidedAt, "the same check fails everywhere"
 			}),
 			want: []string{
-				"— the operator's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it",
+				"— the Lead Product Manager's — the development manager escalated it, and what ends it is to decide whether intake reopens; the operator is told and may release it; nothing new is chosen until `yoyo release` lifts it",
 			},
 		},
 		{
@@ -1990,7 +1991,7 @@ func TestABrakeHoldNamesWhoIsDecidingAndTheProbe(t *testing.T) {
 				trip.Decision, trip.DecidedAt, trip.DecisionReason = runstate.BrakeDecisionEscalate, &decidedAt, "the same check fails everywhere"
 			}),
 			want: []string{
-				"— the operator's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it",
+				"— the Lead Product Manager's — the development manager escalated it, and what ends it is to decide whether intake reopens; the operator is told and may release it; nothing new is chosen until `yoyo release` lifts it",
 			},
 		},
 	} {

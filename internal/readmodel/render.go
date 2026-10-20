@@ -405,7 +405,12 @@ func (s Standing) renderNeedsHuman() string {
 		byMover[waiting.Mover] = append(byMover[waiting.Mover], waiting)
 	}
 	var rendered strings.Builder
-	operator := byMover[MoverOperator]
+	var operator []Attention
+	for mover, entries := range byMover {
+		if mover.IsOperator() {
+			operator = entries
+		}
+	}
 	if len(operator) == 0 {
 		rendered.WriteString("Needs a human: nothing\n")
 	} else {
@@ -419,7 +424,7 @@ func (s Standing) renderNeedsHuman() string {
 	}
 	for _, mover := range order {
 		entries := byMover[mover]
-		if mover == MoverOperator || len(entries) == 0 {
+		if mover.IsOperator() || len(entries) == 0 {
 			continue
 		}
 		fmt.Fprintf(&rendered, "%s (%d):\n", mover.WaitingOn(), len(entries))

@@ -85,7 +85,7 @@ func TestALaneReportsThreeOpeningListsReachEverySurfaceAndTheBlockerIsCarried(t 
 	if len(factory.HandedOff) != 4 || handed["yoyodyne-ifd.8"] != "a developer" || handed[digest.ID] != "the Lead Product Manager" || handed[asked.ID] != "the development manager" || handed[tokenReport] != "the Lead Product Manager" {
 		t.Fatalf("Handed off = %+v, want the admission to a developer, both reports to the Lead Product Manager, and the ask to the development manager", factory.HandedOff)
 	}
-	if len(factory.BlockedOnAHuman) != 1 || factory.BlockedOnAHuman[0].Title != "Renew the forge token" || factory.BlockedOnAHuman[0].Mover != MoverOperator || factory.Status != ProgramManagerBlocked {
+	if len(factory.BlockedOnAHuman) != 1 || factory.BlockedOnAHuman[0].Title != "Renew the forge token" || factory.BlockedOnAHuman[0].Mover != ownership.MoverOperator || factory.Status != ProgramManagerBlocked {
 		t.Fatalf("Blocked on a human = %+v, status %s; want the token entry, titled, the operator's, and the instance blocked", factory.BlockedOnAHuman, factory.Status)
 	}
 	card, err := ReadProgramManagerReport(sources, "factory-pgm")
@@ -118,7 +118,7 @@ func TestALaneReportsThreeOpeningListsReachEverySurfaceAndTheBlockerIsCarried(t 
 		}
 		return found
 	}
-	if found := blocked(standing); len(found) != 1 || found[0].Mover != MoverOperator || found[0].WorkItemID != "yoyodyne-ifd.9" || !found[0].Named() {
+	if found := blocked(standing); len(found) != 1 || found[0].Mover != ownership.MoverOperator || found[0].WorkItemID != "yoyodyne-ifd.9" || !found[0].Named() {
 		t.Fatalf("the Needs a human line carries %+v, want the token item once, named, as the operator's", found)
 	}
 

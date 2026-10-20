@@ -112,7 +112,7 @@ func attentionOfEveryKind(t *testing.T) map[AttentionKind]struct {
 		}}),
 			"the slack service has 2 copies running, where one should run: pid 77 on build 3d3d367a1b2c since " + localMoment(moment.Add(-time.Hour)) +
 				" (the supervisor's); pid 99 on build 1a2b3c4d5e6f, an old build, since " + localMoment(moment.Add(-2*time.Hour)) + " (not started by the supervisor, so it is left running; `kill 99` stops it)"},
-		AttentionFailingTask: {failingTaskAttention(failingTask),
+		AttentionFailingTask: {FailingTaskAttention(failingTask),
 			"the recurring task development-manager-sweep has failed before its first turn 2 times in a row since 2026-08-30T09:00:00Z: the harness refused the message it composed for the pass; latest: scheduled pass's message is 47768 bytes, limit is 32768"},
 		AttentionHold: {intakeHoldAttention(brake),
 			"intake is held, since 2026-08-30T10:00:00Z: " + singleLine(brake.Account(), maxRefusalBytes) +
@@ -225,6 +225,11 @@ func TestEveryAttentionKindCarriesItsRecordAndDerivesItsSentence(t *testing.T) {
 				carried++
 			}
 		}
+		if entry.Kind == AttentionAmendmentQueue {
+			// The queue, and the oldest undecided proposal in it, whose decider is
+			// whose move the queue is.
+			want = 2
+		}
 		if entry.Kind == AttentionCarriedItem {
 			want = 0
 			if entry.Executor == "" || entry.WorkItemID == "" {
@@ -311,7 +316,8 @@ func TestAnAmendmentEntryCarriesTheProposalInFull(t *testing.T) {
 
 // The intake hold's mover is read off the same record its sentence is worded
 // from, in every state the brake's record can be in, so the two cannot name
-// different people.
+// different people: the sentence is the hold's own wherever that names the
+// registry's owner, and the registry's otherwise.
 func TestTheIntakeHoldsMoverMatchesTheHoldsOwnWording(t *testing.T) {
 	t.Parallel()
 	ended := moment
@@ -339,8 +345,8 @@ func TestTheIntakeHoldsMoverMatchesTheHoldsOwnWording(t *testing.T) {
 		}},
 	} {
 		entry := intakeHoldAttention(hold)
-		if entry.Whose() != hold.Whose() {
-			t.Errorf("%s: whose = %q, want the hold's own %q", name, entry.Whose(), hold.Whose())
+		if own := hold.Whose(); strings.HasPrefix(own, entry.Mover.Possessive()+" — ") && entry.Whose() != own {
+			t.Errorf("%s: whose = %q, want the hold's own %q", name, entry.Whose(), own)
 		}
 		if !strings.HasPrefix(entry.Whose(), entry.Mover.Possessive()+" — ") {
 			t.Errorf("%s: mover %q does not open the hold's wording %q", name, entry.Mover, entry.Whose())
@@ -397,7 +403,7 @@ func TestAPublicationEntryNamesItsMoverFromTheRecord(t *testing.T) {
 		"unasked": {runstate.State{RunID: "run-5", Status: runstate.StatusSucceeded, ReviewDecision: runstate.ReviewApprove,
 			Integration: &runstate.Integration{TargetBranch: "main"}, PullRequest: &runstate.PullRequest{Number: 1}}, MoverDevelopmentManager},
 		"unmerged with another account": {runstate.State{RunID: "run-6", PullRequest: &runstate.PullRequest{Number: 1},
-			PublishFailure: "confirm the pull request merged: the forge did not answer"}, MoverOperator},
+			PublishFailure: "confirm the pull request merged: the forge did not answer"}, MoverDevelopmentManager},
 		// A merge withdrawn for its target's red check waits on the item filed for
 		// it, and the harness takes it up once that closes (yoyodyne-m5p).
 		"waiting on the target's red check": {redTargetState(), MoverHarness},
@@ -540,7 +546,7 @@ func TestAttentionJSONCarriesTheRecordAndTheDerivedSentences(t *testing.T) {
 	// the sentences out is read from its fields alone.
 	entry := directiveAttention(directive.Directive{ID: "directive-1", Unresolved: "which?"})
 	var decoded Attention
-	if err := json.Unmarshal([]byte(`{"kind":"directive","id":"directive-1","mover":"operator","directive":{"schema_version":0,"id":"directive-1","product_id":"","kind":"","received_by":"","received_at":"0001-01-01T00:00:00Z","text":"","unresolved":"which?"}}`), &decoded); err != nil {
+	if err := json.Unmarshal([]byte(`{"kind":"directive","id":"directive-1","mover":"product-manager","directive":{"schema_version":0,"id":"directive-1","product_id":"","kind":"","received_by":"","received_at":"0001-01-01T00:00:00Z","text":"","unresolved":"which?"}}`), &decoded); err != nil {
 		t.Fatalf("a document without the sentences: %v", err)
 	}
 	if decoded.What() != entry.What() {

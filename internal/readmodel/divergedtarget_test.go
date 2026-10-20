@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mason-bryant/yoyodyne/internal/ownership"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 )
 
@@ -56,7 +57,7 @@ func TestADivergedTargetIsWhyNothingStartsAndTheOperatorsWithTheRecovery(t *test
 		t.Fatalf("refusal = %q, want the recovery named against each item", stall.Refusal())
 	}
 	waiting, attention := stall.Waiting()
-	if !attention || waiting.Mover != MoverOperator {
+	if !attention || waiting.Mover != ownership.MoverOperator {
 		t.Fatalf("waiting = %+v, %t; want the divergence waiting on the operator", waiting, attention)
 	}
 	whose := waiting.Whose()
@@ -88,7 +89,7 @@ func TestADivergedTargetIsOnTheAttentionLineOnce(t *testing.T) {
 	for _, attention := range standing.NeedsHuman {
 		if attention.ID == "diverged-target:main" {
 			found++
-			if attention.Mover != MoverOperator || !strings.Contains(attention.Whose(), "docs/operations.md") {
+			if attention.Mover != ownership.MoverOperator || !strings.Contains(attention.Whose(), "docs/operations.md") {
 				t.Fatalf("attention = %+v, want the operator's with the recovery", attention)
 			}
 		}
