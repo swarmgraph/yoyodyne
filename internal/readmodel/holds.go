@@ -172,8 +172,11 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 		problem = fmt.Sprintf("the triage record belongs to %s rather than %s", counters.WorkItemID, workItemID)
 	}
 	// The docket asks the same shared rule of the same run and ledger.
-	reading := decidedStanding{carryOut: counters.AwaitingCarryOutOf(run), problem: problem}
-	if refused, found := counters.RefusedCarryOut(run.RunID); found {
+	standing := counters.StandingOf(run)
+	reading := decidedStanding{carryOut: triage.AwaitingCarryOut(standing), decided: standing.Decided, carriedOut: standing.CarriedOut, problem: problem}
+	// A refusal of a repair since carried out is about a decision that no
+	// longer stands over the run, so it does not hold the later stop.
+	if refused, found := counters.RefusedCarryOut(run.RunID); found && !standing.CarriedOut {
 		reading.refused = &refused
 	}
 	if decision, found := counters.DecisionOf(run.RunID); found && problem == "" {
@@ -193,6 +196,11 @@ func (read standing) of(workItemID string, run runstate.State) decidedStanding {
 // problem is what stopped the reading.
 type decidedStanding struct {
 	carryOut bool
+	// decided is a decision standing about the run's current stoppage, and
+	// carriedOut a repair decided about it carried out since, which leaves the
+	// current stoppage undecided (runstate's StandingOf).
+	decided    bool
+	carriedOut bool
 	refused  *runstate.TriageCarryOut
 	rerun    bool
 	// decidedAt is when the decision standing about the run was recorded.
@@ -280,6 +288,10 @@ const (
 	// harnessContinuesStallClause closes the hold of a first silent-stream stall,
 	// which nobody decides: the harness continues it itself, once.
 	harnessContinuesStallClause = "the harness stopped its provider for a silent stream and nothing was judged, so the harness continues the run itself, in its own session and at the phase it stalled in, at the next pull with a developer slot free — it waits on the harness rather than on a decision"
+	// carriedOutRepairClause opens the closing clause of a run that stopped
+	// again after a repair decided about it was carried out, so the hold is not
+	// read as that decision still owed.
+	carriedOutRepairClause = "the repair the development manager decided about it earlier was carried out and the run stopped again since, so that decision is not waiting to be carried out and decides nothing about this later stop: "
 )
 
 // heldFor is one item's hold: the account of what stopped it, closed by whose
@@ -305,6 +317,8 @@ func heldFor(runID, account string, reading decidedStanding, since time.Time) ba
 		return backlog.Hold{Reason: account + "; " + awaitingCarryOutClause, Decided: true, Since: since, RunID: runID}
 	case reading.waitsOn != "":
 		return backlog.Hold{Reason: account + "; " + fmt.Sprintf(awaitingWorkClause, reading.waitsOn), Since: since, RunID: runID, WaitsOn: reading.waitsOn}
+	case reading.carriedOut:
+		return backlog.Hold{Reason: account + "; " + carriedOutRepairClause + awaitingDecisionClause, Since: since, RunID: runID}
 	default:
 		return backlog.Hold{Reason: account + "; " + awaitingDecisionClause, Since: since, RunID: runID}
 	}
@@ -520,8 +534,17 @@ func stoppageHold(run, latest runstate.State, decided standing, found triage.Fou
 	if run.IntegrationStop != nil {
 		return heldFor(run.RunID, triage.IntegrationGoneSays(run.RunID, found.Describe()), reading, stoppedAt(run))
 	}
+	// A stop the recovery rules have the harness continue is the harness's,
+	// whatever was decided about an earlier stop of the same run and carried out.
+	opens := ""
+	if reading.carriedOut {
+		opens = carriedOutRepairClause
+	}
+	if preserved && !reading.decided && reading.refused == nil && reading.problem == "" && run.HarnessContinuesCheckStage() {
+		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + run.CheckStageStopSays(), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
+	}
 	if preserved && !reading.carryOut && reading.refused == nil && reading.problem == "" && run.HarnessContinuesStall() {
-		return backlog.Hold{Reason: preservedChange(run, found) + "; " + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
+		return backlog.Hold{Reason: preservedChange(run, found) + "; " + opens + harnessContinuesStallClause, Decided: true, Since: stoppedAt(run), RunID: run.RunID}
 	}
 	if !preserved && reading.rerun && reading.carryOut && reading.problem == "" {
 		return backlog.Hold{Reason: freshRerun(run), Decided: true, Since: stoppedAt(run), RunID: run.RunID}
@@ -589,6 +612,11 @@ func decisionHold(workItemID string, decision runstate.TriageDecision, counters 
 		return backlog.Hold{}, ""
 	}
 	_, refused := counters.RefusedCarryOut(decision.RunID)
+	// A repair carried out on its run holds nothing: what stands after it is
+	// the run's later stop, which the stoppage holds read afresh.
+	if run, recorded := byRun[decision.RunID]; recorded && counters.StandingOf(run).CarriedOut {
+		return backlog.Hold{}, ""
+	}
 	if !decision.Spends() || (decision.Decision == runstate.TriageDecisionRepair && !counters.GrantOutstanding() && !refused) {
 		return backlog.Hold{}, ""
 	}

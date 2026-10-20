@@ -798,6 +798,11 @@ type Standing struct {
 	// closed item whose work is settled, and recorded that it does not apply
 	// (CarryOutNoLongerApplies). There is nothing left to carry out.
 	NoLongerApplies bool `json:"no_longer_applies,omitempty"`
+	// CarriedOut is a repair decided about this run having been carried out on
+	// it, so the run stopped again since. The later stop is not decided by it:
+	// Decided, GrantOutstanding and Refused are all false beside it, and the
+	// recovery rules classify the stop as they would a first one.
+	CarriedOut bool `json:"carried_out,omitempty"`
 }
 
 // AwaitingCarryOut reports a decision standing about one stoppage that the
@@ -822,8 +827,10 @@ type Standing struct {
 // A granted repair is asked of the grant rather than of the decision, because a
 // repair continues the run it was granted for: the same run stops again carrying
 // the same decision, so the decision alone would go on claiming a carry-out that
-// has already happened. The grant standing unspent is what actually says it has
-// not.
+// has already happened. The grant standing unspent is what says it has not, and
+// the run's own record is read beside it (runstate's StandingOf), because a
+// round given back after the run stopped again leaves the grant unspent with
+// the decision carried out; such a stop reads as undecided (CarriedOut).
 //
 // A re-run and a merge re-arm are answered from the decision itself, which is
 // sufficient because carrying either one out changes what the reading is about.
@@ -2362,6 +2369,18 @@ func (e Entry) renderNextMover() string {
 	if e.Document != nil {
 		return e.documentNextMover()
 	}
+	// A repair carried out on this run is said before whoever moves next, so the
+	// line under it is read as being about the later stop and not the earlier
+	// decision. It changes nothing about who that is: the rules below classify
+	// the later stop as they would a first one.
+	if e.CountersProblem == "" && e.Counters.Standing.CarriedOut {
+		return "      The repair decided earlier about this run was carried out and the run stopped again since, so that decision is not waiting to be carried out and decides nothing about this later stop.\n" + e.nextMover()
+	}
+	return e.nextMover()
+}
+
+// nextMover is the line renderNextMover closes on: whose move the stoppage is.
+func (e Entry) nextMover() string {
 	gone := ""
 	if e.IntegrationStop != nil {
 		if e.integrationResumable() {
@@ -2661,6 +2680,10 @@ func (e Entry) renderGrantStanding() string {
 	if spentRounds {
 		return fmt.Sprintf("      A further repair grant for %s is refused by the review round budget: %d of %d round(s) are spent or committed, so there is nothing left to grant.\n",
 			e.WorkItemID, counters.Committed(), counters.ReviewRoundsCap)
+	}
+	if counters.GrantOutstanding() && counters.Standing.CarriedOut {
+		return fmt.Sprintf("      The repair grant of %s was carried out on this run; rounds of it were given back when the run stopped again, so they read as unspent, but they are not carried out again on that decision: a further repair is a decision of its own and spends a further grant.\n",
+			e.WorkItemID)
 	}
 	if counters.GrantOutstanding() {
 		return fmt.Sprintf("      A repair grant of %s is recorded and its rounds are not spent, so this stoppage may be handed back on the decision that stands; deciding another would spend a further one rather than repeat it.\n",

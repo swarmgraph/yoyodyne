@@ -4606,15 +4606,20 @@ func (s State) CarriedOutRepairAttempts() int {
 	return carried
 }
 
-// RepairContinuedSince reports a repair grant handed back to this run at or
-// after a moment: a continuation somebody decided, which the environment did
-// not refuse. It is what says a repair decided at that moment was carried out.
-// A pending dispatch still consumes the grant, but has not handed work back to
-// the pipeline. A returned round bought nothing, and the harness carrying on a
-// stall itself spends no grant.
+// RepairContinuedSince reports a repair decided at or before a moment having
+// been carried out on this run: a continuation somebody decided, handed back to
+// the pipeline at or after that moment. A pending dispatch has not handed work
+// back yet, and the harness carrying on a stall itself carried out nobody's
+// decision.
+//
+// A round the environment refused afterwards still counts. Returning it changes
+// what the item's grant spent (CarriedOutRepairAttempts), not whether the
+// decision was carried out: the run went again and stopped again, and that later
+// stop is a stoppage of its own, classified by the recovery rules as a first one
+// would be rather than read as the earlier decision still owed.
 func (s State) RepairContinuedSince(decidedAt time.Time) bool {
 	for _, continuation := range s.RepairContinuations {
-		if continuation.Returned || continuation.ByHarness || continuation.DispatchPending {
+		if continuation.ByHarness || continuation.DispatchPending {
 			continue
 		}
 		if !continuation.ContinuedAt.Before(decidedAt) {

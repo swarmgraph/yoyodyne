@@ -354,14 +354,24 @@ func (c TriageCounters) Standing(runID string) triage.Standing {
 // (yoyodyne-8ff). A continuation of the run made since the decision is the
 // carry-out itself, and the carry-out reads it the same way: one decision buys
 // one continuation and no more.
+//
+// A repair carried out decides nothing about where the run stands now. The
+// run can only have stopped again since, so what stands is a stoppage nobody
+// has decided: the recovery rules classify it as they would a first stop, and a
+// refusal recorded about carrying the earlier decision out is history rather
+// than a gate on it. Its grant may still read as unspent where the environment's
+// round was given back; that is the budget's account and is left as it is.
 func (c TriageCounters) StandingOf(run State) triage.Standing {
 	standing := c.Standing(run.RunID)
-	if !standing.Repair || !standing.GrantOutstanding {
+	if !standing.Repair || !standing.Decided {
 		return standing
 	}
 	decision, _ := c.DecisionOf(run.RunID)
 	if run.RepairContinuedSince(decision.DecidedAt) {
+		standing.Decided = false
+		standing.CarriedOut = true
 		standing.GrantOutstanding = false
+		standing.Refused = false
 	}
 	return standing
 }
