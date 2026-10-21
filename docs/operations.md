@@ -6040,7 +6040,7 @@ prints the token to your terminal when it starts:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:52341/
 token: 9f2c41ab7e05…
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/items/<work-item-id>, and /api/program-managers/<agent>
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/items/<work-item-id>, and /api/program-managers/<agent>
 a restarted dashboard prints a new one; stop with ctrl-c
 it is also in …/projects/yoyodyne/state/dashboard/token while this dashboard runs, and `yoyo dashboard token` prints it
 ```
@@ -6060,7 +6060,7 @@ the value:
 ```text
 dashboard for yoyodyne serving at http://127.0.0.1:8765/
 the token was read from the keychain item yoyo-dashboard.yoyodyne under the account yoyo, as services.dashboard.token names, and is not printed
-the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/items/<work-item-id>, and /api/program-managers/<agent>
+the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/items/<work-item-id>, and /api/program-managers/<agent>
 it outlives a restart: a restarted dashboard reads the same one; stop with ctrl-c
 ```
 
@@ -6090,9 +6090,9 @@ logs rather than two, because pricing a stream reads the whole of its log
 whatever window is asked for, so the rolling day and the days around it come
 off the same pass.
 
-**Those three answers are snapshots, built in the background and never per
-request.** The dashboard reads the standing every ten seconds and the
-throughput and the spend every minute — each interval counted from the end of
+**Those answers, and the delivery measures below, are snapshots, built in the
+background and never per request.** The dashboard reads the standing every ten
+seconds and the throughput, the spend, and the delivery measures every minute — each interval counted from the end of
 the last build, so a build slower than its interval never runs back to back —
 and answers every request with the latest reading it has, however many tabs
 are asking: two tabs cost one build. Each answer carries, under `snapshot`,
@@ -6114,6 +6114,47 @@ standing from the whole tracker listing and every run record: at a load average
 of 117 one build took 6.4 seconds, and under more load it passed the tracker's
 thirty-second timeout and the page hung or showed errors exactly when the
 harness was busiest.
+
+At `/api/delivery` it serves the factory's delivery measures, after the DORA
+measures, for each of the last thirty days and the last thirteen weeks, oldest
+first. Every day, and every week from Monday to Sunday, is counted in Pacific time,
+named under `zone` rather than taken from the machine, so the same records read
+the same on a machine in any zone. A merge is a change whose run recorded a
+promotion, counted where `/api/throughput` counts it landed. For each period:
+
+- `merges`: how many changes merged, and which.
+- `lead_time`: from the item's filing in the tracker to its merge, as the
+  median, the 90th percentile, and the spread, and split into stages:
+  `queued` (filing to first run), then `developing`, `checks`, `review`,
+  `repairing`, and `merging`, read from each run's event log, with the review
+  and repair rounds counted per change. No stage is read from the tracker's
+  dependency records.
+- `change_failure`: the share of merged changes that were reverted on their
+  target branch (a revert git wrote, naming the merged commit), whose landing
+  checks failed on the merge commit, or that a bug filed within 48 hours cites
+  by item or pull request. `settling` counts changes merged less than 48 hours
+  ago, for which a bug may still be filed.
+- `recovery`: how long the factory itself stayed broken — a run of failed
+  recurring passes, a scheduler stall, or a factory stall — from when it began
+  to when it cleared, counted in the period it cleared; the current period also
+  lists what is still broken.
+- `rework`: the share of merges whose item is a bug. A merge whose item records
+  no kind is counted as not a bug and shown beside the rate, with the share of
+  such merges, so the rate is labelled a minimum under `minimum`.
+- `hand_steps`: the operator's recorded hand steps per merged change, counted as
+  [`yoyo intervention`](#counting-your-hand-steps) counts them, and labelled a
+  floor, because a step outside the harness is counted only if somebody
+  recorded it.
+- `first_pass`: the share of merged changes whose first check run and first
+  review both passed, taken over the changes whose event logs record both.
+- `tokens`: the tokens each merged change cost by model, across every run made
+  for it, from the usage the provider reported; changes with no usage recorded
+  are counted apart.
+
+Every measure names the records it was read from under `read_from`. A measure
+whose records could not be read says why under `not_recorded` and carries no
+number, never zero; one read from only some of its records names the rest under
+`not_read`. `sources` says, record by record, whether it could be read.
 
 A fourth answer is
 served one item at a time, at `/api/items/<work-item-id>`: the work item whole

@@ -152,6 +152,16 @@ func (r fixtureReader) Backlog(ctx context.Context) (readmodel.Backlog, error) {
 	return answer, nil
 }
 
+// Delivery answers no scenario's delivery page yet: that page is drawn by its
+// own work, and until then every scenario's delivery reading is the empty one.
+func (r fixtureReader) Delivery(ctx context.Context) (readmodel.Delivery, error) {
+	if r.pending {
+		<-ctx.Done()
+		return readmodel.Delivery{}, ctx.Err()
+	}
+	return readmodel.Delivery{}, r.refused
+}
+
 func load(dir, name string, into any) error {
 	body, err := os.ReadFile(filepath.Join(dir, name+".json"))
 	if err != nil {

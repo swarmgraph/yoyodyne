@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 )
 
 // listingCutWarning reads the hints bd writes even when its process succeeds.
@@ -47,8 +48,8 @@ func completeWorkItems(stdout string) int {
 
 // decodeWorkListing also names a JSON array that ends early without a warning
 // from bd or the runner. Other decoding failures keep their original cause.
-func decodeWorkListing(data []byte, verb string) ([]WorkItem, error) {
-	items, err := decodeWorkItems(data)
+func decodeWorkListing(data []byte, verb string, writerZone *time.Location) ([]WorkItem, error) {
+	items, err := decodeWorkItemsIn(data, writerZone)
 	if errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, fmt.Errorf("bd %s output was cut: read %d complete work item(s); work may be missing: %w", verb, completeWorkItems(string(data)), err)
 	}

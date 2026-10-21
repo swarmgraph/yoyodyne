@@ -44,6 +44,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/dashboard"
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/execution"
+	"github.com/mason-bryant/yoyodyne/internal/gitworktree"
 	"github.com/mason-bryant/yoyodyne/internal/readmodel"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/slack"
@@ -323,7 +324,7 @@ func dashboardTokenStores(stateRoot string) dashboard.TokenStores {
 
 // dashboardHeaderLine is said whichever way the token came, because it is
 // about how the token is presented rather than where it came from.
-const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/items/<work-item-id>, and /api/program-managers/<agent>"
+const dashboardHeaderLine = "the page asks for the token and keeps it in the tab's session storage; a tool sends it as `Authorization: Bearer <token>` to /api/standing, /api/throughput, /api/spend, /api/backlog, /api/delivery, /api/items/<work-item-id>, and /api/program-managers/<agent>"
 
 // dashboardServer makes the server under the token the entry names, and says
 // what the command prints about it. Under `generated` the server makes its own
@@ -525,6 +526,83 @@ func (r dashboardReader) Spend(ctx context.Context) (readmodel.Spend, error) {
 	return readmodel.ReadSpend(ctx, spendSources(stateRoot, productID)), nil
 }
 
+// Delivery is the factory's delivery measures, day by day and week by week in
+// Pacific time. readmodel.ReadDelivery counts a merge exactly where the
+// throughput counts a landing, and the hand steps per change by
+// readmodel.CountInterventions, the count `yoyo intervention` prints.
+func (r dashboardReader) Delivery(ctx context.Context) (readmodel.Delivery, error) {
+	if err := r.ready(); err != nil {
+		return readmodel.Delivery{}, err
+	}
+	resolved, err := loadConfiguration(r.configPath)
+	if err != nil {
+		return readmodel.Delivery{}, err
+	}
+	return readmodel.ReadDelivery(ctx, deliverySources(resolved)), nil
+}
+
+// deliverySources opens every record the delivery measures are read from. A
+// store that will not open costs the measures read from it, and the reason
+// travels with the gap.
+//
+// The tracker is told the zone its writers ran bd in: this repository's are in
+// Pacific time, and a dependency stamp bd wrote in a writer's wall clock is
+// corrected in that zone rather than in whichever zone the dashboard happens to
+// run in (beads.Client.WriterZone). No delivery measure is read from a
+// dependency stamp, and naming the zone keeps it so for anything the listing
+// carries.
+func deliverySources(resolved config.Resolved) readmodel.DeliverySources {
+	zone := readmodel.DeliveryZone()
+	sources := readmodel.DeliverySources{TrackerTimeout: chatTrackerTimeout, Zone: zone}
+	roots, err := resolveRoots(resolved)
+	if err != nil {
+		problem := fmt.Sprintf("the product's directories could not be resolved: %v", err)
+		sources.TrackerProblem, sources.RunsProblem, sources.UsageProblem = problem, problem, problem
+		sources.HandStepsProblem, sources.PassesProblem, sources.StallsProblem = problem, problem, problem
+		sources.FactoryStallsProblem, sources.RevertsProblem = problem, problem
+		return sources
+	}
+	productID := resolved.Config.Product.ID
+	sources.Tracker = beads.Client{Runner: execution.OSProcessRunner{}, Dir: roots.repository, WriterZone: zone}
+	if worktrees, err := gitworktree.New(gitworktree.Options{
+		Runner:         execution.OSProcessRunner{},
+		RepositoryRoot: roots.repository,
+		WorktreeRoot:   roots.worktreeRoot,
+		Remote:         resolved.Config.Execution.Remote,
+	}); err != nil {
+		sources.RevertsProblem = err.Error()
+	} else {
+		sources.Reverts = worktrees
+	}
+	if store, err := runstate.NewStore(roots.stateRoot, productID); err != nil {
+		sources.RunsProblem, sources.PassesProblem = err.Error(), err.Error()
+	} else {
+		sources.Runs = store
+		sources.Passes = store.Sweeps()
+	}
+	if store, err := runstate.NewSpendStore(roots.stateRoot, productID); err != nil {
+		sources.UsageProblem = err.Error()
+	} else {
+		sources.Usage = store
+	}
+	if store, err := runstate.NewInterventionStore(roots.stateRoot, productID); err != nil {
+		sources.HandStepsProblem = err.Error()
+	} else {
+		sources.HandSteps = store
+	}
+	if store, err := runstate.NewStallStore(roots.stateRoot, productID); err != nil {
+		sources.StallsProblem = err.Error()
+	} else {
+		sources.Stalls = store
+	}
+	if store, err := runstate.NewFactoryStallStore(roots.stateRoot, productID); err != nil {
+		sources.FactoryStallsProblem = err.Error()
+	} else {
+		sources.FactoryStalls = store
+	}
+	return sources
+}
+
 // stateRoot is the state root and the product the readings are taken over.
 // Neither resolving refuses the whole reading, because there is nothing to
 // project without them.
@@ -590,7 +668,9 @@ port, and never in a URL or a cookie. It serves
 the read model as JSON behind the token -- the four lines and the capacity state
 at /api/standing, what landed over today and the last seven days at
 /api/throughput, what was spent over the last 24 hours and the last seven local
-days with a line for each of the last thirty at /api/spend, and one work item
+days with a line for each of the last thirty at /api/spend, the factory's
+delivery measures for each of the last thirty days and thirteen weeks in Pacific
+time at /api/delivery, and one work item
 whole -- its tracker fields and the run last made for it -- at
 /api/items/<work-item-id>, which is what the page's card on an item reads,
 and one program manager instance with its current lane report at

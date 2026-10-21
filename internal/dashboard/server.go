@@ -37,7 +37,8 @@
 // style: static text compiled into the binary, with nothing of the read model
 // in it, which is what a browser needs before it can present a token at all.
 // Everything that reads state is behind the token: the standing, the
-// throughput, the spend, one work item at a time at /api/items/<id>, which is
+// throughput, the spend, the delivery measures at /api/delivery, one work item
+// at a time at /api/items/<id>, which is
 // what the page opens a card from, and one program manager instance's lane
 // report at a time at /api/program-managers/<agent>, and every work item the
 // tracker holds, open and closed, at /api/backlog, which is what the backlog
@@ -117,6 +118,11 @@ type Reader interface {
 	// holds, which is seconds of work the page asks for once a minute rather
 	// than once every ten seconds. The same rule holds.
 	Spend(ctx context.Context) (readmodel.Spend, error)
+	// Delivery reads the factory's delivery measures, day by day and week by
+	// week in Pacific time, for the delivery page. It is a reading of its own
+	// because it reads every run's event log and the whole tracker; the page
+	// asks for it once a minute. The same rule holds.
+	Delivery(ctx context.Context) (readmodel.Delivery, error)
 	// WorkItem reads one work item whole — the tracker's fields and the run the
 	// harness last made for it — for the card the page opens on an item. It is
 	// asked for one item at a time, when a card is opened, because it costs a
@@ -148,12 +154,13 @@ type Server struct {
 	token   string
 
 	listener net.Listener
-	// standing, throughput, and spend are the three readings the page polls,
-	// each built in the background once per interval and served to every
+	// standing, throughput, spend, and delivery are the readings the pages
+	// poll, each built in the background once per interval and served to every
 	// request as the latest snapshot with its age.
 	standing   *snapshot
 	throughput *snapshot
 	spend      *snapshot
+	delivery   *snapshot
 	// hosts is every Host header that names the bound address, and origins every
 	// Origin header that does. Both are fixed at Listen and read on every request.
 	hosts   map[string]bool
@@ -201,14 +208,15 @@ func NewWithToken(product string, reader Reader, token string) (*Server, error) 
 	return withSnapshots(&Server{Product: product, reader: reader, token: strings.TrimSpace(token)}), nil
 }
 
-// withSnapshots gives the server its three background readings, on the
-// page's own clocks: the standing every ten seconds, and the throughput and
-// the spend every minute.
+// withSnapshots gives the server its background readings, on the pages' own
+// clocks: the standing every ten seconds, and the throughput, the spend, and
+// the delivery measures every minute.
 func withSnapshots(s *Server) *Server {
 	s.ready.Store(true)
 	s.standing = newSnapshot(standingInterval, func(ctx context.Context) (any, error) { return s.reader.Standing(ctx) })
 	s.throughput = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Throughput(ctx) })
 	s.spend = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Spend(ctx) })
+	s.delivery = newSnapshot(minuteInterval, func(ctx context.Context) (any, error) { return s.reader.Delivery(ctx) })
 	return s
 }
 
@@ -288,7 +296,7 @@ func (s *Server) Serve(ctx context.Context) error {
 	}
 	// The readings are built under the server's lifetime, so stopping the
 	// server stops their building with it.
-	for _, reading := range []*snapshot{s.standing, s.throughput, s.spend} {
+	for _, reading := range []*snapshot{s.standing, s.throughput, s.spend, s.delivery} {
 		reading.live(ctx)
 	}
 	// The standing is the page's main view and the reading a restarted
@@ -325,7 +333,7 @@ func (s *Server) Serve(ctx context.Context) error {
 		// was under way is waited for within the same grace, so nothing this
 		// dashboard started is still reading or writing once Serve returns. A
 		// build still running when the grace ends is left to its own bound.
-		for _, reading := range []*snapshot{s.standing, s.throughput, s.spend} {
+		for _, reading := range []*snapshot{s.standing, s.throughput, s.spend, s.delivery} {
 			if !reading.settled(grace.Done()) {
 				break
 			}
@@ -409,7 +417,7 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 		s.servePage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
-	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
+	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
 		// The routes that read state, and so the ones the token guards.
 		if !s.presented(request) {
 			refuse(writer, request, http.StatusUnauthorized, "this dashboard requires the token it printed when it started, as a bearer token")
@@ -420,6 +428,8 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 			s.serveSnapshot(writer, request, s.throughput)
 		case request.URL.Path == "/api/spend":
 			s.serveSnapshot(writer, request, s.spend)
+		case request.URL.Path == "/api/delivery":
+			s.serveSnapshot(writer, request, s.delivery)
 		case request.URL.Path == "/api/standing":
 			s.serveSnapshot(writer, request, s.standing)
 		case request.URL.Path == "/api/backlog":

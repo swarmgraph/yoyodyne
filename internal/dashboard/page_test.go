@@ -319,6 +319,41 @@ func TestServesTheSpendToTheTokenAlone(t *testing.T) {
 	}
 }
 
+// The delivery measures are served as JSON to the token and to nobody else,
+// with their age, and refused whole when the state cannot be read.
+func TestServesTheDeliveryMeasuresToTheTokenAlone(t *testing.T) {
+	t.Parallel()
+	count := 2
+	delivery := readmodel.Delivery{Zone: readmodel.DeliveryZoneName, Days: []readmodel.DeliveryPeriod{{
+		Label:  "2026-10-19",
+		Merges: readmodel.DeliveryMerges{Count: &count},
+		Tokens: readmodel.DeliveryTokens{DeliveryMeasure: readmodel.DeliveryMeasure{NotRecorded: "nothing was wired to read the usage the provider reported"}},
+	}}}
+	w := serve(t, stubReader{standing: standingWith("title"), delivery: delivery})
+
+	response, body := w.get("/api/delivery", bearer(w.server.Token()))
+	if response.StatusCode != http.StatusOK || !strings.HasPrefix(response.Header.Get("Content-Type"), "application/json") {
+		t.Fatalf("delivery with the token: %d %s", response.StatusCode, body)
+	}
+	for _, expected := range []string{`"zone":"America/Los_Angeles"`, `"label":"2026-10-19"`, `"count":2`, `"not_recorded":"nothing was wired to read the usage the provider reported"`, `"snapshot":`} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("the delivery measures lack %s: %s", expected, body)
+		}
+	}
+	if response, body := w.get("/api/delivery", nil); response.StatusCode != http.StatusUnauthorized || strings.Contains(body, "zone") {
+		t.Fatalf("delivery without the token: %d %s", response.StatusCode, body)
+	}
+	if response, _ := w.request(http.MethodPost, "/api/delivery", bearer(w.server.Token())); response.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("delivery POST: %d", response.StatusCode)
+	}
+
+	broken := serve(t, stubReader{failure: errors.New("the state root could not be resolved")})
+	response, body = broken.get("/api/delivery", bearer(broken.server.Token()))
+	if response.StatusCode != http.StatusServiceUnavailable || !strings.Contains(body, `"error":"the state root could not be resolved"`) || strings.Contains(body, "days") {
+		t.Fatalf("delivery over unreadable state: %d %s", response.StatusCode, body)
+	}
+}
+
 // The vocabularies the page reads are the model's own, held at compile time
 // where the page's evidence is read: a refusal's kind is the queue's HoldKind
 // and not a type of this package's or the model's, a run's stage is the

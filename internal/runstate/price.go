@@ -1057,6 +1057,28 @@ func (p pricedEvent) tokens() TokenUsage {
 	return tokens
 }
 
+// Tokens is what one recorded invocation was billed for, read from the usage
+// object it carries the way a terminal's is read above, or an invocation
+// counted as unmeasured where it carries none or one that does not decode.
+func (s Spend) Tokens() TokenUsage {
+	var usage usageTokens
+	if len(s.Usage) == 0 || json.Unmarshal(s.Usage, &usage) != nil {
+		return TokenUsage{Unreported: 1}
+	}
+	tokens := TokenUsage{
+		InputTokens:         usage.InputTokens,
+		CacheReadTokens:     usage.CacheReadTokens,
+		CacheCreationTokens: usage.CacheCreationTokens,
+		OutputTokens:        usage.OutputTokens,
+		Measured:            1,
+	}
+	if usage.CacheCreation != nil {
+		tokens.CacheWrite5mTokens = usage.CacheCreation.Ephemeral5m
+		tokens.CacheWrite1hTokens = usage.CacheCreation.Ephemeral1h
+	}
+	return tokens
+}
+
 // noCost uses the explicit adapter flag; older events retain their recorded meaning.
 func (p pricedEvent) noCost() int {
 	if p.Payload.CostReported != nil && !*p.Payload.CostReported {
