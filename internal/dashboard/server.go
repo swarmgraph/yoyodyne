@@ -33,9 +33,11 @@
 //     it. A polled reading whose later build failed is served whole as the
 //     last good one, with the failure beside its age.
 //
-// What is served without a token is the page shell and its own script and
-// style: static text compiled into the binary, with nothing of the read model
-// in it, which is what a browser needs before it can present a token at all.
+// What is served without a token is the page shell, the backlog page's shell
+// at /backlog, and their own script and style — the chart library the backlog
+// page draws with included, where the build carries it (chartlib.go): static
+// text compiled into the binary, with nothing of the read model in it, which
+// is what a browser needs before it can present a token at all.
 // Everything that reads state is behind the token: the standing, the
 // throughput, the spend, the delivery measures at /api/delivery, one work item
 // at a time at /api/items/<id>, which is
@@ -82,6 +84,9 @@ var assets embed.FS
 // by the package on the way into HTML, which is the whole reason the page is a
 // template rather than a string.
 var shell = template.Must(template.ParseFS(assets, "assets/shell.html"))
+
+// backlogShell is the backlog page, parsed once and escaped the same way.
+var backlogShell = template.Must(template.ParseFS(assets, "assets/backlog.html"))
 
 // tokenBytes is the entropy behind one token. Thirty-two bytes is more than any
 // guess on a loopback port could ever cover, and it renders as sixty-four hex
@@ -415,6 +420,8 @@ func (s *Server) serve(writer http.ResponseWriter, request *http.Request) {
 	switch {
 	case request.URL.Path == "/":
 		s.servePage(writer)
+	case request.URL.Path == "/backlog":
+		s.serveBacklogPage(writer)
 	case strings.HasPrefix(request.URL.Path, "/assets/"):
 		s.serveAsset(writer, request)
 	case request.URL.Path == "/api/standing", request.URL.Path == "/api/throughput", request.URL.Path == "/api/spend", request.URL.Path == "/api/backlog", request.URL.Path == "/api/delivery", strings.HasPrefix(request.URL.Path, "/api/items/"), strings.HasPrefix(request.URL.Path, "/api/program-managers/"):
@@ -467,6 +474,20 @@ func (s *Server) servePage(writer http.ResponseWriter) {
 	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
 	writer.WriteHeader(http.StatusOK)
 	_ = shell.Execute(writer, struct{ Product string }{Product: s.Product})
+}
+
+// serveBacklogPage is the backlog page's shell, served without a token for the
+// same reason the main shell is: it is static text the page's script fills
+// from /api/backlog, which is behind the token. It loads the chart library
+// only where this build carries it (chartlib.go), so a build without it asks
+// for nothing that is not there.
+func (s *Server) serveBacklogPage(writer http.ResponseWriter) {
+	writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+	writer.WriteHeader(http.StatusOK)
+	_ = backlogShell.Execute(writer, struct {
+		Product      string
+		ChartLibrary bool
+	}{Product: s.Product, ChartLibrary: chartLibraryPresent()})
 }
 
 // serveReading is one reading of the read model as JSON, whole or refused. What

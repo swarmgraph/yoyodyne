@@ -6285,6 +6285,37 @@ could not be listed is said under `tracker_problem` with no items, never as an
 empty backlog, and readiness that could not be read is said under
 `readiness_problem`, with each admitted item's state `not read`.
 
+### The backlog page
+
+The link "The backlog over time" in the top status band opens the backlog
+page, at `/backlog`, which charts `/api/backlog` so you can see whether work
+arrives faster than it lands. It uses the main page's token, so a tab already
+signed in opens it signed in. It reads the backlog when it opens and every five
+minutes after, and changes nothing.
+
+Three controls choose what is drawn. **Show** is items filed in each window,
+items closed in each window, or items open at the end of each window. **Split
+by** is nothing (one total), priority, who does the work, label, ready or
+waiting, or who filed it. **Time scale** is hourly (the last seven days), daily,
+or weekly, with weeks starting Monday. Every window is in Pacific time and the
+page names PDT or PST. A part split from an existing item is counted under the
+item it came from, as one series of its own called "split from an item"; the
+check box beside the controls counts parts as new filings instead.
+
+Each item is split by what it is now, not by what it was in the window: its
+priority, labels, who does it, and whether it is ready are the read model's
+current values. An item with several labels is counted under each, so the
+label series add up to more than the items. An item whose admission recorded no
+origin is drawn under "unknown: no origin recorded". An item whose filing or
+closing time the tracker did not record is left out of what that time decides,
+and the page says how many there are.
+
+The chart is drawn by Chart.js, checked into the dashboard's assets with a
+record of its version, source, checksum, and license, and served by the
+dashboard itself, so the page loads nothing from anywhere else. A build that
+does not carry the library shows the same figures as a table and says the
+chart library is not in this build; the table is under every chart either way.
+
 ### The dashboard under the product
 
 With `services.dashboard.enabled` set, the dashboard is one of the parts the

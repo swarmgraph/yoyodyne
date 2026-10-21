@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Product}} — backlog over time — yoyo dashboard</title>
+<link rel="stylesheet" href="/assets/dashboard.css">
+</head>
+<body>
+<header>
+  <div class="brand">
+    <span class="mark" aria-hidden="true">yoyo</span>
+    <h1>{{.Product}}: backlog over time</h1>
+  </div>
+  <p class="observed"><a class="page-link" href="/">Back to the dashboard</a> · read <time id="observed-at">—</time></p>
+</header>
+<main id="page" data-state="signin">
+  <section class="state state-signin" aria-labelledby="signin-heading">
+    <h2 id="signin-heading">This dashboard needs its token</h2>
+    <p>The token was printed once, in the terminal where <code>yoyo dashboard</code> was started. Paste it here; it is kept in this tab's session storage, scoped to this address and port, and is never put in a URL or a cookie.</p>
+    <p id="signin-note" role="alert" class="note"></p>
+    <form id="signin">
+      <label for="token">Token</label>
+      <input id="token" name="token" type="password" autocomplete="off" required>
+      <button type="submit">Open the backlog</button>
+    </form>
+  </section>
+  <section class="state state-loading" aria-live="polite">
+    <p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading every work item the tracker holds…</p>
+  </section>
+  <section class="state state-error" role="alert">
+    <h2>The backlog could not be read</h2>
+    <p id="problem" class="problem"></p>
+    <p id="remedy" class="remedy"></p>
+  </section>
+  <div class="state state-ready">
+    <section id="backlog" class="panel backlog" data-state="loading" aria-labelledby="backlog-heading">
+      <div class="panel-head">
+        <h2 id="backlog-heading">Is work arriving faster than it lands?</h2>
+        <p id="backlog-zone" class="panel-note"></p>
+      </div>
+      <form id="backlog-controls" class="backlog-controls">
+        <label>Show
+          <select id="backlog-show">
+            <option value="filed">filed</option>
+            <option value="open">open</option>
+            <option value="closed">closed</option>
+          </select>
+        </label>
+        <label>Split by
+          <select id="backlog-split">
+            <option value="none">nothing: one total</option>
+            <option value="priority">priority</option>
+            <option value="done_by">who does the work</option>
+            <option value="label">label</option>
+            <option value="state">ready or waiting</option>
+            <option value="filed_by">who filed it</option>
+          </select>
+        </label>
+        <label>Time scale
+          <select id="backlog-scale">
+            <option value="hourly">hourly</option>
+            <option value="daily" selected>daily</option>
+            <option value="weekly">weekly</option>
+          </select>
+        </label>
+        <label class="check"><input id="backlog-splits" type="checkbox"> count parts split from an item as new filings</label>
+      </form>
+      <p id="backlog-readiness" class="banner" role="status" hidden></p>
+      <div class="section-loading"><p class="waiting"><span class="pulse" aria-hidden="true"></span>Reading…</p></div>
+      <div class="section-error" role="alert"><p id="backlog-problem" class="problem"></p><p id="backlog-remedy" class="remedy"></p></div>
+      <div class="section-empty"><p id="backlog-empty" class="empty"></p></div>
+      <div class="section-ready">
+        <p id="backlog-window" class="panel-note"></p>
+        <div id="backlog-chart" class="backlog-chart"><canvas id="backlog-canvas" role="img" aria-label="The backlog chart; the same figures are in the table below it"></canvas></div>
+        <p id="backlog-nochart" class="footnote" hidden>The chart library is not in this build of the dashboard, so the figures are shown as a table only.</p>
+        <ul id="backlog-notes" class="footnotes"></ul>
+        <details id="backlog-figures" class="backlog-figures">
+          <summary>The figures as a table</summary>
+          <div class="backlog-table-wrap"><table id="backlog-table" class="backlog-table"></table></div>
+        </details>
+      </div>
+    </section>
+  </div>
+</main>
+{{if .ChartLibrary}}<script src="/assets/chart.umd.js"></script>
+{{end}}<script src="/assets/backlog-count.js"></script>
+<script src="/assets/backlog.js"></script>
+</body>
+</html>
