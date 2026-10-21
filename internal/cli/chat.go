@@ -1014,6 +1014,9 @@ func (p preparedChat) open(ctx context.Context, hold *runstate.ConversationHold,
 		// publication, which has no work item to record either on. Wired for that
 		// role alone.
 		Publications: conversationPublications(parts, role),
+		// Where her decision about a spent re-run claim is recorded, on the claim
+		// itself. Wired for that role alone; the harness carries a give-back out.
+		Claims: conversationClaims(parts, role),
 		// The hand that dockets the Lead Product Manager's decision about an item
 		// whose run is in flight, for the development manager to decide the run
 		// from. Wired for her conversation alone.

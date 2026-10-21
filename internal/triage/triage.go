@@ -871,6 +871,22 @@ type Rerun struct {
 	RunID     string    `json:"run_id,omitempty"`
 }
 
+// SpentClaim is the re-run claim a run was started by, as an entry about that
+// run carries it.
+type SpentClaim struct {
+	// PriorRunID is the stopped run the re-run was decided about, and DocketKey
+	// the stoppage the claim was taken against.
+	PriorRunID string    `json:"prior_run_id"`
+	DocketKey  string    `json:"docket_key"`
+	ClaimedAt  time.Time `json:"claimed_at"`
+	// Reason is the decision the claim carried out, in the words the fresh run
+	// recorded as why it exists.
+	Reason string `json:"reason"`
+	// Decision is the development manager's standing decision about the claim,
+	// said in a sentence, and empty where she has decided nothing about it.
+	Decision string `json:"decision,omitempty"`
+}
+
 // Closure is the triage decision that settled one docketed stoppage: the moment
 // the entry stopped being something anybody has to decide about.
 //
@@ -1420,6 +1436,12 @@ type Entry struct {
 	// every decision about it is made afterwards, so a claim frozen into the
 	// entry could only ever be absent.
 	Rerun *Rerun `json:"rerun,omitempty"`
+	// SpentClaim is the re-run claim this entry's run was started by, where it
+	// was: the claim that run spent, and what spending it cost. It is joined where
+	// the docket is read, as the re-run above is, because the claim and any
+	// decision about it are made after the entry. It is what puts a claim the
+	// harness could not give back by itself in front of the development manager.
+	SpentClaim *SpentClaim `json:"spent_claim,omitempty"`
 	// Overrides are the operator's own recorded decisions to cross this item's
 	// caps. Every cap in Counters is already the configured one as these leave it,
 	// so they are not arithmetic a reader has to do — they are the account of why a
@@ -2090,6 +2112,7 @@ func (e Entry) Render() string {
 		rendered.WriteString(e.renderEarlier())
 		return rendered.String()
 	}
+	rendered.WriteString(e.renderSpentClaim())
 	fmt.Fprintf(&rendered, "      Triage counters: %d of %s review round(s) used%s; %d repair attempt(s) spent in this run; a grant would hand it %d\n",
 		e.Counters.ReviewRounds, capFigure(e.Counters.ReviewRoundsCap), roundsNote(e.Counters),
 		e.Counters.RepairAttempts, e.Counters.RepairGrantAttempts)
@@ -2757,6 +2780,26 @@ func (e Entry) renderRerunStanding() string {
 			e.WorkItemID)
 	}
 	return ""
+}
+
+// renderSpentClaim says which re-run claim this run spent, what spending it
+// cost the item, and what she can decide about it. It is said before the
+// counters because it is what the re-run figure among them was spent on.
+func (e Entry) renderSpentClaim() string {
+	claim := e.SpentClaim
+	if claim == nil {
+		return ""
+	}
+	var rendered strings.Builder
+	rendered.WriteString(indented(fmt.Sprintf("Started by the re-run claimed at %s for the stoppage of run %s", claim.ClaimedAt.UTC().Format(time.RFC3339), claim.PriorRunID), claim.Reason))
+	fmt.Fprintf(&rendered, "      What it cost: this run spent that claim, so %d of %d re-run(s) decided about %s read as carried out, and the stoppage of run %s is not run again on the decision that stands. The harness gives a claim back by itself only where it can prove the run bought nothing, and it could not prove that here.\n",
+		e.Counters.RerunsCarriedOut, e.Counters.Reruns, e.WorkItemID, claim.PriorRunID)
+	if decided := strings.TrimSpace(claim.Decision); decided != "" {
+		rendered.WriteString(indented("Decided about the claim", decided))
+		return rendered.String()
+	}
+	fmt.Fprintf(&rendered, "      Whether the claim goes back is yours: \"give-back-claim\" on run %s gives it back and the re-run is carried out again; \"leave-claim-spent\" leaves it spent, and this run's stoppage is still yours to decide. Neither spends anything.\n", e.RunID)
+	return rendered.String()
 }
 
 // item names the work an entry is about: the identifier, which is what the

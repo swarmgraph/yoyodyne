@@ -247,6 +247,10 @@ type CarryOut struct {
 	// run.recover (recoveryrequest.go). Optional: a carry-out wired without it
 	// leaves such a request on the run for `yoyo triage resume`.
 	Integrations CarryOutIntegrations
+	// ClaimGiver gives back the re-run claims the development manager decided to
+	// give back (claimgiveback.go). Optional: a carry-out wired without it leaves
+	// such a decision for `yoyo triage give-back`.
+	ClaimGiver *ClaimGiver
 	// Holds is the operator's pause over everything the harness spends. Optional,
 	// and a carry-out wired without one is one nothing can pause, which is what
 	// every provider invocation was before the switch existed.

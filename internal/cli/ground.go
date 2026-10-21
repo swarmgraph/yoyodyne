@@ -459,6 +459,16 @@ func conversationStops(parts components, role domain.AgentRole) chat.DecidedStop
 	return conversationDecidedStops{store: parts.store, productID: parts.config.Product.ID, clock: execution.RealClock{}}
 }
 
+// conversationClaims wires the record of re-run claims her decision about a
+// spent claim is written to, for the development manager's conversation and no
+// other.
+func conversationClaims(parts components, role domain.AgentRole) chat.RerunClaims {
+	if role != domain.RoleDevelopmentManager || parts.store == nil {
+		return nil
+	}
+	return parts.store.Reruns()
+}
+
 // conversationPublications wires the hand that retries or retires a stopped
 // document publication, for the development manager's conversation and no
 // other. Its pull request is closed through the same forge client the re-run

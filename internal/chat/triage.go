@@ -160,7 +160,7 @@ const (
 
 // triageDecisions lists the vocabulary in the order the contract states it, so a
 // refusal names exactly what was available.
-var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross, decisionRetryDocument, decisionRetireDocument)
+var triageDecisions = append(runstate.TriageDecisionVocabulary(), decisionCross, decisionRetryDocument, decisionRetireDocument, decisionGiveBackClaim, decisionLeaveClaimSpent)
 
 // triageSettles is which docketed stoppage each decision is an answer to, and
 // therefore which entry it closes. It is a map from the vocabulary rather than a
@@ -213,6 +213,11 @@ var triageSettles = map[string]triageSettlement{
 	// else, so that is the entry both of its decisions answer.
 	decisionRetryDocument:  {classes: []triage.Class{triage.ClassStoppedRun}},
 	decisionRetireDocument: {classes: []triage.Class{triage.ClassStoppedRun}},
+	// Giving a spent re-run claim back answers the entry of the fresh run the
+	// claim was spent on: the stopped work is run again on the decision already
+	// standing. Leaving it spent answers nothing about that run, whose stoppage
+	// is still hers to decide.
+	decisionGiveBackClaim: {classes: runEntryClasses},
 }
 
 // runlessDecisions are the decisions that may be recorded on an attempt that
@@ -277,6 +282,10 @@ var triageVerbs = map[string]string{
 	// entries the vocabulary check reads and nothing more.
 	decisionRetryDocument:  "Triaged: its document landed again through a fresh run",
 	decisionRetireDocument: "Triaged: its document publication retired, its pull request closed",
+	// A decision about a spent re-run claim is recorded on the claim, and these
+	// are the sentences its note on the item opens with.
+	decisionGiveBackClaim:   "Triaged: a spent re-run claim to be given back, so the re-run decided before is carried out again",
+	decisionLeaveClaimSpent: "Triaged: a spent re-run claim left spent, so a further re-run needs a further decision",
 }
 
 // TriageBudgets is what one work item has already been given and may still be
@@ -810,6 +819,10 @@ func (s *Session) carryOutTriage(ctx context.Context, outcome *TrackerOutcome) {
 	}
 	if decision == decisionProceed {
 		s.carryOutProceed(ctx, outcome, id, run)
+		return
+	}
+	if decidesClaim(decision) {
+		s.carryOutClaimDecision(ctx, outcome, id, run, decision)
 		return
 	}
 	raised, err := s.refuseMisfitRaiseDecision(ctx, decision, run)

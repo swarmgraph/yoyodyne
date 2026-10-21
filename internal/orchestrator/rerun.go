@@ -1095,6 +1095,14 @@ func (r Rerunner) withdrawEnvironmental(ctx context.Context, entry triage.Entry,
 		met = fmt.Sprintf("the fresh run of %s was stopped by the provider's usage limit before anything it produced was judged", entry.WorkItemID)
 	}
 	result.ClaimGivenBack = r.giveBack(ctx, entry, met, &result) == ""
+	// A claim that could not be given back is spent on this run, and is recorded
+	// as spent on it, so the run's docket entry names the claim and the
+	// development manager can decide whether it goes back.
+	if !result.ClaimGivenBack && outcome.RunID != "" {
+		if _, err := r.Reruns.Settle(ctx, entry.Key, outcome.RunID, result.Preserved); err != nil {
+			result.note(fmt.Sprintf("the claim could not be recorded as spent on run %s either, so its docket entry does not name the claim: %v", outcome.RunID, err))
+		}
+	}
 	return result
 }
 
@@ -1144,15 +1152,16 @@ func (r Rerunner) withdrawRefused(ctx context.Context, entry triage.Entry, refus
 // stopped it rather than as a record failure with no cause.
 //
 // That failure is said out loud rather than swallowed: the stoppage has then paid
-// for a refusal that was meant to be free, and the decision it authorized needs a
-// person to look at it, because nothing else here will notice.
+// for a refusal that was meant to be free. Whether the claim goes back is then
+// the development manager's to decide, from the docket entry of the run it was
+// spent on, and the harness carries her decision out (claimgiveback.go).
 func (r Rerunner) giveBack(ctx context.Context, entry triage.Entry, met string, result *RerunResult) string {
 	err := r.Reruns.Withdraw(ctx, entry.Key)
 	if err == nil {
 		return ""
 	}
 	problem := fmt.Sprintf(
-		"%s, and the claim taken for it could not be given back, so the stoppage has spent its re-run on a run that never started: %v",
+		"%s, and the claim taken for it could not be given back, so the stoppage has spent its re-run on a run that never started; the development manager decides whether it goes back (\"give-back-claim\"), and the harness carries that out: %v",
 		met, err)
 	result.note(problem)
 	return problem
