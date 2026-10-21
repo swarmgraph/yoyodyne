@@ -23,6 +23,10 @@ revisions:
       by: architect
       at: 2026-10-17T07:52:00.052569Z
       reason: 'Answers the reviewer''s report on the recovery tool (yoyodyne-06m, report-4a9bc4d0): releasing a reservation applies only to a finished run with no worker that still holds a developer slot, the item''s claim or file reservations, and is refused otherwise; scenario (c) is recast as an in-flight run with no worker, answered by a wait, a continuation or an unresolved hold. Also folds in the worker identity correction (amendment-6a24ecf3: the build and the run and attempt come from a record beside the run lease, not from the process) and the program-manager grant decided for yoyodyne-nmj (every instance of the role holds the four read capabilities). This carries the substance of amendment-efb09026 and amendment-6a24ecf3.'
+    - action: amended
+      by: architect
+      at: 2026-10-21T06:50:02.953263Z
+      reason: 'Approves amendment-5e6136b8 and answers report-4cf5c3a6: a worker''s identity adds the time its program began, each program records its own start so readers in other processes can tell an earlier program in the same process from the current one, every reader applies one rule, and a starting program releases its earlier program''s leases through the ordinary lease path.'
 approvals:
     - revision: 0
       by: operator
@@ -43,6 +47,11 @@ approvals:
       by: harness
       at: 2026-10-17T07:52:00.052569Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1134, for document-1134.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 4
+      by: harness
+      at: 2026-10-21T06:50:02.953263Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1397, for document-1397.1 under the automatic approval policy
 ---
 # Purpose and scope
 
@@ -188,7 +197,19 @@ The checks that matter for safety are made at the moment the harness acts, under
 
 ## How a worker is identified
 
-A worker is identified by four things together: its process number, the start time the operating system reports for that process, the build it runs, and the run and attempt number it recorded when it started. The operating system can confirm only the first two. The build and the run and attempt number come from a record the worker writes beside the run lease when it starts, and that record also names its process number and start time. A worker is live only when a running process matches the process number and start time, and the record beside the lease names that same process and matches the run record's run and attempt. The build is reported, and is never checked against the process. A process number alone never establishes a worker, because the operating system reuses numbers. A replacement worker for the same run carries a new attempt number, so a request decided against the earlier attempt is refused as state moved.
+A worker is identified by five things together: its process number, the start time the operating system reports for that process, the time the program running in that process began, the build it runs, and the run and attempt number it recorded when it started. The operating system can confirm only the first two. They are not enough on their own, because the scheduler restarts by replacing its own program inside the same process: the process number and the operating system's start time stay the same, so those two cannot tell an earlier program in the process from the one running now. The time the program began is what tells them apart.
+
+Two records carry the rest. First, each program, as it starts, writes a record of its own start under the harness's state directory, one for each process, naming its process number, the operating system's start time, the time the program began, and its build; it replaces any earlier record for the same process. Second, a worker writes a record beside the run lease when it starts, naming its process number, the operating system's start time, the time its program began, its build, and its run and attempt number.
+
+A worker is live only when all three of these hold: a running process matches the process number and the operating system's start time; the program start record for that process names the same program start time as the record beside the lease; and the record beside the lease matches the run record's run and attempt. A record beside the lease whose program start time is older than the one in the program start record for that process names an earlier program, so that worker is absent, whatever the operating system says about the process. A missing or unreadable program start record leaves the worker uncertain, never live and never absent.
+
+Only the program itself knows when it began, so a reader in another process can learn it only from the program start record. Every reader applies the rule above in the same way, through one shared function: the scheduler, `run.inspect`, `run.verify`, `health.observe`, `yoyo status` and the dashboard. None of them decides liveness from the process alone.
+
+When a program starts, after writing its own start record, it looks for records beside run leases that name its process with an earlier program start time, and releases each lease through the ordinary lease path, recording on the run that its worker was an earlier program in the same process. A replaced program cannot be carrying the earlier program's work in memory, so the release loses nothing. A run released this way is then a run with no worker, answered as the shared lifecycle account above says, and never cancelled because of the release.
+
+The build is reported, and is never checked against the process. A process number alone never establishes a worker, because the operating system reuses numbers. A replacement worker for the same run carries a new attempt number, so a request decided against the earlier attempt is refused as state moved.
+
+Two alternatives were rejected. Releasing the earlier program's leases when a program starts, with nothing else, leaves a gap before the release finishes in which every other reader takes those leases for live workers. Comparing the records beside leases with nothing else gives a reader in another process no way to learn when the current program began.
 
 ## Request identity and repeats
 
@@ -224,7 +245,7 @@ The development manager's bundle holds all five. The program manager's bundle, a
 
 ## What is enforced in code and what is left to the prompt
 
-Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation, expected state and stop; the checks made at the moment of acting; the recovery budget; worker identity; request identity and repeats; the closed lists of actions and expected states; the one carrier; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
+Enforced in code, never left to a prompt: the fifteen minute limit on observations; the binding of a request to its observation, expected state and stop; the checks made at the moment of acting; the recovery budget; worker identity, including the program start record, the one rule every reader applies to it, and the release of an earlier program's leases when a program starts; request identity and repeats; the closed lists of actions and expected states; the one carrier; the grants; that unknown blocks further action on the run; that verified resolution needs a later met result; and that missing, stale or partial evidence is never a healthy or complete result.
 
 Left to the prompt: judgment about which obstruction matters, whether a pattern is recurring, which supported action is smallest, and how a design is ordered. The prompt rules below tell a role how to use what the code guarantees. They grant nothing, and a role that ignores one is held by the checks above, not by the wording.
 
@@ -273,7 +294,7 @@ Adoption is checked against what each role actually receives, not against the fi
 Each slice can be checked on its own. Decomposing them into items is the development manager's; the mapping below lets the Lead Product Manager release or re-scope the three delivery items already admitted.
 
 1. `health.observe` and `health.follow`, including services, search paths, maintenance delivery and configuration files, with the scheduled pass message carrying a fresh observation and the grants for both. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
-2. Worker identity recorded at worker start, `run.inspect` and `run.verify`, with their grants. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
+2. Worker identity recorded at worker start, including the program start record, the one rule every reader applies to it, and the release of an earlier program's leases when a program starts; `run.inspect` and `run.verify`, with their grants. Shared health delivery (yoyodyne-e7c). Depends on nothing new.
 3. `run.recover`: the request shape with the whole closed list of actions, binding to the observation, expected state and stop, the checks at the moment of acting, the recovery budget check, request identity and repeats, the three results, and the hold on unknown, with its grant. It carries out continue, finish the merge, wait, record an unresolved hold and release what a finished run holds. It refuses repair, rerun, give the item back and ask the Lead Product Manager as not yet built until slices 3, 4 and 6 of stopped-run-recovery build them on top of it. Its tests include a release asked for on a finished run that holds no developer slot, claim or file reservation, which is refused as not allowed for its saved status and phase with nothing changed. Lifecycle recovery (yoyodyne-06m). Depends on slice 2.
 4. Disposition validation: verified resolution needs a later met result, unknown is never complete, and a start, an applied result or a merge alone is refused as resolution. Manager coverage validation (yoyodyne-5eu). Depends on slices 2 and 3.
 5. The shared rule, the five architect rules and the development manager's rules 1, 3, 4 and 5, written into `internal/chat/role.go`, the two live persona files and their shipped templates, with the delivered prompts checked as the adoption section says. A new item. The developer names the template files before starting. Depends on nothing.
@@ -303,6 +324,8 @@ Each scenario is checked by what happens, in a test home or on the live factory,
 
 (j) A grant larger than the budget. The development manager asks for more repair attempts than the item's recovery budget holds. The request is refused, naming what is left, and nothing is taken from the budget.
 
+(k) A program replaced inside the same process: a run's worker identified by process number and start time (yoyodyne-ifd.428.102). The scheduler holds a run's lease and then restarts by replacing its own program, keeping its process number and the operating system's start time. Before the new program has released anything, `yoyo status`, the dashboard and `run.inspect`, each in another process, report that run's worker as absent, because the program start record names a later program start time than the record beside the lease. Once the new program has started, the lease is released through the ordinary lease path, the run carries a note that its worker was an earlier program in the same process, and the run is answered as a run with no worker. With the program start record removed, the same readers report the worker as uncertain.
+
 ## Evidence and limits of this addendum
 
 The design above was read at commit 968d33ed. The live persona directory `.yoyodyne/personas` was listed at the same commit and holds the architect and development manager files named here. Where the shipped templates live was not read, which is why slice 5 has its developer name them before starting. The tool interface design was not read again for this addendum. No code was read and no tests were run. No invariant is added: the rules marked as enforced in code are requirements of this design, held by its slices and their tests.
@@ -310,3 +333,5 @@ The design above was read at commit 968d33ed. The live persona directory `.yoyod
 Revised at commit 13841dbd, after reading this design and stopped-run-recovery whole at that commit: the closed lists of `run.recover` actions and `run.verify` expected states were made one with the development manager's decisions in stopped-run-recovery, with one carrier, binding to the stop, and the recovery budget check. No code was read for the revision.
 
 Revised at commit c84ec3fd, after reading this design whole at that commit, for the reviewer's report on the recovery tool (yoyodyne-06m) that in the current build a finished run holds no developer slot, claim or file reservation. The release action now applies only to a finished run that still holds one of those, and is refused otherwise; scenario (c) is an in-flight run with no worker, answered by a wait, a continuation or an unresolved hold. The same revision says the build and the run and attempt come from a record beside the run lease rather than from the process, and grants the four read capabilities to every instance of the program manager. No code was read for this revision; the report is the evidence for what a finished run holds.
+
+Revised at commit 7a0f0dfd, after reading this design whole at that commit, for the proposed change on how a worker is identified (amendment-5e6136b8) and the developer's warning beside it (report-4cf5c3a6). A worker's identity gains the time its program began, because a scheduler that replaces its own program keeps its process number and the operating system's start time. Each program records its own start where readers in other processes can compare a lease against it, every reader applies one rule, and a starting program releases its earlier program's leases. Scenario (k) checks it. The developer's account in the amendment and the warning is the evidence that the scheduler restarts this way and that the code records the program start time; no code was read for this revision.
