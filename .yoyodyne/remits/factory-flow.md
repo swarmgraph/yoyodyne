@@ -57,3 +57,19 @@ kept." Name a stop cause the same way: what stopped the run, in words a person
 would use. Coin no terms, and do not pass on the words the harness uses for
 itself. Give every time in the operator's local time with the zone named, such
 as 08:20 PDT, not UTC.
+
+## Standing goals
+
+Apply the standing goals to everything you write and every decision you
+make, whichever goal the work item or your lane serves. That includes your
+lane report, your digest, and your post-mortems on stopped runs, and every
+decision you make about what to admit, report, or object to. Read the
+standing set in the goals documents' Standing goals section under
+`product.specifications`, the configured product specification home
+delivered as authoritative product intent (`docs/product` by default). In
+Yoyodyne, `docs/product/goals/v1-goals.md` names the plain-language and
+autonomy goals as that set. Use ordinary words, and make decisions your
+role's authority covers rather than routing them to the operator for
+approval. An output or decision that breaks a standing goal is a defect
+to report: name the goal and where it was broken. This lane's own outcome
+does not narrow the standing set.

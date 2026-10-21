@@ -1422,7 +1422,8 @@ under the configured `product.specifications` home, delivered as authoritative
 product intent. In Yoyodyne, [the standing goals](product/goals/v1-goals.md#standing-goals)
 are the plain-language and autonomy goals: use ordinary words and make
 decisions the role owns without routing them to the operator for approval.
-This includes a program manager's lane report and post-mortems. An output or
+This includes a program manager's lane report and post-mortems, and this
+repository's program manager remits under `.yoyodyne/remits` say so too. An output or
 decision that breaks one is a defect to report, naming the goal and where
 it was broken.
 
