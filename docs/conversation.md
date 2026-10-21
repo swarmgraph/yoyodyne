@@ -1845,15 +1845,30 @@ continue.
 
 A worker is the process holding the run's lease. When a process takes a run's
 lease it writes down its process number, the start time the operating system
-reports for it, the build it runs, and the run and the attempt it is making:
-in the stamp beside the lease at once, and on the run record the first time it
-writes the record. Every process that takes the run is a new attempt. Until the
-new attempt reaches the record, the worker reads as uncertain. The worker is
-live only when the stamp and the record name
-the same worker and a running process has that number and started when the
-worker said it did. A number the operating system has since given to another
-process reads as absent, never live. A run recorded before workers wrote this
-down reads as uncertain.
+reports for it, when the program running in it began, the build it runs, and
+the run and the attempt it is making: in the stamp beside the lease at once,
+and on the run record the first time it writes the record. Every process that
+takes the run is a new attempt. Until the new attempt reaches the record, the
+worker reads as uncertain. The worker is live only when the stamp and the
+record name the same worker, a running process has that number and started
+when the worker said it did, and that process is still running the program
+that took the run. A number the operating system has since given to another
+process reads as absent, never live.
+
+The scheduler takes up a new build by replacing its program in place, which
+keeps its process number and the start time the operating system reports, so
+the program's own start time is what tells its earlier program apart. Every
+program writes down when it began, under its process number, before it takes
+any run, and every reader, in that process or any other, holds a worker to that
+record: a worker from an earlier program in the process reads as absent. When
+the scheduler starts, it also lets go of every run lease its earlier program
+left, so nothing reads them as held, and writes on each such run that its
+worker was an earlier program in the same process. That ends nothing: the run
+is then a run with no worker. A process no program record is written for, a run
+recorded before workers wrote down a start time, and one naming another process
+without its program's start time read as uncertain, never live and never
+absent. A worker still running the program that took the run, whose lease
+nothing holds, reads as absent.
 
 A verification names one expected state from this list and no other: worker
 live, wait recorded, reservation released, continuation started, repair

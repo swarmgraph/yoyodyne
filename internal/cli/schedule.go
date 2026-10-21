@@ -157,6 +157,10 @@ func scheduleWork(ctx context.Context, args []string, stdout, stderr io.Writer) 
 				fmt.Fprintf(stderr, "%v\n", err)
 			}
 		}()
+		if err := startSchedulerProgram(*configPath, stderr); err != nil {
+			fmt.Fprintf(stderr, "work failed: %v\n", err)
+			return 1
+		}
 		opened, err := openWatchSession(*configPath, sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "work failed: %v\n", err)
@@ -499,6 +503,26 @@ func heldWatchBy(watch *runstate.WatchStore) string {
 	}
 	return fmt.Sprintf(": session %s, process %d, watching since %s",
 		holder.SessionID, holder.PID, holder.HeldAt.Format(time.RFC3339))
+}
+
+// startSchedulerProgram records the program this session runs as the one in
+// its process, and lets go of what an earlier program in the process left
+// holding runs (runstate.Store.StartProgram). The scheduler takes up a new build
+// by replacing its program in place, so this is done before the session reads a
+// run. Only a program that could not record itself is refused; a lease it could
+// not let go of is said and stays as it was.
+func startSchedulerProgram(configPath string, stderr io.Writer) error {
+	parts, err := buildComponents(configPath)
+	if err != nil {
+		return err
+	}
+	if err := parts.store.StartProgram(); err != nil {
+		if !parts.store.ProgramRecorded() {
+			return fmt.Errorf("record which program this session is running: %w", err)
+		}
+		fmt.Fprintf(stderr, "this session could not let go of every run lease its earlier program left: %v\n", err)
+	}
+	return nil
 }
 
 // openWatchSession gives one session of watching somewhere durable to say what

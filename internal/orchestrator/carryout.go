@@ -390,9 +390,13 @@ func (c CarryOut) read() (carryOutReading, error) {
 	if err != nil {
 		return carryOutReading{}, fmt.Errorf("read the triage docket: %w", err)
 	}
-	inFlight, err := c.itemsInFlight()
+	inFlightStates, err := c.runsInFlight()
 	if err != nil {
 		return carryOutReading{}, err
+	}
+	inFlight := make(map[string]string, len(inFlightStates))
+	for id, state := range inFlightStates {
+		inFlight[id] = state.RunID
 	}
 	// What the repair grants have already bought is counted from every run the
 	// product has had, which is the one reading here that grows with the history.
@@ -487,11 +491,15 @@ func (c CarryOut) read() (carryOutReading, error) {
 				return
 			}
 			if running != entry.RunID {
+				// Whose run it is, by the worker identity every reader applies, so a run
+				// an earlier program in this process left is named as that and not as
+				// something this session is running.
+				whose := inFlightWorker(c.Runs, inFlightStates[entry.WorkItemID], c.now())
 				reading.held = append(reading.held, heldDecision{
 					task:   task,
 					gate:   runstate.TriageGateWorkItem,
-					why:    fmt.Sprintf("run %s of %s is in flight, and a decision about an item something is already running is not attempted until that run ends", running, entry.WorkItemID),
-					clears: fmt.Sprintf("run %s ending, which needs nobody; the pass after it attempts the decision", running),
+					why:    fmt.Sprintf("run %s of %s is in flight, and a decision about an item something is already running is not attempted until that run ends; %s", running, entry.WorkItemID, whose),
+					clears: fmt.Sprintf("run %s ending; the pass after it attempts the decision", running),
 				})
 				return
 			}
@@ -1679,13 +1687,27 @@ func (c CarryOut) deliverItemNotes(ctx context.Context, workItemID string) error
 // spending a slot finding out. It names the run, so a decision held back for it
 // is written down naming what it waits on.
 func (c CarryOut) itemsInFlight() (map[string]string, error) {
+	states, err := c.runsInFlight()
+	if err != nil {
+		return nil, err
+	}
+	busy := make(map[string]string, len(states))
+	for id, state := range states {
+		busy[id] = state.RunID
+	}
+	return busy, nil
+}
+
+// runsInFlight is itemsInFlight with each item's whole record, which is what
+// saying whose run keeps a decision back reads (inFlightWorker).
+func (c CarryOut) runsInFlight() (map[string]runstate.State, error) {
 	incomplete, err := c.Runs.Incomplete()
 	if err != nil {
 		return nil, fmt.Errorf("read what is already in flight: %w", err)
 	}
-	busy := make(map[string]string, len(incomplete))
+	busy := make(map[string]runstate.State, len(incomplete))
 	for _, state := range incomplete {
-		busy[state.WorkItemID] = state.RunID
+		busy[state.WorkItemID] = state
 	}
 	return busy, nil
 }

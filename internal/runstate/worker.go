@@ -4,11 +4,11 @@ package runstate
 // number the operating system has since handed to somebody else is never taken
 // for it.
 //
-// A worker is the process holding a run's lease, and it is identified by four
-// things together: its process number, the start time the operating system
-// reports for that process, the build it runs, and the run and attempt number
-// it recorded when it took the run ("How a worker is identified" in
-// docs/designs/fresh-factory-health-and-preserved-run-recovery.md). Every
+// A worker is the process holding a run's lease, and it is identified by its
+// process number, the start time the operating system reports for that process,
+// the time the program running in it began, the build it runs, and the run and
+// attempt number it recorded when it took the run ("How a worker is identified"
+// in docs/designs/fresh-factory-health-and-preserved-run-recovery.md). Every
 // process that takes a run's lease is a new attempt, so a replacement worker for
 // the same run carries a new number and anything decided against the earlier
 // one can tell it has been replaced.
@@ -22,6 +22,15 @@ package runstate
 // say which build a process runs; the number and the start time are matched
 // against the operating system, because only it can say whether that process is
 // still the one with the number.
+//
+// The program's own start time is there because the operating system's is not
+// enough. The scheduler takes up a deployed build by replacing its program in
+// place (internal/redeploy), which keeps both its process number and the start
+// time the operating system reports, so a run taken by the scheduler's earlier
+// program names a process that is still running and still started when it said
+// it did. Only the program knows when it began, so each program writes it down
+// where every process can read it (program.go), and every reader of a worker
+// holds it to that record.
 
 import (
 	"errors"
@@ -40,6 +49,11 @@ type WorkerIdentity struct {
 	// process, and zero where it would not say; a worker with no start time is
 	// never reported live, because its number alone proves nothing.
 	StartedAt time.Time `json:"started_at,omitempty"`
+	// ProgramStartedAt is when the program that took the run began running in
+	// the process, which a process replacing its program in place changes and
+	// StartedAt does not. It is zero on an identity written by a build that
+	// recorded none.
+	ProgramStartedAt time.Time `json:"program_started_at,omitempty"`
 	// Build is the repository revision the worker's binary was built from, as
 	// buildinfo.Commit names it, and empty for a binary that carries none.
 	Build   string `json:"build,omitempty"`
@@ -51,8 +65,21 @@ type WorkerIdentity struct {
 // time within the slack the platforms' clocks are read at.
 func (w WorkerIdentity) Same(other WorkerIdentity) bool {
 	return w.PID == other.PID && w.Build == other.Build && w.RunID == other.RunID &&
-		w.Attempt == other.Attempt && sameStart(w.StartedAt, other.StartedAt)
+		w.Attempt == other.Attempt && sameStart(w.StartedAt, other.StartedAt) &&
+		sameStart(w.ProgramStartedAt, other.ProgramStartedAt)
 }
+
+// programStartedAt is when the program this process is running began, read
+// once as the package is initialized, which a program replacing itself in place
+// does again.
+var programStartedAt = time.Now().UTC()
+
+// ProgramStartedAt is when the program this process is running began.
+func ProgramStartedAt() time.Time { return programStartedAt }
+
+// personTime is how a time is written in a sentence a person reads: local, with
+// its zone named.
+const personTime = "2006-01-02 15:04:05 MST"
 
 func sameStart(a, b time.Time) bool {
 	if a.IsZero() || b.IsZero() {
@@ -98,7 +125,7 @@ type LeaseHolder struct {
 
 // thisWorker is the identity of this process taking a run as one attempt.
 func thisWorker(runID string, attempt int) WorkerIdentity {
-	identity := WorkerIdentity{PID: os.Getpid(), Build: buildinfo.Commit(), RunID: runID, Attempt: attempt}
+	identity := WorkerIdentity{PID: os.Getpid(), ProgramStartedAt: programStartedAt, Build: buildinfo.Commit(), RunID: runID, Attempt: attempt}
 	if look, err := LookProcess(identity.PID); err == nil && !look.StartedAt.IsZero() {
 		identity.StartedAt = look.StartedAt.UTC()
 	}
@@ -195,8 +222,11 @@ func (s *Store) Holder(runID string) (*LeaseHolder, error) {
 // The operating system is asked first, because what it says settles the
 // question outright when the answer is no: a number nothing has, or a number
 // now held by a process that started at another time — a reused number — is a
-// worker that is gone, whatever the stamp says. Only a process that matches is
-// then held to the stamp, which must name the same worker the record does.
+// worker that is gone, whatever the stamp says. The program the process runs
+// now is then asked of the rule every reader applies (programVerdict): an
+// earlier program in the process is a worker that is gone the same way. Only a
+// process that matches is then held to the stamp, which must name the same
+// worker the record does, and a program the rule cannot name is never live.
 func (s *Store) Worker(state State, now time.Time) WorkerReading {
 	reading := WorkerReading{Recorded: state.Worker, ObservedAt: now.UTC()}
 	holder, holderErr := s.Holder(state.RunID)
@@ -230,11 +260,23 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 		return absent(fmt.Sprintf("pid %d now belongs to a process started at %s, not attempt %d's worker, which started at %s",
 			recorded.PID, look.StartedAt.UTC().Format(time.RFC3339), recorded.Attempt, recorded.StartedAt.UTC().Format(time.RFC3339)))
 	}
+	program, programSays := s.programVerdict(recorded.PID, recorded, look)
+	switch program {
+	case programReplaced:
+		if released := state.EarlierProgram; released != nil && released.Worker.Same(*recorded) {
+			programSays += fmt.Sprintf("; the program that replaced it let go of the run's lease at %s", released.ReleasedAt.Local().Format(personTime))
+		}
+		return absent(programSays)
+	case programUnknown:
+		// The design's rule: a program nothing recorded is never live and never
+		// gone, whatever the lease shows.
+		return uncertain(programSays)
+	}
 	switch {
 	case holderErr != nil:
 		return uncertain(fmt.Sprintf("the stamp beside the run's lease could not be read: %v", holderErr))
 	case holder == nil:
-		return absent(fmt.Sprintf("attempt %d's worker, pid %d, is running but has let go of the run's lease", recorded.Attempt, recorded.PID))
+		return absent(fmt.Sprintf("attempt %d's worker, pid %d, is still running the program that took the run, but nothing holds the run's lease, so it is not working on it", recorded.Attempt, recorded.PID))
 	case holder.Worker == nil:
 		return uncertain(fmt.Sprintf("the run's lease is held by pid %d, stamped by a build that wrote down no worker identity", holder.PID))
 	case !holder.Worker.Same(*recorded):
@@ -242,8 +284,8 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 			holder.Worker.Attempt, holder.Worker.PID, recorded.Attempt, recorded.PID))
 	}
 	reading.Liveness = WorkerLive
-	reading.Says = fmt.Sprintf("attempt %d's worker, pid %d, started at %s on build %s, holds the run's lease", recorded.Attempt, recorded.PID,
-		recorded.StartedAt.UTC().Format(time.RFC3339), nonEmptyBuild(recorded.Build))
+	reading.Says = fmt.Sprintf("attempt %d's worker, pid %d, started at %s running a program started at %s on build %s, holds the run's lease", recorded.Attempt, recorded.PID,
+		recorded.StartedAt.Local().Format(personTime), recorded.ProgramStartedAt.Local().Format(personTime), nonEmptyBuild(recorded.Build))
 	return reading
 }
 

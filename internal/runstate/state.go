@@ -2303,6 +2303,9 @@ func (s *State) recordedTexts() []recordedText {
 	own("publish_failure", &s.PublishFailure, MaxRecordedTextBytes, truncatedNote(MaxRecordedTextBytes))
 	// The drop's reason is the publication failure's sentence kept beside the
 	// moment, so it is held to the same bound.
+	if s.EarlierProgram != nil {
+		unstated("earlier_program.says", "earlier_program.says", &s.EarlierProgram.Says, MaxRecordedTextBytes)
+	}
 	if s.MergeDrop != nil {
 		unstated("merge_drop.reason", "merge_drop.reason", &s.MergeDrop.Reason, MaxRecordedTextBytes)
 	}
@@ -3026,6 +3029,11 @@ type State struct {
 	// of the record; every other write keeps it as stored. See worker.go. Absent is a run recorded by a build that kept no identity, whose
 	// worker is reported uncertain rather than live or absent.
 	Worker *WorkerIdentity `json:"worker,omitempty"`
+	// EarlierProgram is set when a program starting in the run's worker's
+	// process let go of the run's lease because its worker was an earlier
+	// program in that process (program.go). It records what happened and ends
+	// nothing: the run is then a run with no worker, answered like any other.
+	EarlierProgram *EarlierProgramRelease `json:"earlier_program,omitempty"`
 	// WorkflowInstanceID is the workflow instance this run is observed through,
 	// and is what tells a run on the declarative path from a run on the legacy
 	// one: a run carrying one records a position in the built-in delivery
@@ -4037,6 +4045,20 @@ func (s State) Validate() error {
 		}
 		if s.Worker.Build != "" && !buildPattern.MatchString(s.Worker.Build) {
 			problems = append(problems, errors.New("worker.build is not a revision"))
+		}
+	}
+	// The earlier program's worker named in a release note is held to the same
+	// rules, because it is the same kind of record.
+	if s.EarlierProgram != nil {
+		released := s.EarlierProgram.Worker
+		if released.RunID != s.RunID {
+			problems = append(problems, errors.New("earlier_program.worker.run_id is not this run"))
+		}
+		if released.PID <= 0 {
+			problems = append(problems, errors.New("earlier_program.worker must name a process"))
+		}
+		if released.Build != "" && !buildPattern.MatchString(released.Build) {
+			problems = append(problems, errors.New("earlier_program.worker.build is not a revision"))
 		}
 	}
 	// The instance is checked to the shape an instance is recorded under, for the
