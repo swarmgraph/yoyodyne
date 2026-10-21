@@ -6208,9 +6208,12 @@ of 117 one build took 6.4 seconds, and under more load it passed the tracker's
 thirty-second timeout and the page hung or showed errors exactly when the
 harness was busiest.
 
-At `/api/delivery` it serves the factory's delivery measures, after the DORA
-measures, for each of the last thirty days and the last thirteen weeks, oldest
-first. Every day, and every week from Monday to Sunday, is counted in Pacific time,
+At `/api/delivery` it serves the factory's delivery measures — modelled on the
+measures software teams commonly use for how often and how safely they ship:
+how many changes merge, how long a change takes from being asked for to being
+merged, how often a merged change turns out broken, and how long a breakage
+takes to put right — for each of the last thirty days and the last thirteen
+weeks, oldest first. Every day, and every week from Monday to Sunday, is counted in Pacific time,
 named under `zone` rather than taken from the machine, so the same records read
 the same on a machine in any zone. A merge is a change whose run recorded a
 promotion, counted where `/api/throughput` counts it landed. For each period:

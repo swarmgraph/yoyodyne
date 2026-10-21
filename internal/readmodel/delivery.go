@@ -1,8 +1,9 @@
 package readmodel
 
-// The factory's delivery measures after DORA, day by day and week by week in
-// Pacific time, for the dashboard's delivery page (the delivery page in
-// docs/designs/observability-and-dashboard.md).
+// The factory's delivery measures, modelled on the ones software teams
+// commonly use for how often and how safely they ship, day by day and week by
+// week in Pacific time, for the dashboard's delivery page (the delivery page
+// in docs/designs/observability-and-dashboard.md).
 //
 // A deployment is a change merged to main: an item whose run recorded a
 // promotion, placed when that run recorded completing, exactly as the
