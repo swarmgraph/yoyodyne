@@ -506,6 +506,20 @@ type Client struct {
 	// store open, so its account can name them (storeholders.go). Nil asks the
 	// operating system.
 	Holders HolderFinder
+	// WriterZone is the zone the tracker's writers ran bd in, which a listing
+	// reads a provably early dependency stamp in (dependencyCreatedAt). Nil is
+	// this machine's own zone, which is right for a tracker only this machine
+	// writes; a reader whose answer must not change with the zone of the machine
+	// reading it names the writers' zone here instead.
+	WriterZone *time.Location
+}
+
+// writerZone is the zone a listing corrects dependency stamps in.
+func (c Client) writerZone() *time.Location {
+	if c.WriterZone != nil {
+		return c.WriterZone
+	}
+	return time.Local
 }
 
 // ListingRecorder is where a client writes how its listings end. It is
@@ -779,7 +793,7 @@ func (c Client) workListing(ctx context.Context, verb string, filter []string) (
 	if err != nil && refusedFlag(err, unboundedListing) {
 		data, err = c.run(ctx, append([]string{verb, "--json"}, filter...)...)
 		if err == nil {
-			items, decodeErr := decodeWorkListing(data, verb)
+			items, decodeErr := decodeWorkListing(data, verb, c.writerZone())
 			if decodeErr != nil {
 				return nil, decodeErr
 			}
@@ -789,7 +803,7 @@ func (c Client) workListing(ctx context.Context, verb string, filter []string) (
 	if err != nil {
 		return nil, err
 	}
-	return decodeWorkListing(data, verb)
+	return decodeWorkListing(data, verb, c.writerZone())
 }
 
 // ListingCut is a listing bd would not lift its default limit for. It is

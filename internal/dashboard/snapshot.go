@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// The three readings the page polls — the standing, the throughput, and the
-// spend — are built in the background, once per interval, and every request is
+// The readings the pages poll — the standing, the throughput, the spend, and
+// the delivery measures — are built in the background, once per interval, and every request is
 // served the latest one with the moment it was taken. Until yoyodyne-ifd.432.16
 // each request built its reading from scratch: the whole tracker listing and
 // every run record for every poll of every tab, which at a load average of 117
@@ -26,8 +26,10 @@ const (
 	// starts. It is the page's own ten-second clock, so a tab polling at its
 	// ordinary rate is handed a reading at most one interval and one build old.
 	standingInterval = 10 * time.Second
-	// minuteInterval is the throughput's and the spend's, which the page asks
-	// for once a minute: the spend prices every event log a month holds.
+	// minuteInterval is the throughput's, the spend's, and the delivery
+	// measures', which the pages ask for once a minute: the spend prices every
+	// event log a month holds, and the delivery measures read every merged
+	// change's.
 	minuteInterval = time.Minute
 	// firstWait is how long a request waits for a reading no build has
 	// finished yet, which is every request in the first build after the
