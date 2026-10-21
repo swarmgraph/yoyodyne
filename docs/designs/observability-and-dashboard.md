@@ -46,6 +46,10 @@ revisions:
       by: architect
       at: 2026-10-21T08:20:48.61508Z
       reason: 'yoyodyne-ifd.432.37 and yoyodyne-ifd.432.29: the cost entry now uses the four kinds of cost the provider usage and cost design defines (reported, estimated, unknown, comparison only), links that design, and drops the unattributable class, with a figure tied to no work item counted under its role; a new section says how usage limits across several providers and accounts are shown on the top line, in yoyo status, and in the factory problems. Also replaces the term ''after DORA'' with ordinary words (amendment-ff231c2b) and spells color one way throughout. Rewritten from main at c5c190e8 after the earlier copy (document-897.1) was refused for linking the provider adapters design, which states no cost rule.'
+    - action: amended
+      by: architect
+      at: 2026-10-21T09:51:13.651391Z
+      reason: 'yoyodyne-ifd.432.28.1: The read model gains a section on work item references. It covers how a reference to an item in a role''s text is kept (the text as written, plus the full id and its byte range), found (one matcher that never stops early and never searches tracker titles), and shown (only the id changes, followed by the current priority, labels and title, always built from the stored text). It also covers older text, missing items, an unreadable tracker, and Slack using the same rendered text. Examples are included, and the design names the parent clause the Lead Product Manager would need to amend for short ids in older text. Everything else is unchanged from main at a5e9aca6. Resent after the word check refused one joined word.'
 approvals:
     - policy: approvals.designs
       revision: 7
@@ -62,6 +66,11 @@ approvals:
       by: harness
       at: 2026-10-21T08:20:48.61508Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1404, for document-1404.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 10
+      by: harness
+      at: 2026-10-21T09:51:13.651391Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1409, for document-1409.1 under the automatic approval policy
 ---
 # One observability read model, and the local dashboard that projects it and takes the operator's own decisions
 
@@ -85,13 +94,56 @@ A shared Go package, independent of HTTP and of any rendering, reading only the 
 - **Who owns each entry.** The read model calls the resolver of [ownership and the operator](ownership-and-the-operator.md) once per entry and carries its owner, reason, remedy, capability, and hand; the dashboard, the Slack sink, `yoyo status`, and every conversation's context project that answer and derive no owner of their own, and the needs-a-human line prints its two heads, yours to decide and a role's decision that needs your hand, from it.
 - program managers: per configured instance, its name, lane, the status derived as [program-manager](program-manager.md) specifies — blocked from an open cited request, stale from the pass records against the instance's schedule, working otherwise — its open restart requests, and its current lane report, served whole one instance at a time. Where an instance's lane report cites a problem by id, the read model joins the instance's judgment onto the problem — its remedy, its account of the cause, the count it corrected, and the item it admitted in its lane — and the instance's own status and blockers are problems of kind blocked or stalled with the instance as subject.
 - the team at work and one piece of work, the `team` and `work` queries described under the team at work below;
-- the backlog and the delivery measures, the `/api/backlog` and `/api/delivery` queries described under the backlog page and the delivery page below.
+- the backlog and the delivery measures, the `/api/backlog` and `/api/delivery` queries described under the backlog page and the delivery page below;
+- the rendered text of everything a role wrote that names a work item, as described under work item references below.
 
-The model also serves what Slack's governed behavior already needs — per-item status for thread reactions, directive lifecycle marks, item titles for thread openers — so the sink presents these derivations instead of computing them.
+The model also serves what Slack's governed behavior already needs — per-item status for thread reactions, directive lifecycle marks, item titles for thread openers, and the rendered text of every work item reference — so the sink presents these derivations instead of computing them.
 
 **Honesty is a property of the model, not a style of the page.** Every metric identifies its time window; every source carries health; every cost total shows its kinds apart and names its unknown share. A stale or unreadable source degrades the answer visibly rather than narrowing it silently — the same rule the freshness line and the cost floors already follow.
 
 **The attention line is a slice of the problems.** Every problem names its mover, and what `yoyo status`, the page, and the channel put in front of the operator as needing a human is the problems whose mover is the operator, and nothing else: an entry moved by a role or the harness is the line working, shown to the operator and asked of the operator never. Two requests stay on that line that are not problems, because the operator holds them by design: a proposal against the brief or the goals that moves fundamental intent, per [who-approves-a-change-to-intent](../decisions/who-approves-a-change-to-intent.md), and a directive awaiting the operator's answer. Who moves a problem is never decided here: every problem carries the owner, reason, and remedy that [the ownership resolver](ownership-and-the-operator.md) returns for its kind, so the needs-a-human slice is exactly the problems whose owner is the operator for a reason on the closed list, and a problem whose remedy only needs the operator's hand is shown under that head instead, as the harness's defect.
+
+### Work item references
+
+Work-item display formatting (yoyodyne-ifd.432.28) asks that a work item named to a person be shown with its current priority, labels, and title from the tracker. Roles name items by id inside their own prose. A surface that finds those ids again by searching text it has already rendered can pick the wrong id, such as one inside a title it added, and can delete the words around it; the first attempt at that item did both. This section fixes how a reference is kept, found, and shown, so every surface shows the same thing and nothing around a reference changes.
+
+**What is stored.** When the harness records text a role wrote — a note, a report, a reply, a pass account, a lane report, a digest — it keeps the text exactly as written and, beside it, a `references` list. Each entry is the item's full id and the start and end byte of the id in the stored text, covering the id and nothing else. The list never holds a title, a priority, or labels: those are read from the tracker each time the text is shown. Nothing a role wrote is changed to make a reference.
+
+**How a reference is found.** One matcher, the same when text is recorded and when older text is read:
+
+- **A full id** is the project's tracker prefix and a hyphen, where the character before it is not a letter, digit, hyphen, or dot. It runs to the first character that is not a letter, digit, hyphen, or dot, and a dot it ends with is not part of it, so a sentence's full stop, a comma, a semicolon, a colon, or a closing parenthesis after it never is. A match never stops early at a shorter id: `ex-7.2s` is the id `ex-7.2s`, never `ex-7.2`. A full id is always a reference, whether or not the tracker holds it; the tracker decides only how it is shown.
+- **A short id**, written without the prefix, such as `432.28` or `ifd.432.28`, is a reference only if it contains a digit, stands between the same boundaries, and exactly one item the tracker holds has an id that ends in it just after the prefix's hyphen or a dot. This is decided when the text is recorded, against the tracker read then, and the stored entry holds the full id. A short id with no digit is never matched, so an ordinary word is never taken for an item. A short id that matches no item, or more than one, is left as written and counted in the answer's `unresolved` figure.
+- **Text read from the tracker is never searched.** An id inside an item's title is part of the title, never a reference.
+
+**How it is shown.** The read model renders each text from the stored text and its references, and never from an earlier rendering. In text a role wrote, each reference's bytes are replaced with the full id, followed by the item's current priority, labels, and title in parentheses: `ex-7 (P1, reliability: Retry the merge)`, or `ex-7.2 (P2: Name the stop)` for an item with no labels. Every other byte of the text is kept as it was, including a title the role wrote in its own words beside the id. A list the harness builds itself from tracker items, with no text of a role's in it, shows each item in the parent item's form: `(P1, reliability) Retry the merge (ex-7)`.
+
+A rendering depends on nothing but the stored text, its references, and one tracker answer. Rendering twice with the same tracker answer gives the same bytes; a later rendering with a newer answer changes only the parentheses after each reference.
+
+**Older text.** Text recorded before references were kept has no list. The read model runs the part of the matcher that finds full ids on it each time it reads it, stores the result nowhere, and never rewrites the note, report, or reply it came from: notes are never rewritten. A reference found this way is shown exactly as one found when its text was recorded, and the answer marks it `found_when_read` so a reviewer can tell the two apart. A short id in older text is never resolved, because whether it named exactly one item when it was written cannot be known now: it is left as written and counted in `unresolved`.
+
+**Freshness, missing items, and an unreadable tracker.** Every answer renders against one tracker read, the one whose time and health the answer already carries, and no surface renders with a title kept from an earlier read. An id the tracker does not hold renders as `ex-9 (not in the tracker)`. When the tracker could not be read, every reference in the answer renders as `ex-7 (tracker unreadable at 09:40 PDT)`, the time being the answer's observation time in the operator's local zone with the zone named, and the tracker is shown as an unhealthy source as any other is. In neither case is a reference dropped or the text around it removed.
+
+**Every surface takes the rendered text.** The dashboard, `yoyo status`, every conversation's context, the digests and lane reports shown to a person, and the Slack sink show the read model's rendered text and search no text of their own. A surface may make the id a link using the `references` list, and changes no words in doing so. The Slack sink posts the rendered text as it stands when the message is posted, and has no formatter of its own; a posted message is not edited when the tracker later changes, and a later message is rendered afresh.
+
+**Examples.** For a project whose tracker prefix is `ex`, where the tracker holds `ex-7` (P1, labelled reliability, titled Retry the merge), `ex-7.2` (P2, no labels, titled Name the stop), and `ex-12` (P0, labelled bug, titled Fix ex-7's timeout), and holds no `ex-9` or `ex-7.2s`:
+
+| Case | Stored text | Shown |
+|---|---|---|
+| Semicolon and full stop | `Blocked by ex-7; see ex-7.2.` | `Blocked by ex-7 (P1, reliability: Retry the merge); see ex-7.2 (P2: Name the stop).` |
+| Lowercase letters running on | `ex-7.2s are done, then ex-7 lands` | `ex-7.2s (not in the tracker) are done, then ex-7 (P1, reliability: Retry the merge) lands` |
+| An id inside a title | `Waiting on ex-12.` | `Waiting on ex-12 (P0, bug: Fix ex-7's timeout).` The `ex-7` in the title is not a reference, and no later rendering finds it. |
+| Several references, and a role's own title | `Retry the merge (ex-7), then ex-7.2 and ex-12.` | `Retry the merge (ex-7 (P1, reliability: Retry the merge)), then ex-7.2 (P2: Name the stop) and ex-12 (P0, bug: Fix ex-7's timeout).` |
+| A renamed item | `Retrying ex-7 now.` | Before: `Retrying ex-7 (P1, reliability: Retry the merge) now.` After `ex-7` is retitled Retry the merge after a refusal and labelled bug as well: `Retrying ex-7 (P1, bug, reliability: Retry the merge after a refusal) now.` |
+| Not in the tracker | `See ex-9.` | `See ex-9 (not in the tracker).` |
+| Tracker unreadable | `Blocked by ex-7.` | `Blocked by ex-7 (tracker unreadable at 09:40 PDT).` |
+| Older text with a short id | `Waiting on 7.2.` recorded before references were kept | `Waiting on 7.2.`, unchanged, and counted in `unresolved` |
+| Rendering again | The fourth row's stored text, rendered twice with the same tracker answer | The fourth row's output both times, byte for byte; the second rendering starts from the stored text, so it never adds a second set of parentheses. |
+
+**Where the parent item's wording cannot be met.** The parent item's title says every work item named to a person is shown this way. A short id in text recorded before references were kept cannot be resolved honestly, so for that text the outcome is met for every full id and not for short ids, which are left as written and counted. The clause that needs the Lead Product Manager's amendment is "Every work item named to a person"; the wording proposed is "Every work item reference the harness can resolve", with the short ids it cannot resolve counted wherever they are shown.
+
+**Alternatives rejected.** Writing the title into the stored text when it is recorded, which goes stale and would need notes rewritten to correct. Searching the rendered text again when it is shown later, which is how the first attempt picked an id inside a title and removed prose. Marking references inside the text with brackets or other characters, which changes what the role wrote and shows those characters on every surface that does not interpret them. Resolving short ids in older text against today's tracker, which can name an item that did not exist when the text was written.
+
+**What a reviewer can check.** Each example above gives the output shown. No byte outside a reference differs between the stored text and its rendering. Nothing renders from an earlier rendering. No note, report, or reply is rewritten. A missing item and an unreadable tracker render as shown above, never as a blank or a removed reference. The Slack sink holds no formatter of its own.
 
 ## The dashboard *(the sections yoyodyne-ifd.141 builds)*
 
