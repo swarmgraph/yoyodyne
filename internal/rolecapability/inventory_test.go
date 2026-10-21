@@ -308,6 +308,11 @@ var expresses = map[string]expression{
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
 		gap:      "the approval policy, filing home, and recorded claim of consistent intent are conditions on the document rather than capabilities that grant its author more authority",
 	},
+	"artifact.delegated-approval": {
+		question: "does the role that recorded the approved revision hold the capability the document's kind belongs to?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate},
+		gap:      "that the revision is marked consistent with intent and names its directing work item is a condition on the record, not a capability; the approver is the Lead Product Manager by the operator's ruling of 2026-09-26 rather than by anything a bundle holds",
+	},
 	"artifact.prepare-approval": {
 		question: "does the author hold the capability the document's kind belongs to?",
 		asks:     []capability.Capability{capability.ArtifactProductMutate, capability.ArtifactDesignMutate},
@@ -464,6 +469,15 @@ var expresses = map[string]expression{
 	"run.independent-invocations": {
 		question: "none: two sessions being different is separation",
 		gap:      "no statement of what a role may do distinguishes one invocation of it from another",
+	},
+	"run.decided-document": {
+		question: "none: whether a person or the Lead Product Manager decided the document, rather than a setting, is read off its recorded approval",
+		gap:      "who approved a candidate is evidence carried on the document, not a capability the publishing harness or the owning role holds",
+	},
+	"runstate.document-approver": {
+		question: "does the document's owner hold the product-intent capability the Lead Product Manager's approval rests on?",
+		asks:     []capability.Capability{capability.ArtifactProductMutate},
+		gap:      "the demand is made of the durable handoff, which is storage rather than authority",
 	},
 	"run.independent-document-review": {
 		question: "none: the document owner and reviewer must be independent",
