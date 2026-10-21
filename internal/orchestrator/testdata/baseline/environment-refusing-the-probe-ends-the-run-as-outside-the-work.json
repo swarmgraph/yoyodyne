@@ -114,6 +114,7 @@
     "worker": {
       "attempt": 1,
       "pid": "\u003cpid\u003e",
+      "program_started_at": "\u003ctime\u003e",
       "run_id": "run-0123456789abcdef0123456789abcdef",
       "started_at": "\u003ctime\u003e"
     },
