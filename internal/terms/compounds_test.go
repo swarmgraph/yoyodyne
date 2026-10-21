@@ -86,6 +86,40 @@ func TestCompoundsReadOnlyProse(t *testing.T) {
 	}
 }
 
+// A goal's identifier in square brackets at the start of its entry is a name,
+// not a word in a sentence, so it passes; the same compound in running prose,
+// later on the entry's own line, or in brackets that open no list entry is
+// still refused.
+func TestCompoundsPassAGoalIdentifierButReadTheSameWordInProse(t *testing.T) {
+	t.Parallel()
+
+	directory := root(t, compoundRegister(), map[string]string{
+		"docs/product/goals/v1-goals.md": "---\nid: v1-goals\nkind: goals\n---\n\n# V1 goals\n\n## Goals\n\n" +
+			"- [visible-spend] The operator can see what the harness spends.\n" +
+			"  *Supports: the operator can see what the system does on their behalf.*\n" +
+			"* [durable-directives] Make user directives durable.\n\n" +
+			"- [independent-review] Every change is reviewed, unlike visible-spend.\n\n" +
+			"The goal visible-spend applies now, and so does [durable-directives].\n",
+	})
+	problems, _, err := compoundProblems(directory, nil)
+	if err != nil {
+		t.Fatalf("compoundProblems() error = %v", err)
+	}
+	if len(problems) != 3 || !reportedAt(problems, 14, "visible-spend") || !reportedAt(problems, 16, "visible-spend") ||
+		!reportedAt(problems, 16, "durable-directives") {
+		t.Errorf("compoundProblems() = %v, want visible-spend at lines 14 and 16 and durable-directives at line 16, and no identifier refused", problems)
+	}
+}
+
+func reportedAt(problems []Problem, line int, term string) bool {
+	for _, problem := range problems {
+		if problem.Line == line && problem.Term == term {
+			return true
+		}
+	}
+	return false
+}
+
 // The personas are read, the shipped templates and the live copies both.
 func TestCompoundsReadThePersonas(t *testing.T) {
 	t.Parallel()
