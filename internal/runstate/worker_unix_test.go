@@ -442,6 +442,29 @@ func TestAStartingProgramRecordsItselfAndReleasesWhatItsEarlierProgramLeft(t *te
 		t.Fatalf("stamps after StartProgram: earlier program's %v, this program's %v, another holder's %v; want only the earlier program's gone",
 			stamped(left.RunID), stamped(ours.RunID), stamped(taken.RunID))
 	}
+	// The released run says what happened, and nothing else about it moved; the
+	// runs this program and another holder hold carry no such note.
+	released, err := store.Load(left.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if released.EarlierProgram == nil || released.EarlierProgram.Worker.PID != os.Getpid() ||
+		!released.EarlierProgram.Worker.ProgramStartedAt.Equal(earlier.ProgramStartedAt) ||
+		!strings.Contains(released.EarlierProgram.Says, "earlier program") || released.Status != StatusRunning {
+		t.Fatalf("released run = status %s, note %+v; want it still running with a note naming the earlier program", released.Status, released.EarlierProgram)
+	}
+	if reading := store.Worker(released, time.Now()); reading.Liveness != WorkerAbsent || !strings.Contains(reading.Says, "let go of the run's lease at") {
+		t.Fatalf("Worker() of the released run = %+v, want gone, saying the lease was let go of", reading)
+	}
+	for _, kept := range []State{ours, taken} {
+		loaded, err := store.Load(kept.RunID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if loaded.EarlierProgram != nil {
+			t.Fatalf("run %s carries %+v, want no note on a run nobody released", kept.RunID, loaded.EarlierProgram)
+		}
+	}
 	// The earlier program's lease is free for the sweep to take.
 	if _, lease, err := store.AdoptRun(context.Background(), left.RunID); err != nil {
 		t.Fatalf("AdoptRun() of the released run = %v", err)

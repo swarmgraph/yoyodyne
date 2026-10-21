@@ -74,6 +74,8 @@ var structuredStrings = map[string]string{
 	"build":                                       "matched against the revision pattern",
 	"worker.build":                                "matched against the revision pattern",
 	"worker.run_id":                               "refused unless it is the record's own run id",
+	"earlier_program.worker.build":                "matched against the revision pattern",
+	"earlier_program.worker.run_id":               "refused unless it is the record's own run id",
 	"recovery_requests[].id":                      "a plain request identifier the caller made up, held to its shape",
 	"recovery_requests[].digest":                  "a digest the harness computed",
 	"recovery_requests[].action":                  "one of the closed list of recovery actions",

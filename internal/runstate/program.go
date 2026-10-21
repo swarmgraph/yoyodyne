@@ -32,6 +32,18 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/buildinfo"
 )
 
+// EarlierProgramRelease is what a starting program writes on a run whose lease
+// it let go of because the run's worker was an earlier program in its process.
+type EarlierProgramRelease struct {
+	ReleasedAt time.Time `json:"released_at"`
+	// Worker is the earlier program's worker, as the stamp beside the lease
+	// named it.
+	Worker WorkerIdentity `json:"worker"`
+	// Says is why the worker was taken for an earlier program, in a sentence a
+	// person reads.
+	Says string `json:"says"`
+}
+
 // programRecord is what a program writes about itself under its process's
 // number.
 type programRecord struct {
@@ -154,17 +166,23 @@ func (s *Store) releaseEarlierProgram() error {
 		if err != nil || holder.PID != os.Getpid() {
 			continue
 		}
-		if verdict, _ := s.programVerdict(holder.PID, holder.Worker, ProcessLook{}); verdict != programReplaced {
+		verdict, says := s.programVerdict(holder.PID, holder.Worker, ProcessLook{})
+		if verdict != programReplaced {
 			continue
 		}
-		if err := s.releaseLeftLease(runID, path); err != nil {
+		if err := s.releaseLeftLease(runID, path, holder.Worker, says); err != nil {
 			problems = append(problems, err)
 		}
 	}
 	return errors.Join(problems...)
 }
 
-func (s *Store) releaseLeftLease(runID, stamp string) error {
+// releaseLeftLease takes one run's lease without waiting and, holding it,
+// records on the run that its worker was an earlier program in this process,
+// then lets the lease go, which removes the stamp. The run's status is left as
+// it is: the release ends nothing, and the run is then a run with no worker. A
+// stamp with no run record behind it is only cleared.
+func (s *Store) releaseLeftLease(runID, stamp string, worker *WorkerIdentity, says string) error {
 	path, err := s.leasePath(runID)
 	if err != nil {
 		return err
@@ -182,7 +200,22 @@ func (s *Store) releaseLeftLease(runID, stamp string) error {
 		return nil
 	}
 	lease := &Lease{label: "run", file: file, holder: stamp}
-	return lease.Release()
+	var noted error
+	if state, err := s.Load(runID); err == nil {
+		named := state.Worker
+		if worker != nil {
+			named = worker
+		}
+		if named != nil {
+			state.EarlierProgram = &EarlierProgramRelease{ReleasedAt: time.Now().UTC(), Worker: *named, Says: says}
+			if err := s.Save(state); err != nil {
+				noted = fmt.Errorf("record on run %s that its worker was an earlier program in this process: %w", runID, err)
+			}
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		noted = fmt.Errorf("read run %s to record that its worker was an earlier program in this process: %w", runID, err)
+	}
+	return errors.Join(noted, lease.Release())
 }
 
 // programVerdict is whether a worker or stamp naming a process names the

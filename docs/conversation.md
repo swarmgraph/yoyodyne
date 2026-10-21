@@ -1862,10 +1862,13 @@ program writes down when it began, under its process number, before it takes
 any run, and every reader, in that process or any other, holds a worker to that
 record: a worker from an earlier program in the process reads as absent. When
 the scheduler starts, it also lets go of every run lease its earlier program
-left, so nothing reads them as held. A process no program record is written
-for, a run recorded before workers wrote down a start time, and one naming
-another process without its program's start time read as uncertain. A worker
-whose run's lease nothing holds reads as absent.
+left, so nothing reads them as held, and writes on each such run that its
+worker was an earlier program in the same process. That ends nothing: the run
+is then a run with no worker. A process no program record is written for, a run
+recorded before workers wrote down a start time, and one naming another process
+without its program's start time read as uncertain, never live and never
+absent. A worker still running the program that took the run, whose lease
+nothing holds, reads as absent.
 
 A verification names one expected state from this list and no other: worker
 live, wait recorded, reservation released, continuation started, repair

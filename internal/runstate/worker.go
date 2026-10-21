@@ -261,25 +261,31 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 			recorded.PID, look.StartedAt.UTC().Format(time.RFC3339), recorded.Attempt, recorded.StartedAt.UTC().Format(time.RFC3339)))
 	}
 	program, programSays := s.programVerdict(recorded.PID, recorded, look)
-	if program == programReplaced {
+	switch program {
+	case programReplaced:
+		if released := state.EarlierProgram; released != nil && released.Worker.Same(*recorded) {
+			programSays += fmt.Sprintf("; the program that replaced it let go of the run's lease at %s", released.ReleasedAt.Local().Format(personTime))
+		}
 		return absent(programSays)
+	case programUnknown:
+		// The design's rule: a program nothing recorded is never live and never
+		// gone, whatever the lease shows.
+		return uncertain(programSays)
 	}
 	switch {
 	case holderErr != nil:
 		return uncertain(fmt.Sprintf("the stamp beside the run's lease could not be read: %v", holderErr))
 	case holder == nil:
-		return absent(fmt.Sprintf("nothing holds the run's lease, so attempt %d's worker is not working on it; pid %d is still running, as that worker or as a program that has replaced it", recorded.Attempt, recorded.PID))
+		return absent(fmt.Sprintf("attempt %d's worker, pid %d, is still running the program that took the run, but nothing holds the run's lease, so it is not working on it", recorded.Attempt, recorded.PID))
 	case holder.Worker == nil:
 		return uncertain(fmt.Sprintf("the run's lease is held by pid %d, stamped by a build that wrote down no worker identity", holder.PID))
 	case !holder.Worker.Same(*recorded):
 		return uncertain(fmt.Sprintf("the run's lease is stamped by attempt %d, pid %d, and the record names attempt %d, pid %d; a new attempt may be starting",
 			holder.Worker.Attempt, holder.Worker.PID, recorded.Attempt, recorded.PID))
-	case program == programUnknown:
-		return uncertain(programSays)
 	}
 	reading.Liveness = WorkerLive
 	reading.Says = fmt.Sprintf("attempt %d's worker, pid %d, started at %s running a program started at %s on build %s, holds the run's lease", recorded.Attempt, recorded.PID,
-		recorded.StartedAt.UTC().Format(time.RFC3339), recorded.ProgramStartedAt.UTC().Format(time.RFC3339), nonEmptyBuild(recorded.Build))
+		recorded.StartedAt.Local().Format(personTime), recorded.ProgramStartedAt.Local().Format(personTime), nonEmptyBuild(recorded.Build))
 	return reading
 }
 
