@@ -45,21 +45,28 @@ type runHolder struct {
 }
 
 // holderRunning reports whether the process a stamp names is still the process
-// that wrote it. A stamp that recorded its process's start time is held to it,
-// so a number the operating system has handed to another process reads as the
-// holder gone rather than as the holder.
-func holderRunning(holder runHolder) (bool, error) {
+// that wrote it, and where it is not, says why. A stamp that recorded its
+// process's start time is held to it, so a number the operating system has
+// handed to another process reads as the holder gone rather than as the holder;
+// and a stamp naming this process is held to when its program began, so one an
+// earlier program in this process left behind reads as gone too
+// (replacedProgram).
+func holderRunning(holder runHolder) (bool, string, error) {
 	look, err := LookProcess(holder.PID)
 	if err != nil {
-		return false, err
+		return false, "", err
 	}
 	if !look.Running() {
-		return false, nil
+		return false, fmt.Sprintf("the process that held it, pid %d, has exited without recording an ending", holder.PID), nil
 	}
-	if holder.Worker != nil && !holder.Worker.StartedAt.IsZero() && !look.StartedAt.IsZero() {
-		return sameStart(holder.Worker.StartedAt, look.StartedAt), nil
+	if holder.Worker != nil && !holder.Worker.StartedAt.IsZero() && !look.StartedAt.IsZero() && !sameStart(holder.Worker.StartedAt, look.StartedAt) {
+		return false, fmt.Sprintf("the process that held it, pid %d, has exited without recording an ending, and its number now belongs to a process started at %s",
+			holder.PID, look.StartedAt.Local().Format(personTime)), nil
 	}
-	return true, nil
+	if replaced, says := replacedProgram(holder.PID, holder.Worker); replaced {
+		return false, "the program that held it has been replaced without recording an ending: " + says, nil
+	}
+	return true, "", nil
 }
 
 // RunPresence is whether a process can be found behind one run in flight, and
@@ -91,7 +98,8 @@ func (s *Store) Held(runID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	return holderRunning(holder)
+	running, _, err := holderRunning(holder)
+	return running, err
 }
 
 // Presence reports whether a process can be found behind a run, and takes
@@ -131,7 +139,7 @@ func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPr
 	case err != nil:
 		return RunPresence{Found: true}, err
 	}
-	running, err := holderRunning(holder)
+	running, gone, err := holderRunning(holder)
 	if err != nil {
 		return RunPresence{Found: true}, fmt.Errorf("ask whether run %s's holder is running: %w", state.RunID, err)
 	}
@@ -139,8 +147,7 @@ func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPr
 		presence.Found = true
 		return presence, nil
 	}
-	presence.Says = fmt.Sprintf("the process that held it, pid %d, has exited without recording an ending, and nothing has been written to it since %s",
-		holder.PID, lastMoved.UTC().Format(time.RFC3339))
+	presence.Says = fmt.Sprintf("%s, and nothing has been written to it since %s", gone, lastMoved.UTC().Format(time.RFC3339))
 	return presence, nil
 }
 

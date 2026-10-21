@@ -29,8 +29,9 @@ func TestAWorkerRecordsItsIdentityAndAReplacementIsANewAttempt(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 	first := reserved.Worker
-	if first == nil || first.PID != os.Getpid() || first.RunID != state.RunID || first.Attempt != 1 || first.StartedAt.IsZero() {
-		t.Fatalf("reserved worker = %+v, want this process as attempt 1 with its start time", first)
+	if first == nil || first.PID != os.Getpid() || first.RunID != state.RunID || first.Attempt != 1 || first.StartedAt.IsZero() ||
+		!first.ProgramStartedAt.Equal(ProgramStartedAt()) {
+		t.Fatalf("reserved worker = %+v, want this process as attempt 1 with its start time and its program's", first)
 	}
 	if look, err := LookProcess(os.Getpid()); err != nil || !sameStart(look.StartedAt, first.StartedAt) {
 		t.Fatalf("recorded start %v is not what the operating system reports (%+v, %v)", first.StartedAt, look, err)
@@ -46,7 +47,7 @@ func TestAWorkerRecordsItsIdentityAndAReplacementIsANewAttempt(t *testing.T) {
 	if err := lease.Release(); err != nil {
 		t.Fatal(err)
 	}
-	if reading := store.Worker(reserved, time.Now()); reading.Liveness != WorkerAbsent || !strings.Contains(reading.Says, "let go") {
+	if reading := store.Worker(reserved, time.Now()); reading.Liveness != WorkerAbsent || !strings.Contains(reading.Says, "nothing holds the run's lease") {
 		t.Fatalf("Worker() after release = %+v, want absent", reading)
 	}
 	adopted, again, err := store.Adopt(context.Background(), state.WorkItemID)
@@ -178,7 +179,7 @@ func TestARecordFromBeforeWorkerIdentityIsReadAndUncertain(t *testing.T) {
 	if err != nil || look.StartedAt.IsZero() {
 		t.Skipf("the operating system reports no start time here (%+v, %v)", look, err)
 	}
-	identity := WorkerIdentity{PID: os.Getpid(), StartedAt: look.StartedAt.UTC(), RunID: state.RunID, Attempt: 1}
+	identity := WorkerIdentity{PID: os.Getpid(), StartedAt: look.StartedAt.UTC(), ProgramStartedAt: ProgramStartedAt(), RunID: state.RunID, Attempt: 1}
 	loaded.Worker = &identity
 	holder, err := store.holderPath(state.RunID)
 	if err != nil {
@@ -190,5 +191,117 @@ func TestARecordFromBeforeWorkerIdentityIsReadAndUncertain(t *testing.T) {
 	}
 	if reading := store.Worker(loaded, time.Now()); reading.Liveness != WorkerUncertain || !strings.Contains(reading.Says, "no worker identity") {
 		t.Fatalf("Worker() with an old stamp = %+v, want uncertain", reading)
+	}
+}
+
+// writeStamp puts a stamp beside a run's lease as the worker given, which is
+// what a program that held the run and was replaced before it let go leaves.
+func writeStamp(t *testing.T, store *Store, runID string, worker WorkerIdentity) {
+	t.Helper()
+	path, err := store.holderPath(runID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.stampRunHolder(path, worker); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A process that replaces its program in place, as the scheduler does to take
+// up a deployed build, keeps its number and the start time the operating system
+// reports. A worker recorded by the earlier program is gone, and reads so even
+// with the stamp it left beside the lease agreeing with the record: the number
+// and the operating system's start time match, and the program's start time
+// does not. The same identity with this program's start time is live.
+func TestAWorkerFromAnEarlierProgramInThisProcessIsGone(t *testing.T) {
+	t.Parallel()
+
+	look, err := LookProcess(os.Getpid())
+	if err != nil || look.StartedAt.IsZero() {
+		t.Skipf("the operating system reports no start time here (%+v, %v)", look, err)
+	}
+	store := newTestStore(t)
+	state := testState(t, StatusRunning)
+	current := WorkerIdentity{PID: os.Getpid(), StartedAt: look.StartedAt.UTC(), ProgramStartedAt: ProgramStartedAt(), Build: "abcdef1", RunID: state.RunID, Attempt: 1}
+	earlier := current
+	earlier.ProgramStartedAt = ProgramStartedAt().Add(-15 * 24 * time.Hour)
+	before := current
+	before.ProgramStartedAt = time.Time{}
+
+	for _, tc := range []struct {
+		name   string
+		worker WorkerIdentity
+		live   bool
+		says   string
+	}{
+		{"the same process number and start times", current, true, "holds the run's lease"},
+		{"a different program start time", earlier, false, "was an earlier program in it, started at"},
+		{"no program start time, recorded before it was kept", before, false, "from a build that recorded no program start time"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			state := testState(t, StatusRunning)
+			worker := tc.worker
+			worker.RunID = state.RunID
+			state.Worker = &worker
+			if err := store.Create(state); err != nil {
+				t.Fatalf("Create() error = %v", err)
+			}
+			writeStamp(t, store, state.RunID, worker)
+			reading := store.Worker(state, time.Now())
+			want := WorkerAbsent
+			if tc.live {
+				want = WorkerLive
+			}
+			if reading.Liveness != want || !strings.Contains(reading.Says, tc.says) {
+				t.Fatalf("Worker() = %+v, want %s saying %q", reading, want, tc.says)
+			}
+			if !tc.live && strings.Contains(reading.Says, "let go") {
+				t.Fatalf("Worker() = %+v, a worker that is gone must not read as one that let go of the run", reading)
+			}
+			// What the scheduler and every surface read is held to the same identity.
+			if held, err := store.Held(state.RunID); err != nil || held != tc.live {
+				t.Fatalf("Held() = %v, %v, want %v", held, err, tc.live)
+			}
+			presence, err := store.Presence(state, time.Hour, state.UpdatedAt)
+			if err != nil || presence.Found != tc.live {
+				t.Fatalf("Presence() = %+v, %v, want found %v", presence, err, tc.live)
+			}
+			if !tc.live && !strings.Contains(presence.Says, "has been replaced") {
+				t.Fatalf("Presence() = %+v, want it to say the program was replaced", presence)
+			}
+		})
+	}
+}
+
+// A record whose worker carries no start time at all, or names another running
+// process without its program's start time, is uncertain and never live: the
+// number alone proves nothing, and no process can read when another's program
+// began.
+func TestAWorkerRecordedWithoutStartTimesIsUncertain(t *testing.T) {
+	t.Parallel()
+
+	store := newTestStore(t)
+	noStart := testState(t, StatusRunning)
+	noStart.Worker = &WorkerIdentity{PID: os.Getpid(), RunID: noStart.RunID, Attempt: 1}
+	if err := store.Create(noStart); err != nil {
+		t.Fatal(err)
+	}
+	writeStamp(t, store, noStart.RunID, *noStart.Worker)
+	if reading := store.Worker(noStart, time.Now()); reading.Liveness != WorkerUncertain || !strings.Contains(reading.Says, "start time") {
+		t.Fatalf("Worker() with no start time = %+v, want uncertain", reading)
+	}
+
+	parent, err := LookProcess(os.Getppid())
+	if err != nil || !parent.Running() || parent.StartedAt.IsZero() {
+		t.Skipf("the operating system reports no start time for this test's parent (%+v, %v)", parent, err)
+	}
+	other := testState(t, StatusRunning)
+	other.Worker = &WorkerIdentity{PID: os.Getppid(), StartedAt: parent.StartedAt.UTC(), RunID: other.RunID, Attempt: 1}
+	if err := store.Create(other); err != nil {
+		t.Fatal(err)
+	}
+	writeStamp(t, store, other.RunID, *other.Worker)
+	if reading := store.Worker(other, time.Now()); reading.Liveness != WorkerUncertain || !strings.Contains(reading.Says, "no program start time") {
+		t.Fatalf("Worker() naming another process with no program start time = %+v, want uncertain", reading)
 	}
 }
