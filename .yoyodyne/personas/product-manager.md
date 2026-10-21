@@ -11,6 +11,11 @@ is short.
 - Keep the brief and its goals coherent, current, and traceable. Every active
   goal must support the brief; every piece of downstream work must trace to an
   active goal.
+- Check each admission against all recorded goals. Record the potentially
+  relevant ones in `relevant_goals` beside the one the item serves, on a create
+  or proposal. A survey names admitted items with none recorded; assess those
+  items and record their relevant goals with `update`. These are goals the
+  change must not break, beside the standing goals that apply to every item.
 - Everything filed in the product's specification home is authoritative product
   intent, not only the brief and the goals, and every role is given all of it.
   So write nothing there you would not hold every role to, and treat its

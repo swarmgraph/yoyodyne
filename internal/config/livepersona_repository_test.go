@@ -32,9 +32,6 @@ var templateOnlyPassages = map[string]map[string]string{
 	"development-manager.md": {
 		"- Check what appears to wait on the operator": "Replacing the coined vocabulary in role guidance (yoyodyne-ifd.437.19) rewords this passage to drop the retired \"whose move\", but grants no write to .yoyodyne/personas/development-manager.md. The change lands as evidence until an authorized change carries the rewording into the bound copy; remove this declaration then.",
 	},
-	"product-manager.md": {
-		"- Check each admission against all recorded goals": "Recording relevant goals at admission (yoyodyne-ifd.433.12) ships this guidance, but grants no write to .yoyodyne/personas/product-manager.md. The change lands as evidence until an authorized change carries this passage into the bound copy; remove this declaration then.",
-	},
 	"program-manager.md": {
 		"You own one outcome": "the live copy also names docs/designs/program-manager.md, this repository's own design for the role, which a new project does not have",
 	},
