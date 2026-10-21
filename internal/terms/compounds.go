@@ -425,7 +425,7 @@ func (c compoundScan) problems(path string, stretches []passage, markdown bool) 
 	for _, stretch := range stretches {
 		text := stretch.text
 		if markdown {
-			text = blankOut(text)
+			text = blankEntryIdentities(blankOut(text))
 		}
 		seen := make(map[string]bool)
 		for _, at := range compoundsIn(text) {
@@ -489,4 +489,35 @@ func blankOut(text string) string {
 		}
 		return string(blank)
 	})
+}
+
+// entryIdentityPattern finds the identifier a list entry opens with, such as a
+// goal's `- [visible-spend] The operator can see...`. The identifier's form is
+// the one the goal package reads (internal/goal's identityPattern): letters,
+// digits, and single hyphens between them in square brackets, at most
+// maxEntryIdentityBytes long. Passage lines are already trimmed, so the list
+// marker opens the line.
+var entryIdentityPattern = regexp.MustCompile(`(?im)^[-*+][ \t]+(\[[a-z0-9]+(?:-[a-z0-9]+)*\])`)
+
+// maxEntryIdentityBytes is internal/goal's MaxIdentityBytes: a longer bracketed
+// run is prose there, so it is prose here too and still read.
+const maxEntryIdentityBytes = 64
+
+// blankEntryIdentities replaces the identifier each list entry opens with by
+// spaces of the same length. That identifier is a name somebody types onto a
+// work item, not a word in a sentence, so the register does not govern it; the
+// same compound written anywhere else on the line, or in running prose, is
+// still read.
+func blankEntryIdentities(text string) string {
+	blank := []byte(text)
+	for _, match := range entryIdentityPattern.FindAllStringSubmatchIndex(text, -1) {
+		start, end := match[2], match[3]
+		if end-start-2 > maxEntryIdentityBytes {
+			continue
+		}
+		for index := start; index < end; index++ {
+			blank[index] = ' '
+		}
+	}
+	return string(blank)
 }
