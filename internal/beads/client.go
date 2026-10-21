@@ -1996,6 +1996,33 @@ func (f processFailure) Error() string {
 	return fmt.Sprintf("bd %s failed with status %s and exit code %d: %s", f.verb, f.status, f.exitCode, f.message)
 }
 
+// Is makes a bd killed at its bound read as ErrUnanswered.
+func (f processFailure) Is(target error) bool {
+	return target == ErrUnanswered && f.status == execution.ProcessTimedOut
+}
+
+// ErrUnanswered reports a tracker call that got no answer in time: a bd killed
+// at its bound, on every attempt the call makes, or a write that waited out
+// another write's lock on the same item. It says nothing about the item or the
+// store, only that the store was busy, so a caller that would otherwise refuse
+// what it was doing can leave it standing and ask again later. Unanswered is
+// the whole test.
+var ErrUnanswered = errors.New("the tracker did not answer in time")
+
+// Unanswered reports a tracker failure that a later attempt may well not meet,
+// because the store was busy rather than because it answered: ErrUnanswered,
+// and an export that never started behind another export (ErrExportBusy).
+func Unanswered(err error) bool {
+	return errors.Is(err, ErrUnanswered) || errors.Is(err, ErrExportBusy)
+}
+
+// busyWrite is a write that waited out another write's lock on the same item.
+// It keeps the wait's own message and reads as ErrUnanswered.
+type busyWrite struct{ error }
+
+func (b busyWrite) Unwrap() error        { return b.error }
+func (b busyWrite) Is(target error) bool { return target == ErrUnanswered }
+
 type callerKey struct{}
 
 // OnBehalfOf is ctx carrying who the tracker calls made under it are for — a
