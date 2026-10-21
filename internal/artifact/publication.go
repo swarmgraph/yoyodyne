@@ -33,24 +33,38 @@ func DocumentIdentity(content []byte) string {
 // PrepareConfirmation checks ownership and policy and renders the candidate
 // without writing into the primary checkout. A false result retains the human
 // confirmation path.
+//
+// A document of the product's intent answers to no approval setting. What makes
+// a document product intent is the setting that governs it rather than its kind:
+// the brief, the goals, the non-goals, the operating rules, and anything else
+// filed in the specification home. One whose revision — a creation or an
+// amendment — the Lead Product Manager recorded as consistent with intent,
+// naming the work item that directed it, is approved as hers, because the
+// operator's ruling of 2026-09-26 delegated that decision to her; it is not put
+// to the operator however approvals.goals or approvals.brief is set. Any other
+// revision of one, marked fundamental or not marked at all, is the operator's,
+// however those settings are set: an automatic setting is not a way to approve a
+// change of what the goals admit without him.
 func (s Store) PrepareConfirmation(role domain.AgentRole, write Write, policy Policy, reason string, now time.Time) (ConfirmedDocument, bool, error) {
 	recorded, body, err := s.prepareCandidate(role, write, now)
 	if err != nil {
 		return ConfirmedDocument{}, false, err
 	}
 	name, mode, governed := policy.SettingFor(recorded)
-	if !governed || mode != domain.ApprovalAutomatic {
-		return ConfirmedDocument{}, false, nil
-	}
-	// Product intent cannot be approved by policy where its owner has not
-	// recorded that this revision leaves fundamental intent unchanged. What makes
-	// a document product intent is the setting that governs it, not its kind: the
-	// non-goals, the operating rules, and anything filed in the specification
-	// home are governed as the goals are.
 	if IntentPolicy(name) {
-		if !ConsistentIntentClaim(recorded.Revisions[len(recorded.Revisions)-1]) || role != domain.RoleProductManager {
+		revision := len(recorded.Revisions) - 1
+		if delegated, _ := recorded.Rewording(recorded.Revisions[revision]); !delegated || role != domain.RoleProductManager {
 			return ConfirmedDocument{}, false, nil
 		}
+		recorded.Approvals = append(recorded.Approvals, Approval{Revision: revision, By: ApproverProductManager, At: now.UTC(), Reason: DelegatedApprovalReason(recorded.Revisions[revision])})
+		confirmed, err := s.renderCandidate(recorded, body)
+		if err != nil {
+			return ConfirmedDocument{}, false, err
+		}
+		return confirmed, true, nil
+	}
+	if !governed || mode != domain.ApprovalAutomatic {
+		return ConfirmedDocument{}, false, nil
 	}
 	recorded.Approvals = append(recorded.Approvals, Approval{Revision: len(recorded.Revisions) - 1, By: ApproverHarness, Policy: name, At: now.UTC(), Reason: reason})
 	confirmed, err := s.renderCandidate(recorded, body)
@@ -145,11 +159,42 @@ func (s Store) renderCandidate(recorded Artifact, body string) (ConfirmedDocumen
 	return confirmed, nil
 }
 
+// DelegatedApprovalReason is the reason the Lead Product Manager's approval of
+// a revision records: the work item that directed it first, so the approval
+// names it the way her revision does, then whose decision it was and why it was
+// hers. The reason given for a harness confirmation is not carried into it,
+// because it says the approval came from a setting, which this one did not.
+func DelegatedApprovalReason(revision Revision) string {
+	item, _ := DirectingItem(revision.Reason)
+	change := "amendment"
+	if revision.Action == ActionCreated {
+		change = "creation"
+	}
+	return fmt.Sprintf("%s - approved by the %s, who recorded this %s as consistent with intent; a change consistent with the goals is hers to approve under the operator's ruling of 2026-09-26, so he was not asked",
+		item, domain.RoleProductManager.Title(), change)
+}
+
 // OperatorApproved reports a candidate the operator approved, rather than one
 // the harness confirmed under an automatic approval setting.
 func (d ConfirmedDocument) OperatorApproved() bool {
 	approval, ok := d.Artifact.LatestApproval()
 	return ok && approval.By == ApproverOperator
+}
+
+// ProductManagerApproved reports a candidate the Lead Product Manager approved
+// as a change consistent with intent, which the operator delegated to her.
+func (d ConfirmedDocument) ProductManagerApproved() bool {
+	approval, ok := d.Artifact.LatestApproval()
+	return ok && approval.By == ApproverProductManager
+}
+
+// Decided reports a candidate whose approval is somebody's decision rather than
+// a setting's: the operator's, or the Lead Product Manager's under the authority
+// he delegated to her. Such a candidate answers to no approval setting, and goes
+// through a reviewed run whatever the integration setting, left for the
+// operator to merge where integration is not automatic.
+func (d ConfirmedDocument) Decided() bool {
+	return d.OperatorApproved() || d.ProductManagerApproved()
 }
 
 // IntentPolicy reports whether an approval setting governs the product's
@@ -168,11 +213,12 @@ func IntentKind(kind Kind) bool {
 	return false
 }
 
-// ConsistentIntentClaim reports whether a revision is an amendment its owner
-// recorded as consistent with intent, directed by a work item.
+// ConsistentIntentClaim reports whether a revision is a creation or an
+// amendment its owner recorded as consistent with intent, directed by a work
+// item.
 func ConsistentIntentClaim(revision Revision) bool {
 	_, directed := DirectingItem(revision.Reason)
-	return revision.Action == ActionAmended && revision.Intent == IntentConsistent && directed
+	return (revision.Action == ActionAmended || revision.Action == ActionCreated) && revision.Intent == IntentConsistent && directed
 }
 
 // Validate checks that the saved bytes and saved identity describe one file.
@@ -206,7 +252,7 @@ func (d ConfirmedDocument) Validate() error {
 	}
 	approval, ok := d.Artifact.LatestApproval()
 	if !ok || !approval.By.Valid() || approval.Revision != len(d.Artifact.Revisions)-1 {
-		return errors.New("confirmed document needs the operator's approval or the harness's confirmation for its last revision")
+		return errors.New("confirmed document needs the operator's or the Lead Product Manager's approval, or the harness's confirmation, for its last revision")
 	}
 	if approval.By == ApproverHarness && IntentKind(d.Artifact.Kind) && !IntentPolicy(approval.Policy) {
 		return fmt.Errorf("a %s document is product intent and cannot be confirmed under %s", d.Artifact.Kind, approval.Policy)

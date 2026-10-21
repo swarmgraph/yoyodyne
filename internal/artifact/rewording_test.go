@@ -92,18 +92,29 @@ func TestOnlyARewordingRecordedAsConsistentLeavesTheGoalsApproved(t *testing.T) 
 	}
 }
 
-// A rewording keeps the approval standing only on the record that makes it the
+// A change keeps the approval standing only on the record that makes it the
 // Lead Product Manager's delegated decision. The same label recorded under
-// another role, or on a document that is not the goals, is the operator's again,
-// and says why.
-func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverTheGoals(t *testing.T) {
+// another role, or on a document that is not the product's intent, is the
+// operator's again, and says why. Every document of the product's intent is
+// covered, a creation as well as an amendment.
+func TestAChangeIsDelegatedOnlyToTheLeadProductManagerOverTheProductsIntent(t *testing.T) {
 	t.Parallel()
 
 	consistent := Revision{Action: ActionAmended, By: domain.RoleProductManager, At: moment(),
 		Reason: "yoyodyne-ifd.437.11 - reworded", Intent: IntentConsistent}
+	for _, kind := range Kinds() {
+		for _, action := range []Action{ActionAmended, ActionCreated} {
+			revision := consistent
+			revision.Action = action
+			delegated, why := Artifact{Kind: kind}.Rewording(revision)
+			if delegated != IntentKind(kind) {
+				t.Fatalf("%s of a %s document: %v, %q", action, kind, delegated, why)
+			}
+		}
+	}
 	goals := Artifact{ID: "v1-goals", Kind: KindGoals}
-	if delegated, why := goals.Rewording(consistent); !delegated {
-		t.Fatalf("Rewording() = false, %q", why)
+	if delegated, why := (Artifact{ID: "a-design", Kind: KindDesign}).Rewording(consistent); delegated || !strings.Contains(why, "design") {
+		t.Fatalf("a rewording of a design: %v, %q", delegated, why)
 	}
 
 	byArchitect := consistent
@@ -111,9 +122,10 @@ func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverTheGoals(t *testing
 	if delegated, why := goals.Rewording(byArchitect); delegated || !strings.Contains(why, "Lead Product Manager") {
 		t.Fatalf("a rewording by the architect: %v, %q", delegated, why)
 	}
-	brief := Artifact{ID: "brief", Kind: KindBrief}
-	if delegated, why := brief.Rewording(consistent); delegated || !strings.Contains(why, "brief") {
-		t.Fatalf("a rewording of the brief: %v, %q", delegated, why)
+	identified := consistent
+	identified.Action = ActionIdentified
+	if delegated, _ := goals.Rewording(identified); delegated {
+		t.Fatal("an identity revision read as a delegated change")
 	}
 	for _, reason := range []string{"reworded for yoyodyne-ifd.437.11", "", "rename: the Lead PM"} {
 		unnamed := consistent
@@ -124,9 +136,9 @@ func TestARewordingIsDelegatedOnlyToTheLeadProductManagerOverTheGoals(t *testing
 	}
 }
 
-// Intent is said of an amendment, in one of two words. Anything else is a
-// record that means nothing and is refused rather than read as either.
-func TestIntentIsRecordedOnlyOnAnAmendmentAndInOneOfTwoWords(t *testing.T) {
+// Intent is said of a creation or an amendment, in one of two words. Anything
+// else is a record that means nothing and is refused rather than read as either.
+func TestIntentIsRecordedOnlyOnACreationOrAnAmendmentAndInOneOfTwoWords(t *testing.T) {
 	t.Parallel()
 
 	valid := Revision{Action: ActionAmended, By: domain.RoleProductManager, At: moment(), Reason: "x", Intent: IntentFundamental}
@@ -135,8 +147,15 @@ func TestIntentIsRecordedOnlyOnAnAmendmentAndInOneOfTwoWords(t *testing.T) {
 	}
 	onCreation := valid
 	onCreation.Action = ActionCreated
-	if err := onCreation.Validate(); err == nil || !strings.Contains(err.Error(), "intent is recorded on an amendment") {
+	if err := onCreation.Validate(); err != nil {
 		t.Fatalf("intent on a creation: error = %v", err)
+	}
+	for _, action := range []Action{ActionIdentified, ActionSuperseded, ActionRetired} {
+		elsewhere := valid
+		elsewhere.Action = action
+		if err := elsewhere.Validate(); err == nil || !strings.Contains(err.Error(), "intent is recorded on a creation or an amendment") {
+			t.Fatalf("intent on %s: error = %v", action, err)
+		}
 	}
 	unknown := valid
 	unknown.Intent = "cosmetic"

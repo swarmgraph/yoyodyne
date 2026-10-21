@@ -156,8 +156,8 @@ const maxWorkItemReferenceBytes = 128
 // in needs the configured homes, which one action does not carry.
 func (w Write) Validate() error {
 	var problems []error
-	if w.Intent != "" && (!w.Intent.Valid() || w.Action != WriteRevise) {
-		problems = append(problems, errors.New("intent must be consistent or fundamental on a revision"))
+	if w.Intent != "" && !w.Intent.Valid() {
+		problems = append(problems, fmt.Errorf("intent %q must be %q or %q, or left out", w.Intent, IntentConsistent, IntentFundamental))
 	}
 	if !w.Action.Valid() {
 		problems = append(problems, fmt.Errorf("action %q must be %q or %q", w.Action, WriteCreate, WriteRevise))
@@ -386,6 +386,7 @@ func (w Write) Draft() Draft {
 		Directory: strings.TrimSpace(w.Directory),
 		Body:      strings.TrimSpace(w.Body),
 		Reason:    strings.TrimSpace(w.Reason),
+		Intent:    w.Intent,
 	}
 }
 
@@ -571,9 +572,19 @@ func WriteContract(role domain.AgentRole, filing []KindHome) string {
 			directories = append(directories, filed.Directory)
 		}
 	}
+	// What a document of the product's intent answers to is said only to the
+	// role that writes one; to any other it is a rule about documents it is
+	// refused.
+	intent, intentField := "", ""
+	for _, kind := range Owned(role) {
+		if IntentKind(kind) {
+			intent = ` A document of the product's intent — anything filed in the product's specification home: the brief, the goals, the non-goals, and the operating rules — answers to no approval setting. Where you record its creation or revision as consistent with intent, with the work item that directed it opening the reason, the harness records the approval as yours, naming you and that item, and does not ask the operator; that is how rules the operator already gave are recorded without going back to him. Where you mark it fundamental, or do not say, it waits for the operator whatever the setting says.`
+			intentField = ` A creation or a revision also records "intent":"consistent" or "intent":"fundamental": consistent where the goals would admit and refuse exactly the work they did before, fundamental where they would not.`
+		}
+	}
 	return `# Writing a document you own
 
-The documents you own are yours to write. You still have no tools: emit the action below and the harness generates the frontmatter and records the revision under your authority. Where the document's approval policy is automatic, the harness confirms it without asking the operator, records that policy, and opens a run with exactly your document. Configured checks and an independent reviewer must approve that file before normal integration. Other policies retain operator confirmation. A goals or brief revision needs operator confirmation unless you record it as consistent with intent, with the directing work item opening its reason.
+The documents you own are yours to write. You still have no tools: emit the action below and the harness generates the frontmatter and records the revision under your authority. Where the document's approval policy is automatic, the harness confirms it without asking the operator, records that policy, and opens a run with exactly your document. Configured checks and an independent reviewer must approve that file before normal integration. Other policies retain operator confirmation.` + intent + `
 
 To write one, end your reply with exactly one block of this shape:
 
@@ -581,7 +592,7 @@ To write one, end your reply with exactly one block of this shape:
 {"documents":[{"action":"create","id":"artifact-id","kind":"` + string(filing[0].Kind) + `","title":"one line","supports":["upstream-artifact-id"],"directory":"` + filing[0].Directory + `","body":"the whole document, in Markdown, below the frontmatter","reason":"why you are recording it"}]}
 ` + "```" + `
 
-A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `. For a goals or brief revision, also record "intent":"consistent" or "intent":"fundamental". It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
+A revision replaces what an existing document says: ` + "`" + `{"action":"revise","id":"artifact-id","body":"the whole document","reason":"why it is changing"}` + "`" + `.` + intentField + ` It carries the document whole rather than the part that changed, and it takes "title" and "supports" only where those change too. "kind" and "directory" are refused on a revision — the kind decides who owns the document, and the file has already been referred to by where it is.
 
 The kinds you may write, and where this project files each of them, are ` + strings.Join(kinds, ", ") + `. Any other kind is refused and nothing is written, and so is a document filed anywhere but the directory its own kind belongs in — being inside one of this project's ` + strings.Join(directories, " or ") + ` is not enough. The id is the file name without its extension, so it also has to be one: an id that already answers to a document is a revision rather than a creation.
 

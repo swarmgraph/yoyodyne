@@ -20,9 +20,9 @@ package artifact
 // the approved one. A revision that only gave its goals identifiers is not one
 // of those (see identity.go), because it changed nothing the operator was asked
 // to agree to. The one judgement in it is the owning role's, recorded on the
-// amendment itself: a rewording of the goals the Lead Product Manager records as
-// consistent with intent is delegated, and the approval stands through it (see
-// rewording.go).
+// revision itself: a change to the product's intent the Lead Product Manager
+// records as consistent with intent is delegated, and the approval stands
+// through it (see rewording.go).
 //
 // # What this deliberately does not do
 //
@@ -49,12 +49,17 @@ package artifact
 // recorded as theirs. That is also why recording one does not go through
 // Authorize, which is the boundary between roles: the operator is not one of
 // them, and holding the operator to a role's ownership would be the wrong
-// boundary in the wrong direction. The one other approver is the harness,
-// which records a confirmation only where the project's approval policy for
-// the document is automatic, naming that policy on the record. It never
-// records one for a change of fundamental intent: product intent is confirmed
-// that way only on its owner's recorded claim that the revision is consistent
-// with it (see publication.go).
+// boundary in the wrong direction. There are two other approvers. The harness
+// records a confirmation only where the project's approval policy for a
+// document outside the product's intent is automatic, naming that policy on the
+// record. The Lead Product Manager is recorded as approving a document of the
+// product's intent only where she wrote it herself and recorded it as
+// consistent with intent, naming the work item that directed it: that is a
+// decision the operator's ruling of 2026-09-26 made hers, so it is recorded as
+// hers rather than as the operator's or as a policy's, and her approval names
+// the revision it was given for and must be one that claim is on (see
+// rewording.go and publication.go). Nobody but the operator approves a change
+// of fundamental intent.
 //
 // What requires approval at all is the project's decision rather than this
 // package's. Policy carries the `approvals` configuration into the terms this
@@ -72,7 +77,8 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 )
 
-// Approver names either the person who approved intent or the harness that
+// Approver names the person who approved intent, the Lead Product Manager where
+// she approved a change the operator delegated to her, or the harness that
 // confirmed a document under the project's automatic approval policy.
 type Approver string
 
@@ -82,7 +88,22 @@ const ApproverOperator Approver = "operator"
 // ApproverHarness confirms a revision under an automatic approval policy.
 const ApproverHarness Approver = "harness"
 
-func (a Approver) Valid() bool { return a == ApproverOperator || a == ApproverHarness }
+// ApproverProductManager is the Lead Product Manager approving a change to the
+// product's intent she recorded as consistent with it. It is spelled as her
+// role is, so the record names her the way every revision she makes does.
+const ApproverProductManager = Approver(domain.RoleProductManager)
+
+func (a Approver) Valid() bool {
+	return a == ApproverOperator || a == ApproverHarness || a == ApproverProductManager
+}
+
+// Title is how an approver is named to a person.
+func (a Approver) Title() string {
+	if a == ApproverProductManager {
+		return domain.RoleProductManager.Title()
+	}
+	return string(a)
+}
 
 // Approval is one recorded approval: which revision of the document was
 // approved, who approved it, when, and how the approval was given.
@@ -115,7 +136,15 @@ func (a Approval) Validate() error {
 		problems = append(problems, fmt.Errorf("revision %d is not an index into a revision log", a.Revision))
 	}
 	if !a.By.Valid() {
-		problems = append(problems, fmt.Errorf("by %q must name the operator or harness", a.By))
+		problems = append(problems, fmt.Errorf("by %q must name the operator, the harness, or the %s", a.By, ApproverProductManager))
+	}
+	if a.By == ApproverProductManager {
+		if a.Policy != "" {
+			problems = append(problems, errors.New("the Lead Product Manager's approval is her decision rather than a policy's, and names none"))
+		}
+		if _, named := DirectingItem(a.Reason); !named {
+			problems = append(problems, errors.New("the Lead Product Manager's approval must open its reason with the work item that directed the change"))
+		}
 	}
 	if a.By == ApproverHarness && a.Policy != "approvals.designs" && a.Policy != "approvals.goals" && a.Policy != "approvals.brief" {
 		problems = append(problems, errors.New("harness confirmation requires a named approvals policy"))
@@ -141,7 +170,8 @@ const (
 	// ApprovalUnapproved records no approval at all.
 	ApprovalUnapproved ApprovalState = "unapproved"
 	// ApprovalApproved is approved as it stands: the last revision recorded is the
-	// one the operator approved.
+	// one the operator approved, or one the Lead Product Manager approved under
+	// the authority the operator delegated to her.
 	ApprovalApproved ApprovalState = "approved"
 	// ApprovalAmended was approved and has been amended since. The approval still
 	// stands for what it was given for, and the document as it now reads is not
@@ -248,6 +278,15 @@ func (a Artifact) approvalProblems() []error {
 			problems = append(problems, fmt.Errorf("approvals[%d] approves revision %d, which is not later than the revision approved before it; one revision is approved once, and approvals are recorded in the order they were given",
 				index, approval.Revision))
 		}
+		// Her approval is recorded only for the change the operator delegated
+		// to her, so one naming any other revision is a claim of authority the
+		// record does not support.
+		if approval.By == ApproverProductManager && approval.Revision >= 0 && approval.Revision < len(a.Revisions) {
+			if delegated, why := a.Rewording(a.Revisions[approval.Revision]); !delegated {
+				problems = append(problems, fmt.Errorf("approvals[%d] is the %s's, and revision %d is not hers to approve: %s",
+					index, domain.RoleProductManager.Title(), approval.Revision, why))
+			}
+		}
 		if approval.Revision > previous {
 			previous = approval.Revision
 		}
@@ -289,10 +328,16 @@ func (p Policy) SettingFor(recorded Artifact) (name string, mode domain.Approval
 	return p.Setting(recorded.Kind)
 }
 
-// RequiresFor is Requires for one recorded document, by SettingFor.
+// RequiresFor reports that the operator's approval of one recorded document is
+// what this project asks for. For a document outside the product's intent that
+// is its setting being human. A document of the product's intent asks for it
+// whatever its setting says: only the operator approves a change of fundamental
+// intent, and what the Lead Product Manager may approve instead is a change she
+// recorded as consistent with intent, which is approved as hers (see
+// publication.go) rather than left to a setting.
 func (p Policy) RequiresFor(recorded Artifact) bool {
-	_, mode, governed := p.SettingFor(recorded)
-	return governed && mode == domain.ApprovalHuman
+	name, mode, governed := p.SettingFor(recorded)
+	return governed && (mode == domain.ApprovalHuman || IntentPolicy(name))
 }
 
 func (p Policy) inSpecificationsHome(documentPath string) bool {

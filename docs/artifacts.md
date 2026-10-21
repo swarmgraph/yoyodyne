@@ -93,26 +93,35 @@ checks.
 fundamental intent if the goals would afterwards admit work they refused before,
 or refuse work they admitted; that is yours to approve. Anything else is a
 consistent rewording or a decision the goals already delegate, and it is the
-Lead Product Manager's to make. Which one a change is, is said on the amendment
-itself: one the Lead Product Manager records as `intent: consistent`, with a
-reason that opens with the work item that directed it —
+Lead Product Manager's to make. The mark applies to the whole specifications
+directory — the brief, the goals, the non-goals, the operating rules, and any
+other document filed there — and to a creation as well as a revision. Which one
+a change is, is said on the revision itself: one the Lead Product Manager
+records as `intent: consistent`, with a reason that opens with the work item
+that directed it —
 `yoyodyne-ifd.437.11 - the autonomy goal names the Lead Product Manager` — leaves
-the goals document approved, leaves admissions against its goals exactly as they
+the document approved, leaves admissions against its goals exactly as they
 were, and is listed by [`yoyo stale`](#what-a-change-upstream-leaves-stale) as a
-rewording rather than an amendment. One recorded as `intent: fundamental`, and
-one that does not say which it is, reads as amended-since and puts admissions
-back to you, as every amendment did before: the default is yours, and it takes
-the Lead Product Manager's recorded claim to move off it. The
-[configuration guide](configuration.md#approving-a-document) says what else the
-record has to carry for the claim to count.
+rewording rather than an amendment. Written from her conversation, it is
+recorded as approved by her, naming her and that item, and is not put to you:
+that is how a document recording rules you already gave is created approved.
+One recorded as `intent: fundamental`, and one that does not say which it is,
+reads as amended-since — or, as a creation, as unapproved — and is put to you,
+whatever `approvals.brief` or `approvals.goals` says: the default is yours, and
+it takes the Lead Product Manager's recorded claim to move off it. `yoyo
+artifact list` and `show` say which, naming whose approval a document carries.
+The [configuration guide](configuration.md#approving-a-document) says what else
+the record has to carry for the claim to count.
 
 What is
-asked of you is your configuration's to say: `approvals.brief` and
+asked of you is otherwise your configuration's to say: `approvals.brief` and
 `approvals.goals` are `human`, `approvals.designs` is `automatic`, and a decision
 record is an account of how something was decided rather than a statement of
 intent, so it is governed by `approvals.designs` as a design is. A document filed in the
 specifications directory that is neither the brief nor the goals is asked for as
-the goals are, under `approvals.goals`, whatever its kind.
+the goals are, under `approvals.goals`, whatever its kind. Setting either of
+those two to `automatic` does not let the harness confirm a document of the
+product's intent; that stays yours, or the Lead Product Manager's as above.
 
 **Recording an approval gates one thing: what reaches the work queue.** An
 unapproved document still loads, still governs what is downstream of it, and
@@ -315,11 +324,15 @@ owning role which was kept.
 A policy that is not automatic retains operator confirmation. A document of
 the product's intent — anything governed by `approvals.brief` or
 `approvals.goals`, which takes in the non-goals, the operating rules, and every
-document filed in the specifications directory — also retains it unless it is a
-revision the Lead Product Manager recorded as `intent: consistent`, with the
-directing work item opening the reason. A new document of intent is always put
-to you.
-For these documents, you are shown what would happen and the document itself,
+document filed in the specifications directory — answers to neither setting.
+A creation or revision of one that the Lead Product Manager recorded as
+`intent: consistent`, with the directing work item opening the reason, is not
+put to you: it is recorded as approved by her, naming her and that item, and
+lands through a reviewed run as a confirmed document does — left on its branch
+for you to merge where `approvals.integration` is not `automatic`, as every
+change there is. Any other creation or revision of one is put to you, however
+those settings are set.
+For the documents put to you, you are shown what would happen and the document itself,
 and asked:
 
 ```

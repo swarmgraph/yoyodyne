@@ -622,3 +622,46 @@ func TestAnApprovedGoalsDocumentNamesTheRewordingsItStandsThrough(t *testing.T) 
 		}
 	}
 }
+
+// What a listing and a show say of a document of the product's intent is whose
+// approval it carries and whether it is the operator's to give. One the Lead
+// Product Manager approved names her and the directing item and says he was not
+// asked; one waiting on him says so although its setting is automatic, because
+// only he approves a change of fundamental intent.
+func TestAProductDocumentSaysWhetherItsApprovalIsTheOperatorsOrTheLeadProductManagers(t *testing.T) {
+	t.Parallel()
+
+	createdAt := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	rules := artifact.Artifact{
+		ID: "operating-rules", Kind: artifact.KindRules, Title: "Operating rules", Status: artifact.StatusActive, Path: "docs/product/operating-rules.md",
+		Revisions: []artifact.Revision{{Action: artifact.ActionCreated, By: domain.RoleProductManager, At: createdAt,
+			Reason: "yoyodyne-ifd.433.17 - rules the operator already gave", Intent: artifact.IntentConsistent}},
+	}
+	rules.Approvals = []artifact.Approval{{Revision: 0, By: artifact.ApproverProductManager, At: createdAt, Reason: artifact.DelegatedApprovalReason(rules.Revisions[0])}}
+	if err := rules.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	policy := artifact.Policy{Goals: domain.ApprovalHuman, SpecificationsHome: "docs/product"}
+	rendered := renderArtifactApproval(rules, policy)
+	for _, want := range []string{"approved as it stands", "given by the Lead Product Manager", "directed by yoyodyne-ifd.433.17", "you were not asked"} {
+		if !strings.Contains(rendered, want) {
+			t.Fatalf("rendered = %q, want it to contain %q", rendered, want)
+		}
+	}
+	listed := artifactApprovals([]artifact.Artifact{rules}, policy)["operating-rules"]
+	if listed.State != artifact.ApprovalApproved || listed.Approval == nil || listed.Approval.By != artifact.ApproverProductManager {
+		t.Fatalf("listed = %+v", listed)
+	}
+
+	unmarked := rules
+	unmarked.Revisions = []artifact.Revision{{Action: artifact.ActionCreated, By: domain.RoleProductManager, At: createdAt, Reason: "yoyodyne-ifd.433.17 - new rules"}}
+	unmarked.Approvals = nil
+	automatic := artifact.Policy{Goals: domain.ApprovalAutomatic, SpecificationsHome: "docs/product"}
+	rendered = renderArtifactApproval(unmarked, automatic)
+	if !strings.Contains(rendered, "yours to approve although approvals.goals is automatic") {
+		t.Fatalf("rendered = %q", rendered)
+	}
+	if listed := artifactApprovals([]artifact.Artifact{unmarked}, automatic)["operating-rules"]; !listed.Required || listed.State != artifact.ApprovalUnapproved {
+		t.Fatalf("listed = %+v", listed)
+	}
+}
