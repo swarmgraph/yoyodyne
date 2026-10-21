@@ -42,6 +42,10 @@ revisions:
       by: architect
       at: 2026-10-19T07:43:52.708307Z
       reason: Answers the development manager's warning (report-0a2ba84a). The section kept as design now names the build work it waits on, the work on approving the product documents (yoyodyne-ifd.433.19), instead of describing it as the change asked for on October 18. Nothing else changes; the enforced list already claims only what the approval code does.
+    - action: amended
+      by: architect
+      at: 2026-10-21T15:54:25.305554Z
+      reason: Approved amendment e3732c89, proposed by the developer building the approval of product documents. The section kept as design, still marked not yet built, now says an unmarked document of any kind in the product home waits for the operator whatever its approval setting, and that the Lead Product Manager's approval is refused on any revision other than the one she marked. This matches that build's done-means, so its reviewer reads a design that agrees with it. Point 3 and the enforced list are unchanged until the build lands.
 approvals:
     - policy: approvals.designs
       revision: 4
@@ -68,6 +72,11 @@ approvals:
       by: harness
       at: 2026-10-19T07:43:52.708307Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1264, for document-1264.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 9
+      by: harness
+      at: 2026-10-21T15:54:25.305554Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1425, for document-1425.1 under the automatic approval policy
 ---
 # The artifact contract: specification shape and identity
 
@@ -120,17 +129,17 @@ One exception remains. A project that keeps its product documents in a repositor
 
 ## Marking a Lead Product Manager document's intent: designed, not yet built
 
-This section is design the harness does not yet carry out. It comes from the approved proposals amendment-8f47877a and amendment-4154b71c. Building it is the work on approving the product documents (yoyodyne-ifd.433.19). Until that work lands, point 3 above is what the harness does, and the description of the approval code in `docs/authority-inventory.md` stays correct.
+This section is design the harness does not yet carry out. It comes from the approved proposals amendment-8f47877a and amendment-4154b71c, and from amendment-e3732c89, approved on October 21. Building it is the work on approving the product documents (yoyodyne-ifd.433.19). Until that work lands, point 3 above is what the harness does, and the description of the approval code in `docs/authority-inventory.md` stays correct.
 
-Once built, every document the Lead Product Manager owns — brief, goals, non-goals, rules and guidance, whether she creates it or revises it — is confirmed by one of three cases:
+Once built, every document the Lead Product Manager owns — brief, goals, non-goals, rules and guidance, whether she creates it or revises it — is confirmed by one of three cases, and no approval setting confirms one on its own:
 
-- **Marked consistent with intent,** with its directing work item opening the reason. The harness confirms it without asking the operator, whatever the kind's approval setting, under the authority the operator gave her on September 26. The approval is recorded as hers, never as the operator's.
+- **Marked consistent with intent,** with its directing work item opening the reason. The harness confirms it without asking the operator, whatever the kind's approval setting, under the authority the operator gave her on September 26. The approval is recorded as hers, naming her and the directing item, never as the operator's, and it is refused where it would be attached to any revision other than the one she marked.
 - **Marked as a change of fundamental intent.** It always waits for the operator's approval, whatever the kind's approval setting.
-- **Not marked.** A brief or goals document waits for the operator. A non-goals, rules or guidance document follows its kind's approval setting.
+- **Not marked.** It waits for the operator's approval, whatever its kind and whatever its kind's approval setting.
 
-The test for which mark applies is the one in [who approves a change to intent](../decisions/who-approves-a-change-to-intent.md): a change that would make the goals admit work they refused, or refuse work they admitted, is fundamental, and any other change is consistent. The last case is narrower than asking the operator for everything not marked because the rules and the guidance on writing a goal were created without his approval, and requiring it now would hold them back for no reason.
+The test for which mark applies is the one in [who approves a change to intent](../decisions/who-approves-a-change-to-intent.md): a change that would make the goals admit work they refused, or refuse work they admitted, is fundamental, and any other change is consistent. A document that is not marked waits for the operator because only the Lead Product Manager can say that a change leaves intent where it was. Where she has not said so, the harness has no grounds to treat the change as consistent, and the operator decides. This adds no routine approval for him: any change she marks consistent is still confirmed without him. An earlier version of this section let an unmarked non-goals, rules or guidance document follow its kind's approval setting; that was dropped because it let a setting stand in for her judgment.
 
-The change is built when the harness: accepts the consistent mark on a document she creates as well as one she revises; confirms a consistent document whatever its kind's setting; records that approval under the Lead Product Manager; reads the mark for non-goals, rules and guidance; and holds a fundamental one of any kind for the operator. When it lands, these cases move into point 3 and the enforced list, and this section is retired, in the same revision.
+The change is built when the harness: accepts the consistent mark on a document she creates as well as one she revises; confirms a consistent document whatever its kind's setting; records that approval under the Lead Product Manager and refuses it on any other revision; reads the mark for non-goals, rules and guidance; and holds a fundamental or unmarked one of any kind for the operator. When it lands, these cases move into point 3 and the enforced list, and this section is retired, in the same revision.
 
 ## What the harness enforces
 
