@@ -28,10 +28,9 @@ package runstate
 // place (internal/redeploy), which keeps both its process number and the start
 // time the operating system reports, so a run taken by the scheduler's earlier
 // program names a process that is still running and still started when it said
-// it did. Only the program knows when it began, so only a process reading a
-// worker that names its own number can settle the question this way; it is
-// what keeps the scheduler from taking a run its earlier program held for one
-// it holds itself.
+// it did. Only the program knows when it began, so each program writes it down
+// where every process can read it (program.go), and every reader of a worker
+// holds it to that record.
 
 import (
 	"errors"
@@ -77,31 +76,6 @@ var programStartedAt = time.Now().UTC()
 
 // ProgramStartedAt is when the program this process is running began.
 func ProgramStartedAt() time.Time { return programStartedAt }
-
-// replacedProgram reports a worker or stamp that names this very process as it
-// was before the program now running in it began, and says so in a sentence a
-// person reads. Such a worker is gone: the program that took the run is no
-// longer running anywhere. A worker naming any other process is not judged
-// here, because no process can read when another's program began. A stamp from
-// a build that recorded no worker, or a worker with no program start time,
-// naming this process was written by an earlier program, since this one
-// records both.
-func replacedProgram(pid int, worker *WorkerIdentity) (bool, string) {
-	if pid != os.Getpid() {
-		return false, ""
-	}
-	now := programStartedAt.Local().Format(personTime)
-	switch {
-	case worker == nil:
-		return true, fmt.Sprintf("pid %d is this process, whose program started at %s; the stamp was written by an earlier program in it, from a build that recorded no worker", pid, now)
-	case worker.ProgramStartedAt.IsZero():
-		return true, fmt.Sprintf("pid %d is this process, whose program started at %s; attempt %d's worker was an earlier program in it, from a build that recorded no program start time", pid, now, worker.Attempt)
-	case !worker.ProgramStartedAt.Equal(programStartedAt):
-		return true, fmt.Sprintf("pid %d is this process, whose program started at %s; attempt %d's worker was an earlier program in it, started at %s", pid, now, worker.Attempt,
-			worker.ProgramStartedAt.Local().Format(personTime))
-	}
-	return false, ""
-}
 
 // personTime is how a time is written in a sentence a person reads: local, with
 // its zone named.
@@ -248,12 +222,11 @@ func (s *Store) Holder(runID string) (*LeaseHolder, error) {
 // The operating system is asked first, because what it says settles the
 // question outright when the answer is no: a number nothing has, or a number
 // now held by a process that started at another time — a reused number — is a
-// worker that is gone, whatever the stamp says. A number that is this process's
-// own is then held to when this process's program began, which settles it the
-// same way. Only a process that matches is then held to the stamp, which must
-// name the same worker the record does. A worker recorded without its program's
-// start time, naming another process, is never live: that process may have
-// replaced its program since, and nothing here can tell.
+// worker that is gone, whatever the stamp says. The program the process runs
+// now is then asked of the rule every reader applies (programVerdict): an
+// earlier program in the process is a worker that is gone the same way. Only a
+// process that matches is then held to the stamp, which must name the same
+// worker the record does, and a program the rule cannot name is never live.
 func (s *Store) Worker(state State, now time.Time) WorkerReading {
 	reading := WorkerReading{Recorded: state.Worker, ObservedAt: now.UTC()}
 	holder, holderErr := s.Holder(state.RunID)
@@ -287,8 +260,9 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 		return absent(fmt.Sprintf("pid %d now belongs to a process started at %s, not attempt %d's worker, which started at %s",
 			recorded.PID, look.StartedAt.UTC().Format(time.RFC3339), recorded.Attempt, recorded.StartedAt.UTC().Format(time.RFC3339)))
 	}
-	if replaced, says := replacedProgram(recorded.PID, recorded); replaced {
-		return absent(says)
+	program, programSays := s.programVerdict(recorded.PID, recorded, look)
+	if program == programReplaced {
+		return absent(programSays)
 	}
 	switch {
 	case holderErr != nil:
@@ -300,8 +274,8 @@ func (s *Store) Worker(state State, now time.Time) WorkerReading {
 	case !holder.Worker.Same(*recorded):
 		return uncertain(fmt.Sprintf("the run's lease is stamped by attempt %d, pid %d, and the record names attempt %d, pid %d; a new attempt may be starting",
 			holder.Worker.Attempt, holder.Worker.PID, recorded.Attempt, recorded.PID))
-	case recorded.ProgramStartedAt.IsZero():
-		return uncertain(fmt.Sprintf("attempt %d's worker, pid %d, was recorded by a build that wrote down no program start time, so whether the process has replaced its program since cannot be told", recorded.Attempt, recorded.PID))
+	case program == programUnknown:
+		return uncertain(programSays)
 	}
 	reading.Liveness = WorkerLive
 	reading.Says = fmt.Sprintf("attempt %d's worker, pid %d, started at %s running a program started at %s on build %s, holds the run's lease", recorded.Attempt, recorded.PID,

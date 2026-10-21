@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -301,7 +302,150 @@ func TestAWorkerRecordedWithoutStartTimesIsUncertain(t *testing.T) {
 		t.Fatal(err)
 	}
 	writeStamp(t, store, other.RunID, *other.Worker)
+	writeProgram(t, store, programRecord{PID: os.Getppid(), StartedAt: parent.StartedAt.UTC(), ProgramStartedAt: time.Now().UTC()})
 	if reading := store.Worker(other, time.Now()); reading.Liveness != WorkerUncertain || !strings.Contains(reading.Says, "no program start time") {
 		t.Fatalf("Worker() naming another process with no program start time = %+v, want uncertain", reading)
+	}
+}
+
+// writeProgram records, in another process's name, which program is running in
+// it, as that program's StartProgram would.
+func writeProgram(t *testing.T, store *Store, record programRecord) {
+	t.Helper()
+	path := store.programPath(record.PID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A reader in another process applies the same rule as the worker's own: the
+// worker names a process by its number, the start time the operating system
+// reports, and when its program began, and the record the program running there
+// now wrote says which program that is. The same program is live; an earlier
+// one is gone, never a live worker that let go of the run; a process nothing
+// recorded a program for, or a record left by an earlier process with the same
+// number, is uncertain.
+func TestAnotherProcessIsHeldToTheProgramItRecorded(t *testing.T) {
+	t.Parallel()
+
+	parent, err := LookProcess(os.Getppid())
+	if err != nil || !parent.Running() || parent.StartedAt.IsZero() {
+		t.Skipf("the operating system reports no start time for this test's parent (%+v, %v)", parent, err)
+	}
+	began := time.Date(2026, 10, 5, 20, 12, 0, 0, time.UTC)
+	worker := WorkerIdentity{PID: os.Getppid(), StartedAt: parent.StartedAt.UTC(), ProgramStartedAt: began, Build: "abcdef1", Attempt: 1}
+	for _, tc := range []struct {
+		name     string
+		record   *programRecord
+		liveness WorkerLiveness
+		held     bool
+		says     string
+	}{
+		{"the program that took the run", &programRecord{PID: os.Getppid(), StartedAt: parent.StartedAt.UTC(), ProgramStartedAt: began}, WorkerLive, true, "holds the run's lease"},
+		{"a later program in the same process", &programRecord{PID: os.Getppid(), StartedAt: parent.StartedAt.UTC(), ProgramStartedAt: began.Add(15 * 24 * time.Hour)}, WorkerAbsent, false, "was an earlier program in it"},
+		{"no record of the program", nil, WorkerUncertain, true, "no record says which program"},
+		{"a record from an earlier process with the number", &programRecord{PID: os.Getppid(), StartedAt: parent.StartedAt.Add(-time.Hour).UTC(), ProgramStartedAt: began.Add(time.Hour)}, WorkerUncertain, true, "no record says which program"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			store := newTestStore(t)
+			state := testState(t, StatusRunning)
+			named := worker
+			named.RunID = state.RunID
+			state.Worker = &named
+			if err := store.Create(state); err != nil {
+				t.Fatal(err)
+			}
+			writeStamp(t, store, state.RunID, named)
+			if tc.record != nil {
+				writeProgram(t, store, *tc.record)
+			}
+			reading := store.Worker(state, time.Now())
+			if reading.Liveness != tc.liveness || !strings.Contains(reading.Says, tc.says) || strings.Contains(reading.Says, "let go") {
+				t.Fatalf("Worker() = %+v, want %s saying %q", reading, tc.liveness, tc.says)
+			}
+			if held, err := store.Held(state.RunID); err != nil || held != tc.held {
+				t.Fatalf("Held() = %v, %v, want %v", held, err, tc.held)
+			}
+		})
+	}
+}
+
+// A program starting records itself where every process can read it, and lets
+// go of each lease an earlier program in its process left stamped, through the
+// lease: the stamp goes and the lease is free. A stamp this program wrote, and a
+// lease another holder has taken since, are left as they are.
+func TestAStartingProgramRecordsItselfAndReleasesWhatItsEarlierProgramLeft(t *testing.T) {
+	t.Parallel()
+
+	look, err := LookProcess(os.Getpid())
+	if err != nil || look.StartedAt.IsZero() {
+		t.Skipf("the operating system reports no start time here (%+v, %v)", look, err)
+	}
+	store := newTestStore(t)
+	current := WorkerIdentity{PID: os.Getpid(), StartedAt: look.StartedAt.UTC(), ProgramStartedAt: ProgramStartedAt(), Attempt: 1}
+	earlier := current
+	earlier.ProgramStartedAt = ProgramStartedAt().Add(-time.Hour)
+
+	left := testState(t, StatusRunning)
+	ours := testState(t, StatusRunning)
+	taken := testState(t, StatusRunning)
+	for _, run := range []struct {
+		state  State
+		worker WorkerIdentity
+	}{{left, earlier}, {ours, current}, {taken, earlier}} {
+		worker := run.worker
+		worker.RunID = run.state.RunID
+		run.state.Worker = &worker
+		if err := store.Create(run.state); err != nil {
+			t.Fatal(err)
+		}
+		writeStamp(t, store, run.state.RunID, worker)
+	}
+	// Another holder has the third run's lease now.
+	leasePath, err := store.leasePath(taken.RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	holding, err := os.OpenFile(leasePath, os.O_RDWR|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer holding.Close()
+	if held, err := tryLockStateFile(holding); err != nil || !held {
+		t.Fatalf("take the third run's lease = %v, %v", held, err)
+	}
+
+	if err := store.StartProgram(); err != nil {
+		t.Fatalf("StartProgram() error = %v", err)
+	}
+	record, known := store.readProgram(os.Getpid())
+	if !known || !record.ProgramStartedAt.Equal(ProgramStartedAt()) || !sameStart(record.StartedAt, look.StartedAt) {
+		t.Fatalf("program record = %+v, %v; want this program's start time", record, known)
+	}
+	stamped := func(runID string) bool {
+		path, err := store.holderPath(runID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = os.Stat(path)
+		return err == nil
+	}
+	if stamped(left.RunID) || !stamped(ours.RunID) || !stamped(taken.RunID) {
+		t.Fatalf("stamps after StartProgram: earlier program's %v, this program's %v, another holder's %v; want only the earlier program's gone",
+			stamped(left.RunID), stamped(ours.RunID), stamped(taken.RunID))
+	}
+	// The earlier program's lease is free for the sweep to take.
+	if _, lease, err := store.AdoptRun(context.Background(), left.RunID); err != nil {
+		t.Fatalf("AdoptRun() of the released run = %v", err)
+	} else {
+		lease.Release()
 	}
 }

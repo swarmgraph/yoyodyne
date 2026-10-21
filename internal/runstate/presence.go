@@ -48,10 +48,11 @@ type runHolder struct {
 // that wrote it, and where it is not, says why. A stamp that recorded its
 // process's start time is held to it, so a number the operating system has
 // handed to another process reads as the holder gone rather than as the holder;
-// and a stamp naming this process is held to when its program began, so one an
-// earlier program in this process left behind reads as gone too
-// (replacedProgram).
-func holderRunning(holder runHolder) (bool, string, error) {
+// and the program it names is held to the rule every reader applies
+// (programVerdict), so a stamp an earlier program in the process left behind
+// reads as gone too. A program the rule cannot name is given the benefit of the
+// doubt, as every reading before the rule existed was.
+func (s *Store) holderRunning(holder runHolder) (bool, string, error) {
 	look, err := LookProcess(holder.PID)
 	if err != nil {
 		return false, "", err
@@ -63,7 +64,7 @@ func holderRunning(holder runHolder) (bool, string, error) {
 		return false, fmt.Sprintf("the process that held it, pid %d, has exited without recording an ending, and its number now belongs to a process started at %s",
 			holder.PID, look.StartedAt.Local().Format(personTime)), nil
 	}
-	if replaced, says := replacedProgram(holder.PID, holder.Worker); replaced {
+	if verdict, says := s.programVerdict(holder.PID, holder.Worker, look); verdict == programReplaced {
 		return false, "the program that held it has been replaced without recording an ending: " + says, nil
 	}
 	return true, "", nil
@@ -98,7 +99,7 @@ func (s *Store) Held(runID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	running, _, err := holderRunning(holder)
+	running, _, err := s.holderRunning(holder)
 	return running, err
 }
 
@@ -139,7 +140,7 @@ func (s *Store) Presence(state State, quiet time.Duration, now time.Time) (RunPr
 	case err != nil:
 		return RunPresence{Found: true}, err
 	}
-	running, gone, err := holderRunning(holder)
+	running, gone, err := s.holderRunning(holder)
 	if err != nil {
 		return RunPresence{Found: true}, fmt.Errorf("ask whether run %s's holder is running: %w", state.RunID, err)
 	}
@@ -185,9 +186,18 @@ func (s *Store) holderPath(runID string) (string, error) {
 
 // stampLease writes this process's stamp, as the worker it took the run as,
 // beside a run lease it now holds, and has the lease clear it when let go.
+//
+// The program records itself first (StartProgram), so a reader in another
+// process can name the program this stamp is from. A lease taken by a program
+// that could not record itself is refused, for the reason a lease that cannot
+// be stamped is; failing to release what an earlier program left refuses
+// nothing, because those leases are not this run's.
 func (s *Store) stampLease(lease *Lease, runID string, worker WorkerIdentity) error {
 	path, err := s.holderPath(runID)
 	if err != nil {
+		return err
+	}
+	if err := s.StartProgram(); err != nil && !programStarted(s.root) {
 		return err
 	}
 	if err := s.stampRunHolder(path, worker); err != nil {

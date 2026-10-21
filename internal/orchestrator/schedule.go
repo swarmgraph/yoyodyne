@@ -5005,7 +5005,7 @@ func (s Scheduler) nextCarryOuts(schedule *Schedule, pull Pull, occupied map[str
 		// including the gap before the pipeline acquires the run lease.
 		_, ours := mine[task.WorkItemID]
 		if busy && (!reusesSlot || ours) {
-			pass(task, "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once")
+			pass(task, occupiedWhy(pull.Runs, state, s.now()))
 			continue
 		}
 		if gate, stopped := waitingOn[task.WorkItemID]; stopped && closed.stillShut(gate) {
@@ -6513,6 +6513,18 @@ type freedSlot struct {
 	runID      string
 	workItemID string
 	ours       bool
+}
+
+// occupiedWhy says why a decision about an item that has a run is passed over.
+// A run this session started and that has not reserved has no record yet, and
+// is said as that; a reserved run is named, with whose it is by the worker
+// identity every reader applies, so a run an earlier program in this process
+// left in flight is never described as one this session started.
+func occupiedWhy(runs ScheduleRuns, state runstate.State, now time.Time) string {
+	if state.RunID == "" {
+		return "this session had already started a run of the item that had not yet reserved, and one item is never given two runs at once"
+	}
+	return fmt.Sprintf("run %s of the item is recorded as %s, and one item is never given two runs at once; %s", state.RunID, state.Status, inFlightWorker(runs, state, now))
 }
 
 // freedSince reads which slots freed since the last pull. The runs of this

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -45,22 +46,67 @@ func leaveStamp(t *testing.T, runs *runstate.Store, worker runstate.WorkerIdenti
 	}
 }
 
-// A decided re-run starts when the stopped run it replaces names the
-// scheduler's own process number, recorded by the program the scheduler ran
-// before it took up a new build: that run is not one this scheduler started,
-// and nothing about it holds the item.
+// A decided re-run waits while another run of its item is still recorded in
+// flight, because one item is never given two runs at once. Where that run
+// names the scheduler's own process number from the program the scheduler ran
+// before it took up a new build, it is not one this scheduler started: the
+// account says so and says its worker is gone, the earlier program's stamp is
+// let go of when the scheduler's program starts, and once the run is ended the
+// decided re-run starts on the next pass.
 func TestADecidedRerunStartsWhenItsOldRunNamesTheSchedulersOwnProcess(t *testing.T) {
 	t.Parallel()
 
-	state := stoppedState()
-	worker := earlierProgramWorker(t, state.RunID)
-	state.Worker = &worker
-	harness := newRerunHarness(t, state)
+	harness := newRerunHarness(t, stoppedState())
+	left := stoppedState()
+	left.RunID = "run-0123456789abcdef0123456789abcdee"
+	left.Status, left.CompletedAt, left.Blocker = runstate.StatusRunning, nil, ""
+	left.CheckFailure, left.ReviewFindingDetails, left.ReviewFindings, left.ReviewSummary = nil, nil, 0, ""
+	worker := earlierProgramWorker(t, left.RunID)
+	left.Worker = &worker
+	if err := harness.runs.Create(left); err != nil {
+		t.Fatalf("Create() of the run the earlier program left = %v", err)
+	}
 	leaveStamp(t, harness.runs, worker)
-	if held, err := harness.runs.Held(state.RunID); err != nil || held {
-		t.Fatalf("Held() over an earlier program's stamp = %v, %v; want not held", held, err)
+
+	// Every reader, in this process or any other, takes the earlier program's
+	// worker for gone rather than for the scheduler's own.
+	if reading := harness.runs.Worker(left, time.Now()); reading.Liveness != runstate.WorkerAbsent {
+		t.Fatalf("Worker() of the earlier program's run = %+v, want gone", reading)
 	}
 	carrying := harness.carryOut()
+	reading, err := carrying.read()
+	if err != nil || len(reading.tasks) != 0 || len(reading.held) != 1 {
+		t.Fatalf("read() = %+v, %v; want the re-run held while the earlier program's run is in flight", reading, err)
+	}
+	why := reading.held[0].why
+	for _, want := range []string{left.RunID, "not started by this session", "its worker is gone", "earlier program"} {
+		if !strings.Contains(why, want) {
+			t.Fatalf("why the re-run waits = %q, want it to say %q", why, want)
+		}
+	}
+
+	// The scheduler's program starting lets go of what its earlier program left.
+	if err := harness.runs.StartProgram(); err != nil {
+		t.Fatalf("StartProgram() error = %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(harness.runs.Root(), left.RunID+".holder")); !os.IsNotExist(err) {
+		t.Fatalf("the earlier program's stamp is still beside the lease after the program started (%v)", err)
+	}
+	// The run is ended the way the sweep ends a run with no process behind it:
+	// its lease, which nothing holds now, is taken and the run recorded as ended.
+	adopted, lease, err := harness.runs.AdoptRun(context.Background(), left.RunID)
+	if err != nil {
+		t.Fatalf("AdoptRun() of the earlier program's run = %v", err)
+	}
+	ended := time.Now().UTC()
+	adopted.Status, adopted.CompletedAt, adopted.Blocker = runstate.StatusFailed, &ended, "its worker was an earlier program in the scheduler's process"
+	if err := harness.runs.Save(adopted); err != nil {
+		t.Fatalf("Save() ending the earlier program's run = %v", err)
+	}
+	if err := lease.Release(); err != nil {
+		t.Fatal(err)
+	}
+
 	pulls := newScheduleHarness()
 	scheduler := Scheduler{Limit: 1, Open: func(ctx context.Context) (Pull, error) {
 		pull, err := pulls.open(ctx)
@@ -73,6 +119,35 @@ func TestADecidedRerunStartsWhenItsOldRunNamesTheSchedulersOwnProcess(t *testing
 	}
 	if len(schedule.CarriedOut) != 1 || !schedule.CarriedOut[0].Carried || len(harness.started) != 1 || harness.started[0].workItemID != docketedItem {
 		t.Fatalf("schedule = %s, started = %#v; want the decided re-run started", schedule.Render(), harness.started)
+	}
+}
+
+// The scheduler's check of whether it already started a run of an item names a
+// reserved run by whose it is: one an earlier program in this process left is
+// never described as one this session started.
+func TestTheSchedulerNeverCallsAnEarlierProgramsRunItsOwn(t *testing.T) {
+	t.Parallel()
+
+	harness := newRerunHarness(t, stoppedState())
+	left := stoppedState()
+	left.Status, left.CompletedAt = runstate.StatusRunning, nil
+	worker := earlierProgramWorker(t, left.RunID)
+	left.Worker = &worker
+	leaveStamp(t, harness.runs, worker)
+	why := occupiedWhy(harness.runs, left, time.Now())
+	for _, want := range []string{left.RunID, "not started by this session", "its worker is gone"} {
+		if !strings.Contains(why, want) {
+			t.Fatalf("occupiedWhy() = %q, want it to say %q", why, want)
+		}
+	}
+	current := worker
+	current.ProgramStartedAt = runstate.ProgramStartedAt()
+	left.Worker = &current
+	if why := occupiedWhy(harness.runs, left, time.Now()); !strings.Contains(why, "this session's own") {
+		t.Fatalf("occupiedWhy() for this program's run = %q, want it named as this session's", why)
+	}
+	if why := occupiedWhy(harness.runs, runstate.State{WorkItemID: left.WorkItemID}, time.Now()); !strings.Contains(why, "had already started a run of the item that had not yet reserved") {
+		t.Fatalf("occupiedWhy() before the run reserved = %q", why)
 	}
 }
 
