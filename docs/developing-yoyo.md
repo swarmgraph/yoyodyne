@@ -667,8 +667,13 @@ A compound is not read where it is not prose: inside a code span, a link's
 target, an HTML tag or comment, a fenced block, or frontmatter; touching a
 character that makes it part of a flag, a path, a file name, an address, or a
 key (`--stall-after`, `run-stops.md`, `docs/run-stops.md`); between a pair of quotes,
-where it is a value being named; or in a string with no space in it, which is a
-key or an identifier.
+where it is a value being named; in a string with no space in it, which is a
+key or an identifier; or as the identifier a Markdown list entry opens with,
+such as a goal's `- [visible-spend] The operator can see...`. That identifier
+is letters, digits, and single hyphens in square brackets straight after the
+list marker, at most 64 bytes, the same form the goals reader takes an
+identifier in. The same word anywhere else on the line, or in running prose, is
+still read.
 
 What is left is ordinary English, and passes, when:
 
