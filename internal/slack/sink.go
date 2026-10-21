@@ -239,8 +239,8 @@ type Sink struct {
 	// of what New wrote once.
 	sources *readmodel.Sources
 	// citing is what every post's text is read through on its way out, so each
-	// work item it names is beside its title. It is nil on a sink with no tracker
-	// to list, which posts text as it was written.
+	// work item it names is shown with its priority, labels, and title. It is
+	// nil on a sink with no tracker to list, which posts text as it was written.
 	citing *titleIndex
 	// pace is what keeps a catch-up from being posted faster than Slack will
 	// carry it. Every post goes through it, including the message that opens a

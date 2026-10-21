@@ -267,8 +267,10 @@ func (x *Index) shortCandidate(text, token string, end int) bool {
 
 // Expand is stored text with each reference's bytes replaced by the full id it
 // was resolved to, and every other byte kept. References that do not fit the
-// text, or overlap one before them, are passed over rather than trusted: a
-// record whose text and references disagree is shown as written.
+// text, overlap one before them, or cover bytes that are not the id or an
+// ending of it are passed over rather than trusted: a record whose text and
+// references disagree — text a redaction changed after its references were
+// found, say — is shown as written.
 func Expand(text string, references []Reference) string {
 	if len(references) == 0 {
 		return text
@@ -278,7 +280,11 @@ func Expand(text string, references []Reference) string {
 	var expanded strings.Builder
 	last := 0
 	for _, reference := range ordered {
-		if reference.Start < last || reference.End > len(text) || reference.Start >= reference.End || strings.TrimSpace(reference.ID) == "" {
+		if reference.Start < last || reference.Start < 0 || reference.End > len(text) || reference.Start >= reference.End || strings.TrimSpace(reference.ID) == "" {
+			continue
+		}
+		if covered := text[reference.Start:reference.End]; covered != reference.ID &&
+			!strings.HasSuffix(reference.ID, "."+covered) && !strings.HasSuffix(reference.ID, "-"+covered) {
 			continue
 		}
 		expanded.WriteString(text[last:reference.Start])

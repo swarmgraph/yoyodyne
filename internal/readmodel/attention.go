@@ -339,7 +339,7 @@ func (a Attention) CitedWhat() string {
 	return a.wording.Render(a.titles.CiteKnowing(a.What(), a.WorkItemID))
 }
 
-// CitedWhose is Whose with every work item it names shown beside its title.
+// CitedWhose is Whose with every work item it names shown with its priority, labels, and title.
 func (a Attention) CitedWhose() string {
 	return a.wording.Render(a.titles.CiteKnowing(a.Whose(), a.WorkItemID))
 }
@@ -863,7 +863,7 @@ type attentionWire struct {
 	What  string `json:"what"`
 	Whose string `json:"whose"`
 	// SaidWhat and SaidWhose are the two sentences as a person reads them, with
-	// each work item beside its title, and absent where that changes nothing.
+	// each work item with its priority, labels, and title, and absent where that changes nothing.
 	// They are what the dashboard shows; What and Whose stay the derivation, so
 	// a document read back is still held to its fields.
 	SaidWhat  string `json:"said_what,omitempty"`

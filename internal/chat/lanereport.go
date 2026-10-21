@@ -230,6 +230,16 @@ func (s *Session) writeLaneReportWithoutToolAudit(ctx context.Context, content *
 	case s.options.LaneReports == nil:
 		outcome.Failure = "no lane report store is wired to this conversation, so nothing was written"
 	default:
+		// The work items the report names are found as it is written, against
+		// the tracker as it stands now, which is the only time a short id can be
+		// resolved honestly.
+		if find := s.referencesFinder(); find != nil {
+			content.SummaryReferences = find(content.Summary)
+			content.RemainingReferences = nil
+			for _, entry := range content.Remaining {
+				content.RemainingReferences = append(content.RemainingReferences, find(entry))
+			}
+		}
 		written, err := s.options.LaneReports.Write(ctx, runstate.LaneReport{
 			ProductID: s.options.ProductID,
 			Agent:     s.options.Agent,

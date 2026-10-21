@@ -827,7 +827,7 @@ type Standing struct {
 	// dashboard's cards and groupings show these and assemble no name of their
 	// own. It is absent where no tracker was wired.
 	WorkItemNames map[string]string `json:"work_item_names,omitempty"`
-	wording *TextTerms
+	wording       *TextTerms
 }
 
 // maxUndecidedReportAge is how long the oldest report nobody has decided about

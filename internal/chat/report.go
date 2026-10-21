@@ -576,8 +576,8 @@ func reportedOn(subject report.Report) string {
 // filed at, and the plain line under a loud one says exactly that.
 //
 // A report is a role's own words, a program manager's digest among them, so
-// each is read with every work item it names beside its title: an item the
-// report named by number alone reaches the operator named.
+// each work item it names is shown with its priority, labels, and title
+// (readmodel.WorkItemTitles), from the references recorded with it.
 func renderCollectedReports(theme console.Theme, reports []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, now time.Time, wording ...*readmodel.TextTerms) string {
 	var words *readmodel.TextTerms
 	if len(wording) > 0 {

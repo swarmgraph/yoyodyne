@@ -424,56 +424,80 @@ are redirecting is the one running. It never changes the item's status: saying
 what to do differently is not deciding that the work is done or blocked. Start
 it again with `/work` when you want it retried.
 
-## Every work item beside its title
+## Every work item with its priority, labels, and title
 
-A work item's identifier is always shown with its title. Wherever the harness
-puts text in front of a person — the four lines of `yoyo status` and the
-needs-a-human line among them, a program manager's lane report and the card the
-dashboard opens on it, a pass's account in `yoyo sweeps`, the report pile a
-program manager's digest is filed into (`yoyo reports` and `/reports`), and
-every message the Slack sink posts — each identifier in it is shown beside the
-item's title, in plain words:
+A work item a person reads is shown with its priority, its labels, and its
+title, read from the tracker when the page or message is made, so the priority
+is the current one and a role only has to cite the id. Wherever the harness puts
+text in front of a person — the four lines of `yoyo status` and the
+needs-a-human line among them, the dashboard, a program manager's lane report
+and the card the dashboard opens on it, a pass's account in `yoyo sweeps`, the
+report pile and what became of each report (`yoyo reports` and `/reports`), and
+every message the Slack sink posts — each work item reference in it is shown
+this way. How a reference is kept, found, and shown is the "Work item
+references" section of
+[the observability design](designs/observability-and-dashboard.md#work-item-references),
+and one renderer in the read model (`internal/readmodel/titles.go`) does it for
+every surface.
+
+Where the harness lists items itself — a run on the running line, a held item,
+an entry of a lane report's opening lists, a card on the dashboard, a work
+item's Slack thread — each is named in the operator's form, priority and labels
+first, then the title, then the id:
 
 ```text
-Blocked on 434.9 (Price a resumed session at what it moved by) and 434.3 (Say the provider's reset in local time).
+(P1, reliability) A factory stall reaches the operator and a role at once (yoyodyne-ifd.428.59)
+(P2) Say the provider's reset in local time (yoyodyne-ifd.434.3)
 ```
 
-That holds whoever wrote the text. On 2026-09-26 a lane report named work as
-"434.9 and 434.3", with nothing saying what either was. The roles are told to
-name an item by what it is, and a surface that printed whatever a role wrote
-would still let the next bare number through, so the titles are put in by the
-read model as the text is shown rather than trusted to the writer.
+An item with no label shows only its priority, and labels are shown in
+alphabetical order. In text a role or the harness wrote, each id stays where it
+was written and is followed by the item's state, and every other byte is kept
+as written, including a title the writer put beside the id:
 
-Closed items are titled too. Most of what a report or a pass names has
-closed by the time anybody reads it, and `bd list` given no status leaves
-closed work out, so the titles are read from a listing that asks for every
-status; a test against `bd` itself holds that a closed item comes back with
-its title.
+```text
+Blocked by yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by); see yoyodyne-ifd.434.3 (P2: Say the provider's reset in local time).
+```
 
-An identifier the tracker holds nothing under is shown as `(unknown to the
-tracker)` rather than dropped or left bare. That applies to anything shaped
-like one of this tracker's identifiers — `yoyodyne-ifd.434.9`, or `ifd.434.9`
-where one root carries that hash. A bare dotted number like `434.9` is read as
-an item only where the tracker holds exactly one item it could name, because a
-dotted number is also a version, a price, a duration, or an address: `3.5 hours`
-and `$27.93` are left alone, and so is anything in a path, a link, or between
-backticks, where a title put into the middle would break what somebody is meant
-to type.
+A full id — the tracker's prefix, a hyphen, the item's hash, and any dotted
+children — is always read as a reference. A short id such as `434.9` or
+`ifd.434.9` is read as one only when the text is recorded, against the tracker
+as it stood then, and only where exactly one item ends in it: a report, what
+became of a report, and a lane report keep the references found when they were
+written, as each id and the bytes that named it, and show the short id as the
+full id it named. Text recorded before references were kept, and text kept with
+none, is read for full ids only; a short id in it is left as written, because
+whether it named exactly one item when it was written cannot be known now, and
+`yoyo reports` and `yoyo sweeps` count such ids under what they show. So
+`Go 1.22` is never shown as whichever item happens to end in `1.22`. Nothing in
+a path, a link, or between backticks is read as a reference, because a title put
+into the middle would break what somebody is meant to type.
 
-An item is titled once per piece of text: text that already says the title is
-left as written, and a later mention of an item already titled is left bare. The
-title is cut to a line where it runs longer. Where the tracker cannot be listed
-the text is shown as it was written, because calling every number unknown over
-a listing that failed would be false. The Slack sink lists the tracker at most
-once a minute rather than once a message, so an item admitted in the last minute
-can reach the channel by its number until the next listing.
+An id the tracker does not hold is shown as `(not in the tracker)`. When the
+tracker cannot be read, every reference is shown as
+`(tracker unreadable at 09:40 PDT)`, the time the reading was made in this
+machine's zone, and a surface that knows an id is a work item — a run's item,
+an entry's item, the item a Slack message is about — marks it whatever its
+shape. Nothing is dropped and no page or message fails over it. The Slack sink
+lists the tracker at most once a minute rather than once a message, so an item
+admitted in the last minute can reach the channel marked as not in the tracker
+until the next listing; a posted message is not edited when the tracker changes
+later.
+
+Closed items are shown too. Most of what a report or a pass names has closed by
+the time anybody reads it, and `bd list` given no status leaves closed work out,
+so the titles are read from a listing that asks for every status; a test against
+`bd` itself holds that a closed item comes back with its title.
 
 The records themselves are not changed. A lane report, a report, and a pass's
-account are kept exactly as their author wrote them, and `yoyo reports --json`
-and `yoyo sweeps --json` carry them that way. What the read model hands a
-surface is titled: a program manager's blockers in `yoyo status --json` and the
-lane report the dashboard's card reads, and the attention entries, which carry
-the titled sentences beside the derived ones as `said_what` and `said_whose`.
+account are kept exactly as their author wrote them, with any references beside
+the text, and `yoyo reports --json` and `yoyo sweeps --json` carry them that
+way. What the read model hands a surface is rendered: a program manager's
+blockers and lane entries in `yoyo status --json` and the lane report the
+dashboard's card reads, `work_item_names` beside the standing and the
+throughput, `named` on a work item's card, and the attention entries, which
+carry the rendered sentences beside the derived ones as `said_what` and
+`said_whose`.
 
 ## The words roles write for a person
 
@@ -615,7 +639,7 @@ target branch's tip:
 ```
 
 `yoyo reports` and `/reports` print it that way, each item
-[beside its title](#every-work-item-beside-its-title), and the reports carried into
+[with its priority, labels, and title](#every-work-item-with-its-priority-labels-and-title), and the reports carried into
 the Lead Product Manager's turn are printed the same way, with the instruction to
 check whether a fix has landed before admitting work from a report whose build
 is behind. A build behind the tip is not a verdict. It says the fix may already

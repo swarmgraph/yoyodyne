@@ -132,8 +132,8 @@ func readReports(args []string, stdout, stderr io.Writer) int {
 	// the one the channel says cannot come apart.
 	fmt.Fprintf(stdout, "reports: %s\n", report.SummarizeHandled(collected, handled, time.Now()).Describe())
 	// A report is a role's own words, a program manager's digest among them, so
-	// each is printed with every work item it names beside its title. A tracker
-	// that cannot be listed costs the titles and nothing else.
+	// each work item it names is printed with its priority, labels, and title.
+	// A tracker that cannot be listed marks each item as unreadable.
 	writeReports(stdout, theme, collected, handled, gauge, reportTitles(*configPath), reportTerms(*configPath))
 	// Why the counts are missing is said once, under the listing, rather than
 	// under every report it affects.
@@ -173,7 +173,7 @@ func reportBuilds(configPath string) (report.Builds, error) {
 }
 
 // writeReports prints each report dressed by its severity, with what became of
-// it plainly under it, and every work item either names beside its title.
+// it plainly under it, and every work item either names with its priority, labels, and title.
 func writeReports(out io.Writer, theme console.Theme, collected []report.Report, handled map[string]report.Handling, gauge *report.Gauge, titles *readmodel.WorkItemTitles, wording ...*readmodel.TextTerms) {
 	var words *readmodel.TextTerms
 	if len(wording) > 0 {

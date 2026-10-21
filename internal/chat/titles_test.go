@@ -11,11 +11,17 @@ import (
 )
 
 // A program manager's digest is a report, and it names work the way the lane
-// report the operator read on 2026-09-26 did: by number. The listing shows each
-// item beside its title, and an item the tracker does not hold as unknown.
-func TestTheReportListingShowsEveryItemBesideItsTitle(t *testing.T) {
+// report the operator read on 2026-09-26 did: by short id. Recorded with its
+// references, each is shown as the full id it named with the item's priority,
+// labels, and title; one the tracker does not hold says so; and a short id in a
+// report recorded before references were kept is left as written and counted.
+func TestTheReportListingShowsEveryItemWithItsState(t *testing.T) {
 	t.Parallel()
 
+	titles := readmodel.NewWorkItemTitles([]beads.WorkItem{
+		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by", Priority: 1, Labels: []string{"reliability"}},
+		{ID: "yoyodyne-ifd.434.3", Title: "Say the provider's reset in local time", Priority: 2},
+	})
 	digest := report.Report{
 		SchemaVersion: report.SchemaVersion,
 		ID:            "report-0123456789abcdef0123456789abcdef",
@@ -27,15 +33,16 @@ func TestTheReportListingShowsEveryItemBesideItsTitle(t *testing.T) {
 		Message:       "digest: admitted 434.9; objecting to 434.3; yoyodyne-ifd.999.1 is still open",
 		RecordedAt:    fixedClock{}.Now(),
 	}
-	titles := readmodel.NewWorkItemTitles([]beads.WorkItem{
-		{ID: "yoyodyne-ifd.434.9", Title: "Price a resumed session at what it moved by"},
-		{ID: "yoyodyne-ifd.434.3", Title: "Say the provider's reset in local time"},
-	})
-	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest}, nil, nil, titles, fixedClock{}.Now())
+	digest.References, _ = titles.References(digest.Message)
+	older := digest
+	older.ID, older.Message, older.References = "report-fedcba9876543210fedcba9876543210", "older: 434.9 is open", nil
+	rendered := renderCollectedReports(console.NewTheme(func(string) string { return "" }, nil), []report.Report{digest, older}, nil, nil, titles, fixedClock{}.Now())
 	for _, want := range []string{
-		"434.9 (Price a resumed session at what it moved by)",
-		"434.3 (Say the provider's reset in local time)",
-		"yoyodyne-ifd.999.1 (unknown to the tracker)",
+		"admitted yoyodyne-ifd.434.9 (P1, reliability: Price a resumed session at what it moved by)",
+		"objecting to yoyodyne-ifd.434.3 (P2: Say the provider's reset in local time)",
+		"yoyodyne-ifd.999.1 (not in the tracker)",
+		"older: 434.9 is open",
+		"1 short work item id above was written before work item references were kept",
 	} {
 		if !strings.Contains(rendered, want) {
 			t.Errorf("renderCollectedReports() = %q, want it to carry %q", rendered, want)

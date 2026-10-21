@@ -41,6 +41,10 @@ type LaneEntry struct {
 	// the reading so a person reads the item by what it is.
 	Item  string `json:"item,omitempty"`
 	Title string `json:"title,omitempty"`
+	// Named is the item in the operator's form, "(P1, reliability) Retry the
+	// merge (ex-7)", from the reading's one listing of the tracker, and empty
+	// where no tracker was read.
+	Named string `json:"named,omitempty"`
 	// Record is the request the entry is about — a report, an amendment, or an
 	// exchange — where it is about one.
 	Record string `json:"record,omitempty"`
@@ -57,6 +61,8 @@ type LaneEntry struct {
 func (e LaneEntry) Says() string {
 	var said string
 	switch {
+	case e.Named != "":
+		said = e.Named
 	case e.Item != "" && e.Title != "":
 		said = fmt.Sprintf("%q (%s)", e.Title, e.Item)
 	case e.Item != "":
@@ -75,8 +81,10 @@ func (e LaneEntry) Says() string {
 // carries it: the entry the instance wrote, its item by what it is, and what the
 // record it cites says.
 type ProgramManagerHumanBlock struct {
-	Item   string                   `json:"item,omitempty"`
-	Title  string                   `json:"title,omitempty"`
+	Item  string `json:"item,omitempty"`
+	Title string `json:"title,omitempty"`
+	// Named is the item in the operator's form, as a lane entry's is.
+	Named  string                   `json:"named,omitempty"`
 	What   string                   `json:"what"`
 	Reason ownership.OperatorReason `json:"reason"`
 	// ReasonSays is the reason in the registry's words, so a surface says it as
@@ -99,6 +107,8 @@ type ProgramManagerHumanBlock struct {
 func (b ProgramManagerHumanBlock) Says() string {
 	var said string
 	switch {
+	case b.Named != "":
+		said = b.Named + ": "
 	case b.Item != "" && b.Title != "":
 		said = fmt.Sprintf("%q (%s): ", b.Title, b.Item)
 	case b.Item != "":
@@ -317,21 +327,30 @@ func hasLabel(labels []string, lane string) bool {
 	return false
 }
 
-// titleLaneEntries fills in what the tracker calls each item an entry names.
+// titleLaneEntries fills in what the tracker calls each item an entry names,
+// and the item in the operator's form.
 func titleLaneEntries(entries []LaneEntry, titles *WorkItemTitles) []LaneEntry {
 	for index := range entries {
-		if title, known := titles.Title(entries[index].Item); known && entries[index].Item != "" {
+		if entries[index].Item == "" {
+			continue
+		}
+		if title, known := titles.Title(entries[index].Item); known {
 			entries[index].Title = title
 		}
+		entries[index].Named = titles.Name(entries[index].Item)
 	}
 	return entries
 }
 
 func titleHumanBlocks(blocks []ProgramManagerHumanBlock, titles *WorkItemTitles) []ProgramManagerHumanBlock {
 	for index := range blocks {
-		if title, known := titles.Title(blocks[index].Item); known && blocks[index].Item != "" {
+		if blocks[index].Item == "" {
+			continue
+		}
+		if title, known := titles.Title(blocks[index].Item); known {
 			blocks[index].Title = title
 		}
+		blocks[index].Named = titles.Name(blocks[index].Item)
 	}
 	return blocks
 }

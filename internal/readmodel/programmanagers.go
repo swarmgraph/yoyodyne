@@ -44,6 +44,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/exchange"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // RestartRequests is the durable log of program managers' restart requests,
@@ -449,11 +450,15 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 		answer.Instance = citeProgramManager(answer.Instance, titles)
 		wording := ReadTextTerms(sources.Repository)
 		remaining := make([]string, 0, len(current.Report.Remaining))
-		for _, entry := range current.Report.Remaining {
-			remaining = append(remaining, wording.Render(titles.Cite(entry)))
+		for index, entry := range current.Report.Remaining {
+			var references []workref.Reference
+			if index < len(current.Report.RemainingReferences) {
+				references = current.Report.RemainingReferences[index]
+			}
+			remaining = append(remaining, wording.Render(titles.CiteRecorded(entry, references)))
 		}
 		answer.Report = &LaneReportText{
-			Summary:        wording.Render(titles.Cite(current.Report.Summary)),
+			Summary:        wording.Render(titles.CiteRecorded(current.Report.Summary, current.Report.SummaryReferences)),
 			Remaining:      remaining,
 			Version:        current.Version,
 			Pass:           current.Stamp.Pass,
@@ -468,7 +473,7 @@ func ReadProgramManagerReport(sources Sources, agent string) (ProgramManagerRepo
 }
 
 // citeProgramManager is an instance with every work item its report's
-// blockers name shown beside its title.
+// blockers name shown with its priority, labels, and title.
 func citeProgramManager(instance ProgramManager, titles *WorkItemTitles) ProgramManager {
 	if titles == nil {
 		return instance
