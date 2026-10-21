@@ -58,12 +58,21 @@ revisions:
       by: architect
       at: 2026-10-14T09:39:02.047187Z
       reason: 'Part 3 of renaming the product manager role to Lead Product Manager where a person reads it (yoyodyne-ifd.437.10): four places in the authority model and the recurring tasks now say Lead Product Manager. The revision log is history and is unchanged, and nothing else in the design changes.'
+    - action: amended
+      by: architect
+      at: 2026-10-21T05:07:16.02005Z
+      reason: 'Configurable-workflows half of scheduled-pass concurrency (yoyodyne-ifd.428.75.1), agreeing with the architect-loop revision of October 19: a recurring pass runs in its own conversation beside the scheduler''s pull; turns in one conversation run one at a time and passes of different conversations run at once up to a bound the harness sets; the lease, skipping a busy conversation, durable duplicate prevention, the intake hold, the spending pause, budgets committed before spend and durable pass records are unchanged; this is concurrency between conversations, not parallel steps inside a workflow. The program-manager design''s one task per scheduler pull is superseded here and is revised once that design is split. The architect''s pass is no longer called daily.'
 approvals:
     - policy: approvals.designs
       revision: 12
       by: harness
       at: 2026-10-14T09:39:02.047187Z
       reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 922, for document-922.1 under the automatic approval policy
+    - policy: approvals.designs
+      revision: 13
+      by: harness
+      at: 2026-10-21T05:07:16.02005Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1387, for document-1387.1 under the automatic approval policy
 ---
 # Configurable workflows: a declarative runtime over trusted actions
 
@@ -117,7 +126,11 @@ A recurring task is a schedule-triggered instance of a named agent's bounded tas
 
 Runtime behavior, from the proven interim shim: an instance **skips when a turn is in flight** on the agent's conversation — the conversation lease is the test — rather than queueing behind it; each run produces a **durable dated report**; and anything the task decides to do is a **carry-out listed for execution through the agent's existing typed action paths** — the tracker actions, proposals, and requests that role already has — never a new mutation path. One instance per task per window, deduplicated durably; every instance passes the standing gates — intake hold where it applies, the spending pause always, budgets committed before spend.
 
-First consumers: the development manager's hourly sweep (find, fix, file, report, under its item's constraints), the Lead Product Manager's twice-daily coherence scan, and the architect's daily pass, specified in [architect-loop](architect-loop.md).
+**Passes run side by side across conversations, one at a time within each.** A recurring pass runs in its own conversation beside the scheduler's pull, never inside it, so a long pass holds up no developer run and no other agent's pass. Within one conversation turns run one at a time: the conversation lease admits one turn, and a pass that finds it held skips as stated above. Passes of different conversations run at the same time, up to a bound the harness sets on how many run at once. A pass that falls due while every place under that bound is taken is not started; it starts at the next pull that finds a place, and it is still the one instance for its window. Running side by side changes none of these: the conversation lease and skipping a busy conversation; one instance per task per window, recorded durably before the provider is called so no pass runs twice; the intake hold where it applies; the spending pause, read before every pass; budgets committed before any spend; and a durable record of every pass. The conversation ownership rules in [management-and-supervision](management-and-supervision.md) are unchanged: each conversation still belongs to one agent, and only its own turns run in it.
+
+This is concurrency between separate conversations, not inside a workflow. A workflow definition still has no parallel steps or joins, as the definitions section states; two passes running at once are two instances of two tasks, each taking one durable transition at a time. The statement in [program-manager](program-manager.md) that at most one task fires per scheduler pull is replaced by this paragraph, and that design is revised to say so; until then this paragraph and [architect-loop](architect-loop.md) are the rule. The operations guide's description of how often recurring tasks fire and whether passes wait for one another is brought into line with this paragraph by the change that builds it.
+
+First consumers: the development manager's hourly sweep (find, fix, file, report, under its item's constraints), the Lead Product Manager's twice-daily coherence scan, and the architect's pass on the schedule the project configures, specified in [architect-loop](architect-loop.md).
 
 ### Agent memory
 
