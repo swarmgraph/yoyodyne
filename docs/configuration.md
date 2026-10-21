@@ -8330,11 +8330,16 @@ short report.
 
 **A missing closing report is requested once on the same pass.** The request
 quotes the report's shape and asks for the block alone, without repeating any
-action. If it is still missing, the pass fails with its findings unrecorded;
-earlier writes and both replies' costs stand. This extra request spends no
-work-item budget and does not consume a work turn under `max_turns`. After
-consecutive passes still omit the report, the next opens a fresh conversation
-with the role's memory and briefing. This bound covers all recurring roles,
+action. Every turn after a pass's first is told again what its report must
+hold. If a later turn still gives none and an earlier turn of the same pass gave
+a valid one, the pass keeps the earlier turns' account, marked as having more to
+do and recorded as partial rather than failed; only that turn's findings are
+left unrecorded. If no turn gave a valid report, the pass fails with its
+findings unrecorded. Either way earlier writes and every reply's cost stand.
+This extra request spends no work-item budget and does not consume a work turn
+under `max_turns`. After consecutive passes still omit the report on some turn,
+whether they failed or kept an earlier account, the next opens a fresh
+conversation with the role's memory and briefing. This bound covers all recurring roles,
 including program manager instances:
 
 ```yaml
@@ -8353,8 +8358,9 @@ live docket, through the same listing as the first turn. Entries already
 delivered on that pass are not repeated, and decisions and closed work are read
 again before each slice. The harness continues while live entries remain
 undelivered, even if a turn's account says complete. A reply without an account
-must recover it through the one block-only request; otherwise the pass fails
-and continues no further work. If the turn bound or a provider refusal ends the pass first, its
+must recover it through the one block-only request; otherwise the pass goes no
+further. It keeps the account an earlier turn gave, recorded as partial, or
+fails where no turn gave one. If the turn bound or a provider refusal ends the pass first, its
 record counts the entries never delivered and names the oldest; the next pass
 puts them ahead of entries already shown.
 

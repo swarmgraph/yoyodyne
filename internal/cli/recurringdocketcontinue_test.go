@@ -162,11 +162,14 @@ func TestADocketStopsAfterAnAnswerWithoutAnAccountAndTheNextPassResumesUnreadEnt
 		missing  map[int]bool
 		turns    int
 		answered int
+		// kept is a pass whose earlier turn gave an account, which it keeps
+		// rather than failing, recorded as partial.
+		kept bool
 	}{
-		{"first turn", map[int]bool{1: true}, 4, 1},
-		{"later turn", map[int]bool{2: true}, 4, 2},
-		{"every turn", map[int]bool{1: true, 2: true, 3: true, 4: true}, 4, 1},
-		{"turn bound", map[int]bool{1: true}, 1, 1},
+		{"first turn", map[int]bool{1: true}, 4, 1, false},
+		{"later turn", map[int]bool{2: true}, 4, 2, true},
+		{"every turn", map[int]bool{1: true, 2: true, 3: true, 4: true}, 4, 1, false},
+		{"turn bound", map[int]bool{1: true}, 1, 1, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
@@ -176,7 +179,7 @@ func TestADocketStopsAfterAnAnswerWithoutAnAccountAndTheNextPassResumesUnreadEnt
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(result.Fired) != 1 || result.Fired[0].Turns != test.answered || len(role.messages) != test.answered || result.Fired[0].Truncated {
+			if len(result.Fired) != 1 || result.Fired[0].Turns != test.answered || len(role.messages) != test.answered || result.Fired[0].Truncated != test.kept {
 				t.Fatalf("Fire() = %+v, messages = %d; should stop at the missing account", result, len(role.messages))
 			}
 			count := test.answered * 25
@@ -186,10 +189,14 @@ func TestADocketStopsAfterAnAnswerWithoutAnAccountAndTheNextPassResumesUnreadEnt
 				t.Fatalf("List() = %v, %v, %v", recorded, unreadable, err)
 			}
 			delivery := recorded[0].Docket
-			if !recorded[0].Failed || delivery == nil || delivery.Delivered != count || len(delivery.Undelivered) != 82-count || delivery.Oldest == nil || delivery.Oldest.WorkItemID != fmt.Sprintf("yoyodyne-ifd.430.40.%d", count+1) {
+			if recorded[0].Failed == test.kept || delivery == nil || delivery.Delivered != count || len(delivery.Undelivered) != 82-count || delivery.Oldest == nil || delivery.Oldest.WorkItemID != fmt.Sprintf("yoyodyne-ifd.430.40.%d", count+1) {
 				t.Fatalf("failed pass lost its unread docket: %+v", recorded[0])
 			}
-			if !strings.Contains(recorded[0].Problem, fmt.Sprintf("turn %d of the recurring task development-manager-sweep produced no account", test.answered)) {
+			said := fmt.Sprintf("turn %d of the recurring task development-manager-sweep produced no account", test.answered)
+			if test.kept {
+				said = fmt.Sprintf("turn %d of the recurring task development-manager-sweep gave no closing account", test.answered)
+			}
+			if !strings.Contains(recorded[0].Problem, said) {
 				t.Fatalf("missing account was lost: %s", recorded[0].Problem)
 			}
 			clock.at = clock.at.Add(time.Hour)

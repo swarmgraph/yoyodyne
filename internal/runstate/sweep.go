@@ -303,7 +303,9 @@ type Sweep struct {
 	ConversationID string `json:"conversation_id,omitempty"`
 	// ReportRetried records the one request for a missing closing block.
 	ReportRetried bool `json:"report_retried,omitempty"`
-	// MissingReport marks a pass that still lacked its block after that request.
+	// MissingReport marks a pass a turn of which still lacked its block after
+	// that request, or after it was already spent. Such a pass is failed unless
+	// an earlier turn's account was kept, in which case Result is that account.
 	MissingReport           bool                          `json:"missing_report,omitempty"`
 	ConversationReplacement *SweepConversationReplacement `json:"conversation_replacement,omitempty"`
 	StartedAt               time.Time                     `json:"started_at"`
@@ -918,8 +920,10 @@ func (s Sweep) Validate() error {
 	if s.Turns < 0 {
 		problems = append(problems, fmt.Errorf("turns is %d, and a pass cannot take a negative number of them", s.Turns))
 	}
-	if s.MissingReport && !s.Failed {
-		problems = append(problems, errors.New("a pass missing its closing report must be failed"))
+	// A pass whose later turn lacked its block keeps the account its earlier turns
+	// gave and is not failed for that alone; one with no account at all is.
+	if s.MissingReport && !s.Failed && s.Result == nil {
+		problems = append(problems, errors.New("a pass missing its closing report, with no earlier account kept, must be failed"))
 	}
 	if r := s.ConversationReplacement; r != nil {
 		if strings.TrimSpace(r.Previous) == "" || strings.TrimSpace(r.Reason) == "" || s.ConversationID == "" || r.Previous == s.ConversationID || len(r.Reason) > MaxSweepTextBytes {

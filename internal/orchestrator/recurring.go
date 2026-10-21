@@ -1231,6 +1231,11 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 	var streak *leaveStreak
 	limit := task.Turns()
 	for turn := 0; turn < limit; turn++ {
+		// Whatever sends the pass on, the turn is told again what its closing
+		// account must hold.
+		if turn > 0 {
+			message += "\n\n" + closingContract(f, len(delivered) > 0)
+		}
 		if t.ConversationWork != nil && f.agent == "" {
 			work, err := t.ConversationWork.Read(ctx, task.Role)
 			if err != nil {
@@ -1380,7 +1385,17 @@ func (t Trigger) run(ctx context.Context, f firing) Fired {
 				"the provider compacted turn %d of the recurring task %s %d times, so its pass is partial: what the compactions dropped is only in the %s's conversation record, and the rest waits for the next firing",
 				turn+1, name, len(answered.Compactions), task.Role))
 		}
-		if answered.Result == nil {
+		if answered.Result == nil && merged != nil {
+			// An earlier turn gave a valid account, so the pass keeps it rather than
+			// failing: what those turns found, saved, filed and admitted stands, and
+			// only this turn's findings are missing from the record. The pass ends
+			// here as partial, since this turn's work has no account to carry on from.
+			merged.Status = sweep.StatusMore
+			fired.Truncated = true
+			problems = append(problems, fmt.Sprintf(
+				"turn %d of the recurring task %s gave no closing account%s, so the pass keeps the account its earlier turns gave and is recorded as partial: what turn %d found is only in the %s's conversation, and its saved writes, reports and admissions stand",
+				turn+1, name, omittedHow(answered), turn+1, task.Role))
+		} else if answered.Result == nil {
 			failed = true
 			problems = append(problems, fmt.Sprintf(
 				"turn %d of the recurring task %s produced no account of itself, so the pass failed and its findings remain unrecorded outside the %s's conversation",
@@ -2242,14 +2257,52 @@ func summonsMessage(name string, task config.RecurringTask, hold runstate.Intake
 
 // continueMessage is what a pass that said it had more to do is given next. It
 // keeps the task in the previous turn. A development manager's next docket
-// slice is added by the same pass loop that carried its first slice.
+// slice, and the closing account's contract, are added by the same pass loop
+// that carried them on its first turn.
 func continueMessage(name string) string {
 	return strings.Join([]string{
 		fmt.Sprintf("The pass of %q has more to do than that turn held. Carry on with the rest of it.", name),
 		"Report only what this turn found: what you already reported is kept, and repeating it would be counted twice.",
-		"",
-		sweep.Contract(),
 	}, "\n")
+}
+
+// omittedHow finishes the sentence saying a turn gave no closing account: how
+// it came to give none.
+func omittedHow(answered Turn) string {
+	switch {
+	case answered.MissingReport && answered.ReportRetried:
+		return ", even after the one request for it"
+	case answered.MissingReport:
+		return ", and the one request for a missing account had already been spent on this pass"
+	default:
+		return " the harness could read"
+	}
+}
+
+// closingContract is what every follow-up turn of a pass is told its closing
+// account must hold: the whole of what the first turn was told about the block,
+// whichever message sends the pass on. A follow-up message that said less is
+// how a role that wrote its account on the first turn comes to answer the next
+// in prose, and a turn that gives no account is a turn whose findings the
+// record cannot carry.
+//
+// It carries the parts the first turn's message carried beyond the block
+// itself: the audits every program manager instance is told about, the
+// recommendations a role put proposals is told about, and "left" where the
+// pass was handed waiting work.
+func closingContract(f firing, handedWork bool) string {
+	lines := []string{
+		"End this turn with its closing account, exactly as the first turn of this pass did: a pass asks for a missing account at most once, and a turn that gives none leaves what it found out of the pass's record.",
+		"",
+		sweep.Contract() + f.batch.contract(),
+	}
+	if handedWork {
+		lines = append(lines, "", sweep.LeftContract())
+	}
+	if f.agent != "" {
+		lines = append(lines, instanceAuditLines()...)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // names lists the configured tasks in a stable order, so which task a pass fires

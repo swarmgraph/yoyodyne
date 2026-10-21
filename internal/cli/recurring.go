@@ -538,7 +538,8 @@ type roleConversation struct {
 // not signed in, no agent fills the role — are all of that kind.
 //
 // An answer with no sweep block is asked once for the block alone, under the
-// same conversation hold. An unrecovered account fails the pass.
+// same conversation hold. An unrecovered account fails the pass unless an
+// earlier turn's account is kept (Trigger.run).
 //
 // A task that names its own model has this turn ask for it, and only this turn:
 // the conversation, its account, and its failover are the role's, and the next
@@ -639,7 +640,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.Result, turn.ResultProblem = readSweep(role, recovered.Text)
 			turn.MissingReport = turn.Result == nil
 			if turn.MissingReport {
-				turn.ResultProblem = appendProblem(turn.ResultProblem, "the closing report is still missing after the pass's one request for it; the pass failed and its findings remain unrecorded")
+				turn.ResultProblem = appendProblem(turn.ResultProblem, "the closing report is still missing after the pass's one request for it, so this turn's findings remain unrecorded")
 			}
 			turn.ResultProblem = appendProblem(turn.ResultProblem, recovered.LaneReport.Refusal())
 		}
@@ -1015,6 +1016,9 @@ func renderSweep(recorded runstate.Sweep) string {
 	}
 	if recorded.ReportRetried {
 		rendered.WriteString("  requested the missing closing report once on this pass\n")
+	}
+	if recorded.MissingReport && !recorded.Failed && recorded.Result != nil {
+		rendered.WriteString("  a later turn gave no closing report, so the pass kept the account its earlier turns gave\n")
 	}
 	if replacement := recorded.ConversationReplacement; replacement != nil {
 		fmt.Fprintf(&rendered, "  replaced conversation %s with %s: %s\n", replacement.Previous, recorded.ConversationID, replacement.Reason)

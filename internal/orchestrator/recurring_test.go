@@ -66,6 +66,9 @@ type scriptedTurn struct {
 	held map[string]string
 	// compactions are the times the provider compacted the turn's session.
 	compactions []backend.ProviderCompaction
+	// missing is a turn that still gave no closing account after the one
+	// request for it.
+	missing bool
 }
 
 func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, model, message string, options RecurringTurnOptions) (Turn, error) {
@@ -87,6 +90,7 @@ func (r *wokenRole) Wake(_ context.Context, _ domain.AgentRole, agent, pass, mod
 		Effort: answer.effort, ResolvedEffort: answer.resolvedEffort, EffortReported: answer.effortReported, EffortDescription: answer.effortDescription,
 		Saved: answer.saved, ReportsFiled: answer.reports, Admitted: answer.admitted, Wording: answer.wording,
 		ActedOn: answer.actedOn, HeldForSending: answer.held, Compactions: answer.compactions,
+		MissingReport: answer.missing, ReportRetried: answer.missing,
 	}, answer.err
 }
 
@@ -541,6 +545,62 @@ func TestAnAnswerWithoutAnAccountIsSaidOutLoud(t *testing.T) {
 	}
 	if len(recorded) != 1 || recorded[0].Result != nil || recorded[0].Problem == "" || !recorded[0].Failed {
 		t.Errorf("recorded = %+v, want a record saying no account came back", recorded)
+	}
+}
+
+// A follow-up turn that gives no account, even after the request for it, leaves
+// the pass with the account its earlier turn gave: not failed, recorded as
+// partial and as missing a report, with the earlier turn's writes standing. The
+// follow-up was told again what its account must hold.
+func TestAFollowUpWithoutAnAccountKeepsTheEarlierOne(t *testing.T) {
+	t.Parallel()
+
+	store := sweepStore(t)
+	saved := runstate.SavedWrite{Kind: runstate.SavedLaneReport, Revision: 3}
+	role := &wokenRole{answers: []scriptedTurn{
+		{result: &sweep.Result{Status: sweep.StatusMore, Summary: "one finding", Findings: []sweep.Finding{{Issue: "an import", Disposition: sweep.DispositionLeft, Detail: "in the lane report"}}}, saved: []runstate.SavedWrite{saved}},
+		{missing: true},
+	}}
+	trigger := Trigger{Tasks: hourlyTask("sweep"), Claims: store, Reports: store, Roles: role, Clock: recurringClock{}}
+
+	fired, err := trigger.Fire(context.Background())
+	if err != nil {
+		t.Fatalf("Fire() error = %v", err)
+	}
+	if len(role.messages) != 2 || !strings.Contains(role.messages[1], "End this turn with its closing account") || !strings.Contains(role.messages[1], sweep.Fence) {
+		t.Fatalf("messages = %q, want the follow-up told its closing account again", role.messages)
+	}
+	if !fired.Fired[0].Truncated || fired.Fired[0].Findings != 1 {
+		t.Errorf("fired = %+v, want a partial pass carrying the earlier finding", fired.Fired[0])
+	}
+	recorded, _, err := store.List()
+	if err != nil || len(recorded) != 1 {
+		t.Fatalf("List() = %+v, %v", recorded, err)
+	}
+	pass := recorded[0]
+	if pass.Failed || !pass.MissingReport || pass.Result == nil || pass.Result.Summary != "one finding" || pass.Result.Status != sweep.StatusMore || len(pass.Saved) != 1 {
+		t.Fatalf("recorded = %+v, want the earlier account kept and the omission recorded", pass)
+	}
+	if !strings.Contains(pass.Problem, "turn 2") || !strings.Contains(pass.Problem, "even after the one request for it") {
+		t.Errorf("problem = %q, want it to say turn 2 gave no account", pass.Problem)
+	}
+}
+
+// Every follow-up is told the whole of what the first turn was told about its
+// block: an instance its audits, and a pass handed waiting work its "left".
+func TestTheClosingContractCarriesWhatTheFirstTurnWasTold(t *testing.T) {
+	t.Parallel()
+
+	plain := closingContract(firing{}, false)
+	if !strings.Contains(plain, sweep.Contract()) || strings.Contains(plain, sweep.AuditContract()) || strings.Contains(plain, sweep.LeftContract()) {
+		t.Errorf("a plain follow-up = %q, want the block's contract alone", plain)
+	}
+	instance := closingContract(firing{agent: "technical-health-pm"}, false)
+	if !strings.Contains(instance, sweep.Contract()) || !strings.Contains(instance, sweep.AuditContract()) {
+		t.Errorf("an instance's follow-up = %q, want its audits", instance)
+	}
+	if handed := closingContract(firing{}, true); !strings.Contains(handed, sweep.LeftContract()) {
+		t.Errorf("a follow-up handed work = %q, want its \"left\"", handed)
 	}
 }
 
