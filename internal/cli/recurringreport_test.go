@@ -20,6 +20,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
+	"github.com/mason-bryant/yoyodyne/internal/sweep"
 )
 
 type reportRecoveryBackend struct {
@@ -250,8 +251,41 @@ func TestARecurringPassRequestsItsReportAtMostOnceAcrossWorkTurns(t *testing.T) 
 	task.MaxTurns = 3
 	p.trigger.Tasks["architect-pass"] = task
 	pass := p.fire(t)
-	if !pass.Failed || !pass.ReportRetried || !pass.MissingReport || len(p.backend.requests) != 3 {
+	if !pass.ReportRetried || !pass.MissingReport || len(p.backend.requests) != 3 {
 		t.Fatalf("pass = %+v, requests = %d; asked twice", pass, len(p.backend.requests))
+	}
+	// The account the retry recovered is kept over the later turn that gave none.
+	if pass.Failed || pass.Result == nil || pass.Result.Summary != "one ruling recorded" || !strings.Contains(pass.Problem, "had already been spent") {
+		t.Fatalf("pass = %+v, want the recovered account kept", pass)
+	}
+}
+
+// A follow-up turn is told again what its closing account must hold, and one
+// that gives none even after the request for it leaves the pass with the
+// account its first turn gave rather than failed with nothing.
+func TestAFollowUpTurnWithoutItsReportKeepsTheEarlierAccount(t *testing.T) {
+	t.Parallel()
+	more := "```yoyodyne-sweep\n" + `{"status":"more","summary":"one finding kept","findings":[{"issue":"an import against the boundary","disposition":"left","detail":"kept in the lane report"}]}` + "\n```"
+	p := newReportRecoveryPass(t, more, "Prose about the rest.", "Still prose.")
+	task := p.trigger.Tasks["architect-pass"]
+	task.MaxTurns = 3
+	p.trigger.Tasks["architect-pass"] = task
+	pass := p.fire(t)
+	requests := p.backend.requests
+	if len(requests) != 3 {
+		t.Fatalf("requests = %d, want the first turn, the follow-up, and its one retry", len(requests))
+	}
+	if follow := requests[1].Prompt; !strings.Contains(follow, "End this turn with its closing account") || !strings.Contains(follow, "```yoyodyne-sweep") {
+		t.Fatalf("the follow-up turn was not told its closing account again: %s", follow)
+	}
+	if pass.Failed || !pass.MissingReport || !pass.ReportRetried || pass.Unfinished() {
+		t.Fatalf("pass = %+v, want kept rather than failed", pass)
+	}
+	if pass.Result == nil || pass.Result.Summary != "one finding kept" || len(pass.Result.Findings) != 1 || pass.Result.Status != sweep.StatusMore {
+		t.Fatalf("result = %+v, want the first turn's account, partial", pass.Result)
+	}
+	if !strings.Contains(pass.Problem, "keeps the account its earlier turns gave") || !strings.Contains(renderSweep(pass), "kept the account its earlier turns gave") {
+		t.Fatalf("the record hides the omitted account: %s", renderSweep(pass))
 	}
 }
 

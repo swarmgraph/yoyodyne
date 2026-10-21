@@ -258,14 +258,13 @@ func criticalMessage(name string, task config.RecurringTask, carried []report.Re
 }
 
 // criticalsOutstandingMessage is what a pass refused as complete is given next.
-// It names the reports, because they are the whole of why the pass goes on.
+// It names the reports, because they are the whole of why the pass goes on. The
+// pass loop adds the closing account's contract (closingContract).
 func criticalsOutstandingMessage(name string, standing []string) string {
 	return strings.Join([]string{
 		fmt.Sprintf("You said the pass of %q was complete, and the harness refused that: the critical report(s) %s you were shown on this pass stand unhandled.", name, strings.Join(standing, ", ")),
 		"Decide what becomes of each and record it with the \"handle\" action. A critical that needs nothing — already resolved, or already covered — is handled by saying so; one only a person can act on is handled with \"needs\": \"operator\".",
 		"Report only what this turn found: what you already reported is kept, and repeating it would be counted twice.",
-		"",
-		sweep.Contract(),
 	}, "\n")
 }
 

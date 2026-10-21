@@ -641,12 +641,18 @@ func instanceMessage(agent string, instance config.AgentConfig, due bool, reques
 	lines = append(lines, describeWake(instance.Triggers, wake)...)
 	lines = append(lines, addressedLines(addressed)...)
 	lines = append(lines, "", sweep.Contract())
-	// An instance whose lane is a standing goal audits the closed work in its
-	// lane, and the Lead Product Manager's sweep is handed those audits rather
-	// than repeating them. Which lanes are standing goals is the instance's remit
-	// to say, so the contract is given to every instance and used by those.
-	lines = append(lines, "", "Where your lane is a standing goal, audit the work in your lane that closed since your last pass against that goal, and record every item you checked in \"audits\". The Lead Product Manager's sweep is handed your audits and does not repeat them.", sweep.AuditContract())
+	lines = append(lines, instanceAuditLines()...)
 	return strings.Join(lines, "\n")
+}
+
+// instanceAuditLines is what every program manager instance is told about the
+// audits its block carries, on its first turn and again on each follow-up turn.
+// An instance whose lane is a standing goal audits the closed work in its lane,
+// and the Lead Product Manager's sweep is handed those audits rather than
+// repeating them. Which lanes are standing goals is the instance's remit to say,
+// so the contract is given to every instance and used by those.
+func instanceAuditLines() []string {
+	return []string{"", "Where your lane is a standing goal, audit the work in your lane that closed since your last pass against that goal, and record every item you checked in \"audits\". The Lead Product Manager's sweep is handed your audits and does not repeat them.", sweep.AuditContract()}
 }
 
 // describeWake lists the events since the cursor, grouped by stream in the

@@ -639,7 +639,7 @@ func (r roleConversation) Wake(ctx context.Context, role domain.AgentRole, agent
 			turn.Result, turn.ResultProblem = readSweep(role, recovered.Text)
 			turn.MissingReport = turn.Result == nil
 			if turn.MissingReport {
-				turn.ResultProblem = appendProblem(turn.ResultProblem, "the closing report is still missing after the pass's one request for it; the pass failed and its findings remain unrecorded")
+				turn.ResultProblem = appendProblem(turn.ResultProblem, "the closing report is still missing after the pass's one request for it, so this turn's findings remain unrecorded")
 			}
 			turn.ResultProblem = appendProblem(turn.ResultProblem, recovered.LaneReport.Refusal())
 		}
@@ -1015,6 +1015,9 @@ func renderSweep(recorded runstate.Sweep) string {
 	}
 	if recorded.ReportRetried {
 		rendered.WriteString("  requested the missing closing report once on this pass\n")
+	}
+	if recorded.MissingReport && !recorded.Failed && recorded.Result != nil {
+		rendered.WriteString("  a later turn gave no closing report, so the pass kept the account its earlier turns gave\n")
 	}
 	if replacement := recorded.ConversationReplacement; replacement != nil {
 		fmt.Fprintf(&rendered, "  replaced conversation %s with %s: %s\n", replacement.Previous, recorded.ConversationID, replacement.Reason)
