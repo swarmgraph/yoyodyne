@@ -113,6 +113,10 @@
       "waits_on": "are ready and nothing is choosing work: Paused on the provider's usage limit until 18:50Z",
       "next": "the harness asks again when the provider's usage limit resets",
       "mover": "nobody",
+      "ownership": {
+        "owner": "nobody",
+        "remedy": "nothing: it clears by itself"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.200",
@@ -125,12 +129,16 @@
       ]
     }
   ],
-  "not_startable_for_operator": "nothing here is the operator's: under their rule of 2026-09-26 only a change to the fundamental goals is, and nothing here waits on one",
+  "not_startable_for_operator": "nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one",
   "needs_human": [
     {
       "kind": "hold",
       "id": "capacity",
-      "mover": "operator",
+      "mover": "harness",
+      "ownership": {
+        "owner": "harness",
+        "remedy": "resume the roles when the provider's usage limit resets"
+      },
       "capacity_hold": {
         "holding": true,
         "since": "2026-09-19T12:02:00Z",
@@ -150,7 +158,7 @@
         "alternates": []
       },
       "what": "every role is held by the provider's usage limit, since 2026-09-19T12:02:00Z, until 2026-09-19T18:50:00Z",
-      "whose": "the operator's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does",
+      "whose": "the harness's — the window lifts on the provider's clock, and enabling failover on the agents is what would move the work onto another model before it does",
       "label": "work paused"
     }
   ],

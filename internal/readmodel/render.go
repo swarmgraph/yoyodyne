@@ -448,10 +448,23 @@ func renderWaiting(entries []Attention) string {
 			}
 			listed++
 		}
-		fmt.Fprintf(&rendered, "  %s — %s\n", waiting.CitedWhat(), waiting.CitedWhose())
+		whose := waiting.CitedWhose()
+		fmt.Fprintf(&rendered, "  %s — %s%s\n", waiting.CitedWhat(), whose, operatorsBecause(waiting, whose))
 	}
 	rendered.WriteString(remainder(further, "thing waiting on somebody"))
 	return rendered.String()
+}
+
+// operatorsBecause closes one of the operator's entries on the reason from his
+// closed list that the ownership registry gave it, so every entry under his
+// head says why it is his. It is empty on every entry that is not his, and on
+// one whose sentence already names the reason in the same words.
+func operatorsBecause(waiting Attention, whose string) string {
+	says := waiting.Ownership.ReasonSays()
+	if says == "" || strings.Contains(whose, says) {
+		return ""
+	}
+	return " (the operator's because it is " + says + ")"
 }
 
 // heldSplit is how much of the not-startable line is held work, said in the head

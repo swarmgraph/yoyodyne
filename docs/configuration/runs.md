@@ -1028,7 +1028,8 @@ again on 2026-09-21 when all three were one diverged target.
 
 **The brake's hold does not wait on you while the harness is still working
 it.** She decides what happens to it — to
-release it, to keep it and probe the line, or to escalate it to you — and the
+release it, to keep it and probe the line, or to escalate it to the Lead
+Product Manager, which you are told of — and the
 watching session acts on the decision at its next poll. `brake_cooldown` is how
 long the brake waits for that decision before it decides on evidence instead:
 once it has passed with nothing recorded, the session starts one probe run under
@@ -1052,8 +1053,8 @@ blocked probe summons her again and restarts the cooldown, so the brake goes
 round — one of her turns and one probe run per cooldown — and before the bound
 nothing about it got louder unless she escalated it. `brake_escalation_cycles`
 is how many of those summons-and-probe cycles the harness goes round before it
-escalates the hold to you itself: the cycle that reaches it is not put to her
-again, no further probe starts, and you are sent
+escalates the hold to the Lead Product Manager itself: the cycle that reaches
+it is not put to her again, no further probe starts, and you are sent
 [one direct message](../reporting.md#a-brake-hold-the-harness-escalates), tagged
 by member id, naming the cycles spent and what stopped the last probe. It is a
 count of cycles rather than a length of time because the loop is what it
@@ -1076,9 +1077,13 @@ the run and how long it has been out, because a probe that neither lands nor
 blocks leaves the line held with nobody asked about it. The default is 45
 minutes; zero never puts a probe back.
 
-So a brake hold waits on a person only once it is escalated, by her or by the
-harness at that bound. `yoyo release` and the conversation's `/release` still
-lift any of them sooner.
+So a brake hold never waits on you. Once it is escalated, by her or by the
+harness at that bound, it is the Lead Product Manager's to decide — the
+ownership registry's rule for the hold, under the operating rule that the brake
+summons the development manager and never the operator — and you are told once,
+directly, and may release it; the hourly line that carries it afterwards stays
+in the channel. `yoyo release` and the conversation's `/release` still lift any
+of them sooner.
 
 The hold records which of you placed it, and everything that reports one says
 so: "the harness's own brake placed it after 3 run(s) blocked in a row with

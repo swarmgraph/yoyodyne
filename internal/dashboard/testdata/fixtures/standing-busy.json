@@ -166,6 +166,11 @@
       "waits_on": "waits on the development manager's decision about a stopped run",
       "next": "she decides what becomes of each stopped run: a repair, a re-run, a wait, a re-scope, or an escalation",
       "mover": "development-manager",
+      "ownership": {
+        "owner": "development-manager",
+        "remedy": "decide what becomes of each stopped run",
+        "capability": "triage decision"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.153",
@@ -180,6 +185,11 @@
       "waits_on": "waits on the harness carrying out a decision already recorded",
       "next": "the harness acts on the recorded decision — a repair, a re-run, or a re-armed merge — at its next pull",
       "mover": "harness",
+      "ownership": {
+        "owner": "harness",
+        "remedy": "carry out the decision already recorded",
+        "capability": "watch session"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.150",
@@ -191,8 +201,13 @@
       "kind": "directive",
       "count": 1,
       "waits_on": "waits on an unresolved directive",
-      "next": "`yoyo directive resolve` settles it, and the work it pauses is pulled",
-      "mover": "operator",
+      "next": "the Lead Product Manager ends it or carries it into a document or a work item, `yoyo directive resolve` settles it, and the work it pauses is pulled",
+      "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "end the directive, or carry it into a document or a work item",
+        "capability": "yoyo directive resolve"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.219",
@@ -206,6 +221,11 @@
       "waits_on": "waits on other items",
       "next": "the harness pulls each once the work it waits on lands",
       "mover": "harness",
+      "ownership": {
+        "owner": "harness",
+        "remedy": "pull each item once the work it waits on lands",
+        "capability": "watch session"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.200",
@@ -219,6 +239,11 @@
       "waits_on": "is done in the Lead Product Manager's conversation, not by a run",
       "next": "the role does the work in its conversation, and the harness closes each item when the role's revision lands",
       "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "do the work in its conversation",
+        "capability": "conversation"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.188",
@@ -232,6 +257,11 @@
       "waits_on": "is parked by the Lead Product Manager",
       "next": "she releases each once what it was parked for is settled",
       "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "release each item once what it was parked for is settled",
+        "capability": "tracker"
+      },
       "items": [
         {
           "work_item_id": "yoyodyne-ifd.222",
@@ -240,7 +270,7 @@
       ]
     }
   ],
-  "not_startable_for_operator": "1 item here is the operator's — 1 waits on an unresolved directive; everything else is somebody else's to move",
+  "not_startable_for_operator": "nothing here is the operator's: only a change to the fundamental goals or an act only a person can perform is, and nothing here waits on one",
   "waiting_for_slot": {
     "ready": 3,
     "slots": 3,
@@ -253,7 +283,12 @@
     {
       "kind": "directive",
       "id": "directive-4f2c",
-      "mover": "operator",
+      "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "end the directive, or carry it into a document or a work item",
+        "capability": "yoyo directive resolve"
+      },
       "directive": {
         "schema_version": 1,
         "id": "directive-4f2c",
@@ -268,13 +303,18 @@
         ]
       },
       "what": "directive directive-4f2c is unresolved: which branch does this land on?",
-      "whose": "the operator's — the work it affects waits until `yoyo directive resolve` settles it",
+      "whose": "the Lead Product Manager's — the work it affects waits until `yoyo directive resolve` settles it",
       "label": "direction unresolved"
     },
     {
       "kind": "amendment",
       "id": "amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c",
       "mover": "architect",
+      "ownership": {
+        "owner": "architect",
+        "remedy": "decide the proposed change from its conversation",
+        "capability": "amendment action"
+      },
       "work_item_id": "yoyodyne-ifd.210",
       "amendment": {
         "schema_version": 1,
@@ -300,6 +340,11 @@
       "kind": "amendment",
       "id": "amendment-7c2b9e4d1a6f3c8e5b0d2f4a6c8e1b3d",
       "mover": "architect",
+      "ownership": {
+        "owner": "architect",
+        "remedy": "decide the proposed change from its conversation",
+        "capability": "amendment action"
+      },
       "work_item_id": "yoyodyne-ifd.432.5",
       "amendment": {
         "schema_version": 1,
@@ -325,6 +370,11 @@
       "kind": "owed-step",
       "id": "run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70",
       "mover": "harness",
+      "ownership": {
+        "owner": "harness",
+        "remedy": "settle the run",
+        "capability": "yoyo reconcile"
+      },
       "work_item_id": "yoyodyne-ifd.222",
       "owed_step": {
         "status": "succeeded",
@@ -337,6 +387,11 @@
     {
       "kind": "held-work",
       "mover": "development-manager",
+      "ownership": {
+        "owner": "development-manager",
+        "remedy": "decide what becomes of each stopped run",
+        "capability": "triage decision"
+      },
       "held_work": {
         "awaiting": "decision",
         "count": 1
@@ -348,6 +403,11 @@
     {
       "kind": "held-work",
       "mover": "harness",
+      "ownership": {
+        "owner": "harness",
+        "remedy": "carry out the decision already recorded",
+        "capability": "watch session"
+      },
       "held_work": {
         "awaiting": "carry-out",
         "count": 1
@@ -359,6 +419,11 @@
     {
       "kind": "report",
       "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "handle the oldest undecided reports",
+        "capability": "report handling"
+      },
       "reports": {
         "collected": 14,
         "unhandled": 2,
@@ -374,11 +439,36 @@
       "kind": "conversation-carried-item",
       "id": "yoyodyne-ifd.188",
       "mover": "product-manager",
+      "ownership": {
+        "owner": "product-manager",
+        "remedy": "do the work in its conversation",
+        "capability": "conversation"
+      },
       "work_item_id": "yoyodyne-ifd.188",
       "executor": "conversation:product-manager",
       "what": "yoyodyne-ifd.188 is admitted for \"conversation:product-manager\" rather than a developer run",
       "whose": "the Lead Product Manager's — in conversation; no run will ever be started for it",
       "label": "work in conversation"
+    },
+    {
+      "kind": "human-gate",
+      "id": "signing-key",
+      "mover": "operator",
+      "ownership": {
+        "owner": "operator",
+        "reason": "human-gate",
+        "remedy": "take the step and record it",
+        "capability": "yoyo gate record"
+      },
+      "work_item_id": "yoyodyne-ifd.436.1",
+      "human_gate": {
+        "gate": "signing-key",
+        "statement": "load the release signing key into the keychain"
+      },
+      "label": "person's step waiting",
+      "what": "yoyodyne-ifd.436.1 waits on the gate \"signing-key\": load the release signing key into the keychain",
+      "whose": "the operator's — nothing machinery does passes it, closing an item included; `yoyo gate record signing-key --for yoyodyne-ifd.436.1` is the act",
+      "owner_reason": "a step the work item reserves for a person"
     }
   ],
   "reports": {

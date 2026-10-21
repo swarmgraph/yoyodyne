@@ -186,7 +186,8 @@ var conversationAuthorities = map[domain.AgentRole]conversationAuthority{
 // of the role rather than drift in the conversion.
 //
 // The development manager's `brake` records what becomes of a hold the intake
-// brake placed: release it, probe the line, or escalate it to the operator. It
+// brake placed: release it, probe the line, or escalate it to the Lead Product
+// Manager, with the operator told. It
 // is the operator's 2026-09-19 decision that the brake summons her at once and
 // waits on nobody unless she escalates it (yoyodyne-ifd.427), and it is the
 // same authority as triage — deciding what becomes of work that stopped moving

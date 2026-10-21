@@ -124,9 +124,10 @@ surface lifts it, the hold is gone for both.
 A hold the brake placed does not need this. The brake summons the development
 manager the moment it trips and releases the hold on her decision, or on a
 probe run that lands once the configured cooldown has passed with no decision
-recorded. A brake hold waits on a person only once it is escalated to you: by
-her, or by the harness itself after execution.brake_escalation_cycles of those
-summons-and-probe cycles have gone round with her not escalating it. This
+recorded. A brake hold never waits on you: once it is escalated -- by her, or
+by the harness itself after execution.brake_escalation_cycles of those
+summons-and-probe cycles have gone round with her not escalating it -- it is
+the Lead Product Manager's to decide, and you are told and may release it. This
 lifts it sooner, and says what the harness was in the middle of.
 
 Nothing else changes. Runs already going were never stopped by the hold, an item

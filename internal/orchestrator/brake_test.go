@@ -7,8 +7,9 @@ package orchestrator
 // with a free developer slot idle because a person had to notice. What the
 // operator asked for was the development manager invoked at once and nothing
 // waiting, and each test below is one of the ways the hold now ends without a
-// person: her decision, or a probe run that lands. The one that does wait on a
-// person is the one she escalated, and that is tested too.
+// person: her decision, or a probe run that lands. The one that leaves the
+// harness's loop is the one escalated — by her or by the harness at its bound —
+// to the Lead Product Manager, with the operator told, and that is tested too.
 
 import (
 	"context"
@@ -250,11 +251,12 @@ func TestABlockedProbeKeepsTheHoldAndSummonsHerAgain(t *testing.T) {
 // the brake goes round — summons, cooldown, probe, blocked, summons — spending
 // one of her turns and one run per cooldown, and before this nothing about it
 // got louder unless she escalated it. Driven past execution.brake_escalation_cycles
-// with her deciding nothing, the harness escalates the hold to the operator
-// itself: the summonses stop, no further probe starts, the record names the
-// cycles spent and what stopped the last probe, and every surface names the
-// operator and the harness's escalation rather than hers.
-func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
+// with her deciding nothing, the harness escalates the hold to the Lead
+// Product Manager itself, with the operator told: the summonses stop, no
+// further probe starts, the record names the cycles spent and what stopped the
+// last probe, and every surface names the Lead Product Manager and the
+// harness's escalation rather than hers.
+func TestASummonsAndProbeLoopEscalatesToTheLeadProductManagerAtTheBound(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two", "yoyodyne-three", "yoyodyne-four", "yoyodyne-five", "yoyodyne-six", "yoyodyne-seven")...)
@@ -293,7 +295,8 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 		t.Fatalf("%d probe(s) in thirty polls under a bound of two cycles, want two and then none: %s", probes, schedule.Render())
 	}
 	// Two summonses: the trip and the first blocked probe. The cycle that
-	// reached the bound was not put to her again — it was put to the operator.
+	// reached the bound was not put to her again — it went to the Lead Product
+	// Manager, with the operator told.
 	if len(harness.summonses) != 2 {
 		t.Fatalf("summoned %d time(s), want the trip and the first blocked probe and nothing after the bound", len(harness.summonses))
 	}
@@ -303,7 +306,7 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 		t.Fatalf("summonses named the loop as %q, want each to say which cycle of at most two it was", loops)
 	}
 	if len(harness.releases) != 0 {
-		t.Fatalf("released %d time(s), want an escalated hold left for the operator", len(harness.releases))
+		t.Fatalf("released %d time(s), want an escalated hold left standing for the Lead Product Manager", len(harness.releases))
 	}
 	// The record: escalated by the harness, after two cycles, naming the last
 	// probe and why it blocked.
@@ -316,18 +319,19 @@ func TestASummonsAndProbeLoopEscalatesToTheOperatorAtTheBound(t *testing.T) {
 		t.Fatalf("escalation = %#v, want two cycles, the fifth item as the last probe, and its stop reason", escalation)
 	}
 	if !hold.WaitsOnAPerson() {
-		t.Fatal("the escalated hold does not wait on a person, want it the operator's")
+		t.Fatal("the escalated hold is still in the harness's loop, want it escalated to the Lead Product Manager")
 	}
 	if schedule.BrakeEscalated == nil || schedule.BrakeEscalated.Cycles != 2 {
 		t.Fatalf("schedule.BrakeEscalated = %#v, want the escalation on the session's own account", schedule.BrakeEscalated)
 	}
-	if rendered := schedule.Render(); !strings.Contains(rendered, "escalated to the operator") || !strings.Contains(rendered, "2 summons-and-probe cycle(s)") {
+	if rendered := schedule.Render(); !strings.Contains(rendered, "escalated to the Lead Product Manager, with the operator told") || !strings.Contains(rendered, "2 summons-and-probe cycle(s)") {
 		t.Fatalf("schedule = %s, want the escalation rendered with the cycles spent", rendered)
 	}
-	// Every surface reads the hold's own words: the operator's move, by the
-	// harness's escalation, with the cycles and the last probe's stoppage.
+	// Every surface reads the hold's own words: the Lead Product Manager's move,
+	// with the operator told, by the harness's escalation, with the cycles and
+	// the last probe's stoppage.
 	mover := sessions.lastMover(runstate.WatchBraked)
-	for _, want := range []string{"the operator's", "the harness escalated it after 2 summons-and-probe cycles", "yoyodyne-five", "independent review still required repair", "yoyo release"} {
+	for _, want := range []string{"the Lead Product Manager's", "the operator is told", "the harness escalated it after 2 summons-and-probe cycles", "yoyodyne-five", "independent review still required repair", "yoyo release"} {
 		if !strings.Contains(mover, want) {
 			t.Fatalf("braked mover = %q, want it to carry %q", mover, want)
 		}
@@ -417,9 +421,10 @@ func TestHerReleaseStillLiftsAHoldTheHarnessEscalated(t *testing.T) {
 	}
 }
 
-// The one brake hold that waits on a person: she escalated it. No probe starts
-// however long the cooldown has run out, and every surface names the operator.
-func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
+// A brake hold she escalated: no probe starts however long the cooldown has run
+// out, and every surface names the Lead Product Manager as its owner, with the
+// operator told.
+func TestAnEscalatedBrakeHoldWaitsOnTheLeadProductManager(t *testing.T) {
 	t.Parallel()
 
 	harness := newScheduleHarness(readyItems("yoyodyne-one", "yoyodyne-two", "yoyodyne-three", "yoyodyne-four")...)
@@ -427,7 +432,7 @@ func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
 	harness.cooldown = 2 * time.Minute
 	harness.run = blockedStorm
 	harness.summon = func(h *scheduleHarness, _ BrakeSummons, _ int) (Fired, error) {
-		h.decideBrake(runstate.BrakeDecisionEscalate, "the reviewer's findings dispute the design; the operator has to rule")
+		h.decideBrake(runstate.BrakeDecisionEscalate, "the reviewer's findings dispute the design; the Lead Product Manager has to rule")
 		return Fired{Task: "development-manager-sweep", Turns: 1, Summoned: "the intake brake"}, nil
 	}
 	sessions := &recordedSessions{}
@@ -442,10 +447,10 @@ func TestAnEscalatedBrakeHoldWaitsOnTheOperator(t *testing.T) {
 		t.Fatalf("started = %s, want nothing started under an escalated hold", schedule.Render())
 	}
 	if len(harness.releases) != 0 {
-		t.Fatalf("released %d time(s), want an escalated hold left for the operator", len(harness.releases))
+		t.Fatalf("released %d time(s), want an escalated hold left standing for the Lead Product Manager", len(harness.releases))
 	}
-	if mover := sessions.lastMover(runstate.WatchBraked); !strings.Contains(mover, "the operator's") || !strings.Contains(mover, "escalated") {
-		t.Fatalf("braked mover = %q, want the operator named because she escalated it", mover)
+	if mover := sessions.lastMover(runstate.WatchBraked); !strings.Contains(mover, "the Lead Product Manager's") || !strings.Contains(mover, "the operator is told") || !strings.Contains(mover, "escalated") {
+		t.Fatalf("braked mover = %q, want the Lead Product Manager named, the operator told, because she escalated it", mover)
 	}
 	if reason := sessions.said(runstate.WatchBraked); !strings.Contains(reason, "the harness's own brake placed it") {
 		t.Fatalf("braked reason = %q, want the brake still named as what placed the hold", reason)

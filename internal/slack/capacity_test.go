@@ -160,10 +160,12 @@ func TestAStandingHoldIsSaidAgainEveryHeartbeat(t *testing.T) {
 	}
 }
 
-// Past the escalation bar the hold is said as critical and taken to the
-// operators with every repetition. A hold nothing but a person ends early is the
-// one state where getting quieter as it stands is the wrong shape.
-func TestAHoldPastTheBarIsCriticalAndReachesTheOperatorsEachTime(t *testing.T) {
+// Past the escalation bar the hold is said as critical with every repetition,
+// louder as it stands. The ownership registry gives the hold to the harness
+// rather than the operator, so the repetitions stay in the channel: the
+// operators were told once, directly, when it was first seen, and the sink does
+// not decide on its own that it is theirs.
+func TestAHoldPastTheBarIsCriticalAndStaysInTheChannel(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, time.Time{})
@@ -183,8 +185,8 @@ func TestAHoldPastTheBarIsCriticalAndReachesTheOperatorsEachTime(t *testing.T) {
 	for hour := 6; hour <= 8; hour++ {
 		harness.now = septemberOpened.Add(time.Duration(hour) * time.Hour)
 		said, found := harness.capacity(t, cursors)
-		if !found || !said.Direct || said.Notification.Event.Severity != report.SeverityCritical {
-			t.Fatalf("hour %d: delivery = %+v, want critical and taken to the operators", hour, said)
+		if !found || said.Direct || said.Notification.Event.Severity != report.SeverityCritical {
+			t.Fatalf("hour %d: delivery = %+v, want critical in the channel alone, the hold being the harness's", hour, said)
 		}
 		cursors.Streams[capacityStream] = said.Cursor
 	}
@@ -288,14 +290,15 @@ func TestARunParkedOnTheLimitReachesTheOperatorsOnceFromTheRunsAlone(t *testing.
 		}
 		cursors.Streams[capacityStream] = again.Cursor
 	}
-	// And past the bar it is critical and taken to them again, measured from
-	// when the run parked rather than from its latest probe.
+	// And past the bar it is critical, measured from when the run parked rather
+	// than from its latest probe, and still in the channel alone: the registry
+	// gives the hold to the harness.
 	harness.now = septemberOpened.Add(6 * time.Hour)
 	parked.UpdatedAt = harness.now.Add(-10 * time.Minute)
 	harness.save(t, parked)
 	critical, found := harness.capacity(t, cursors)
-	if !found || !critical.Direct || critical.Notification.Event.Severity != report.SeverityCritical {
-		t.Fatalf("delivery = %+v, found %v; want critical and taken to the operators six hours on", critical, found)
+	if !found || critical.Direct || critical.Notification.Event.Severity != report.SeverityCritical {
+		t.Fatalf("delivery = %+v, found %v; want critical in the channel alone six hours on", critical, found)
 	}
 }
 

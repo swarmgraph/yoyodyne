@@ -33,8 +33,9 @@ import (
 )
 
 // DefaultCapacityEscalation is how long the provider may hold every role before
-// the hold stops being a warning said in the channel and becomes a critical one
-// taken to the operators with every repetition.
+// the hold stops being a warning said in the channel and becomes a critical
+// one. Whether a repetition also goes to the operators directly is the read
+// model's answer for the hold, not this bar's.
 //
 // Six hours is the longest a run itself will wait out a limit — the project's
 // `usage_limit_max_pause` ships at that, and its comment says why: the maximum
@@ -91,15 +92,19 @@ func (f *HarnessFeed) capacityDeliveries(ctx context.Context, cursor Cursor, str
 
 	// A warning while it is young, and critical once it has stood past the bar
 	// above. The first sighting goes to the operators directly whatever its age,
-	// because nothing else in the record says this and the channel is somewhere
-	// somebody chooses to look; every critical repetition goes to them again,
-	// because a hold nothing but a person ends early is the one state where
-	// getting quieter as it stands is the wrong shape.
+	// once, so they are told: nothing else in the record says this, and the
+	// channel is somewhere somebody chooses to look. Whose the hold is after that
+	// is the read model's answer (the ownership registry's rule for the hold),
+	// not this sink's: a repetition goes to the operators directly only where
+	// that answer names him, and otherwise stays in the channel, louder as it
+	// stands.
 	severity := report.SeverityWarning
 	direct := first
 	if now.Sub(hold.Since) >= f.capacityEscalation() {
 		severity = report.SeverityCritical
-		direct = true
+		if waiting, ok := hold.Attention(); ok && waiting.Mover.IsOperator() {
+			direct = true
+		}
 	}
 	return []Delivery{{
 		Stream: capacityStream,

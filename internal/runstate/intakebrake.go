@@ -19,10 +19,10 @@ package runstate
 // nobody can take is the same stall one layer over. And it records the probe:
 // one run started under the hold, whose landing reopens intake and whose
 // blocking keeps it held and puts the question to her again. A brake hold comes
-// to wait on a person two ways, both recorded here as such: her deciding that it
-// should — an escalation to the operator — or the harness deciding it after a
-// bounded number of those summons-and-probe cycles have gone round without her
-// escalating. The bound is what keeps "nothing waits" from becoming a loop that
+// to leave the harness's loop two ways, both recorded here as such: her deciding
+// that it should — an escalation, to the Lead Product Manager with the operator
+// told — or the harness deciding it after a bounded number of those
+// summons-and-probe cycles have gone round without her escalating. The bound is what keeps "nothing waits" from becoming a loop that
 // spends one of her turns and one probe run every cooldown on a broken machine
 // for as long as nobody happens to look.
 //
@@ -43,7 +43,8 @@ import (
 // IntakeBrakeDecision is what the development manager decided about a brake
 // hold. It is a closed vocabulary because the harness acts on it: a release lifts
 // the hold, a probe starts one run under it, and an escalation is the one
-// decision that makes the hold a person's.
+// decision that takes the hold out of the harness's loop and up to the Lead
+// Product Manager.
 type IntakeBrakeDecision string
 
 const (
@@ -53,9 +54,10 @@ const (
 	// BrakeDecisionProbe keeps the hold and starts one probe run now rather than
 	// at the cooldown: a landed probe reopens intake, a blocked one keeps it held.
 	BrakeDecisionProbe IntakeBrakeDecision = "probe"
-	// BrakeDecisionEscalate keeps the hold for the operator. It is the only
-	// decision under which a brake hold waits on a person, and the one the
-	// development manager is told to be sparing with.
+	// BrakeDecisionEscalate keeps the hold and hands it up: it is the Lead
+	// Product Manager's to decide from then on, and the operator is told and may
+	// release it. It is the one decision the development manager is told to be
+	// sparing with.
 	BrakeDecisionEscalate IntakeBrakeDecision = "escalate"
 )
 
@@ -115,8 +117,8 @@ type IntakeProbe struct {
 // InFlight reports a probe that has started and not settled.
 func (p IntakeProbe) InFlight() bool { return p.EndedAt == nil }
 
-// BrakeEscalation is the harness escalating its own hold to the operator,
-// which it does when the configured number of summons-and-probe cycles have
+// BrakeEscalation is the harness escalating its own hold to the Lead Product
+// Manager, with the operator told, which it does when the configured number of summons-and-probe cycles have
 // gone round with the development manager not escalating it herself. It
 // records how many cycles were spent and what stopped the last probe, because
 // those two facts are the whole of what the operator is told and the whole of
@@ -159,11 +161,11 @@ type IntakeBrake struct {
 	// A probe that landed ends the hold, and one that ended neither way decided
 	// nothing, so neither is a cycle. CycleBound is execution.brake_escalation_cycles
 	// as the harness last read it — the number of cycles after which the hold
-	// escalates to the operator by itself — and zero is no bound at all.
+	// escalates to the Lead Product Manager by itself — and zero is no bound at all.
 	Cycles     int `json:"cycles,omitempty"`
 	CycleBound int `json:"cycle_bound,omitempty"`
-	// Escalation is the harness having escalated the hold to the operator at
-	// that bound. It is the second way a brake hold comes to wait on a person,
+	// Escalation is the harness having escalated the hold to the Lead Product Manager at
+	// that bound. It is the second way a brake hold leaves the harness's loop,
 	// and it is recorded apart from her decision because every surface that
 	// says whose move the hold is has to say which of the two it was.
 	Escalation *BrakeEscalation `json:"escalation,omitempty"`
@@ -241,15 +243,15 @@ func (b IntakeBrake) Validate() error {
 	return errors.Join(problems...)
 }
 
-// Escalated reports the hold having been handed to the operator, which is the
-// one state in which a brake hold waits on a person: by the development
-// manager's decision, or by the harness at the cycle bound.
+// Escalated reports the hold having been escalated past the development
+// manager — to the Lead Product Manager, with the operator told — by her
+// decision, or by the harness at the cycle bound.
 func (b IntakeBrake) Escalated() bool {
 	return b.Decision == BrakeDecisionEscalate || b.Escalation != nil
 }
 
-// EscalatedByHarness reports the hold having been handed to the operator by the
-// harness itself, at the cycle bound, rather than by her decision.
+// EscalatedByHarness reports the hold having been escalated by the harness
+// itself, at the cycle bound, rather than by her decision.
 func (b IntakeBrake) EscalatedByHarness() bool { return b.Escalation != nil }
 
 // CycleBoundReached reports the trip having spent every cycle the bound allows,
@@ -278,8 +280,10 @@ func (b IntakeBrake) ProbeDue(now time.Time) bool {
 
 // Whose is whose move the hold is, in the words every surface uses beside a
 // held intake: the development manager's while she is deciding, the harness's
-// while a probe runs or a decision waits to be carried out, and the operator's
-// only once it has been escalated — by her, or by the harness at the bound.
+// while a probe runs or a decision waits to be carried out, and the Lead
+// Product Manager's once it has been escalated — by her, or by the harness at
+// the bound — with the operator told, under the operating rule that the brake
+// never summons him (789c052c) and the ownership registry's rule for the hold.
 // While the harness is working the hold the clause names the loop it is in,
 // because a line that says the same thing every hour for a whole night is
 // exactly what this bound exists to end, and a reader should be able to see
@@ -289,9 +293,9 @@ func (b IntakeBrake) Whose() string {
 	case b.Decision == BrakeDecisionRelease:
 		return "the harness's — the development manager decided to release it, and the watching session lifts it at its next poll"
 	case b.Decision == BrakeDecisionEscalate:
-		return "the operator's — the development manager escalated it, and nothing new is chosen until `yoyo release` lifts it"
+		return "the Lead Product Manager's — the development manager escalated it, and she decides whether intake reopens; the operator is told and may release it, and nothing new is chosen until `yoyo release` lifts it"
 	case b.EscalatedByHarness():
-		return fmt.Sprintf("the operator's — the harness escalated it after %s, and nothing new is chosen until `yoyo release` lifts it", b.escalationAccount())
+		return fmt.Sprintf("the Lead Product Manager's — the harness escalated it after %s, and she decides whether intake reopens; the operator is told and may release it, and nothing new is chosen until `yoyo release` lifts it", b.escalationAccount())
 	case b.Probing():
 		return b.loop(fmt.Sprintf("the harness's — a probe run of %s is in flight; intake reopens if it lands, and the hold stays with the development manager asked again if it blocks", b.Probe.WorkItemID))
 	case b.Decision == BrakeDecisionProbe:
@@ -310,9 +314,9 @@ func (b IntakeBrake) Standing() string {
 	case b.Decision == BrakeDecisionRelease:
 		return "the development manager decided to release it, and the watching session lifts it at its next poll"
 	case b.Decision == BrakeDecisionEscalate:
-		return "the development manager escalated it to the operator, so it stays held until somebody releases it"
+		return "the development manager escalated it to the Lead Product Manager, and the operator is told, so it stays held until somebody releases it"
 	case b.EscalatedByHarness():
-		return fmt.Sprintf("the harness escalated it to the operator after %s, so it stays held until somebody releases it", b.escalationAccount())
+		return fmt.Sprintf("the harness escalated it to the Lead Product Manager after %s, and the operator is told, so it stays held until somebody releases it", b.escalationAccount())
 	case b.Probing():
 		return b.loop(fmt.Sprintf("a probe run of %s is in flight: intake reopens if it lands, and the hold stays if it blocks", b.Probe.WorkItemID))
 	case b.Decision == BrakeDecisionProbe:
@@ -331,14 +335,14 @@ func (b IntakeBrake) Standing() string {
 
 // Loop names where the summons-and-probe loop stands, for every surface that
 // says the harness is still working the hold: which cycle this is, and at what
-// cycle the harness escalates to the operator itself. Nothing is named for a
+// cycle the harness escalates it to the Lead Product Manager itself. Nothing is named for a
 // trip with no bound and no cycle spent, which is the first cooldown of a hold
 // configured never to escalate on its own — the one case with no loop to speak
 // of yet.
 func (b IntakeBrake) Loop() string {
 	switch {
 	case b.CycleBound > 0:
-		return fmt.Sprintf("summons-and-probe cycle %d of at most %d; the harness escalates it to the operator itself after %d probe%s blocked",
+		return fmt.Sprintf("summons-and-probe cycle %d of at most %d; the harness escalates it to the Lead Product Manager itself after %d probe%s blocked",
 			b.Cycles+1, b.CycleBound, b.CycleBound, plural(b.CycleBound))
 	case b.Cycles > 0:
 		return fmt.Sprintf("summons-and-probe cycle %d, with no bound configured on how many there may be", b.Cycles+1)
@@ -358,7 +362,7 @@ func (b IntakeBrake) loop(clause string) string {
 
 // escalationAccount is the harness's escalation in one clause: the cycles it
 // spent and what stopped the last probe, which are the two facts the operator
-// is owed about a loop that ran without them.
+// is told about a loop that ran without them.
 func (b IntakeBrake) escalationAccount() string {
 	escalation := b.Escalation
 	account := fmt.Sprintf("%d summons-and-probe cycle%s with the development manager not escalating it", escalation.Cycles, plural(escalation.Cycles))
@@ -522,10 +526,10 @@ func (s *IntakeHoldStore) ReleaseBrake(by string, at time.Time) (IntakeHold, boo
 }
 
 // ErrBrakeEscalatedByHarness refuses a probe decision on a hold the harness has
-// already escalated to the operator: the bound ended the loop, and a probe
+// already escalated to the Lead Product Manager: the bound ended the loop, and a probe
 // would start it again with nothing to stop it the second time. A release is
 // still hers to record — the line being fine is news whoever finds it out.
-var ErrBrakeEscalatedByHarness = errors.New("the harness escalated this hold to the operator at the cycle bound, so no further probe is started under it; release it if the line is fine, or leave it to the operator")
+var ErrBrakeEscalatedByHarness = errors.New("the harness escalated this hold to the Lead Product Manager at the cycle bound, so no further probe is started under it; release it if the line is fine, or leave it to her")
 
 // DecideBrake records the development manager's decision about the brake's
 // hold. A decision already recorded is replaced: she may change her mind, and

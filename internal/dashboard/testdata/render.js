@@ -424,6 +424,7 @@ const scenarios = pages.concat([
   over("attention-amendment", "busy", { open: [{ grouping: "attention" }, { entry: "amendment:amendment-3f9a1c2e8b7d4f6a9c1e2b3d4f5a6b7c" }] }),
   over("attention-owed-step", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }] }),
   over("attention-carried-item", "busy", { open: [{ grouping: "attention" }, { entry: "conversation-carried-item:yoyodyne-ifd.188" }] }),
+  over("attention-human-gate", "busy", { open: [{ grouping: "attention" }, { entry: "human-gate:signing-key" }] }),
   over("attention-carried-item-card", "busy", { items: items("yoyodyne-ifd.188"), open: [{ grouping: "attention" }, { entry: "conversation-carried-item:yoyodyne-ifd.188" }, { item: "yoyodyne-ifd.188" }] }),
   over("attention-settled", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }, { poll: { "/api/standing": ok(fixture("standing-settled")) } }] }),
   over("attention-unreadable", "busy", { open: [{ grouping: "attention" }, { entry: "owed-step:run-2b6f0d3e8a1c4f7b9e5d2a8c6f1b3e70" }, { poll: { "/api/standing": ok(fixture("standing-degraded")) } }] }),

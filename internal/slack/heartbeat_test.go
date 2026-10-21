@@ -42,12 +42,14 @@ func TestAHeldLineWithReadyWorkSaysSoAgainWhileItStands(t *testing.T) {
 }
 
 // The hold of 2026-09-19, replayed: the brake tripped at 17:56Z and held intake
-// for nearly two hours with a free developer slot idle, and nothing reached the
-// operator. A brake hold that waits on a person is a stopped line, and the line
-// gets louder as it stands rather than repeating at the same pitch: tagged to
-// the operators every hour, a warning while it is young, and critical and taken
-// to them directly once it has stood past the bar — until intake is released.
-func TestABrakeHoldWaitingOnAPersonGetsLouderAndTagsTheOperator(t *testing.T) {
+// for nearly two hours with a free developer slot idle. A brake hold outside the
+// harness's own loop is a stopped line, and the line gets louder as it stands
+// rather than repeating at the same pitch: a warning while it is young, and
+// critical once it has stood past the bar — until intake is released. It names
+// the owner the ownership registry gives a brake hold written before the brake
+// kept a record, the development manager, and is tagged to the operators at no
+// pitch, because the brake never summons him.
+func TestABrakeHoldOutsideTheHarnesssLoopGetsLouderWithoutSummoningTheOperator(t *testing.T) {
 	t.Parallel()
 
 	tripped := time.Date(2026, 9, 19, 17, 56, 0, 0, time.UTC)
@@ -65,11 +67,8 @@ func TestABrakeHoldWaitingOnAPersonGetsLouderAndTagsTheOperator(t *testing.T) {
 
 	harness.now = tripped.Add(time.Hour)
 	first := harness.line(t, cursors)
-	if !first.Tag {
-		t.Fatal("the held line was posted without naming the operators, want them tagged")
-	}
-	if first.Direct {
-		t.Fatal("a hold an hour old was taken to the operators directly, want the channel with them tagged")
+	if first.Tag || first.Direct {
+		t.Fatalf("tag = %t, direct = %t, want a hold that is not the operator's said in the channel alone", first.Tag, first.Direct)
 	}
 	if first.Notification.Event.Severity != report.SeverityWarning {
 		t.Fatalf("severity = %q, want a young brake hold said as a warning", first.Notification.Event.Severity)
@@ -78,18 +77,18 @@ func TestABrakeHoldWaitingOnAPersonGetsLouderAndTagsTheOperator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "Next: the operator's") || !strings.Contains(said.Body, "yoyo release") {
-		t.Fatalf("body %q does not name the operator's move and what lifts it", said.Body)
+	if !strings.Contains(said.Body, "Next: the development manager's") || !strings.Contains(said.Body, "yoyo release") {
+		t.Fatalf("body %q does not name the development manager's move and what lifts it", said.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindLineWaiting)
 
-	// The second hour, and every hour after it: critical, tagged, and to them
-	// directly as well.
+	// The second hour, and every hour after it: critical, and still in the
+	// channel alone.
 	for hour := 2; hour <= 4; hour++ {
 		harness.now = tripped.Add(time.Duration(hour) * time.Hour)
 		again := harness.line(t, cursors)
-		if !again.Tag || !again.Direct {
-			t.Fatalf("hour %d: tag = %t, direct = %t, want the operators tagged and told directly", hour, again.Tag, again.Direct)
+		if again.Tag || again.Direct {
+			t.Fatalf("hour %d: tag = %t, direct = %t, want the line in the channel alone", hour, again.Tag, again.Direct)
 		}
 		if again.Notification.Event.Severity != report.SeverityCritical {
 			t.Fatalf("hour %d: severity = %q, want a standing brake hold said as critical", hour, again.Notification.Event.Severity)
@@ -98,8 +97,8 @@ func TestABrakeHoldWaitingOnAPersonGetsLouderAndTagsTheOperator(t *testing.T) {
 	}
 
 	// Released, and the hold is no longer what the line says. What it says next —
-	// the stopped session over ready work — is the ordinary hourly note, tagged
-	// to nobody: the tagging was the brake hold's and went with it.
+	// the stopped session over ready work — is the ordinary hourly note: the
+	// louder pitch was the brake hold's and went with it.
 	if _, _, err := harness.intake.Release(); err != nil {
 		t.Fatalf("Release() error = %v", err)
 	}
@@ -111,10 +110,10 @@ func TestABrakeHoldWaitingOnAPersonGetsLouderAndTagsTheOperator(t *testing.T) {
 	}
 }
 
-// A brake hold the development manager has escalated is the other hold that
-// waits on the operator, and it is said the same way, naming her escalation as
-// what makes it his.
-func TestAnEscalatedBrakeHoldIsTaggedToTheOperator(t *testing.T) {
+// A brake hold the development manager has escalated is the Lead Product
+// Manager's, with the operator told: the line names her as its owner and her
+// escalation as what made it so, at warning, and tags nobody.
+func TestAnEscalatedBrakeHoldNamesTheLeadProductManager(t *testing.T) {
 	t.Parallel()
 
 	harness := newTestHarness(t, time.Time{})
@@ -129,25 +128,25 @@ func TestAnEscalatedBrakeHoldIsTaggedToTheOperator(t *testing.T) {
 	cursors := harness.poll(t, harness.start(), notify.KindIntakeHeld)
 	harness.now = moment.Add(time.Hour + 10*time.Minute)
 	delivery := harness.line(t, cursors)
-	if !delivery.Tag || delivery.Notification.Event.Severity != report.SeverityWarning {
-		t.Fatalf("tag = %t, severity = %q, want the operators tagged at warning", delivery.Tag, delivery.Notification.Event.Severity)
+	if delivery.Tag || delivery.Direct || delivery.Notification.Event.Severity != report.SeverityWarning {
+		t.Fatalf("tag = %t, direct = %t, severity = %q, want the line at warning in the channel alone", delivery.Tag, delivery.Direct, delivery.Notification.Event.Severity)
 	}
 	said, err := notify.Render(delivery.Notification.Topic, delivery.Notification.Speaker, delivery.Notification.Event)
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "Next: the operator's — the development manager escalated it") {
-		t.Fatalf("body %q does not say the hold is the operator's by her escalation", said.Body)
+	if !strings.Contains(said.Body, "Next: the Lead Product Manager's — the development manager escalated it") || !strings.Contains(said.Body, "the operator is told") {
+		t.Fatalf("body %q does not say the hold is the Lead Product Manager's by her escalation, with the operator told", said.Body)
 	}
 }
 
-// The other way a brake hold becomes the operator's: the harness's own
-// summons-and-probe loop went round its configured number of times with the
-// development manager not escalating it, and the harness escalated it itself.
-// That is said once, the moment the record shows it, to the operators directly
+// The other way a brake hold is escalated: the harness's own summons-and-probe
+// loop went round its configured number of times with the development manager
+// not escalating it, and the harness escalated it itself, to the Lead Product
+// Manager. The operator is told once, the moment the record shows it, directly
 // and tagged by member id, naming the cycles spent and what stopped the last
 // probe — and never again on a later pass, because the hourly line carries the
-// hold from there, tagged as any hold that waits on him is.
+// hold from there, in the channel, as hers.
 func TestTheHarnessEscalatingABrakeHoldIsSaidOnceDirectlyToTheOperator(t *testing.T) {
 	t.Parallel()
 
@@ -200,25 +199,25 @@ func TestTheHarnessEscalatingABrakeHoldIsSaidOnceDirectlyToTheOperator(t *testin
 	if err != nil {
 		t.Fatalf("the escalation could not be said: %v", err)
 	}
-	for _, fact := range []string{"escalated to the operator by the harness", "2 summons-and-probe cycles", "yoyodyne-ifd.405", "the checks failed on main", "Next: the operator's — the harness has stopped probing", "yoyo release"} {
+	for _, fact := range []string{"escalated to the Lead Product Manager by the harness, and you are told", "2 summons-and-probe cycles", "yoyodyne-ifd.405", "the checks failed on main", "Next: the Lead Product Manager's — the harness has stopped probing", "yoyo release"} {
 		if !strings.Contains(rendered.Body, fact) {
 			t.Fatalf("body %q does not carry %q", rendered.Body, fact)
 		}
 	}
 
 	// A later pass says nothing more about the escalation: the hourly line is
-	// what carries the hold now, tagged to him as any hold that waits on him is.
+	// what carries the hold now, in the channel, as the Lead Product Manager's.
 	harness.now = escalated.Add(time.Hour + 2*time.Minute)
 	line := harness.line(t, cursors)
-	if line.Notification.Event.Kind != notify.KindLineWaiting || !line.Tag {
-		t.Fatalf("kind = %q, tag = %t, want the hourly line tagged to the operators", line.Notification.Event.Kind, line.Tag)
+	if line.Notification.Event.Kind != notify.KindLineWaiting || line.Tag || line.Direct {
+		t.Fatalf("kind = %q, tag = %t, direct = %t, want the hourly line in the channel alone", line.Notification.Event.Kind, line.Tag, line.Direct)
 	}
 	body, err := notify.Render(line.Notification.Topic, line.Notification.Speaker, line.Notification.Event)
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(body.Body, "Next: the operator's — the harness escalated it after 2 summons-and-probe cycles") {
-		t.Fatalf("body %q does not say the hold is the operator's by the harness's escalation", body.Body)
+	if !strings.Contains(body.Body, "Next: the Lead Product Manager's — the harness escalated it after 2 summons-and-probe cycles") {
+		t.Fatalf("body %q does not say the hold is the Lead Product Manager's by the harness's escalation", body.Body)
 	}
 	cursors = harness.poll(t, cursors, notify.KindLineWaiting)
 	harness.now = harness.now.Add(time.Hour)
@@ -263,7 +262,7 @@ func TestTheHourlyLineNamesTheLoopWhileTheHarnessWorksTheHold(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the line could not be said: %v", err)
 	}
-	if !strings.Contains(said.Body, "summons-and-probe cycle 2 of at most 4") || !strings.Contains(said.Body, "escalates it to the operator itself after 4 probes blocked") {
+	if !strings.Contains(said.Body, "summons-and-probe cycle 2 of at most 4") || !strings.Contains(said.Body, "escalates it to the Lead Product Manager itself after 4 probes blocked") {
 		t.Fatalf("body %q does not name the loop and its bound", said.Body)
 	}
 }

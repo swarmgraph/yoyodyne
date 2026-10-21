@@ -199,7 +199,8 @@ const (
 	// coming back.
 	actionHandle = "handle"
 	// actionBrake records what the development manager decided about the intake
-	// brake's own hold: release it, probe the line, or keep it for the operator.
+	// brake's own hold: release it, probe the line, or escalate it to the Lead
+	// Product Manager, with the operator told.
 	// Its subject is neither an item nor a run but the hold the brake placed,
 	// which is why it names no item and why it is not a triage decision: a
 	// decision about a run does not decide the hold, and a decision about the

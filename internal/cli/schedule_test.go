@@ -118,8 +118,10 @@ func TestWorkUsageSaysWhatWatchingIsAndThatDrainingIsTheDefault(t *testing.T) {
 		// name: an operator reading "summons her again" would otherwise expect
 		// the loop to go round until she stops it, which is what it used to do.
 		"execution.brake_escalation_cycles",
-		"escalates it to\nyou itself",
-		"only brake hold that waits\non a person is one she escalated or one the harness escalated",
+		// Escalated, the hold is the Lead Product Manager's and never the
+		// operator's: the brake never summons him (operating rule 789c052c).
+		"escalates it to\nthe Lead Product Manager itself, you are told",
+		"a brake hold never waits on you: an escalated one is the Lead Product\nManager's to decide",
 		"--budget",
 		// A bound that can stop the session has to say so where the flag is
 		// documented: an operator who reads "caps what one session spends" and

@@ -4139,7 +4139,8 @@ again on 2026-09-21 when all three were one diverged target.
 
 **The brake's hold does not wait on you while the harness is still working
 it.** She decides what happens to it — to
-release it, to keep it and probe the line, or to escalate it to you — and the
+release it, to keep it and probe the line, or to escalate it to the Lead
+Product Manager, which you are told of — and the
 watching session acts on the decision at its next poll. `brake_cooldown` is how
 long the brake waits for that decision before it decides on evidence instead:
 once it has passed with nothing recorded, the session starts one probe run under
@@ -4163,8 +4164,8 @@ blocked probe summons her again and restarts the cooldown, so the brake goes
 round — one of her turns and one probe run per cooldown — and before the bound
 nothing about it got louder unless she escalated it. `brake_escalation_cycles`
 is how many of those summons-and-probe cycles the harness goes round before it
-escalates the hold to you itself: the cycle that reaches it is not put to her
-again, no further probe starts, and you are sent
+escalates the hold to the Lead Product Manager itself: the cycle that reaches
+it is not put to her again, no further probe starts, and you are sent
 [one direct message](reporting.md#a-brake-hold-the-harness-escalates), tagged
 by member id, naming the cycles spent and what stopped the last probe. It is a
 count of cycles rather than a length of time because the loop is what it
@@ -4187,12 +4188,15 @@ the run and how long it has been out, because a probe that neither lands nor
 blocks leaves the line held with nobody asked about it. The default is 45
 minutes; zero never puts a probe back.
 
-So a brake hold waits on a person only once it is escalated, by her or by the
-harness at that bound, and the hold is sent to you as escalated once, directly
-and tagged by member id, the moment the first escalation is recorded — one
-message for the hold whichever of the two escalated it, and none more if the
-other follows. It is
-[a finding for you](operations.md#where-a-finding-that-needs-your-hand-goes).
+So a brake hold never waits on you. Once it is escalated, by her or by the
+harness at that bound, it is the Lead Product Manager's to decide — the
+ownership registry's rule for the hold, under the operating rule that the brake
+summons the development manager and never the operator — and you are told: the
+hold is sent to you as escalated once, directly and tagged by member id, the
+moment the first escalation is recorded — one message for the hold whichever of
+the two escalated it, and none more if the other follows. It is not
+[a finding for you](operations.md#where-a-finding-that-needs-your-hand-goes),
+and the hourly line that carries it afterwards stays in the channel.
 The trip itself is sent to you directly too, once and tagged, the moment it is
 recorded, naming the runs it counted and `yoyo release`: it is not yours to
 move while the harness is working it, and the message says whose it is, but it
@@ -4207,8 +4211,9 @@ probe starts if nobody does. It matters because what you do about a stopped
 line depends entirely on which of the two stopped it, and a brake that trips
 over a hold you already placed leaves yours standing, still yours, and summons
 nobody over it. The brake's hold also names the runs it counted — each with its
-item and what stopped it — on the channel's message and under `Needs a human`
-on `yoyo status`, and a release is said once, naming who lifted it.
+item and what stopped it — on the channel's message and on `yoyo status`'s
+fourth line, under whoever the hold is waiting on, and a release is said once,
+naming who lifted it.
 
 And the session says what it is doing, because an idle session and a dead one are
 otherwise the same silence. Each transition — watching, idle, braked, blocked, resumed,

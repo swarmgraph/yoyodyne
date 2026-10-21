@@ -466,8 +466,8 @@ type Execution struct {
 	// stays broken the brake goes round — one of her turns and one probe run
 	// per cooldown — for as long as nobody happens to look, and nothing about
 	// it gets louder unless she escalates. After this many such cycles with no
-	// escalation of hers, the harness escalates the hold to the operator itself:
-	// one direct message naming the cycles spent and what stopped the last
+	// escalation of hers, the harness escalates the hold to the Lead Product
+	// Manager itself, and the operator is told by one direct message naming the cycles spent and what stopped the last
 	// probe, and no further probe until somebody releases it. It is a count of
 	// cycles rather than a length of time because the loop is what it bounds,
 	// and what a count of cycles comes to in hours is the cooldown times it.
