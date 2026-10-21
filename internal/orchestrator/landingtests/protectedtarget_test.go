@@ -5,12 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/backend"
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/orchestratortest"
 	"github.com/mason-bryant/yoyodyne/internal/orchestrator/testharness"
@@ -276,6 +278,101 @@ func TestAProtectedTargetThatMovesBeforeTheMergeIsReplayedOnto(t *testing.T) {
 			t.Errorf("the primary checkout does not carry %s after the landing: %v", file, err)
 		}
 	}
+}
+
+// An approved change whose protected target moves on the remote while it is
+// being checked and reviewed loses its race before the forge is asked anything:
+// the landing catches local main up onto the remote, the drift check refuses to
+// prepare a change written against the old base, and the change is replayed
+// onto the tip just caught up to, with its checks and a fresh review run again.
+// Main moving again during that second pass is the same race again, so each
+// attempt has to be prepared on the tip the attempt before it lost to, never on
+// a base recorded earlier. See
+// docs/diagnoses/yoyodyne-ifd-428-99-19-landing-attempts-on-a-moving-main.md.
+func TestEveryLandingAttemptOnAProtectedTargetIsPreparedOnTheTipTheLastOneLostTo(t *testing.T) {
+	t.Parallel()
+
+	const races = 3
+	repository, remote := testharness.PublishedRepository(t)
+	tracker := &orchestratortest.Tracker{Item: beads.WorkItem{ID: "yoyodyne-task", Title: "Task", Status: "open"}}
+	forge := &orchestratortest.Forge{Remote: remote, TargetProtection: publish.BranchProtection{Protected: true, By: "branch protection"}}
+	provider := orchestratortest.RoleBackend(func(request backend.RunRequest) error {
+		return os.WriteFile(filepath.Join(request.WorkingDirectory, "feature.txt"), []byte("implemented\n"), 0o600)
+	}, testharness.ApproveVerdict)
+	// Each of the first verdicts is given while somebody else's work lands on the
+	// remote, which is the forge merging another pull request while this one was
+	// being checked and reviewed. tips is where each of those left the remote.
+	var tips []string
+	var unprepared []string
+	reviews := 0
+	inner := provider.Respond
+	provider.Respond = func(request backend.RunRequest) (backend.RunResult, error) {
+		if request.Role == domain.RoleReviewer {
+			reviews++
+			if reviews > 1 {
+				lostTo := tips[len(tips)-1]
+				if err := testharness.RunGitQuiet(request.WorkingDirectory, "merge-base", "--is-ancestor", lostTo, "HEAD"); err != nil {
+					unprepared = append(unprepared, "review "+strconv.Itoa(reviews)+" was not on "+lostTo)
+				}
+			}
+		}
+		result, err := inner(request)
+		if err == nil && request.Role == domain.RoleReviewer && reviews <= races {
+			tips = append(tips, landElsewhere(t, remote, reviews))
+		}
+		return result, err
+	}
+	pipeline, store := testharness.NewPublishingPipeline(t, repository, tracker, provider, forge, []string{"exit 0"})
+
+	outcome, err := pipeline.Run(context.Background(), "yoyodyne-task")
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if outcome.Status != runstate.StatusSucceeded || !outcome.WorkItemClosed || outcome.PublishFailure != "" {
+		t.Fatalf("outcome = %#v, want the change landed after its lost races", outcome)
+	}
+	if len(unprepared) != 0 {
+		t.Fatalf("an attempt was prepared on a base the target had already left: %s", strings.Join(unprepared, "; "))
+	}
+	// Every lost attempt stopped before the forge was asked to merge: the one
+	// merge is the attempt that landed.
+	if outcome.IntegrationRetries != races || len(forge.Merges) != 1 || reviews != races+1 {
+		t.Fatalf("lost races = %d, merges asked = %d, reviews = %d; want %d races, one merge, and a fresh review per replay",
+			outcome.IntegrationRetries, len(forge.Merges), reviews, races)
+	}
+	state, err := store.Load(testharness.PipelineRunID)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if last := tips[len(tips)-1]; state.BaseCommit != last || outcome.BaseCommit != last {
+		t.Errorf("recorded base = %q (outcome %q), want the tip the last lost race left, %q", state.BaseCommit, outcome.BaseCommit, last)
+	}
+	testharness.AssertRemoteCarriesPromotion(t, repository, remote, "main", outcome.Integration.SourceCommit)
+	for race := 1; race <= races; race++ {
+		if _, err := os.Stat(filepath.Join(repository, "elsewhere-"+strconv.Itoa(race)+".txt")); err != nil {
+			t.Errorf("main lost the work that won race %d: %v", race, err)
+		}
+	}
+	(&testharness.ProtectedRun{Repository: repository, Remote: remote}).AssertMainNotAhead(t)
+}
+
+// landElsewhere lands somebody else's work on the remote's main, as the forge
+// merging another pull request does, and reports where it left main.
+func landElsewhere(t *testing.T, remote string, n int) string {
+	t.Helper()
+	clone := filepath.Join(t.TempDir(), "elsewhere")
+	testharness.RunPipelineGit(t, filepath.Dir(clone), "clone", remote, clone)
+	testharness.RunPipelineGit(t, clone, "config", "user.name", "Someone Else")
+	testharness.RunPipelineGit(t, clone, "config", "user.email", "someone@example.invalid")
+	testharness.DisablePipelineMaintenance(t, clone)
+	name := "elsewhere-" + strconv.Itoa(n) + ".txt"
+	if err := os.WriteFile(filepath.Join(clone, name), []byte("someone else's work\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	testharness.RunPipelineGit(t, clone, "add", name)
+	testharness.RunPipelineGit(t, clone, "commit", "-m", "someone else's work "+strconv.Itoa(n))
+	testharness.RunPipelineGit(t, clone, "push", "origin", "HEAD:refs/heads/main")
+	return testharness.PublishedCommit(t, remote, "main")
 }
 
 // A process killed between preparing a landing and hearing what the forge did
