@@ -2292,7 +2292,7 @@ func omittedHow(answered Turn) string {
 // pass was handed waiting work.
 func closingContract(f firing, handedWork bool) string {
 	lines := []string{
-		"End this turn with its closing account, exactly as the first turn of this pass did: a turn that ends without one is asked for it once, and a turn that still gives none leaves what it found out of the pass's record.",
+		"End this turn with its closing account, exactly as the first turn of this pass did: a pass asks for a missing account at most once, and a turn that gives none leaves what it found out of the pass's record.",
 		"",
 		sweep.Contract() + f.batch.contract(),
 	}

@@ -538,7 +538,8 @@ type roleConversation struct {
 // not signed in, no agent fills the role — are all of that kind.
 //
 // An answer with no sweep block is asked once for the block alone, under the
-// same conversation hold. An unrecovered account fails the pass.
+// same conversation hold. An unrecovered account fails the pass unless an
+// earlier turn's account is kept (Trigger.run).
 //
 // A task that names its own model has this turn ask for it, and only this turn:
 // the conversation, its account, and its failover are the role's, and the next

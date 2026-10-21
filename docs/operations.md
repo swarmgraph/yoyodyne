@@ -7189,14 +7189,24 @@ budget and is outside the pass's work-turn bound. A reply that already carries
 the block is never asked again, and a pass gets at most one such request, even
 when it takes several work turns.
 
-If the report is still missing, the listing marks the pass **FAILED PASS**:
+Every turn after a pass's first is told again what its closing report must
+hold, whatever sends the pass on. If a later turn still gives no report, and an
+earlier turn of the same pass gave a valid one, the pass keeps the account its
+earlier turns gave: it is marked as having more to do and recorded as partial
+rather than failed, what the later turn found is only in the conversation, and
+every write, report and admission stands. The listing says the pass kept the
+account its earlier turns gave. It does not count toward the repeated-failure
+finding, and a program manager's event cursor moves past it as after any
+partial pass; it does count toward the fresh-conversation bound below.
+
+If no turn of the pass gave a valid report, the listing marks the pass **FAILED PASS**:
 its findings remain unrecorded, its writes stand, and it counts toward the
 repeated-failure finding watched by the factory-flow program manager and
 resolved by the development manager, or by another role where the failing pass
 is her own (see [the maintenance pass](#the-supervisors-maintenance-pass)). A program manager's failed pass also keeps
 its event cursor where it was. After
 `execution.missing_reports_before_fresh_conversation` consecutive passes still
-omit the block — three by default — the next pass opens a fresh conversation
+omit the block on some turn, failed or kept — three by default — the next pass opens a fresh conversation
 for that role or program manager instance, with its normal memory and briefing.
 The pass records the previous and new conversation and the reason for replacing
 it, and the listing says so. The earlier conversation's durable records remain
