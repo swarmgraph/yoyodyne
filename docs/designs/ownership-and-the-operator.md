@@ -1,7 +1,7 @@
 ---
 id: ownership-and-the-operator
 kind: design
-title: "Who owns what, and when it reaches the operator"
+title: Who owns what, and when it reaches the operator
 supports:
     - v1-goals
 status: active
@@ -10,8 +10,17 @@ revisions:
       by: architect
       at: 2026-09-30T02:00:00Z
       reason: 'yoyodyne-ifd.430 - Mason''s direction of 2026-09-29: one ownership registry and one resolver every surface reads, a closed list of what is the operator''s held by a test, an escalation ladder between roles, and missing capabilities recorded as defects rather than asks of the operator'
+    - action: amended
+      by: architect
+      at: 2026-10-21T02:49:08.793992Z
+      reason: yoyodyne-ifd.437.14 - the owning role decides a proposed change to its own documents with the amendment action and reports afterwards; the operator decides only a goals or brief change that alters intent or does not say, and may override. Also folds in approved amendment-93e36b92 (the closed list under the names the code uses, and the escalated brake hold going to the Lead Product Manager with the operator told) and approved amendment-7f69c6ac (owners for the brake hold, a stalled queue, a provider's usage limit, and the harness's pause for capacity). The table keeps the entry kind 'usage window' as main writes it, because the terms register still names it for this document.
+approvals:
+    - policy: approvals.designs
+      revision: 1
+      by: harness
+      at: 2026-10-21T02:49:08.793992Z
+      reason: confirmed by the harness in conversation chat-a06587022b9caf04cbbb20d8f6fe8c13, turn 1379, for document-1379.1 under the automatic approval policy
 ---
-
 # Who owns what, and when it reaches the operator
 
 Serves the autonomy goal: the operator states intent and approves the brief and
@@ -67,15 +76,15 @@ her pass, and she files it against the registry.
 
 | Kind | Owner |
 | --- | --- |
-| amendment | the role that owns the target document; the operator only for an amendment to the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
+| amendment | the role that owns the target document, which decides it as described under *Who decides a proposed change*; the operator only for an amendment to the brief or the goals recorded as `intent: fundamental` or recorded with no intent, reason `fundamental-intent` |
 | directive | the Lead Product Manager, who ends it or carries it into a document or item; where settling it would change what the goals admit, what reaches the operator is her drafted change to the goals, as an amendment, not the directive |
 | report | the Lead Product Manager, who handles it; a critical whose remedy is a role's names that role; the operator only when her handling names a reason from the closed list |
 | owed step | the harness |
-| publication | the harness while it can replay, re-arm, or wait on a red target; the development manager for a merge handed back; the operator only where the forge refuses the harness's token, reason `forge-setting` |
+| publication | the harness while it can replay, re-arm, or wait on a red target; the development manager for a merge handed back; the operator only where the forge refuses the harness's token, reason `repository-setting` |
 | degraded service, failing task | the harness or the supervisor; the task's role where the task failed on its own work; the operator only where the remedy is a credential, reason `credential` |
-| hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's intake hold; the harness for capacity |
-| outage, usage window | nobody, since it lifts on the provider's clock; the operator only for an expired login, reason `credential` |
-| stall | the harness for a first silent-stream stall; the development manager after that |
+| hold | the operator for a hold or pause he placed, reason `own-hold`; the development manager for the brake's hold on new work, and the Lead Product Manager once the development manager escalates it, with the operator told; the harness for its own pause on new work for lack of provider capacity, which it lifts at the provider's reset or after a successful check of the provider |
+| outage, usage window | nobody, since a provider outage or a provider's usage limit lifts on the provider's clock; the operator only for an expired login, reason `credential` |
+| stall | the harness for a stalled queue, shown as a degraded service once the harness has left it down; for a run whose AI session went silent, the harness the first time and the development manager after that |
 | stoppage | the development manager |
 | escalation | the role it names; the operator only when it carries a reason from the closed list |
 | held work | the owner of the group it is held in |
@@ -84,17 +93,56 @@ her pass, and she files it against the registry.
 | diverged target | the operator, reason `diverged-history` |
 | pile or queue age | the role that works that pile or queue |
 
+## Who decides a proposed change
+
+*(yoyodyne-ifd.437.14)*
+
+A role that does not own a document proposes a change to it rather than
+making one. The proposal waits on the role that owns the document, and that
+role decides it:
+
+- **The owner decides, under its own authority.** It approves or declines the
+  proposal with the amendment action, from its conversation or its recurring
+  pass. The harness records the decision on the proposal under that role's
+  authority, exactly as it records the operator's command, and tells the
+  operator afterwards. Nobody asks him first.
+- **A decline says what would change the answer.** Its reason is what the
+  proposer reads, so it states what would have to be true for the proposal to
+  be approved.
+- **An approval writes nothing.** The owner then writes the revision of its
+  document in the ordinary way, and that revision lands through its own
+  reviewed run. Until it does, the approved change is still the owner's to
+  write.
+- **An undecided proposal stays the owner's.** It counts in the age of the
+  amendment queue on the owner's list. It never moves to the operator because
+  it has waited.
+- **What stays the operator's.** A change to the brief or the goals recorded
+  as `intent: fundamental`, or recorded without saying which it is, is his to
+  decide, reason `fundamental-intent`; the Lead Product Manager drafts it and
+  argues it, and the amendment action refuses it to every role. He may also
+  decide any proposal himself, from the command line or the dashboard, and his
+  decision replaces the role's.
+- **What is refused.** A role deciding a proposal against a document another
+  role owns is refused, naming the owner.
+
+Rejected: putting every proposal to the operator, which routes an approval to
+him that is not his, the defect this design exists to end; and having the Lead
+Product Manager decide every proposal, which gives her the designs and
+decision records that are the architect's, and the work definitions that are
+the development manager's.
+
 ## The operator's closed list
 
-The operator is the owner only for one of these reasons:
+The operator is the owner only for one of these reasons, named as the code
+names them:
 
 - `fundamental-intent`: a change to what the goals admit or refuse, drafted by
-  the Lead Product Manager, or an amendment to the goals that does not say
-  which kind it is.
+  the Lead Product Manager, or an amendment to the brief or the goals that does
+  not say which kind it is.
 - `credential`: a credential or an external account only a person holds.
-- `forge-setting`: a forge or repository setting the harness's token cannot
-  change.
-- `beyond-grant`: a file beyond every grant, which today means Claude Code's
+- `repository-setting`: a forge or repository setting the harness's token
+  cannot change.
+- `protected-file`: a file beyond every grant, which today means Claude Code's
   settings files and activating a role definition.
 - `human-gate`: a step an item reserved for a person with `human-gate:`.
 - `own-hold`: lifting a hold or pause the operator placed himself.
@@ -102,21 +150,22 @@ The operator is the owner only for one of these reasons:
   diverged from the forge, which needs rights on the protected branch that no
   role holds.
 
-The list lives in `internal/ownership` as a closed set. Adding a reason is an
-amendment to the invariant
+The earlier revision of this design called two of these `forge-setting` and
+`beyond-grant`; the reasons are the same and only the names changed to match
+the code. The list lives in `internal/ownership` as a closed set. Adding a
+reason is an amendment to the invariant
 [the-operator-owns-only-what-only-he-can-do](../decisions/invariants/the-operator-owns-only-what-only-he-can-do.md),
 never a code change on its own.
 
 ## A role's decision that needs the operator's hand
 
 Some remedies are a role's to decide, but the harness cannot yet perform them
-for that role. Today these are deciding an amendment, which waits on owning
-roles deciding amendments (yoyodyne-ifd.437.14); applying operational
-configuration, which waits on configuration applied through a run
-(yoyodyne-ifd.434.8); and committing a document written from a conversation.
-Such an entry keeps the role as its owner and carries `hand`: the operator, the
-capability that is missing, and the item that closes the gap. It never sets
-the owner to the operator.
+for that role. Today these are applying operational configuration, which
+waits on configuration applied through a run (yoyodyne-ifd.434.8), and
+committing a document written from a conversation where its kind's approval
+policy is not automatic (yoyodyne-ifd.433.21). Such an entry keeps the role as
+its owner and carries `hand`: the operator, the capability that is missing,
+and the item that closes the gap. It never sets the owner to the operator.
 
 The needs-a-human line prints two heads from this:
 
@@ -155,12 +204,13 @@ through the registered actions and tools of
 kind from the hand head. Already moved: a role writing its own documents from
 a conversation (yoyodyne-ifd.100), the Lead Product Manager ending a directive
 (yoyodyne-ifd.430.32) and withdrawing her own proposal (yoyodyne-ifd.433.18),
-and the development manager stopping a run (yoyodyne-ifd.428.42). In order,
-next: owning roles deciding amendments (yoyodyne-ifd.437.14); operational
-configuration applied through a run (yoyodyne-ifd.434.8); a document write
-from a conversation confirmed under the approvals policy for its kind, so that
-only goals changing intent ask the operator; and committing that write through
-a reviewed run rather than by hand.
+the development manager stopping a run (yoyodyne-ifd.428.42), and owning roles
+deciding proposed changes to their own documents (yoyodyne-i92, designed under
+yoyodyne-ifd.437.14). In order, next: operational configuration applied
+through a run (yoyodyne-ifd.434.8); a document write from a conversation
+confirmed under the approvals policy for its kind, so that only goals changing
+intent ask the operator; and committing that write through a reviewed run
+rather than by hand.
 
 ## What is enforced in code
 
@@ -172,6 +222,9 @@ a reviewed run rather than by hand.
 - Escalations, report handlings, and asks naming the operator without a
   closed-list reason are refused.
 - An entry with `hand` never renders under "Yours to decide".
+- Deciding a proposal is refused to every role but the owner of the document it
+  targets, and to every role for a change to the brief or the goals recorded as
+  `intent: fundamental` or with no intent.
 
 The existing tests stay: the renders of every owner's label
 (yoyodyne-ifd.432.23), every persona and contract carrying the
@@ -201,3 +254,6 @@ Three bounded items, admitted by the Lead Product Manager:
    and Slack.
 3. The refusals of operator-targeted escalations, handlings, and asks without
    a closed-list reason, with the refusal naming the rung to use.
+
+Owning roles deciding proposed changes to their own documents was built
+separately (yoyodyne-i92).
