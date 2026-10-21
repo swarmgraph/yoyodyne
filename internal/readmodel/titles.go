@@ -1,140 +1,161 @@
 package readmodel
 
-// A work item's title beside its number, wherever a person reads one.
+// Every work item a person reads, shown with its priority, labels, and title
+// as the tracker holds them when the text is shown.
 //
-// On 2026-09-26 the operator read a program manager's lane report naming work
-// as "434.9 and 434.3", with nothing saying what either was. The roles are told
-// to name an item by what it is, and that is not enough on its own: a surface
-// that prints whatever a role wrote lets the next bare number through. So every
-// surface that renders text for a person — the four lines and the needs-a-human
-// line under them, a lane report and the card it is opened on, a pass's account
-// in `yoyo sweeps`, the report pile a digest is filed into, and every message
-// the channel posts — passes that text through Cite, and a number reaches the
-// reader with the item's title beside it.
+// The operator directed on 2026-09-30 that whenever a surface names a work
+// item it carries the id, the title, the priority, and the labels. How a
+// reference is kept, found, and shown is fixed by the "Work item references"
+// section of docs/designs/observability-and-dashboard.md; this is the one
+// renderer every surface takes its text from — the four lines and the
+// needs-a-human line under them, the dashboard, a lane report and its card, a
+// pass's account in `yoyo sweeps`, the report pile, and every message the
+// channel posts — so no surface searches text of its own.
 //
-// Three shapes of identifier are read, and they are not treated alike, because
-// only one of them is unmistakably an identifier:
+// Two forms, for two kinds of text:
 //
-//   - The full form, "yoyodyne-ifd.434.9": the tracker's own prefix, a hash,
-//     and the dotted children. Nothing else in prose has that shape, so one the
-//     tracker does not hold is said to be unknown rather than left bare.
-//   - The form without the product, "ifd.434.9": the same, where exactly one
-//     root in the tracker carries that hash.
-//   - The bare dotted number, "434.9", which is what the lane report said. A
-//     dotted number is also a version, a decimal, and an address, so it is read
-//     as an item only where the tracker holds exactly one item it could name,
-//     and is left alone otherwise: calling every "3.5" an unknown work item
-//     would be a surface wrong in a new way.
+//   - In text a role wrote, and in the harness's own sentences, each reference
+//     is kept where it is and followed by the item's current state:
+//     "ex-7 (P1, reliability: Retry the merge)". Every other byte is kept,
+//     including a title the role wrote beside the id.
+//   - Where the harness lists items itself, each is named in the operator's
+//     form: "(P1, reliability) Retry the merge (ex-7)". That is Name.
 //
-// An identifier whose title the text already says is left as it is, and so is
-// every later mention of one already titled, so a line that was written well is
-// not written twice and a paragraph naming one item five times titles it once.
+// An id the tracker does not hold is shown as "ex-9 (not in the tracker)", and
+// when the tracker could not be read every reference is shown as
+// "ex-7 (tracker unreadable at 09:40 PDT)": a reference is never dropped and
+// never fails the text it is in.
+//
+// References are found by internal/workref. Text recorded with its references
+// is rendered from them (CiteRecorded), which is the only way a short id such
+// as "432.28" is shown expanded; text recorded without them is read for full
+// ids only (Cite), and a short id in it is left as written and counted
+// (Unresolved), because whether it named exactly one item when it was written
+// cannot be known now.
 
 import (
 	"context"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
-	"unicode/utf8"
+	"time"
 
 	"github.com/mason-bryant/yoyodyne/internal/beads"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
-// maxCitedTitleBytes bounds the title put beside a number. Titles in this
-// tracker run to a paragraph, and the point is to say what the item is, not to
-// quote it whole into a status line; the item's own card has the rest.
-const maxCitedTitleBytes = 100
+// maxCitedTitleBytes bounds the title put beside an id. Titles in this tracker
+// run to a paragraph; the item's own card has whatever is cut.
+const maxCitedTitleBytes = 200
 
-// titleEchoRunes is how much of a title has to appear in the text for the text
-// to be taken as already saying it. A prefix rather than the whole, because a
-// thread header or a listing may already carry the title cut to its own bound.
-const titleEchoRunes = 40
-
-// unknownWorkItem is what an identifier the tracker holds nothing under is shown
-// with, in place of a title. Dropping it would lose what the role wrote; leaving
-// it bare is the defect this exists to end.
-const unknownWorkItem = "unknown to the tracker"
+// notInTracker is what an id the tracker holds nothing under is shown with.
+const notInTracker = "not in the tracker"
 
 // untitledWorkItem is what an item the tracker holds with no title is shown
 // with, which is a different fact from the tracker not holding it.
 const untitledWorkItem = "no title recorded"
 
-// candidateToken is a run of the characters an identifier is made of. Each one
-// is then classified; most are ordinary words and are passed over.
-var candidateToken = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9._-]*`)
+// trackerUnreadable opens what every reference is shown with when the tracker
+// could not be read; the time of the reading follows it.
+const trackerUnreadable = "tracker unreadable at "
 
-var (
-	dottedNumber = regexp.MustCompile(`^[0-9]+(\.[0-9]+)+$`)
-	children     = regexp.MustCompile(`^(\.[0-9]+)*$`)
-)
+// renderedState is the shape of what an earlier rendering put after an id:
+// a priority and the rest, or one of the two words for an item with no state.
+// Text that already carries one is given the current state in its place
+// rather than a second set of parentheses.
+var renderedState = regexp.MustCompile(`^(P[0-9]+(, [^:()]*)?: |` + notInTracker + `$|` + trackerUnreadable + `)`)
 
-// quantityUnits are the words a dotted number is a quantity of rather than an
-// item, when one follows it: "3.5 hours" is a duration whether or not the
-// tracker holds a 3.5.
-var quantityUnits = map[string]bool{
-	"s": true, "ms": true, "sec": true, "secs": true, "second": true, "seconds": true,
-	"m": true, "min": true, "mins": true, "minute": true, "minutes": true,
-	"h": true, "hr": true, "hrs": true, "hour": true, "hours": true,
-	"d": true, "day": true, "days": true, "week": true, "weeks": true,
-	"kb": true, "mb": true, "gb": true, "kib": true, "mib": true, "gib": true, "tokens": true,
-	"percent": true, "per": true, "times": true, "x": true, "dollars": true, "usd": true,
+// citedItem is what the tracker holds of one item, as it is shown.
+type citedItem struct {
+	title    string
+	priority int
+	labels   []string
 }
 
-// WorkItemTitles is every item the tracker holds, by identifier, as the read
-// model resolves the numbers a person reads. The zero value and nil both know
-// nothing, and Cite on either leaves text exactly as it was: a tracker that
-// could not be read is not a tracker that holds no items, and saying "unknown"
-// over every number because the listing failed would be false.
+// WorkItemTitles is one reading of the tracker, as every surface renders the
+// work items it names against it. Nil knows nothing and leaves text exactly as
+// it was: it is what a surface with no tracker wired at all holds. A tracker
+// that was wired and could not be read is UnreadableWorkItemTitles, which marks
+// every reference rather than leaving it bare.
 type WorkItemTitles struct {
-	titles map[string]string
-	// roots is each item's identifier up to its first child, "yoyodyne-ifd",
-	// which is what a bare number is read against.
-	roots map[string]bool
-	// prefixes is each root without its hash, "yoyodyne", which is what makes a
-	// full identifier recognisable as one the tracker does not hold.
-	prefixes map[string]bool
-	// hashes is each root's hash, "ifd", with the roots carrying it.
-	hashes map[string][]string
+	items map[string]citedItem
+	index *workref.Index
+	// unreadable is set where the tracker could not be read, at observedAt.
+	unreadable bool
+	observedAt time.Time
+	// recorded is set where the only title known is the one a run recorded at
+	// its claim, with no tracker reading behind it: the id is followed by that
+	// title alone, since a priority nobody read is not shown.
+	recorded bool
 }
 
-// NewWorkItemTitles indexes a listing of the tracker's items.
-func NewWorkItemTitles(items []beads.WorkItem) *WorkItemTitles {
-	index := &WorkItemTitles{
-		titles:   make(map[string]string, len(items)),
-		roots:    map[string]bool{},
-		prefixes: map[string]bool{},
-		hashes:   map[string][]string{},
-	}
+// NewWorkItemTitles indexes a listing of the tracker's items. The prefixes are
+// the tracker's id prefixes beyond those its items carry, so an empty tracker
+// still recognises its own ids.
+func NewWorkItemTitles(items []beads.WorkItem, prefixes ...string) *WorkItemTitles {
+	titles := &WorkItemTitles{items: make(map[string]citedItem, len(items))}
+	ids := make([]string, 0, len(items))
 	for _, item := range items {
 		id := strings.TrimSpace(item.ID)
 		if id == "" {
 			continue
 		}
-		index.titles[id] = strings.TrimSpace(item.Title)
-		root, _, _ := strings.Cut(id, ".")
-		if index.roots[root] {
-			continue
-		}
-		index.roots[root] = true
-		if cut := strings.LastIndex(root, "-"); cut > 0 && cut < len(root)-1 {
-			index.prefixes[root[:cut]] = true
-			hash := root[cut+1:]
-			index.hashes[hash] = append(index.hashes[hash], root)
-		}
+		labels := slices.Clone(item.Labels)
+		slices.Sort(labels)
+		titles.items[id] = citedItem{title: strings.TrimSpace(item.Title), priority: item.Priority, labels: labels}
+		ids = append(ids, id)
 	}
-	return index
+	titles.index = workref.NewIndex(ids, prefixes...)
+	return titles
+}
+
+// UnreadableWorkItemTitles is a tracker that could not be read at the moment
+// given. Every full id with one of the prefixes is shown marked as unreadable.
+func UnreadableWorkItemTitles(at time.Time, prefixes ...string) *WorkItemTitles {
+	return &WorkItemTitles{index: workref.NewPrefixIndex(prefixes...), unreadable: true, observedAt: at}
+}
+
+// RecordedWorkItemTitle is the title a run recorded for its item at its claim,
+// as text that is written into a record — a note on the item — is titled where
+// nothing read the tracker. It shows the id with that title and nothing else:
+// a priority or labels written into a note would go stale, and none were read.
+func RecordedWorkItemTitle(id, title string) *WorkItemTitles {
+	return &WorkItemTitles{
+		items:    map[string]citedItem{strings.TrimSpace(id): {title: strings.TrimSpace(title)}},
+		index:    workref.NewIndex([]string{id}),
+		recorded: true,
+	}
 }
 
 // ReadWorkItemTitles lists every item the tracker holds, closed work included,
-// for the titles. It is one tracker command however many numbers are resolved.
+// for the titles: one tracker command however many references are rendered,
+// bounded by the sources' tracker timeout. A listing that fails gives the
+// unreadable reading and the error, so a caller that only renders can ignore
+// the error and still show every reference marked.
 func ReadWorkItemTitles(ctx context.Context, sources Sources) (*WorkItemTitles, error) {
 	if sources.Tracker == nil {
 		return nil, nil
 	}
 	items, err := sources.list(ctx, "")
 	if err != nil {
-		return nil, err
+		return UnreadableWorkItemTitles(sources.now(), sources.TrackerPrefixes...), err
 	}
-	return NewWorkItemTitles(items), nil
+	return NewWorkItemTitles(items, sources.TrackerPrefixes...), nil
+}
+
+// Index is the matcher's knowledge of this reading, which is what text being
+// recorded now is searched with for its references (workref.Index.Find).
+func (w *WorkItemTitles) Index() *workref.Index {
+	if w == nil {
+		return nil
+	}
+	return w.index
+}
+
+// Readable reports whether this reading came from a listing the tracker gave.
+func (w *WorkItemTitles) Readable() bool {
+	return w != nil && !w.unreadable
 }
 
 // Title is what the tracker calls one item, and whether it holds the item.
@@ -142,65 +163,79 @@ func (w *WorkItemTitles) Title(id string) (string, bool) {
 	if w == nil {
 		return "", false
 	}
-	title, known := w.titles[id]
-	return title, known
+	item, known := w.items[id]
+	return item.title, known
 }
 
-// Cite is text with every work item identifier in it shown beside the item's
-// title, or beside the word that the tracker does not know it.
+// Name is one item as a list the harness builds shows it, in the operator's
+// form: "(P1, reliability) Retry the merge (ex-7)", or "(P2) Name the stop
+// (ex-7.2)" for an item with no labels. An item the tracker does not hold, or
+// one it could not be read for, is its id with that said beside it.
+func (w *WorkItemTitles) Name(id string) string {
+	id = strings.TrimSpace(id)
+	if w == nil || id == "" {
+		return id
+	}
+	item, known := w.items[id]
+	if w.unreadable || !known || w.recorded {
+		return id + " (" + w.state(id) + ")"
+	}
+	return w.listHead(item) + " (" + id + ")"
+}
+
+// Names is each of the ids named as Name names it, keyed by id, for a surface
+// that lists items from fields: nil where no tracker was wired, and with each
+// id once however often it is given.
+func (w *WorkItemTitles) Names(ids ...string) map[string]string {
+	if w == nil {
+		return nil
+	}
+	names := map[string]string{}
+	for _, id := range ids {
+		if id = strings.TrimSpace(id); id != "" {
+			names[id] = w.Name(id)
+		}
+	}
+	return names
+}
+
+// Cite is text recorded without its references — the harness's own sentences,
+// and text a role wrote before references were kept — with every full id in it
+// followed by the item's current state. A short id in it is left as written.
 func (w *WorkItemTitles) Cite(text string) string {
-	return w.CiteAfter("", text)
+	return w.CiteKnowing(text)
 }
 
-// CiteAfter is Cite for text that follows something the reader has just read:
-// an item whose title that already said is not titled again. It is what puts
-// two halves of one line, written separately, through as the one line they are
-// read as.
-func (w *WorkItemTitles) CiteAfter(prior, text string) string {
-	if w == nil || len(w.titles) == 0 || text == "" {
+// CiteKnowing is Cite for text a surface built around work items it already
+// knows are work items — a run's item, an attention entry's item — which are
+// shown with their state whatever their shape, so a root id such as "ex-abc"
+// is marked when the tracker could not be read rather than left bare.
+func (w *WorkItemTitles) CiteKnowing(text string, known ...string) string {
+	if w == nil || text == "" {
 		return text
 	}
-	matches := candidateToken.FindAllStringIndex(text, -1)
-	if len(matches) == 0 {
+	found, _ := w.index.Knowing(known...).FindFull(text)
+	if len(found) == 0 {
 		return text
 	}
 	var cited strings.Builder
-	said := folded(prior + " " + text)
 	last := 0
-	for _, match := range matches {
-		start, end := match[0], match[1]
-		// A sentence's closing stop and a hyphen dangling off the end are not
-		// part of the identifier.
-		for end > start && (text[end-1] == '.' || text[end-1] == '-' || text[end-1] == '_') {
-			end--
-		}
-		token := text[start:end]
-		id, definite := w.identify(token)
-		if id == "" || !w.standsAlone(text, start, end) || insideCode(text, start) {
+	for _, reference := range found {
+		if reference.Start < last {
+			// Inside what an earlier rendering put after an id: a title is never
+			// searched for references.
 			continue
 		}
-		title, known := w.titles[id]
-		if !known && !definite {
+		id := reference.ID
+		if w.listedAt(text, reference) {
 			continue
 		}
-		var beside string
-		switch {
-		case !known:
-			beside = unknownWorkItem
-		case title == "":
-			beside = untitledWorkItem
-		default:
-			if alreadySaid(said, text, start, end, title) {
-				continue
-			}
-			beside = singleLine(title, maxCitedTitleBytes)
+		cited.WriteString(text[last:reference.End])
+		cited.WriteString(" (" + w.state(id) + ")")
+		last = reference.End
+		if end, ok := renderedAfter(text, reference.End); ok {
+			last = end
 		}
-		cited.WriteString(text[last:end])
-		cited.WriteString(" (" + beside + ")")
-		last = end
-		// What has been said now includes the title, so a later mention of the
-		// same item in the same text is left as the reader already has it.
-		said += " " + folded(beside)
 	}
 	if last == 0 {
 		return text
@@ -209,143 +244,130 @@ func (w *WorkItemTitles) CiteAfter(prior, text string) string {
 	return cited.String()
 }
 
-// identify reads one token as a work item identifier: the identifier it names,
-// and whether its shape alone makes it one — so that one the tracker does not
-// hold is said to be unknown — rather than only a number that happens to name
-// an item.
-func (w *WorkItemTitles) identify(token string) (string, bool) {
-	if _, known := w.titles[token]; known {
-		return token, true
-	}
-	root, rest, _ := strings.Cut(token, ".")
-	if rest != "" {
-		rest = "." + rest
-	}
-	if !children.MatchString(rest) {
-		return "", false
-	}
-	// The full form: a prefix the tracker uses, a hash, and children. A root with
-	// no children the tracker does not hold is a hyphenated word far more often
-	// than a missing epic, so it takes a child to be said to be unknown.
-	if cut := strings.LastIndex(root, "-"); cut > 0 && w.prefixes[root[:cut]] && isHash(root[cut+1:]) {
-		return token, rest != ""
-	}
-	// The form without the product: a hash exactly one root carries.
-	if rest != "" {
-		if roots := w.hashes[root]; len(roots) == 1 {
-			return roots[0] + rest, true
-		}
-	}
-	// The bare dotted number, read only where exactly one item answers to it.
-	if dottedNumber.MatchString(token) {
-		var found string
-		for candidate := range w.roots {
-			if _, known := w.titles[candidate+"."+token]; known {
-				if found != "" {
-					return "", false
-				}
-				found = candidate + "." + token
-			}
-		}
-		return found, false
-	}
-	return "", false
+// CiteRecorded is text a role wrote, rendered from the references recorded with
+// it: each reference's bytes are replaced with the full id it was resolved to
+// when the text was recorded, and then shown as Cite shows it. Text with no
+// references recorded is Cite's.
+func (w *WorkItemTitles) CiteRecorded(text string, references []workref.Reference) string {
+	return w.Cite(workref.Expand(text, references))
 }
 
-// standsAlone reports whether the token at [start, end) is a word of its own
-// rather than part of a path, a link, an amount, or a quantity.
-func (w *WorkItemTitles) standsAlone(text string, start, end int) bool {
-	if start > 0 {
-		before, _ := utf8.DecodeLastRuneInString(text[:start])
-		if strings.ContainsRune(`/=#$<@\~≥≤+`, before) {
-			return false
-		}
+// References is every reference in text a role has just written, as it is
+// recorded beside the text, with how many short ids it left as written. A
+// reading that could not list the tracker resolves no short id.
+func (w *WorkItemTitles) References(text string) ([]workref.Reference, int) {
+	if w == nil {
+		return nil, 0
 	}
-	if end < len(text) {
-		after, _ := utf8.DecodeRuneInString(text[end:])
-		if strings.ContainsRune(`/%=@>`, after) {
-			return false
-		}
-		// Something already said beside it, by an earlier reading of the same
-		// text, is not said again.
-		rest := text[end:]
-		if strings.HasPrefix(rest, " ("+unknownWorkItem+")") || strings.HasPrefix(rest, " ("+untitledWorkItem+")") {
-			return false
-		}
+	if w.unreadable {
+		return w.index.FindFull(text)
 	}
-	if dottedNumber.MatchString(text[start:end]) {
-		following := strings.Fields(text[end:])
-		if len(following) > 0 {
-			unit := strings.ToLower(strings.TrimRight(following[0], ".,;:)"))
-			if quantityUnits[unit] {
-				return false
-			}
-		}
-	}
-	return true
+	return w.index.Find(text)
 }
 
-// insideCode reports whether the offset falls inside an inline code span on its
-// line. What is between backticks is something to be typed, and a title put
-// into the middle of a command is a command that no longer runs.
-func insideCode(text string, offset int) bool {
-	lineStart := strings.LastIndexByte(text[:offset], '\n') + 1
-	return strings.Count(text[lineStart:offset], "`")%2 == 1
+// Unresolved is how many short ids in text recorded without its references are
+// left as written because some item the tracker holds ends in them.
+func (w *WorkItemTitles) Unresolved(text string) int {
+	if w == nil {
+		return 0
+	}
+	_, unresolved := w.index.FindFull(text)
+	return unresolved
 }
 
-// isHash reports whether a segment has the shape of a tracker hash: short,
-// lower-case letters and digits.
-func isHash(segment string) bool {
-	if segment == "" || len(segment) > 12 {
+// UnresolvedSays is the line a surface prints under text it showed with short
+// ids left as written, and empty where there were none.
+func UnresolvedSays(unresolved int) string {
+	if unresolved <= 0 {
+		return ""
+	}
+	return count(unresolved, "short work item id") + " above " + plural(unresolved, "was", "were") +
+		" written before work item references were kept, so " + plural(unresolved, "it is", "they are") +
+		" shown as written rather than guessed at"
+}
+
+// plural is the singular form for one and the plural form otherwise.
+func plural(number int, one, several string) string {
+	if number == 1 {
+		return one
+	}
+	return several
+}
+
+// state is what follows an id: its priority, labels, and title, or why there
+// are none.
+func (w *WorkItemTitles) state(id string) string {
+	if w.unreadable {
+		return trackerUnreadable + w.observedAt.Local().Format("15:04 MST")
+	}
+	item, known := w.items[id]
+	if !known {
+		return notInTracker
+	}
+	if w.recorded {
+		return w.titleOf(item)
+	}
+	return w.priorityAndLabels(item) + ": " + w.titleOf(item)
+}
+
+// listHead is the part of Name before the id.
+func (w *WorkItemTitles) listHead(item citedItem) string {
+	return "(" + w.priorityAndLabels(item) + ") " + w.titleOf(item)
+}
+
+func (w *WorkItemTitles) priorityAndLabels(item citedItem) string {
+	said := "P" + strconv.Itoa(item.priority)
+	if len(item.labels) > 0 {
+		said += ", " + strings.Join(item.labels, ", ")
+	}
+	return said
+}
+
+func (w *WorkItemTitles) titleOf(item citedItem) string {
+	if item.title == "" {
+		return untitledWorkItem
+	}
+	return singleLine(item.title, maxCitedTitleBytes)
+}
+
+// listedAt reports whether the reference is the id at the end of a Name this
+// reading rendered, "(P1, reliability) Retry the merge (ex-7)", which already
+// says everything and is left as it is.
+func (w *WorkItemTitles) listedAt(text string, reference workref.Reference) bool {
+	if reference.Start < 1 || text[reference.Start-1] != '(' || reference.End >= len(text) || text[reference.End] != ')' {
 		return false
 	}
-	for _, r := range segment {
-		if !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9') {
-			return false
+	item, known := w.items[reference.ID]
+	if !known || w.unreadable || w.recorded {
+		return false
+	}
+	return strings.HasSuffix(text[:reference.Start-1], w.listHead(item)+" ")
+}
+
+// renderedAfter reports whether what follows an id at offset is a state an
+// earlier rendering put there, and where it ends, so that it is given the
+// current state rather than a second one beside it.
+func renderedAfter(text string, offset int) (int, bool) {
+	if !strings.HasPrefix(text[offset:], " (") {
+		return 0, false
+	}
+	open := offset + 2
+	depth := 1
+	for at := open; at < len(text); at++ {
+		switch text[at] {
+		case '(':
+			depth++
+		case ')':
+			depth--
+			if depth == 0 {
+				if renderedState.MatchString(text[open:at]) {
+					return at + 1, true
+				}
+				return 0, false
+			}
+		case '\n':
+			return 0, false
 		}
 	}
-	return true
-}
-
-// shortEchoRunes is the length under which a title is too common a phrase to
-// be taken as said wherever it occurs: "Fix the build" anywhere in a paragraph
-// says nothing about which item a number beside some other sentence is. A
-// title that short counts as said only where it is next to the number.
-const shortEchoRunes = 16
-
-// nearbyBytes is how far from a number "next to it" reaches, either side.
-const nearbyBytes = 80
-
-// alreadySaid reports whether the text already names the item at [start, end)
-// by its title.
-func alreadySaid(said, text string, start, end int, title string) bool {
-	echo := echoOf(title)
-	if utf8.RuneCountInString(echo) >= shortEchoRunes {
-		return strings.Contains(said, echo)
-	}
-	from, to := start-nearbyBytes, end+nearbyBytes
-	if from < 0 {
-		from = 0
-	}
-	if to > len(text) {
-		to = len(text)
-	}
-	return strings.Contains(folded(text[from:to]), echo)
-}
-
-// folded is text lower-cased with its whitespace run together, which is how a
-// title is looked for in it: a title a line wrapped is still a title said.
-func folded(text string) string {
-	return strings.ToLower(strings.Join(strings.Fields(text), " "))
-}
-
-// echoOf is the part of a title whose presence in the text says the text
-// already names the item, folded as the text it is looked for in is.
-func echoOf(title string) string {
-	lowered := folded(title)
-	if utf8.RuneCountInString(lowered) <= titleEchoRunes {
-		return lowered
-	}
-	runes := []rune(lowered)
-	return string(runes[:titleEchoRunes])
+	return 0, false
 }

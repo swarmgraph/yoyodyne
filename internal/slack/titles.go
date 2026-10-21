@@ -1,19 +1,22 @@
 package slack
 
-// Every message the sink posts names each work item beside its title.
+// Every message the sink posts names each work item with its priority, labels,
+// and title.
 //
 // The records the sink reads carry what roles and the harness wrote, and a role
-// that names work by its number alone — "434.9 and 434.3" — would otherwise put
-// that number in the channel exactly as it wrote it. So the text of every post
-// is read through the read model's own resolution on its way out, which is the
+// that names work by its id alone would otherwise put that id in the channel
+// exactly as it wrote it. So the text of every post is rendered by the read
+// model's own renderer on its way out (readmodel.WorkItemTitles), which is the
 // one place every message passes: a thread's opening message, a milestone, a
 // digest, the hourly line and the needs-a-human line under it, a direct message,
-// and an answer in a thread.
+// and an answer in a thread. The sink has no formatter of its own; a message is
+// rendered as the tracker stands when it is posted, and is not edited later.
 //
 // The tracker is listed at most once a minute rather than once a message. A
 // catch-up posts hundreds of messages in a row and titles do not change under
-// it; an item admitted in the last minute is named by its number until the next
-// listing, which is the same answer a tracker that could not be read gets.
+// it. A listing that fails is kept as the unreadable reading for the same
+// minute, so every item in what is posted meanwhile is marked as unreadable
+// rather than left bare, with the prefixes the last good listing carried.
 
 import (
 	"context"
@@ -35,31 +38,54 @@ type titleIndex struct {
 	titles *readmodel.WorkItemTitles
 	at     time.Time
 	tried  bool
+	// prefixes are the tracker prefixes the last good listing carried, kept for
+	// a listing that fails.
+	prefixes []string
 }
 
-// cite is text with every work item in it beside its title, as far as the
-// latest listing knows. A listing that failed leaves text as it was.
-func (t *titleIndex) cite(ctx context.Context, text string) string {
+// cite is text with every work item in it shown with its state, as the latest
+// listing has it. The known ids are items the message is about, shown whatever
+// their shape.
+func (t *titleIndex) cite(ctx context.Context, text string, known ...string) string {
 	if t == nil || t.read == nil || text == "" {
 		return text
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.reading(ctx).CiteKnowing(text, known...)
+}
+
+// name is one work item as a thread is headed with it, in the operator's form.
+func (t *titleIndex) name(ctx context.Context, id string) string {
+	if t == nil || t.read == nil {
+		return id
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.reading(ctx).Name(id)
+}
+
+// reading is the listing in use, taken again once it is a minute old. The
+// caller holds the lock.
+func (t *titleIndex) reading(ctx context.Context) *readmodel.WorkItemTitles {
 	now := time.Now()
 	if t.now != nil {
 		now = t.now()
 	}
 	if !t.tried || now.Sub(t.at) >= titleIndexLife {
-		// A failed listing is kept as nothing for the same minute a good one is
-		// kept for, so a tracker that will not answer is not asked once per
-		// message of a catch-up.
+		// A failed listing is kept for the same minute a good one is, so a
+		// tracker that will not answer is not asked once per message of a
+		// catch-up.
 		titles, err := t.read(ctx)
-		if err != nil {
-			titles = nil
+		if err != nil || !titles.Readable() {
+			prefixes := append(titles.Index().Prefixes(), t.prefixes...)
+			titles = readmodel.UnreadableWorkItemTitles(now, prefixes...)
+		} else {
+			t.prefixes = titles.Index().Prefixes()
 		}
 		t.titles, t.at, t.tried = titles, now, true
 	}
-	return t.titles.Cite(text)
+	return t.titles
 }
 
 // sourcesTitles lists the titles from the read model's sources.

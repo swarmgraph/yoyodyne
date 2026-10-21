@@ -884,10 +884,16 @@ func (s *Sink) settle(ctx context.Context, messageTS string) {
 // directly, because what Slack suppresses is an application posting too fast and
 // it does not care which of its own messages were the interesting ones.
 func (s *Sink) post(ctx context.Context, message Message) (string, error) {
+	return s.postAbout(ctx, message)
+}
+
+// postAbout is post for a message about work items it names by id, which are
+// shown with their state whatever the shape of the id.
+func (s *Sink) postAbout(ctx context.Context, message Message, known ...string) (string, error) {
 	if err := s.pace.wait(ctx); err != nil {
 		return "", err
 	}
-	message.Text = s.citing.cite(ctx, message.Text)
+	message.Text = s.citing.cite(ctx, message.Text, known...)
 	if s.sources != nil {
 		message.Text = readmodel.ReadTextTerms(s.sources.Repository).Render(message.Text)
 	}
@@ -998,7 +1004,7 @@ func (p *poster) Post(ctx context.Context, message notify.Message) error {
 	}
 
 	emoji, url := icon(message.Identity.Avatar)
-	if _, err := sink.post(ctx, Message{
+	if _, err := sink.postAbout(ctx, Message{
 		Channel:   sink.channel,
 		Text:      tagged(p.mention, taggedAll(p.tags, renderText(message))),
 		ThreadTS:  threadTS,
@@ -1006,7 +1012,7 @@ func (p *poster) Post(ctx context.Context, message notify.Message) error {
 		Username:  message.Identity.Name,
 		IconEmoji: emoji,
 		IconURL:   url,
-	}); err != nil {
+	}, message.Refs.WorkItemID); err != nil {
 		return err
 	}
 	// What was posted is said in the sink's own log, by kind and topic and never
@@ -1094,9 +1100,15 @@ func (s *Sink) openThread(ctx context.Context, topic notify.Topic) (Thread, erro
 	topic = s.named(ctx, topic)
 	identity := s.appearance.Identity(notify.Harness())
 	emoji, url := icon(identity.Avatar)
+	opening := header(topic)
+	if topic.Kind == notify.TopicWorkItem && s.citing != nil {
+		// A work item's thread is headed in the operator's form, with its
+		// priority and labels as the tracker holds them when it is opened.
+		opening = s.citing.name(ctx, topic.ID)
+	}
 	ts, err := s.post(ctx, Message{
 		Channel:   s.channel,
-		Text:      fmt.Sprintf("*%s*", header(topic)),
+		Text:      fmt.Sprintf("*%s*", opening),
 		Username:  identity.Name,
 		IconEmoji: emoji,
 		IconURL:   url,

@@ -95,7 +95,7 @@ func addressedReportSays(reported report.Report) string {
 	if item := strings.TrimSpace(reported.WorkItemID); item != "" {
 		what += " about " + item
 	}
-	return what + ": " + singleLine(reported.Message, maxRefusalBytes)
+	return what + ": " + singleLine(reported.ExpandedMessage(), maxRefusalBytes)
 }
 
 // AddressedReportWhose is whose move a report waiting on a role is and what

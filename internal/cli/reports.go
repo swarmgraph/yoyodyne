@@ -179,17 +179,25 @@ func writeReports(out io.Writer, theme console.Theme, collected []report.Report,
 	if len(wording) > 0 {
 		words = wording[0]
 	}
+	unresolved := 0
 	for _, reported := range collected {
 		text := words.Render(titles.Cite(reported.RenderAgainst(gauge)))
 		fmt.Fprint(out, theme.Severity(console.Severity(reported.Severity), text))
-		if handling, done := handled[reported.ID]; done {
-			fmt.Fprint(out, words.Render(titles.CiteAfter(text, handling.Render())))
+		if reported.References == nil {
+			unresolved += titles.Unresolved(reported.Message)
 		}
+		if handling, done := handled[reported.ID]; done {
+			fmt.Fprint(out, words.Render(titles.Cite(handling.Render())))
+		}
+	}
+	if said := readmodel.UnresolvedSays(unresolved); said != "" {
+		fmt.Fprintln(out, said)
 	}
 }
 
-// reportTitles is what the product's tracker calls every item, or nil where the
-// tracker cannot be found or listed.
+// reportTitles is one reading of the product's tracker, for the work items the
+// listing names: nil where the tracker cannot be found, and the unreadable
+// reading where it could not be listed, so each item is shown marked.
 func reportTitles(configPath string) *readmodel.WorkItemTitles {
 	resolved, err := loadConfiguration(configPath)
 	if err != nil {
@@ -200,7 +208,7 @@ func reportTitles(configPath string) *readmodel.WorkItemTitles {
 		return nil
 	}
 	tracker := beads.Client{Runner: execution.OSProcessRunner{}, Dir: repository}
-	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: tracker, TrackerTimeout: chatTrackerTimeout})
+	titles, _ := readmodel.ReadWorkItemTitles(context.Background(), readmodel.Sources{Tracker: tracker, TrackerTimeout: chatTrackerTimeout, TrackerPrefixes: []string{string(resolved.Config.Product.ID)}})
 	return titles
 }
 

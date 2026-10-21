@@ -262,7 +262,7 @@ func openingLists(instance ProgramManagerInstance, acts laneActs, records citabl
 			if filed.For.Valid() {
 				to = filed.For
 			}
-			handedOff = append(handedOff, LaneEntry{Item: filed.WorkItemID, Record: filed.ID, What: "report: " + singleLine(filed.Message, 160), At: filed.RecordedAt, To: "the " + to.Title()})
+			handedOff = append(handedOff, LaneEntry{Item: filed.WorkItemID, Record: filed.ID, What: "report: " + singleLine(filed.ExpandedMessage(), 160), At: filed.RecordedAt, To: "the " + to.Title()})
 		}
 		if handling, handled := records.handled[filed.ID]; handled && within(handling.RecordedAt) {
 			completed = append(completed, LaneEntry{Item: filed.WorkItemID, Record: filed.ID, What: "its report handled by the " + handling.Role.Title(), At: handling.RecordedAt})

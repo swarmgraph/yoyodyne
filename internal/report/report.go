@@ -31,6 +31,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/domain"
 	"github.com/mason-bryant/yoyodyne/internal/fenced"
 	"github.com/mason-bryant/yoyodyne/internal/ownership"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // SchemaVersion is versioned independently of run and conversation state. A
@@ -214,6 +215,12 @@ type Report struct {
 	RepositoryID string           `json:"repository_id"`
 	Severity     Severity         `json:"severity"`
 	Message      string           `json:"message"`
+	// References are the work items the message names, each as its full id and
+	// the bytes of the message that named it, found when the report was
+	// collected (internal/workref). They are what lets a short id the reporter
+	// wrote be shown as the item it named then; the message itself is never
+	// changed. A report collected before references were kept carries none.
+	References []workref.Reference `json:"references,omitempty"`
 	// For is the role the report was addressed to, as the entry named it, and
 	// empty where it named none; see Entry.For and Addressee.
 	For        domain.AgentRole `json:"for,omitempty"`
@@ -410,6 +417,10 @@ type Attribution struct {
 	Build        string
 	ProductID    domain.ProductID
 	RepositoryID string
+	// References finds the work items a message names as it is collected, and
+	// is nil where the collector has no tracker reading to resolve them with;
+	// such a report is read for full ids when it is shown.
+	References func(text string) []workref.Reference
 }
 
 // Collect turns what an agent reported into durable records. Each one gets its
@@ -436,6 +447,9 @@ func Collect(entries []Entry, attribution Attribution, now time.Time) ([]Report,
 			Message:       strings.TrimSpace(entry.Message),
 			For:           entry.For,
 			RecordedAt:    now.UTC(),
+		}
+		if attribution.References != nil {
+			reported.References = attribution.References(reported.Message)
 		}
 		if err := reported.Validate(); err != nil {
 			return nil, err
@@ -495,6 +509,8 @@ type Handling struct {
 	// required: a handling with no reason takes a report out of everybody's view
 	// and says nothing about why, which is worse than leaving it in.
 	Reason string `json:"reason"`
+	// References are the work items the reason names, kept as a report's are.
+	References []workref.Reference `json:"references,omitempty"`
 	// Requests is what the report asked for, one request at a time, and what
 	// became of each. It is absent on a handling that maps nothing — a report that
 	// asked for nothing, or was declined whole — and present wherever a report was
@@ -768,7 +784,7 @@ func (h Handling) Render() string {
 	}
 	var rendered strings.Builder
 	fmt.Fprintf(&rendered, "      %s %s by the %s (%s): %s\n",
-		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, strings.Join(strings.Fields(h.Reason), " "))
+		verb, h.RecordedAt.UTC().Format(time.RFC3339), handler, h.RunID, strings.Join(strings.Fields(workref.Expand(h.Reason, h.References)), " "))
 	if h.PersonOnly != nil {
 		fmt.Fprintf(&rendered, "        person's step: %s\n", h.PersonOnly.Step)
 	}
@@ -836,10 +852,18 @@ func (r Report) RenderAgainst(gauge *Gauge) string {
 		fmt.Fprintf(&rendered, " for the %s", r.For.Title())
 	}
 	fmt.Fprintf(&rendered, " (%s)\n", r.provenance(gauge))
-	for _, line := range strings.Split(strings.TrimSpace(r.Message), "\n") {
+	for _, line := range strings.Split(strings.TrimSpace(r.ExpandedMessage()), "\n") {
 		fmt.Fprintf(&rendered, "      %s\n", strings.TrimSpace(line))
 	}
 	return rendered.String()
+}
+
+// ExpandedMessage is the message with each reference recorded with it written
+// as the full id it was resolved to, and every other byte as the reporter
+// wrote it. It is what a surface shows a person, after the read model has put
+// each item's current state beside its id.
+func (r Report) ExpandedMessage() string {
+	return workref.Expand(r.Message, r.References)
 }
 
 // Contract is the reporting section every role's immutable contract carries. It

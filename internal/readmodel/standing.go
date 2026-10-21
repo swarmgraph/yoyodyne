@@ -45,6 +45,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -59,6 +60,7 @@ import (
 	"github.com/mason-bryant/yoyodyne/internal/report"
 	"github.com/mason-bryant/yoyodyne/internal/runstate"
 	"github.com/mason-bryant/yoyodyne/internal/triage"
+	"github.com/mason-bryant/yoyodyne/internal/workref"
 )
 
 // backlogStatuses are the tracker slices the admitted work is assembled from.
@@ -228,6 +230,11 @@ type Sources struct {
 	Runs          Runs
 	Conversations Conversations
 	Tracker       Tracker
+	// TrackerPrefixes are the tracker's id prefixes as the configuration names
+	// them — the product's id — so a reference is still recognised, and marked
+	// as unreadable, when the tracker could not be listed. A listing adds the
+	// prefixes its items carry.
+	TrackerPrefixes []string
 	// Stoppages is what the harness has stopped and nobody has decided about, which
 	// is what separates an item held for a person from one whose dependencies have
 	// all landed. It is optional, and a reading without one holds every blocked
@@ -809,11 +816,17 @@ type Standing struct {
 	MergeQueues        []MergeQueueStanding `json:"merge_queues,omitempty"`
 	MergeQueuesProblem string               `json:"merge_queues_problem,omitempty"`
 
-	// Titles is what the tracker calls every item it holds, which is what the
-	// rendered lines put beside each number they carry. It is nil where the
-	// tracker could not be listed, and the lines then carry the numbers as the
-	// records wrote them rather than calling every one unknown.
-	Titles  *WorkItemTitles `json:"-"`
+	// Titles is this reading's one listing of the tracker, which the rendered
+	// lines show every work item they name against. It is nil where no tracker
+	// was wired, and the unreadable reading where the tracker could not be
+	// listed, so each item is then shown marked rather than bare.
+	Titles *WorkItemTitles `json:"-"`
+	// WorkItemNames is each work item this reading names, as Titles names it
+	// in the operator's form — "(P1, reliability) Retry the merge (ex-7)" —
+	// for a surface that lists items from the fields rather than the lines: the
+	// dashboard's cards and groupings show these and assemble no name of their
+	// own. It is absent where no tracker was wired.
+	WorkItemNames map[string]string `json:"work_item_names,omitempty"`
 	wording *TextTerms
 }
 
@@ -1202,12 +1215,24 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 	// the line is what a person reads, and a failure only the script can see is
 	// one nobody sees.
 	standing.NeedsHumanProblem = joinProblems(needsProblem, standing.ReportsProblem)
-	// Every number a person reads here is read beside its item's title. A
-	// tracker that cannot be listed costs the titles and nothing else: the lines
-	// above are all still true without them.
-	if sources.Tracker != nil && listedErr == nil {
-		standing.Titles = NewWorkItemTitles(listed)
+	// Every work item a person reads here is shown with its priority, labels,
+	// and title from this one listing. A tracker that cannot be listed costs the
+	// titles and nothing else: the lines above are all still true without them,
+	// and each item is shown marked as unreadable rather than bare.
+	if sources.Tracker != nil {
+		if listedErr == nil {
+			standing.Titles = NewWorkItemTitles(listed, sources.TrackerPrefixes...)
+		} else {
+			// The configuration names the product's prefix; the runs in flight
+			// name theirs too, for a reading made without a configuration.
+			prefixes := slices.Clone(sources.TrackerPrefixes)
+			for _, run := range standing.Running {
+				prefixes = append(prefixes, workref.PrefixOf(run.WorkItemID))
+			}
+			standing.Titles = UnreadableWorkItemTitles(standing.ObservedAt, prefixes...)
+		}
 	}
+	standing.WorkItemNames = standing.Titles.Names(standing.namedItems()...)
 	standing.wording = ReadTextTerms(sources.Repository)
 	for index := range standing.NeedsHuman {
 		standing.NeedsHuman[index].titles = standing.Titles
@@ -1217,6 +1242,40 @@ func ReadStanding(ctx context.Context, sources Sources) Standing {
 		standing.ProgramManagers[index] = citeProgramManager(standing.ProgramManagers[index], standing.Titles)
 	}
 	return standing
+}
+
+// namedItems is every work item the reading carries a field for, which is
+// what WorkItemNames names.
+func (s Standing) namedItems() []string {
+	var ids []string
+	for _, run := range s.Running {
+		ids = append(ids, run.WorkItemID)
+	}
+	for _, run := range s.PausedRuns {
+		ids = append(ids, run.WorkItemID)
+	}
+	for _, refused := range s.NotStartable {
+		ids = append(ids, refused.WorkItemID)
+	}
+	for _, items := range [][]WorkItemRef{s.AdmittedItems, s.StartableItems, s.SchedulingWaits, s.SchedulingWaitProblems} {
+		for _, item := range items {
+			ids = append(ids, item.WorkItemID)
+		}
+	}
+	for _, entry := range s.NeedsHuman {
+		ids = append(ids, entry.WorkItemID)
+	}
+	for _, instance := range s.ProgramManagers {
+		for _, entries := range [][]LaneEntry{instance.Completed, instance.HandedOff} {
+			for _, entry := range entries {
+				ids = append(ids, entry.Item)
+			}
+		}
+		for _, block := range instance.BlockedOnAHuman {
+			ids = append(ids, block.Item)
+		}
+	}
+	return ids
 }
 
 // readRunning is the developer runs in flight, priced from the same recorded
